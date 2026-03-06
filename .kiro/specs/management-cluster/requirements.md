@@ -11,7 +11,7 @@
 
 ### 1.1 Purpose
 
-This specification defines the requirements for bootstrapping a self-hosted Management Cluster ("Mothership") on Hetzner Cloud infrastructure using Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux. The Management Cluster serves as the control plane for the Zero-Ops Platform, hosting CAPI controllers, ArgoCD, and platform services that manage tenant Kubernetes clusters. All clusters (Management and tenant workload clusters) run Talos Linux for immutable, API-driven, zero-touch operations.
+This specification defines the requirements for bootstrapping a self-hosted Management Cluster ("Mothership") on Hetzner Cloud infrastructure using Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux. The Management Cluster serves as the control plane for the Zero-Ops Platform, hosting CAPI controllers, ArgoCD, and platform services that manage tenant Kubernetes clusters. All clusters (Management and tenant workload clusters) run Talos Linux for immutable, API-driven, zero-touch operations. Uses declarative Kubernetes Operators that natively integrates with CAPI.
 
 ### 1.2 Scope
 
@@ -193,15 +193,19 @@ The bootstrap process is considered successful when:
 ### 3.4 CAPI Initialization
 
 **REQ-CAPI-001: CAPI Installation**
-- **Description:** CLI must install CAPI core and Talos providers on bootstrap cluster
-- **Command:** `clusterctl init --core cluster-api --bootstrap talos --control-plane talos --infrastructure hetzner`
+- **Description:** CLI must install cluster-api-operator and apply Provider CRDs declaratively on bootstrap cluster
+- **Method:**
+  1. Install cluster-api-operator deployment
+  2. Wait for operator Ready (3 minutes)
+  3. Apply Provider CRDs (CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider)
+  4. Wait for all Provider CRDs to reach Ready condition (5 minutes)
 - **Providers Installed:**
-  - CAPI Core (cluster-api)
-  - CABPT (cluster-api-bootstrap-provider-talos) from siderolabs
-  - CACPPT (cluster-api-control-plane-provider-talos) from siderolabs
-  - CAPH (cluster-api-provider-hetzner) from syself
-- **Timeout:** 5 minutes
-- **Verification:** Wait for all pods in `capi-system`, `cabpt-system`, `cacppt-system`, `caph-system` to be Ready
+  - CAPI Core (cluster-api) via CoreProvider CRD
+  - CABPT (cluster-api-bootstrap-provider-talos) via BootstrapProvider CRD
+  - CACPPT (cluster-api-control-plane-provider-talos) via ControlPlaneProvider CRD
+  - CAPH (cluster-api-provider-hetzner) via InfrastructureProvider CRD
+- **Timeout:** 8 minutes total
+- **Verification:** Check Provider CRD status conditions (Ready=True)
 - **Priority:** CRITICAL
 
 **REQ-CAPI-002: Namespace Creation**
@@ -286,10 +290,13 @@ The bootstrap process is considered successful when:
 - **Priority:** CRITICAL
 
 **REQ-PIVOT-002: CAPI Installation on Management Cluster**
-- **Description:** CLI must install CAPI and Talos providers on Management Cluster
-- **Command:** `clusterctl init --kubeconfig=<mgmt-kubeconfig> --core cluster-api --bootstrap talos --control-plane talos --infrastructure hetzner`
-- **Timeout:** 5 minutes
-- **Verification:** Wait for all CAPI and Talos provider pods Ready on Management Cluster
+- **Description:** CLI must install cluster-api-operator on Management Cluster before pivot
+- **Method:**
+  1. Install cluster-api-operator deployment on Management Cluster
+  2. Wait for operator Ready (3 minutes)
+- **Timeout:** 3 minutes
+- **Note:** Provider CRDs will be moved automatically during `clusterctl move` and reconciled by the operator
+- **Verification:** Operator deployment Ready on Management Cluster
 - **Priority:** CRITICAL
 
 **REQ-PIVOT-003: State Migration**
@@ -618,7 +625,7 @@ The bootstrap process is considered successful when:
 **CONSTRAINT-002: Mandatory Worker Nodes**
 - **Description:** Management Cluster must have at least 2 worker nodes
 - **Reason:** Control plane nodes have NoSchedule taint; CAPI controllers require schedulable nodes
-- **Impact:** `clusterctl init` will timeout without worker nodes
+- **Impact:** Provider CRD reconciliation will fail without worker nodes (operator cannot schedule provider deployments)
 - **Source:** CAPI documentation
 - **Priority:** CRITICAL
 
@@ -659,8 +666,8 @@ The bootstrap process is considered successful when:
 
 | Component | Version | Purpose | Installation Method |
 |-----------|---------|---------|---------------------|
-| CAPI Core | v1.10.x | Cluster lifecycle | clusterctl init |
-| CAPH | v1.0.7 | Hetzner provider | clusterctl init |
+| CAPI Core | v1.10.x | Cluster lifecycle | cluster-api-operator (CoreProvider CRD) |
+| CAPH | v1.0.7 | Hetzner provider | cluster-api-operator (InfrastructureProvider CRD) |
 | hcloud-cloud-controller-manager | v1.x | Node/LB management | Embedded in ClusterClass |
 | hcloud-csi-driver | v2.x | Persistent volumes | Embedded in ClusterClass |
 | Cilium CNI | v1.14+ | Networking | Embedded in ClusterClass |
