@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/pkg/versions"
 )
 
 // OperatorInstaller installs cluster-api-operator
@@ -17,6 +18,10 @@ type OperatorInstaller struct {
 }
 
 func (i *OperatorInstaller) Install(ctx context.Context) error {
+	if err := i.ensureCertManager(ctx); err != nil {
+		return err
+	}
+	
 	if err := i.installOperator(ctx); err != nil {
 		return err
 	}
@@ -32,17 +37,62 @@ func (i *OperatorInstaller) Install(ctx context.Context) error {
 	return i.waitForProviders(ctx, 5*time.Minute)
 }
 
-func (i *OperatorInstaller) installOperator(ctx context.Context) error {
-	manifest, err := assets.ReadManifest("core/capi-operator/install.yaml")
-	if err != nil {
-		return err
+func (i *OperatorInstaller) ensureCertManager(ctx context.Context) error {
+	// Check if cert-manager namespace exists
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"get", "namespace", "cert-manager",
+	)
+	
+	if err := cmd.Run(); err == nil {
+		fmt.Println("[capi-init] ✓ cert-manager already installed")
+		return i.waitForCertManagerAPI(ctx)
 	}
+	
+	// Install cert-manager
+	fmt.Println("[capi-init] Installing cert-manager...")
+	certManagerURL := fmt.Sprintf("https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml", versions.CertManagerVersion)
+	
+	cmd = exec.CommandContext(ctx, "kubectl", "apply",
+		"--kubeconfig", i.Kubeconfig,
+		"-f", certManagerURL,
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("cert-manager install failed: %w\n%s", err, output)
+	}
+	
+	return i.waitForCertManagerAPI(ctx)
+}
+
+func (i *OperatorInstaller) waitForCertManagerAPI(ctx context.Context) error {
+	fmt.Println("[capi-init] Waiting for cert-manager API...")
+	
+	// Wait for webhook deployment
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"wait", "deployment",
+		"-n", "cert-manager",
+		"cert-manager-webhook",
+		"--for=condition=Available",
+		"--timeout=2m",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("cert-manager webhook not ready: %w\n%s", err, output)
+	}
+	
+	fmt.Println("[capi-init] ✓ cert-manager API ready")
+	return nil
+}
+
+func (i *OperatorInstaller) installOperator(ctx context.Context) error {
+	operatorURL := fmt.Sprintf("https://github.com/kubernetes-sigs/cluster-api-operator/releases/download/%s/operator-components.yaml", versions.CAPIOperatorVersion)
 	
 	cmd := exec.CommandContext(ctx, "kubectl", "apply",
 		"--kubeconfig", i.Kubeconfig,
-		"-f", "-",
+		"-f", operatorURL,
 	)
-	cmd.Stdin = bytes.NewReader(manifest)
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("kubectl apply failed: %w\n%s", err, output)
@@ -72,6 +122,11 @@ func (i *OperatorInstaller) waitForOperator(ctx context.Context, timeout time.Du
 }
 
 func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
+	// Wait for operator CRDs to be registered
+	if err := i.waitForCRDs(ctx, 2*time.Minute); err != nil {
+		return err
+	}
+	
 	providers := []string{
 		"core/capi-operator/providers/core-provider.yaml",
 		"core/capi-operator/providers/bootstrap-provider-talos.yaml",
@@ -94,6 +149,47 @@ func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to apply %s: %w\n%s", providerPath, err, output)
 		}
+	}
+	
+	return nil
+}
+
+func (i *OperatorInstaller) waitForCRDs(ctx context.Context, timeout time.Duration) error {
+	crds := []string{
+		"coreproviders.operator.cluster.x-k8s.io",
+		"bootstrapproviders.operator.cluster.x-k8s.io",
+		"controlplaneproviders.operator.cluster.x-k8s.io",
+		"infrastructureproviders.operator.cluster.x-k8s.io",
+	}
+	
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	
+	for _, crd := range crds {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				if time.Now().After(deadline) {
+					return fmt.Errorf("timeout waiting for CRD %s", crd)
+				}
+				
+				cmd := exec.CommandContext(ctx, "kubectl",
+					"--kubeconfig", i.Kubeconfig,
+					"get", "crd", crd,
+				)
+				
+				if err := cmd.Run(); err == nil {
+					fmt.Printf("[capi-init] ✓ CRD %s registered\n", crd)
+					goto nextCRD
+				}
+				
+				fmt.Printf("[capi-init] Waiting for CRD %s...\n", crd)
+			}
+		}
+		nextCRD:
 	}
 	
 	return nil

@@ -17,3 +17,15 @@ export HCLOUD_TOKEN=<your-hetzner-token>
 ```
 
 The `--build-talos-image` flag automatically creates a Talos Linux snapshot in your Hetzner account (reused on subsequent runs).
+
+## State Management
+
+Bootstrap state is tracked in `~/.zero-ops/state/<cluster-name>.json`. To retry a failed bootstrap or start fresh:
+
+```bash
+# Clear state for specific cluster
+rm -f ~/.zero-ops/state/<cluster-name>.json
+
+# Example: clear state for 'mothership' cluster
+rm -f ~/.zero-ops/state/mothership.json
+```
