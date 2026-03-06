@@ -1,0 +1,22 @@
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: ControlPlaneProvider
+metadata:
+  name: kubeadm
+  namespace: capi-operator-system
+spec:
+  version: v1.8.5
+  configSecret:
+    name: kubeadm-controlplane-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubeadm-controlplane-config
+  namespace: capi-operator-system
+type: Opaque
+stringData:
+  config.yaml: |
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    featureGates:
+      ClusterTopology: true

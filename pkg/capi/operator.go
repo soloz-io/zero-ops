@@ -15,6 +15,7 @@ import (
 type OperatorInstaller struct {
 	Kubeconfig string
 	Namespace  string
+	OSType     string // "talos" or "flatcar"
 }
 
 func (i *OperatorInstaller) Install(ctx context.Context) error {
@@ -126,31 +127,46 @@ func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
 	if err := i.waitForCRDs(ctx, 2*time.Minute); err != nil {
 		return err
 	}
-	
+
+	// Core provider (always required)
 	providers := []string{
 		"core/capi-operator/providers/core-provider.yaml",
-		"core/capi-operator/providers/bootstrap-provider-talos.yaml",
-		"core/capi-operator/providers/controlplane-provider-talos.yaml",
-		"core/capi-operator/providers/infrastructure-provider-hetzner.yaml",
 	}
-	
+
+	// OS-specific bootstrap and control plane providers
+	if i.OSType == "flatcar" {
+		providers = append(providers,
+			"core/capi-operator/providers/bootstrap-provider-kubeadm.yaml",
+			"core/capi-operator/providers/controlplane-provider-kubeadm.yaml",
+		)
+	} else {
+		// Default to Talos
+		providers = append(providers,
+			"core/capi-operator/providers/bootstrap-provider-talos.yaml",
+			"core/capi-operator/providers/controlplane-provider-talos.yaml",
+		)
+	}
+
+	// Infrastructure provider (always Hetzner)
+	providers = append(providers, "core/capi-operator/providers/infrastructure-provider-hetzner.yaml")
+
 	for _, providerPath := range providers {
 		manifest, err := assets.ReadManifest(providerPath)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", providerPath, err)
 		}
-		
+
 		cmd := exec.CommandContext(ctx, "kubectl", "apply",
 			"--kubeconfig", i.Kubeconfig,
 			"-f", "-",
 		)
 		cmd.Stdin = bytes.NewReader(manifest)
-		
+
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to apply %s: %w\n%s", providerPath, err, output)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -196,20 +212,35 @@ func (i *OperatorInstaller) waitForCRDs(ctx context.Context, timeout time.Durati
 }
 
 func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.Duration) error {
+	// Core provider (always required)
 	providers := []struct {
 		kind string
 		name string
 	}{
 		{"CoreProvider", "cluster-api"},
-		{"BootstrapProvider", "talos"},
-		{"ControlPlaneProvider", "talos"},
-		{"InfrastructureProvider", "hetzner"},
 	}
-	
+
+	// OS-specific providers
+	if i.OSType == "flatcar" {
+		providers = append(providers,
+			struct{ kind, name string }{"BootstrapProvider", "kubeadm"},
+			struct{ kind, name string }{"ControlPlaneProvider", "kubeadm"},
+		)
+	} else {
+		// Default to Talos
+		providers = append(providers,
+			struct{ kind, name string }{"BootstrapProvider", "talos"},
+			struct{ kind, name string }{"ControlPlaneProvider", "talos"},
+		)
+	}
+
+	// Infrastructure provider (always Hetzner)
+	providers = append(providers, struct{ kind, name string }{"InfrastructureProvider", "hetzner"})
+
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for _, provider := range providers {
 		for {
 			select {
@@ -219,29 +250,29 @@ func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.D
 				if time.Now().After(deadline) {
 					return fmt.Errorf("timeout waiting for %s/%s", provider.kind, provider.name)
 				}
-				
+
 				cmd := exec.CommandContext(ctx, "kubectl",
 					"--kubeconfig", i.Kubeconfig,
 					"get", provider.kind, provider.name,
 					"-n", "capi-operator-system",
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
 				)
-				
+
 				output, err := cmd.Output()
 				if err != nil {
 					continue
 				}
-				
+
 				if string(output) == "True" {
 					fmt.Printf("[capi-init] ✓ %s/%s ready\n", provider.kind, provider.name)
 					goto nextProvider
 				}
-				
+
 				fmt.Printf("[capi-init] Waiting for %s/%s...\n", provider.kind, provider.name)
 			}
 		}
 		nextProvider:
 	}
-	
+
 	return nil
 }

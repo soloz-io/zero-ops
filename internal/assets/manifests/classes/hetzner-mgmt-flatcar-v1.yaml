@@ -1,13 +1,13 @@
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
-  name: hetzner-mgmt-talos-v1
+  name: hetzner-mgmt-flatcar-v1
   namespace: zero-ops-system
 spec:
   controlPlane:
     ref:
-      apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
-      kind: TalosControlPlane
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
       name: hetzner-mgmt-control-plane
     machineInfrastructure:
       ref:
@@ -25,8 +25,8 @@ spec:
       template:
         bootstrap:
           ref:
-            apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
-            kind: TalosConfigTemplate
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
             name: hetzner-mgmt-worker-bootstrap
         infrastructure:
           ref:
@@ -40,44 +40,24 @@ spec:
       openAPIV3Schema:
         type: string
         default: fsn1
-  - name: talosImageId
+  - name: imageId
     required: true
     schema:
       openAPIV3Schema:
         type: string
-  - name: networkCidr
+        default: flatcar-stable
+  - name: hcloudControlPlaneMachineType
     required: false
     schema:
       openAPIV3Schema:
         type: string
-        default: "10.0.0.0/16"
-  - name: hcloudSSHKeyName
-    required: true
-    schema:
-      openAPIV3Schema:
-        type: array
-        items:
-          type: object
-          properties:
-            name:
-              type: string
-  - name: hcloudPlacementGroups
+        default: cpx31
+  - name: hcloudWorkerMachineType
     required: false
     schema:
       openAPIV3Schema:
-        type: array
-        default:
-        - name: control-plane
-          type: spread
-        - name: workers
-          type: spread
-        items:
-          type: object
-          properties:
-            name:
-              type: string
-            type:
-              type: string
+        type: string
+        default: cpx31
   patches:
   - name: region
     definitions:
@@ -95,7 +75,7 @@ spec:
         path: /spec/template/spec/controlPlaneLoadBalancer/region
         valueFrom:
           variable: region
-  - name: talosImageControlPlane
+  - name: imageControlPlane
     definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -106,8 +86,8 @@ spec:
       - op: replace
         path: /spec/template/spec/imageName
         valueFrom:
-          variable: talosImageId
-  - name: talosImageWorker
+          variable: imageId
+  - name: imageWorker
     definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -119,43 +99,32 @@ spec:
       - op: replace
         path: /spec/template/spec/imageName
         valueFrom:
-          variable: talosImageId
-  - name: networkCidr
+          variable: imageId
+  - name: controlPlaneMachineType
     definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HetznerClusterTemplate
+        kind: HCloudMachineTemplate
         matchResources:
-          infrastructureCluster: true
+          controlPlane: true
       jsonPatches:
       - op: replace
-        path: /spec/template/spec/hcloudNetwork/cidrBlock
+        path: /spec/template/spec/type
         valueFrom:
-          variable: networkCidr
-  - name: sshKeys
+          variable: hcloudControlPlaneMachineType
+  - name: workerMachineType
     definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HetznerClusterTemplate
+        kind: HCloudMachineTemplate
         matchResources:
-          infrastructureCluster: true
+          machineDeploymentClass:
+            names: ["default-worker"]
       jsonPatches:
-      - op: add
-        path: /spec/template/spec/sshKeys/hcloud
+      - op: replace
+        path: /spec/template/spec/type
         valueFrom:
-          variable: hcloudSSHKeyName
-  - name: placementGroups
-    definitions:
-    - selector:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HetznerClusterTemplate
-        matchResources:
-          infrastructureCluster: true
-      jsonPatches:
-      - op: add
-        path: /spec/template/spec/hcloudPlacementGroups
-        valueFrom:
-          variable: hcloudPlacementGroups
+          variable: hcloudWorkerMachineType
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -184,19 +153,30 @@ spec:
       sshKeys:
         hcloud: []
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
-kind: TalosControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
 metadata:
   name: hetzner-mgmt-control-plane
   namespace: zero-ops-system
 spec:
-  infrastructureTemplate:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-    kind: HCloudMachineTemplate
-    name: hetzner-mgmt-control-plane-machine
-  controlPlaneConfig:
-    controlplane:
-      generateType: controlplane
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
@@ -207,17 +187,20 @@ spec:
   template:
     spec:
       type: cpx31
-      imageName: talos-placeholder
+      imageName: flatcar-stable
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
-kind: TalosConfigTemplate
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
 metadata:
   name: hetzner-mgmt-worker-bootstrap
   namespace: zero-ops-system
 spec:
   template:
     spec:
-      generateType: worker
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
@@ -228,4 +211,4 @@ spec:
   template:
     spec:
       type: cpx31
-      imageName: talos-placeholder
+      imageName: flatcar-stable

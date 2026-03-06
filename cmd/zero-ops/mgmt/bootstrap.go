@@ -15,9 +15,10 @@ var (
 	// Required flags
 	clusterName   string
 	region        string
-	talosImageID  string
+	imageID       string
 
 	// Optional flags
+	osType            string
 	bootstrapContext  string
 	keepBootstrap     bool
 	dryRun            bool
@@ -43,9 +44,10 @@ Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux.`,
 	// Required flags
 	cmd.Flags().StringVar(&clusterName, "name", "", "Management Cluster name (alphanumeric + hyphens)")
 	cmd.Flags().StringVar(&region, "region", "", "Hetzner region (fsn1, nbg1, hel1)")
-	cmd.Flags().StringVar(&talosImageID, "talos-image-id", "", "Talos Linux snapshot ID in Hetzner")
+	cmd.Flags().StringVar(&imageID, "image-id", "", "OS image ID (Talos snapshot ID or Flatcar image name)")
 
 	// Optional flags
+	cmd.Flags().StringVar(&osType, "os", "flatcar", "OS type: flatcar (default) or talos")
 	cmd.Flags().StringVar(&bootstrapContext, "bootstrap-context", "", "Use existing K8s cluster instead of Kind")
 	cmd.Flags().BoolVar(&keepBootstrap, "keep-bootstrap", false, "Preserve Kind cluster after successful pivot")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate prerequisites and generate manifests without provisioning")
@@ -81,9 +83,18 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid region: must be one of fsn1, nbg1, hel1")
 	}
 
-	// Validate Talos image ID or build flag
-	if talosImageID == "" && !buildTalosImage {
-		return fmt.Errorf("either --talos-image-id or --build-talos-image must be provided")
+	// Validate OS type
+	if osType != "flatcar" && osType != "talos" {
+		return fmt.Errorf("invalid OS type: must be 'flatcar' or 'talos'")
+	}
+
+	// Validate image ID based on OS
+	if osType == "talos" && imageID == "" && !buildTalosImage {
+		return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
+	}
+	if osType == "flatcar" && imageID == "" {
+		// Use default Flatcar stable image
+		imageID = "flatcar-stable"
 	}
 
 	// Validate HCLOUD_TOKEN environment variable
@@ -103,8 +114,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	if debug {
 		fmt.Println("[DEBUG] Bootstrap command started")
 		fmt.Printf("[DEBUG] Cluster Name: %s\n", clusterName)
+		fmt.Printf("[DEBUG] OS Type: %s\n", osType)
 		fmt.Printf("[DEBUG] Region: %s\n", region)
-		fmt.Printf("[DEBUG] Talos Image ID: %s\n", talosImageID)
+		fmt.Printf("[DEBUG] Image ID: %s\n", imageID)
 		fmt.Printf("[DEBUG] Network CIDR: %s\n", networkCIDR)
 		fmt.Printf("[DEBUG] Dry Run: %v\n", dryRun)
 		fmt.Printf("[DEBUG] HCLOUD_TOKEN: %s\n", maskToken(hcloudToken))
@@ -112,6 +124,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("🚀 Starting Management Cluster bootstrap...")
 	fmt.Printf("   Cluster Name: %s\n", clusterName)
+	fmt.Printf("   OS Type: %s\n", osType)
 	fmt.Printf("   Region: %s\n", region)
 	fmt.Printf("   Network CIDR: %s\n", networkCIDR)
 
@@ -132,7 +145,8 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	orchestrator := &bootstrap.Orchestrator{
 		ClusterName:      clusterName,
 		Region:           region,
-		TalosImageID:     talosImageID,
+		OSType:           osType,
+		ImageID:          imageID,
 		NetworkCIDR:      networkCIDR,
 		SSHKey:           sshKey,
 		BootstrapContext: bootstrapContext,
@@ -173,13 +187,21 @@ func runPreflight(ctx context.Context, hcloudToken string) error {
 	runner.Add(&preflight.DockerValidator{})
 	runner.Add(&preflight.KindValidator{SkipIfBootstrapContext: bootstrapContext != ""})
 	runner.Add(&preflight.HetznerTokenValidator{Token: hcloudToken})
-	runner.Add(&preflight.TalosImageValidator{
-		Token:       hcloudToken,
-		ImageID:     talosImageID,
-		BuildImage:  buildTalosImage,
-		Region:      region,
-		ClusterName: clusterName,
-	})
+	// OS-specific image validation
+	if osType == "talos" {
+		runner.Add(&preflight.TalosImageValidator{
+			Token:       hcloudToken,
+			ImageID:     imageID,
+			BuildImage:  buildTalosImage,
+			Region:      region,
+			ClusterName: clusterName,
+		})
+	} else {
+		runner.Add(&preflight.FlatcarImageValidator{
+			Token:   hcloudToken,
+			ImageID: imageID,
+		})
+	}
 	runner.Add(&preflight.SSHKeyValidator{Token: hcloudToken, KeyName: sshKey})
 	runner.Add(&preflight.IdempotencyValidator{ClusterName: clusterName, Upgrade: upgrade})
 	

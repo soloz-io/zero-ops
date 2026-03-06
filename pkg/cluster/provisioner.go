@@ -15,8 +15,8 @@ type Config struct {
 	ClusterName             string
 	Namespace               string
 	Region                  string
-	TalosVersion            string
-	TalosImageID            string
+	OSType                  string // "talos" or "flatcar"
+	ImageID                 string // Talos snapshot ID or Flatcar image name
 	KubernetesVersion       string
 	NetworkCIDR             string
 	SubnetCIDR              string
@@ -47,7 +47,15 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 }
 
 func (p *Provisioner) applyClusterClass(ctx context.Context) error {
-	manifest, err := assets.ReadManifest("classes/hetzner-mgmt-talos-v1.yaml")
+	// Select ClusterClass based on OS type
+	var classFile string
+	if p.Config.OSType == "flatcar" {
+		classFile = "classes/hetzner-mgmt-flatcar-v1.yaml"
+	} else {
+		classFile = "classes/hetzner-mgmt-talos-v1.yaml"
+	}
+	
+	manifest, err := assets.ReadManifest(classFile)
 	if err != nil {
 		return err
 	}
@@ -66,6 +74,12 @@ func (p *Provisioner) applyClusterClass(ctx context.Context) error {
 }
 
 func (p *Provisioner) applyCluster(ctx context.Context) error {
+	// Select cluster class name based on OS
+	className := "hetzner-mgmt-talos-v1"
+	if p.Config.OSType == "flatcar" {
+		className = "hetzner-mgmt-flatcar-v1"
+	}
+	
 	clusterYAML := `apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
@@ -80,7 +94,7 @@ spec:
       cidrBlocks:
       - 10.96.0.0/12
   topology:
-    class: hetzner-mgmt-talos-v1
+    class: ` + className + `
     version: {{.KubernetesVersion}}
     controlPlane:
       replicas: {{.ControlPlaneReplicas}}
@@ -92,10 +106,8 @@ spec:
     variables:
     - name: region
       value: {{.Region}}
-    - name: talosVersion
-      value: {{.TalosVersion}}
-    - name: talosImageId
-      value: "{{.TalosImageID}}"
+    - name: imageId
+      value: "{{.ImageID}}"
     - name: hcloudNetwork
       value:
         enabled: true

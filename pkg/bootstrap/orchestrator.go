@@ -19,7 +19,8 @@ import (
 type Orchestrator struct {
 	ClusterName      string
 	Region           string
-	TalosImageID     string
+	OSType           string // "talos" or "flatcar"
+	ImageID          string // Talos snapshot ID or Flatcar image name
 	NetworkCIDR      string
 	SSHKey           string
 	BootstrapContext string
@@ -37,7 +38,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		Version:     "1.0",
 		ClusterName: o.ClusterName,
 		Region:      o.Region,
-		TalosImageId: o.TalosImageID,
+		TalosImageId: o.ImageID,
 		NetworkCIDR: o.NetworkCIDR,
 		CurrentPhase: state.PhaseBootstrapCreate,
 	}
@@ -95,6 +96,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	capiInstaller := &capi.OperatorInstaller{
 		Kubeconfig: kubeconfig,
 		Namespace:  "zero-ops-system",
+		OSType:     o.OSType,
 	}
 	
 	if err := capiInstaller.Install(ctx); err != nil {
@@ -132,8 +134,8 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			ClusterName:             o.ClusterName,
 			Namespace:               "zero-ops-system",
 			Region:                  o.Region,
-			TalosVersion:            "v1.12.0",
-			TalosImageID:            o.TalosImageID,
+			OSType:                  o.OSType,
+			ImageID:                 o.ImageID,
 			KubernetesVersion:       "v1.31.6",
 			NetworkCIDR:             o.NetworkCIDR,
 			SubnetCIDR:              subnetCIDR,
