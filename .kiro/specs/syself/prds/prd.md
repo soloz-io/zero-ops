@@ -1200,4 +1200,4 @@ zero-ops/
 
 ---
 
-**End of PRD v3.0**
+**End of PRD**
