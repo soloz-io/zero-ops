@@ -1,0 +1,24 @@
+package preflight
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+)
+
+// KindValidator checks if Kind is available
+type KindValidator struct {
+	SkipIfBootstrapContext bool
+}
+
+func (v *KindValidator) Validate(ctx context.Context) error {
+	if v.SkipIfBootstrapContext {
+		return nil
+	}
+	
+	cmd := exec.CommandContext(ctx, "kind", "version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("Kind not found. Please install Kind")
+	}
+	return nil
+}

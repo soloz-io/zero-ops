@@ -1,0 +1,69 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: hetzner-mgmt-talos-v1
+  namespace: zero-ops-system
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+      kind: TalosControlPlaneTemplate
+      name: hetzner-mgmt-control-plane
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        name: hetzner-mgmt-control-plane-machine
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: HetznerClusterTemplate
+      name: hetzner-mgmt-cluster
+  workers:
+    machineDeployments:
+    - class: default-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+            kind: TalosConfigTemplate
+            name: hetzner-mgmt-worker-bootstrap
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: hetzner-mgmt-worker-machine
+  variables:
+  - name: region
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+  - name: talosVersion
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: v1.12.0
+  - name: talosImageId
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+  - name: hcloudNetwork
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: object
+  - name: hcloudControlPlaneMachineType
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: cpx31
+  - name: hcloudWorkerMachineType
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: cpx31

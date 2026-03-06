@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-operator-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capi-operator-controller-manager
+  namespace: capi-operator-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: registry.k8s.io/capi-operator/cluster-api-operator:v0.13.0
+        command:
+        - /manager

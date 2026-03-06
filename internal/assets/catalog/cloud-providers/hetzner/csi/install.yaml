@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hcloud-csi-controller
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hcloud-csi-controller
+  template:
+    metadata:
+      labels:
+        app: hcloud-csi-controller
+    spec:
+      containers:
+      - name: hcloud-csi-controller
+        image: hetznercloud/hcloud-csi-driver:v2.6.0

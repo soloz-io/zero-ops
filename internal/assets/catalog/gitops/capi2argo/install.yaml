@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi2argo-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capi2argo-controller-manager
+  namespace: capi2argo-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: ghcr.io/dntosas/capi2argo-cluster-operator:latest

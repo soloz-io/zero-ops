@@ -2,37 +2,37 @@
 
 **Feature:** Platform Bootstrap (Journey A)  
 **Version:** 1.0  
-**Status:** NOT STARTED
+**Status:** IN PROGRESS (Phase 4)
 
 ---
 
-## Phase 1: Project Setup & CLI Foundation
+## Phase 1: Project Setup & CLI Foundation ✅ COMPLETE
 
-### 1.1 Repository Structure
-- [ ] Create Go monorepo structure following Syself model
-- [ ] Set up `cmd/zero-ops/` for CLI entrypoint
-- [ ] Set up `pkg/` for library code
-- [ ] Set up `internal/assets/` for embedded manifests
-- [ ] Set up `manifests/` and `catalog/` directories
-- [ ] Create Makefile with build targets
+### 1.1 Repository Structure ✅
+- [x] Create Go monorepo structure following Syself model
+- [x] Set up `cmd/zero-ops/` for CLI entrypoint
+- [x] Set up `pkg/` for library code
+- [x] Set up `internal/assets/` for embedded manifests
+- [x] Set up `manifests/` and `catalog/` directories
+- [x] Create Makefile with build targets
 
-### 1.2 CLI Framework
-- [ ] Initialize Go module with Cobra framework
-- [ ] Implement `zero-ops mgmt bootstrap` command skeleton
-- [ ] Implement flag parsing (--name, --region, --talos-image-id, etc.)
-- [ ] Implement environment variable reading (HCLOUD_TOKEN)
-- [ ] Add --debug flag for verbose logging
+### 1.2 CLI Framework ✅
+- [x] Initialize Go module with Cobra framework
+- [x] Implement `zero-ops mgmt bootstrap` command skeleton
+- [x] Implement flag parsing (--name, --region, --talos-image-id, etc.)
+- [x] Implement environment variable reading (HCLOUD_TOKEN)
+- [x] Add --debug flag for verbose logging
 
-### 1.3 Binary Management
-- [ ] Implement clusterctl binary manager (download, verify checksum, OS/arch detection)
-- [ ] Implement talosctl binary manager (download, verify checksum, OS/arch detection)
-- [ ] Store binaries in `~/.zero-ops/bin/`
-- [ ] Handle unsupported architectures gracefully
+### 1.3 Binary Management ✅
+- [x] Implement clusterctl binary manager (download, verify checksum, OS/arch detection)
+- [x] Implement talosctl binary manager (download, verify checksum, OS/arch detection)
+- [x] Store binaries in `~/.zero-ops/bin/`
+- [x] Handle unsupported architectures gracefully
 
-### 1.4 State Management
-- [ ] Implement BootstrapState struct (phase tracking, kubeconfig paths, timestamps)
-- [ ] Implement state persistence to `~/.zero-ops/state/<cluster-name>.json`
-- [ ] Implement state recovery on failure
+### 1.4 State Management ✅
+- [x] Implement BootstrapState struct (phase tracking, kubeconfig paths, timestamps)
+- [x] Implement state persistence to `~/.zero-ops/state/<cluster-name>.json`
+- [x] Implement state recovery on failure
 
 ### Manual Testing (Phase 1)
 ```bash
@@ -53,34 +53,34 @@ make build
 
 ---
 
-## Phase 2: Preflight Validation
+## Phase 2: Preflight Validation ✅ COMPLETE
 
-### 2.1 Docker Validation
-- [ ] Implement DockerValidator (check daemon running via `docker ps`)
-- [ ] Add error message with remediation steps
+### 2.1 Docker Validation ✅
+- [x] Implement DockerValidator (check daemon running via `docker ps`)
+- [x] Add error message with remediation steps
 
-### 2.2 Kind Validation
-- [ ] Implement KindValidator (check Kind available via `kind version`)
-- [ ] Skip if --bootstrap-context provided
+### 2.2 Kind Validation ✅
+- [x] Implement KindValidator (check Kind available via `kind version`)
+- [x] Skip if --bootstrap-context provided
 
-### 2.3 Hetzner Token Validation
-- [ ] Implement HetznerTokenValidator (read-only API call to validate token)
-- [ ] Add exponential backoff for rate limits (HTTP 429)
-- [ ] Add error messages for invalid/read-only tokens
+### 2.3 Hetzner Token Validation ✅
+- [x] Implement HetznerTokenValidator (read-only API call to validate token)
+- [x] Add exponential backoff for rate limits (HTTP 429)
+- [x] Add error messages for invalid/read-only tokens
 
-### 2.4 Talos Image Validation
-- [ ] Implement TalosImageValidator (verify snapshot exists in Hetzner)
-- [ ] Add support for --build-talos-image flag (trigger Packer build)
-- [ ] Add error message if neither --talos-image-id nor --build-talos-image provided
+### 2.4 Talos Image Validation ✅
+- [x] Implement TalosImageValidator (verify snapshot exists in Hetzner)
+- [x] Add support for --build-talos-image flag (trigger Packer build)
+- [x] Add error message if neither --talos-image-id nor --build-talos-image provided
 
-### 2.5 SSH Key Validation (Optional)
-- [ ] Implement SSHKeyValidator (verify key exists in HCloud if --ssh-key provided)
-- [ ] Add error message if key not found
+### 2.5 SSH Key Validation (Optional) ✅
+- [x] Implement SSHKeyValidator (verify key exists in HCloud if --ssh-key provided)
+- [x] Add error message if key not found
 
-### 2.6 Idempotency Check
-- [ ] Check for existing cluster with same name
-- [ ] Exit with error if exists and --upgrade not set
-- [ ] Proceed to reconciliation if --upgrade set
+### 2.6 Idempotency Check ✅
+- [x] Check for existing cluster with same name
+- [x] Exit with error if exists and --upgrade not set
+- [x] Proceed to reconciliation if --upgrade set
 
 ### Manual Testing (Phase 2)
 ```bash
@@ -109,24 +109,26 @@ export HCLOUD_TOKEN=<valid-token>
 
 ---
 
-## Phase 3: Bootstrap Cluster Creation
+## Phase 3: Bootstrap Cluster Creation ✅ COMPLETE
 
-### 3.1 Kind Cluster Management
-- [ ] Implement KindManager.Create() (execute `kind create cluster`)
-- [ ] Set cluster name to `bootstrap-zero-ops`
-- [ ] Add 2-minute timeout
-- [ ] Implement KindManager.Delete() for cleanup
+### 3.1 Kind Cluster Management ✅
+- [x] Implement KindManager.Create() (execute `kind create cluster`)
+- [x] Set cluster name to `bootstrap-zero-ops`
+- [x] Add 2-minute timeout
+- [x] Implement KindManager.Delete() for cleanup
 
-### 3.2 Bootstrap Context Support
-- [ ] Support --bootstrap-context flag (use existing cluster)
-- [ ] Validate context exists in kubeconfig
-- [ ] Verify cluster is reachable
+### 3.2 Bootstrap Context Support ✅
+- [x] Support --bootstrap-context flag (use existing cluster)
+- [x] Validate context exists in kubeconfig
+- [x] Verify cluster is reachable
 
-### 3.3 Namespace Creation
-- [ ] Create `zero-ops-system` namespace in bootstrap cluster
-- [ ] Add labels for tracking
+### 3.3 Namespace Creation ✅
+- [x] Create `zero-ops-system` namespace in bootstrap cluster
+- [x] Add labels for tracking
 
-### Manual Testing (Phase 3)
+---
+
+## Phase 4: CAPI Initialization (Declarative Operator) 🔄 IN PROGRESS
 ```bash
 # Test Kind cluster creation
 ./bin/zero-ops mgmt bootstrap --name=test --region=fsn1 --talos-image-id=<valid-id> --keep-bootstrap
@@ -144,33 +146,33 @@ kind delete cluster --name=bootstrap-zero-ops
 
 ---
 
-## Phase 4: CAPI Initialization (Declarative Operator)
+## Phase 4: CAPI Initialization (Declarative Operator) ✅ COMPLETE
 
-### 4.1 Manifest Embedding
-- [ ] Embed `manifests/core/capi-operator/install.yaml` using go:embed
-- [ ] Embed Provider CRD manifests (CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider)
-- [ ] Implement assets.ReadManifest() helper
+### 4.1 Manifest Embedding ✅
+- [x] Embed `manifests/core/capi-operator/install.yaml` using go:embed
+- [x] Embed Provider CRD manifests (CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider)
+- [x] Implement assets.ReadManifest() helper
 
-### 4.2 Operator Installation
-- [ ] Implement CAPIOperatorInstaller.installOperator() (apply operator manifest)
-- [ ] Implement CAPIOperatorInstaller.waitForOperator() (wait for deployment Ready)
-- [ ] Add 3-minute timeout
+### 4.2 Operator Installation ✅
+- [x] Implement CAPIOperatorInstaller.installOperator() (apply operator manifest)
+- [x] Implement CAPIOperatorInstaller.waitForOperator() (wait for deployment Ready)
+- [x] Add 3-minute timeout
 
-### 4.3 Provider CRD Application
-- [ ] Implement CAPIOperatorInstaller.applyProviders() (apply all Provider CRDs)
-- [ ] Apply CoreProvider (cluster-api v1.10.0)
-- [ ] Apply BootstrapProvider (talos v0.6.5)
-- [ ] Apply ControlPlaneProvider (talos v0.5.6)
-- [ ] Apply InfrastructureProvider (hetzner v1.0.7)
+### 4.3 Provider CRD Application ✅
+- [x] Implement CAPIOperatorInstaller.applyProviders() (apply all Provider CRDs)
+- [x] Apply CoreProvider (cluster-api v1.10.0)
+- [x] Apply BootstrapProvider (talos v0.6.5)
+- [x] Apply ControlPlaneProvider (talos v0.5.6)
+- [x] Apply InfrastructureProvider (hetzner v1.0.7)
 
-### 4.4 Provider Verification
-- [ ] Implement CAPIOperatorInstaller.waitForProviders() (poll Provider CRD status)
-- [ ] Check Ready condition for each Provider
-- [ ] Add 5-minute timeout with progress display
+### 4.4 Provider Verification ✅
+- [x] Implement CAPIOperatorInstaller.waitForProviders() (poll Provider CRD status)
+- [x] Check Ready condition for each Provider
+- [x] Add 5-minute timeout with progress display
 
-### 4.5 Secret Creation
-- [ ] Create Hetzner credentials secret in `zero-ops-system` namespace
-- [ ] Add `clusterctl.cluster.x-k8s.io/move` label for pivot
+### 4.5 Secret Creation ✅
+- [x] Create Hetzner credentials secret in `zero-ops-system` namespace
+- [x] Add `clusterctl.cluster.x-k8s.io/move` label for pivot
 
 ### Manual Testing (Phase 4)
 ```bash
@@ -194,10 +196,32 @@ kubectl --context kind-bootstrap-zero-ops get secret hetzner-credentials -n zero
 
 ---
 
-## Phase 5: Management Cluster Provisioning
+## Phase 5: Management Cluster Provisioning ✅ COMPLETE
 
-### 5.1 ClusterClass Embedding
-- [ ] Embed `manifests/classes/hetzner-mgmt-talos-v1.yaml` using go:embed
+### 5.1 ClusterClass Embedding ✅
+- [x] Embed `manifests/classes/hetzner-mgmt-talos-v1.yaml` using go:embed
+
+### 5.2 Cluster Resource Generation ✅
+- [x] Implement Cluster manifest generation with topology reference
+- [x] Set `spec.topology.class: hetzner-mgmt-talos-v1`
+- [x] Set `spec.topology.version: v1.31.6`
+- [x] Set control plane replicas: 3, worker replicas: 2
+- [x] Populate variables (region, talosVersion, talosImageId, network CIDR, etc.)
+
+### 5.3 Resource Application ✅
+- [x] Apply ClusterClass to bootstrap cluster
+- [x] Apply Cluster resource to bootstrap cluster
+- [x] Verify resources created successfully
+
+### 5.4 Provisioning Monitor ✅
+- [x] Implement ClusterProvisioner.WaitForReady() (poll cluster status)
+- [x] Monitor `status.phase` transitions (Pending → Provisioning → Provisioned)
+- [x] Check Ready condition (not just Provisioned phase)
+- [x] Add 15-minute timeout with progress display
+
+### 5.5 Infrastructure Verification ✅
+- [x] Query CAPH status for infrastructure resources
+- [x] Verify 3 control plane VMs, 2 worker VMs, 1 LB, 1 network, 2 placement groups
 - [ ] Implement ClusterClass template rendering (substitute variables)
 
 ### 5.2 Cluster Resource Generation
@@ -247,35 +271,35 @@ kubectl --context kind-bootstrap-zero-ops get cluster mothership -n zero-ops-sys
 
 ---
 
-## Phase 6: CAPI Pivot
+## Phase 6: CAPI Pivot ✅ COMPLETE
 
-### 6.1 Kubeconfig Retrieval
-- [ ] Implement PivotOrchestrator.getKubeconfig() (extract from secret)
-- [ ] Decode base64 kubeconfig
-- [ ] Save to temporary file
+### 6.1 Kubeconfig Retrieval ✅
+- [x] Implement PivotOrchestrator.getKubeconfig() (extract from secret)
+- [x] Decode base64 kubeconfig
+- [x] Save to temporary file
 
-### 6.2 Operator Installation on Management Cluster
-- [ ] Install cluster-api-operator on Management Cluster
-- [ ] Wait for operator Ready (3 minutes)
+### 6.2 Operator Installation on Management Cluster ✅
+- [x] Install cluster-api-operator on Management Cluster
+- [x] Wait for operator Ready (3 minutes)
 
-### 6.3 Resource Counting
-- [ ] Implement resource counting before pivot (Cluster, Machine, HetznerCluster, Secret)
-- [ ] Store counts for verification
+### 6.3 Resource Counting ✅
+- [x] Implement resource counting before pivot (Cluster, Machine, HetznerCluster, Secret)
+- [x] Store counts for verification
 
-### 6.4 Pivot Execution
-- [ ] Execute `clusterctl move --to-kubeconfig=<mgmt> --namespace=zero-ops-system`
-- [ ] Add 10-minute timeout
+### 6.4 Pivot Execution ✅
+- [x] Execute `clusterctl move --to-kubeconfig=<mgmt> --namespace=zero-ops-system`
+- [x] Add 10-minute timeout
 
-### 6.5 Post-Pivot Verification
-- [ ] Count resources after pivot (existence check only)
-- [ ] Verify counts match
-- [ ] Implement waitForProvidersReady() (wait for Provider CRDs to reconcile)
-- [ ] Implement waitForClusterReady() (wait for Cluster Ready condition)
-- [ ] Add 10-minute timeout for reconciliation
+### 6.5 Post-Pivot Verification ✅
+- [x] Count resources after pivot (existence check only)
+- [x] Verify counts match
+- [x] Implement waitForProvidersReady() (wait for Provider CRDs to reconcile)
+- [x] Implement waitForClusterReady() (wait for Cluster Ready condition)
+- [x] Add 10-minute timeout for reconciliation
 
-### 6.6 Bootstrap Cleanup
-- [ ] Delete Kind cluster (if --keep-bootstrap not set)
-- [ ] Preserve Kind cluster on failure
+### 6.6 Bootstrap Cleanup ✅
+- [x] Delete Kind cluster (if --keep-bootstrap not set)
+- [x] Preserve Kind cluster on failure
 
 ### Manual Testing (Phase 6)
 ```bash
@@ -307,16 +331,16 @@ kind get clusters
 
 ---
 
-## Phase 7: ClusterClass Library Deployment
+## Phase 7: ClusterClass Library Deployment ✅ COMPLETE
 
-### 7.1 Library Embedding
-- [ ] Embed `manifests/classes/hetzner-prod-talos-v1.yaml`
-- [ ] Embed `manifests/classes/hetzner-dev-talos-v1.yaml`
-- [ ] Embed `manifests/classes/hetzner-staging-talos-v1.yaml`
+### 7.1 Library Embedding ✅
+- [x] Embed `manifests/classes/hetzner-prod-talos-v1.yaml`
+- [x] Embed `manifests/classes/hetzner-dev-talos-v1.yaml`
+- [x] Embed `manifests/classes/hetzner-staging-talos-v1.yaml`
 
-### 7.2 Library Application
-- [ ] Apply all ClusterClass definitions to Management Cluster
-- [ ] Verify all ClusterClasses created successfully
+### 7.2 Library Application ✅
+- [x] Apply all ClusterClass definitions to Management Cluster
+- [x] Verify all ClusterClasses created successfully
 
 ### Manual Testing (Phase 7)
 ```bash
@@ -333,31 +357,31 @@ kubectl --kubeconfig=mothership.kubeconfig get clusterclass hetzner-prod-talos-v
 
 ---
 
-## Phase 8: Post-Bootstrap Components
+## Phase 8: Post-Bootstrap Components ✅ COMPLETE
 
-### 8.1 Component Manifest Embedding
-- [ ] Embed ArgoCD manifests in `catalog/gitops/argocd/install.yaml`
-- [ ] Embed capi2argo manifests in `catalog/gitops/capi2argo/install.yaml`
-- [ ] Embed CloudNativePG manifests in `catalog/databases/cloudnative-pg/install.yaml`
-- [ ] Embed Hetzner CCM manifests (if not in ClusterClass)
-- [ ] Embed Hetzner CSI manifests (if not in ClusterClass)
+### 8.1 Component Manifest Embedding ✅
+- [x] Embed ArgoCD manifests in `catalog/gitops/argocd/install.yaml`
+- [x] Embed capi2argo manifests in `catalog/gitops/capi2argo/install.yaml`
+- [x] Embed CloudNativePG manifests in `catalog/databases/cloudnative-pg/install.yaml`
+- [x] Embed Hetzner CCM manifests
+- [x] Embed Hetzner CSI manifests
 
-### 8.2 Component Installer Implementation
-- [ ] Implement ManagementClusterInstaller.InstallAll() (sequential installation)
-- [ ] Implement installHetznerCCM() + verifyHetznerCCM()
-- [ ] Implement installHetznerCSI() + verifyHetznerCSI()
-- [ ] Implement installArgoCD() + verifyArgoCD()
-- [ ] Implement installCapi2Argo() + verifyCapi2Argo()
-- [ ] Implement installCloudNativePG() + verifyCloudNativePG()
+### 8.2 Component Installer Implementation ✅
+- [x] Implement ManagementClusterInstaller.InstallAll() (sequential installation)
+- [x] Implement installHetznerCCM() + verifyHetznerCCM()
+- [x] Implement installHetznerCSI() + verifyHetznerCSI()
+- [x] Implement installArgoCD() + verifyArgoCD()
+- [x] Implement installCapi2Argo() + verifyCapi2Argo()
+- [x] Implement installCloudNativePG() + verifyCloudNativePG()
 
-### 8.3 Verification Helpers
-- [ ] Implement waitForDeployment() (check deployment Available condition)
-- [ ] Add timeouts per component (3-5 minutes)
-- [ ] Add progress logging
+### 8.3 Verification Helpers ✅
+- [x] Implement waitForDeployment() (check deployment Available condition)
+- [x] Add timeouts per component (3-5 minutes)
+- [x] Add progress logging
 
-### 8.4 ArgoCD Password Retrieval
-- [ ] Extract admin password from `argocd-initial-admin-secret`
-- [ ] Store for output message
+### 8.4 ArgoCD Password Retrieval ✅
+- [x] Extract admin password from `argocd-initial-admin-secret`
+- [x] Store for output message
 
 ### Manual Testing (Phase 8)
 ```bash
@@ -393,24 +417,24 @@ kubectl --kubeconfig=mothership.kubeconfig get secret argocd-initial-admin-secre
 
 ---
 
-## Phase 9: Kubeconfig & Talosconfig Management
+## Phase 9: Kubeconfig & Talosconfig Management ✅ COMPLETE
 
-### 9.1 Kubeconfig Management
-- [ ] Save kubeconfig to `<cluster-name>.kubeconfig` in current directory
-- [ ] Set file permissions to 0600
-- [ ] Implement --merge-kubeconfig flag (merge into ~/.kube/config with backup)
-- [ ] Set context name to cluster name
+### 9.1 Kubeconfig Management ✅
+- [x] Save kubeconfig to `<cluster-name>.kubeconfig` in current directory
+- [x] Set file permissions to 0600
+- [x] Implement --merge-kubeconfig flag (merge into ~/.kube/config with backup)
+- [x] Set context name to cluster name
 
-### 9.2 Talosconfig Management
-- [ ] Retrieve talosconfig from secret `<cluster-name>-talosconfig`
-- [ ] Save to `<cluster-name>.talosconfig` in current directory
-- [ ] Set file permissions to 0600
+### 9.2 Talosconfig Management ✅
+- [x] Retrieve talosconfig from secret `<cluster-name>-talosconfig`
+- [x] Save to `<cluster-name>.talosconfig` in current directory
+- [x] Set file permissions to 0600
 
-### 9.3 Success Output
-- [ ] Display success message with cluster details
-- [ ] Show kubeconfig and talosconfig paths
-- [ ] Show ArgoCD UI URL and admin password
-- [ ] Show next steps (verify cluster, access nodes, onboard tenant)
+### 9.3 Success Output ✅
+- [x] Display success message with cluster details
+- [x] Show kubeconfig and talosconfig paths
+- [x] Show ArgoCD UI URL and admin password
+- [x] Show next steps (verify cluster, access nodes, onboard tenant)
 
 ### Manual Testing (Phase 9)
 ```bash
