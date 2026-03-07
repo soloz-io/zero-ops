@@ -2,8 +2,9 @@ package preflight
 
 import (
 	"context"
-	"fmt"
 	"os/exec"
+
+	"github.com/soloz-io/zero-ops/pkg/errors"
 )
 
 // KindValidator checks if Kind is available
@@ -18,7 +19,7 @@ func (v *KindValidator) Validate(ctx context.Context) error {
 	
 	cmd := exec.CommandContext(ctx, "kind", "version")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Kind not found. Please install Kind")
+		return errors.KindNotFound(err)
 	}
 	return nil
 }

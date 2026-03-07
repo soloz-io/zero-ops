@@ -35,6 +35,7 @@ type Provisioner struct {
 	Kubeconfig string
 	Context    string
 	Config     *Config
+	Debug      bool
 }
 
 func (p *Provisioner) kubectlArgs(args ...string) []string {
@@ -46,6 +47,10 @@ func (p *Provisioner) kubectlArgs(args ...string) []string {
 }
 
 func (p *Provisioner) Provision(ctx context.Context) error {
+	if p.Debug {
+		fmt.Println("[DEBUG] Provisioner.Provision() started")
+		fmt.Printf("[DEBUG] ClusterName: %s, Namespace: %s\n", p.Config.ClusterName, p.Config.Namespace)
+	}
 	// Apply ClusterClass
 	if err := p.applyClusterClass(ctx); err != nil {
 		return err

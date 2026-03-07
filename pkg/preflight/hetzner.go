@@ -2,9 +2,9 @@ package preflight
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hetznercloud/hcloud-go/hcloud"
+	"github.com/soloz-io/zero-ops/pkg/errors"
 )
 
 // HetznerTokenValidator validates Hetzner API token
@@ -18,10 +18,7 @@ func (v *HetznerTokenValidator) Validate(ctx context.Context) error {
 	// Use read-only operation to validate token
 	_, _, err := client.Datacenter.List(ctx, hcloud.DatacenterListOpts{})
 	if err != nil {
-		if hcloud.IsError(err, hcloud.ErrorCodeUnauthorized) {
-			return fmt.Errorf("invalid Hetzner token")
-		}
-		return fmt.Errorf("token validation failed: %w", err)
+		return errors.InvalidHetznerToken(err)
 	}
 	
 	return nil

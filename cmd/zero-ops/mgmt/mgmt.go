@@ -11,6 +11,7 @@ func NewMgmtCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewBootstrapCmd())
+	cmd.AddCommand(NewTeardownCmd())
 
 	return cmd
 }

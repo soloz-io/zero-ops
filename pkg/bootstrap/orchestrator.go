@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/soloz-io/zero-ops/pkg/config"
 	"github.com/soloz-io/zero-ops/pkg/pivot"
 	"github.com/soloz-io/zero-ops/pkg/state"
+	"github.com/soloz-io/zero-ops/pkg/versions"
 )
 
 // Orchestrator manages the bootstrap process
@@ -32,9 +34,15 @@ type Orchestrator struct {
 	MergeKubeconfig  bool
 	HCloudToken      string
 	Debug            bool
+	Upgrade          bool
 }
 
 func (o *Orchestrator) Run(ctx context.Context) error {
+	if o.Debug {
+		fmt.Println("[DEBUG] Orchestrator.Run() started")
+		fmt.Printf("[DEBUG] ClusterName: %s, Region: %s, OSType: %s, Upgrade: %v\n", o.ClusterName, o.Region, o.OSType, o.Upgrade)
+	}
+	
 	stateMgr := state.NewStateManager(o.ClusterName)
 	
 	// Try to load existing state
@@ -42,7 +50,21 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	if err == nil && bootstrapState != nil {
 		fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
 		fmt.Printf("[recovery] Last completed phase: %s\n", bootstrapState.CurrentPhase)
+		
+		// Check if cluster is fully bootstrapped
+		if contains(bootstrapState.CompletedPhases, state.PhaseComplete) {
+			if o.Upgrade {
+				fmt.Println("[upgrade] Cluster already exists, starting upgrade/reconciliation...")
+				return o.runUpgrade(ctx, bootstrapState)
+			} else {
+				return fmt.Errorf("cluster '%s' already exists. Use --upgrade to reconcile or --name with different name", o.ClusterName)
+			}
+		}
+		
 		fmt.Printf("[recovery] Resuming from next phase...\n")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Completed phases: %v\n", bootstrapState.CompletedPhases)
+		}
 	} else {
 		// Initialize new state
 		bootstrapState = &state.BootstrapState{
@@ -78,9 +100,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 3: Bootstrap Cluster Creation
 	if !contains(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate) {
 		fmt.Println("\n[bootstrap-create] Creating ephemeral bootstrap cluster...")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseBootstrapCreate)
+		}
 		
 		if bootstrapContext != "" {
 			fmt.Printf("[bootstrap-create] Using existing context: %s\n", bootstrapContext)
+			if o.Debug {
+				fmt.Printf("[DEBUG] Bootstrap context provided: %s\n", bootstrapContext)
+			}
 			homeDir, _ := os.UserHomeDir()
 			kubeconfig = filepath.Join(homeDir, ".kube", "config")
 			bootstrapState.BootstrapContext = bootstrapContext
@@ -90,6 +118,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			if kindMgr.Exists(ctx) {
 				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
 			} else {
+				if o.Debug {
+					fmt.Println("[DEBUG] Creating Kind cluster: bootstrap-zero-ops")
+				}
 				if err := kindMgr.Create(ctx); err != nil {
 					return fmt.Errorf("failed to create Kind cluster: %w", err)
 				}
@@ -130,17 +161,21 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 4: CAPI Initialization
 	if !contains(bootstrapState.CompletedPhases, state.PhaseCAPIInit) {
 		fmt.Println("\n[capi-init] Installing cluster-api-operator...")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseCAPIInit)
+		}
 		
 		capiInstaller := &capi.OperatorInstaller{
-		Kubeconfig: kubeconfig,
-		Context:    bootstrapState.BootstrapContext,
-		Namespace:  "zero-ops-system",
-		OSType:     o.OSType,
-	}
+			Kubeconfig: kubeconfig,
+			Context:    bootstrapState.BootstrapContext,
+			Namespace:  "zero-ops-system",
+			OSType:     o.OSType,
+			Debug:      o.Debug,
+		}
 	
-	if err := capiInstaller.Install(ctx); err != nil {
-		return fmt.Errorf("failed to install CAPI operator: %w", err)
-	}
+		if err := capiInstaller.Install(ctx); err != nil {
+			return fmt.Errorf("failed to install CAPI operator: %w", err)
+		}
 	fmt.Println("[capi-init] ✓ CAPI operator installed")
 	
 	// Create Hetzner credentials secret
@@ -192,6 +227,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		provisioner := &cluster.Provisioner{
 			Kubeconfig: kubeconfig,
 			Context:    bootstrapState.BootstrapContext,
+			Debug:      o.Debug,
 			Config: &cluster.Config{
 				ClusterName:             o.ClusterName,
 				Namespace:               "zero-ops-system",
@@ -237,7 +273,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	
 		// Update state
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterProvision)
-		bootstrapState.CurrentPhase = state.PhasePivot
+		bootstrapState.CurrentPhase = state.PhasePivotMove
 		if err := stateMgr.Save(bootstrapState); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
 		}
@@ -245,34 +281,64 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		fmt.Println("[cluster-provision] ✓ Skipped (already completed)")
 	}
 	
-	// Phase 6: CAPI Pivot
-	if !contains(bootstrapState.CompletedPhases, state.PhasePivot) {
+	// Phase 6: CAPI Pivot - Move Resources
+	if !contains(bootstrapState.CompletedPhases, state.PhasePivotMove) {
 		fmt.Println("\n[pivot] Moving CAPI resources to Management Cluster...")
 		
 		pivotOrch := &pivot.Orchestrator{
-		BootstrapKubeconfig: kubeconfig,
-		ClusterName:         o.ClusterName,
-		Namespace:           "zero-ops-system",
-		OSType:              o.OSType,
-	}
-	
-		var err error
-		mgmtKubeconfig, err = pivotOrch.Execute(ctx)
-		if err != nil {
-			return fmt.Errorf("pivot failed: %w", err)
+			BootstrapKubeconfig: kubeconfig,
+			ClusterName:         o.ClusterName,
+			Namespace:           "zero-ops-system",
+			OSType:              o.OSType,
 		}
-		fmt.Println("[pivot] ✓ CAPI pivot complete")
+		
+		var err error
+		mgmtKubeconfig, err = pivotOrch.ExecuteMove(ctx)
+		if err != nil {
+			return fmt.Errorf("pivot move failed: %w", err)
+		}
+		fmt.Println("[pivot] ✓ Resources moved to Management Cluster")
 		
 		bootstrapState.MgmtKubeconfig = mgmtKubeconfig
 		
 		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivot)
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivotMove)
+		bootstrapState.CurrentPhase = state.PhasePivotReady
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[pivot-move] ✓ Skipped (already completed)")
+		// Restore mgmtKubeconfig if not set
+		if mgmtKubeconfig == "" && bootstrapState.MgmtKubeconfig != "" {
+			mgmtKubeconfig = bootstrapState.MgmtKubeconfig
+		}
+	}
+	
+	// Phase 7: CAPI Pivot - Wait for Ready
+	if !contains(bootstrapState.CompletedPhases, state.PhasePivotReady) {
+		fmt.Println("\n[pivot-ready] Waiting for cluster reconciliation after move...")
+		
+		pivotOrch := &pivot.Orchestrator{
+			BootstrapKubeconfig: kubeconfig,
+			ClusterName:         o.ClusterName,
+			Namespace:           "zero-ops-system",
+			OSType:              o.OSType,
+		}
+		
+		if err := pivotOrch.WaitForReady(ctx, mgmtKubeconfig); err != nil {
+			return fmt.Errorf("pivot ready failed: %w", err)
+		}
+		fmt.Println("[pivot-ready] ✓ Cluster ready on Management Cluster")
+		
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivotReady)
 		bootstrapState.CurrentPhase = state.PhaseClusterClassDeploy
 		if err := stateMgr.Save(bootstrapState); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
 		}
 	} else {
-		fmt.Println("[pivot] ✓ Skipped (already completed)")
+		fmt.Println("[pivot-ready] ✓ Skipped (already completed)")
 	}
 	
 	// Cleanup bootstrap cluster if not keeping
@@ -318,7 +384,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		Kubeconfig: mgmtKubeconfig,
 	}
 	
-	if err := compInstaller.InstallAll(ctx); err != nil {
+	if err := compInstaller.InstallAll(ctx, o.HCloudToken); err != nil {
 		return fmt.Errorf("failed to install components: %w", err)
 	}
 	fmt.Println("[postboot] ✓ All components installed")
@@ -337,7 +403,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	fmt.Println("\n[config] Saving kubeconfig and talosconfig...")
 	
 	configMgr := &config.Manager{
-		BootstrapKubeconfig: kubeconfig,
+		BootstrapKubeconfig: mgmtKubeconfig, // Use management cluster kubeconfig
 		ClusterName:         o.ClusterName,
 		Namespace:           "zero-ops-system",
 	}
@@ -348,11 +414,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Printf("[config] ✓ Kubeconfig saved to: %s\n", kubeconfigPath)
 	
-	talosconfigPath, err := configMgr.SaveTalosconfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to save talosconfig: %w", err)
+	// Talosconfig only exists for Talos clusters
+	var talosconfigPath string
+	if o.OSType == "talos" {
+		talosconfigPath, err = configMgr.SaveTalosconfig(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to save talosconfig: %w", err)
+		}
+		fmt.Printf("[config] ✓ Talosconfig saved to: %s\n", talosconfigPath)
 	}
-	fmt.Printf("[config] ✓ Talosconfig saved to: %s\n", talosconfigPath)
 	
 	// Merge kubeconfig if requested
 	if o.MergeKubeconfig {
@@ -378,11 +448,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	fmt.Printf("  Cluster Name: %s\n", o.ClusterName)
 	fmt.Printf("  Region: %s\n", o.Region)
 	fmt.Printf("  Kubeconfig: %s\n", kubeconfigPath)
-	fmt.Printf("  Talosconfig: %s\n", talosconfigPath)
+	if o.OSType == "talos" {
+		fmt.Printf("  Talosconfig: %s\n", talosconfigPath)
+	}
 	fmt.Printf("  ArgoCD Password: %s\n", argoCDPassword)
 	fmt.Println("\nNext steps:")
 	fmt.Printf("1. Verify cluster: kubectl --kubeconfig=%s get nodes\n", kubeconfigPath)
-	fmt.Printf("2. Access nodes: talosctl --talosconfig=%s -n <node-ip> version\n", talosconfigPath)
+	if o.OSType == "talos" {
+		fmt.Printf("2. Access nodes: talosctl --talosconfig=%s -n <node-ip> version\n", talosconfigPath)
+	}
 	fmt.Println("3. Access ArgoCD UI (username: admin)")
 	
 	return nil
@@ -477,6 +551,114 @@ func (o *Orchestrator) waitForNodeToRegister(ctx context.Context, kubeconfig str
 	return fmt.Errorf("timeout waiting for control plane node to register")
 }
 
+func (o *Orchestrator) runUpgrade(ctx context.Context, bootstrapState *state.BootstrapState) error {
+	fmt.Println("\n[upgrade] Starting upgrade/reconciliation...")
+	
+	if bootstrapState.MgmtKubeconfig == "" {
+		return fmt.Errorf("management cluster kubeconfig not found in state")
+	}
+	
+	kubeconfig := bootstrapState.MgmtKubeconfig
+	
+	// Version compatibility check
+	if err := o.checkVersionCompatibility(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("version compatibility check failed: %w", err)
+	}
+	
+	// Update Provider CRD versions
+	fmt.Println("\n[upgrade] Updating CAPI Provider versions...")
+	if err := o.updateProviders(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("failed to update providers: %w", err)
+	}
+	fmt.Println("[upgrade] ✓ Providers updated")
+	
+	// Re-apply ClusterClass definitions
+	fmt.Println("\n[upgrade] Updating ClusterClass definitions...")
+	ccDeployer := &clusterclass.Deployer{
+		Kubeconfig: kubeconfig,
+		Namespace:  "zero-ops-system",
+	}
+	
+	if err := ccDeployer.Deploy(ctx); err != nil {
+		return fmt.Errorf("failed to update ClusterClasses: %w", err)
+	}
+	fmt.Println("[upgrade] ✓ ClusterClasses updated")
+	
+	// Re-apply component manifests
+	fmt.Println("\n[upgrade] Updating platform components...")
+	compInstaller := &components.Installer{
+		Kubeconfig: kubeconfig,
+	}
+	
+	if err := compInstaller.InstallAll(ctx, o.HCloudToken); err != nil {
+		return fmt.Errorf("failed to update components: %w", err)
+	}
+	fmt.Println("[upgrade] ✓ Components updated")
+	
+	fmt.Println("\n✓ Upgrade/reconciliation complete")
+	fmt.Println("  All Providers, ClusterClasses, and components updated to match CLI version")
+	
+	return nil
+}
+
+func (o *Orchestrator) checkVersionCompatibility(ctx context.Context, kubeconfig string) error {
+	if o.Debug {
+		fmt.Println("[DEBUG] Checking version compatibility...")
+	}
+	
+	// Check CAPI API version (v1beta1)
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"api-resources", "--api-group=cluster.x-k8s.io")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to check CAPI API version: %w", err)
+	}
+	
+	if !bytes.Contains(output, []byte("v1beta1")) {
+		return fmt.Errorf("incompatible CAPI API version - v1beta1 required")
+	}
+	
+	if o.Debug {
+		fmt.Println("[DEBUG] ✓ CAPI API version compatible (v1beta1)")
+	}
+	
+	return nil
+}
+
+func (o *Orchestrator) updateProviders(ctx context.Context, kubeconfig string) error {
+	providers := []struct {
+		kind    string
+		name    string
+		version string
+	}{
+		{"CoreProvider", "cluster-api", versions.CAPIVersion},
+		{"BootstrapProvider", "talos", versions.TalosBootstrapProviderVersion},
+		{"ControlPlaneProvider", "talos", versions.TalosControlPlaneProviderVersion},
+		{"InfrastructureProvider", "hetzner", versions.HetznerInfraProviderVersion},
+	}
+	
+	for _, p := range providers {
+		if o.Debug {
+			fmt.Printf("[DEBUG] Updating %s/%s to %s\n", p.kind, p.name, p.version)
+		}
+		
+		// Patch Provider CRD spec.version
+		patch := fmt.Sprintf(`{"spec":{"version":"%s"}}`, p.version)
+		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"patch", p.kind, p.name, "-n", "capi-operator-system",
+			"--type=merge", "-p", patch)
+		
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to update %s/%s: %w\nOutput: %s", p.kind, p.name, err, string(output))
+		}
+	}
+	
+	// Wait for providers to reconcile (cluster-api-operator handles this)
+	fmt.Println("[upgrade] Waiting for Provider reconciliation...")
+	time.Sleep(10 * time.Second) // Give operator time to start reconciliation
+	
+	return nil
+}
 
 func mustReadCatalog(path string) []byte {
 	data, err := assets.ReadCatalog(path)

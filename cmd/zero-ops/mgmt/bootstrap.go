@@ -159,14 +159,6 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
-	// TODO: Implement remaining phases
-	fmt.Println("\n⚠️  Bootstrap implementation in progress...")
-	fmt.Println("   Phase 1: CLI Framework - Complete")
-	fmt.Println("   Phase 2: Preflight Validation - Complete")
-	fmt.Println("   Phase 3: Bootstrap Cluster Creation - Complete")
-	fmt.Println("   Phase 4: CAPI Initialization - Complete")
-	fmt.Println("   Phase 5: Management Cluster Provisioning - Pending")
-
 	return nil
 }
 

@@ -8,6 +8,6 @@ inclusion: manual
 -------------------------------------------------------------------------------------> 
 
 you are a code reviewer for the project.
-Ask for the design pattern and the current implementation focus specs.
+Review against the design pattern .kiro/specs/management-cluster/references/design-patterns.md and the current implementation focus specs.
 Review the codebase for completed implemetations and report back if there are any deviations or ambiguities. 
 first go though all specs so that you know the requreemnt clearly. 

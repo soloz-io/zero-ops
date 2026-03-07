@@ -36,7 +36,8 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 	
 	// If cluster provisioning or later phases in progress/completed, allow recovery
 	if bootstrapState.CurrentPhase == state.PhaseClusterProvision || 
-	   bootstrapState.CurrentPhase == state.PhasePivot || 
+	   bootstrapState.CurrentPhase == state.PhasePivotMove || 
+	   bootstrapState.CurrentPhase == state.PhasePivotReady || 
 	   bootstrapState.CurrentPhase == state.PhaseClusterClassDeploy || 
 	   bootstrapState.CurrentPhase == state.PhasePostBoot || 
 	   bootstrapState.CurrentPhase == state.PhaseComplete {
@@ -48,7 +49,8 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 	if len(bootstrapState.CompletedPhases) > 0 {
 		lastPhase := bootstrapState.CompletedPhases[len(bootstrapState.CompletedPhases)-1]
 		if lastPhase == state.PhaseClusterProvision || 
-		   lastPhase == state.PhasePivot || 
+		   lastPhase == state.PhasePivotMove || 
+		   lastPhase == state.PhasePivotReady || 
 		   lastPhase == state.PhaseClusterClassDeploy || 
 		   lastPhase == state.PhasePostBoot {
 			fmt.Printf("[preflight] Found existing state at phase '%s' - will resume\n", lastPhase)

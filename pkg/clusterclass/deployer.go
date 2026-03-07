@@ -18,9 +18,7 @@ type Deployer struct {
 // Deploy applies all ClusterClass definitions
 func (d *Deployer) Deploy(ctx context.Context) error {
 	classes := []string{
-		"classes/hetzner-prod-talos-v1.yaml",
-		"classes/hetzner-dev-talos-v1.yaml",
-		"classes/hetzner-staging-talos-v1.yaml",
+		"classes/hetzner-mgmt-ubuntu-v1.yaml",
 	}
 	
 	for _, classPath := range classes {
@@ -58,10 +56,7 @@ func (d *Deployer) verify(ctx context.Context) error {
 	}
 	
 	expected := []string{
-		"hetzner-mgmt-talos-v1",
-		"hetzner-prod-talos-v1",
-		"hetzner-dev-talos-v1",
-		"hetzner-staging-talos-v1",
+		"hetzner-mgmt-ubuntu-v1",
 	}
 	
 	for _, name := range expected {

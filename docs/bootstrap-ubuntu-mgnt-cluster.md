@@ -15,7 +15,9 @@ export HCLOUD_TOKEN=<your-token>
 ./bin/zero-ops mgmt bootstrap \
   --name=mothership \
   --region=fsn1 \
-  --os=ubuntu
+  --os=ubuntu \
+  --ssh-key=zero-ops-mac-mini-debug \
+  2>&1
 ```
 
 The bootstrap process:

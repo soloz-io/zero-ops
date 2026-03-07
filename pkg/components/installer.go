@@ -17,32 +17,99 @@ type Installer struct {
 }
 
 // InstallAll installs all required components sequentially (CNI/CCM handled by CRS)
-func (i *Installer) InstallAll(ctx context.Context) error {
-	components := []struct {
-		name    string
-		path    string
-		ns      string
-		deploy  string
-	}{
-		{"hetzner-csi", "cloud-providers/hetzner/csi/install.yaml", "kube-system", "hcloud-csi-controller"},
-		{"argocd", "gitops/argocd/install.yaml", "argocd", "argocd-server"},
-		{"capi2argo", "gitops/capi2argo/install.yaml", "capi2argo-system", "capi2argo-controller-manager"},
-		{"cloudnative-pg", "databases/cloudnative-pg/install.yaml", "cnpg-system", "cnpg-controller-manager"},
+func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
+	// Create hcloud secret for CSI driver
+	fmt.Println("[postboot] Creating hcloud secret for CSI...")
+	secretCmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"create", "secret", "generic", "hcloud",
+		"-n", "kube-system",
+		"--from-literal=token="+hcloudToken,
+		"--dry-run=client", "-o", "yaml",
+	)
+	secretYAML, err := secretCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to generate hcloud secret: %w", err)
 	}
 	
-	for _, c := range components {
-		fmt.Printf("[postboot] Installing %s...\n", c.name)
-		
-		if err := i.install(ctx, c.path); err != nil {
-			return fmt.Errorf("failed to install %s: %w", c.name, err)
-		}
-		
-		if err := i.verify(ctx, c.ns, c.deploy); err != nil {
-			return fmt.Errorf("failed to verify %s: %w", c.name, err)
-		}
-		
-		fmt.Printf("[postboot] ✓ %s ready\n", c.name)
+	applyCmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"apply", "-f", "-",
+	)
+	applyCmd.Stdin = bytes.NewReader(secretYAML)
+	if output, err := applyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create hcloud secret: %w\n%s", err, output)
 	}
+	
+	// Install CSI via manifest
+	fmt.Println("[postboot] Installing hetzner-csi...")
+	csiManifest, err := assets.ReadCatalog("cloud-providers/hetzner/csi/install.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read CSI manifest: %w", err)
+	}
+	
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", i.Kubeconfig, "-f", "-")
+	cmd.Stdin = bytes.NewReader(csiManifest)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install CSI: %w\n%s", err, output)
+	}
+	
+	if err := i.verify(ctx, "kube-system", "hcloud-csi-controller"); err != nil {
+		return fmt.Errorf("failed to verify CSI: %w", err)
+	}
+	fmt.Println("[postboot] ✓ hetzner-csi ready")
+	
+	// Install ArgoCD via Helm
+	if err := i.InstallArgoCD(ctx); err != nil {
+		return fmt.Errorf("failed to install ArgoCD: %w", err)
+	}
+	
+	// Install capi2argo via manifest
+	fmt.Println("[postboot] Installing capi2argo...")
+	capi2argoManifest, err := assets.ReadCatalog("gitops/capi2argo/install.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read capi2argo manifest: %w", err)
+	}
+	
+	cmd = exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", i.Kubeconfig, "-f", "-")
+	cmd.Stdin = bytes.NewReader(capi2argoManifest)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install capi2argo: %w\n%s", err, output)
+	}
+	
+	if err := i.verify(ctx, "capi2argo-system", "capi2argo-controller-manager"); err != nil {
+		return fmt.Errorf("failed to verify capi2argo: %w", err)
+	}
+	fmt.Println("[postboot] ✓ capi2argo ready")
+	
+	// Install CloudNativePG via Helm
+	fmt.Println("[postboot] Installing cloudnative-pg...")
+	
+	cmd = exec.CommandContext(ctx, "helm", "repo", "add", "cnpg", "https://cloudnative-pg.github.io/charts")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if !bytes.Contains(output, []byte("already exists")) {
+			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
+		}
+	}
+	
+	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
+	}
+	
+	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "cnpg", "cnpg/cloudnative-pg",
+		"--namespace", "cnpg-system",
+		"--create-namespace",
+		"--kubeconfig", i.Kubeconfig,
+		"--wait",
+		"--timeout", "5m",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install cloudnative-pg: %w\n%s", err, output)
+	}
+	
+	fmt.Println("[postboot] ✓ cloudnative-pg ready")
 	
 	return nil
 }
@@ -138,6 +205,42 @@ func (i *Installer) GetArgoCDPassword(ctx context.Context) (string, error) {
 	return string(decoded), nil
 }
 
+
+// InstallArgoCD installs ArgoCD via Helm
+func (i *Installer) InstallArgoCD(ctx context.Context) error {
+	fmt.Println("[postboot] Installing argocd...")
+	
+	// Add ArgoCD Helm repo
+	cmd := exec.CommandContext(ctx, "helm", "repo", "add", "argo", "https://argoproj.github.io/argo-helm")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if !bytes.Contains(output, []byte("already exists")) {
+			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
+		}
+	}
+	
+	// Update repos
+	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
+	}
+	
+	// Install ArgoCD
+	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "argocd", "argo/argo-cd",
+		"--version", "5.51.6",
+		"--namespace", "argocd",
+		"--create-namespace",
+		"--kubeconfig", i.Kubeconfig,
+		"--wait",
+		"--timeout", "10m",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install argocd: %w\n%s", err, output)
+	}
+	
+	fmt.Println("[postboot] ✓ argocd ready")
+	return nil
+}
 
 // InstallCilium installs Cilium CNI via Helm (CAPH parity)
 func (i *Installer) InstallCilium(ctx context.Context) error {

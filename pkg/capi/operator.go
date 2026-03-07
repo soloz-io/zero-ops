@@ -17,6 +17,7 @@ type OperatorInstaller struct {
 	Context    string
 	Namespace  string
 	OSType     string // "ubuntu" or "talos"
+	Debug      bool
 }
 
 func (i *OperatorInstaller) kubectlArgs(args ...string) []string {
@@ -27,7 +28,27 @@ func (i *OperatorInstaller) kubectlArgs(args ...string) []string {
 	return append(result, args...)
 }
 
+func (i *OperatorInstaller) runKubectl(ctx context.Context, args ...string) error {
+	fullArgs := i.kubectlArgs(args...)
+	if i.Debug {
+		fmt.Printf("[DEBUG] kubectl %v\n", fullArgs)
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", fullArgs...)
+	output, err := cmd.CombinedOutput()
+	if i.Debug && len(output) > 0 {
+		fmt.Printf("[DEBUG] Output: %s\n", string(output))
+	}
+	if err != nil && i.Debug {
+		fmt.Printf("[DEBUG] Error: %v\n", err)
+	}
+	return err
+}
+
 func (i *OperatorInstaller) Install(ctx context.Context) error {
+	if i.Debug {
+		fmt.Println("[DEBUG] OperatorInstaller.Install() started")
+	}
+	
 	if err := i.ensureCertManager(ctx); err != nil {
 		return err
 	}
