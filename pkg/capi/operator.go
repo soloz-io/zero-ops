@@ -16,7 +16,7 @@ type OperatorInstaller struct {
 	Kubeconfig string
 	Context    string
 	Namespace  string
-	OSType     string // "talos" or "flatcar"
+	OSType     string // "ubuntu" or "talos"
 }
 
 func (i *OperatorInstaller) kubectlArgs(args ...string) []string {
@@ -128,13 +128,13 @@ func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
 	}
 
 	// OS-specific bootstrap and control plane providers
-	if i.OSType == "flatcar" {
+	if i.OSType == "ubuntu" {
 		providers = append(providers,
 			"core/capi-operator/providers/bootstrap-provider-kubeadm.yaml",
 			"core/capi-operator/providers/controlplane-provider-kubeadm.yaml",
 		)
 	} else {
-		// Default to Talos
+		// Talos
 		providers = append(providers,
 			"core/capi-operator/providers/bootstrap-provider-talos.yaml",
 			"core/capi-operator/providers/controlplane-provider-talos.yaml",
@@ -209,13 +209,13 @@ func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.D
 	}
 
 	// OS-specific providers
-	if i.OSType == "flatcar" {
+	if i.OSType == "ubuntu" {
 		providers = append(providers,
 			struct{ kind, name string }{"BootstrapProvider", "kubeadm"},
 			struct{ kind, name string }{"ControlPlaneProvider", "kubeadm"},
 		)
 	} else {
-		// Default to Talos
+		// Talos
 		providers = append(providers,
 			struct{ kind, name string }{"BootstrapProvider", "talos"},
 			struct{ kind, name string }{"ControlPlaneProvider", "talos"},

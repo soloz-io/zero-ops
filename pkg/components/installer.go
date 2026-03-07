@@ -16,7 +16,7 @@ type Installer struct {
 	Kubeconfig string
 }
 
-// InstallAll installs all required components sequentially
+// InstallAll installs all required components sequentially (CNI/CCM handled by CRS)
 func (i *Installer) InstallAll(ctx context.Context) error {
 	components := []struct {
 		name    string
@@ -24,7 +24,6 @@ func (i *Installer) InstallAll(ctx context.Context) error {
 		ns      string
 		deploy  string
 	}{
-		{"hetzner-ccm", "cloud-providers/hetzner/ccm/install.yaml", "kube-system", "hcloud-cloud-controller-manager"},
 		{"hetzner-csi", "cloud-providers/hetzner/csi/install.yaml", "kube-system", "hcloud-csi-controller"},
 		{"argocd", "gitops/argocd/install.yaml", "argocd", "argocd-server"},
 		{"capi2argo", "gitops/capi2argo/install.yaml", "capi2argo-system", "capi2argo-controller-manager"},
@@ -68,6 +67,36 @@ func (i *Installer) install(ctx context.Context, path string) error {
 }
 
 func (i *Installer) verify(ctx context.Context, namespace, deployment string) error {
+	// For Cilium installer job, wait for job completion
+	if deployment == "cilium-installer" {
+		cmd := exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", i.Kubeconfig,
+			"wait", "job", deployment,
+			"-n", namespace,
+			"--for=condition=Complete",
+			"--timeout=10m",
+		)
+		
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("job not complete: %w\n%s", err, output)
+		}
+		
+		// Wait for Cilium operator deployment
+		cmd = exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", i.Kubeconfig,
+			"wait", "deployment", "cilium-operator",
+			"-n", "kube-system",
+			"--for=condition=Available",
+			"--timeout=5m",
+		)
+		
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("cilium-operator not ready: %w\n%s", err, output)
+		}
+		
+		return nil
+	}
+	
 	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,
 		"wait", "deployment", deployment,
@@ -107,4 +136,83 @@ func (i *Installer) GetArgoCDPassword(ctx context.Context) (string, error) {
 	}
 	
 	return string(decoded), nil
+}
+
+
+// InstallCilium installs Cilium CNI via Helm (CAPH parity)
+func (i *Installer) InstallCilium(ctx context.Context) error {
+	fmt.Println("[cilium] Installing Cilium CNI via Helm...")
+	
+	// Add Cilium Helm repo
+	cmd := exec.CommandContext(ctx, "helm", "repo", "add", "cilium", "https://helm.cilium.io/")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Ignore "already exists" error
+		if !bytes.Contains(output, []byte("already exists")) {
+			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
+		}
+	}
+	
+	// Update repos
+	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
+	}
+	
+	// Install Cilium
+	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "cilium", "cilium/cilium",
+		"--version", "1.15.6",
+		"--namespace", "kube-system",
+		"--kubeconfig", i.Kubeconfig,
+		"--set", "ipam.mode=kubernetes",
+		"--set", "kubeProxyReplacement=true",
+		"--set", "operator.rollOutPods=true",
+		"--set", "rollOutCiliumPods=true",
+		"--set", "priorityClassName=system-node-critical",
+		"--set", "operator.priorityClassName=system-node-critical",
+		"--wait",
+		"--timeout", "10m",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install cilium: %w\n%s", err, output)
+	}
+	
+	fmt.Println("[cilium] ✓ Cilium CNI installed")
+	return nil
+}
+
+// InstallCCM installs Hetzner Cloud Controller Manager via Helm (CAPH parity)
+func (i *Installer) InstallCCM(ctx context.Context, hcloudToken string) error {
+	fmt.Println("[ccm] Installing Hetzner CCM via Helm...")
+	
+	// Add syself Helm repo
+	cmd := exec.CommandContext(ctx, "helm", "repo", "add", "syself", "https://charts.syself.com")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if !bytes.Contains(output, []byte("already exists")) {
+			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
+		}
+	}
+	
+	// Update repos
+	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
+	}
+	
+	// Install CCM
+	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "ccm", "syself/ccm-hetzner",
+		"--version", "1.1.10",
+		"--namespace", "kube-system",
+		"--kubeconfig", i.Kubeconfig,
+		"--set", fmt.Sprintf("secret.hcloudApiToken=%s", hcloudToken),
+		"--wait",
+		"--timeout", "5m",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install ccm: %w\n%s", err, output)
+	}
+	
+	fmt.Println("[ccm] ✓ Hetzner CCM installed")
+	return nil
 }

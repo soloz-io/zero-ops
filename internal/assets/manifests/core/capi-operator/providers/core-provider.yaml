@@ -8,3 +8,4 @@ spec:
   manager:
     featureGates:
       ClusterTopology: true
+      ClusterResourceSet: true

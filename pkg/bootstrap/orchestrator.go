@@ -2,10 +2,14 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"time"
 
+	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/pkg/capi"
 	"github.com/soloz-io/zero-ops/pkg/cluster"
 	"github.com/soloz-io/zero-ops/pkg/clusterclass"
@@ -19,8 +23,8 @@ import (
 type Orchestrator struct {
 	ClusterName      string
 	Region           string
-	OSType           string // "talos" or "flatcar"
-	ImageID          string // Talos snapshot ID or Flatcar image name
+	OSType           string // "ubuntu" or "talos"
+	ImageID          string // Talos snapshot ID or ubuntu-24.04
 	NetworkCIDR      string
 	SSHKey           string
 	BootstrapContext string
@@ -133,6 +137,23 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Calculate subnet CIDR from network CIDR
 	subnetCIDR := o.NetworkCIDR[:len(o.NetworkCIDR)-2] + "24" // Simple: change /16 to /24
 	
+	// Determine image ID based on OS
+	imageID := o.ImageID
+	if o.OSType == "ubuntu" {
+		imageID = "ubuntu-24.04"
+	}
+	
+	// Load rendered manifests for CRS
+	ciliumRaw, err := assets.ReadManifest("addons/cilium-rendered.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read cilium manifest: %w", err)
+	}
+	
+	ccmRaw, err := assets.ReadManifest("addons/ccm-rendered.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read ccm manifest: %w", err)
+	}
+	
 	provisioner := &cluster.Provisioner{
 		Kubeconfig: kubeconfig,
 		Context:    bootstrapState.BootstrapContext,
@@ -141,7 +162,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			Namespace:               "zero-ops-system",
 			Region:                  o.Region,
 			OSType:                  o.OSType,
-			ImageID:                 o.ImageID,
+			ImageID:                 imageID,
 			KubernetesVersion:       "v1.31.6",
 			NetworkCIDR:             o.NetworkCIDR,
 			SubnetCIDR:              subnetCIDR,
@@ -149,13 +170,23 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			WorkerMachineType:       "cx23",
 			ControlPlaneReplicas:    3,
 			WorkerReplicas:          2,
+			HCloudToken:             o.HCloudToken,
+			CiliumManifest:          string(ciliumRaw),
+			CCMManifest:             string(ccmRaw),
 		},
 	}
 	
 	if err := provisioner.Provision(ctx); err != nil {
 		return fmt.Errorf("failed to provision cluster: %w", err)
 	}
-	fmt.Println("[cluster-provision] ✓ Management Cluster provisioned")
+	fmt.Println("[cluster-provision] ✓ Cluster resources and CRS applied")
+	
+	// Now wait for cluster to become Ready (CRS will auto-install CNI/CCM)
+	fmt.Println("[cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...")
+	if err := provisioner.WaitForReady(ctx); err != nil {
+		return fmt.Errorf("cluster not ready: %w", err)
+	}
+	fmt.Println("[cluster-provision] ✓ Management Cluster ready")
 	
 	// Update state
 	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterProvision)
@@ -288,4 +319,102 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	fmt.Println("3. Access ArgoCD UI (username: admin)")
 	
 	return nil
+}
+
+
+func (o *Orchestrator) getMgmtKubeconfig(ctx context.Context, bootstrapKubeconfig, bootstrapContext string) (string, error) {
+	secretName := fmt.Sprintf("%s-kubeconfig", o.ClusterName)
+	
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", bootstrapKubeconfig,
+		"--context", bootstrapContext,
+		"get", "secret", secretName,
+		"-n", "zero-ops-system",
+		"-o", "jsonpath={.data.value}",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	
+	decoded, err := base64.StdEncoding.DecodeString(string(output))
+	if err != nil {
+		return "", err
+	}
+	
+	// Save to temp file
+	tmpDir := os.TempDir()
+	path := filepath.Join(tmpDir, fmt.Sprintf("%s-temp.kubeconfig", o.ClusterName))
+	if err := os.WriteFile(path, decoded, 0600); err != nil {
+		return "", err
+	}
+	
+	return path, nil
+}
+
+
+func (o *Orchestrator) waitAndGetKubeconfig(ctx context.Context, bootstrapKubeconfig, bootstrapContext string) (string, error) {
+	secretName := fmt.Sprintf("%s-kubeconfig", o.ClusterName)
+	
+	// Wait for secret to exist
+	for i := 0; i < 60; i++ {
+		cmd := exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", bootstrapKubeconfig,
+			"--context", bootstrapContext,
+			"get", "secret", secretName,
+			"-n", "zero-ops-system",
+			"-o", "jsonpath={.data.value}",
+		)
+		
+		output, err := cmd.Output()
+		if err == nil && len(output) > 0 {
+			decoded, err := base64.StdEncoding.DecodeString(string(output))
+			if err != nil {
+				return "", err
+			}
+			
+			tmpDir := os.TempDir()
+			path := filepath.Join(tmpDir, fmt.Sprintf("%s-temp.kubeconfig", o.ClusterName))
+			if err := os.WriteFile(path, decoded, 0600); err != nil {
+				return "", err
+			}
+			
+			return path, nil
+		}
+		
+		time.Sleep(5 * time.Second)
+	}
+	
+	return "", fmt.Errorf("timeout waiting for kubeconfig secret")
+}
+
+func (o *Orchestrator) waitForNodeToRegister(ctx context.Context, kubeconfig string) error {
+	// Wait for at least one node with control-plane role to appear
+	for i := 0; i < 120; i++ {
+		cmd := exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", kubeconfig,
+			"get", "nodes",
+			"-l", "node-role.kubernetes.io/control-plane",
+			"-o", "name",
+		)
+		
+		output, err := cmd.Output()
+		if err == nil && len(output) > 0 {
+			return nil
+		}
+		
+		time.Sleep(5 * time.Second)
+	}
+	
+	return fmt.Errorf("timeout waiting for control plane node to register")
+}
+
+
+func mustReadCatalog(path string) []byte {
+	data, err := assets.ReadCatalog(path)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read catalog %s: %v", path, err))
+	}
+	return data
 }

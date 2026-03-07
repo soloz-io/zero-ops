@@ -1,0 +1,58 @@
+---
+apiVersion: addons.cluster.x-k8s.io/v1beta1
+kind: ClusterResourceSet
+metadata:
+  name: {{.ClusterName}}-addons
+  namespace: {{.Namespace}}
+spec:
+  clusterSelector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: {{.ClusterName}}
+  strategy: ApplyOnce
+  resources:
+  - kind: Secret
+    name: {{.ClusterName}}-hetzner-credentials
+  - kind: Secret
+    name: {{.ClusterName}}-cilium-addon
+  - kind: Secret
+    name: {{.ClusterName}}-ccm-addon
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.ClusterName}}-hetzner-credentials
+  namespace: {{.Namespace}}
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  secret.yaml: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: hetzner
+      namespace: kube-system
+    stringData:
+      hcloud: "{{.HCloudToken}}"
+      robot-user: ""
+      robot-password: ""
+      robot-user: ""
+      robot-password: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.ClusterName}}-cilium-addon
+  namespace: {{.Namespace}}
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  cilium.yaml: |
+{{.CiliumManifest}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.ClusterName}}-ccm-addon
+  namespace: {{.Namespace}}
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  ccm.yaml: |
+{{.CCMManifest}}

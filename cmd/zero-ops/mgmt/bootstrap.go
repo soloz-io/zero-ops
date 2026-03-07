@@ -48,7 +48,7 @@ Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux.`,
 	cmd.Flags().StringVar(&imageID, "image-id", "", "OS image ID (Talos snapshot ID or Flatcar image name)")
 
 	// Optional flags
-	cmd.Flags().StringVar(&osType, "os", "flatcar", "OS type: flatcar (default) or talos")
+	cmd.Flags().StringVar(&osType, "os", "ubuntu", "OS type: ubuntu (default) or talos")
 	cmd.Flags().StringVar(&bootstrapContext, "bootstrap-context", "", "Use existing K8s cluster instead of Kind")
 	cmd.Flags().BoolVar(&keepBootstrap, "keep-bootstrap", false, "Preserve Kind cluster after successful pivot")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate prerequisites and generate manifests without provisioning")
@@ -86,17 +86,15 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate OS type
-	if osType != "flatcar" && osType != "talos" {
-		return fmt.Errorf("invalid OS type: must be 'flatcar' or 'talos'")
+	if osType != "ubuntu" && osType != "talos" {
+		return fmt.Errorf("invalid OS type: must be 'ubuntu' or 'talos'")
 	}
 
 	// Validate image ID based on OS
 	if osType == "talos" && imageID == "" && !buildTalosImage {
 		return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
 	}
-	if osType == "flatcar" && imageID == "" && !buildFlatcarImage {
-		return fmt.Errorf("for Flatcar: either --image-id or --build-flatcar-image must be provided")
-	}
+	// Ubuntu uses official Hetzner image, no validation needed
 
 	// Validate HCLOUD_TOKEN environment variable
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
@@ -197,17 +195,15 @@ func runPreflight(ctx context.Context, hcloudToken string) error {
 			Region:      region,
 			ClusterName: clusterName,
 		})
-	} else {
-		runner.Add(&preflight.FlatcarImageValidator{
-			Token:       hcloudToken,
-			ImageID:     &imageID,
-			BuildImage:  buildFlatcarImage,
-			Region:      region,
-			ClusterName: clusterName,
-		})
 	}
+	// Ubuntu uses official Hetzner image ubuntu-24.04, no validation needed
 	runner.Add(&preflight.SSHKeyValidator{Token: hcloudToken, KeyName: sshKey})
-	runner.Add(&preflight.IdempotencyValidator{ClusterName: clusterName, Upgrade: upgrade})
+	runner.Add(&preflight.IdempotencyValidator{
+		ClusterName:      clusterName,
+		Namespace:        "zero-ops-system",
+		BootstrapContext: bootstrapContext,
+		Upgrade:          upgrade,
+	})
 	
 	return runner.Run(ctx)
 }
