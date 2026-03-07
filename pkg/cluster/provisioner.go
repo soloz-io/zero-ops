@@ -202,7 +202,7 @@ func (p *Provisioner) WaitForReady(ctx context.Context) error {
 		cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("wait", "cluster", p.Config.ClusterName,
 			"-n", p.Config.Namespace,
 			"--for=condition=Ready",
-			"--timeout=15m")...)
+			"--timeout=30m")...)
 		
 		output, err := cmd.CombinedOutput()
 		if err != nil {

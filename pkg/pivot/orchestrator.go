@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/pkg/binaries"
 )
 
 // Orchestrator manages CAPI pivot from bootstrap to management cluster
@@ -16,10 +19,21 @@ type Orchestrator struct {
 	BootstrapKubeconfig string
 	ClusterName         string
 	Namespace           string
+	OSType              string // ubuntu or talos
 }
 
 // Execute performs the pivot operation
 func (o *Orchestrator) Execute(ctx context.Context) (string, error) {
+	// 0. Ensure clusterctl is installed
+	clusterctlMgr, err := binaries.NewClusterctlManager()
+	if err != nil {
+		return "", fmt.Errorf("failed to create clusterctl manager: %w", err)
+	}
+	
+	if err := clusterctlMgr.EnsureInstalled(ctx); err != nil {
+		return "", fmt.Errorf("failed to install clusterctl: %w", err)
+	}
+	
 	// 1. Retrieve Management Cluster kubeconfig
 	mgmtKubeconfig, err := o.getKubeconfig(ctx)
 	if err != nil {
@@ -97,45 +111,55 @@ func (o *Orchestrator) getKubeconfig(ctx context.Context) (string, error) {
 }
 
 func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig string) error {
-	// Apply operator manifest
-	manifest := `apiVersion: v1
-kind: Namespace
-metadata:
-  name: capi-operator-system
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: capi-operator-controller-manager
-  namespace: capi-operator-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      control-plane: controller-manager
-  template:
-    metadata:
-      labels:
-        control-plane: controller-manager
-    spec:
-      containers:
-      - name: manager
-        image: registry.k8s.io/capi-operator/cluster-api-operator:v0.13.0
-        command:
-        - /manager
-`
+	// 1. Install cert-manager (required for operator webhooks)
+	fmt.Println("[pivot] Installing cert-manager...")
+	certMgrManifest, err := assets.ReadManifest("core/cert-manager/install.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read cert-manager manifest: %w", err)
+	}
 	
 	cmd := exec.CommandContext(ctx, "kubectl", "apply",
 		"--kubeconfig", mgmtKubeconfig,
 		"-f", "-",
 	)
-	cmd.Stdin = bytes.NewReader([]byte(manifest))
-	
+	cmd.Stdin = bytes.NewReader(certMgrManifest)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("kubectl apply failed: %w\n%s", err, output)
+		return fmt.Errorf("cert-manager apply failed: %w\n%s", err, output)
 	}
 	
-	// Wait for operator ready
+	// 2. Wait for cert-manager webhook
+	fmt.Println("[pivot] Waiting for cert-manager webhook...")
+	cmd = exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", mgmtKubeconfig,
+		"wait", "deployment",
+		"-n", "cert-manager",
+		"cert-manager-webhook",
+		"--for=condition=Available",
+		"--timeout=3m",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("cert-manager webhook not ready: %w\n%s", err, output)
+	}
+	
+	// 3. Install full operator manifest
+	fmt.Println("[pivot] Installing cluster-api-operator...")
+	operatorManifest, err := assets.ReadManifest("core/capi-operator/install.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read operator manifest: %w", err)
+	}
+	
+	cmd = exec.CommandContext(ctx, "kubectl", "apply",
+		"--kubeconfig", mgmtKubeconfig,
+		"--server-side",
+		"-f", "-",
+	)
+	cmd.Stdin = bytes.NewReader(operatorManifest)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("operator apply failed: %w\n%s", err, output)
+	}
+	
+	// 4. Wait for operator ready
+	fmt.Println("[pivot] Waiting for operator...")
 	cmd = exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", mgmtKubeconfig,
 		"wait", "deployment",
@@ -144,7 +168,6 @@ spec:
 		"--for=condition=Available",
 		"--timeout=3m",
 	)
-	
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("operator not ready: %w\n%s", err, output)
 	}
@@ -153,7 +176,10 @@ spec:
 }
 
 func (o *Orchestrator) move(ctx context.Context, mgmtKubeconfig string) error {
-	cmd := exec.CommandContext(ctx, "clusterctl", "move",
+	clusterctlMgr, _ := binaries.NewClusterctlManager()
+	clusterctlPath := clusterctlMgr.GetPath()
+	
+	cmd := exec.CommandContext(ctx, clusterctlPath, "move",
 		"--to-kubeconfig", mgmtKubeconfig,
 		"--namespace", o.Namespace,
 	)
@@ -185,13 +211,24 @@ func (o *Orchestrator) countResources(ctx context.Context, kubeconfig string) (i
 }
 
 func (o *Orchestrator) waitForProvidersReady(ctx context.Context, kubeconfig string, timeout time.Duration) error {
+	// Determine provider names based on OS type
+	var bootstrapProvider, controlPlaneProvider string
+	if o.OSType == "talos" {
+		bootstrapProvider = "talos"
+		controlPlaneProvider = "talos"
+	} else {
+		// ubuntu uses kubeadm
+		bootstrapProvider = "kubeadm"
+		controlPlaneProvider = "kubeadm"
+	}
+	
 	providers := []struct {
 		kind string
 		name string
 	}{
 		{"CoreProvider", "cluster-api"},
-		{"BootstrapProvider", "talos"},
-		{"ControlPlaneProvider", "talos"},
+		{"BootstrapProvider", bootstrapProvider},
+		{"ControlPlaneProvider", controlPlaneProvider},
 		{"InfrastructureProvider", "hetzner"},
 	}
 	

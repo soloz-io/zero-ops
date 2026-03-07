@@ -37,70 +37,101 @@ type Orchestrator struct {
 func (o *Orchestrator) Run(ctx context.Context) error {
 	stateMgr := state.NewStateManager(o.ClusterName)
 	
-	// Initialize state
-	bootstrapState := &state.BootstrapState{
-		Version:     "1.0",
-		ClusterName: o.ClusterName,
-		Region:      o.Region,
-		TalosImageId: o.ImageID,
-		NetworkCIDR: o.NetworkCIDR,
-		CurrentPhase: state.PhaseBootstrapCreate,
+	// Try to load existing state
+	bootstrapState, err := stateMgr.Load()
+	if err == nil && bootstrapState != nil {
+		fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
+		fmt.Printf("[recovery] Last completed phase: %s\n", bootstrapState.CurrentPhase)
+		fmt.Printf("[recovery] Resuming from next phase...\n")
+	} else {
+		// Initialize new state
+		bootstrapState = &state.BootstrapState{
+			Version:      "1.0",
+			ClusterName:  o.ClusterName,
+			Region:       o.Region,
+			TalosImageId: o.ImageID,
+			NetworkCIDR:  o.NetworkCIDR,
+			CurrentPhase: state.PhaseBootstrapCreate,
+		}
+		
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
 	}
 	
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+	// Determine kubeconfig and context
+	var kubeconfig string
+	var bootstrapContext string
+	var mgmtKubeconfig string
+	
+	if bootstrapState.BootstrapContext != "" {
+		bootstrapContext = bootstrapState.BootstrapContext
+	} else if o.BootstrapContext != "" {
+		bootstrapContext = o.BootstrapContext
+	}
+	
+	// Restore mgmt kubeconfig from state if available
+	if bootstrapState.MgmtKubeconfig != "" {
+		mgmtKubeconfig = bootstrapState.MgmtKubeconfig
 	}
 	
 	// Phase 3: Bootstrap Cluster Creation
-	fmt.Println("\n[bootstrap-create] Creating ephemeral bootstrap cluster...")
-	
-	var kubeconfig string
-	if o.BootstrapContext != "" {
-		fmt.Printf("[bootstrap-create] Using existing context: %s\n", o.BootstrapContext)
-		homeDir, _ := os.UserHomeDir()
-		kubeconfig = filepath.Join(homeDir, ".kube", "config")
-		bootstrapState.BootstrapContext = o.BootstrapContext
-	} else {
-		kindMgr := &KindManager{ClusterName: "bootstrap-zero-ops"}
+	if !contains(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate) {
+		fmt.Println("\n[bootstrap-create] Creating ephemeral bootstrap cluster...")
 		
-		if kindMgr.Exists(ctx) {
-			fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
+		if bootstrapContext != "" {
+			fmt.Printf("[bootstrap-create] Using existing context: %s\n", bootstrapContext)
+			homeDir, _ := os.UserHomeDir()
+			kubeconfig = filepath.Join(homeDir, ".kube", "config")
+			bootstrapState.BootstrapContext = bootstrapContext
 		} else {
-			if err := kindMgr.Create(ctx); err != nil {
-				return fmt.Errorf("failed to create Kind cluster: %w", err)
+			kindMgr := &KindManager{ClusterName: "bootstrap-zero-ops"}
+			
+			if kindMgr.Exists(ctx) {
+				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
+			} else {
+				if err := kindMgr.Create(ctx); err != nil {
+					return fmt.Errorf("failed to create Kind cluster: %w", err)
+				}
+				fmt.Println("[bootstrap-create] ✓ Kind cluster created")
 			}
-			fmt.Println("[bootstrap-create] ✓ Kind cluster created")
+			
+			// Get kubeconfig path
+			homeDir, _ := os.UserHomeDir()
+			kubeconfig = filepath.Join(homeDir, ".kube", "config")
+			bootstrapState.BootstrapContext = "kind-bootstrap-zero-ops"
 		}
 		
-		// Get kubeconfig path
+		// Create namespace
+		nsMgr := &NamespaceManager{
+			Kubeconfig: kubeconfig,
+			Context:    bootstrapState.BootstrapContext,
+			Namespace:  "zero-ops-system",
+		}
+		
+		if err := nsMgr.Create(ctx); err != nil {
+			return fmt.Errorf("failed to create namespace: %w", err)
+		}
+		fmt.Println("[bootstrap-create] ✓ Namespace created: zero-ops-system")
+		
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate)
+		bootstrapState.CurrentPhase = state.PhaseCAPIInit
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		// Recovery: restore kubeconfig from state
 		homeDir, _ := os.UserHomeDir()
 		kubeconfig = filepath.Join(homeDir, ".kube", "config")
-		bootstrapState.BootstrapContext = "kind-bootstrap-zero-ops"
-	}
-	
-	// Create namespace
-	nsMgr := &NamespaceManager{
-		Kubeconfig: kubeconfig,
-		Context:    bootstrapState.BootstrapContext,
-		Namespace:  "zero-ops-system",
-	}
-	
-	if err := nsMgr.Create(ctx); err != nil {
-		return fmt.Errorf("failed to create namespace: %w", err)
-	}
-	fmt.Println("[bootstrap-create] ✓ Namespace created: zero-ops-system")
-	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate)
-	bootstrapState.CurrentPhase = state.PhaseCAPIInit
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		fmt.Println("[bootstrap-create] ✓ Skipped (already completed)")
 	}
 	
 	// Phase 4: CAPI Initialization
-	fmt.Println("\n[capi-init] Installing cluster-api-operator...")
-	
-	capiInstaller := &capi.OperatorInstaller{
+	if !contains(bootstrapState.CompletedPhases, state.PhaseCAPIInit) {
+		fmt.Println("\n[capi-init] Installing cluster-api-operator...")
+		
+		capiInstaller := &capi.OperatorInstaller{
 		Kubeconfig: kubeconfig,
 		Context:    bootstrapState.BootstrapContext,
 		Namespace:  "zero-ops-system",
@@ -124,99 +155,124 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Println("[capi-init] ✓ Hetzner credentials secret created")
 	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseCAPIInit)
-	bootstrapState.CurrentPhase = state.PhaseClusterProvision
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseCAPIInit)
+		bootstrapState.CurrentPhase = state.PhaseClusterProvision
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[capi-init] ✓ Skipped (already completed)")
 	}
 	
 	// Phase 5: Management Cluster Provisioning
-	fmt.Println("\n[cluster-provision] Provisioning Management Cluster on Hetzner...")
-	
-	// Calculate subnet CIDR from network CIDR
-	subnetCIDR := o.NetworkCIDR[:len(o.NetworkCIDR)-2] + "24" // Simple: change /16 to /24
-	
-	// Determine image ID based on OS
-	imageID := o.ImageID
-	if o.OSType == "ubuntu" {
-		imageID = "ubuntu-24.04"
-	}
-	
-	// Load rendered manifests for CRS
-	ciliumRaw, err := assets.ReadManifest("addons/cilium-rendered.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read cilium manifest: %w", err)
-	}
-	
-	ccmRaw, err := assets.ReadManifest("addons/ccm-rendered.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read ccm manifest: %w", err)
-	}
-	
-	provisioner := &cluster.Provisioner{
-		Kubeconfig: kubeconfig,
-		Context:    bootstrapState.BootstrapContext,
-		Config: &cluster.Config{
-			ClusterName:             o.ClusterName,
-			Namespace:               "zero-ops-system",
-			Region:                  o.Region,
-			OSType:                  o.OSType,
-			ImageID:                 imageID,
-			KubernetesVersion:       "v1.31.6",
-			NetworkCIDR:             o.NetworkCIDR,
-			SubnetCIDR:              subnetCIDR,
-			ControlPlaneMachineType: "cx23",
-			WorkerMachineType:       "cx23",
-			ControlPlaneReplicas:    3,
-			WorkerReplicas:          2,
-			HCloudToken:             o.HCloudToken,
-			CiliumManifest:          string(ciliumRaw),
-			CCMManifest:             string(ccmRaw),
-		},
-	}
-	
-	if err := provisioner.Provision(ctx); err != nil {
-		return fmt.Errorf("failed to provision cluster: %w", err)
-	}
-	fmt.Println("[cluster-provision] ✓ Cluster resources and CRS applied")
-	
-	// Now wait for cluster to become Ready (CRS will auto-install CNI/CCM)
-	fmt.Println("[cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...")
+	if !contains(bootstrapState.CompletedPhases, state.PhaseClusterProvision) {
+		fmt.Println("\n[cluster-provision] Provisioning Management Cluster on Hetzner...")
+		
+		// Calculate subnet CIDR from network CIDR
+		subnetCIDR := o.NetworkCIDR[:len(o.NetworkCIDR)-2] + "24" // Simple: change /16 to /24
+		
+		// Determine image ID based on OS
+		imageID := o.ImageID
+		if o.OSType == "ubuntu" {
+			imageID = "ubuntu-24.04"
+		}
+		
+		// Load rendered manifests for CRS
+		ciliumRaw, err := assets.ReadManifest("addons/cilium-rendered.yaml")
+		if err != nil {
+			return fmt.Errorf("failed to read cilium manifest: %w", err)
+		}
+		
+		ccmRaw, err := assets.ReadManifest("addons/ccm-rendered.yaml")
+		if err != nil {
+			return fmt.Errorf("failed to read ccm manifest: %w", err)
+		}
+		
+		provisioner := &cluster.Provisioner{
+			Kubeconfig: kubeconfig,
+			Context:    bootstrapState.BootstrapContext,
+			Config: &cluster.Config{
+				ClusterName:             o.ClusterName,
+				Namespace:               "zero-ops-system",
+				Region:                  o.Region,
+				OSType:                  o.OSType,
+				ImageID:                 imageID,
+				KubernetesVersion:       "v1.31.6",
+				NetworkCIDR:             o.NetworkCIDR,
+				SubnetCIDR:              subnetCIDR,
+				ControlPlaneMachineType: "cx23",
+				WorkerMachineType:       "cx23",
+				ControlPlaneReplicas:    3,
+				WorkerReplicas:          2,
+				HCloudToken:             o.HCloudToken,
+				CiliumManifest:          string(ciliumRaw),
+				CCMManifest:             string(ccmRaw),
+			},
+		}
+		
+		// Check if cluster already exists and is ready (recovery scenario)
+		checkCmd := exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", kubeconfig,
+			"--context", bootstrapState.BootstrapContext,
+			"get", "cluster", o.ClusterName,
+			"-n", "zero-ops-system",
+			"-o", "jsonpath={.status.phase}",
+		)
+		if output, err := checkCmd.Output(); err == nil && string(output) == "Provisioned" {
+			fmt.Println("[cluster-provision] ✓ Cluster already exists and provisioned")
+		} else {
+			if err := provisioner.Provision(ctx); err != nil {
+				return fmt.Errorf("failed to provision cluster: %w", err)
+			}
+			fmt.Println("[cluster-provision] ✓ Cluster resources and CRS applied")
+		}
+		
+		// Now wait for cluster to become Ready (CRS will auto-install CNI/CCM)
+		fmt.Println("[cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...")
 	if err := provisioner.WaitForReady(ctx); err != nil {
 		return fmt.Errorf("cluster not ready: %w", err)
 	}
 	fmt.Println("[cluster-provision] ✓ Management Cluster ready")
 	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterProvision)
-	bootstrapState.CurrentPhase = state.PhasePivot
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterProvision)
+		bootstrapState.CurrentPhase = state.PhasePivot
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[cluster-provision] ✓ Skipped (already completed)")
 	}
 	
 	// Phase 6: CAPI Pivot
-	fmt.Println("\n[pivot] Moving CAPI resources to Management Cluster...")
-	
-	pivotOrch := &pivot.Orchestrator{
+	if !contains(bootstrapState.CompletedPhases, state.PhasePivot) {
+		fmt.Println("\n[pivot] Moving CAPI resources to Management Cluster...")
+		
+		pivotOrch := &pivot.Orchestrator{
 		BootstrapKubeconfig: kubeconfig,
 		ClusterName:         o.ClusterName,
 		Namespace:           "zero-ops-system",
+		OSType:              o.OSType,
 	}
 	
-	mgmtKubeconfig, err := pivotOrch.Execute(ctx)
-	if err != nil {
-		return fmt.Errorf("pivot failed: %w", err)
-	}
-	fmt.Println("[pivot] ✓ CAPI pivot complete")
-	
-	bootstrapState.MgmtKubeconfig = mgmtKubeconfig
-	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivot)
-	bootstrapState.CurrentPhase = state.PhaseClusterClassDeploy
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		var err error
+		mgmtKubeconfig, err = pivotOrch.Execute(ctx)
+		if err != nil {
+			return fmt.Errorf("pivot failed: %w", err)
+		}
+		fmt.Println("[pivot] ✓ CAPI pivot complete")
+		
+		bootstrapState.MgmtKubeconfig = mgmtKubeconfig
+		
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivot)
+		bootstrapState.CurrentPhase = state.PhaseClusterClassDeploy
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[pivot] ✓ Skipped (already completed)")
 	}
 	
 	// Cleanup bootstrap cluster if not keeping
@@ -231,9 +287,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	
 	// Phase 7: ClusterClass Library Deployment
-	fmt.Println("\n[clusterclass-deploy] Deploying ClusterClass library...")
-	
-	ccDeployer := &clusterclass.Deployer{
+	if !contains(bootstrapState.CompletedPhases, state.PhaseClusterClassDeploy) {
+		fmt.Println("\n[clusterclass-deploy] Deploying ClusterClass library...")
+		
+		ccDeployer := &clusterclass.Deployer{
 		Kubeconfig: mgmtKubeconfig,
 		Namespace:  "zero-ops-system",
 	}
@@ -243,17 +300,21 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Println("[clusterclass-deploy] ✓ ClusterClass library deployed")
 	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterClassDeploy)
-	bootstrapState.CurrentPhase = state.PhasePostBoot
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterClassDeploy)
+		bootstrapState.CurrentPhase = state.PhasePostBoot
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[clusterclass-deploy] ✓ Skipped (already completed)")
 	}
 	
 	// Phase 8: Post-Bootstrap Components
-	fmt.Println("\n[postboot] Installing platform components...")
-	
-	compInstaller := &components.Installer{
+	if !contains(bootstrapState.CompletedPhases, state.PhasePostBoot) {
+		fmt.Println("\n[postboot] Installing platform components...")
+		
+		compInstaller := &components.Installer{
 		Kubeconfig: mgmtKubeconfig,
 	}
 	
@@ -262,11 +323,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Println("[postboot] ✓ All components installed")
 	
-	// Update state
-	bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
-	bootstrapState.CurrentPhase = state.PhaseComplete
-	if err := stateMgr.Save(bootstrapState); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
+		// Update state
+		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
+		bootstrapState.CurrentPhase = state.PhaseComplete
+		if err := stateMgr.Save(bootstrapState); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	} else {
+		fmt.Println("[postboot] ✓ Skipped (already completed)")
 	}
 	
 	// Phase 9: Kubeconfig & Talosconfig Management
@@ -300,6 +364,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	
 	// Get ArgoCD password
+	compInstaller := &components.Installer{
+		Kubeconfig: mgmtKubeconfig,
+	}
 	argoCDPassword, err := compInstaller.GetArgoCDPassword(ctx)
 	if err != nil {
 		fmt.Printf("[config] Warning: failed to get ArgoCD password: %v\n", err)
@@ -417,4 +484,14 @@ func mustReadCatalog(path string) []byte {
 		panic(fmt.Sprintf("failed to read catalog %s: %v", path, err))
 	}
 	return data
+}
+
+// contains checks if a phase is in the completed phases list
+func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
+	for _, p := range phases {
+		if p == phase {
+			return true
+		}
+	}
+	return false
 }

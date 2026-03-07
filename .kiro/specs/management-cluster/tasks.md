@@ -465,32 +465,24 @@ talosctl --talosconfig=mothership.talosconfig -n <node-ip> version
 
 ---
 
-## Phase 10: Error Handling & Recovery
+## Phase 10: Error Handling & Observability
 
-### 10.1 Retry Logic
-- [ ] Implement exponential backoff for Hetzner API calls (HTTP 429, 5xx)
-- [ ] Implement retry for Kubernetes API calls (connection errors)
-- [ ] Add max retry limit (5 attempts)
-
-### 10.2 Failure Preservation
-- [ ] Preserve Kind cluster on any failure
-- [ ] Save state to `~/.zero-ops/state/<cluster-name>.json`
+### 10.1 Failure Preservation
+- [ ] Preserve Kind cluster on any failure (already implemented)
 - [ ] Output diagnostic information (logs, resource status)
 
-### 10.3 Error Messages
+### 10.2 Error Messages
 - [ ] Implement actionable error messages with remediation steps
 - [ ] Add error codes for common failures
 
-### 10.4 Debug Mode
+### 10.3 Debug Mode
 - [ ] Implement --debug flag for verbose logging
-- [ ] Log all API calls and kubectl commands
+- [ ] Log all kubectl commands and CAPI resource status
+
+**Note:** Retry logic for Hetzner API and Kubernetes operations is handled by CAPH controllers and client-go built-in retry mechanisms. No custom retry implementation needed.
 
 ### Manual Testing (Phase 10)
 ```bash
-# Test retry logic (simulate rate limit)
-# Manually trigger rate limit by making many Hetzner API calls, then run bootstrap
-# Expected: CLI retries with exponential backoff
-
 # Test failure preservation
 # Kill bootstrap process mid-execution (Ctrl+C during provisioning)
 kind get clusters
@@ -503,10 +495,10 @@ export HCLOUD_TOKEN=invalid
 
 # Test debug mode
 ./bin/zero-ops mgmt bootstrap --name=test --region=fsn1 --talos-image-id=<valid-id> --debug
-# Expected: Verbose logging showing all API calls and commands
+# Expected: Verbose logging showing kubectl commands and resource status
 ```
 
-**Approval Gate:** User confirms error handling, retry logic, and debug mode work correctly.
+**Approval Gate:** User confirms error handling and debug mode work correctly.
 
 ---
 
@@ -515,37 +507,46 @@ export HCLOUD_TOKEN=invalid
 ### 11.1 Teardown Implementation
 - [ ] Implement `zero-ops mgmt teardown` command
 - [ ] Add --name flag (required)
-- [ ] Add --force flag (direct Hetzner API deletion)
+- [ ] Add --force flag (direct Hetzner API deletion for stuck resources)
 - [ ] Add --confirm flag (safety check for force deletion)
 
-### 11.2 Graceful Deletion
-- [ ] Delete Cluster resource from Management Cluster
-- [ ] Wait for CAPI deletion cascade (15-minute timeout)
+### 11.2 Graceful Deletion (Default)
+- [ ] Delete Cluster resource from Management Cluster using kubectl
+- [ ] Wait for CAPI deletion cascade via finalizers (15-minute timeout)
+- [ ] Monitor deletion progress via Cluster status conditions
 - [ ] Verify all Hetzner resources deleted via API
 
-### 11.3 Force Deletion
-- [ ] Query Hetzner API for resources with cluster tag
-- [ ] Delete all matching resources directly
+**Note:** CAPI/CAPH controllers handle deletion cascade automatically via finalizers. The standard `kubectl delete cluster` triggers cleanup of all child resources (Machines, HetznerCluster, VMs, LBs, networks).
+
+### 11.3 Force Deletion (Fallback Only)
+- [ ] Query Hetzner API for resources with cluster label
+- [ ] Delete all matching resources directly via Hetzner API
+- [ ] Remove finalizers from stuck Kubernetes resources
 - [ ] Verify deletion via API
+
+**Use force deletion only when:**
+- CAPI controllers are not running
+- Resources are stuck in deletion for >15 minutes
+- Finalizers prevent deletion
 
 ### 11.4 Local Cleanup
 - [ ] Remove kubeconfig file
 - [ ] Remove talosconfig file
 - [ ] Remove context from ~/.kube/config (if merged)
-- [ ] Remove CLI cache in ~/.zero-ops/clusters/<cluster-name>/
+- [ ] Remove state file in ~/.zero-ops/state/<cluster-name>.json
 
 ### Manual Testing (Phase 11)
 ```bash
-# Test graceful teardown
+# Test graceful teardown (standard CAPI deletion)
 ./bin/zero-ops mgmt teardown --name=mothership
-# Expected: Cluster deleted via CAPI, Hetzner resources removed
+# Expected: Cluster deleted via CAPI cascade, Hetzner resources removed
 
 # Verify Hetzner resources deleted (via Hetzner Console)
 # Expected: No VMs, LBs, networks for cluster
 
-# Test force teardown
+# Test force teardown (only if graceful fails)
 ./bin/zero-ops mgmt teardown --name=mothership --force --confirm
-# Expected: Resources deleted directly via Hetzner API
+# Expected: Resources deleted directly via Hetzner API, finalizers removed
 
 # Verify local cleanup
 ls mothership.kubeconfig mothership.talosconfig
@@ -560,13 +561,16 @@ ls mothership.kubeconfig mothership.talosconfig
 
 ### 12.1 Upgrade Command
 - [ ] Add --upgrade flag to bootstrap command
-- [ ] Detect existing cluster
-- [ ] Skip provisioning if cluster exists
+- [ ] Detect existing cluster via Cluster resource
+- [ ] Skip provisioning if cluster exists and is Ready
 
 ### 12.2 Component Reconciliation
-- [ ] Re-apply ClusterClass definitions (declarative update)
+- [ ] Re-apply ClusterClass definitions (declarative update via kubectl apply)
+- [ ] Update Provider CRD versions (change spec.version in Provider CRDs)
 - [ ] Re-apply component manifests (ArgoCD, capi2argo, CNPG)
 - [ ] Wait for all components to reach Ready state
+
+**Note:** Provider upgrades are handled by cluster-api-operator. Simply update the Provider CRD spec.version and the operator reconciles the change.
 
 ### 12.3 Version Compatibility Check
 - [ ] Verify CAPI API version compatibility (v1beta1)
@@ -584,6 +588,10 @@ ls mothership.kubeconfig mothership.talosconfig
 # Verify ClusterClasses updated
 kubectl --kubeconfig=mothership.kubeconfig get clusterclass -n zero-ops-system -o yaml
 # Expected: ClusterClasses match embedded versions in CLI
+
+# Verify Provider versions updated
+kubectl --kubeconfig=mothership.kubeconfig get coreprovider,infrastructureprovider -o yaml
+# Expected: spec.version matches CLI embedded versions
 
 # Verify components updated
 kubectl --kubeconfig=mothership.kubeconfig get deployment -n argocd
@@ -642,7 +650,7 @@ talosctl --talosconfig=mothership.talosconfig -n <node-ip> version
 - Phases 1-3: Foundation (CLI, validation, bootstrap cluster)
 - Phases 4-6: Core CAPI (operator, provisioning, pivot)
 - Phases 7-9: Platform services (ClusterClass, components, configs)
-- Phases 10-12: Operations (error handling, teardown, upgrade)
+- Phases 10-12: Operations (observability, teardown, upgrade)
 
 **Testing Strategy:**
 - Manual testing after each phase (no automated tests required)
@@ -659,5 +667,5 @@ talosctl --talosconfig=mothership.talosconfig -n <node-ip> version
 - Phase 1-3: 2-3 days (foundation)
 - Phase 4-6: 3-4 days (CAPI core)
 - Phase 7-9: 2-3 days (platform services)
-- Phase 10-12: 2-3 days (operations)
-- Total: ~10-13 days for complete implementation
+- Phase 10-12: 1-2 days (operations - simplified based on CAPH patterns)
+- Total: ~9-12 days for complete implementation

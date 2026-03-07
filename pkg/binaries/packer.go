@@ -49,14 +49,16 @@ func (m *PackerManager) EnsureInstalled(ctx context.Context) error {
 		return nil
 	}
 
-	// Download binary
-	url := fmt.Sprintf(
-		"https://releases.hashicorp.com/packer/%s/packer_%s_%s_%s.zip",
-		m.version, m.version, osName, arch,
-	)
+	zipFilename := fmt.Sprintf("packer_%s_%s_%s.zip", m.version, osName, arch)
+	baseURL := fmt.Sprintf("https://releases.hashicorp.com/packer/%s", m.version)
+
+	zipURL := fmt.Sprintf("%s/%s", baseURL, zipFilename)
+	checksumURL := fmt.Sprintf("%s/packer_%s_SHA256SUMS", baseURL, m.version)
 
 	zipPath := m.binPath + ".zip"
-	if err := m.manager.download(ctx, url, zipPath); err != nil {
+
+	// Download with checksum verification
+	if err := downloadWithChecksum(ctx, zipURL, checksumURL, zipPath, zipFilename); err != nil {
 		return fmt.Errorf("failed to download packer: %w", err)
 	}
 	defer os.Remove(zipPath)

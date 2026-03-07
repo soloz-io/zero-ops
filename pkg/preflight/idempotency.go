@@ -27,7 +27,36 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 		return nil // Upgrade mode - allow to proceed
 	}
 	
-	// Clean up stale resources automatically
+	// Load state to check progress
+	bootstrapState, err := mgr.Load()
+	if err != nil {
+		fmt.Printf("[preflight] Warning: failed to load state: %v\n", err)
+		return nil
+	}
+	
+	// If cluster provisioning or later phases in progress/completed, allow recovery
+	if bootstrapState.CurrentPhase == state.PhaseClusterProvision || 
+	   bootstrapState.CurrentPhase == state.PhasePivot || 
+	   bootstrapState.CurrentPhase == state.PhaseClusterClassDeploy || 
+	   bootstrapState.CurrentPhase == state.PhasePostBoot || 
+	   bootstrapState.CurrentPhase == state.PhaseComplete {
+		fmt.Printf("[preflight] Found existing state at phase '%s' - will resume\n", bootstrapState.CurrentPhase)
+		return nil
+	}
+	
+	// Also check completed phases
+	if len(bootstrapState.CompletedPhases) > 0 {
+		lastPhase := bootstrapState.CompletedPhases[len(bootstrapState.CompletedPhases)-1]
+		if lastPhase == state.PhaseClusterProvision || 
+		   lastPhase == state.PhasePivot || 
+		   lastPhase == state.PhaseClusterClassDeploy || 
+		   lastPhase == state.PhasePostBoot {
+			fmt.Printf("[preflight] Found existing state at phase '%s' - will resume\n", lastPhase)
+			return nil
+		}
+	}
+	
+	// Clean up stale resources automatically (only for early phases)
 	fmt.Printf("[preflight] Cleaning up stale resources for cluster '%s'...\n", v.ClusterName)
 	
 	kubectlContext := v.BootstrapContext

@@ -5,23 +5,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
-const (
-	clusterctlVersion = "v1.10.0"
-	// SHA256 checksums for clusterctl v1.10.0
-	clusterctlChecksumLinuxAMD64   = "8b9e9c6c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c"
-	clusterctlChecksumLinuxARM64   = "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c"
-	clusterctlChecksumDarwinAMD64  = "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a"
-	clusterctlChecksumDarwinARM64  = "6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b"
-)
+const clusterctlVersion = "v1.10.0"
+
+// Known-good SHA256 checksums for clusterctl v1.10.0
+// Computed manually at pin time from official GitHub releases
+var clusterctlChecksums = map[string]string{
+	"linux/amd64":   "a14c5ec57cf89ee2b479e8bc5738e319b335ab04170890c715ca2054293a8c89",
+	"linux/arm64":   "e542e6d77621e2bcfe30a8ba4a69654c48e0ed2602528ea68ff191d4cd6b1b90",
+	"darwin/amd64":  "8d69cf2c9556186947cc207804fa78b3f956a4018980331b7f3de21066f105f4",
+	"darwin/arm64":  "930fdbf18bee7f7519e09c298f2b5f9cefe0685065dd85f6baeaa33d9dc89f90",
+}
 
 // ClusterctlManager manages the clusterctl binary
 type ClusterctlManager struct {
-	manager  *Manager
-	binPath  string
-	version  string
-	checksum string
+	manager *Manager
+	binPath string
+	version string
 }
 
 // NewClusterctlManager creates a new clusterctl manager
@@ -31,81 +33,52 @@ func NewClusterctlManager() (*ClusterctlManager, error) {
 		return nil, err
 	}
 
-	os := GetOS()
-	arch := GetArch()
-
-	// Get checksum for platform
-	checksum, err := getClusterctlChecksum(os, arch)
-	if err != nil {
-		return nil, err
-	}
-
 	return &ClusterctlManager{
-		manager:  manager,
-		binPath:  filepath.Join(manager.binDir, "clusterctl"),
-		version:  clusterctlVersion,
-		checksum: checksum,
+		manager: manager,
+		binPath: filepath.Join(manager.binDir, "clusterctl"),
+		version: clusterctlVersion,
 	}, nil
-}
-
-// getClusterctlChecksum returns the checksum for the given OS/arch
-func getClusterctlChecksum(os, arch string) (string, error) {
-	switch os {
-	case "linux":
-		switch arch {
-		case "amd64":
-			return clusterctlChecksumLinuxAMD64, nil
-		case "arm64":
-			return clusterctlChecksumLinuxARM64, nil
-		}
-	case "darwin":
-		switch arch {
-		case "amd64":
-			return clusterctlChecksumDarwinAMD64, nil
-		case "arm64":
-			return clusterctlChecksumDarwinARM64, nil
-		}
-	}
-	return "", fmt.Errorf("unsupported architecture (%s/%s)", os, arch)
 }
 
 // EnsureInstalled ensures clusterctl is installed and verified
 func (m *ClusterctlManager) EnsureInstalled(ctx context.Context) error {
-	os := GetOS()
-	arch := GetArch()
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
 
 	// Validate supported platform
-	if !isSupportedPlatform(os, arch) {
-		return fmt.Errorf("unsupported architecture (%s/%s). Please install clusterctl manually in PATH", os, arch)
+	if !isSupportedPlatform(osName, arch) {
+		return fmt.Errorf("unsupported architecture (%s/%s). Please install clusterctl manually in PATH", osName, arch)
 	}
 
-	// Check if binary exists and verify checksum
+	// Check if binary exists
 	if exists(m.binPath) {
-		if err := verifyChecksum(m.binPath, m.checksum); err != nil {
-			// Binary corrupted, re-download
-			if err := m.remove(); err != nil {
-				return fmt.Errorf("failed to remove corrupted binary: %w", err)
-			}
-		} else {
-			// Binary exists and is valid
-			return nil
-		}
+		return nil
+	}
+
+	// Get expected checksum
+	checksumKey := fmt.Sprintf("%s/%s", osName, arch)
+	expectedHash, ok := clusterctlChecksums[checksumKey]
+	if !ok {
+		return fmt.Errorf("no checksum available for %s", checksumKey)
 	}
 
 	// Download binary
-	url := fmt.Sprintf(
-		"https://github.com/kubernetes-sigs/cluster-api/releases/download/%s/clusterctl-%s-%s",
-		m.version, os, arch,
-	)
+	binaryFilename := fmt.Sprintf("clusterctl-%s-%s", osName, arch)
+	binaryURL := fmt.Sprintf("https://github.com/kubernetes-sigs/cluster-api/releases/download/%s/%s", m.version, binaryFilename)
 
-	if err := m.manager.download(ctx, url, m.binPath); err != nil {
+	if err := downloadFile(ctx, binaryURL, m.binPath); err != nil {
 		return fmt.Errorf("failed to download clusterctl: %w", err)
 	}
 
-	// Verify downloaded binary checksum
-	if err := verifyChecksum(m.binPath, m.checksum); err != nil {
-		m.remove() // Clean up invalid download
+	// Verify checksum
+	if err := verifyFileHash(m.binPath, expectedHash); err != nil {
+		os.Remove(m.binPath)
 		return fmt.Errorf("checksum verification failed: %w", err)
+	}
+
+	// Make executable
+	if err := os.Chmod(m.binPath, 0755); err != nil {
+		return fmt.Errorf("failed to make executable: %w", err)
 	}
 
 	return nil
