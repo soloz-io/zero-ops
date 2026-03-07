@@ -29,7 +29,16 @@ type Config struct {
 // Provisioner provisions a CAPI cluster
 type Provisioner struct {
 	Kubeconfig string
+	Context    string
 	Config     *Config
+}
+
+func (p *Provisioner) kubectlArgs(args ...string) []string {
+	result := []string{"--kubeconfig", p.Kubeconfig}
+	if p.Context != "" {
+		result = append(result, "--context", p.Context)
+	}
+	return append(result, args...)
 }
 
 func (p *Provisioner) Provision(ctx context.Context) error {
@@ -60,10 +69,7 @@ func (p *Provisioner) applyClusterClass(ctx context.Context) error {
 		return err
 	}
 	
-	cmd := exec.CommandContext(ctx, "kubectl", "apply",
-		"--kubeconfig", p.Kubeconfig,
-		"-f", "-",
-	)
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
 	cmd.Stdin = bytes.NewReader(manifest)
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -130,10 +136,7 @@ spec:
 		return err
 	}
 	
-	cmd := exec.CommandContext(ctx, "kubectl", "apply",
-		"--kubeconfig", p.Kubeconfig,
-		"-f", "-",
-	)
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
 	cmd.Stdin = &buf
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -147,13 +150,10 @@ func (p *Provisioner) waitForReady(ctx context.Context) error {
 	fmt.Println("[cluster-provision] Waiting for cluster to be ready...")
 	
 	// Wait for Provisioned phase and Ready condition
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", p.Kubeconfig,
-		"wait", "cluster", p.Config.ClusterName,
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("wait", "cluster", p.Config.ClusterName,
 		"-n", p.Config.Namespace,
 		"--for=condition=Ready",
-		"--timeout=15m",
-	)
+		"--timeout=15m")...)
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("cluster not ready: %w\n%s", err, output)

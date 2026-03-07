@@ -27,6 +27,7 @@ var (
 	upgrade           bool
 	sshKey            string
 	buildTalosImage   bool
+	buildFlatcarImage bool
 	debug             bool
 )
 
@@ -56,6 +57,7 @@ Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux.`,
 	cmd.Flags().BoolVar(&upgrade, "upgrade", false, "Reconcile/update existing cluster components to match CLI version")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH key name for Hetzner Rescue Mode emergencies only")
 	cmd.Flags().BoolVar(&buildTalosImage, "build-talos-image", false, "Trigger Packer build for Talos image")
+	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 
 	// Mark required flags
@@ -92,9 +94,8 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	if osType == "talos" && imageID == "" && !buildTalosImage {
 		return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
 	}
-	if osType == "flatcar" && imageID == "" {
-		// Use default Flatcar stable image
-		imageID = "flatcar-stable"
+	if osType == "flatcar" && imageID == "" && !buildFlatcarImage {
+		return fmt.Errorf("for Flatcar: either --image-id or --build-flatcar-image must be provided")
 	}
 
 	// Validate HCLOUD_TOKEN environment variable
@@ -198,8 +199,11 @@ func runPreflight(ctx context.Context, hcloudToken string) error {
 		})
 	} else {
 		runner.Add(&preflight.FlatcarImageValidator{
-			Token:   hcloudToken,
-			ImageID: imageID,
+			Token:       hcloudToken,
+			ImageID:     &imageID,
+			BuildImage:  buildFlatcarImage,
+			Region:      region,
+			ClusterName: clusterName,
 		})
 	}
 	runner.Add(&preflight.SSHKeyValidator{Token: hcloudToken, KeyName: sshKey})

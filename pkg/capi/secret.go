@@ -10,7 +10,16 @@ import (
 // SecretManager manages CAPI secrets
 type SecretManager struct {
 	Kubeconfig string
+	Context    string
 	Namespace  string
+}
+
+func (m *SecretManager) kubectlArgs(args ...string) []string {
+	result := []string{"--kubeconfig", m.Kubeconfig}
+	if m.Context != "" {
+		result = append(result, "--context", m.Context)
+	}
+	return append(result, args...)
 }
 
 func (m *SecretManager) CreateHetznerSecret(ctx context.Context, token string) error {
@@ -25,10 +34,7 @@ stringData:
   hcloud: %s
 `, m.Namespace, token)
 	
-	cmd := exec.CommandContext(ctx, "kubectl", "apply",
-		"--kubeconfig", m.Kubeconfig,
-		"-f", "-",
-	)
+	cmd := exec.CommandContext(ctx, "kubectl", m.kubectlArgs("apply", "-f", "-")...)
 	cmd.Stdin = bytes.NewReader([]byte(secretYAML))
 	
 	if output, err := cmd.CombinedOutput(); err != nil {

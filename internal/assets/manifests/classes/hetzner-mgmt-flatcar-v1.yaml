@@ -58,6 +58,20 @@ spec:
       openAPIV3Schema:
         type: string
         default: cpx31
+  - name: hcloudNetwork
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          cidrBlock:
+            type: string
+          subnetCidrBlock:
+            type: string
+          networkZone:
+            type: string
   patches:
   - name: region
     definitions:
@@ -125,6 +139,19 @@ spec:
         path: /spec/template/spec/type
         valueFrom:
           variable: hcloudWorkerMachineType
+  - name: hcloudNetwork
+    enabledIf: "{{ if .hcloudNetwork.enabled }}true{{end}}"
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/hcloudNetwork
+        valueFrom:
+          variable: hcloudNetwork
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -169,6 +196,9 @@ spec:
           controllerManager:
             extraArgs:
               cloud-provider: external
+          etcd:
+            local:
+              dataDir: /var/lib/etcd
         initConfiguration:
           nodeRegistration:
             kubeletExtraArgs:
@@ -186,7 +216,7 @@ metadata:
 spec:
   template:
     spec:
-      type: cpx31
+      type: cx23
       imageName: flatcar-stable
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
@@ -210,5 +240,5 @@ metadata:
 spec:
   template:
     spec:
-      type: cpx31
+      type: cx23
       imageName: flatcar-stable

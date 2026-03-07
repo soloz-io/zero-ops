@@ -53,7 +53,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	var kubeconfig string
 	if o.BootstrapContext != "" {
 		fmt.Printf("[bootstrap-create] Using existing context: %s\n", o.BootstrapContext)
-		kubeconfig = o.BootstrapContext
+		homeDir, _ := os.UserHomeDir()
+		kubeconfig = filepath.Join(homeDir, ".kube", "config")
+		bootstrapState.BootstrapContext = o.BootstrapContext
 	} else {
 		kindMgr := &KindManager{ClusterName: "bootstrap-zero-ops"}
 		
@@ -75,6 +77,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Create namespace
 	nsMgr := &NamespaceManager{
 		Kubeconfig: kubeconfig,
+		Context:    bootstrapState.BootstrapContext,
 		Namespace:  "zero-ops-system",
 	}
 	
@@ -95,6 +98,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	
 	capiInstaller := &capi.OperatorInstaller{
 		Kubeconfig: kubeconfig,
+		Context:    bootstrapState.BootstrapContext,
 		Namespace:  "zero-ops-system",
 		OSType:     o.OSType,
 	}
@@ -107,6 +111,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Create Hetzner credentials secret
 	secretMgr := &capi.SecretManager{
 		Kubeconfig: kubeconfig,
+		Context:    bootstrapState.BootstrapContext,
 		Namespace:  "zero-ops-system",
 	}
 	
@@ -130,6 +135,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	
 	provisioner := &cluster.Provisioner{
 		Kubeconfig: kubeconfig,
+		Context:    bootstrapState.BootstrapContext,
 		Config: &cluster.Config{
 			ClusterName:             o.ClusterName,
 			Namespace:               "zero-ops-system",
@@ -139,8 +145,8 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			KubernetesVersion:       "v1.31.6",
 			NetworkCIDR:             o.NetworkCIDR,
 			SubnetCIDR:              subnetCIDR,
-			ControlPlaneMachineType: "cpx31",
-			WorkerMachineType:       "cpx31",
+			ControlPlaneMachineType: "cx23",
+			WorkerMachineType:       "cx23",
 			ControlPlaneReplicas:    3,
 			WorkerReplicas:          2,
 		},
