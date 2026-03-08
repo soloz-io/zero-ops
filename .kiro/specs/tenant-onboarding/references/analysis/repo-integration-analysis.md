@@ -28,23 +28,38 @@ docs/syself/archived/repos/kratos/
 │                   Agent Gateway (Rust)                       │
 │  • MCP Protocol Router                                       │
 │  • RBAC & Authorization (CEL expressions)                    │
-│  • Session Management                                        │
+│  • Session Validation via Identity Service                   │
 │  • Multi-tenant isolation                                    │
 └────────────────────────┬────────────────────────────────────┘
                          │
          ┌───────────────┼───────────────┐
          │               │               │
          ▼               ▼               ▼
-┌────────────────┐ ┌──────────────┐ ┌──────────────────┐
-│ Ory Kratos     │ │ ZeroTouch    │ │ zero-ops CLI     │
-│ (Identity)     │ │ Engine       │ │ (Management      │
-│                │ │ (Python MCP) │ │  Cluster)        │
-│ • OAuth/OIDC   │ │              │ │                  │
-│ • MFA/2FA      │ │ • Workflow   │ │ • Talos/Ubuntu   │
-│ • Sessions     │ │   DSL        │ │ • CAPI bootstrap │
-│ • User/Org DB  │ │ • MCP Server │ │ • Hetzner        │
-│ • Admin API    │ │ • State mgmt │ │                  │
-└────────────────┘ └──────────────┘ └──────────────────┘
+┌────────────────┐ ┌──────────────┐ ┌────────────┐
+│ Identity       │ │ ZeroTouch    │ │ zero-ops   │
+│ Service        │ │ Engine       │ │ CLI        │
+│ (Node.js)      │ │ (Python MCP) │ │ (Mgmt      │
+│                │ │              │ │  Cluster)  │
+│ • JWT Minting  │ │ • Workflow   │ │ • Talos/   │
+│ • Session Val  │ │   DSL        │ │   Ubuntu   │
+│ • Org Mapping  │ │ • MCP Server │ │ • CAPI     │
+│ • API Tokens   │ │ • State mgmt │ │ • Hetzner  │
+│ • JWT Cache    │ │              │ │            │
+└────────┬───────┘ └──────────────┘ └────────────┘
+         │
+         │ Validates sessions
+         ▼
+┌──────────────┐
+│ Ory Kratos   │
+│ (Identity    │
+│  Provider)   │
+│              │
+│ • OAuth/OIDC │
+│ • MFA/2FA    │
+│ • Sessions   │
+│ • User/Org   │
+│   DB         │
+└──────────────┘
 ```
 
 ### Detailed Component Architecture
@@ -129,37 +144,159 @@ docs/syself/archived/repos/kratos/
 
 ---
 
-## Authentication Flow (Kratos-based)
+## Authentication Flow (MCP OAuth 2.1 with Kratos)
+
+### Complete Flow: Goose MCP Client → Agent Gateway → Identity Service → Kratos
 
 ```
-┌─────────┐                                                    ┌─────────┐
-│  User   │                                                    │ Kratos  │
-│ Browser │                                                    │ Server  │
-└────┬────┘                                                    └────┬────┘
-     │                                                              │
-     │  1. GET /auth/login                                         │
-     ├────────────────────────────────────────────────────────────>│
-     │                                                              │
-     │  2. Redirect to OAuth Provider (GitHub/Google)              │
-     │<────────────────────────────────────────────────────────────┤
-     │                                                              │
-     │  3. User authenticates with OAuth Provider                  │
-     │                                                              │
-     │  4. OAuth callback with code                                │
-     ├────────────────────────────────────────────────────────────>│
-     │                                                              │
-     │  5. Kratos validates, creates session                       │
-     │                                                              │
-     │  6. Set session cookie + redirect                           │
-     │<────────────────────────────────────────────────────────────┤
-     │                                                              │
-     │  7. Request with session cookie                             │
-     ├────────────────────────────────────────────────────────────>│
-     │                                                              │
-     │  8. Session validated, user context returned                │
-     │<────────────────────────────────────────────────────────────┤
-     │                                                              │
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│  Goose   │  │  Agent   │  │ Identity │  │  Kratos  │  │   User   │
+│  (MCP    │  │ Gateway  │  │ Service  │  │  Server  │  │ Browser  │
+│ Client)  │  │          │  │          │  │          │  │          │
+└────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+     │             │             │             │             │
+     │ 1. GET /mcp │             │             │             │
+     │ (no token)  │             │             │             │
+     ├────────────>│             │             │             │
+     │             │             │             │             │
+     │             │ 2. Validate │             │             │
+     │             │ /internal/  │             │             │
+     │             │  validate   │             │             │
+     │             │ (no token)  │             │             │
+     │             ├────────────>│             │             │
+     │             │             │             │             │
+     │             │             │ 3. No session found       │
+     │             │             │             │             │
+     │             │ 4. 401      │             │             │
+     │             │ Unauthorized│             │             │
+     │             │<────────────┤             │             │
+     │             │             │             │             │
+     │ 5. 401 +    │             │             │             │
+     │ WWW-Auth    │             │             │             │
+     │ header      │             │             │             │
+     │<────────────┤             │             │             │
+     │             │             │             │             │
+     │ 6. Discovery│             │             │             │
+     │ /.well-known│             │             │             │
+     │ /oauth-...  │             │             │             │
+     ├────────────>│             │             │             │
+     │             │             │             │             │
+     │ 7. Auth     │             │             │             │
+     │ server      │             │             │             │
+     │ metadata    │             │             │             │
+     │<────────────┤             │             │             │
+     │             │             │             │             │
+     │ 8. Display auth URL to user              │             │
+     │ "Open: https://kratos/authorize?..."     │             │
+     │                                           │             │
+     │                                           │ 9. User     │
+     │                                           │ opens URL   │
+     │                                           │<────────────┤
+     │                                           │             │
+     │                                           │ 10. OAuth   │
+     │                                           │ login page  │
+     │                                           ├────────────>│
+     │                                           │             │
+     │                                           │ 11. User    │
+     │                                           │ authenticates│
+     │                                           │<────────────┤
+     │                                           │             │
+     │                                           │ 12. Session │
+     │                                           │ cookie +    │
+     │                                           │ redirect    │
+     │                                           ├────────────>│
+     │                                           │             │
+     │ 13. User copies session cookie to Goose  │             │
+     │                                                         │
+     │ 14. GET /mcp│             │             │             │
+     │ Cookie:     │             │             │             │
+     │ session_id  │             │             │             │
+     ├────────────>│             │             │             │
+     │             │             │             │             │
+     │             │ 15. Validate│             │             │
+     │             │ /internal/  │             │             │
+     │             │  validate   │             │             │
+     │             │ Cookie:     │             │             │
+     │             │ session_id  │             │             │
+     │             ├────────────>│             │             │
+     │             │             │             │             │
+     │             │             │ 16. Validate│             │
+     │             │             │ /sessions/  │             │
+     │             │             │  whoami     │             │
+     │             │             ├────────────>│             │
+     │             │             │             │             │
+     │             │             │ 17. Session │             │
+     │             │             │ valid +     │             │
+     │             │             │ user context│             │
+     │             │             │<────────────┤             │
+     │             │             │             │             │
+     │             │             │ 18. Mint JWT│             │
+     │             │             │ with custom │             │
+     │             │             │ claims      │             │
+     │             │             │ (org_id,    │             │
+     │             │             │  role)      │             │
+     │             │             │             │             │
+     │             │ 19. 200 OK  │             │             │
+     │             │ Authorization:            │             │
+     │             │ Bearer JWT  │             │             │
+     │             │ X-Auth-User-Id            │             │
+     │             │ X-Auth-Org-Id             │             │
+     │             │<────────────┤             │             │
+     │             │             │             │             │
+     │ 20. Allow   │             │             │             │
+     │ MCP tool    │             │             │             │
+     │ access      │             │             │             │
+     │<────────────┤             │             │             │
+     │             │             │             │             │
 ```
+
+### Step-by-Step Breakdown
+
+**Phase 1: Initial Request (No Authentication)**
+1. Goose MCP Client → Agent Gateway: `GET /mcp` (no token)
+2. Agent Gateway → Identity Service: `POST /internal/validate` (no token)
+3. Identity Service: No session found
+4. Identity Service → Agent Gateway: `401 Unauthorized`
+5. Agent Gateway → Goose: `401 + WWW-Authenticate: Bearer resource_metadata="https://gateway/.well-known/oauth-protected-resource"`
+
+**Phase 2: Discovery & Authorization**
+6. Goose → Agent Gateway: `GET /.well-known/oauth-protected-resource`
+7. Agent Gateway → Goose: Returns authorization server metadata (Kratos URL)
+8. Goose: Displays auth URL to user: `"Open: https://kratos/authorize?client_id=goose&code_challenge=..."`
+9. User: Opens URL in browser
+10. Kratos → User: OAuth login page (GitHub/Google)
+11. User: Authenticates with OAuth provider
+12. Kratos → User: Sets session cookie + redirects
+
+**Phase 3: Authenticated Request**
+13. User: Copies session cookie to Goose
+14. Goose → Agent Gateway: `GET /mcp` with `Cookie: ory_kratos_session=...`
+15. Agent Gateway → Identity Service: `POST /internal/validate` with cookie
+16. Identity Service → Kratos: `GET /sessions/whoami` with cookie
+17. Kratos → Identity Service: Session valid + user context (user_id, identity traits)
+18. Identity Service: Mints Platform JWT with custom claims (org_id, role, version)
+19. Identity Service → Agent Gateway: `200 OK` with JWT in `Authorization` header + user context in `X-Auth-*` headers
+20. Agent Gateway → Goose: Allows MCP tool access
+
+### Key Components
+
+**Identity Service Role:**
+- Validates Kratos sessions via `/sessions/whoami`
+- Mints Platform JWTs with custom claims (org_id, role) that Kratos doesn't provide
+- Caches JWTs for performance optimization
+- Manages API tokens for programmatic access
+
+**Agent Gateway Role:**
+- Routes MCP protocol requests
+- Validates authentication via Identity Service
+- Enforces RBAC policies (CEL expressions)
+- Provides OAuth discovery endpoints (`.well-known`)
+
+**Kratos Role:**
+- Primary identity provider (OAuth/OIDC)
+- Session management (cookie-based)
+- User/org identity storage
+- MFA/2FA enforcement
 
 ---
 
