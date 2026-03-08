@@ -1,7 +1,7 @@
 # Design Specification: Management Cluster Bootstrap using declarative Kubernetes Operators that natively integrates with CAPI
 
 **Feature:** Platform Bootstrap (Journey A)  
-**Version:** 2.0 (Talos Linux)  
+**Version:** 2.0 (Ubuntu 24.04)  
 **Status:** DRAFT  
 **Last Updated:** 2025-01-XX
 
@@ -11,7 +11,7 @@
 
 ### 1.1 Purpose
 
-This document defines the technical design for bootstrapping a self-hosted Management Cluster on Hetzner Cloud using Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Talos Linux. The design translates the requirements from `requirements.md` into concrete architectural decisions, component interactions, and implementation patterns.
+This document defines the technical design for bootstrapping a self-hosted Management Cluster on Hetzner Cloud using Cluster API (CAPI), Cluster API Provider Hetzner (CAPH), and Ubuntu 24.04 LTS. The design translates the requirements from `requirements.md` into concrete architectural decisions, component interactions, and implementation patterns.
 
 ### 1.2 Design Goals
 
@@ -25,8 +25,8 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 
 - **Ephemeral Bootstrap**: Use Kind cluster as temporary control plane, delete after pivot
 - **Declarative Infrastructure**: All resources defined as Kubernetes CRDs (CAPI)
-- **Immutable OS**: Talos Linux for zero-touch node management
-- **API-Driven**: No SSH access, all operations via Kubernetes API and talosctl
+- **Cloud-Init Bootstrap**: Ubuntu 24.04 with kubeadm for standard Kubernetes setup
+- **API-Driven**: All operations via Kubernetes API and kubectl
 - **Self-Hosting**: Management Cluster hosts its own CAPI controllers after pivot
 
 ---
@@ -48,8 +48,8 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  └──────────────────────────────────────────────────────────────┘  │
 │         ↓                    ↓                    ↓                 │
 │  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐       │
-│  │ clusterctl   │     │  talosctl    │     │   kubectl    │       │
-│  │  (managed)   │     │  (managed)   │     │              │       │
+│  │ clusterctl   │     │   kubectl    │     │   kubectl    │       │
+│  │  (managed)   │     │              │     │              │       │
 │  └──────────────┘     └──────────────┘     └──────────────┘       │
 └─────────────────────────────────────────────────────────────────────┘
          │                                            │
@@ -59,14 +59,14 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  CAPI Controllers (Temporary)                                 │  │
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────┐             │  │
-│  │  │ CAPI Core  │  │   CAPH     │  │   Talos    │             │  │
+│  │  │ CAPI Core  │  │   CAPH     │  │  Kubeadm   │             │  │
 │  │  │ Controller │  │ Controller │  │ Providers  │             │  │
 │  │  └────────────┘  └────────────┘  └────────────┘             │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  CAPI Resources (zero-ops-system namespace)                   │  │
 │  │  • Cluster (mothership)                                       │  │
-│  │  • ClusterClass (hetzner-mgmt-talos-v1)                       │  │
+│  │  • ClusterClass (hetzner-mgmt-ubuntu-v1)                      │  │
 │  │  • Secret (hetzner-credentials)                               │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
@@ -78,7 +78,6 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  Load Balancer (LB11)                                         │  │
 │  │  • API Server Endpoint (6443)                                 │  │
-│  │  • Talos API Endpoint (50000)                                 │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │         │                                                            │
 │         ↓                                                            │
@@ -87,12 +86,12 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────┐             │  │
 │  │  │ Control-1  │  │ Control-2  │  │ Control-3  │             │  │
 │  │  │ (CPX31)    │  │ (CPX31)    │  │ (CPX31)    │             │  │
-│  │  │ Talos      │  │ Talos      │  │ Talos      │             │  │
+│  │  │ Ubuntu     │  │ Ubuntu     │  │ Ubuntu     │             │  │
 │  │  └────────────┘  └────────────┘  └────────────┘             │  │
 │  │  ┌────────────┐  ┌────────────┐                              │  │
 │  │  │ Worker-1   │  │ Worker-2   │                              │  │
 │  │  │ (CPX31)    │  │ (CPX31)    │                              │  │
-│  │  │ Talos      │  │ Talos      │                              │  │
+│  │  │ Ubuntu     │  │ Ubuntu     │                              │  │
 │  │  └────────────┘  └────────────┘                              │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
@@ -109,7 +108,7 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  CAPI Controllers (Permanent)                                 │  │
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────┐             │  │
-│  │  │ CAPI Core  │  │   CAPH     │  │   Talos    │             │  │
+│  │  │ CAPI Core  │  │   CAPH     │  │  Kubeadm   │             │  │
 │  │  │ Controller │  │ Controller │  │ Providers  │             │  │
 │  │  └────────────┘  └────────────┘  └────────────┘             │  │
 │  └──────────────────────────────────────────────────────────────┘  │
@@ -122,10 +121,10 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 │  └──────────────────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  ClusterClass Library (zero-ops-system)                       │  │
-│  │  • hetzner-mgmt-talos-v1                                      │  │
-│  │  • hetzner-prod-talos-v1                                      │  │
-│  │  • hetzner-dev-talos-v1                                       │  │
-│  │  • hetzner-staging-talos-v1                                   │  │
+│  │  • hetzner-mgmt-ubuntu-v1                                     │  │
+│  │  • hetzner-prod-ubuntu-v1                                     │  │
+│  │  • hetzner-dev-ubuntu-v1                                      │  │
+│  │  • hetzner-staging-ubuntu-v1                                  │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -136,13 +135,13 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 **Layer 1: CLI Orchestration**
 - User-facing command interface
 - Preflight validation
-- Binary dependency management (clusterctl, talosctl)
+- Binary dependency management (clusterctl, kubectl)
 - State machine for bootstrap phases
 - Error handling and recovery
 
 **Layer 2: Bootstrap Cluster (Ephemeral)**
 - Kind cluster (temporary CAPI control plane)
-- CAPI/CAPH/Talos provider installation
+- CAPI/CAPH/Kubeadm provider installation
 - Initial resource creation (Cluster, ClusterClass, Secrets)
 - Monitors remote cluster provisioning
 
@@ -166,13 +165,13 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 3. CLI applies Provider CRDs (declarative) → Operator reconciles providers
 4. CLI applies ClusterClass + Cluster resources → Kind cluster
 5. CAPH controller provisions infrastructure → Hetzner API
-6. Talos providers bootstrap Kubernetes → Talos nodes
+6. Kubeadm providers bootstrap Kubernetes → Ubuntu nodes
 7. CLI retrieves kubeconfig → Management Cluster
 
 **Note on CNI (FIXED M1 - CNI Confusion):**
 - CNI (Cilium) is NOT a post-bootstrap selectable service
 - CNI is wired into ClusterClass as a bootstrap-time component
-- Configured via Talos machine config patches in ClusterClass
+- Configured via ClusterResourceSet applied during cluster creation
 - Must be specified before cluster creation, not after
 - The catalog/cni/ directory (if exists) is for reference only
 - CNI cannot be changed post-bootstrap without cluster recreation
@@ -189,7 +188,7 @@ This document defines the technical design for bootstrapping a self-hosted Manag
 **Post-Bootstrap Phase:**
 1. CLI installs platform components (ArgoCD, capi2argo, CloudNativePG, Hetzner CCM, Hetzner CSI) → Management Cluster
 2. CLI applies ClusterClass library → Management Cluster
-3. CLI saves kubeconfig + talosconfig → Local filesystem
+3. CLI saves kubeconfig → Local filesystem
 
 **Benefits of cluster-api-operator in Pivot:**
 - Provider CRDs move automatically with `clusterctl move`
@@ -237,7 +236,7 @@ zero-ops/
 │   │   └── components.go       # Management cluster component installer
 │   ├── binaries/
 │   │   ├── clusterctl.go       # clusterctl binary management
-│   │   └── talosctl.go         # talosctl binary management
+│   │   └── kubectl.go          # kubectl binary management
 │   ├── provider/
 │   │   └── hetzner/
 │   │       ├── client.go       # Hetzner API client wrapper
@@ -262,8 +261,8 @@ zero-ops/
 │   │   │   ├── install.yaml    # Operator deployment
 │   │   │   └── providers/      # Provider CRDs
 │   │   │       ├── core-provider.yaml
-│   │   │       ├── bootstrap-provider-talos.yaml
-│   │   │       ├── controlplane-provider-talos.yaml
+│   │   │       ├── bootstrap-provider-kubeadm.yaml
+│   │   │       ├── controlplane-provider-kubeadm.yaml
 │   │   │       └── infrastructure-provider-hetzner.yaml
 │   │   ├── cert-manager/       # Cert Manager (Required for CAPI)
 │   │   └── providers/          # Legacy: Infrastructure provider configs (if needed)
@@ -272,10 +271,10 @@ zero-ops/
 │   │       └── gcp/            # CAPG (future)
 │   │
 │   └── classes/                # Cluster Topologies (The "Product")
-│       ├── hetzner-mgmt-talos-v1.yaml    # Management cluster (Hetzner + Talos)
-│       ├── hetzner-prod-talos-v1.yaml    # HA, 3 Control Planes, Private Net
-│       ├── hetzner-dev-talos-v1.yaml     # Single Node, Public Net
-│       ├── hetzner-prod-ubuntu-v1.yaml   # Future: Ubuntu + kubeadm
+│       ├── hetzner-mgmt-ubuntu-v1.yaml   # Management cluster (Hetzner + Ubuntu)
+│       ├── hetzner-prod-ubuntu-v1.yaml   # HA, 3 Control Planes, Private Net
+│       ├── hetzner-dev-ubuntu-v1.yaml    # Single Node, Public Net
+│       ├── hetzner-prod-talos-v1.yaml    # Future: Talos when ClusterClass supported
 │       └── aws-eks-v1.yaml               # Future: AWS EKS definition
 │
 ├── catalog/                    # "SERVICES ON TOP" (Add-ons)
@@ -302,7 +301,7 @@ zero-ops/
 │   │       ├── service.yaml
 │   │       └── install.yaml
 │   ├── os/
-│   │   └── talos/              # Talos-specific configs
+│   │   └── ubuntu/             # Ubuntu-specific configs (cloud-init)
 │   │       ├── service.yaml
 │   │       └── install.yaml
 │   ├── secrets/
@@ -339,8 +338,8 @@ zero-ops/
 
 1. **Provider Agnostic Structure:**
    - `manifests/core/providers/` supports multiple infrastructure providers (Hetzner, AWS, GCP)
-   - `manifests/classes/` supports multiple OS types (Talos, Ubuntu) and providers
-   - Phase 1 defaults to Hetzner + Talos, but structure scales to multi-cloud
+   - `manifests/classes/` supports multiple OS types (Ubuntu, Talos future) and providers
+   - Phase 1 defaults to Hetzner + Ubuntu, but structure scales to multi-cloud
 
 2. **Catalog Organization:**
    - Services organized by category (gitops, cni, databases, etc.)
@@ -359,7 +358,7 @@ zero-ops/
 
 **Phase 1 Defaults (Management Cluster Bootstrap):**
 - Provider: Hetzner (CAPH)
-- OS: Talos Linux
+- OS: Ubuntu 24.04 LTS
 - Fixed components from catalog: CCM, CSI, ArgoCD, capi2argo, CloudNativePG
 
 **Future Expansion (Phase 2+):**
@@ -401,7 +400,6 @@ type BootstrapState struct {
     CompletedPhases  []BootstrapPhase
     BootstrapContext string // Kind context name
     MgmtKubeconfig   string // Path to mgmt kubeconfig
-    TalosConfig      string // Path to talosconfig
     Timestamp        time.Time
 }
 ```
@@ -419,7 +417,7 @@ type PreflightValidator interface {
 1. DockerValidator       // Check Docker daemon running
 2. KindValidator         // Check Kind binary available (if not --bootstrap-context)
 3. HetznerTokenValidator // Validate HCLOUD_TOKEN with dry-run write
-4. TalosImageValidator   // Verify Talos image exists or trigger build
+4. UbuntuImageValidator  // Verify Ubuntu image exists or use default
 5. SSHKeyValidator       // Verify SSH key exists (if --ssh-key provided)
 6. IdempotencyValidator  // Check for existing cluster
 ```
@@ -513,17 +511,6 @@ func (m *ClusterctlManager) verifyChecksum() error {
 
 **Note on clusterctl as Library:**
 We intentionally use the binary approach rather than importing clusterctl as a Go library. The CAPI team explicitly states: "When this package is used as a library, we do not currently provide any compatibility guarantees." Binary downloads with SHA256 verification provide determinism and stability.
-
-**talosctl Management:**
-```go
-type TalosctlManager struct {
-    binPath string // ~/.zero-ops/bin/talosctl
-    version string // v1.12.x (matches Talos image)
-}
-
-// Similar implementation to ClusterctlManager
-// Downloads from: https://github.com/siderolabs/talos/releases/
-```
 
 ### 3.4 Bootstrap Cluster Creation
 
@@ -648,8 +635,8 @@ func (i *CAPIOperatorInstaller) applyProviders(ctx context.Context) error {
     // These are declarative definitions that the operator will reconcile
     providers := []string{
         "core/capi-operator/providers/core-provider.yaml",
-        "core/capi-operator/providers/bootstrap-provider-talos.yaml",
-        "core/capi-operator/providers/controlplane-provider-talos.yaml",
+        "core/capi-operator/providers/bootstrap-provider-kubeadm.yaml",
+        "core/capi-operator/providers/controlplane-provider-kubeadm.yaml",
         "core/capi-operator/providers/infrastructure-provider-hetzner.yaml",
     }
     
@@ -680,8 +667,8 @@ func (i *CAPIOperatorInstaller) waitForProviders(ctx context.Context, timeout ti
         name string
     }{
         {"CoreProvider", "cluster-api"},
-        {"BootstrapProvider", "talos"},
-        {"ControlPlaneProvider", "talos"},
+        {"BootstrapProvider", "kubeadm"},
+        {"ControlPlaneProvider", "kubeadm"},
         {"InfrastructureProvider", "hetzner"},
     }
     
@@ -1154,8 +1141,8 @@ func (o *PivotOrchestrator) waitForProvidersReady(ctx context.Context, timeout t
         name string
     }{
         {"CoreProvider", "cluster-api"},
-        {"BootstrapProvider", "talos"},
-        {"ControlPlaneProvider", "talos"},
+        {"BootstrapProvider", "kubeadm"},
+        {"ControlPlaneProvider", "kubeadm"},
         {"InfrastructureProvider", "hetzner"},
     }
     
