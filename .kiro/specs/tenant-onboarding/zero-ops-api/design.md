@@ -522,6 +522,8 @@ func ResolveQuotas(plan string, overrides *QuotaRequest) Quotas {
 
 ### 4.5 Pagination Pattern
 
+**Note:** Using offset-based pagination (not cursor-based). For tenant tables with expected scale < 10,000 records, offset pagination provides acceptable performance. The `nextPage` field returns the next page number for clarity (not a true cursor).
+
 **SQL Query:**
 ```sql
 -- name: ListTenants :many
@@ -576,10 +578,10 @@ func (h *TenantHandler) List(c *gin.Context) {
         return
     }
     
-    var nextCursor *string
+    var nextPage *int
     if len(tenants) == limit && page*limit < int(total) {
-        cursor := fmt.Sprintf("page=%d", page+1)
-        nextCursor = &cursor
+        next := page + 1
+        nextPage = &next
     }
     
     c.JSON(http.StatusOK, ListTenantsResponse{
@@ -589,7 +591,7 @@ func (h *TenantHandler) List(c *gin.Context) {
             Limit:      limit,
             Total:      int(total),
             TotalPages: (int(total) + limit - 1) / limit,
-            NextCursor: nextCursor,
+            NextPage:   nextPage,
         },
     })
 }
@@ -860,7 +862,48 @@ func TestTenantService_CreateTenant_InvalidName(t *testing.T) {
 }
 ```
 
-### 7.2 Integration Tests
+### 7.2 Integration Tests (Using Testcontainers-Go)
+
+**Testcontainers Setup:**
+```go
+import (
+    "github.com/testcontainers/testcontainers-go"
+    "github.com/testcontainers/testcontainers-go/modules/postgres"
+    "github.com/testcontainers/testcontainers-go/wait"
+)
+
+func setupTestDB(t *testing.T) *pgxpool.Pool {
+    ctx := context.Background()
+    
+    // Start ephemeral PostgreSQL container
+    pgContainer, err := postgres.RunContainer(ctx,
+        testcontainers.WithImage("postgres:15-alpine"),
+        postgres.WithDatabase("testdb"),
+        postgres.WithUsername("testuser"),
+        postgres.WithPassword("testpass"),
+        testcontainers.WithWaitStrategy(
+            wait.ForLog("database system is ready to accept connections").
+                WithOccurrence(2).
+                WithStartupTimeout(5*time.Second)),
+    )
+    require.NoError(t, err)
+    t.Cleanup(func() {
+        require.NoError(t, pgContainer.Terminate(ctx))
+    })
+    
+    connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+    require.NoError(t, err)
+    
+    // Run migrations
+    require.NoError(t, runMigrations(connStr))
+    
+    // Create connection pool
+    pool, err := pgxpool.New(ctx, connStr)
+    require.NoError(t, err)
+    
+    return pool
+}
+```
 
 **Database Integration Test:**
 ```go
@@ -896,6 +939,12 @@ func TestIntegration_UpsertTenant(t *testing.T) {
     assert.Equal(t, "free", result2.Plan)  // Plan unchanged due to true idempotency
 }
 ```
+
+**Benefits:**
+- Self-contained: `go test ./...` works on any machine with Docker
+- No manual `docker-compose up` required
+- Automatic cleanup after test completion
+- Parallel test execution with isolated containers
 
 ---
 
@@ -1002,15 +1051,28 @@ s.router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 # Generate sqlc code
 make sqlc-generate
 
-# Run migrations
+# Run migrations (local development)
 make migrate-up
+
+# Run tests (uses Testcontainers - requires Docker)
+go test ./... -v
 
 # Build binary
 go build -o bin/zero-ops-api cmd/zero-ops-api/main.go
 
-# Run
+# Run locally (requires DATABASE_URL)
+export DATABASE_URL="postgres://user:pass@localhost:5432/zeroops?sslmode=disable"
+./bin/zero-ops-api
+
+# Run in production (connects to CNPG)
+export DATABASE_URL="postgres://user:pass@zero-ops-db-rw.zero-ops-system.svc:5432/zeroops"
 ./bin/zero-ops-api
 ```
+
+**Database Strategy:**
+- **Local Development:** Docker Compose or local Postgres instance
+- **Testing:** Testcontainers-Go (ephemeral containers per test)
+- **Production:** CloudNativePG (CNPG) service in Management Cluster
 
 ---
 

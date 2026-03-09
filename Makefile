@@ -1,9 +1,11 @@
-.PHONY: build clean test install
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down run
 
 # Build variables
 BINARY_NAME=zero-ops
+API_BINARY_NAME=zero-ops-api
 BUILD_DIR=bin
 GO=go
+DATABASE_URL?=postgres://localhost:5432/zeroops?sslmode=disable
 
 # Build the CLI binary
 build:
@@ -48,3 +50,33 @@ lint:
 	@echo "Running linter..."
 	golangci-lint run
 	@echo "✓ Lint complete"
+
+# Generate sqlc code
+sqlc-generate:
+	@echo "Generating sqlc code..."
+	@cd internal/db && sqlc generate
+	@echo "✓ sqlc generation complete"
+
+# Run database migrations up
+migrate-up:
+	@echo "Running database migrations up..."
+	@atlas migrate apply --dir file://internal/db/migrations --url "$(DATABASE_URL)"
+	@echo "✓ Migrations applied"
+
+# Run database migrations down
+migrate-down:
+	@echo "Rolling back database migrations..."
+	@atlas migrate down --dir file://internal/db/migrations --url "$(DATABASE_URL)"
+	@echo "✓ Migrations rolled back"
+
+# Build the API binary
+build-api:
+	@echo "Building $(API_BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) cmd/zero-ops-api/main.go
+	@echo "✓ Build complete: $(BUILD_DIR)/$(API_BINARY_NAME)"
+
+# Run the API server
+run: build-api
+	@echo "Starting $(API_BINARY_NAME)..."
+	@./$(BUILD_DIR)/$(API_BINARY_NAME)

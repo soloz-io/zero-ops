@@ -1,8 +1,20 @@
 # zero-ops
 
-Zero-Ops Platform CLI for bootstrapping Management Clusters on Hetzner Cloud using Cluster API.
+Zero-Ops Platform: Management Cluster CLI + Tenant API for Kubernetes infrastructure automation.
 
-## Quick Start
+## Components
+
+### 1. Management Cluster CLI (`zero-ops`)
+Bootstrap and manage Kubernetes clusters on Hetzner Cloud using Cluster API.
+
+[CLI Documentation →](./README.md#quick-start)
+
+### 2. Tenant API (`zero-ops-api`)
+REST API for tenant lifecycle management with PostgreSQL backend.
+
+[API Documentation →](./cmd/zero-ops-api/README.md)
+
+## Quick Start - CLI
 
 ```bash
 # Build CLI
@@ -20,6 +32,23 @@ export HCLOUD_TOKEN=<your-hetzner-token>
   --region=fsn1 \
   --os=talos \
   --build-talos-image
+```
+
+## Quick Start - API
+
+```bash
+# Start API with Docker Compose
+cd cmd/zero-ops-api
+docker-compose up -d
+
+# Create a tenant
+curl -X POST http://localhost:8080/api/v1/tenants \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "acme-corp",
+    "email": "admin@acme.com",
+    "plan": "professional"
+  }'
 ```
 
 Flatcar uses Hetzner's default stable image. Talos requires `--build-talos-image` or `--image-id` with existing snapshot.
