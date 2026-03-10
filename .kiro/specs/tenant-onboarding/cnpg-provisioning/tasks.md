@@ -6,90 +6,109 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
 
 ## Tasks
 
-- [ ] 1. Platform Database deployment and configuration
-  - [ ] 1.1 Create Platform Database CNPG Cluster manifest
+- [x] 1. Platform Database deployment and configuration
+  - [x] 1.1 Create Platform Database CNPG Cluster manifest
     - Create CNPG Cluster CR with 3-node HA configuration
     - Configure storage, monitoring, and bootstrap settings
     - Set up database owner and post-init SQL
     - _Requirements: FR1.1, FR1.2, FR1.3_
   
-  - [ ] 1.2 Deploy Platform Database to Management Cluster
+  - [x] 1.2 Deploy Platform Database to Management Cluster
     - Apply manifest to zero-ops-system namespace
     - Verify cluster reaches ClusterPhaseHealthy status
     - Validate connection secret generation
     - _Requirements: FR1.1, FR1.2, FR1.3_
   
-  - [ ]* 1.3 Write BDD tests for Platform Database Bootstrap (Suite 1)
+  - [x] 1.3 Write BDD tests for Platform Database Bootstrap (Suite 1)
     - **BDD Suite 1: Platform Database Bootstrap**
     - **Validates: Requirements FR1.1, FR1.2, FR1.3**
 
-- [ ] 2. cnpg2monitor operator core implementation
-  - [ ] 2.1 Set up Go project structure and dependencies
+- [x] 2. cnpg2monitor operator core implementation (CORRECTED)
+  - [x] 2.1 Set up Go project structure and dependencies
     - Initialize Go module with Kubernetes controller dependencies
     - Set up kubebuilder project structure
     - Configure build and deployment manifests
     - _Requirements: FR2.1, FR2.2_
   
-  - [ ] 2.2 Implement controller struct and configuration
+  - [x] 2.2 Implement controller struct and configuration
     - Create Cnpg2Monitor controller struct with embedded client
     - Implement configuration loading from environment variables
     - Set up structured logging and metrics registration
     - _Requirements: FR2.1, NFR3.1, NFR3.2_
   
-  - [ ] 2.3 Implement watch configuration and predicates
+  - [x] 2.3 Implement watch configuration and predicates
     - Configure watches for CNPG Clusters, Namespaces, and PodMonitors
     - Implement predicate-based event filtering
     - Set up EnqueueRequestsFromMapFunc for cross-resource mapping
     - _Requirements: FR3.1, FR3.2_
   
-  - [ ]* 2.4 Write unit tests for controller setup
+  - [x] 2.4 Write unit tests for controller setup
     - Test configuration loading and validation
     - Test watch setup and predicate filtering
     - _Requirements: TR1.1_
+  
+  - [x] 2.5 CNPG scheme registration (CRITICAL FIX)
+    - Register CloudNativePG API v1 scheme in main.go
+    - Add CNPG dependency to go.mod
+    - Ensure proper scheme initialization
+    - _Requirements: FR3.1_
 
-- [ ] 3. Reconciliation logic implementation
-  - [ ] 3.1 Implement observe-analyze-act reconciliation pattern
+- [x] 3. Reconciliation logic implementation (CORRECTED)
+  - [x] 3.1 Implement observe-analyze-act reconciliation pattern
     - Create observe phase for state gathering
     - Implement analyze phase for action determination
     - Build act phase for state changes
     - _Requirements: FR3.1, NFR2.1_
   
-  - [ ] 3.2 Implement PodMonitor discovery and validation
+  - [x] 3.2 Implement PodMonitor discovery and validation
     - Find CNPG-generated PodMonitors using label selectors
     - Validate cluster monitoring configuration
     - Handle race conditions with retry logic
     - _Requirements: FR3.1_
   
-  - [ ] 3.3 Implement topology label reading from namespaces
+  - [x] 3.3 Implement topology label reading from namespaces
     - Read zero-ops.io/* labels from parent namespace
     - Handle missing topology labels with warning events
     - Support dynamic namespace label updates
     - _Requirements: FR3.2_
   
-  - [ ]* 3.4 Write unit tests for reconciliation logic
+  - [x] 3.4 Write unit tests for reconciliation logic
     - Test observe-analyze-act pattern
     - Test PodMonitor discovery edge cases
     - Test topology label handling
     - _Requirements: TR1.1_
+  
+  - [x] 3.5 CNPG Cluster CR integration (CRITICAL FIX)
+    - Watch CNPG Cluster CR instead of Pod resources
+    - Use correct postgresql.cnpg.io/cluster label
+    - Import CloudNativePG API v1
+    - Update mapping functions for CNPG Clusters
+    - _Requirements: FR3.1_
 
-- [ ] 4. Server-Side Apply PodMonitor patching
-  - [ ] 4.1 Implement SSA patch strategy for PodMonitors
+- [x] 4. Server-Side Apply PodMonitor patching (CORRECTED)
+  - [x] 4.1 Implement SSA patch strategy for PodMonitors
     - Build relabelings array from topology labels
     - Implement field-level ownership with SSA
     - Handle missing topology labels by removing monitored label
     - _Requirements: FR3.1, FR3.2, NFR2.2_
   
-  - [ ] 4.2 Implement PodMonitor lifecycle management
+  - [x] 4.2 Implement PodMonitor lifecycle management
     - Patch existing PodMonitors with topology relabelings
     - Restore monitored label when topology labels are added
     - Handle PodMonitor deletion gracefully
     - _Requirements: FR3.1, FR3.2_
   
-  - [ ]* 4.3 Write unit tests for SSA patching
+  - [x] 4.3 Write unit tests for SSA patching
     - Test relabelings generation from topology labels
     - Test field ownership and conflict resolution
     - Test missing topology label handling
     - _Requirements: TR1.1_
+  
+  - [x] 4.4 Target correct field per NFR2.2 (CRITICAL FIX)
+    - Target podMetricsEndpoints[port=metrics].relabelings
+    - Use "metrics" port as merge key for SSA
+    - Fix from MetricRelabelConfigs to RelabelConfigs
+    - _Requirements: NFR2.2_
 
 - [ ] 5. Event emission system implementation
   - [ ] 5.1 Implement annotation-based state tracking
@@ -104,7 +123,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - Detect and emit CNPGStorageExpanded events
     - _Requirements: FR3.3_
   
-  - [ ]* 5.3 Write unit tests for event emission
+  - [ ] 5.3 Write unit tests for event emission
     - Test annotation-based state tracking
     - Test event deduplication logic
     - Test various lifecycle event scenarios
@@ -123,7 +142,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - Set up namespace restriction and API rate limiting
     - _Requirements: FR2.1, NFR1.1, NFR1.2, DR1.1_
   
-  - [ ]* 6.3 Write integration tests for RBAC
+  - [ ] 6.3 Write integration tests for RBAC
     - Test cross-namespace permission validation
     - Test least privilege access patterns
     - _Requirements: SR1.1, TR1.2_
@@ -149,7 +168,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - Scenario 3.2: Emitting PostgreSQL Config Change Events
     - _Requirements: TR2.1, FR3.3_
   
-  - [ ]* 8.4 Set up BDD test framework and helpers
+  - [ ] 8.4 Set up BDD test framework and helpers
     - Configure Ginkgo/Gomega test framework
     - Create test helper functions for CNPG clusters and namespaces
     - Set up test environment with envtest
@@ -168,7 +187,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - Add health and readiness probes
     - _Requirements: NFR3.1, NFR3.2_
   
-  - [ ]* 9.3 Write tests for error handling and metrics
+  - [ ] 9.3 Write tests for error handling and metrics
     - Test retry logic and backoff strategies
     - Test metrics collection and emission
     - Test logging output and context
@@ -187,7 +206,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - Test event emission and lifecycle management
     - _Requirements: TR1.2, TR2.1_
   
-  - [ ]* 10.3 Perform chaos testing
+  - [ ] 10.3 Perform chaos testing
     - Test operator restart during reconciliation
     - Test CNPG cluster deletion during PodMonitor creation
     - Test namespace label changes during reconciliation

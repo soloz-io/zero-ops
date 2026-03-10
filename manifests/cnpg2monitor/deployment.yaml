@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cnpg2monitor
+  namespace: zero-ops-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cnpg2monitor
+  template:
+    metadata:
+      labels:
+        app: cnpg2monitor
+    spec:
+      serviceAccountName: cnpg2monitor
+      containers:
+      - name: cnpg2monitor
+        image: cnpg2monitor:latest
+        args:
+        - --metrics-bind-address=0.0.0.0:8080
+        - --health-probe-bind-address=0.0.0.0:8081
+        - --leader-elect
+        env:
+        - name: MONITORING_NAMESPACE
+          value: "zero-ops-system"
+        - name: ENABLE_EVENT_EMISSION
+          value: "true"
+        - name: TOPOLOGY_LABEL_PREFIX
+          value: "zero-ops.io/"
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 8081
+          name: health
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
