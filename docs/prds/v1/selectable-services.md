@@ -50,7 +50,7 @@ zero-ops/
 │   └── ioc/
 │       └── crossplane/ 
 │   └── os/
-│       └── talos/ 
+│       └── ubuntu/ 
 │   └── secrets/
 │       └── ksops/ 
 │   └── messaging/
