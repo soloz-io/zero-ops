@@ -160,6 +160,19 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 		interval    = time.Second * 5
 	)
 
+	BeforeEach(func() {
+		// Clean up any existing test clusters
+		clusters := []string{"test-monitoring-cluster", "test-unmonitored-cluster", "test-dynamic-cluster"}
+		for _, name := range clusters {
+			cluster := &cnpgv1.Cluster{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cluster)
+			if err == nil {
+				k8sClient.Delete(ctx, cluster)
+			}
+		}
+		time.Sleep(2 * time.Second) // Wait for deletion
+	})
+
 	Context("Scenario 2.1: Topology Label Injection (The Golden Path)", func() {
 		It("should inject topology labels into PodMonitor relabelings", func() {
 			By("Creating a CNPG cluster with monitoring label")
@@ -176,12 +189,9 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 					StorageConfiguration: cnpgv1.StorageConfiguration{
 						Size: "1Gi",
 					},
-					PostgresConfiguration: cnpgv1.PostgresConfiguration{
-						Parameters: map[string]string{
-							"shared_preload_libraries": "pg_stat_statements",
-						},
-					},
-				},
+					Monitoring: &cnpgv1.MonitoringConfiguration{
+						EnablePodMonitor: true,
+					},				},
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
@@ -249,6 +259,9 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 					StorageConfiguration: cnpgv1.StorageConfiguration{
 						Size: "1Gi",
 					},
+					Monitoring: &cnpgv1.MonitoringConfiguration{
+						EnablePodMonitor: true,
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
@@ -278,11 +291,15 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 
 			podMonitor := &monitoringv1.PodMonitor{}
 			Eventually(func() int {
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "test-dynamic-cluster",
-					Namespace: namespace,
-				}, podMonitor)
-				if err != nil {
+				podMonitorList := &monitoringv1.PodMonitorList{}
+				err := k8sClient.List(ctx, podMonitorList, 
+					client.InNamespace(namespace),
+					client.MatchingLabels{"cnpg.io/cluster": "test-dynamic-cluster"})
+				if err != nil || len(podMonitorList.Items) == 0 {
+					return 0
+				}
+				podMonitor = &podMonitorList.Items[0]
+				if len(podMonitor.Spec.PodMetricsEndpoints) == 0 {
 					return 0
 				}
 				return len(podMonitor.Spec.PodMetricsEndpoints[0].RelabelConfigs)
@@ -297,6 +314,19 @@ var _ = Describe("Suite 3: AI Correlation Event Emission", func() {
 		timeout     = time.Second * 180
 		interval    = time.Second * 5
 	)
+
+	BeforeEach(func() {
+		// Clean up any existing test clusters
+		clusters := []string{"test-scale-cluster", "test-config-cluster"}
+		for _, name := range clusters {
+			cluster := &cnpgv1.Cluster{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cluster)
+			if err == nil {
+				k8sClient.Delete(ctx, cluster)
+			}
+		}
+		time.Sleep(2 * time.Second) // Wait for deletion
+	})
 
 	Context("Scenario 3.1: Emitting Scale Events", func() {
 		It("should emit CNPGScaled event when cluster instances change", func() {

@@ -5,6 +5,28 @@ metadata:
   namespace: cnpg2monitor-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg2monitor-namespace-reader
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cnpg2monitor-namespace-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cnpg2monitor-namespace-reader
+subjects:
+- kind: ServiceAccount
+  name: cnpg2monitor
+  namespace: cnpg2monitor-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cnpg2monitor
@@ -12,13 +34,10 @@ metadata:
 rules:
 - apiGroups: ["postgresql.cnpg.io"]
   resources: ["clusters"]
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "patch", "update"]
 - apiGroups: ["monitoring.coreos.com"]
   resources: ["podmonitors"]
-  verbs: ["get", "list", "watch", "patch"]
-- apiGroups: [""]
-  resources: ["namespaces"]
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "patch", "update"]
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]

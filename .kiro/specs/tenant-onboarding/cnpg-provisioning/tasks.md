@@ -152,27 +152,28 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
 - [ ] 7. Checkpoint - Core operator functionality complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. BDD test implementation
-  - [ ] 8.1 Implement BDD Suite 1: Platform Database Bootstrap
+- [x] 8. BDD test implementation
+  - [x] 8.1 Implement BDD Suite 1: Platform Database Bootstrap
     - Scenario 1.1: High Availability Cluster Provisioning
     - Scenario 1.2: Post-Init SQL and Database Owner Verification
     - Scenario 1.3: Secret Generation for API Consumption
     - _Requirements: TR2.1, FR1.1, FR1.2, FR1.3_
   
-  - [ ] 8.2 Implement BDD Suite 2: cnpg2monitor Auto-Wiring
+  - [x] 8.2 Implement BDD Suite 2: cnpg2monitor Auto-Wiring
     - Scenario 2.1: Topology Label Injection (The Golden Path)
     - Scenario 2.2: Ignoring Unmonitored Databases
     - Scenario 2.3: Dynamic Namespace Label Updates
     - _Requirements: TR2.1, FR3.1, FR3.2_
   
-  - [ ] 8.3 Implement BDD Suite 3: AI Correlation Event Emission
+  - [x] 8.3 Implement BDD Suite 3: AI Correlation Event Emission
     - Scenario 3.1: Emitting Scale Events
     - Scenario 3.2: Emitting PostgreSQL Config Change Events
     - _Requirements: TR2.1, FR3.3_
   
-  - [ ] 8.4 Set up BDD test framework and helpers
+  - [x] 8.4 Set up BDD test framework and helpers
     - Configure Ginkgo/Gomega test framework
     - Create test helper functions for CNPG clusters and namespaces
+    - _Requirements: TR2.1_
     - Set up test environment with envtest
     - _Requirements: TR2.1_
 

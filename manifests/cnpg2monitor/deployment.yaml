@@ -17,10 +17,10 @@ spec:
       containers:
       - name: cnpg2monitor
         image: cnpg2monitor:latest
+        imagePullPolicy: Never
         args:
         - --metrics-bind-address=0.0.0.0:8080
         - --health-probe-bind-address=0.0.0.0:8081
-        - --leader-elect
         env:
         - name: MONITORING_NAMESPACE
           value: "zero-ops-system"

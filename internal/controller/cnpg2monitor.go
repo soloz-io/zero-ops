@@ -44,7 +44,7 @@ type desiredActions struct {
 const (
 	MonitoredLabel                    = "zero-ops.io/monitored"
 	TopologyLabelPrefix               = "zero-ops.io/"
-	CNPGClusterLabel                  = "postgresql.cnpg.io/cluster"
+	CNPGClusterLabel                  = "cnpg.io/cluster"
 	LastScaledInstancesAnnotation     = "cnpg2monitor.zero-ops.io/last-scaled-instances"
 	LastConfigGenerationAnnotation    = "cnpg2monitor.zero-ops.io/last-config-generation"
 	LastStorageGenerationAnnotation   = "cnpg2monitor.zero-ops.io/last-storage-generation"
@@ -232,6 +232,10 @@ func (r *Cnpg2Monitor) patchPodMonitorWithTopology(ctx context.Context, podMonit
 	// Create patch targeting metrics port relabelings
 	metricsPort := "metrics"
 	patch := &monitoringv1.PodMonitor{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "monitoring.coreos.com/v1",
+			Kind:       "PodMonitor",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podMonitor.Name,
 			Namespace: podMonitor.Namespace,
@@ -267,35 +271,55 @@ func (r *Cnpg2Monitor) emitLifecycleEvents(ctx context.Context, cluster *cnpgv1.
 		return nil
 	}
 	
-	annotations := cluster.GetAnnotations()
+	// Find PodMonitor to read/write state
+	podMonitor, err := r.findPodMonitor(ctx, cluster)
+	if err != nil {
+		return nil // PodMonitor not ready yet, skip
+	}
+	
+	annotations := podMonitor.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
 	
-	// Check for scaling events
-	if r.detectScalingEvent(cluster, annotations) {
+	changed := false
+	
+	// Initialize or check for scaling events
+	if annotations[LastScaledInstancesAnnotation] == "" {
+		annotations[LastScaledInstancesAnnotation] = fmt.Sprintf("%d", cluster.Spec.Instances)
+		changed = true
+	} else if r.detectScalingEvent(cluster, annotations) {
 		r.Recorder.Event(cluster, corev1.EventTypeNormal, "CNPGScaled", 
 			fmt.Sprintf("Cluster scaled to %d instances", cluster.Spec.Instances))
 		annotations[LastScaledInstancesAnnotation] = fmt.Sprintf("%d", cluster.Spec.Instances)
+		changed = true
 	}
 	
-	// Check for config changes
-	if r.detectConfigChange(cluster, annotations) {
+	// Initialize or check for config changes
+	if annotations[LastConfigGenerationAnnotation] == "" {
+		annotations[LastConfigGenerationAnnotation] = fmt.Sprintf("%d", cluster.Generation)
+		changed = true
+	} else if r.detectConfigChange(cluster, annotations) {
 		r.Recorder.Event(cluster, corev1.EventTypeNormal, "CNPGConfigChanged", 
 			"Cluster configuration updated")
 		annotations[LastConfigGenerationAnnotation] = fmt.Sprintf("%d", cluster.Generation)
+		changed = true
 	}
 	
-	// Check for storage expansion
-	if r.detectStorageExpansion(cluster, annotations) {
+	// Initialize or check for storage expansion
+	if annotations[LastStorageGenerationAnnotation] == "" {
+		annotations[LastStorageGenerationAnnotation] = fmt.Sprintf("%d", cluster.Generation)
+		changed = true
+	} else if r.detectStorageExpansion(cluster, annotations) {
 		r.Recorder.Event(cluster, corev1.EventTypeNormal, "CNPGStorageExpanded", 
 			"Cluster storage expanded")
 		annotations[LastStorageGenerationAnnotation] = fmt.Sprintf("%d", cluster.Generation)
+		changed = true
 	}
 	
-	// Update annotations if changed
-	if len(annotations) > 0 {
-		return r.updateClusterAnnotations(ctx, cluster, annotations)
+	// Update PodMonitor annotations if changed
+	if changed {
+		return r.updatePodMonitorAnnotations(ctx, podMonitor, annotations)
 	}
 	
 	return nil
@@ -320,16 +344,24 @@ func (r *Cnpg2Monitor) detectStorageExpansion(cluster *cnpgv1.Cluster, annotatio
 	return lastGeneration != "" && lastGeneration != currentGeneration
 }
 
-func (r *Cnpg2Monitor) updateClusterAnnotations(ctx context.Context, cluster *cnpgv1.Cluster, annotations map[string]string) error {
-	patch := &cnpgv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        cluster.Name,
-			Namespace:   cluster.Namespace,
-			Annotations: annotations,
-		},
+func (r *Cnpg2Monitor) updatePodMonitorAnnotations(ctx context.Context, podMonitor *monitoringv1.PodMonitor, annotations map[string]string) error {
+	// Refetch to get latest version
+	fresh := &monitoringv1.PodMonitor{}
+	if err := r.Get(ctx, types.NamespacedName{Name: podMonitor.Name, Namespace: podMonitor.Namespace}, fresh); err != nil {
+		return err
 	}
 	
-	return r.Patch(ctx, patch, client.Apply, client.FieldOwner("cnpg2monitor"))
+	// Merge with existing annotations
+	existing := fresh.GetAnnotations()
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+	for k, v := range annotations {
+		existing[k] = v
+	}
+	
+	fresh.SetAnnotations(existing)
+	return r.Update(ctx, fresh)
 }
 
 func (r *Cnpg2Monitor) mapNamespaceToCluster(ctx context.Context, obj client.Object) []reconcile.Request {
