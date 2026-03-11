@@ -1,1 +1,0 @@
-https://upstash.com/blog/mcp-oauth-implementation
