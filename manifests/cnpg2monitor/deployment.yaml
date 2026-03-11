@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cnpg2monitor
-  namespace: zero-ops-system
+  namespace: cnpg2monitor-system
 spec:
   replicas: 1
   selector:
@@ -47,7 +47,7 @@ spec:
           periodSeconds: 10
         resources:
           limits:
-            cpu: 500m
+            cpu: 100m
             memory: 128Mi
           requests:
             cpu: 10m

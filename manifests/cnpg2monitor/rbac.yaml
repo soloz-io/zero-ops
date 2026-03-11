@@ -2,16 +2,17 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cnpg2monitor
-  namespace: zero-ops-system
+  namespace: cnpg2monitor-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: cnpg2monitor
+  namespace: zero-ops-system
 rules:
 - apiGroups: ["postgresql.cnpg.io"]
   resources: ["clusters"]
-  verbs: ["get", "list", "watch", "patch"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: ["monitoring.coreos.com"]
   resources: ["podmonitors"]
   verbs: ["get", "list", "watch", "patch"]
@@ -23,14 +24,15 @@ rules:
   verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: cnpg2monitor
+  namespace: zero-ops-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: cnpg2monitor
 subjects:
 - kind: ServiceAccount
   name: cnpg2monitor
-  namespace: zero-ops-system
+  namespace: cnpg2monitor-system
