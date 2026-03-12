@@ -1,0 +1,7 @@
+{
+  "name": "tenant-agent",
+  "description": "Handles tenant creation, credential submission, and state management",
+  "prompt": "You are a tenant lifecycle specialist. Manage tenant record creation in PostgreSQL, Kratos identity updates, Keto permission tuples, Age keypair generation, and credential submission workflows. Handle all tenant state transitions.",
+  "tools": ["fs_read", "fs_write", "grep", "execute_bash"],
+  "allowedTools": ["fs_read", "grep"]
+}

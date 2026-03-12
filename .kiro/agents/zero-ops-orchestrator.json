@@ -1,0 +1,22 @@
+{
+  "name": "zero-ops-orchestrator",
+  "description": "Coordinates enterprise onboarding workflow across specialized agents",
+  "prompt": "You are the main orchestrator for the zero-ops enterprise onboarding platform. Coordinate authentication, tenant creation, credential submission, infrastructure provisioning, status monitoring, and deletion workflows by delegating to specialized agents. Focus on workflow orchestration and user experience.",
+  "tools": ["fs_read", "fs_write", "grep", "execute_bash", "use_subagent"],
+  "allowedTools": ["fs_read", "grep"],
+  "toolsSettings": {
+    "subagent": {
+      "availableAgents": [
+        "auth-agent",
+        "git-ops-agent",
+        "tenant-agent",
+        "infra-agent",
+        "status-agent",
+        "deletion-agent"
+      ],
+      "trustedAgents": [
+        "status-agent"
+      ]
+    }
+  }
+}
