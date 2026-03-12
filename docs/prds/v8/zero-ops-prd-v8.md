@@ -1,6 +1,6 @@
 # Zero-Ops Platform — Product Requirements Document
 
-**Version:** 8.0 — SaaS Factory: AINativeSaaS Template, Platform Console & Tenant Onboarding  
+**Version:** 8.0 + 8.1 — SaaS Factory: AINativeSaaS Template, Platform Console & Tenant Onboarding  
 **Status:** DRAFT  
 **Project:** zero-ops  
 **Repo Model:** Go-Centric Monorepo  
@@ -24,6 +24,18 @@ This approach ensures the platform is optimized for agentic workflows from day o
 
 ---
 
+## Changelog: v8.0 → v8.1
+
+| Area | v8.0 State | v8.1 Change |
+|---|---|---|
+| Cluster topology terminology | "Mothership", "management cluster", and "shard" used interchangeably with no definition or reconciliation | **Clarified in Glossary (new section) and Journey B.** All three terms defined and confirmed as synonyms. Bootstrap sequence (Kind → management cluster) made explicit. |
+| Management cluster vs. tenant cluster | Implicit conflation — the management cluster was not clearly distinguished from Enterprise tenant clusters | **Clarified:** management cluster is the platform control plane, bootstrapped imperatively via CLI. Enterprise tenant clusters are provisioned by Composition B in the tenant's own Hetzner account. They are different things at different layers. |
+| Shared cluster placement | "Zero-Ops Shared Cluster" referenced in diagram and Journey C but never defined or placed relative to the management cluster | **Clarified in Glossary and diagram:** the shared cluster is a dedicated CAPI cluster, separate from the management cluster. Starter tenants are namespaces within it — they are not placed on the management cluster. |
+| Starter tier delivery scope | Journey C and Composition A described without indicating they are not in scope for the current delivery milestone | **Non-Goal added (§2.6) and scope note added to Journey C.** Starter tier is defined for architectural completeness but is not in scope for v8.0 delivery. All current engineering targets Enterprise (Journey A, Composition B). |
+| Duplicate Ory Keto row | Two identical Ory Keto rows in the components table (copy-paste artifact) | **Fixed:** duplicate row removed. |
+
+---
+
 ## Changelog: v7.0 → v8.0
 
 | Area | v7.0 State | v8.0 Change |
@@ -41,6 +53,30 @@ This approach ensures the platform is optimized for agentic workflows from day o
 | Provider switching | Single provider (Hetzner) | **Blue-green provider migration** — `spec.cloud` field change triggers new cluster provisioning + CNPG PITR restore + DNS cutover. Old cluster retained for rollback window. |
 | cnpg2monitor scope | Management cluster only | **Fleet-wide operator** — promoted to ClusterRole, all-namespace watch. Prerequisite for AINativeSaaS template. Every tenant environment monitored from day one. |
 | Monorepo structure | No `xrds/` directory | **`xrds/` added** — Crossplane XRD definitions and Compositions as first-class platform artifacts |
+
+---
+
+## Glossary
+
+The following terms appear throughout this document. Definitions are provided here to prevent ambiguity, particularly around cluster types.
+
+| Term | Definition |
+|---|---|
+| **Management Cluster** | The Zero-Ops platform control plane cluster. Provisioned once per region via `zero-ops mgmt bootstrap` (CLI, imperative, Kind pivot). Runs: Crossplane, ArgoCD, Ory stack, zero-ops-api, Platform Console, VictoriaMetrics, OpenSearch, cnpg2monitor, fleet-registry. **Not a tenant environment. Not provisioned by Composition A or B.** |
+| **Spoke Cluster or Satellite Cluster** | A cluster managed by a Management Cluster. Can be either:
+- Shared Cluster (multi-tenant)
+- Enterprise Tenant Cluster (single tenant)
+| **Mothership or Hub Cluster** | Synonym for Management Cluster. |
+| **Shard** | Synonym for Management Cluster, used when referring to one instance within a multi-region fleet (e.g. `shard-eu-1`, `shard-us-1`). Each shard is an independently bootstrapped management cluster. |
+| **Shared Cluster** | A spoke cluster provisioned by the Management Cluster to host multiple
+Starter-tier tenants as isolated namespaces. This cluster is not the
+management cluster and contains only tenant workloads. _(Composition A target. Out of scope for v8.0 delivery.)_ |
+| **Enterprise Tenant Cluster** | A dedicated CAPI/CAPH cluster provisioned in the **tenant's own Hetzner account** (BYOC) by Crossplane Composition B. One per Enterprise tenant. Physically isolated from all other tenants and from the management cluster. |
+| **Control Plane DB** | The `{tenant}-controlplane` CNPG database provisioned per tenant. Contains: tenant config, agent memory (pgvector), autopilot PR history, billing records. Managed by Zero-Ops. |
+| **Data Plane DB** | The `{tenant}-dataplane` CNPG database provisioned per tenant. Contains the tenant's SaaS application data. Schema owned and managed by the tenant. Zero-Ops has no visibility into its contents. |
+| **BYOC** | Bring Your Own Cloud. Tenants supply their own cloud provider API credentials. All tenant compute runs in their cloud account. Zero-Ops has no billing relationship with the tenant's cloud provider. |
+| **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace, RLS-scoped databases, and baseline services within the Shared Cluster. _(Out of scope for v8.0 delivery.)_ |
+| **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated CAPI cluster, two CNPG clusters, S3 bucket, KSOPS Age key, and all baseline services in the tenant's Hetzner account. |
 
 ---
 
@@ -100,6 +136,7 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 - **GitOps-first, no imperative writes:** The `zero-ops-api` commits CRs to Git. ArgoCD applies them. No direct Kubernetes API writes from the API server except during bootstrap.
 - **Autopilot-with-consent:** In autopilot mode the platform agent raises a PR to the tenant's control plane repository. The tenant approves or rejects. The platform never silently mutates tenant infrastructure.
 - **No vendor lock-in:** The `AINativeSaaS` XRD schema is cloud-provider agnostic. `spec.cloud: hetzner` is the v1 default. Provider switching is a blue-green migration with CNPG PITR restore. No proprietary data formats or cloud-specific dependencies in the control plane.
+- **Non-Goal:** Starter tier onboarding (Journey C) and Composition A in the v8.0 delivery milestone. Both are defined in this document for architectural completeness, but all current engineering effort targets the Enterprise tier (Journey A, Composition B). Starter is a follow-on milestone.
 - **Non-Goal:** Talos Linux support in v8.0. CACPPT does not ship `TalosControlPlaneTemplate`, which is required for ClusterClass topology. Ubuntu + kubeadm is the v8.0 default. Talos support is a future composition variant.
 - **Non-Goal:** Per-tenant Supabase Auth (GoTrue) instances. Ory Kratos provides all identity with `tenant_id` isolation. Supabase's role is limited to PostgREST (auto REST API) and Storage API (S3-backed object storage interface) per tenant.
 - **Non-Goal:** Full Supabase stack deployment. Individual Supabase components are adopted selectively. The full Supabase self-hosted Helm chart is not a platform dependency.
@@ -114,7 +151,7 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 
 | Persona | Role | Primary Interface | Tier |
 |---|---|---|---|
-| **Platform Admin** | Bootstraps mothership clusters, manages global catalog, runbook corpus, global Ory stack, Crossplane XRDs | CLI + Admin API + Platform Console | N/A (platform team) |
+| **Platform Admin** | Bootstraps the management cluster (mothership/shard) and additional regional shards. Manages global catalog, runbook corpus, global Ory stack, Crossplane XRDs | CLI + Admin API + Platform Console | N/A (platform team) |
 | **Tenant Admin** | Onboards their organization onto Zero-Ops, provisions and manages their AINativeSaaS environments, manages their team's access | Platform Console + REST API + Goose (or any MCP client) | Starter or Enterprise |
 | **Tenant Developer** | Builds the SaaS product within the provisioned environment. Opens PRs, triggers PR environments, accesses agent conversation, reads Grafana dashboards | Platform Console (read) + Git + Goose | Starter or Enterprise |
 | **Platform Agent (AI)** | Programmatic actor using MCP-compatible client (Goose reference implementation) to express infrastructure intents | AgentGateway MCP interface | N/A |
@@ -164,16 +201,20 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 
 #### Journey B: Fleet Shard Bootstrap _(Platform Admin)_ _(unchanged from v7.0 Journey A)_
 
-**Trigger:** Zero-Ops platform team needs more management capacity.
+**Trigger:** Zero-Ops platform team needs a new management cluster (mothership/shard). This journey is also the very first thing run for any Zero-Ops deployment — it creates the platform's own control plane before any tenant can be onboarded. Additional shards can be bootstrapped identically for regional expansion.
+
+**What a shard is:** A management cluster (shard/mothership) is the Zero-Ops control plane — the cluster that hosts Crossplane, ArgoCD, the Ory identity stack, zero-ops-api, and the Platform Console. It is bootstrapped imperatively via the CLI (using a local ephemeral Kind cluster as a CAPI pivot point) and then becomes self-hosted on Hetzner. It is **not** a tenant environment and is **not** provisioned by Composition A or B. Enterprise tenant clusters are provisioned **by** the management cluster, not alongside it.
 
 1. Admin runs: `zero-ops mgmt bootstrap --name=shard-eu-1 --region=fsn1`
-2. CLI provisions Ubuntu Management Cluster on Hetzner via CAPI/CAPH. Installs Crossplane, ArgoCD, CNPG operator, cnpg2monitor (ClusterRole scope), Ory stack.
+2. CLI creates a local ephemeral Kind cluster, uses it to bootstrap CAPI/CAPH, provisions a permanent Ubuntu management cluster on Hetzner, pivots CAPI state to that cluster, then tears down the local Kind cluster. Installs Crossplane, ArgoCD, CNPG operator, cnpg2monitor (ClusterRole scope), Ory stack.
 3. CLI registers `shard-eu-1` with `zero-ops-api`. Shard begins emitting 30s heartbeats.
 4. Fleet State Engine begins receiving signals within 60s.
 
 ---
 
 #### Journey C: Starter Tenant — Shared Cluster Onboarding _(Tenant Admin)_
+
+> **⚠ Out of scope for v8.0 delivery.** Journey C and Composition A are defined here for architectural completeness. All current engineering effort targets Journey A (Enterprise). The Shared Cluster referenced below is a **dedicated CAPI cluster separate from the management cluster** — Starter tenants are not placed on the management cluster itself. See Glossary for definitions.
 
 **Trigger:** A solo developer or small team onboards on the Starter plan.
 
@@ -277,6 +318,17 @@ Unchanged from v7.0 Journey D except: the Platform Console is now a defined deli
 
 ### 4.1 High-Level Architecture (v8.0)
 
+**Cluster topology — four distinct cluster types:**
+
+| Type | Also called | Provisioned by | Hosts |
+|---|---|---|---|
+| **Management Cluster** | Mothership, Shard | `zero-ops mgmt bootstrap` CLI (imperative, Kind pivot) | All platform control plane components. Not a tenant. |
+| **Shared Cluster** | Zero-Ops Shared Cluster | Provisioned during platform setup as a dedicated CAPI cluster managed by the management cluster | All Starter-tier tenants as namespaces. Separate from management cluster. _(Out of scope v8.0)_ |
+| **Enterprise Tenant Cluster** | Dedicated CAPI cluster | Crossplane Composition B | One per Enterprise tenant, in the tenant's own Hetzner account (BYOC). |
+| **PR Environment** | Ephemeral namespace | Argo Workflow (webhook) | Short-lived namespace in tenant cluster (Enterprise) or shared cluster (Starter). |
+
+All boxes in the diagram below run on the **management cluster**, except the TENANT ENVIRONMENTS box which represents clusters/namespaces provisioned by the management cluster.
+
 ```
 ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 
@@ -358,9 +410,13 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
                 ▼                                                         │
   ┌───────────────────────────────────────────────────────────────────┐  │
   │  TENANT ENVIRONMENTS                                              │  │
+  │  (provisioned by the management cluster — not part of it)        │  │
   │                                                                   │  │
   │  Starter: Namespace in Zero-Ops Shared Cluster                    │  │
+  │    (Shared Cluster = separate CAPI cluster, not the mgmt cluster) │  │
   │  Enterprise: Dedicated CAPI Cluster (Ubuntu, CAPH, Hetzner)       │  │
+  │    (One per tenant, separate CAPI cluster 
+        runs in tenant's own Hetzner account — BYOC)                  │  │
   │                                                                   │  │
   │  Per-tenant (both tiers):                                         │  │
   │    ArgoCD (edge, OCI pull mode)                                   │  │
@@ -394,8 +450,7 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 | **identity-service** | Python service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. AgentGateway never calls Ory directly. |
 | **Ory Kratos** | Ory Kratos OSS, Kubernetes Helm chart | All identity: platform team, tenant admins, tenant end-users. `tenant_id` in identity traits for isolation. Accessed only via identity-service. |
 | **Ory Hydra** | Ory Hydra OSS, stateless, Kubernetes Helm chart | OAuth2/OIDC token issuer. Issues JWTs after Authorization Code + PKCE flow. Accessed only via identity-service. |
-| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. Accessed only via identity-service.ken issuance. Issues JWTs validated by AgentGateway. Handles Authorization Code + PKCE flow for MCP clients. |
-| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. |
+| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. Accessed only via identity-service. |
 | **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point. No per-tool-server auth logic needed. |
 | **Crossplane** | Crossplane OSS, management cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
 | **ProvisioningAgent** | New Worker Agent (Go) | Handles `AINativeSaaS` provisioning intents. Calls `crossplane-mcp` to create/update/delete XR claims. |
