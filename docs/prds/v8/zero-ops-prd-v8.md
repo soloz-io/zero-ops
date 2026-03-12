@@ -32,7 +32,7 @@ This approach ensures the platform is optimized for agentic workflows from day o
 | Provisioning model | CAPI ClusterClass — one cluster per intent | **Crossplane XRD + Composition** — one `AINativeSaaS` CR expands into full stack: Kubernetes cluster + PostgreSQL HA + GitOps + observability + auth + secrets + storage + AI Gateway + AgentSandbox |
 | Node OS | Talos Linux — removed due to CACPPT/ClusterClass incompatibility | **Ubuntu (kubeadm)** via `KubeadmControlPlaneTemplate` — full ClusterClass topology support. Additional OS support deferred to future version. |
 | Tenant tier model | Single cluster tier | **Starter** (shared cluster, namespace isolation, logical DB separation) and **Enterprise** (dedicated cluster, physical isolation) — two Crossplane Compositions, one XRD |
-| Platform console | Not defined | **New deliverable** — single RBAC-scoped console for platform team and all tenants. Primary surface for human approval workflows, "Resolve in Cursor" button, and agent conversation interface. |
+| Platform console | Not defined | **New deliverable** — single RBAC-scoped console for platform team and all tenants. Read-only monitoring and observability. All write actions via "Resolve in IDE" button that generates deep links to IDE/MCP clients. |
 | Identity & auth | Not defined | **Ory Kratos + Hydra + Keto** (platform-level, shared, one instance) handles all identity: platform team, tenant admins, tenant end-users. Tenant-level identity isolated via `tenant_id` in Kratos traits. |
 | MCP/A2A gateway | LLM Gateway (proxy only) | **AgentGateway** (CNCF open source, Rust) — A2A + MCP communications, JWT validation via Hydra. Single auth enforcement point for all MCP tool calls. |
 | Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Hetzner S3, KSOPS secret management, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM) |
@@ -129,8 +129,8 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 
 1. Tenant Admin opens Goose (or any MCP-compatible client) and types: `"Onboard Acme Corp on the Enterprise plan in eu-central-1."`
 2. Goose maps this to `tenant_create` intent and calls the AgentGateway MCP endpoint.
-3. **AgentGateway** detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header pointing to Hydra's device auth endpoint.
-4. Goose pauses execution and displays: `"Please open https://auth.zero-ops.io/device and enter code F7K9-P2XL."` Goose begins polling Hydra.
+3. **AgentGateway** detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header pointing to Hydra's authorization endpoint (Authorization Code + PKCE flow).
+4. Goose initiates OAuth 2.1 Authorization Code Flow with PKCE: generates code_verifier, computes code_challenge, opens system browser to authorization URL with PKCE parameters.
 5. Tenant Admin completes browser login via Ory Kratos (email/password, SSO, or passkey).
 6. Hydra issues a signed JWT to Goose. Goose retries the `tenant_create` MCP call automatically.
 7. `zero-ops-api` validates the JWT (via AgentGateway), creates PostgreSQL records for `tenant-acme-corp`, generates Hetzner API credential ingestion prompt.
@@ -177,9 +177,9 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 
 **Trigger:** A solo developer or small team onboards on the Starter plan.
 
-1. Tenant Admin logs in to Platform Console via Ory Kratos. Selects `New Environment → Starter`.
-2. Platform console shows real-time cost estimate derived from Hetzner pricing API: e.g. `~$12/month`.
-3. Tenant Admin confirms. `zero-ops-api` commits an `AINativeSaaS` CR with `spec.tier: starter`.
+1. Tenant Admin logs in to Platform Console via Ory Kratos. Views `New Environment` options (Starter/Enterprise).
+2. Platform console shows read-only cost estimate derived from Hetzner pricing API: e.g. `~$12/month`. "Resolve in IDE" button displayed.
+3. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=create_environment&tier=starter`. Cursor/Goose receives link and calls `environment_create` MCP tool.
 4. Crossplane Composition A (Starter) creates: Kubernetes namespace in Zero-Ops shared cluster, shared CNPG database with `tenant_id`-scoped RLS, shared Hetzner S3 prefix, shared AgentSandbox pool allocation, ResourceQuota + LimitRange for the namespace.
 5. Provisioning completes in seconds (no new VMs needed). Tenant Admin's console shows environment `Ready`.
 6. Tenant Admin accesses their environment: PostgREST endpoint, ArgoCD application, Grafana dashboard (tenant-scoped), and agent conversation interface.
@@ -190,9 +190,9 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 
 **Trigger:** Acme Corp on Starter plan has grown and needs physical isolation.
 
-1. Tenant Admin opens Platform Console, selects `Upgrade to Enterprise`.
-2. Console shows cost diff and 5–15 minute migration window estimate (blue-green, no downtime).
-3. Tenant Admin confirms. `zero-ops-api` updates `spec.tier: enterprise` in the tenant's control plane repository.
+1. Tenant Admin opens Platform Console, views `Upgrade to Enterprise` option (read-only).
+2. Console shows cost diff and 5–15 minute migration window estimate (blue-green, no downtime). "Resolve in IDE" button displayed.
+3. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=upgrade_tier&tier=enterprise`. Cursor/Goose calls `tenant_update` MCP tool.
 4. Crossplane detects spec drift. Triggers Composition B (Enterprise):
     - New dedicated CAPI cluster provisioned on tenant's Hetzner account.
     - New dedicated CNPG cluster bootstrapped via `pg_dump` restore from shared CNPG instance (cross-instance migration).
@@ -243,8 +243,8 @@ Workflow detects no staging snapshot exists. Falls back to empty CNPG cluster wi
 
 **Trigger:** Tenant decides to migrate `acme-corp-production` from Hetzner to AWS.
 
-1. Tenant Admin selects `Migrate Provider → AWS` in Platform Console. Console shows estimated migration window and confirms CNPG PITR restore will be used.
-2. Tenant Admin provides AWS credentials. `zero-ops-api` updates `spec.cloud: aws` in the tenant's control plane repository.
+1. Tenant Admin views `Migrate Provider → AWS` in Platform Console (read-only). Console shows estimated migration window and confirms CNPG PITR restore will be used. "Resolve in IDE" button displayed.
+2. Tenant Admin clicks "Resolve in IDE". Console generates deep link with migration parameters. Cursor/Goose prompts for AWS credentials (secure input in IDE), calls `provider_migrate` MCP tool.
 3. Crossplane detects spec change. Triggers blue-green migration:
     - New CAPI cluster provisioned on AWS using AWS Composition.
     - CNPG takes a base backup on the Hetzner cluster. New CNPG cluster on AWS bootstrapped via PITR from that backup.
@@ -264,12 +264,12 @@ Unchanged from v7.0 Journey D except: the Platform Console is now a defined deli
 
 | Operation | Actor | Method |
 |---|---|---|
-| Scale CNPG instances | Tenant Admin | Update `spec.database.instances` in control plane repo PR |
-| Add team member | Tenant Admin | Ory Kratos admin API or Platform Console `Team` tab |
-| Upload tenant-specific runbook | Tenant Admin | Platform Console `Runbooks` tab — scoped to tenant's RAG corpus |
-| Rotate Age encryption key | Platform Admin | Re-encrypt secrets with new Age key, upload new public key to tenant S3 |
-| View Grafana dashboard | Any tenant user | Platform Console `Monitoring` tab → "View in Grafana" link |
-| Query agent about environment | Any tenant user | Platform Console agent conversation interface (pgvector memory, tenant-scoped) |
+| Scale CNPG instances | Tenant Admin | "Resolve in IDE" → Update `spec.database.instances` in control plane repo PR via MCP |
+| Add team member | Tenant Admin | "Resolve in IDE" → Ory Kratos admin API via MCP OR Platform Console `Team` tab (read-only roster) |
+| Upload tenant-specific runbook | Tenant Admin | "Resolve in IDE" → MCP tool uploads to tenant RAG corpus |
+| Rotate Age encryption key | Platform Admin | CLI or MCP tool re-encrypts secrets with new Age key |
+| View Grafana dashboard | Any tenant user | Platform Console `Monitoring` tab → "View in Grafana" link (read-only) |
+| Query agent about environment | Any tenant user | Platform Console agent conversation interface (read-only history, "Resolve in IDE" for actions) |
 
 ---
 
@@ -283,19 +283,24 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   ┌───────────────────────────────────────────────────────────────────────┐
   │  PLATFORM IDENTITY LAYER (shared, one instance)                       │
   │                                                                       │
-  │  Ory Kratos (identity)  ←→  Ory Hydra (OIDC/OAuth2 tokens)           │
+  │  ┌─────────────────────────────────────────────────────────────────┐ │
+  │  │  identity-service (Python) — Ory stack abstraction layer        │ │
+  │  │  Exposes: JWT validation, JWKS, OAuth metadata, Keto checks     │ │
+  │  └────────────────────────┬────────────────────────────────────────┘ │
+  │                           │                                           │
+  │  Ory Kratos (identity)  ←─┼─→  Ory Hydra (OIDC/OAuth2 tokens)        │
   │  Ory Keto (RBAC / relationship-based authorization)                   │
   │                                                                       │
   │  All users: platform admins, tenant admins, tenant end-users          │
   │  Isolation: tenant_id in Kratos identity traits + Keto tuples         │
   └─────────────────────────────┬─────────────────────────────────────────┘
-                                │  JWT (Hydra-signed)
+                                │  JWT (Hydra-signed via identity-service)
                                 ▼
   ┌───────────────────────────────────────────────────────────────────────┐
   │  AGENTGATEWAY (CNCF, Rust) — single auth enforcement point           │
   │                                                                       │
   │  Routes: MCP tool calls, A2A communications                           │
-  │  Validates: JWT from Hydra on every inbound call using identity service                     │
+  │  Validates: JWT via identity-service (never calls Ory directly)       │
   │  Individual MCP tool servers: no auth logic (AgentGateway owns it)    │
   │                                                                       │
   │  Clients: Goose (reference), Cursor, Claude Desktop, any MCP client  │
@@ -385,9 +390,11 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 | **AINativeSaaS XRD** | Crossplane `CompositeResourceDefinition` | Defines the `zero-ops.io/v1` API schema for the SaaS environment intent. Cloud-provider agnostic schema. |
 | **Composition A — Starter** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: starter`) into shared cluster namespace resources. Provisions in seconds. |
 | **Composition B — Enterprise** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: enterprise`) into full dedicated cluster stack. Provisions in 10–15 minutes. |
-| **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Primary surface for: environment dashboard, cost estimates, agent conversation, destructive op approval, "Resolve in Cursor" button, team management, runbook upload, Grafana escape hatch. |
-| **Ory Kratos** | Ory Kratos OSS, Kubernetes Helm chart | All identity: platform team, tenant admins, tenant end-users. `tenant_id` in identity traits for isolation. |
-| **Ory Hydra** | Ory Hydra OSS, stateless, Kubernetes Helm chart | OAuth2/OIDC token issuance. Issues JWTs validated by AgentGateway. Handles device auth flow for headless agents. |
+| **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
+| **identity-service** | Python service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. AgentGateway never calls Ory directly. |
+| **Ory Kratos** | Ory Kratos OSS, Kubernetes Helm chart | All identity: platform team, tenant admins, tenant end-users. `tenant_id` in identity traits for isolation. Accessed only via identity-service. |
+| **Ory Hydra** | Ory Hydra OSS, stateless, Kubernetes Helm chart | OAuth2/OIDC token issuer. Issues JWTs after Authorization Code + PKCE flow. Accessed only via identity-service. |
+| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. Accessed only via identity-service.ken issuance. Issues JWTs validated by AgentGateway. Handles Authorization Code + PKCE flow for MCP clients. |
 | **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. |
 | **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point. No per-tool-server auth logic needed. |
 | **Crossplane** | Crossplane OSS, management cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
@@ -412,7 +419,8 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
 | LLM Gateway | Renamed and superseded by **AgentGateway** for MCP/A2A routing. LLM backend governance (rate limiting, cost attribution, fallback) retained as AgentGateway sub-feature. |
 | CAPI ClusterClass OS | Ubuntu (kubeadm) replaces Talos. `KubeadmControlPlaneTemplate` is the control plane template. `manifests/classes/hetzner-prod-ubuntu-v1.yaml` replaces `hetzner-prod-talos-v1.yaml`. |
 | cnpg2monitor | Promoted from `Role` (management namespace only) to `ClusterRole` (all namespaces). Phase 3 upgrade is now Phase 2b prerequisite. |
-| MCP tool servers | Individual servers no longer implement auth logic. AgentGateway is the single enforcement point. |
+| MCP tool servers | Individual servers no longer implement auth logic. AgentGateway is the single enforcement point via identity-service. |
+| Ory stack access | All Ory stack interactions (Kratos, Hydra, Keto) are proxied through identity-service. AgentGateway never calls Ory directly. |
 
 ### 4.3 Integration & Control Plane
 
@@ -548,39 +556,50 @@ Both databases reside in the same CNPG cluster (Enterprise) or shared CNPG insta
 #### 5.3.1 Platform Identity Stack (shared, one instance per Zero-Ops deployment)
 
 ```
+identity-service (Python)
+  Abstraction layer between AgentGateway and Ory stack
+  Exposes: JWKS endpoint, OAuth metadata, JWT validation, Keto permission checks
+  AgentGateway calls identity-service ONLY (never Ory directly)
+  
+  ↓ interfaces with ↓
+
 Ory Kratos
   Identity store for: platform admins, tenant admins, tenant end-users
   Isolation: tenant_id field in identity traits schema
   Schema: { email, name, tenant_id, role: [platform_admin|tenant_admin|tenant_user] }
+  Accessed only via identity-service
 
 Ory Hydra
   OAuth2/OIDC token issuer
-  Clients: AgentGateway, Platform Console, Goose device auth
+  Clients: MCP clients via Authorization Code + PKCE flow
   Token claims include: sub, tenant_id, role, scope
-  Device auth flow: for headless MCP clients (Goose)
+  Accessed only via identity-service
 
 Ory Keto
   Relationship tuples define access:
     tenant:acme-corp#admin@user:alice     (alice is admin of acme-corp)
     tenant:acme-corp#viewer@user:bob      (bob can view acme-corp)
     platform#admin@user:carol            (carol is platform admin — sees all tenants)
-  AgentGateway calls Keto check API before routing MCP tool calls
+  Accessed only via identity-service
 ```
 
 #### 5.3.2 JWT Flow
 
 ```
-User/Agent authenticates via Kratos
+User/Agent authenticates via Kratos (through identity-service)
         │
 Kratos confirms identity + tenant_id
         │
-Hydra issues JWT:
+Hydra issues JWT (via identity-service):
   { sub: "user-uuid", tenant_id: "acme-corp", role: "tenant_admin", scope: "..." }
         │
 JWT passed in Authorization: Bearer header to AgentGateway
         │
-AgentGateway validates JWT signature (Hydra JWKS endpoint, cached)
-AgentGateway calls Keto check API: "can this user call this MCP tool?"
+AgentGateway calls identity-service to validate JWT signature
+identity-service fetches JWKS from Hydra, validates, returns claims
+        │
+AgentGateway calls identity-service Keto check: "can this user call this MCP tool?"
+identity-service queries Keto, returns allow/deny
         │
 If authorized: routes MCP call to tool server
 If not: returns 403 Forbidden
@@ -704,8 +723,8 @@ teardown_actions:
 
 | Dependency | When Read | Caching Strategy |
 |---|---|---|
-| Ory Hydra JWKS endpoint | AgentGateway startup + cache refresh on 401 | Cached in memory, refreshed on JWT validation failure or every 5 minutes |
-| Ory Keto check API | Per MCP tool call (authorization check) | No cache — authorization decisions must be real-time |
+| identity-service JWKS endpoint | AgentGateway startup + cache refresh on 401 | Cached in memory, refreshed on JWT validation failure or every 5 minutes |
+| identity-service Keto check API | Per MCP tool call (authorization check) | No cache — authorization decisions must be real-time |
 | Hetzner pricing API | At tenant provisioning request time (cost estimate) | Per-request, not cached — prices change |
 | CNPG backup (CSI snapshot restore) | At PR environment creation and AgentSandbox pod startup | One-time per lifecycle event — not per request |
 | OCI catalog (ArgoCD pull) | ArgoCD polling interval (default: 3 minutes) | ArgoCD native cache |
@@ -717,15 +736,16 @@ teardown_actions:
 #### 5.9.2 Idiomatic Behavior & Anti-Patterns
 
 **Idiomatic:**
-- AgentGateway caches Hydra JWKS at startup and refreshes on cache miss — not on every request.
+- AgentGateway caches JWKS from identity-service at startup and refreshes on cache miss — not on every request.
 - CNPG snapshot restores happen once per PR environment or AgentSandbox pod lifecycle — not on every agent execution step.
 - ArgoCD polls OCI catalog on a fixed interval — not triggered by API calls.
 - agent memory (pgvector) is read once per agent conversation session and updated at session end — not on every message.
 
 **Anti-patterns (must NOT):**
 - Must NOT call Hetzner pricing API on every dashboard page load — derive from provisioning-time snapshot, refresh on explicit user action only.
-- Must NOT call Keto check API from MCP tool server implementations — authorization is AgentGateway's responsibility.
-- Must NOT fetch JWKS from Hydra on every JWT validation — cache with TTL.
+- Must NOT call Keto check API from MCP tool server implementations — authorization is AgentGateway's responsibility via identity-service.
+- Must NOT fetch JWKS on every JWT validation — cache with TTL.
+- Must NOT call Ory stack (Kratos, Hydra, Keto) directly from AgentGateway — always use identity-service.
 - Must NOT restore CSI snapshot on every agent tool call — snapshot is the pod's initial state, not a per-call operation.
 - Must NOT call `zero-ops-api` directly from ArgoCD — ArgoCD pulls from OCI artifact store only. API is not a reconciliation dependency.
 
@@ -786,15 +806,19 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 
 1. Tenant Admin types in Goose: `"Onboard Acme Corp on the enterprise plan in eu-central-1."`
 2. Goose calls `tenant_create` via AgentGateway MCP endpoint.
-3. AgentGateway detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate: Bearer realm="https://auth.zero-ops.io", error="missing_token"`.
-4. Goose intercepts the 401, pauses execution, displays: `"Please open https://auth.zero-ops.io/device and enter code F7K9-P2XL."` Goose polls Hydra device auth endpoint every 5 seconds.
-5. Tenant Admin opens browser, completes Kratos login (email + password or SSO).
-6. Hydra issues Access Token (JWT) to Goose. Goose retries `tenant_create` automatically.
-7. AgentGateway validates JWT. Calls Keto: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
+3. AgentGateway detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header with resource_metadata URL pointing to identity-service.
+4. Goose discovers OAuth endpoints via identity-service metadata endpoints, initiates OAuth 2.1 Authorization Code + PKCE flow: generates code_verifier, computes code_challenge (SHA256), opens system browser to authorization URL (via identity-service) with PKCE parameters and custom URI scheme redirect (goose://callback).
+5. Tenant Admin opens browser (automatically), completes Kratos login (email + password or SSO) via identity-service.
+6. Hydra (via identity-service) redirects to goose://callback?code={authorization_code}&state={state}. Goose validates state, exchanges authorization code + code_verifier for Access Token (JWT) via identity-service token endpoint.
+7. Goose retries `tenant_create` automatically with JWT.
+7. AgentGateway validates JWT via identity-service. Calls identity-service Keto check: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
 8. `zero-ops-api` creates tenant record in PostgreSQL. Returns `201 Created` with `tenant_id: acme-corp`.
 9. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.zero-ops.io/settings/credentials"`. Goose pauses and polls for credential confirmation.
-10. Tenant Admin opens console (already authenticated via Kratos session). Enters Hetzner API token. Token is encrypted with tenant Age key and stored in Hetzner S3.
-11. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
+10. Tenant Admin opens console (already authenticated via Kratos session). Console displays credential submission form (read-only view with "Resolve in IDE" button).
+11. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=submit_credentials&tenant_id=acme-corp`.
+12. Cursor/Goose receives deep link, prompts Tenant Admin for Hetzner API token in IDE (secure input, never transits agent).
+13. Cursor/Goose calls `credentials_submit` MCP tool with encrypted token. `zero-ops-api` stores encrypted token in Hetzner S3.
+14. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
 12. `zero-ops-api` commits `AINativeSaaS` CR to tenant control plane repository. Returns `202 Accepted` with provisioning status URL.
 13. Goose displays: `"Provisioning in progress. Track at https://console.zero-ops.io/environments/acme-corp-production"`.
 14. 12 minutes later: Crossplane Composition B completes. Console shows `Ready`. Goose displays final summary.
@@ -802,7 +826,7 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 **Variations:**
 
 - *Hetzner quota exceeded:* CAPI provisioning fails. Crossplane sets Condition `Ready: False, Reason: HetznerQuotaExceeded`. Console alert displayed. Goose surfaces the error with remediation suggestion: `"Request a quota increase at https://hetzner.com/quota or try a different region."`
-- *Goose session timeout:* If device auth not completed in 5 minutes, Hydra expires the code. Goose displays new device code and restarts the polling loop.
+- *Goose authorization timeout:* If authorization code not exchanged within 10 minutes, Hydra expires the code. Goose restarts the Authorization Code + PKCE flow with new code_verifier and code_challenge.
 - *Duplicate tenant name:* `zero-ops-api` returns `409 Conflict`. Goose suggests alternative names.
 
 ---
@@ -999,7 +1023,7 @@ zero-ops/
 | 4 | Fleet Observability Stack | VictoriaMetrics vmcluster, Alloy config, vmalert, Alertmanager webhook, OpenSearch, index templates, K8sGPT result exporter | Phase 3 | Planned |
 | 5 | Safe Execution Layer | Policy Gate, Argo Workflow templates (incl. PR env + provider migration), CNPG ticket integration, `agent_audit_log` | Phase 4 | Planned |
 | 6 | MCP Tool Servers | All 8 MCP servers (7 from v7.0 + crossplane-mcp) with AgentGateway auth integration | Phase 5 | Planned |
-| **7** | **Platform Identity** | Ory Kratos + Hydra + Keto deployment, JWT flow, AgentGateway integration, device auth for Goose | Phase 1 | **NEW — Planned** |
+| **7** | **Platform Identity** | Ory Kratos + Hydra + Keto deployment, JWT flow, AgentGateway integration, Authorization Code + PKCE for MCP clients | Phase 1 | **NEW — Planned** |
 | **8** | **AINativeSaaS Template** | Crossplane deployment, XRD definition, Composition A (Starter), Composition B (Enterprise), ProvisioningAgent, crossplane-mcp | Phases 3, 7 | **NEW — Planned** |
 | **9** | **Platform Console** | Console web app, RBAC views, environment dashboard, agent conversation interface, approval queue, Grafana escape hatch, cost estimates | Phases 4, 7, 8 | **NEW — Planned** |
 | 10 | Multi-Agent Collaboration | LLM governance via AgentGateway, Collaborator Agent, all Worker Agents incl. ProvisioningAgent, Runbook RAG, end-to-end test suite | Phases 6, 7, 8, 9 | Planned |
@@ -1027,7 +1051,7 @@ zero-ops/
 
 | ID | Criterion | Verification |
 |---|---|---|
-| A-09 | Goose device auth flow completes: 401 → device code → browser login → JWT retry succeeds | Manual flow test; Goose output shows `tenant_create` result after auth |
+| A-09 | Goose Authorization Code + PKCE flow completes: 401 → browser opens → login → redirect to goose://callback → JWT exchange → retry succeeds | Manual flow test; Goose output shows `tenant_create` result after auth |
 | A-10 | AgentGateway rejects MCP calls without valid JWT | `curl -X POST https://gateway.zero-ops.io/mcp -d '...'` without Authorization header returns `401` |
 | A-11 | Tenant A cannot call MCP tools scoped to Tenant B | JWT with `tenant_id: tenant-a` calling `crossplane-mcp:get` for `tenant-b` resource returns `403` |
 | A-12 | Platform admin JWT can query all tenant resources | Platform admin JWT calling `fleet-state-mcp:list` returns results from all tenants |
