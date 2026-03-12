@@ -173,7 +173,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
     - X-User-Role: {role from JWT}
     - X-Scopes: {scope from JWT}
 11. THE zero_ops_api SHALL trust the AgentGateway headers and SHALL NOT validate JWTs independently
-12. THE zero_ops_api SHALL use X-Tenant-ID for tenant isolation in database queries
+12. THE zero_ops_api SHALL enforce network isolation (via Kubernetes NetworkPolicy) to exclusively accept incoming traffic from the AgentGateway namespace, ensuring JWT header trust is cryptographically secure at the network perimeter
 
 ### Requirement 4: Create Tenant Record (Idempotent)
 
@@ -183,25 +183,29 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 #### Acceptance Criteria
 
-1. WHEN zero_ops_api receives a tenant_create request, THE zero_ops_api SHALL check if the tenant name exists
+1. WHEN zero_ops_api receives a tenant_create request, IT SHALL check if the user already has an assigned tenant_id. IF the user has a tenant_id AND the requested tenant name matches their existing record, IT SHALL bypass creation and proceed to idempotency state checks. IF the requested name differs from their existing record, IT SHALL return HTTP 403 Forbidden with JSON body: {"error": "single_tenant_limit", "message": "Each user account may only be associated with one tenant.", "existing_tenant_id": "{tenant_id}"}
 2. IF the tenant name does NOT exist, THE zero_ops_api SHALL insert a tenant record into PostgreSQL with name, plan, and region, and return HTTP 201 with tenant_id and status: AWAITING_CREDENTIALS
-3. IF the tenant name exists AND credentials are missing, THE zero_ops_api SHALL return HTTP 200 with tenant_id and status: AWAITING_CREDENTIALS
-4. IF the tenant name exists AND credentials are present AND environment is not provisioned, THE zero_ops_api SHALL return HTTP 200 with tenant_id and status: CREDENTIALS_READY
-5. IF the tenant name exists AND environment is provisioned, THE zero_ops_api SHALL return HTTP 200 with tenant_id and status: READY
-6. WHEN zero_ops_api processes tenant creation, IT SHALL invoke the Git Provider API (GitHub or GitLab) to create a new repository named {tenant_id}-control-plane within the Zero-Ops organization
-7. THE zero_ops_api SHALL initialize the repository with a default Kustomize structure:
+3. UPON successful DB insertion, THE zero_ops_api SHALL call the Kratos Admin API to update the user's identity traits with the new tenant_id, AND call Keto to create the relationship tuple tenant:{tenant_id}#admin@user:{sub}. IF invoked by a Platform Admin on behalf of a user, IT SHALL use the provided target_user_id parameter instead of the caller's sub
+4. DURING tenant creation, THE zero_ops_api SHALL generate a new Age key pair for the tenant, store the private key as a Kubernetes Secret in the management cluster, backup the private key to the Zero-Ops Platform's internal disaster recovery S3 bucket, and embed the public key into the Git .sops.yaml scaffold
+5. IF the Kratos trait update or Keto tuple creation fails after the database insert, THE zero_ops_api SHALL persist the tenant record with status INCOMPLETE_IDENTITY_SETUP and return HTTP 500. Retrying tenant_create SHALL idempotently re-attempt the missing identity steps. UPON successful completion of the identity steps during a retry, THE zero_ops_api SHALL automatically proceed to execute the Git provisioning steps (AC10-AC12) and return HTTP 201 with {"force_token_refresh": true, "tenant_id": "{tenant_id}"}
+6. THE zero_ops_api SHALL return HTTP 201 with a JSON response body containing {"force_token_refresh": true, "tenant_id": "{tenant_id}"}. WHEN the Cursor client receives force_token_refresh: true, IT SHALL immediately execute the Token Refresh flow (Requirement 14) so the new tenant_id is populated in the JWT for subsequent calls
+7. IF the tenant name exists AND credentials are missing, THE zero_ops_api SHALL return HTTP 200 with JSON body {"force_token_refresh": false, "tenant_id": "{tenant_id}", "phase": "AWAITING_CREDENTIALS"}
+8. IF the tenant name exists AND credentials are present AND environment is not provisioned, THE zero_ops_api SHALL return HTTP 200 with JSON body {"force_token_refresh": false, "tenant_id": "{tenant_id}", "phase": "CREDENTIALS_READY"}
+9. IF the tenant name exists AND environment is provisioned, THE zero_ops_api SHALL return HTTP 200 with JSON body {"force_token_refresh": false, "tenant_id": "{tenant_id}", "phase": "READY"}
+10. WHEN zero_ops_api processes tenant creation, IT SHALL invoke the Git Provider API (GitHub or GitLab) to create a new repository named {tenant_id}-control-plane within the Zero-Ops organization
+11. THE zero_ops_api SHALL initialize the repository with a default Kustomize structure:
    - .sops.yaml (defines Age public key encryption rule)
    - base/kustomization.yaml (configures KSOPS plugin)
    - base/secrets/ (destination for encrypted credentials)
    - overlays/starter/ (destination for Starter tier CRs)
    - overlays/enterprise/ (destination for Enterprise tier CRs)
-8. THE zero_ops_api SHALL commit a tenant descriptor to the global fleet-registry repository, which SHALL trigger the management cluster's ArgoCD ApplicationSet to begin watching the new tenant repository
-9. IF the Git repository creation or the fleet-registry commit fails, THE zero_ops_api SHALL NOT rollback the PostgreSQL record. Instead, it SHALL persist the tenant record with status: INCOMPLETE_GIT_SETUP and return HTTP 500
-10. WHEN tenant_create is invoked for a tenant name that already exists in INCOMPLETE_GIT_SETUP state, THE zero_ops_api SHALL idempotently retry the missing Git provisioning steps (verify repo exists, create if missing, push scaffold, commit to fleet-registry). Upon success, it SHALL update status to AWAITING_CREDENTIALS and return HTTP 200
-11. THE Cursor SHALL read the status field and proceed to the appropriate next step (credential submission, environment creation, or completion)
-12. ALL tenant_create calls with the same tenant name SHALL be safe to retry infinitely
-13. THE PostgreSQL tenants table SHALL enforce a UNIQUE constraint on the tenant_name column
-14. IF a concurrent tenant_create causes a unique constraint violation, THE zero_ops_api SHALL catch the error and return HTTP 200 with the existing tenant state (not HTTP 500)
+12. THE zero_ops_api SHALL commit a tenant descriptor to the global fleet-registry repository, which SHALL trigger the management cluster's ArgoCD ApplicationSet to begin watching the new tenant repository
+13. IF the Git repository creation or the fleet-registry commit fails, THE zero_ops_api SHALL NOT rollback the PostgreSQL record. Instead, it SHALL persist the tenant record with status: INCOMPLETE_GIT_SETUP, emit a critical OpenSearch event for platform alerting, and return HTTP 500 with a JSON body containing {"error_code": "git_service_unavailable", "message": "Platform repository service is currently unavailable. Our engineering team has been notified. Please try again later."}
+14. WHEN tenant_create is invoked for a tenant name that already exists in INCOMPLETE_GIT_SETUP state, THE zero_ops_api SHALL idempotently retry the missing Git provisioning steps (verify repo exists, create if missing, push scaffold, commit to fleet-registry). Upon success, it SHALL update status to AWAITING_CREDENTIALS and return HTTP 200
+15. THE Cursor SHALL read the status field and proceed to the appropriate next step (credential submission, environment creation, or completion)
+16. ALL tenant_create calls with the same tenant name SHALL be safe to retry infinitely
+17. THE PostgreSQL tenants table SHALL enforce a UNIQUE constraint on the tenant_name column
+18. IF a concurrent tenant_create causes a unique constraint violation, THE zero_ops_api SHALL catch the error and return HTTP 200 with the existing tenant state (not HTTP 500)
 
 ### Requirement 5: Collect Cloud Provider Credentials (Idempotent, Async)
 
@@ -222,13 +226,14 @@ This specification defines the complete agentic enterprise onboarding journey, e
 7. THE Platform Console SHALL submit credentials via HTTPS POST to zero_ops_api backend with JWT authentication
 8. THE zero_ops_api backend SHALL encrypt the API token using the tenant's Age public key
 9. THE zero_ops_api SHALL commit the SOPS-encrypted Secret to the {tenant_id}-control-plane Git repository under base/secrets/ directory using a GitHub App Installation Token
-10. THE zero_ops_api SHALL store ONLY the private Age key in S3 at path: s3://{tenant}-secrets/age-private-key
-11. THE tenant SHALL remain in AWAITING_CREDENTIALS state indefinitely until credentials are submitted (no automatic cleanup)
-12. IF credential submission fails (Git commit error), THE zero_ops_api SHALL return HTTP 500, and the Tenant_Admin MAY retry via the console form
-13. WHEN the Tenant_Admin returns to Cursor and asks about environment status, THE Cursor SHALL invoke environment_status MCP tool (Requirement 17 handles resumption)
-14. IF status is CREDENTIALS_READY, THE Cursor SHALL proceed to invoke environment_create with tier, cloud, and region parameters
-15. THE credential submission operation SHALL be idempotent - resubmitting the same credential updates the encrypted Secret in Git
-16. ALL credential submission endpoints SHALL require HTTPS (TLS 1.2+)
+10. THE zero_ops_api SHALL store the tenant's Age private key as a Kubernetes Secret in the management cluster for hub ArgoCD/KSOPS decryption of tenant infrastructure secrets
+11. THE zero_ops_api SHALL backup the tenant's Age private key to S3 at path: s3://{tenant}-secrets/age-private-key for disaster recovery only
+12. THE tenant SHALL remain in AWAITING_CREDENTIALS state indefinitely until credentials are submitted (no automatic cleanup)
+13. IF credential submission fails (Git commit error), THE zero_ops_api SHALL return HTTP 500, and the Tenant_Admin MAY retry via the console form
+14. WHEN the Tenant_Admin returns to Cursor and asks about environment status, THE Cursor SHALL invoke environment_status MCP tool (Requirement 17 handles resumption)
+15. THE credential submission operation SHALL be idempotent - resubmitting updates the encrypted Secret in Git. IF concurrent submissions occur, the zero_ops_api SHALL process them sequentially, applying a last-write-wins resolution where the final Git commit contains the most recently submitted credentials
+16. IF the Platform Console receives HTTP 401 Unauthorized during credential submission (JWT expiry), IT SHALL prompt the Tenant_Admin to re-authenticate WITHOUT clearing the entered Hetzner API token from the UI form, and automatically retry the submission upon successful re-authentication
+17. ALL credential submission endpoints SHALL require HTTPS (TLS 1.2+)
 
 ### Requirement 6: Initiate Environment Provisioning (Idempotent, Async)
 
@@ -241,18 +246,19 @@ This specification defines the complete agentic enterprise onboarding journey, e
 1. WHEN environment_create is invoked, THE zero_ops_api SHALL verify the requested `tier` does not exceed the tenant's current billing `plan` entitlement
 2. IF the requested `tier` exceeds the `plan` entitlement, THE zero_ops_api SHALL return HTTP 403 Forbidden with a JSON error body: `{"error": "entitlement_mismatch", "message": "Your current plan does not support this tier. Please upgrade your plan in the Platform Console."}`
 3. IF HTTP 403 Forbidden is returned for entitlement mismatch, THE Cursor SHALL display: "Provisioning blocked: Your current plan (Starter) does not allow provisioning an Enterprise environment. Please upgrade your plan in the Platform Console: https://console.zero-ops.io/settings/billing"
-4. THE zero_ops_api SHALL generate an AINativeSaaS_CR with the specified tier, cloud, and region
-5. THE zero_ops_api SHALL commit the AINativeSaaS_CR to the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory using a GitHub App Installation Token
-6. IF the Git commit fails, THE zero_ops_api SHALL return HTTP 500, and the Cursor MAY retry environment_create
-7. IF the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 with response body containing:
+4. THE environment_create MCP tool SHALL require an environment_suffix parameter (e.g., 'staging', 'production'). THE zero_ops_api SHALL construct a globally unique environment_id as {tenant_id}-{environment_suffix}
+5. IF the generated environment_id already exists, THE zero_ops_api SHALL compare the requested tier, cloud, and region against the existing environment. IF ANY single parameter differs, THE zero_ops_api SHALL return HTTP 409 Conflict with a JSON body detailing the existing parameters to prevent silent overrides
+6. THE zero_ops_api SHALL commit the AINativeSaaS_CR to the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory using a GitHub App Installation Token
+7. IF the Git commit fails, THE zero_ops_api SHALL return HTTP 500, and the Cursor MAY retry environment_create
+8. IF the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 with response body containing:
    - tenant_id
-   - environment_name
-   - console_url (e.g., https://console.zero-ops.io/environments/acme-corp-production)
+   - environment_id (e.g., acme-corp-production)
+   - console_url (e.g., https://console.zero-ops.io/environments/{environment_id})
    - estimated_duration_minutes (15 for Enterprise, 1 for Starter)
-8. IF environment_create is called again for the same tenant, THE zero_ops_api SHALL return HTTP 200 with the current environment state (idempotent)
-9. THE Cursor SHALL display the console_url and a message: "Provisioning started in the background. Track progress at: {console_url}"
-10. THE Cursor SHALL NOT block user input or poll for provisioning completion
-11. THE Cursor execution SHALL complete immediately after displaying the console_url
+9. IF environment_create is called again for the same environment_id with matching parameters, THE zero_ops_api SHALL return HTTP 200 (idempotent) returning the exact same JSON response body schema as the HTTP 202 response (tenant_id, environment_id, console_url, estimated_duration_minutes)
+10. THE Cursor SHALL display the console_url and a message: "Provisioning started in the background. Track progress at: {console_url}"
+11. THE Cursor SHALL NOT block user input or poll for provisioning completion
+12. THE Cursor execution SHALL complete immediately after displaying the console_url
 
 ### Requirement 7: Execute Crossplane Composition (Eventual Consistency)
 
@@ -264,11 +270,12 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 1. WHEN the AINativeSaaS_CR is committed, THE Crossplane SHALL detect the new resource
 2. THE Crossplane SHALL select Composition_B based on the enterprise tier
-3. THE Crossplane SHALL provision Hetzner resources using the decrypted API token (decrypted by KSOPS from Git)
-4. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
-5. THE Composition_B SHALL typically complete within 15 minutes under normal conditions
-6. IF provisioning encounters transient errors (network issues, API rate limits), THE Crossplane SHALL continuously retry with exponential backoff
-7. THE Crossplane SHALL NEVER enter a terminal "failed" state - only Degraded or Unready states that allow continued reconciliation
+3. THE Crossplane SHALL provision Hetzner resources using the decrypted API token (decrypted by KSOPS from Git using the tenant's Age private key stored in the management cluster)
+4. THE Crossplane Composition B SHALL utilize a provider-kubernetes Object resource to securely copy the tenant's Age private key Secret from the management cluster directly into the provisioned tenant cluster's ArgoCD namespace. The provider-kubernetes controller SHALL operate using a least-privilege ServiceAccount restricted via RBAC to reading only Secrets labeled zero-ops.io/tenant-age-key=true
+5. THE tenant cluster bootstrap SHALL deploy ArgoCD and KSOPS, configuring ArgoCD to use the injected Age private key Secret to automatically decrypt tenant application secrets pulled from Git
+6. THE Composition_B SHALL typically complete within 15 minutes under normal conditions, including tenant cluster provisioning and ArgoCD bootstrap
+7. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
+8. THE Crossplane SHALL NEVER enter a terminal "failed" state - only Degraded or Unready states that allow continued reconciliation
 
 ### Requirement 8: Handle Provisioning Errors (Continuous Reconciliation)
 
@@ -280,8 +287,8 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 1. IF Hetzner quota is exceeded, THE Crossplane SHALL update the AINativeSaaS_CR status with Condition: Ready: False, Reason: QuotaExceeded, Message: "Hetzner quota exceeded in {region}"
 2. IF the API token is invalid, THE Crossplane SHALL update the AINativeSaaS_CR status with Condition: Ready: False, Reason: AuthenticationFailed, Message: "Invalid Hetzner API token"
-3. WHEN the Cursor polls the status_url, THE zero_ops_api SHALL return the current AINativeSaaS_CR Conditions
-4. IF provisioning is degraded, THE Cursor SHALL display the Condition message to the Tenant_Admin
+3. WHEN the Tenant_Admin requests status via the Agent, THE zero_ops_api SHALL return the current AINativeSaaS_CR Conditions via the environment_status MCP tool (Requirement 9)
+4. THE Cursor SHALL display the Condition message when the Tenant_Admin explicitly requests status
 5. THE Crossplane SHALL continuously retry reconciliation with exponential backoff (no max retry limit)
 6. WHEN the external issue is resolved (quota increased, token fixed), THE Crossplane SHALL automatically resume provisioning without manual intervention
 7. IF the Tenant_Admin wants to abort provisioning, they MUST invoke environment_delete, which triggers Crossplane to garbage-collect all partially created resources
@@ -300,19 +307,13 @@ This specification defines the complete agentic enterprise onboarding journey, e
 3. THE AgentGateway SHALL validate the JWT and query identity-service Keto to authorize read access for the specific tenant_id
 4. THE zero_ops_api SHALL fetch the AINativeSaaS_CR from the Kubernetes API
 5. THE zero_ops_api SHALL map Crossplane Conditions to a normalized phase enum: Pending, Provisioning, Ready, or Degraded
-6. THE zero_ops_api SHALL return a JSON response containing:
-   - tenant_id
-   - environment_name
-   - tier
-   - phase (enum: Pending, Provisioning, Ready, Degraded)
-   - summary_message (human-readable status)
-   - duration_seconds (time since CR creation)
-   - console_url
-   - crossplane_conditions (array of Condition objects with type, status, reason, message)
+6. THE zero_ops_api SHALL return a JSON response containing the fields defined in Requirement 16 AC4
 7. THE Cursor SHALL display the phase and summary_message to the Tenant_Admin
 8. IF phase is Ready, THE Cursor SHALL display provisioned resource endpoints (cluster endpoint, database connection reference, ArgoCD URL, Grafana URL)
 9. IF phase is Degraded, THE Cursor SHALL display the error reason and suggest remediation (e.g., "Increase Hetzner quota or try a different region")
-10. THE Cursor SHALL format the response for readability in the IDE console
+10. THE zero_ops_api SHALL expose an environments_list MCP tool mapped to GET /api/v1/tenants/{tenant_id}/environments. It SHALL route through AgentGateway enforcing JWT and Keto authorization identical to other endpoints
+11. THE environments_list endpoint SHALL return an array of objects matching the environment status schema (defined in Req 16). IF the tenant has no environments, it SHALL return HTTP 200 with an empty array []
+12. WHEN the Tenant_Admin asks generally about their environments without specifying an ID, THE Cursor SHALL invoke environments_list to fetch all environments and prompt the user to disambiguate which environment they are referring to
 
 ### Requirement 10: Cache JWKS for Performance
 
@@ -471,7 +472,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 3. THE identity-service SHALL forward the request to Hydra
 4. THE Hydra SHALL validate the refresh token (30-day TTL)
-5. THE Hydra SHALL issue a new access token with 24-hour TTL and same custom claims (tenant_id, email, role)
+5. THE Hydra SHALL issue a new access token with 24-hour TTL. THE identity-service SHALL configure Hydra to re-hydrate custom claims (tenant_id, email, role) from the latest Kratos identity traits during the refresh grant, ensuring newly assigned tenant_ids are successfully populated into the new token
 6. THE Hydra SHALL rotate the refresh token (issue new refresh token, invalidate old one)
 7. THE identity-service SHALL return the new tokens to the Cursor
 8. THE Cursor SHALL update stored tokens in OS keychain
@@ -526,19 +527,19 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 #### Acceptance Criteria
 
-1. THE zero_ops_api SHALL expose the environment_status MCP tool (mapped to GET /api/v1/environments/{environment_id}/status)
+1. THE zero_ops_api SHALL expose the environment_status MCP tool, mapped to GET /api/v1/environments/{environment_id}/status. TO support pre-environment routing, THE zero_ops_api SHALL ALSO expose a tenant-level status endpoint mapped to GET /api/v1/tenants/{tenant_id}/status. This tenant endpoint SHALL handle all pre-environment phases (INCOMPLETE_IDENTITY_SETUP, INCOMPLETE_GIT_SETUP, AWAITING_CREDENTIALS, CREDENTIALS_READY)
 2. THE endpoint SHALL require JWT authentication via AgentGateway
 3. THE AgentGateway SHALL validate JWT and query identity-service Keto to authorize read access for the specific tenant_id
-4. THE response schema SHALL be:
+4. BOTH endpoints SHALL return the identical JSON response schema (pre-environment states will return null for environment-specific fields):
 ```json
 {
   "tenant_id": "string",
-  "environment_name": "string",
-  "tier": "starter | enterprise",
-  "phase": "Pending | Provisioning | Ready | Degraded",
+  "environment_name": "string | null",
+  "tier": "starter | enterprise | null",
+  "phase": "INCOMPLETE_IDENTITY_SETUP | INCOMPLETE_GIT_SETUP | AWAITING_CREDENTIALS | CREDENTIALS_READY | Pending | Provisioning | Ready | Degraded",
   "summary_message": "string",
-  "duration_seconds": "integer",
-  "console_url": "string",
+  "duration_seconds": "integer | null",
+  "console_url": "string | null",
   "crossplane_conditions": [
     {
       "type": "string",
@@ -551,11 +552,16 @@ This specification defines the complete agentic enterprise onboarding journey, e
 }
 ```
 5. THE zero_ops_api SHALL derive phase from Crossplane Conditions using these rules:
-   - Pending: AINativeSaaS_CR exists in Git, ArgoCD has not synced yet (no Conditions present)
+   - CREDENTIALS_READY: PostgreSQL tenant record exists with credentials submitted, but no environment provisioning intent recorded
+   - Pending: The PostgreSQL DB confirms the environment intent exists, BUT the Kubernetes API returns 404 for the AINativeSaaS_CR (ArgoCD has not yet synced)
    - Provisioning: Condition Ready: False with Reason: Creating, Syncing, or Reconciling
    - Ready: Condition Ready: True
    - Degraded: Condition Ready: False with Reason containing "Error", "Exceeded", "Failed", or "Invalid"
 6. THE summary_message SHALL be a single-sentence human-readable interpretation of the current phase:
+   - INCOMPLETE_IDENTITY_SETUP: "Platform encountered an error completing account setup. Retry tenant creation to resolve automatically."
+   - INCOMPLETE_GIT_SETUP: "Platform repository service was unavailable during setup. Retry tenant creation to resolve automatically."
+   - AWAITING_CREDENTIALS: "Account setup complete. Please submit your cloud provider credentials in the Platform Console."
+   - CREDENTIALS_READY: "Credentials submitted successfully. Ready to provision infrastructure."
    - Pending: "Environment committed to Git, waiting for ArgoCD sync"
    - Provisioning: "Crossplane is provisioning infrastructure (estimated {tier_duration} minutes)"
    - Ready: "Environment is ready. All resources provisioned successfully."
@@ -570,12 +576,14 @@ This specification defines the complete agentic enterprise onboarding journey, e
 #### Acceptance Criteria
 
 1. IF the Cursor is closed during provisioning, THE tenant state SHALL persist in PostgreSQL and Git
-2. WHEN the Tenant_Admin opens a new Cursor session and asks "What is the status of my environment?", THE Cursor SHALL invoke environment_status MCP tool
+2. WHEN the Tenant_Admin opens a new Cursor session and asks "What is the status of my environment?", THE Cursor SHALL first invoke environments_list to check if any environments exist. IF environments exist, THE Cursor SHALL invoke environment_status with the environment_id. IF no environments exist, THE Cursor SHALL invoke the tenant-level status endpoint
 3. THE zero_ops_api SHALL return the current phase and allow the Agent to determine the next action
-4. IF phase is AWAITING_CREDENTIALS, THE Cursor SHALL prompt for credential submission
-5. IF phase is Provisioning or Degraded, THE Cursor SHALL display the current status and console_url
-6. IF phase is Ready, THE Cursor SHALL display the provisioned resource summary
-7. THE Platform Console SHALL always reflect the current state regardless of Agent session
+4. IF phase is INCOMPLETE_IDENTITY_SETUP or INCOMPLETE_GIT_SETUP, THE Cursor SHALL display: "There was a transient platform error during your account setup. Please ask me to retry tenant creation to resume." and await user confirmation to invoke tenant_create
+5. IF phase is AWAITING_CREDENTIALS, THE Cursor SHALL prompt for credential submission
+6. IF phase is CREDENTIALS_READY, THE Cursor SHALL prompt the Tenant_Admin to provide their desired tier, cloud provider, and region parameters, and upon receiving them, invoke environment_create
+7. IF phase is Provisioning or Degraded, THE Cursor SHALL display the current status and console_url
+8. IF phase is Ready, THE Cursor SHALL display the provisioned resource summary
+9. THE Platform Console SHALL always reflect the current state regardless of Agent session
 
 ### Requirement 18: Platform Console Polling Strategy
 
@@ -600,18 +608,23 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 #### Acceptance Criteria
 
-1. WHEN the Tenant_Admin issues a deletion command, THE Cursor SHALL invoke the environment_delete MCP tool with the target environment name
-2. THE AgentGateway SHALL validate the JWT and query identity-service Keto to ensure the user has delete permissions for the specified environment
+1. WHEN the Tenant_Admin issues a deletion command, THE Cursor SHALL invoke the environment_delete MCP tool with the specific environment_id (e.g., acme-corp-production)
+2. THE AgentGateway SHALL validate the JWT and query identity-service Keto to ensure the user has delete permissions for the specified environment_id
 3. THE zero_ops_api SHALL evaluate the historical state of the AINativeSaaS_CR. IF the environment has NEVER achieved a Ready status (phase is Pending, Provisioning, or Degraded), THE zero_ops_api SHALL proceed with immediate deletion
-4. IF the environment has previously achieved a Ready status, THE zero_ops_api SHALL reject immediate deletion to enforce data safety invariants (PRD 5.10.4). IT SHALL generate a Destructive Operation Approval Ticket assigned to the Tenant's administrators, and return HTTP 403 Forbidden with response body: `{"error": "approval_required", "message": "Deletion requires secondary confirmation to prevent data loss.", "approval_url": "https://console.zero-ops.io/approvals/{ticket_id}"}`
-5. WHEN HTTP 403 is returned for deletion approval, THE Cursor SHALL display: "Deletion requires secondary confirmation to prevent data loss. Please review and approve the teardown ticket here: https://console.zero-ops.io/approvals/{ticket_id}"
-6. THE Tenant_Admin MAY approve OR cancel the pending deletion ticket via the Platform Console
-7. IF the Approval Ticket is not actioned within 7 days, THE zero_ops_api SHALL automatically mark the ticket as Expired, leaving the environment untouched
-8. FOR approved or immediate deletions, THE zero_ops_api SHALL commit the removal of the AINativeSaaS_CR manifest from the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory
-9. WHEN the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 Accepted
-10. THE Cursor SHALL NOT block or poll during deletion. THE Cursor SHALL display: "Teardown initiated. Crossplane is garbage-collecting resources (~3 minutes). Monitor at: {console_url}"
-11. THE management cluster's ArgoCD SHALL detect the Git removal, prune the CR from Kubernetes, and trigger Crossplane finalizers to tear down the associated cloud infrastructure
-12. THE Crossplane finalizers SHALL delete Hetzner resources (VMs, volumes, networks) and typically complete within 1-3 minutes
-13. THE Git commit history SHALL serve as the immutable audit log of the deletion
-14. THE OpenSearch SHALL capture K8s deletion events for the environment
-15. THE environment_delete operation SHALL be idempotent - deleting an already-deleted environment returns HTTP 200 with message: "Environment already deleted"
+4. IF the environment has previously achieved a Ready status, THE zero_ops_api SHALL reject immediate deletion to enforce data safety invariants (PRD 5.10.4). IT SHALL generate a Destructive Operation Approval Ticket assigned to the Tenant's administrators, and return HTTP 403 Forbidden with response body: {"error": "approval_required", "message": "Even though the environment may be Degraded, it previously held data. Deletion requires secondary confirmation to prevent data loss.", "approval_url": "https://console.zero-ops.io/approvals/{ticket_id}"}
+5. IF an Approval Ticket is already pending for the requested environment_id, THE zero_ops_api SHALL idempotently return HTTP 403 Forbidden with the ticket_id and approval_url of the existing pending ticket
+6. WHEN HTTP 403 is returned for deletion approval, THE Cursor SHALL display: "Deletion requires secondary confirmation to prevent data loss. Please review and approve the teardown ticket here: https://console.zero-ops.io/approvals/{ticket_id}"
+7. THE pending deletion ticket MAY be approved by any user possessing the tenant_admin role for that tenant_id, OR by a user with the platform_admin role (for support overrides). Notifications SHALL be routed via the Platform Console
+8. THE Tenant_Admin MAY approve OR cancel the pending deletion ticket via the Platform Console
+9. IF the Approval Ticket is not actioned within 7 days, THE zero_ops_api SHALL automatically mark the ticket as Expired, leaving the environment untouched. The Platform Console SHALL display "Expired - Request New Deletion" and allow the Tenant_Admin to immediately re-invoke environment_delete to generate a fresh ticket with a new 7-day window
+10. IF an Approval Ticket is marked Expired or Cancelled, the Tenant_Admin MAY immediately re-invoke the environment_delete MCP tool to generate a new 7-day approval ticket (restarting the clock). The Platform Console SHALL display the previous ticket state as "Expired - Request New Deletion"
+11. FOR approved or immediate deletions, THE zero_ops_api SHALL commit the removal of the AINativeSaaS_CR manifest from the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory
+12. IF the Git commit fails, THE zero_ops_api SHALL return HTTP 500 with JSON body {"error_code": "git_service_unavailable", "message": "Platform repository service is currently unavailable. Our engineering team has been notified. Please try again later."}
+13. WHEN the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 Accepted
+12. THE Cursor SHALL NOT block or poll during deletion. THE Cursor SHALL display: "Teardown initiated. Crossplane is garbage-collecting resources (~3 minutes). Monitor at: {console_url}"
+13. THE management cluster's ArgoCD SHALL detect the Git removal, prune the CR from Kubernetes, and trigger Crossplane finalizers to tear down the associated cloud infrastructure
+14. THE Crossplane finalizers SHALL delete Hetzner resources (VMs, volumes, networks) and typically complete within 1-3 minutes
+15. THE Git commit history SHALL serve as the immutable audit log of the deletion
+16. THE OpenSearch SHALL capture K8s deletion events for the environment
+17. IF environment_delete is invoked while the AINativeSaaS_CR is already deleted from Git but Crossplane teardown is actively running, THE zero_ops_api SHALL return HTTP 202 Accepted with message: "Deletion already in progress"
+18. THE environment_delete operation SHALL be idempotent - deleting an already-deleted environment_id returns HTTP 200 with message: "Environment already deleted"

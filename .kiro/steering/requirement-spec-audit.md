@@ -7,7 +7,13 @@ inclusion: manual
    Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
 -------------------------------------------------------------------------------------> 
 
-Conduct a rigorous GAP analysis of the requirement specs. Identify missing details, logical inconsistencies, or unanswered questions likely to be raised during product refinement. Focus on: edge cases, dependency gaps, and undefined error states. Provide specific, actionable questions for the product team to ensure the spec is "Development Ready".
+here is the spec updated for #### Journey A: Tenant Onboarding — Agentic Headless Flow _(Tenant Admin / Goose). 
+
+can you re-evaluate? 
+
+Conduct a rigorous GAP analysis of the requirement specs. Identify missing details, logical inconsistencies, or unanswered questions likely to be raised during product refinement. Focus on: edge cases, dependency gaps, and undefined error states. Provide specific, actionable questions for the product team to ensure the spec is "Development Ready". 
+
+This spec is requirement only. This will be followed by another spec that details the design requirements. Provide your gap analysis in simple .md file.
 
 # requirements.md
 **Purpose**: Defines WHAT the system must do
