@@ -12,7 +12,7 @@ Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS
 - Full CLI implementation for bootstrapping Talos Linux management cluster
 - CAPI/CAPH/Talos provider installation via cluster-api-operator
 - Pivot from Kind to self-hosted management cluster
-- ClusterClass library deployment (Talos-based)
+- ClusterClass library deployment (Ubuntu-based)
 - ArgoCD, capi2argo, CloudNativePG installation
 - Teardown and upgrade commands
 
