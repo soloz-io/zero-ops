@@ -1,0 +1,13 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: kratos-db
+  namespace: ory-system
+spec:
+  cluster:
+    name: identity-postgres
+  name: kratos_db
+  owner: kratos
+  ownerPasswordSecret:
+    name: identity-postgres-passwords
+    key: kratos-password

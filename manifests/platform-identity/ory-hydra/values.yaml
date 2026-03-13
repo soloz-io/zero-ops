@@ -1,0 +1,27 @@
+hydra:
+  config:
+    urls:
+      self:
+        issuer: https://auth.zero-ops.io
+      login: https://auth.zero-ops.io/login
+      consent: https://auth.zero-ops.io/consent
+    oauth2:
+      expose_internal_errors: false
+    ttl:
+      access_token: 24h
+      refresh_token: 720h
+      auth_code: 10m
+  
+  extraEnv:
+    - name: HYDRA_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: identity-postgres-passwords
+          key: hydra-password
+    - name: DSN
+      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/hydra_db
+
+  initContainers:
+    - name: wait-for-postgres
+      image: postgres:15
+      command: ['sh', '-c', 'until pg_isready -h identity-postgres-rw.ory-system.svc.cluster.local -p 5432; do sleep 2; done']

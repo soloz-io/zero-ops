@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "traits": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["tenant_admin", "platform_admin"]
+        }
+      },
+      "required": ["email"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -20,13 +20,16 @@ This implementation plan creates the OAuth 2.1 Authorization Code Flow with PKCE
 - AgentGateway config: `.kiro/specs/agentic-enterprise-onboarding/references/identity-auth/agentgateway/`
 - Keto examples: `.kiro/specs/agentic-enterprise-onboarding/references/identity-auth/keto/`
 
-- [ ] 1. Set up database infrastructure and Ory stack foundation
-  - Deploy CloudNativePG cluster with 3 instances for identity services
-  - Create database CRDs for Hydra, Kratos, and Keto with password references
-  - Deploy Ory Hydra, Kratos, and Keto via Helm charts with proper configuration
-  - Configure identity schema for Kratos with email, tenant_id, and role traits
-  - Set up database connectivity and verify all Ory services are healthy
+- [x] 1. Set up database infrastructure and Ory stack foundation ✅ PARTIAL
+  - ✅ Deploy CloudNativePG cluster with 3 instances for identity services
+  - ✅ Create database CRDs for Hydra, Kratos, and Keto with password references
+  - ✅ Deploy Ory Hydra, Kratos, and Keto via Helm charts with proper configuration
+  - ✅ Configure identity schema for Kratos with email, tenant_id, and role traits
+  - ⚠️ Set up database connectivity and verify all Ory services are healthy (DEFERRED - requires E2E tests from Task 2+)
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+  - **Status:** Manifests created in `manifests/platform-identity/`. Cannot validate Ory stack health without auth-proxy, AgentGateway, and Ingress (Tasks 2, 5, 6).
+  - **Known Issues:** Helm chart version needs update to v25.4.0, health probes need explicit configuration
+  - **Deliverables:** 25 files (CNPG cluster, Database CRDs, Ory Helm values, Kratos schema, ArgoCD apps, bootstrap scripts)
 
 - [ ] 2. Implement auth-proxy service core functionality
   - [ ] 2.1 Create Go service structure and configuration management

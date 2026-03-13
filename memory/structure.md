@@ -1,3 +1,10 @@
+---
+purpose: Project structure, naming conventions, and organizational patterns
+scope: Repository layout, naming conventions, import patterns, architectural decisions
+topics: [monorepo-structure, naming-conventions, package-organization, code-style]
+update_criteria: Structure changes, new conventions, architectural decision updates
+---
+
 # Project Structure
 
 ## Repository Layout (Go-Centric Monorepo)

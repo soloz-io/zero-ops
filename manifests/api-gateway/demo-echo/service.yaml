@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-echo
+  namespace: api-gateway
+spec:
+  selector:
+    app: demo-echo
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,13 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: identity-postgres
+  namespace: ory-system
+spec:
+  instances: 3
+  storage:
+    size: 20Gi
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: postgres

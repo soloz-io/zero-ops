@@ -1,0 +1,13 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keto-db
+  namespace: ory-system
+spec:
+  cluster:
+    name: identity-postgres
+  name: keto_db
+  owner: keto
+  ownerPasswordSecret:
+    name: identity-postgres-passwords
+    key: keto-password

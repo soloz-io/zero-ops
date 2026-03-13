@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-selfservice-ui
+  namespace: ory-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kratos-selfservice-ui
+  template:
+    metadata:
+      labels:
+        app: kratos-selfservice-ui
+    spec:
+      containers:
+        - name: ui
+          image: oryd/kratos-selfservice-ui-node:v1.3.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: KRATOS_PUBLIC_URL
+              value: http://ory-kratos-public.ory-system.svc.cluster.local:4433
+            - name: KRATOS_BROWSER_URL
+              value: https://console.zero-ops.io
+          livenessProbe:
+            httpGet:
+              path: /health/alive
+              port: 3000
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 5

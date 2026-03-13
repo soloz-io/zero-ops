@@ -1,3 +1,10 @@
+---
+purpose: Platform-wide design principles and architectural patterns
+scope: GitOps, deployment patterns, database patterns, namespace strategies
+topics: [gitops-patterns, argocd-structure, cnpg-usage, namespace-isolation]
+update_criteria: Architectural pattern decisions, deployment strategy changes, infrastructure patterns
+---
+
 # Zero-Ops Platform Design Principles
 
 ## GitOps & Deployment Patterns

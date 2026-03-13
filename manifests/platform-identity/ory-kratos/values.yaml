@@ -1,0 +1,44 @@
+kratos:
+  config:
+    session:
+      cookie:
+        domain: zero-ops.io
+        name: ory_kratos_session
+    identity:
+      default_schema_id: default
+      schemas:
+        - id: default
+          url: file:///etc/config/identity.schema.json
+    selfservice:
+      default_browser_return_url: https://console.zero-ops.io/
+      allowed_return_urls:
+        - https://auth.zero-ops.io/login
+      flows:
+        login:
+          ui_url: https://console.zero-ops.io/login
+        registration:
+          ui_url: https://console.zero-ops.io/registration
+  
+  extraEnv:
+    - name: KRATOS_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: identity-postgres-passwords
+          key: kratos-password
+    - name: DSN
+      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/kratos_db
+
+  extraVolumes:
+    - name: identity-schema
+      configMap:
+        name: kratos-identity-schema
+  
+  extraVolumeMounts:
+    - name: identity-schema
+      mountPath: /etc/config/identity.schema.json
+      subPath: identity.schema.json
+
+  initContainers:
+    - name: wait-for-postgres
+      image: postgres:15
+      command: ['sh', '-c', 'until pg_isready -h identity-postgres-rw.ory-system.svc.cluster.local -p 5432; do sleep 2; done']

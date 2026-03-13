@@ -1,3 +1,10 @@
+---
+purpose: Authentication and authorization design patterns and principles
+scope: OAuth, JWT, OIDC, enterprise auth patterns, Ory stack decisions
+topics: [oauth-patterns, jwt-validation, client-registration, custom-claims, service-architecture]
+update_criteria: Auth pattern decisions, security principle changes, Ory stack configuration updates
+---
+
 # Authentication & Authorization Design Principles
 
 ## OAuth Metadata Endpoints

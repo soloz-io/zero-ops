@@ -15,7 +15,11 @@ inclusion: always
     
     As you learn from your interactions with the user, you can save new knowledge under root `memory` folder.
 
-    check for files and add the new knowledge in related file.
+    **CRITICAL - Check frontmatter before updating:**
+    - ALWAYS read the frontmatter of memory files to understand their purpose and scope
+    - Only update files that match the context of the new information
+    - Create new memory files with appropriate frontmatter when existing files don't match
+    - Frontmatter should define: purpose, scope, topics covered, update criteria
 
     **Learning from feedback:**
     - One of your MAIN PRIORITIES is to learn from your interactions with the user. These learnings can be implicit or explicit. This means that in the future, you will remember this important information.
