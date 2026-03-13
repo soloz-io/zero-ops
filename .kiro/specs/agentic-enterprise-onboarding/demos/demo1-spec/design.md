@@ -24,7 +24,7 @@ AgentGateway
     │
     │ 2. Fetch authorization server metadata
     ▼
-identity-service
+auth-proxy
     │ /.well-known/oauth-authorization-server (proxy to Hydra)
     │
     │ 3. Authorization Code Flow with PKCE
@@ -45,7 +45,7 @@ Cursor/Goose (stores tokens in OS keychain)
 
 **Namespaces:**
 - `ory-system`: Hydra, Kratos, Keto, CNPG cluster
-- `identity-services`: identity-service
+- `identity-services`: auth-proxy
 - `api-gateway`: AgentGateway
 
 **Rationale:** Multi-namespace isolation provides better RBAC, blast radius control, and independent upgrade paths (enterprise pattern per memory/design-principles.md).
@@ -100,16 +100,17 @@ hydra:
     ttl:
       access_token: 24h
       refresh_token: 720h  # 30 days
+      auth_code: 10m       # Explicit 10-minute timeout
   
-  # Password injection via existingSecret (G-03: removed duplicate DSN)
+  # Password injection via existingSecret
   extraEnv:
-    - name: DSN
-      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/hydra_db
     - name: HYDRA_DB_PASSWORD
       valueFrom:
         secretKeyRef:
           name: identity-postgres-passwords
           key: hydra-password
+    - name: DSN
+      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/hydra_db
 ```
 
 **Endpoints:**
@@ -121,23 +122,7 @@ hydra:
   - `/admin/clients` - Client management
 
 **Custom Claims Injection:**
-- Hydra redirects to identity-service login/consent endpoints
-- identity-service calls `acceptOAuth2ConsentRequest` with session parameter:
-  ```json
-  {
-    "session": {
-      "id_token": {
-        "tenant_id": "...",
-        "email": "...",
-        "role": "..."
-      },
-      "access_token": {
-        "tenant_id": "..."
-      }
-    }
-  }
-  ```
-- Claims fetched from Kratos identity traits during consent flow
+Custom claims (`email`, `role`, optionally `tenant_id`) are injected by auth-proxy's consent handler via `acceptOAuth2ConsentRequest`. See the auth-proxy Consent Flow description and Step 5 of the PKCE Flow Sequence for the canonical session object structure.
 
 ### 3. Ory Kratos
 
@@ -149,6 +134,10 @@ hydra:
 ```yaml
 kratos:
   config:
+    session:
+      cookie:
+        domain: zero-ops.io
+        name: ory_kratos_session
     identity:
       default_schema_id: default
       schemas:
@@ -156,21 +145,23 @@ kratos:
           url: file:///etc/config/identity.schema.json
     selfservice:
       default_browser_return_url: https://console.zero-ops.io/
+      allowed_return_urls:
+        - https://auth.zero-ops.io/login
       flows:
         login:
           ui_url: https://console.zero-ops.io/login
         registration:
           ui_url: https://console.zero-ops.io/registration
   
-  # Password injection via existingSecret (G-03: removed duplicate DSN)
+  # Password injection via existingSecret
   extraEnv:
-    - name: DSN
-      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/kratos_db
     - name: KRATOS_DB_PASSWORD
       valueFrom:
         secretKeyRef:
           name: identity-postgres-passwords
           key: kratos-password
+    - name: DSN
+      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/kratos_db
 ```
 
 **Identity Schema (identity.schema.json):**
@@ -219,15 +210,15 @@ keto:
       - id: 0
         name: tenants
   
-  # Password injection via existingSecret (G-03: removed duplicate DSN)
+  # Password injection via existingSecret
   extraEnv:
-    - name: DSN
-      value: postgres://keto:$(KETO_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/keto_db
     - name: KETO_DB_PASSWORD
       valueFrom:
         secretKeyRef:
           name: identity-postgres-passwords
           key: keto-password
+    - name: DSN
+      value: postgres://keto:$(KETO_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/keto_db
 ```
 
 **Endpoints:**
@@ -292,14 +283,16 @@ internal/auth/
 4. Verify `exp` claim > current time
 5. Verify `aud` claim contains `https://api.zero-ops.io` (EXPECTED_JWT_AUDIENCE)
 6. On signature failure: refresh JWKS once, reset TTL to now+1h, retry validation
-7. On success: Extract claims from validated Ory JWT and return HTTP 200 with headers:
+7. On success: Extract claims from validated Ory JWT and return HTTP 200 with headers. IF a claim is missing (e.g., `tenant_id` for Demo 1 users), the corresponding header MUST be omitted entirely.
    ```
    X-Auth-User-Id: {sub}
-   X-Auth-Tenant-Id: {tenant_id}  // if present
    X-Auth-Email: {email}
    X-Auth-Role: {role}
+   # X-Auth-Tenant-Id is omitted for Demo 1
    ```
-8. On failure: return HTTP 401 or 403
+8. On failure, auth-proxy MUST return the correct HTTP status code to ensure proper MCP client behavior:
+   - **HTTP 401 Unauthorized:** JWT is missing, malformed, expired (`exp`), has an invalid signature, or fails `aud` validation. (Triggers Cursor to silently refresh the token).
+   - **HTTP 403 Forbidden:** JWT is structurally valid and active, but the `scope` or `role` claim is insufficient for the requested operation.
 
 **Rationale (OIDC Pass-Through Pattern):**
 - Backend services receive X-Auth headers only, no JWT validation needed
@@ -316,36 +309,42 @@ internal/auth/
 - 5-second timeout on JWKS fetch
 - Minimum 10-second interval between mismatch-triggered refreshes (prevents thundering herd)
 
-**Login Flow (G-05 Resolution - return_to Pattern):**
+**Login Flow (return_to Pattern & Session Re-use):**
 1. Hydra redirects browser to `https://auth.zero-ops.io/login?login_challenge={challenge}`
-2. auth-proxy checks for existing Kratos session cookie
-3. If no session: auth-proxy redirects browser to `https://console.zero-ops.io/login?return_to=https://auth.zero-ops.io/login?login_challenge={challenge}`
-4. User authenticates via Kratos UI
-5. Kratos redirects back to auth-proxy with challenge intact: `https://auth.zero-ops.io/login?login_challenge={challenge}`
-6. auth-proxy validates Kratos session and calls Hydra `acceptOAuth2LoginRequest`
-7. Hydra redirects to consent endpoint (skipped for trusted client)
+2. auth-proxy checks for an existing Kratos session cookie.
+3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` (with no claims injected here), and skips to Step 5.
+4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. auth-proxy MUST percent-encode the entire `return_to` value before appending it as a query parameter. The resulting redirect URL takes the form: `https://console.zero-ops.io/login?return_to=https%3A%2F%2Fauth.zero-ops.io%2Flogin%3Flogin_challenge%3D{challenge}`
+5. User authenticates via Kratos UI, which redirects back to auth-proxy with the challenge intact.
+6. auth-proxy validates session, calls `acceptOAuth2LoginRequest`, and Hydra redirects to the consent endpoint.
 
-**Consent Flow (G-07 Resolution):**
-1. auth-proxy fetches identity traits from Kratos
-2. If `tenant_id` is absent, omit from JWT claims entirely (Demo 1 users have no tenant)
-3. If `role` is absent, omit from JWT claims
-4. Call Hydra `acceptOAuth2ConsentRequest` with session containing only present claims
+**Consent Flow (Headless Claim Injection):**
+- This is the EXCLUSIVE location for injecting custom JWT claims.
+- auth-proxy fetches identity traits from Kratos Admin API.
+- If Kratos Admin API fails, auth-proxy calls Hydra `rejectOAuth2ConsentRequest` with error `access_denied` and error description.
+- auth-proxy reads `requested_scope` from the consent request and uses it as `grant_scope` (not hardcoded).
+- If `requested_scope` is empty or absent, auth-proxy MUST reject the consent request via `rejectOAuth2ConsentRequest` with `error: invalid_scope` and `error_description: 'No scopes requested'`. Do not issue a scopeless token.
+- auth-proxy detects trusted clients via environment variable `TRUSTED_CLIENT_IDS=mcp-public-client` (comma-separated list). For trusted clients, consent is accepted programmatically without UI rendering.
+- auth-proxy builds the `session` object (injecting `email` and `role` into both `session.access_token` and `session.id_token`).
+- auth-proxy calls Hydra `acceptOAuth2ConsentRequest` with this `session` object.
 
-**Client Registration (G-06 Resolution):**
+**Client Registration (Declarative Startup):**
 - On startup: `GET /admin/clients/mcp-public-client`
-- If 404: `POST /admin/clients` with full spec
-- If 409: Log "Client already registered" and continue (idempotent)
-- If 200: Compare redirect URIs, update if needed via `PUT`
+- If 404: `POST /admin/clients` with full spec. If POST returns 409 (race condition with another replica), treat as success and continue.
+- If 200: Unconditionally `PUT /admin/clients/mcp-public-client` with full spec to ensure state matches.
+- If any other error occurs (e.g., Hydra unavailable, 500), `auth-proxy` triggers `log.Fatal()` to utilize Kubernetes CrashLoopBackOff until Hydra is healthy.
 
 **Dependencies:**
 - Hydra Public API: `http://ory-hydra-public.ory-system.svc.cluster.local:4444`
 - Hydra Admin API: `http://ory-hydra-admin.ory-system.svc.cluster.local:4445`
-- Kratos Admin API: `http://ory-kratos-admin.ory-system.svc.cluster.local:4434`
+- Kratos Public API: `http://ory-kratos-public.ory-system.svc.cluster.local:4433` (For session cookie validation)
+- Kratos Admin API: `http://ory-kratos-admin.ory-system.svc.cluster.local:4434` (For identity trait fetching)
 
 **Configuration (environment variables):**
 ```bash
 HYDRA_PUBLIC_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444
 HYDRA_ADMIN_URL=http://ory-hydra-admin.ory-system.svc.cluster.local:4445
+HYDRA_INTERNAL_JWKS_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433
 KRATOS_ADMIN_URL=http://ory-kratos-admin.ory-system.svc.cluster.local:4434
 JWKS_CACHE_TTL=1h
 JWKS_FETCH_TIMEOUT=5s
@@ -380,7 +379,7 @@ LISTEN_ADDR=:8080
 **extAuthz Validation Flow (G-03/G-08/G-16 Resolution):**
 1. AgentGateway receives request with `Authorization: Bearer <token>` header
 2. AgentGateway calls auth-proxy extAuthz endpoint: `POST http://auth-proxy.identity-services.svc.cluster.local:8080/internal/validate`
-3. AgentGateway forwards headers: `Authorization`, `Cookie`
+3. AgentGateway forwards headers: `Authorization`
 4. auth-proxy validates JWT (fetches JWKS from Hydra, caches with 1h TTL)
 5. auth-proxy returns auth decision with headers:
    - `X-Auth-User-Id: {sub}`
@@ -415,7 +414,7 @@ data:
                     status: 200
                     body: "OK"
 
-              # OAuth metadata (static response - G-07 Resolution)
+              # OAuth metadata (static response)
               - name: oauth-metadata
                 matches:
                   - path: 
@@ -435,7 +434,7 @@ data:
                 policies:
                   extAuthz:
                     host: "auth-proxy.identity-services.svc.cluster.local:8080"
-                    timeout: "200ms"
+                    timeout: "500ms"
                     includeRequestHeaders:
                       - authorization
                     protocol:
@@ -447,9 +446,10 @@ data:
                           - X-Auth-Email
                           - X-Auth-Role
                   requestHeaderModifier:
-                    remove: ["Cookie", "Authorization"]
+                    remove: ["Authorization"]
                 backends:
-                  - host: "zero-ops-api.platform-services.svc.cluster.local:8080"
+                  # Routes to the echo stub in the api-gateway namespace
+                  - host: "demo-echo.api-gateway.svc.cluster.local:8080"
 ```
 
 **Note:** JWKS caching, TTL management, and key rotation handled entirely by auth-proxy, not AgentGateway.
@@ -481,9 +481,12 @@ data:
 }
 ```
 
-**Redirect URI Normalization:**
-- auth-proxy normalizes `localhost` ↔ `127.0.0.1` during authorization
-- Hydra validates exact match after normalization
+**Redirect URI Validation:**
+- Hydra natively handles exact string matching for redirect URIs.
+- By explicitly registering both `127.0.0.1` and `localhost` variants, Hydra permits whichever loopback interface the Cursor client dynamically binds to. No custom normalization logic is required in auth-proxy.
+
+**Consent Behavior:**
+- The `skip_consent` field is intentionally omitted. Hydra will call the consent endpoint for every flow, and auth-proxy will programmatically accept it without rendering a UI. This is the correct pattern for headless claim injection.
 
 ## PKCE Flow Sequence
 
@@ -553,43 +556,44 @@ https://auth.zero-ops.io/oauth2/auth?
 
 ### Step 4: User Authentication
 
-**Flow (return_to Pattern):**
+**Flow (return_to Pattern & Session Re-use):**
 1. Hydra redirects browser to `https://auth.zero-ops.io/login?login_challenge={challenge}`
-2. auth-proxy checks for an existing Kratos session cookie
-3. If no session exists, auth-proxy constructs a URL-encoded `return_to` parameter and redirects the browser to Kratos. *(Example: `https://console.zero-ops.io/login?return_to=https%3A%2F%2Fauth.zero-ops.io%2Flogin%3Flogin_challenge%3D{challenge}`)*
-4. User authenticates via Kratos self-service UI (email/password)
-5. Kratos redirects the browser back to auth-proxy with the challenge intact: `https://auth.zero-ops.io/login?login_challenge={challenge}`
-6. auth-proxy validates the Kratos session via the Admin API
-7. auth-proxy calls Hydra `acceptOAuth2LoginRequest` with the `subject` from the Kratos session
-8. Hydra redirects to the consent endpoint (which is skipped for the trusted MCP client)
+2. auth-proxy checks for an existing Kratos session cookie.
+3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` with `identity.id` as the `subject`, and skips to Step 5.
+4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. *(Example: `https://console.zero-ops.io/login?return_to=https%3A%2F%2Fauth.zero-ops.io%2Flogin%3Flogin_challenge%3D{challenge}`)*
+5. User authenticates via Kratos self-service UI (email/password)
+6. Kratos redirects the browser back to auth-proxy with the challenge intact: `https://auth.zero-ops.io/login?login_challenge={challenge}`
+7. auth-proxy validates the Kratos session cookie via `GET /sessions/whoami`
+8. auth-proxy calls Hydra `acceptOAuth2LoginRequest` with the `identity.id` (subject)
+9. Hydra redirects the browser to the consent endpoint
 
-### Step 5: Consent (G-07 Resolution)
+### Step 5: Consent
 
-**Flow:**
-1. auth-proxy displays consent screen (optional, can be skipped for trusted client)
-2. User approves scopes
-3. auth-proxy fetches identity traits from Kratos Admin API
-4. auth-proxy builds session object, omitting absent claims:
-   ```json
-   {
-     "grant_scope": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"],
-     "grant_access_token_audience": ["https://api.zero-ops.io"],
-     "session": {
-       "id_token": {
-         "email": "admin@acme.com",
-         "role": "tenant_admin"
-         // tenant_id omitted if not present in Kratos traits (Demo 1 users)
-       },
-       "access_token": {
-         // tenant_id omitted if not present
-       }
-     }
-   }
-   ```
-5. auth-proxy calls Hydra `acceptOAuth2ConsentRequest` with session
-6. Hydra redirects to callback URL with authorization code
-
-**Note:** For Demo 1, users have no `tenant_id` trait yet. The JWT will contain `email` and `role` only.
+**Flow (Headless Claim Injection):**
+1. Hydra redirects the browser to `https://auth.zero-ops.io/consent?consent_challenge={challenge}`
+2. auth-proxy fetches the consent request from Hydra.
+3. auth-proxy detects the client is `mcp-public-client` (a trusted first-party client).
+4. auth-proxy DOES NOT render an HTML consent screen. It immediately fetches identity traits from the **Kratos Admin API** using the subject UUID.
+5. auth-proxy builds the session object, injecting custom claims into both id_token and access_token, and explicitly setting the audience:
+```json
+{
+  "grant_scope": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"],
+  "grant_access_token_audience": ["https://api.zero-ops.io"],
+  "session": {
+    "id_token": {
+      "email": "admin@acme.com",
+      "role": "tenant_admin"
+    },
+    "access_token": {
+      "email": "admin@acme.com",
+      "role": "tenant_admin"
+    }
+  }
+}
+```
+*(Note: `grant_scope` should be set to the scopes from the consent request's `requested_scope` field, not hardcoded. The above list is illustrative for Demo 1.)*
+6. auth-proxy calls Hydra `acceptOAuth2ConsentRequest` with the session.
+7. Hydra redirects the browser to the local Cursor callback URL with the authorization code.
 
 ### Step 6: Token Exchange
 
@@ -612,8 +616,7 @@ grant_type=authorization_code&
 code=ory_ac_...&
 redirect_uri=http://127.0.0.1:54321/callback&
 code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&
-client_id=mcp-public-client&
-resource=https://api.zero-ops.io
+client_id=mcp-public-client
 ```
 
 **Token Response:**
@@ -643,7 +646,7 @@ resource=https://api.zero-ops.io
 }
 ```
 
-### Step 7: Token Storage (G-09 Resolution)
+### Step 7: Token Storage
 
 **Cursor Actions:**
 1. Store `access_token`, `refresh_token`, `id_token`, `expires_in` in OS keychain
@@ -677,15 +680,46 @@ manifests/platform-identity/
     deployment.yaml          # Deployment
     service.yaml             # Service
     configmap.yaml           # Configuration
+manifests/api-gateway/
+  demo-echo/
+    deployment.yaml          # Simple NGINX/Go echo server
+    service.yaml             # demo-echo.api-gateway.svc.cluster.local:8080
 ```
+
+### Ingress and DNS Configuration
+
+For Demo 1, PKCE flows require HTTPS termination. The following Ingress resources MUST be deployed to the management cluster, mapping public DNS to internal services.
+
+**Ingress Routes:**
+- `api.zero-ops.io` → routes to `agentgateway.api-gateway.svc.cluster.local:3000`
+- `auth.zero-ops.io` → routes to `auth-proxy.identity-services.svc.cluster.local:8080`
+- `console.zero-ops.io` → routes to `kratos-selfservice-ui-node.ory-system.svc.cluster.local:3000`
+
+*(Note: `console.zero-ops.io` MUST route to the Ory Kratos Self-Service UI NodeJS application [Docker image: `oryd/kratos-selfservice-ui-node`], NOT the Kratos Public JSON API. The UI node connects internally to the Kratos Public API).*
+
+*(Note: TLS termination can be handled by the cloud load balancer, or via cert-manager if deployed. For local Day 1 testing, `/etc/hosts` mapping to a local NGINX ingress with self-signed certs is acceptable).*
+
+**`kratos-selfservice-ui-node` Service Specification:**
+- **Namespace:** `ory-system`
+- **Image:** `oryd/kratos-selfservice-ui-node:v1.3.0` (Pinned to match Kratos v25.4.0)
+- **Configuration (Env Vars):**
+  - `KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433`
+  - `KRATOS_BROWSER_URL=https://console.zero-ops.io`
+- **Behavior:** Renders the login HTML form. Automatically forwards unknown query parameters (like `return_to`) to Kratos during the flow.
+
+**`demo-echo` Service Specification:**
+- **Namespace:** `api-gateway`
+- **Image:** `ealen/echo-server:latest`
+- **Behavior:** Returns HTTP 200 containing a JSON payload of all received HTTP headers. Used exclusively to prove AgentGateway successfully stripped the JWT and injected the `X-Auth-*` headers.
 
 **ArgoCD Applications:**
 1. `ory-hydra` - Helm chart from `ory/hydra`
 2. `ory-kratos` - Helm chart from `ory/kratos`
 3. `ory-keto` - Helm chart from `ory/keto`
-4. `identity-postgres` - CNPG Cluster CR
-5. `auth-proxy` - Kustomize from `manifests/platform-identity/auth-proxy/`
-6. `agentgateway` - External Helm chart or Kustomize
+4. `kratos-selfservice-ui-node` - Deployment from `oryd/kratos-selfservice-ui-node`
+5. `identity-postgres` - CNPG Cluster CR
+6. `auth-proxy` - Kustomize from `manifests/platform-identity/auth-proxy/`
+7. `agentgateway` - External Helm chart or Kustomize
 
 **Startup Ordering (G-10 Resolution):**
 - Option 1: Use Helm initContainer in Ory charts waiting for CNPG readiness:
@@ -761,9 +795,11 @@ data:
 - Cursor attempts token refresh (out of scope for Demo 1)
 
 **Scenario 3: Invalid Signature**
-- AgentGateway refreshes JWKS once
-- Retries validation
-- If still fails, returns HTTP 401
+- auth-proxy receives JWT with unrecognised key-id
+- auth-proxy refreshes JWKS from Hydra (once, after 10s minimum interval)
+- Retries JWT validation with refreshed JWKS
+- If still fails: auth-proxy returns HTTP 401 to AgentGateway
+- AgentGateway forwards HTTP 401 to Cursor
 
 ### PKCE Flow Failures
 
@@ -777,6 +813,31 @@ data:
 **Scenario 3: State Mismatch**
 - Cursor detects CSRF attack
 - Aborts flow, displays error
+
+## Testing Strategy
+
+### Unit Tests (auth-proxy)
+- JWKS cache hit returns immediately without network fetch
+- `aud` claim mismatch returns HTTP 401
+- Expired `exp` claim returns HTTP 401
+- Missing `role` in Kratos traits → omitted from JWT session (not a zero-value)
+- Client registration logic: 404 → POST (409 on POST → continue), 200 → unconditional PUT, other errors → log.Fatal
+
+### Integration Tests
+- **Full PKCE flow:** cold start, no session → login → token issued with correct custom claims.
+- **Re-auth path:** existing Kratos session → no UI redirect → token issued directly.
+- **Invalid `code_verifier`:** Hydra rejects token exchange.
+- **`state` mismatch:** Cursor aborts flow.
+
+### Demo Success Criteria (Observable Outcomes)
+1. Cursor tool call with no JWT → AgentGateway returns HTTP 401 with `WWW-Authenticate: Bearer realm="api.zero-ops.io", resource_metadata="https://api.zero-ops.io/.well-known/oauth-protected-resource"`.
+2. Browser opens to `https://console.zero-ops.io/login` automatically (Cursor stores `state` parameter in memory).
+3. User logs in with seeded credentials (`demo@zero-ops.io` / `Demo1Password!`) — no consent screen appears.
+4. Browser redirects back to Cursor callback URL (`127.0.0.1:54321`) and safely closes.
+5. `access_token` is written to OS keychain. (Verified via CLI: `security find-generic-password -s "Cursor MCP" -w | jwt decode -`).
+6. Second Cursor tool call with JWT → AgentGateway returns HTTP 200, routing to `demo-echo` which replies showing `X-Auth-User-Id`, `X-Auth-Email`, and `X-Auth-Role` headers successfully injected.
+
+*(Note: Callback timeout is 5 minutes. If the user abandons the browser, Cursor logs a timeout error and closes the loopback listener).*
 
 ## Security Considerations
 
@@ -832,17 +893,22 @@ data:
 
 ## Monitoring and Observability
 
+*Note: All metrics are exposed via standard `/metrics` endpoints. As per the PRD, the pre-existing Grafana Alloy agents deployed on the management cluster will automatically scrape these endpoints and ship them to VictoriaMetrics. No new collectors are required for Demo 1.*
+
 ### Metrics
 
 **AgentGateway:**
+- `extauthz_call_total{result="allowed|denied|error"}`
+- `extauthz_duration_seconds`
+- `extauthz_timeout_total`
+
+**auth-proxy:**
 - `jwt_validation_total{result="success|failure"}`
 - `jwks_cache_hit_total`
 - `jwks_cache_miss_total`
 - `jwks_refresh_total{result="success|failure"}`
-
-**auth-proxy:**
 - `oauth_login_total{result="success|failure"}`
-- `oauth_consent_total{result="accept|reject"}`
+- `oauth_consent_total{result="accept|skip"}`
 - `hydra_api_call_duration_seconds{endpoint}`
 - `kratos_api_call_duration_seconds{endpoint}`
 
@@ -853,8 +919,8 @@ data:
 ### Logs
 
 **Structured Logging (JSON):**
-- AgentGateway: JWT validation failures, JWKS refresh events
-- auth-proxy: Login attempts, consent decisions, Hydra/Kratos/Keto API errors
+- AgentGateway: extAuthz timeouts, backend routing errors
+- auth-proxy: Login attempts, consent decisions, Hydra/Kratos API errors, JWT validation failures, JWKS refresh events
 - Hydra: Authorization requests, token issuance, client errors
 
 ### Alerts
@@ -875,14 +941,16 @@ data:
 2. Deploy CNPG cluster
 3. Create Database CRDs with password references
 4. Deploy Ory Helm charts with initContainers waiting for CNPG readiness
-5. Verify database connectivity
+5. Deploy Ingress routes and verify DNS resolution for api, auth, and console subdomains. For local Day 1 testing, use `mkcert` to generate locally-trusted TLS certificates for `api.zero-ops.io`, `auth.zero-ops.io`, and `console.zero-ops.io`. Install the local CA into the host OS and browser trust stores to prevent PKCE flow termination due to invalid SSL. *(Note: For Electron-based clients like Cursor, verify that the application trusts the OS certificate store. If not, additional Electron-specific certificate configuration may be required.)*
+6. Verify database connectivity
 
 ### Phase 2: Services & Seed Data (Day 1 Afternoon)
-1. Build and deploy auth-proxy (`cmd/auth-proxy/`)
+1. Build and deploy auth-proxy (`cmd/auth-proxy/`). Deployment MUST include an `initContainer` that waits for `http://ory-hydra-public.ory-system.svc.cluster.local:4444/health/ready` before starting the auth-proxy binary.
 2. Verify auth-proxy pod reaches `Ready` state (confirms client pre-registration and JWKS fetch)
-3. Deploy AgentGateway
-4. Verify OAuth metadata endpoints
-5. Seed demo user via Kratos Admin API:
+3. Deploy demo-echo service (`manifests/platform-identity/demo-echo/`)
+4. Deploy AgentGateway
+5. Verify OAuth metadata endpoints
+6. Seed demo user via Kratos Admin API:
    ```bash
    curl -X POST http://ory-kratos-admin.ory-system.svc.cluster.local:4434/admin/identities \
      -H "Content-Type: application/json" \
@@ -921,3 +989,7 @@ data:
 3. **Authorization Enforcement (Req 3):** Keto permission checks
 4. **Multi-Factor Authentication:** TOTP, WebAuthn via Kratos
 5. **Social Login:** Google, GitHub via Kratos OIDC providers
+
+---
+
+*Implementation Note on Third-Party Clients:* The PKCE mechanics described herein (port priority `54321 → 18999 → 3000`, 5-minute timeout, and OS keychain storage) are based on the Model Context Protocol (MCP) reference implementations and expected behavior of Cursor. If the third-party client deviates from these standards, the platform remains secure, but user-facing error messages within the IDE may vary.

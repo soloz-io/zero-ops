@@ -3,6 +3,16 @@
 ## Project Overview
 Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS environments via Crossplane XRD. MCP-first architecture with OAuth2/PKCE authentication.
 
+## Critical Files Read
+✅ docs/prds/v8/zero-ops-prd-v8.md (complete)
+✅ docs/prds/v8/v8-hub-spoke.md (complete)
+✅ .kiro/specs/agentic-enterprise-onboarding/requirements.md (complete - 19 requirements)
+✅ .kiro/specs/agentic-enterprise-onboarding/zero-ops-sprint-delivery-plan.md (complete)
+✅ docs/prds/v8/project-structure.md (complete)
+✅ docs/prds/v8/selectable-services.md (complete)
+✅ memory/auth-design-principles.md (complete)
+✅ memory/design-principles.md (complete)
+
 ## Completed Specs
 
 ### 1. Management Cluster Bootstrap
@@ -32,7 +42,7 @@ Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS
 
 ### 3. Agentic Enterprise Onboarding
 **Location:** `.kiro/specs/agentic-enterprise-onboarding/`
-**Status:** 🔄 REQUIREMENTS COMPLETE, NEEDS DESIGN
+**Status:** 🔄 REQUIREMENTS COMPLETE, WORKING ON DEMOS
 **Workflow:** Requirements-first (confirmed via .config.kiro)
 **What's Done:**
 - ✅ requirements.md complete (19 requirements covering full OAuth2/PKCE flow)
@@ -40,22 +50,33 @@ Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS
 - ✅ Idempotent operations throughout
 - ✅ Async agent pattern (no blocking/polling)
 - ✅ Security-first (credentials never transit agent)
+**Current Work:**
+- 🔄 Demo 1 Spec (OAuth2 PKCE flow) - design.md COMPLETE
+  - Location: `.kiro/specs/agentic-enterprise-onboarding/demos/demo1-spec/`
+  - Outcome: "The platform knows who you are"
+  - Scope: Requirements 2, 10, 12, 13 (partial - pre-registration only)
+  - Components: CNPG, Ory Hydra/Kratos/Keto, auth-proxy, AgentGateway, demo-echo
+  - Architecture: Multi-namespace (ory-system, identity-services, api-gateway)
+  - Key patterns: OIDC pass-through, JWKS caching, return_to login flow, headless consent
+- ✅ Agent System - /agent swap zero-ops-orchestrator
 **What's Missing:**
-- ❌ design.md (NEXT STEP)
-- ❌ tasks.md (after design)
+- ❌ Demo 1 tasks.md (NEXT STEP)
+- ❌ Demo 2+ specs (after Demo 1 complete)
+- ❌ Main spec design.md and tasks.md (after all demos)
 **Key Requirements:**
 - OAuth2 Authorization Code Flow with PKCE (RFC 7636)
 - AgentGateway as single auth enforcement point
-- identity-service abstraction layer for Ory stack
+- auth-proxy for JWT validation and OAuth orchestration
 - Crossplane Composition B for Enterprise provisioning
 - KSOPS + Age for secret management
 - GitOps-first (all changes via Git commits)
 - Eventual consistency model
 
 ## Next Steps for Agentic Enterprise Onboarding
-1. Check if design.md exists - if not, create it
-2. Check if tasks.md exists - if not, create it after design
-3. Begin implementation starting from Phase 1 tasks
+1. Create Demo 1 tasks.md based on completed design.md
+2. Execute Demo 1 tasks (infrastructure → services → integration → demo)
+3. Create Demo 2+ specs following same pattern
+4. Create main spec design.md and tasks.md after all demos complete
 
 ## Key Architecture Patterns
 - **MCP-first:** All platform capabilities exposed via MCP tools

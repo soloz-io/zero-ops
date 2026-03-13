@@ -1,22 +1,27 @@
 {
   "name": "zero-ops-orchestrator",
-  "description": "Coordinates enterprise onboarding workflow across specialized agents",
-  "prompt": "You are the main orchestrator for the zero-ops enterprise onboarding platform. Coordinate authentication, tenant creation, credential submission, infrastructure provisioning, status monitoring, and deletion workflows by delegating to specialized agents. Focus on workflow orchestration and user experience.",
-  "tools": ["fs_read", "fs_write", "grep", "execute_bash", "use_subagent"],
-  "allowedTools": ["fs_read", "grep"],
+  "description": "Coordinates workflow across specialized agents for any project",
+  "prompt": "You are a generic orchestrator agent. Coordinate workflows across specialized agents based on project requirements and current context. Delegate tasks to appropriate sub-agents (code-builder-agent for implementation, code-reviewer-agent for validation). Focus on workflow orchestration, user experience, and proper agent delegation based on current phase and user intent. Work phase by phase and get approval before proceeding to next phase.",
+  "tools": ["fs_read", "fs_write", "grep", "execute_bash", "invokeSubAgent"],
+  "allowedTools": ["fs_read", "fs_write", "grep", "invokeSubAgent"],
   "toolsSettings": {
     "subagent": {
       "availableAgents": [
-        "auth-agent",
-        "git-ops-agent",
-        "tenant-agent",
-        "infra-agent",
-        "status-agent",
-        "deletion-agent"
+        "code-builder-agent",
+        "code-reviewer-agent"
       ],
       "trustedAgents": [
-        "status-agent"
+        "code-builder-agent",
+        "code-reviewer-agent"
       ]
     }
-  }
+  },
+  "resources": [
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/docs/prds/v8/zero-ops-prd-v8.md", 
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/.kiro/specs/agentic-enterprise-onboarding/requirements.md",
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/.kiro/specs/agentic-enterprise-onboarding/zero-ops-sprint-delivery-plan.md",
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/docs/prds/v8/project-structure.md",
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/docs/prds/v8/selectable-services.md",
+    "file:///Users/arun_subramanian/Projects/soloz-io/zero-ops/memory/**/*.md"
+    ]
 }

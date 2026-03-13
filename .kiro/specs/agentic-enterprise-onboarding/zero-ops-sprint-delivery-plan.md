@@ -101,8 +101,13 @@ The 19 requirements have hard technical dependencies that cannot be broken. What
 | 16 | Req 15 AC3–AC4: zero_ops_api generates GitHub App Installation Token, caches 55 min | Backend |
 | 17 | Req 15 AC5–AC6: Single idempotent retry on HTTP 401 from GitHub; terminal failure on second failure | Backend |
 | 18 | Req 11: AINativeSaaS_CR YAML parser + pretty-printer (internal library, ships today — no user-facing demo) | Backend |
+| 18a | **API Standards:** Apply RHOAS API Guidelines to zero_ops_api error responses (RFC 7807 Problem Details), pagination patterns, HTTP status code conventions. Add Spectral ruleset for CI validation. | Backend |
 
 **Demo script:** "We bootstrap from one secret injected at cluster creation. Everything else decrypts from Git. I show the platform making a test commit to GitHub using a short-lived token it generated itself. No credentials in environment variables."
+
+**Reference Standards:**
+- `.kiro/specs/agentic-enterprise-onboarding/analysis/redhat/01-app-services-api-guidelines.md`
+- `.kiro/specs/agentic-enterprise-onboarding/references/redhat/app-services-api-guidelines/docs/api-standards.md`
 
 ---
 
@@ -119,10 +124,15 @@ The 19 requirements have hard technical dependencies that cannot be broken. What
 | 24 | Req 4 AC6: HTTP 201 `{"force_token_refresh": true, "tenant_id": "..."}` | Backend |
 | 25 | Req 4 AC7–AC9: HTTP 200 idempotency responses with correct phase and force_token_refresh: false | Backend |
 | 26 | Req 4 AC10–AC14: Git repo creation, Kustomize scaffold commit, fleet-registry commit; INCOMPLETE_GIT_SETUP with OpenSearch alert on failure | Backend |
+| 26a | **GitOps Repo Structure:** Apply Red Hat GitOps repository pattern. Create base/ + overlays/ structure with .sops.yaml, Kustomize scaffold for starter/enterprise tiers, ArgoCD Application CRs. | Backend |
 | 27 | Req 1: Cursor initiates the full flow from natural language command | Client |
 | 28 | Req 14: Token refresh flow (transparent on 401; force_token_refresh path; claim re-hydration from Kratos) | Client + Platform |
 
 **Demo script:** "I type 'create tenant acme-corp' in Cursor. I see the browser, I log in, the token refreshes with the new tenant_id. Here is the acme-corp-control-plane repository that just appeared in GitHub. Here is the Kustomize scaffold inside it."
+
+**Reference Standards:**
+- `.kiro/specs/agentic-enterprise-onboarding/analysis/redhat/07-gitops-repo-structure.md`
+- `.kiro/specs/agentic-enterprise-onboarding/references/redhat/gitops-repo-example/environments/`
 
 ---
 
@@ -153,8 +163,16 @@ The 19 requirements have hard technical dependencies that cannot be broken. What
 | 38 | Req 7 AC1–AC3: Crossplane detects CR, selects Composition_B, decrypts Hetzner token via KSOPS | Infra |
 | 39 | Req 7 AC4: provider-kubernetes copies Age private key to tenant cluster with least-privilege RBAC | Infra |
 | 40 | Req 7 AC5: Tenant cluster bootstraps ArgoCD + KSOPS with injected Age key | Infra |
+| 40a | **ArgoCD RBAC:** Apply GitOps Operator multi-tenant RBAC patterns. Management cluster ArgoCD gets ClusterRole (read-only cluster access + full tenant namespace control). Tenant cluster ArgoCD gets namespace-scoped Role. Create AppProject templates for tenant isolation. | Infra |
+| 40b | **Helm Patterns:** Apply RHDH Helm chart patterns. Add ServiceMonitor templates, values.schema.json validation, external database configuration pattern to all Helm charts (Ory stack, auth-proxy). | Infra |
 
 **Demo script:** "I type 'provision production environment on Hetzner Frankfurt'. Cursor acknowledges and exits. Here is the CR committed to Git. Here is ArgoCD picking it up. Here are the first Crossplane conditions showing the cluster coming up."
+
+**Reference Standards:**
+- `.kiro/specs/agentic-enterprise-onboarding/analysis/redhat/02-gitops-operator.md`
+- `.kiro/specs/agentic-enterprise-onboarding/references/redhat/gitops-operator/controllers/argocd/argocd.go` (lines 186-190)
+- `.kiro/specs/agentic-enterprise-onboarding/analysis/redhat/08-rhdh-helm-patterns.md`
+- `.kiro/specs/agentic-enterprise-onboarding/references/redhat/rhdh-chart/docs/external-db.md`
 
 ---
 
