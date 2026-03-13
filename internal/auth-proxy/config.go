@@ -1,19 +1,51 @@
 package authproxy
 
-import "os"
+import (
+	"os"
+	"time"
+)
 
 type Config struct {
-	Port      string
-	HydraURL  string
-	ClientID  string
+	ListenAddr              string
+	HydraPublicURL          string
+	HydraAdminURL           string
+	HydraInternalJWKSURL    string
+	KratosPublicURL         string
+	KratosAdminURL          string
+	JWKSCacheTTL            time.Duration
+	JWKSFetchTimeout        time.Duration
+	JWKSRefreshMinInterval  time.Duration
+	ExpectedJWTAudience     string
+	TrustedClientIDs        string
 }
 
-func LoadConfig() *Config {
-	return &Config{
-		Port:     getEnv("PORT", "8081"),
-		HydraURL: getEnv("HYDRA_ADMIN_URL", "http://localhost:4445"),
-		ClientID: "mcp-public-client",
+func LoadConfig() (*Config, error) {
+	cacheTTL, err := time.ParseDuration(getEnv("JWKS_CACHE_TTL", "1h"))
+	if err != nil {
+		return nil, err
 	}
+	fetchTimeout, err := time.ParseDuration(getEnv("JWKS_FETCH_TIMEOUT", "5s"))
+	if err != nil {
+		return nil, err
+	}
+	refreshInterval, err := time.ParseDuration(getEnv("JWKS_REFRESH_MIN_INTERVAL", "10s"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Config{
+		ListenAddr:              getEnv("LISTEN_ADDR", ":8080"),
+		HydraPublicURL:          getEnv("HYDRA_PUBLIC_URL", "http://ory-hydra-public.ory-system.svc.cluster.local:4444"),
+		HydraAdminURL:           getEnv("HYDRA_ADMIN_URL", "http://ory-hydra-admin.ory-system.svc.cluster.local:4445"),
+		HydraInternalJWKSURL:    getEnv("HYDRA_INTERNAL_JWKS_URL", "http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json"),
+		KratosPublicURL:         getEnv("KRATOS_PUBLIC_URL", "http://ory-kratos-public.ory-system.svc.cluster.local:4433"),
+		KratosAdminURL:          getEnv("KRATOS_ADMIN_URL", "http://ory-kratos-admin.ory-system.svc.cluster.local:4434"),
+		JWKSCacheTTL:            cacheTTL,
+		JWKSFetchTimeout:        fetchTimeout,
+		JWKSRefreshMinInterval:  refreshInterval,
+		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.zero-ops.io"),
+		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
+	}, nil
 }
 
 func getEnv(key, def string) string {

@@ -76,7 +76,7 @@ management cluster and contains only tenant workloads. _(Composition A target. O
 | **Data Plane DB** | The `{tenant}-dataplane` CNPG database provisioned per tenant. Contains the tenant's SaaS application data. Schema owned and managed by the tenant. Zero-Ops has no visibility into its contents. |
 | **BYOC** | Bring Your Own Cloud. Tenants supply their own cloud provider API credentials. All tenant compute runs in their cloud account. Zero-Ops has no billing relationship with the tenant's cloud provider. |
 | **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace, RLS-scoped databases, and baseline services within the Shared Cluster. _(Out of scope for v8.0 delivery.)_ |
-| **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated CAPI cluster, two CNPG clusters, S3 bucket, KSOPS Age key, and all baseline services in the tenant's Hetzner account. |
+| **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated CAPI cluster, two CNPG clusters, S3 bucket, KSOPS Age key, and all baseline services in the tenant's Hetzner account. **Two variants:** Autopilot (ArgoCD Agent) or Self-Managed (Full ArgoCD). |
 
 ---
 
@@ -399,7 +399,7 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │       └── Composition B (Enterprise)                              │  │
   │           CAPI Cluster CR (Ubuntu kubeadm, CAPH)                  │  │
   │           CNPG Cluster CR (HA, pgvector, PgBouncer)               │  │
-  │           ArgoCD Application CR (OCI catalog)                     │  │
+  │           ArgoCD Application CR (Git → CI → OCI catalog)          │  │
   │           Hetzner S3 bucket + KSOPS Age secret                    │  │
   │           Ingress (nginx) + cert-manager + external-dns           │  │
   │           AgentSandbox (gVisor persistent deployment)             │  │
@@ -419,7 +419,11 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
         runs in tenant's own Hetzner account — BYOC)                  │  │
   │                                                                   │  │
   │  Per-tenant (both tiers):                                         │  │
-  │    ArgoCD (edge, OCI pull mode)                                   │  │
+  │    GitOps Engine:                                              │  │
+  │    - Starter: ArgoCD Agent (shared, multi-tenant)              │  │
+  │    - Enterprise Autopilot: ArgoCD Agent (dedicated)            │  │
+  │    - Enterprise Self-managed: Full ArgoCD (dedicated)          │  │
+  │    Reference: https://codefresh.io/blog/better-kubernetes-at-the-edge-with-argo-cd-and-codefresh/ │  │
   │    CNPG (dedicated or shared) with pgvector + PgBouncer           │  │
   │    PostgREST (auto REST API from PostgreSQL schema)               │  │
   │    Grafana Alloy → VictoriaMetrics (topology labels)              │  │
@@ -465,7 +469,11 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 
 #### 4.2.2 Retained v7.0 Components (unchanged unless noted)
 
-All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster), OpenSearch, kube-events-exporter, K8sGPT Operator, ArgoCD (edge), CAPI/CAPH, ClusterClass, ClusterResourceSet, Argo Workflows, Policy Gate, CNPG ticket system, Runbook RAG, Collaborator Agent + 6 Worker Agents, 7 MCP tool servers, fleet-heartbeat, Cilium, CCM/CSI.
+All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster), OpenSearch, kube-events-exporter, K8sGPT Operator, GitOps engines (ArgoCD Agent or Full ArgoCD), CAPI/CAPH, ClusterClass, ClusterResourceSet, Argo Workflows, Policy Gate, CNPG ticket system, Runbook RAG, Collaborator Agent + 6 Worker Agents, 7 MCP tool servers, fleet-heartbeat, Cilium, CCM/CSI.
+
+**GitOps Engine Selection:**
+- **ArgoCD Agent**: Used for Starter (shared) and Enterprise Autopilot modes. Community solution from https://github.com/argoproj-labs/argocd-agent/ provides hub-and-spoke GitOps with Zero-Ops management cluster maintaining control plane.
+- **Full ArgoCD**: Used for Enterprise Self-managed mode. Complete ArgoCD instance per tenant cluster, similar to [Codefresh's standalone approach](https://codefresh.io/blog/better-kubernetes-at-the-edge-with-argo-cd-and-codefresh/), where tenant manages their own GitOps control plane.
 
 **v7.0 → v8.0 changes to existing components:**
 
@@ -499,10 +507,13 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
 6. Constituent resources provisioned:
    CAPI Cluster (Enterprise only) → CAPH → Hetzner VMs
    CNPG Cluster → PostgreSQL HA
-   ArgoCD Application → pulls from OCI catalog
+   ArgoCD Agent (edge) → Git (source of truth) → CI renders manifests → OCI registry artifact → ArgoCD Agent pulls OCI
    All baseline services (see Section 4.2.1)
         │
 7. ClusterResourceSet injects into new cluster:
+   ArgoCD Agent (autopilot mode) OR Full ArgoCD (self-managed mode)
+   - Autopilot: ArgoCD Agent from https://github.com/argoproj-labs/argocd-agent/
+   - Self-managed: Complete ArgoCD instance (similar to Codefresh standalone model)
    Grafana Alloy, kube-events-exporter, K8sGPT Operator,
    cnpg2monitor, fleet-heartbeat, Cilium, CCM/CSI
         │
@@ -585,11 +596,37 @@ spec:
                       items:
                         type: string
                       default: [openai, anthropic]
+                gitops:
+                  type: object
+                  properties:
+                    mode:
+                      type: string
+                      enum: [autopilot, self-managed]
+                      default: autopilot
+                      description: "autopilot: ArgoCD Agent managed by Zero-Ops hub; self-managed: Full ArgoCD instance managed by tenant"
 ```
 
 **Starter tier defaults** (resolved by Composition A): `database.instances: 1`, `database.storage: 10Gi`, `autoscaling.min: 1`, `autoscaling.max: 5`. Shared cluster, namespace isolation, shared CNPG instance with RLS.
 
 **Enterprise tier defaults** (resolved by Composition B): `database.instances: 3`, `database.storage: 100Gi`, `autoscaling.min: 3`, `autoscaling.max: 50`. Dedicated CAPI cluster, physical isolation.
+
+### 5.1.1 Enterprise Tier Variants
+
+Enterprise tier supports two GitOps deployment patterns based on tenant preference:
+
+**Enterprise + Autopilot (Default):**
+- **ArgoCD Agent**: Lightweight agent connects to Zero-Ops management cluster
+- **Hub-Spoke Model**: Management cluster maintains GitOps control plane
+- **Zero-Ops Managed**: Platform team handles ArgoCD updates, policies, and troubleshooting
+- **Reference**: Similar to [Codefresh's control plane approach](https://codefresh.io/blog/better-kubernetes-at-the-edge-with-argo-cd-and-codefresh/) but with ArgoCD Agent instead of full instances
+
+**Enterprise + Self-Managed:**
+- **Full ArgoCD Instance**: Complete ArgoCD deployment in tenant cluster
+- **Standalone Model**: Tenant manages their own GitOps control plane
+- **Customer Managed**: Tenant handles ArgoCD updates, policies, and operations
+- **Reference**: Similar to [Codefresh's standalone ArgoCD per cluster](https://codefresh.io/blog/better-kubernetes-at-the-edge-with-argo-cd-and-codefresh/) approach
+
+The variant is controlled by `spec.gitops.mode: autopilot|self-managed` in the AINativeSaaS XRD.
 
 ### 5.2 Tenant Database Architecture
 
@@ -782,7 +819,7 @@ teardown_actions:
 | identity-service Keto check API | Per MCP tool call (authorization check) | No cache — authorization decisions must be real-time |
 | Hetzner pricing API | At tenant provisioning request time (cost estimate) | Per-request, not cached — prices change |
 | CNPG backup (CSI snapshot restore) | At PR environment creation and AgentSandbox pod startup | One-time per lifecycle event — not per request |
-| OCI catalog (ArgoCD pull) | ArgoCD polling interval (default: 3 minutes) | ArgoCD native cache |
+| OCI catalog (Git → CI → ArgoCD pull) | ArgoCD polling interval (default: 3 minutes) | ArgoCD native cache |
 | VictoriaMetrics (agent queries) | Per agent MCP tool call | No cache — metrics queries must be real-time |
 | OpenSearch (agent queries) | Per agent MCP tool call | No cache |
 | Runbook RAG embeddings | At DiagnosticsAgent query time | Vector index in PostgreSQL — single query per reasoning step |
@@ -793,7 +830,7 @@ teardown_actions:
 **Idiomatic:**
 - AgentGateway caches JWKS from identity-service at startup and refreshes on cache miss — not on every request.
 - CNPG snapshot restores happen once per PR environment or AgentSandbox pod lifecycle — not on every agent execution step.
-- ArgoCD polls OCI catalog on a fixed interval — not triggered by API calls.
+- ArgoCD polls OCI catalog (built from Git) on a fixed interval — not triggered by API calls.
 - agent memory (pgvector) is read once per agent conversation session and updated at session end — not on every message.
 
 **Anti-patterns (must NOT):**
@@ -844,7 +881,7 @@ The following operations can be proposed via autopilot PR without pre-approval e
 
 #### 5.10.5 HA and Control Plane Availability
 
-Zero-Ops management cluster unavailability does not affect tenant runtime. Tenant workloads, CNPG clusters, and ArgoCD edge instances are fully self-contained within tenant environments. Management cluster unavailability affects only: new provisioning requests, scaling operations, agent-driven remediation, and platform console access. Running tenant SaaS products continue serving their end-users unaffected during management cluster downtime.
+Zero-Ops management cluster unavailability does not affect tenant runtime. Tenant workloads, CNPG clusters, and ArgoCD Agent instances are fully self-contained within tenant environments. Management cluster unavailability affects only: new provisioning requests, scaling operations, agent-driven remediation, and platform console access. Running tenant SaaS products continue serving their end-users unaffected during management cluster downtime.
 
 When the management cluster reconnects, CAPI resumes reconciliation from last known state. Crossplane resumes composition reconciliation. No manual intervention required for recovery.
 
@@ -1017,7 +1054,7 @@ zero-ops/
 │   └── provider-migrate.yaml         # NEW v8.0 — blue-green provider migration
 │
 ├── edge-catalog/
-│   ├── argocd-edge.yaml
+│   ├── argocd-agent.yaml             # ArgoCD Agent (community solution)
 │   ├── grafana-alloy.yaml
 │   ├── kube-events-exporter.yaml
 │   ├── k8sgpt-operator.yaml
@@ -1074,7 +1111,7 @@ zero-ops/
 | 1 | SaaS Control Plane & API | PostgreSQL schema (v8.0 — adds tenant_id, tier, plan columns), REST API CRUD, intent payload parsing, tenant management | — | **Next** |
 | 2 | Fleet Shard Bootstrap | `zero-ops mgmt bootstrap` CLI, CAPI/CAPH/Ubuntu providers, shard registration, shard health checker | Phase 1 | Planned |
 | **2b** | **cnpg2monitor Fleet-Wide** | ClusterRole promotion, all-namespace cache, annotation state on PodMonitor, native rate limiter | Phase 2 | **NEW — Planned** |
-| 3 | CAPI Dispatch & Edge GitOps | Ubuntu ClusterClass, CAPI dispatch, ClusterResourceSet injection (all edge-catalog components), OCI catalog delivery | Phase 2 | Planned |
+| 3 | CAPI Dispatch & ArgoCD Agent | Ubuntu ClusterClass, CAPI dispatch, ClusterResourceSet injection (ArgoCD Agent from https://github.com/argoproj-labs/argocd-agent/), Git → CI → OCI catalog delivery | Phase 2 | Planned |
 | 4 | Fleet Observability Stack | VictoriaMetrics vmcluster, Alloy config, vmalert, Alertmanager webhook, OpenSearch, index templates, K8sGPT result exporter | Phase 3 | Planned |
 | 5 | Safe Execution Layer | Policy Gate, Argo Workflow templates (incl. PR env + provider migration), CNPG ticket integration, `agent_audit_log` | Phase 4 | Planned |
 | 6 | MCP Tool Servers | All 8 MCP servers (7 from v7.0 + crossplane-mcp) with AgentGateway auth integration | Phase 5 | Planned |

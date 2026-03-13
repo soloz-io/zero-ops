@@ -8,8 +8,10 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - **Idempotent Operations**: All API operations are safe to retry infinitely. The system returns current state, not errors, for duplicate requests.
 - **Declarative State Machine**: The system is not transactional. Each operation moves the tenant through states: AWAITING_CREDENTIALS → CREDENTIALS_READY → PROVISIONING → READY.
 - **Eventual Consistency**: Crossplane reconciles continuously. There are no terminal failure states, only degraded states that self-heal when external issues resolve.
-- **GitOps-First**: All infrastructure changes are committed to Git. ArgoCD and Crossplane reconcile from Git, not from direct API calls.
+- **GitOps-First**: All infrastructure changes are committed to Git. CI renders manifests to OCI artifacts. ArgoCD Agent (from https://github.com/argoproj-labs/argocd-agent/) and Crossplane reconcile from OCI artifacts built from Git, not from direct API calls.
 - **Async Agent Pattern**: The Agent submits intents and exits immediately. It does NOT block or poll for long-running operations. Status is queried on-demand via conversational prompts or Platform Console.
+
+**GitOps Pattern**: Zero-Ops follows the enterprise Git+OCI pattern: Git (source of truth) → CI renders manifests → OCI registry artifact → ArgoCD Agent pulls OCI → Cluster reconciliation. Reference: https://argo-cd.readthedocs.io/en/latest/user-guide/oci/
 
 ## Tenant Lifecycle State Machine
 
@@ -34,7 +36,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
            │ environment_create│
            ▼                   │
 ┌─────────────────────────┐    │
-│  Pending                │    │ (Git committed, ArgoCD not synced)
+│  Pending                │    │ (Git committed, CI building OCI, ArgoCD not synced)
 └──────────┬──────────────┘    │
            │                   │
            ▼                   │
@@ -86,7 +88,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - **KSOPS**: Kustomize plugin that encrypts/decrypts Kubernetes Secrets using SOPS and Age
 - **Idempotent**: Operation that can be safely retried infinitely with the same result
 - **Eventual Consistency**: System state converges to desired state over time through continuous reconciliation
-- **fleet-registry**: Global Git repository containing tenant descriptors that trigger ArgoCD ApplicationSet to watch new tenant control plane repositories
+- **fleet-registry**: Global Git repository containing tenant descriptors that trigger ArgoCD ApplicationSet to watch new tenant control plane repositories. CI builds OCI artifacts from Git changes.
 - **GitHub App Installation Token**: Short-lived JWT used by zero_ops_api to authenticate Git API operations (repo creation, commits)
 - **Plan**: The billing entitlement associated with a tenant record in PostgreSQL (e.g., Starter, Enterprise). Determines which infrastructure tiers the tenant is authorized to provision
 - **Tier**: The infrastructure topology specified in the AINativeSaaS XRD (e.g., starter, enterprise). Defines the actual resources provisioned by Crossplane
@@ -226,7 +228,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 7. THE Platform Console SHALL submit credentials via HTTPS POST to zero_ops_api backend with JWT authentication
 8. THE zero_ops_api backend SHALL encrypt the API token using the tenant's Age public key
 9. THE zero_ops_api SHALL commit the SOPS-encrypted Secret to the {tenant_id}-control-plane Git repository under base/secrets/ directory using a GitHub App Installation Token
-10. THE zero_ops_api SHALL store the tenant's Age private key as a Kubernetes Secret in the management cluster for hub ArgoCD/KSOPS decryption of tenant infrastructure secrets
+10. THE zero_ops_api SHALL store the tenant's Age private key as a Kubernetes Secret in the management cluster for hub ArgoCD/KSOPS decryption of tenant infrastructure secrets from OCI artifacts built from Git
 11. THE zero_ops_api SHALL backup the tenant's Age private key to S3 at path: s3://{tenant}-secrets/age-private-key for disaster recovery only
 12. THE tenant SHALL remain in AWAITING_CREDENTIALS state indefinitely until credentials are submitted (no automatic cleanup)
 13. IF credential submission fails (Git commit error), THE zero_ops_api SHALL return HTTP 500, and the Tenant_Admin MAY retry via the console form
@@ -272,7 +274,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 2. THE Crossplane SHALL select Composition_B based on the enterprise tier
 3. THE Crossplane SHALL provision Hetzner resources using the decrypted API token (decrypted by KSOPS from Git using the tenant's Age private key stored in the management cluster)
 4. THE Crossplane Composition B SHALL utilize a provider-kubernetes Object resource to securely copy the tenant's Age private key Secret from the management cluster directly into the provisioned tenant cluster's ArgoCD namespace. The provider-kubernetes controller SHALL operate using a least-privilege ServiceAccount restricted via RBAC to reading only Secrets labeled zero-ops.io/tenant-age-key=true
-5. THE tenant cluster bootstrap SHALL deploy ArgoCD and KSOPS, configuring ArgoCD to use the injected Age private key Secret to automatically decrypt tenant application secrets pulled from Git
+5. THE tenant cluster bootstrap SHALL deploy ArgoCD and KSOPS, configuring ArgoCD to use the injected Age private key Secret to automatically decrypt tenant application secrets from OCI artifacts built from Git
 6. THE Composition_B SHALL typically complete within 15 minutes under normal conditions, including tenant cluster provisioning and ArgoCD bootstrap
 7. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
 8. THE Crossplane SHALL NEVER enter a terminal "failed" state - only Degraded or Unready states that allow continued reconciliation
@@ -491,11 +493,11 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 ### Requirement 15: Platform Git Authentication and Secret Bootstrap
 
-**User Story:** As a system operator, I want the platform to securely authenticate with Git and automatically recover from cluster loss, so that GitOps reconciliation is secure and resilient.
+**User Story:** As a system operator, I want the platform to securely authenticate with Git and automatically recover from cluster loss, so that GitOps reconciliation via Git → CI → OCI is secure and resilient.
 
 **CRITICAL:** This requirement solves the "Secret Zero" problem in GitOps. The Master Platform Age Private Key is the single secret that must be injected imperatively during bootstrap. All other secrets (GitHub App Private Key, tenant credentials) are encrypted in Git and decrypted at apply-time using this master key.
 
-**Industry Context:** All GitOps secret management tools (KSOPS, Sealed Secrets, External Secrets Operator) require bootstrap injection of a master secret. No operator eliminates this step - it is a fundamental security requirement. The pattern used here matches CNCF best practices for GitOps secret management.
+**Industry Context:** All GitOps secret management tools (KSOPS, Sealed Secrets, External Secrets Operator) require bootstrap injection of a master secret. No operator eliminates this step - it is a fundamental security requirement. The pattern used here matches CNCF best practices for GitOps secret management with Git → CI → OCI artifact distribution. ArgoCD Agent (https://github.com/argoproj-labs/argocd-agent/) natively supports OCI artifacts as application sources (see [ArgoCD OCI Documentation](https://argo-cd.readthedocs.io/en/latest/user-guide/oci/)).
 
 #### Acceptance Criteria
 
@@ -506,7 +508,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 5. **AC 15.5 (Idempotent Refresh):** IF a Git commit operation returns HTTP 401 Unauthorized (indicating premature token expiry or revocation), THE `zero_ops_api` SHALL immediately invalidate the cached token, generate a fresh Installation Token, and retry the commit operation EXACTLY ONCE
 6. **AC 15.6 (Terminal Failure):** IF the retry using a freshly generated token also returns HTTP 401, THE `zero_ops_api` SHALL abort the operation, return HTTP 500 to the Agent, and log a critical authorization error
 7. **AC 15.7 (Disaster Recovery):** THE Master Platform Age Private Key SHALL be backed up securely off-cluster in the Zero-Ops organization's enterprise password vault (e.g., 1Password, Bitwarden, or offline secure vault)
-8. **AC 15.8 (Cluster Recreation):** IF the management cluster is destroyed, THE Platform Admin SHALL run `zero-ops mgmt bootstrap --name=shard-eu-1 --master-age-key=$SECURE_VAULT_KEY` to provision a new cluster, install ArgoCD, and inject the master key. ArgoCD SHALL connect to Git, decrypt the GitHub App Private Key, and the entire platform SHALL auto-reconcile back into existence
+8. **AC 15.8 (Cluster Recreation):** IF the management cluster is destroyed, THE Platform Admin SHALL run `zero-ops mgmt bootstrap --name=shard-eu-1 --master-age-key=$SECURE_VAULT_KEY` to provision a new cluster, install ArgoCD Agent (https://github.com/argoproj-labs/argocd-agent/), and inject the master key. ArgoCD Agent SHALL connect to Git, decrypt the GitHub App Private Key, and the entire platform SHALL auto-reconcile back into existence
 
 **Rationale for Single Idempotent Retry:**
 - GitHub App Installation Tokens have deterministic 1-hour expiry (not transient network errors)

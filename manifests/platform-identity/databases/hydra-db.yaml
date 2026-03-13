@@ -2,12 +2,9 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: hydra-db
-  namespace: ory-system
+  namespace: zero-ops-system
 spec:
   cluster:
-    name: identity-postgres
+    name: zero-ops-platform-db
   name: hydra_db
   owner: hydra
-  ownerPasswordSecret:
-    name: identity-postgres-passwords
-    key: hydra-password

@@ -1,0 +1,43 @@
+#!/bin/bash
+# Generate locally-trusted TLS certificates using mkcert
+# Install mkcert: brew install mkcert (macOS) or see https://github.com/FiloSottile/mkcert
+
+set -e
+
+echo "Generating locally-trusted TLS certificates..."
+
+# Check if mkcert is installed
+if ! command -v mkcert &> /dev/null; then
+    echo "❌ mkcert is not installed"
+    echo "Install it with: brew install mkcert (macOS)"
+    echo "Or see: https://github.com/FiloSottile/mkcert"
+    exit 1
+fi
+
+# Install local CA
+echo "Installing local CA..."
+mkcert -install
+
+# Create certs directory
+mkdir -p certs
+
+# Generate certificates
+echo "Generating certificates..."
+mkcert -cert-file certs/api.zero-ops.io.crt \
+       -key-file certs/api.zero-ops.io.key \
+       api.zero-ops.io
+
+mkcert -cert-file certs/auth.zero-ops.io.crt \
+       -key-file certs/auth.zero-ops.io.key \
+       auth.zero-ops.io
+
+mkcert -cert-file certs/console.zero-ops.io.crt \
+       -key-file certs/console.zero-ops.io.key \
+       console.zero-ops.io
+
+echo "✅ Certificates generated in ./certs/"
+echo ""
+echo "Create Kubernetes secrets with:"
+echo "  kubectl create secret tls api-zero-ops-tls --cert=certs/api.zero-ops.io.crt --key=certs/api.zero-ops.io.key -n api-gateway"
+echo "  kubectl create secret tls auth-zero-ops-tls --cert=certs/auth.zero-ops.io.crt --key=certs/auth.zero-ops.io.key -n identity-services"
+echo "  kubectl create secret tls console-zero-ops-tls --cert=certs/console.zero-ops.io.crt --key=certs/console.zero-ops.io.key -n ory-system"

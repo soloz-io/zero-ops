@@ -11,9 +11,9 @@ keto:
           name: identity-postgres-passwords
           key: keto-password
     - name: DSN
-      value: postgres://keto:$(KETO_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/keto_db
+      value: postgres://keto:$(KETO_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/keto_db
 
   initContainers:
     - name: wait-for-postgres
       image: postgres:15
-      command: ['sh', '-c', 'until pg_isready -h identity-postgres-rw.ory-system.svc.cluster.local -p 5432; do sleep 2; done']
+      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']

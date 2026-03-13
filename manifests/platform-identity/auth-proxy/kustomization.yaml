@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: identity-services
+
+resources:
+- namespace.yaml
+- rbac.yaml
+- deployment.yaml
+- service.yaml
+
+images:
+- name: auth-proxy
+  newName: auth-proxy
+  newTag: latest

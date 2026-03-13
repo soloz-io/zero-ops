@@ -151,3 +151,24 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 4. **mTLS Security**: Built-in certificate-based authentication
 
 **Recommendation**: Zero-Ops should EVALUATE ArgoCD Agent for future versions but NOT replace current edge GitOps implementation. Current approach is more advanced (OCI catalog) and better integrated with CAPI/fleet observability.
+## CRITICAL DECISION CHANGE: Use ArgoCD Agent Instead of Custom Edge GitOps
+
+### User Instruction (Final Decision):
+Zero-Ops should NOT build custom edge GitOps workflow. Instead, use the community-built ArgoCD Agent.
+
+**Reference:** https://github.com/argoproj-labs/argocd-agent/
+
+### Impact on Architecture:
+- **REPLACE**: Custom ClusterResourceSet + ArgoCD per cluster
+- **WITH**: ArgoCD Agent (hub-and-spoke) from argoproj-labs
+- **BENEFIT**: Community-maintained, production-ready, officially supported
+
+### Files to Update:
+1. `docs/prds/v8/zero-ops-prd-v8.md` - Replace edge GitOps references
+2. `.kiro/specs/agentic-enterprise-onboarding/requirements.md` - Update GitOps patterns
+
+### Key Change:
+- FROM: Zero-Ops custom edge GitOps implementation
+- TO: ArgoCD Agent community solution with Git → CI → OCI support
+
+This is a major architectural decision that changes the core GitOps implementation approach.

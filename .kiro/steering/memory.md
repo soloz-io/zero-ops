@@ -43,6 +43,7 @@ inclusion: always
     - When the user provides information required for tool use (e.g., slack channel ID, email addresses)
     - When the user provides context useful for future tasks, such as how to use tools, or which actions to take in a particular situation
     - When you discover new patterns or preferences (coding styles, conventions, workflows)
+    - **CRITICAL**: Don't persist research or analysis unless it changes core decisions
 
     **When to NOT update memories:**
     - When the information is temporary or transient (e.g., "I'm running late", "I'm on my phone right now")

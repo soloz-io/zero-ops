@@ -19,7 +19,7 @@ inclusion: manual
 - No unit test cases be written by builder. Only accept e2e test cases. Reject if you find unit test cases written.
 
 Each review should complete below checklist:
-[] - Code reviewed and implementation as per spec and no deviations or ambiguities found.
+[] - Code reviewed and implementation as per requirements and design spec and no deviations or ambiguities found.
 [] - E2e Test cases are passing
 [] - Testing Principles followed correctly
 [] - Validated the task completion in actual cluster or in local execution as per task nature.

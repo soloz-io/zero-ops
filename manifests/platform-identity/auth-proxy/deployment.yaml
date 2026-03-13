@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-proxy
+  namespace: identity-services
+  labels:
+    app: auth-proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-proxy
+  template:
+    metadata:
+      labels:
+        app: auth-proxy
+    spec:
+      serviceAccountName: auth-proxy
+      initContainers:
+      - name: wait-for-hydra
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          until curl -f http://ory-hydra-public.ory-system.svc.cluster.local:4444/health/ready; do
+            echo "Waiting for Hydra to be ready..."
+            sleep 2
+          done
+      containers:
+      - name: auth-proxy
+        image: auth-proxy:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: LISTEN_ADDR
+          value: ":8080"
+        - name: HYDRA_PUBLIC_URL
+          value: "http://ory-hydra-public.ory-system.svc.cluster.local:4444"
+        - name: HYDRA_ADMIN_URL
+          value: "http://ory-hydra-admin.ory-system.svc.cluster.local:4445"
+        - name: HYDRA_INTERNAL_JWKS_URL
+          value: "http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json"
+        - name: KRATOS_PUBLIC_URL
+          value: "http://ory-kratos-public.ory-system.svc.cluster.local:4433"
+        - name: KRATOS_ADMIN_URL
+          value: "http://ory-kratos-admin.ory-system.svc.cluster.local:4434"
+        - name: JWKS_CACHE_TTL
+          value: "1h"
+        - name: JWKS_FETCH_TIMEOUT
+          value: "5s"
+        - name: JWKS_REFRESH_MIN_INTERVAL
+          value: "10s"
+        - name: EXPECTED_JWT_AUDIENCE
+          value: "https://api.zero-ops.io"
+        - name: TRUSTED_CLIENT_IDS
+          value: "mcp-public-client"
+        livenessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

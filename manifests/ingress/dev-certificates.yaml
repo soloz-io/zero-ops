@@ -1,0 +1,45 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-zero-ops-dev
+  namespace: api-gateway
+spec:
+  secretName: api-zero-ops-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - api.zero-ops.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-zero-ops-dev
+  namespace: identity-services
+spec:
+  secretName: auth-zero-ops-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - auth.zero-ops.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: console-zero-ops-dev
+  namespace: ory-system
+spec:
+  secretName: console-zero-ops-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - console.zero-ops.io
