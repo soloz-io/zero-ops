@@ -67,7 +67,7 @@ This implementation plan covers Phase 2 CNPG provisioning: deploying the Platfor
     - _Requirements: FR3.1_
   
   - [x] 3.3 Implement topology label reading from namespaces
-    - Read zero-ops.io/* labels from parent namespace
+    - Read nutgraf.in/* labels from parent namespace
     - Handle missing topology labels with warning events
     - Support dynamic namespace label updates
     - _Requirements: FR3.2_

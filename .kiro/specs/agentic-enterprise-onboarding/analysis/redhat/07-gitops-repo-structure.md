@@ -158,8 +158,8 @@ kind: Namespace
 metadata:
   name: acme-corp-enterprise
   labels:
-    zero-ops.io/tenant-id: acme-corp
-    zero-ops.io/tier: enterprise
+    nutgraf.in/tenant-id: acme-corp
+    nutgraf.in/tier: enterprise
 ```
 
 **Benefit:** Clear namespace isolation per tenant environment.

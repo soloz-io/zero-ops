@@ -73,7 +73,7 @@ This implementation plan creates the OAuth 2.1 Authorization Code Flow with PKCE
     - ✅ Build session object with custom claims (email, role) for both access and ID tokens
     - ✅ Implement trusted client detection and programmatic consent acceptance
     - ✅ Handle scope validation and rejection for empty/invalid scopes
-    - ✅ Set proper audience claim (https://api.zero-ops.io) in grant response
+    - ✅ Set proper audience claim (https://api.nutgraf.in) in grant response
     - **Reference:** `.kiro/specs/agentic-enterprise-onboarding/references/identity-auth/identity-service/` for consent handler patterns
     - _Requirements: 2.6, 2.7, 2.8, 2.9, 2.10, 2.11_
   - **Status:** All handlers implemented in internal/auth-proxy/handlers.go and internal/auth-proxy/kratos.go
@@ -90,7 +90,7 @@ This implementation plan creates the OAuth 2.1 Authorization Code Flow with PKCE
   - [x] 4.2 Implement JWT validation logic
     - ✅ Create JWT signature verification using cached JWKS (RS256/ES256)
     - ✅ Validate exp claim against current time
-    - ✅ Validate aud claim contains https://api.zero-ops.io
+    - ✅ Validate aud claim contains https://api.nutgraf.in
     - ✅ Extract claims (sub, email, role, tenant_id) from validated JWT
     - _Requirements: 3.2, 3.3_
   
@@ -115,7 +115,7 @@ This implementation plan creates the OAuth 2.1 Authorization Code Flow with PKCE
   - **Files:** manifests/api-gateway/{namespaces,agentgateway-config,agentgateway,demo-echo,kustomization}.yaml
 
 - [x] 6. Set up ingress, DNS, and TLS configuration ✅ COMPLETE
-  - ✅ Configure ingress routes for api.zero-ops.io, auth.zero-ops.io, console.zero-ops.io
+  - ✅ Configure ingress routes for api.nutgraf.in, auth.nutgraf.in, console.nutgraf.in
   - ✅ Set up TLS termination with proper certificate management
   - ✅ Deploy Kratos self-service UI (oryd/kratos-selfservice-ui-node)
   - ✅ Verify DNS resolution and HTTPS accessibility for all endpoints
@@ -146,7 +146,7 @@ This implementation plan creates the OAuth 2.1 Authorization Code Flow with PKCE
   - **Features:** Ory initContainers for PostgreSQL, auth-proxy initContainer for Hydra, readiness probe with 503 until ready
 
 - [ ] 9. Seed demo data and integration testing
-  - Create demo user via Kratos Admin API (demo@zero-ops.io)
+  - Create demo user via Kratos Admin API (demo@nutgraf.in)
   - Configure Cursor MCP settings for OAuth2 authentication
   - Test complete PKCE flow from Cursor tool call to JWT storage
   - Verify token validation through AgentGateway to demo-echo service

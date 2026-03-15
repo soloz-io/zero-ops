@@ -56,29 +56,29 @@ This specification defines requirements for Phase 2 CNPG provisioning: deploying
 ### FR3. Zero-Touch PodMonitor Generation
 
 **FR3.1 Automatic PodMonitor Patching**
-- **WHEN** a CNPG Cluster with label `zero-ops.io/monitored: "true"` and `spec.monitoring.enablePodMonitor: true` is created
+- **WHEN** a CNPG Cluster with label `nutgraf.in/monitored: "true"` and `spec.monitoring.enablePodMonitor: true` is created
 - **THEN** the System SHALL locate the CNPG-generated PodMonitor by querying via label selector `postgresql.cnpg.io/cluster: <cluster-name>` within the same namespace
 - **The System SHALL NOT rely on hardcoded name assumptions about CNPG's internal naming conventions**
 - **The System SHOULD use event-driven PodMonitor watching where possible, with sync-period polling as fallback**
 - **IF** the PodMonitor does not exist during reconciliation, **THEN** the System SHALL requeue with 2-second backoff (max 5 retries per event)
 - **IF** retries are exhausted without finding the PodMonitor, **THEN** the System SHALL emit a Warning Event with reason `CNPGPodMonitorNotFound` and rely on the next sync cycle (30s) for retry
 - **WHEN** the PodMonitor exists, **THEN** the System SHALL patch it with topology labels within 2 seconds
-- **IF** `zero-ops.io/monitored: "true"` is present BUT `enablePodMonitor: false`, **THEN** the System SHALL emit a Warning Event with reason `CNPGMonitoringMisconfigured` and skip reconciliation
+- **IF** `nutgraf.in/monitored: "true"` is present BUT `enablePodMonitor: false`, **THEN** the System SHALL emit a Warning Event with reason `CNPGMonitoringMisconfigured` and skip reconciliation
 - **Acceptance Criteria:** PodMonitor exists with correct selector and relabelings
 
 **FR3.2 Topology Label Injection**
 - **WHEN** patching a PodMonitor, **THEN** the System SHALL read topology labels from the parent namespace
-- **IF** namespace labels with prefix `zero-ops.io/` are missing, **THEN** the System SHALL emit a Warning Event with reason `CNPGTopologyLabelsMissing`, patch the PodMonitor to remove the `zero-ops.io/monitored: "true"` label (preventing Alloy discovery), and skip topology patching
-- **WHEN** topology labels are subsequently added to the namespace, **THEN** the System SHALL restore the `zero-ops.io/monitored: "true"` label as part of the topology patch
+- **IF** namespace labels with prefix `nutgraf.in/` are missing, **THEN** the System SHALL emit a Warning Event with reason `CNPGTopologyLabelsMissing`, patch the PodMonitor to remove the `nutgraf.in/monitored: "true"` label (preventing Alloy discovery), and skip topology patching
+- **WHEN** topology labels are subsequently added to the namespace, **THEN** the System SHALL restore the `nutgraf.in/monitored: "true"` label as part of the topology patch
 - **WHEN** namespace topology labels are updated, **THEN** the System SHALL update all managed PodMonitors in that namespace within 30 seconds
 - **Implementation Note:** Requires EnqueueRequestsFromMapFunc to map Namespace events to CNPG Clusters
 - **Acceptance Criteria:** PodMonitor relabelings match namespace labels exactly
 
 **FR3.3 Lifecycle Event Emission**
 - **BEFORE** emitting any lifecycle event, **THEN** the System SHALL read annotations from the Cluster CR:
-  - `cnpg2monitor.zero-ops.io/last-scaled-instances` (for CNPGScaled events)
-  - `cnpg2monitor.zero-ops.io/last-config-generation` (for CNPGConfigChanged events)  
-  - `cnpg2monitor.zero-ops.io/last-storage-generation` (for CNPGStorageExpanded events)
+  - `cnpg2monitor.nutgraf.in/last-scaled-instances` (for CNPGScaled events)
+  - `cnpg2monitor.nutgraf.in/last-config-generation` (for CNPGConfigChanged events)  
+  - `cnpg2monitor.nutgraf.in/last-storage-generation` (for CNPGStorageExpanded events)
 - **WHEN** `cluster.Status.ReadyInstances` matches `cluster.Spec.Instances` AND differs from annotation value, **THEN** emit Event with reason `CNPGScaled` and update `last-scaled-instances` annotation
 - **WHEN** `cluster.Status.Phase == "ClusterPhaseHealthy"` AND `cluster.Status.ObservedGeneration == metadata.generation` AND generation exceeds `last-config-generation` annotation, **THEN** emit Event with reason `CNPGConfigChanged` and update annotation
 - **WHEN** underlying PVCs report `Status.Capacity` matching `Spec.Storage.Size` AND `metadata.generation` exceeds `last-storage-generation` annotation, **THEN** emit Event with reason `CNPGStorageExpanded` and update annotation
@@ -112,7 +112,7 @@ This specification defines requirements for Phase 2 CNPG provisioning: deploying
 **NFR2.2 Data Consistency**
 - SSA patch payload SHALL target the `podMetricsEndpoints` array element identified by `port: metrics` as the merge key
 - cnpg2monitor SHALL claim SSA field ownership of `relabelings` only within that element
-- cnpg2monitor SHALL also claim SSA field ownership of `metadata.labels.zero-ops.io/monitored` on the PodMonitor
+- cnpg2monitor SHALL also claim SSA field ownership of `metadata.labels.nutgraf.in/monitored` on the PodMonitor
 - cnpg2monitor SHALL NOT include `interval`, `tlsConfig`, `scheme`, or any other fields in the patch payload
 - CNPG maintains object ownership via OwnerReferences (cnpg2monitor does NOT add OwnerReference)
 - Idempotent reconciliation (safe to run multiple times)
@@ -155,7 +155,7 @@ This specification defines requirements for Phase 2 CNPG provisioning: deploying
 **IR2.1 PodMonitor CRD Usage**
 - Use `monitoring.coreos.com/v1 PodMonitor` API
 - Set `app.kubernetes.io/managed-by: cnpg2monitor` label
-- Add `zero-ops.io/monitored: "true"` for Alloy filtering
+- Add `nutgraf.in/monitored: "true"` for Alloy filtering
 - **Compatibility:** Tested with prometheus-operator v0.68+
 
 **IR2.2 Relabeling Configuration**
@@ -167,7 +167,7 @@ This specification defines requirements for Phase 2 CNPG provisioning: deploying
 
 **IR3.1 PodMonitor Discovery**
 - Alloy discovers PodMonitors via `prometheus.operator.podmonitors` component
-- Label selector: `zero-ops.io/monitored: "true"`
+- Label selector: `nutgraf.in/monitored: "true"`
 - **Assumption:** PodMonitors remain dormant until Alloy deployment
 
 **IR3.2 Metric Flow Validation**
@@ -209,7 +209,7 @@ This specification defines requirements for Phase 2 CNPG provisioning: deploying
 ```bash
 MONITORING_NAMESPACE=zero-ops-system     # Restricts controller cache scope to single namespace
 ENABLE_EVENT_EMISSION=true               # Enable K8s event emission
-TOPOLOGY_LABEL_PREFIX=zero-ops.io/       # Namespace label prefix
+TOPOLOGY_LABEL_PREFIX=nutgraf.in/       # Namespace label prefix
 ```
 
 **CR1.2 Command-Line Flags**
@@ -228,11 +228,11 @@ TOPOLOGY_LABEL_PREFIX=zero-ops.io/       # Namespace label prefix
 - `zero-ops-system` namespace MUST have topology labels before operator starts
 - Required labels:
   ```yaml
-  zero-ops.io/cluster_id: "mothership"
-  zero-ops.io/region: "fsn1"
-  zero-ops.io/cloud_provider: "hetzner"
-  zero-ops.io/availability_zone: "fsn1-dc14"
-  zero-ops.io/cluster_class: "management"
+  nutgraf.in/cluster_id: "mothership"
+  nutgraf.in/region: "fsn1"
+  nutgraf.in/cloud_provider: "hetzner"
+  nutgraf.in/availability_zone: "fsn1-dc14"
+  nutgraf.in/cluster_class: "management"
   ```
 - **Risk:** Missing labels result in PodMonitors without topology context
 
@@ -296,7 +296,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"
+    nutgraf.in/monitored: "true"
 spec:
   instances: 3
   storage:

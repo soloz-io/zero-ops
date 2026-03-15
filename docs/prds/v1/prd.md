@@ -438,7 +438,7 @@ spec:
 **Hostname Generation:**
 - Management Cluster API: `api.zero-ops.{domain}`
 - Tenant cluster API: `{cluster-name}.{tenant}.clusters.{domain}`
-- Example: `prod-api.acme-corp.clusters.zero-ops.io`
+- Example: `prod-api.acme-corp.clusters.nutgraf.in`
 
 **Resource Linking:**
 - Cluster → ClusterClass: `spec.topology.class` references ClusterClass name
@@ -505,14 +505,14 @@ spec:
 - Admin has Hetzner account with API token
 - Admin has `zero-ops` CLI installed locally
 - Admin has Docker installed (for Kind)
-- DNS domain configured (e.g., zero-ops.io)
+- DNS domain configured (e.g., nutgraf.in)
 
 **Step-by-Step Flow:**
 
 1. **Admin Action:** Export Hetzner credentials
    ```bash
    export HCLOUD_TOKEN=<token>
-   export ZERO_OPS_DOMAIN=zero-ops.io
+   export ZERO_OPS_DOMAIN=nutgraf.in
    ```
 
 2. **Admin Action:** Run bootstrap command
@@ -588,11 +588,11 @@ spec:
     - Wait for all deployments Ready (3 minutes)
 
 13. **CLI Action:** Configure DNS
-    - Create A record: `api.zero-ops.io` → Management Cluster LB IP
+    - Create A record: `api.nutgraf.in` → Management Cluster LB IP
     - Wait for DNS propagation (30 seconds)
 
 14. **CLI Action:** Issue TLS certificate
-    - Apply Certificate resource for `api.zero-ops.io`
+    - Apply Certificate resource for `api.nutgraf.in`
     - Cert-Manager requests from Let's Encrypt
     - Wait for certificate Ready (1 minute)
 
@@ -604,12 +604,12 @@ spec:
 16. **CLI Output:** Success message
     ```
     ✓ Management Cluster 'mothership' ready
-    ✓ API endpoint: https://api.zero-ops.io
+    ✓ API endpoint: https://api.nutgraf.in
     ✓ ClusterClasses available: hetzner-prod-v1, hetzner-dev-v1, hetzner-staging-v1
-    ✓ ArgoCD UI: https://argocd.zero-ops.io (admin password in Secret)
+    ✓ ArgoCD UI: https://argocd.nutgraf.in (admin password in Secret)
     
     Next steps:
-    1. Configure DNS for *.clusters.zero-ops.io
+    1. Configure DNS for *.clusters.nutgraf.in
     2. Onboard first tenant: zero-ops tenant onboard --name=<org>
     ```
 
@@ -633,7 +633,7 @@ kubectl --kubeconfig=mothership.kubeconfig get clusterclasses
 kubectl --kubeconfig=mothership.kubeconfig get pods -n capi-system
 
 # Verify API endpoint
-curl https://api.zero-ops.io/health
+curl https://api.nutgraf.in/health
 ```
 
 ---
@@ -781,7 +781,7 @@ curl https://api.zero-ops.io/health
     ✓ Control plane: 3 nodes (CPX31)
     ✓ Workers: 5 nodes (CX21)
     ✓ Kubernetes version: v1.31.0
-    ✓ API endpoint: https://prod-api.acme-corp.clusters.zero-ops.io
+    ✓ API endpoint: https://prod-api.acme-corp.clusters.nutgraf.in
     ✓ Kubeconfig saved to: prod-api.kubeconfig
     
     Next steps:
@@ -856,7 +856,7 @@ kubectl get secret -n argocd -l argocd.argoproj.io/secret-type=cluster | grep ac
 **Functional Requirements:**
 - [ ] **Self-Hosting:** Management Cluster runs on Hetzner, not Kind, after bootstrap completes
 - [ ] **ClusterClass Availability:** `kubectl get clusterclasses` lists at least 3 classes (prod, dev, staging)
-- [ ] **API Accessibility:** `curl https://api.zero-ops.io/health` returns 200 OK
+- [ ] **API Accessibility:** `curl https://api.nutgraf.in/health` returns 200 OK
 - [ ] **ArgoCD Operational:** ArgoCD UI accessible, no degraded applications
 - [ ] **Database Initialized:** PostgreSQL running, schema migrations applied
 
@@ -875,11 +875,11 @@ kubectl --kubeconfig=mothership.kubeconfig get pods -n capi-system
 # Expected: All pods Running
 
 # Verify API endpoint
-curl -k https://api.zero-ops.io/health
+curl -k https://api.nutgraf.in/health
 # Expected: {"status":"healthy"}
 
 # Verify DNS resolution
-nslookup api.zero-ops.io
+nslookup api.nutgraf.in
 # Expected: Resolves to Management Cluster LB IP
 ```
 

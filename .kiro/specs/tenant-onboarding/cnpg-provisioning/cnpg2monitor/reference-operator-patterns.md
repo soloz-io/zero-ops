@@ -160,7 +160,7 @@ func (r *Cnpg2Monitor) SetupWithManager(mgr ctrl.Manager) error {
         For(&cnpgv1.Cluster{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
             // Only watch CNPG Clusters with monitoring label
             labels := obj.GetLabels()
-            return labels != nil && labels["zero-ops.io/monitored"] == "true"
+            return labels != nil && labels["nutgraf.in/monitored"] == "true"
         }))).
         Complete(r)
 }
@@ -207,7 +207,7 @@ func LoadConfigFromEnv() Config {
     return Config{
         MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "zero-ops-system"),
         EnableEventEmission: parseBoolEnv("ENABLE_EVENT_EMISSION", true),
-        TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "zero-ops.io/"),
+        TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "nutgraf.in/"),
     }
 }
 ```
@@ -492,7 +492,7 @@ func createTestCNPGCluster(name, namespace string) *cnpgv1.Cluster {
             Name:      name,
             Namespace: namespace,
             Labels: map[string]string{
-                "zero-ops.io/monitored": "true",
+                "nutgraf.in/monitored": "true",
             },
         },
         Spec: cnpgv1.ClusterSpec{
@@ -734,7 +734,7 @@ func (c *Controller) hasOwnership(postgresql *acidv1.Postgresql) bool {
 **Adopt for cnpg2monitor:**
 ```go
 const (
-    ControllerAnnotationKey = "cnpg2monitor.zero-ops.io/controller-id"
+    ControllerAnnotationKey = "cnpg2monitor.nutgraf.in/controller-id"
 )
 
 func (r *Cnpg2Monitor) hasOwnership(cnpgCluster *cnpgv1.Cluster) bool {
@@ -1247,9 +1247,9 @@ func (r *Cnpg2Monitor) getTopologyLabels(ctx context.Context, namespace string) 
     
     topologyLabels := make(map[string]string)
     for k, v := range ns.Labels {
-        if strings.HasPrefix(k, "zero-ops.io/") {
+        if strings.HasPrefix(k, "nutgraf.in/") {
             // Extract label name after prefix
-            labelName := strings.TrimPrefix(k, "zero-ops.io/")
+            labelName := strings.TrimPrefix(k, "nutgraf.in/")
             topologyLabels[labelName] = v
         }
     }
@@ -1560,8 +1560,8 @@ alloy:
 metadata:
   labels:
     app.kubernetes.io/managed-by: cnpg2monitor
-    zero-ops.io/component: database
-    zero-ops.io/monitored: "true"
+    nutgraf.in/component: database
+    nutgraf.in/monitored: "true"
 ```
 
 #### 4. Relabeling in PodMonitors
@@ -1633,8 +1633,8 @@ prometheus.remote_write "primary" {
 
 2. **PodMonitor Selector in Alloy:**
    - Alloy can filter PodMonitors by label selector
-   - **Recommendation:** cnpg2monitor should add `zero-ops.io/monitored: "true"` label to all PodMonitors
-   - Alloy config should use: `selector { match_labels = {zero-ops.io/monitored = "true"} }`
+   - **Recommendation:** cnpg2monitor should add `nutgraf.in/monitored: "true"` label to all PodMonitors
+   - Alloy config should use: `selector { match_labels = {nutgraf.in/monitored = "true"} }`
 
 3. **Namespace Scope:**
    - Alloy can discover PodMonitors cluster-wide or namespace-scoped
@@ -1664,8 +1664,8 @@ func (r *Cnpg2Monitor) generatePodMonitor(cnpgCluster *cnpgv1.Cluster, topologyL
             Namespace: cnpgCluster.Namespace,
             Labels: map[string]string{
                 "app.kubernetes.io/managed-by": "cnpg2monitor",
-                "zero-ops.io/monitored":        "true",  // For Alloy selector
-                "zero-ops.io/component":        "database",
+                "nutgraf.in/monitored":        "true",  // For Alloy selector
+                "nutgraf.in/component":        "database",
             },
             OwnerReferences: []metav1.OwnerReference{
                 *metav1.NewControllerRef(cnpgCluster, cnpgv1.GroupVersion.WithKind("Cluster")),
@@ -1694,7 +1694,7 @@ func (r *Cnpg2Monitor) generatePodMonitor(cnpgCluster *cnpgv1.Cluster, topologyL
 2. **Selector:** Matches CNPG pods via `postgresql.cnpg.io/cluster` label
 3. **Port:** Uses named port "metrics" (CNPG standard)
 4. **Relabelings:** Injects topology labels from namespace
-5. **Labels:** Adds `zero-ops.io/monitored: "true"` for Alloy filtering
+5. **Labels:** Adds `nutgraf.in/monitored: "true"` for Alloy filtering
 
 ---
 
@@ -1710,7 +1710,7 @@ prometheus.operator.podmonitors "cnpg" {
     // Only discover PodMonitors created by cnpg2monitor
     selector {
         match_labels = {
-            "zero-ops.io/monitored" = "true"
+            "nutgraf.in/monitored" = "true"
         }
     }
 }
@@ -1739,7 +1739,7 @@ helm upgrade alloy-metrics grafana/alloy -i -n zero-ops-system \
 
 ### A13. Alloy PodMonitor Discovery Configuration
 
-**Assumption:** Alloy will be configured with `prometheus.operator.podmonitors` component and label selector `zero-ops.io/monitored: "true"`.
+**Assumption:** Alloy will be configured with `prometheus.operator.podmonitors` component and label selector `nutgraf.in/monitored: "true"`.
 
 **Validation:** Confirmed by Grafana Alloy official documentation (2026-03-10).
 

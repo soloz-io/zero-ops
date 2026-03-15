@@ -268,7 +268,7 @@ kind: Config
 clusters:
 - cluster:
     certificate-authority-data: LS0tLS1CRUdJTi...
-    server: https://api.zero-ops.io:6443
+    server: https://api.nutgraf.in:6443
   name: mothership
 contexts:
 - context:
@@ -302,7 +302,7 @@ users:
 {
   "inviteId": "inv-xyz789",
   "email": "developer@acme-corp.com",
-  "inviteUrl": "https://zero-ops.io/invite/inv-xyz789",
+  "inviteUrl": "https://nutgraf.in/invite/inv-xyz789",
   "expiresAt": "2026-03-15T10:00:00Z"
 }
 ```
@@ -555,7 +555,7 @@ users:
         "workers": 5
       },
       "createdAt": "2026-03-08T10:00:00Z",
-      "apiEndpoint": "https://prod-api.acme-corp.clusters.zero-ops.io:6443"
+      "apiEndpoint": "https://prod-api.acme-corp.clusters.nutgraf.in:6443"
     }
   ]
 }
@@ -584,7 +584,7 @@ users:
     "cpu": "20",
     "memory": "50Gi"
   },
-  "apiEndpoint": "https://prod-api.acme-corp.clusters.zero-ops.io:6443",
+  "apiEndpoint": "https://prod-api.acme-corp.clusters.nutgraf.in:6443",
   "kubeconfigUrl": "/api/v1/clusters/prod-api/kubeconfig",
   "createdAt": "2026-03-08T10:00:00Z",
   "readyAt": "2026-03-08T10:08:32Z"

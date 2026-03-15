@@ -60,7 +60,7 @@ This document provides a comprehensive implementation strategy for integrating M
 └────────┬────────────────────────────────────────────────────┘
          │ 2. 401 Unauthorized + WWW-Authenticate header
          │    WWW-Authenticate: Bearer realm="MCP",
-         │    resource_metadata="https://api.zero-ops.io/.well-known/oauth-protected-resource"
+         │    resource_metadata="https://api.nutgraf.in/.well-known/oauth-protected-resource"
          ▼
 ┌─────────────────┐
 │   MCP Client    │  3. Discovers OAuth endpoints via metadata
@@ -161,10 +161,10 @@ serve:
 
 urls:
   self:
-    issuer: https://auth.zero-ops.io
-  consent: https://auth.zero-ops.io/consent
-  login: https://auth.zero-ops.io/login  # Kratos login UI
-  logout: https://auth.zero-ops.io/logout
+    issuer: https://auth.nutgraf.in
+  consent: https://auth.nutgraf.in/consent
+  login: https://auth.nutgraf.in/login  # Kratos login UI
+  logout: https://auth.nutgraf.in/logout
 
 strategies:
   access_token: jwt  # Use JWT tokens (not opaque)
@@ -248,7 +248,7 @@ oauth2:
 **DCR Registration (Fallback):**
 ```bash
 # DCR Fallback - Register MCP public client via Admin API
-curl -X POST https://auth.zero-ops.io/admin/clients \
+curl -X POST https://auth.nutgraf.in/admin/clients \
   -H "Content-Type: application/json" \
   -d '{
     "client_id": "mcp-public-client",
@@ -373,7 +373,7 @@ func (h *LoginHookHandler) AcceptLoginRequest(w http.ResponseWriter, r *http.Req
 **Resulting JWT Token:**
 ```json
 {
-  "iss": "https://auth.zero-ops.io",
+  "iss": "https://auth.nutgraf.in",
   "sub": "550e8400-e29b-41d4-a716-446655440000",
   "aud": ["zero-ops-api"],
   "exp": 1710259200,
@@ -421,34 +421,34 @@ dsn: postgres://kratos:password@postgres:5432/kratos?sslmode=disable
 
 serve:
   public:
-    base_url: https://auth.zero-ops.io
+    base_url: https://auth.nutgraf.in
     port: 4433
   admin:
     base_url: http://kratos:4434
     port: 4434
 
 selfservice:
-  default_browser_return_url: https://console.zero-ops.io/
+  default_browser_return_url: https://console.nutgraf.in/
   allowed_return_urls:
-    - https://console.zero-ops.io
-    - https://auth.zero-ops.io
+    - https://console.nutgraf.in
+    - https://auth.nutgraf.in
   
   flows:
     login:
-      ui_url: https://auth.zero-ops.io/login
+      ui_url: https://auth.nutgraf.in/login
       lifespan: 10m
       after:
-        default_browser_return_url: https://console.zero-ops.io/dashboard
+        default_browser_return_url: https://console.nutgraf.in/dashboard
     
     registration:
-      ui_url: https://auth.zero-ops.io/registration
+      ui_url: https://auth.nutgraf.in/registration
       lifespan: 10m
       after:
-        default_browser_return_url: https://console.zero-ops.io/onboarding
+        default_browser_return_url: https://console.nutgraf.in/onboarding
     
     logout:
       after:
-        default_browser_return_url: https://auth.zero-ops.io/login
+        default_browser_return_url: https://auth.nutgraf.in/login
 
 identity:
   default_schema_id: default
@@ -459,7 +459,7 @@ identity:
 session:
   lifespan: 24h
   cookie:
-    domain: zero-ops.io
+    domain: nutgraf.in
     same_site: Lax
     secure: true
     http_only: true
@@ -472,7 +472,7 @@ courier:
 **Identity Schema (`identity.schema.json`):**
 ```json
 {
-  "$id": "https://schemas.zero-ops.io/identity.schema.json",
+  "$id": "https://schemas.nutgraf.in/identity.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Zero-Ops User",
   "type": "object",
@@ -695,10 +695,10 @@ pub async fn authorize_request(
 // src/handlers/oauth_metadata.rs
 pub async fn protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
     Json(ProtectedResourceMetadata {
-        resource: "https://api.zero-ops.io".to_string(),
-        authorization_servers: vec!["https://auth.zero-ops.io".to_string()],
+        resource: "https://api.nutgraf.in".to_string(),
+        authorization_servers: vec!["https://auth.nutgraf.in".to_string()],
         bearer_methods_supported: vec!["header".to_string()],
-        resource_documentation: Some("https://docs.zero-ops.io/api".to_string()),
+        resource_documentation: Some("https://docs.nutgraf.in/api".to_string()),
         scopes_supported: vec![
             "tenant:read".to_string(),
             "tenant:write".to_string(),
@@ -736,7 +736,7 @@ impl AuthMiddleware {
         // Validate JWT
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_audience(&["zero-ops-api"]);
-        validation.set_issuer(&["https://auth.zero-ops.io"]);
+        validation.set_issuer(&["https://auth.nutgraf.in"]);
         
         let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
         Ok(token_data.claims)
@@ -901,7 +901,7 @@ async function discoverOAuthEndpoints(resourceUrl: string) {
 async function authorize() {
   const { verifier, challenge } = generatePKCE();
   const { authorizationEndpoint } = await discoverOAuthEndpoints(
-    'https://api.zero-ops.io'
+    'https://api.nutgraf.in'
   );
   
   const state = randomBytes(16).toString('hex');
@@ -934,7 +934,7 @@ async function authorize() {
 // 4. Exchange code for token
 async function exchangeToken(code: string, verifier: string) {
   const { tokenEndpoint } = await discoverOAuthEndpoints(
-    'https://api.zero-ops.io'
+    'https://api.nutgraf.in'
   );
   
   const response = await fetch(tokenEndpoint, {
@@ -979,7 +979,7 @@ func (h *TenantHandler) InitiateCredentialUpload(c *gin.Context) {
     
     // Generate one-time upload URL (expires in 10 minutes)
     uploadToken := generateSecureToken()
-    uploadURL := fmt.Sprintf("https://console.zero-ops.io/credentials/upload?token=%s", uploadToken)
+    uploadURL := fmt.Sprintf("https://console.nutgraf.in/credentials/upload?token=%s", uploadToken)
     
     // Store token with tenant association
     h.cache.Set(uploadToken, tenantID, 10*time.Minute)
@@ -1321,7 +1321,7 @@ async function callMCPTool(toolName: string, params: any) {
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-  const response = await fetch('https://auth.zero-ops.io/oauth2/token', {
+  const response = await fetch('https://auth.nutgraf.in/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

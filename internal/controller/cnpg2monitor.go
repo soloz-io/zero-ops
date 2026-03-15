@@ -42,12 +42,12 @@ type desiredActions struct {
 }
 
 const (
-	MonitoredLabel                    = "zero-ops.io/monitored"
-	TopologyLabelPrefix               = "zero-ops.io/"
+	MonitoredLabel                    = "nutgraf.in/monitored"
+	TopologyLabelPrefix               = "nutgraf.in/"
 	CNPGClusterLabel                  = "cnpg.io/cluster"
-	LastScaledInstancesAnnotation     = "cnpg2monitor.zero-ops.io/last-scaled-instances"
-	LastConfigGenerationAnnotation    = "cnpg2monitor.zero-ops.io/last-config-generation"
-	LastStorageGenerationAnnotation   = "cnpg2monitor.zero-ops.io/last-storage-generation"
+	LastScaledInstancesAnnotation     = "cnpg2monitor.nutgraf.in/last-scaled-instances"
+	LastConfigGenerationAnnotation    = "cnpg2monitor.nutgraf.in/last-config-generation"
+	LastStorageGenerationAnnotation   = "cnpg2monitor.nutgraf.in/last-storage-generation"
 )
 
 type Cnpg2Monitor struct {
@@ -140,7 +140,7 @@ func (r *Cnpg2Monitor) analyze(state *observedState) desiredActions {
 		return desiredActions{
 			emitEvent:    true,
 			eventReason:  "CNPGTopologyLabelsMissing",
-			eventMessage: "Namespace missing required zero-ops.io/* topology labels",
+			eventMessage: "Namespace missing required nutgraf.in/* topology labels",
 		}
 	}
 	

@@ -174,7 +174,7 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 8. Tenant Admin provides Hetzner API token via the console (not via Goose — credentials never transit the agent).
 9. `zero-ops-api` commits an `AINativeSaaS` CR to the tenant's control plane repository:
     ```yaml
-    apiVersion: zero-ops.io/v1
+    apiVersion: nutgraf.in/v1
     kind: AINativeSaaS
     metadata:
       name: acme-corp-production
@@ -447,7 +447,7 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 
 | Component | Implementation | Responsibility |
 |---|---|---|
-| **AINativeSaaS XRD** | Crossplane `CompositeResourceDefinition` | Defines the `zero-ops.io/v1` API schema for the SaaS environment intent. Cloud-provider agnostic schema. |
+| **AINativeSaaS XRD** | Crossplane `CompositeResourceDefinition` | Defines the `nutgraf.in/v1` API schema for the SaaS environment intent. Cloud-provider agnostic schema. |
 | **Composition A — Starter** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: starter`) into shared cluster namespace resources. Provisions in seconds. |
 | **Composition B — Enterprise** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: enterprise`) into full dedicated cluster stack. Provisions in 10–15 minutes. |
 | **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
@@ -518,7 +518,7 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
    cnpg2monitor, fleet-heartbeat, Cilium, CCM/CSI
         │
 8. cnpg2monitor detects CNPG cluster with
-   zero-ops.io/monitored=true label
+   nutgraf.in/monitored=true label
    → patches PodMonitor with topology labels
    → emits CNPGProvisioned event to OpenSearch
         │
@@ -540,9 +540,9 @@ Zero-Ops owns the tenant control plane repository. It is hosted in Zero-Ops Git 
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: ainativesaas.zero-ops.io
+  name: ainativesaas.nutgraf.in
 spec:
-  group: zero-ops.io
+  group: nutgraf.in
   names:
     kind: AINativeSaaS
     plural: ainativesaas
@@ -845,7 +845,7 @@ teardown_actions:
 
 #### 5.10.1 TLS Strategy
 
-All platform endpoints (Platform Console, `zero-ops-api`, AgentGateway, Ory stack, PostgREST) are served over HTTPS. TLS certificates issued by cert-manager with Let's Encrypt (ACME HTTP-01 or DNS-01 challenge via Hetzner DNS provider). Wildcard certificate issued for `*.zero-ops.io` for platform endpoints. Per-tenant certificates issued for tenant-specific domains.
+All platform endpoints (Platform Console, `zero-ops-api`, AgentGateway, Ory stack, PostgREST) are served over HTTPS. TLS certificates issued by cert-manager with Let's Encrypt (ACME HTTP-01 or DNS-01 challenge via Hetzner DNS provider). Wildcard certificate issued for `*.nutgraf.in` for platform endpoints. Per-tenant certificates issued for tenant-specific domains.
 
 #### 5.10.2 Network Isolation
 
@@ -905,14 +905,14 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 7. Goose retries `tenant_create` automatically with JWT.
 7. AgentGateway validates JWT via identity-service. Calls identity-service Keto check: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
 8. `zero-ops-api` creates tenant record in PostgreSQL. Returns `201 Created` with `tenant_id: acme-corp`.
-9. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.zero-ops.io/settings/credentials"`. Goose pauses and polls for credential confirmation.
+9. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.nutgraf.in/settings/credentials"`. Goose pauses and polls for credential confirmation.
 10. Tenant Admin opens console (already authenticated via Kratos session). Console displays credential submission form (read-only view with "Resolve in IDE" button).
 11. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=submit_credentials&tenant_id=acme-corp`.
 12. Cursor/Goose receives deep link, prompts Tenant Admin for Hetzner API token in IDE (secure input, never transits agent).
 13. Cursor/Goose calls `credentials_submit` MCP tool with encrypted token. `zero-ops-api` stores encrypted token in Hetzner S3.
 14. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
 12. `zero-ops-api` commits `AINativeSaaS` CR to tenant control plane repository. Returns `202 Accepted` with provisioning status URL.
-13. Goose displays: `"Provisioning in progress. Track at https://console.zero-ops.io/environments/acme-corp-production"`.
+13. Goose displays: `"Provisioning in progress. Track at https://console.nutgraf.in/environments/acme-corp-production"`.
 14. 12 minutes later: Crossplane Composition B completes. Console shows `Ready`. Goose displays final summary.
 
 **Variations:**
@@ -1134,7 +1134,7 @@ zero-ops/
 | A-02 | `AINativeSaaS` CR with `spec.tier: starter` provisions a complete namespace-isolated stack within 60 seconds | Same check, within 60s |
 | A-03 | Crossplane Composition B creates exactly: 1 CAPI Cluster, 1 CNPG Cluster, 1 ArgoCD Application, 1 S3 bucket, 1 nginx Ingress, 1 cert-manager Certificate, 1 AgentSandbox deployment, 1 LiteLLM deployment, 1 PostgREST deployment | `kubectl get managed -l crossplane.io/composite=acme-corp-production \| wc -l` equals expected count |
 | A-04 | Every tenant cluster emits VictoriaMetrics metrics with mandatory topology labels (`tenant_id`, `region`, `cloud_provider`, `tier`) within 60s of boot | PromQL: `count by (tenant_id) (up{tenant_id="acme-corp"})` returns > 0 |
-| A-05 | cnpg2monitor patches PodMonitor with topology relabelings within 30s of CNPG cluster `Ready` | `kubectl get podmonitor -n acme-corp -o yaml \| grep zero-ops.io` shows topology labels |
+| A-05 | cnpg2monitor patches PodMonitor with topology relabelings within 30s of CNPG cluster `Ready` | `kubectl get podmonitor -n acme-corp -o yaml \| grep nutgraf.in` shows topology labels |
 | A-06 | CNPG ScheduledBackup runs on configured schedule and writes backup to tenant Hetzner S3 | `kubectl get scheduledbackup -n acme-corp \| grep Completed` |
 | A-07 | PR environment created within 2 minutes of branch creation webhook | Namespace `pr-feature-branch` exists with CNPG cluster `Ready` within 120s |
 | A-08 | PR environment torn down within 2 minutes of PR close webhook | Namespace `pr-feature-branch` absent within 120s of PR close |
@@ -1144,7 +1144,7 @@ zero-ops/
 | ID | Criterion | Verification |
 |---|---|---|
 | A-09 | Goose Authorization Code + PKCE flow completes: 401 → browser opens → login → redirect to goose://callback → JWT exchange → retry succeeds | Manual flow test; Goose output shows `tenant_create` result after auth |
-| A-10 | AgentGateway rejects MCP calls without valid JWT | `curl -X POST https://gateway.zero-ops.io/mcp -d '...'` without Authorization header returns `401` |
+| A-10 | AgentGateway rejects MCP calls without valid JWT | `curl -X POST https://gateway.nutgraf.in/mcp -d '...'` without Authorization header returns `401` |
 | A-11 | Tenant A cannot call MCP tools scoped to Tenant B | JWT with `tenant_id: tenant-a` calling `crossplane-mcp:get` for `tenant-b` resource returns `403` |
 | A-12 | Platform admin JWT can query all tenant resources | Platform admin JWT calling `fleet-state-mcp:list` returns results from all tenants |
 
@@ -1160,7 +1160,7 @@ zero-ops/
 
 | ID | Criterion | Verification |
 |---|---|---|
-| A-16 | Platform Console shows environment status as `Ready` within 1 minute of Crossplane composition completing | Browser: `https://console.zero-ops.io/environments/acme-corp-production` shows green status |
+| A-16 | Platform Console shows environment status as `Ready` within 1 minute of Crossplane composition completing | Browser: `https://console.nutgraf.in/environments/acme-corp-production` shows green status |
 | A-17 | Cost estimate displayed before provisioning is derived from Hetzner pricing API at request time | Network trace shows API call to `api.hetzner.cloud/v1/pricing` at time of `New Environment` form submission |
 | A-18 | "View in Grafana" link in Console opens tenant-scoped Grafana dashboard | Click opens Grafana URL with `var-tenant_id=acme-corp` query parameter |
 

@@ -55,7 +55,7 @@ odo deploy                 # Deploy to cluster
 **Zero-Ops Workflow:**
 ```yaml
 # Commit AINativeSaaS CR to Git
-apiVersion: zero-ops.io/v1
+apiVersion: nutgraf.in/v1
 kind: AINativeSaaS
 # Crossplane provisions full environment
 ```

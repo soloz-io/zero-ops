@@ -51,10 +51,10 @@ We cannot proceed with Phase 2 (SaaS API) without a running platform database. A
 - **Error States:** If CNPG fails to schedule (e.g., PVC failure), the `zero-ops-api` crash-loops. K8s events are fired and captured by OpenSearch for the `DiagnosticsAgent` to debug.
 
 #### **Journey B: Edge Telemetry Auto-Wiring (Day-1 Observability)**
-- **Trigger:** A new CNPG `Cluster` resource labeled `zero-ops.io/monitored: "true"` becomes `Ready` in a namespace.
+- **Trigger:** A new CNPG `Cluster` resource labeled `nutgraf.in/monitored: "true"` becomes `Ready` in a namespace.
 - **Actions:** The `cnpg2monitor` operator receives the `Add`/`Update` event.
 - **System Response:** 
-  1. The operator reads the topology labels from the Namespace (e.g., `zero-ops.io/region=eu-central-1`).
+  1. The operator reads the topology labels from the Namespace (e.g., `nutgraf.in/region=eu-central-1`).
   2. The operator creates a Prometheus-operator compatible `PodMonitor` resource targeting the CNPG pods.
   3. The `PodMonitor` includes `relabelings` that hardcode the fleet topology attributes.
   4. Grafana Alloy (running at the edge) detects the `PodMonitor` and begins scraping the CNPG pods, forwarding perfectly tagged data to VictoriaMetrics.
@@ -119,7 +119,7 @@ graph TB
 | **Grafana Alloy** | Helm Chart (DaemonSet) | Edge collector. Finds `PodMonitors`, scrapes CNPG `9187` metrics port, and pushes to VictoriaMetrics. |
 
 ### **4.3 Integration & Control Plane**
-- **Label Propagation:** The operator relies on standard Zero-Ops Namespace labels (injected by CAPI/ArgoCD during tenant onboarding) to know the topology. It maps `zero-ops.io/region` to the PromQL `region` label via metric relabeling.
+- **Label Propagation:** The operator relies on standard Zero-Ops Namespace labels (injected by CAPI/ArgoCD during tenant onboarding) to know the topology. It maps `nutgraf.in/region` to the PromQL `region` label via metric relabeling.
 - **Scrape Target:** CloudNativePG natively exports Prometheus metrics on port `9187`. The operator simply tells Alloy where to look and what labels to attach.
 
 ---
@@ -143,7 +143,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"
+    nutgraf.in/monitored: "true"
 spec:
   instances: 3
   storage:
@@ -181,7 +181,7 @@ spec:
 ```
 
 ### **5.3 Defaulting & Automation Logic**
-- **Namespace Metadata:** The operator queries the K8s `Namespace` of the CNPG cluster to extract `zero-ops.io/*` labels. It uses these to populate the `relabelings` array in the `PodMonitor`.
+- **Namespace Metadata:** The operator queries the K8s `Namespace` of the CNPG cluster to extract `nutgraf.in/*` labels. It uses these to populate the `relabelings` array in the `PodMonitor`.
 - **Event Generation:** On `Update` events where `oldCluster.Spec.Instances != newCluster.Spec.Instances`, the operator fires a K8s Event: `Type: Normal, Reason: CNPGScale, Message: "Cluster scaled from X to Y"`.
 
 ### **5.4 Operational Semantics (Lifecycle & Frequency) [REQUIRED]**
@@ -211,7 +211,7 @@ spec:
 
 ### **Scenario 1: End-to-End Metric Labeling (v7.0 Core Requirement)**
 **Actors:** Tenant Developer, `cnpg2monitor`, Grafana Alloy, VictoriaMetrics.
-**Preconditions:** Tenant namespace `tenant-foo` exists with labels `zero-ops.io/region=us-east`.
+**Preconditions:** Tenant namespace `tenant-foo` exists with labels `nutgraf.in/region=us-east`.
 
 **Step-by-Step Flow:**
 1. **User Action:** Tenant creates a CNPG `Cluster` named `app-db`.
@@ -241,7 +241,7 @@ spec:
 
 **Zero-Touch Observability (BDD Test Focus):**
 - [ ] **Given** `cnpg2monitor` is running, **When** a CNPG Cluster is created in a labeled namespace, **Then** a `PodMonitor` is generated within 2 seconds.
-- [ ] **Given** the generated `PodMonitor`, **Then** it contains `relabelings` mapping exactly to the namespace's `zero-ops.io/*` topology labels.
+- [ ] **Given** the generated `PodMonitor`, **Then** it contains `relabelings` mapping exactly to the namespace's `nutgraf.in/*` topology labels.
 - [ ] **Given** a modification to the CNPG Cluster spec, **When** the operator processes the update, **Then** a K8s Event is successfully emitted to the cluster event stream.
 
 **Verification Commands:**

@@ -55,11 +55,11 @@
 
 **Labels Required:**
 ```yaml
-zero-ops.io/cluster_id: "mothership"
-zero-ops.io/region: "fsn1"  # or user-provided region from bootstrap
-zero-ops.io/cloud_provider: "hetzner"
-zero-ops.io/availability_zone: "fsn1-dc14"  # Hetzner datacenter
-zero-ops.io/cluster_class: "management"
+nutgraf.in/cluster_id: "mothership"
+nutgraf.in/region: "fsn1"  # or user-provided region from bootstrap
+nutgraf.in/cloud_provider: "hetzner"
+nutgraf.in/availability_zone: "fsn1-dc14"  # Hetzner datacenter
+nutgraf.in/cluster_class: "management"
 ```
 
 **Risk:** If labels are missing, PodMonitors will be created without topology labels, breaking v7.0 correlation queries.
@@ -81,7 +81,7 @@ zero-ops.io/cluster_class: "management"
 **Future Work (Phase 3):**
 - Implement a CAPI webhook or controller that watches `Cluster` resources
 - Extract topology from `Cluster.spec.topology.variables` (region, cloud_provider, etc.)
-- Patch the target namespace with `zero-ops.io/*` labels
+- Patch the target namespace with `nutgraf.in/*` labels
 - Ensure `cnpg2monitor` is deployed to tenant clusters via `ClusterResourceSet`
 
 **Alternative:** Use ArgoCD ApplicationSet to template namespace labels from CAPI cluster metadata.

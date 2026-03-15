@@ -10,9 +10,9 @@ echo "Adding Zero-Ops DNS entries to /etc/hosts..."
 echo "Using Ingress IP: $INGRESS_IP"
 
 # Check if entries already exist
-if grep -q "api.zero-ops.io" /etc/hosts; then
+if grep -q "api.nutgraf.in" /etc/hosts; then
     echo "Entries already exist in /etc/hosts"
-    echo "Remove them manually or run: sudo sed -i '' '/zero-ops.io/d' /etc/hosts"
+    echo "Remove them manually or run: sudo sed -i '' '/nutgraf.in/d' /etc/hosts"
     exit 1
 fi
 
@@ -20,9 +20,9 @@ fi
 sudo tee -a /etc/hosts > /dev/null <<EOF
 
 # Zero-Ops Demo 1 - Local Development
-$INGRESS_IP api.zero-ops.io
-$INGRESS_IP auth.zero-ops.io
-$INGRESS_IP console.zero-ops.io
+$INGRESS_IP api.nutgraf.in
+$INGRESS_IP auth.nutgraf.in
+$INGRESS_IP console.nutgraf.in
 EOF
 
 echo "✅ DNS entries added to /etc/hosts"

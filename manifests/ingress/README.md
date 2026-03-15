@@ -8,9 +8,9 @@ This directory contains Ingress configurations for Demo 1 OAuth2 PKCE flow.
 
 ### Ingress Routes
 
-- **api.zero-ops.io** → AgentGateway (api-gateway namespace)
-- **auth.zero-ops.io** → auth-proxy (identity-services namespace)
-- **console.zero-ops.io** → Kratos Self-Service UI (ory-system namespace)
+- **api.nutgraf.in** → AgentGateway (api-gateway namespace)
+- **auth.nutgraf.in** → auth-proxy (identity-services namespace)
+- **console.nutgraf.in** → Kratos Self-Service UI (ory-system namespace)
 
 ### TLS Configuration
 
@@ -51,18 +51,18 @@ This creates locally-trusted certificates in `./certs/`
 
 ```bash
 kubectl create secret tls api-zero-ops-tls \
-  --cert=certs/api.zero-ops.io.crt \
-  --key=certs/api.zero-ops.io.key \
+  --cert=certs/api.nutgraf.in.crt \
+  --key=certs/api.nutgraf.in.key \
   -n api-gateway
 
 kubectl create secret tls auth-zero-ops-tls \
-  --cert=certs/auth.zero-ops.io.crt \
-  --key=certs/auth.zero-ops.io.key \
+  --cert=certs/auth.nutgraf.in.crt \
+  --key=certs/auth.nutgraf.in.key \
   -n identity-services
 
 kubectl create secret tls console-zero-ops-tls \
-  --cert=certs/console.zero-ops.io.crt \
-  --key=certs/console.zero-ops.io.key \
+  --cert=certs/console.nutgraf.in.crt \
+  --key=certs/console.nutgraf.in.key \
   -n ory-system
 ```
 
@@ -89,9 +89,9 @@ kubectl apply -k .
 kubectl get ingress -A
 
 # Test endpoints
-curl https://api.zero-ops.io/health
-curl https://auth.zero-ops.io/health/ready
-curl https://console.zero-ops.io
+curl https://api.nutgraf.in/health
+curl https://auth.nutgraf.in/health/ready
+curl https://console.nutgraf.in
 ```
 
 ## Production Deployment
@@ -100,9 +100,9 @@ curl https://console.zero-ops.io
 
 Create A records pointing to your cluster's load balancer:
 ```
-api.zero-ops.io      → <LOAD_BALANCER_IP>
-auth.zero-ops.io     → <LOAD_BALANCER_IP>
-console.zero-ops.io  → <LOAD_BALANCER_IP>
+api.nutgraf.in      → <LOAD_BALANCER_IP>
+auth.nutgraf.in     → <LOAD_BALANCER_IP>
+console.nutgraf.in  → <LOAD_BALANCER_IP>
 ```
 
 ### 2. Update email in ClusterIssuer
@@ -162,7 +162,7 @@ kubectl get endpoints -n <namespace>
 cat /etc/hosts | grep zero-ops
 
 # Test DNS resolution
-nslookup api.zero-ops.io
+nslookup api.nutgraf.in
 ```
 
 ### TLS errors in browser
@@ -170,7 +170,7 @@ nslookup api.zero-ops.io
 For local development:
 - Ensure mkcert CA is installed: `mkcert -install`
 - Restart browser after installing CA
-- Check certificate: `openssl s_client -connect api.zero-ops.io:443`
+- Check certificate: `openssl s_client -connect api.nutgraf.in:443`
 
 ## Cleanup
 

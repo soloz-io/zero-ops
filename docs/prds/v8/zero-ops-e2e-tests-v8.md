@@ -76,7 +76,7 @@ Feature: Fleet Shard Bootstrap
     And AgentGateway is deployed and serving on its designated port
     And shard-eu-1 is registered in zero-ops-api PostgreSQL with status=active
     And shard-eu-1 begins emitting 30-second heartbeats to zero-ops-api
-    And the platform console is accessible at https://console.zero-ops.io
+    And the platform console is accessible at https://console.nutgraf.in
 ```
 
 ### TC-BOOT-02: Shard heartbeat and health registry
@@ -150,7 +150,7 @@ Feature: Platform Identity — Kratos Identity Management
 ```gherkin
 Feature: Device Auth Flow — Headless Agent Authentication
   Background:
-    Given Ory Hydra device auth endpoint is available at https://auth.zero-ops.io/device
+    Given Ory Hydra device auth endpoint is available at https://auth.nutgraf.in/device
     And a Goose client session is started with no existing JWT
 
   Scenario: Goose authenticates via device auth and retries MCP call
@@ -183,7 +183,7 @@ Feature: JWT Token Claims
       | sub       | alice-uuid                           |
       | tenant_id | acme-corp                            |
       | role      | tenant_admin                         |
-      | iss       | https://auth.zero-ops.io             |
+      | iss       | https://auth.nutgraf.in             |
     And the JWT is signed with Hydra's private key
     And the JWT can be validated against Hydra's JWKS endpoint
 ```
@@ -331,7 +331,7 @@ Feature: Credential Security in Agentic Flow
   Scenario: Hetzner API token is entered via console, not through Goose
     Given the onboarding flow has reached the credential ingestion step
     When Goose prompts the user to enter credentials
-    Then Goose directs the user to https://console.zero-ops.io/settings/credentials
+    Then Goose directs the user to https://console.nutgraf.in/settings/credentials
     And Goose does not provide a credential input field itself
     And no Hetzner API token value appears in any Goose output, log, or MCP call payload
     And the token is only accepted via the Platform Console HTTPS form
@@ -822,11 +822,11 @@ Feature: Fleet Observability — OpenSearch Event Timeline
 ```gherkin
 Feature: cnpg2monitor — PodMonitor Lifecycle Management
   Scenario: cnpg2monitor patches PodMonitor with topology relabelings after CNPG provisioning
-    Given a CNPG cluster acme-corp-cnpg is provisioned with label zero-ops.io/monitored=true
+    Given a CNPG cluster acme-corp-cnpg is provisioned with label nutgraf.in/monitored=true
     When the CNPG cluster reaches Ready state
     Then within 30 seconds, cnpg2monitor patches the PodMonitor for acme-corp-cnpg
     And the PodMonitor spec.podMetricsEndpoints[port=metrics].relabelings contains topology labels
-    And the annotation cnpg2monitor.zero-ops.io/last-config-generation is set on the PodMonitor
+    And the annotation cnpg2monitor.nutgraf.in/last-config-generation is set on the PodMonitor
     And the CNPG Cluster CR itself is not patched or modified by cnpg2monitor
 
   Scenario: cnpg2monitor emits CNPGProvisioned event to OpenSearch
@@ -842,7 +842,7 @@ Feature: cnpg2monitor — Annotation Ownership
   Scenario: cnpg2monitor does not write annotations to CNPG Cluster CR
     Given cnpg2monitor has reconciled CNPG cluster acme-corp-cnpg
     When inspecting the CNPG Cluster CR for acme-corp-cnpg
-    Then no cnpg2monitor.zero-ops.io/* annotations exist on the CNPG Cluster CR
+    Then no cnpg2monitor.nutgraf.in/* annotations exist on the CNPG Cluster CR
     And all cnpg2monitor annotations exist on the PodMonitor for acme-corp-cnpg only
 ```
 

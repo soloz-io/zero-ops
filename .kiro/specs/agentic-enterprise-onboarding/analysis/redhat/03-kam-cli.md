@@ -50,7 +50,7 @@ kam bootstrap --service-repo-url <repo> --gitops-repo-url <gitops-repo>
 **Zero-Ops Workflow:**
 ```yaml
 # User commits AINativeSaaS CR to Git
-apiVersion: zero-ops.io/v1
+apiVersion: nutgraf.in/v1
 kind: AINativeSaaS
 spec:
   tier: enterprise

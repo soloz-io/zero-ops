@@ -99,9 +99,9 @@ kubectl exec -n ory-system deploy/ory-keto -- keto health --endpoint http://loca
 
 ### External (requires ingress - configured in later tasks)
 
-- **API Gateway:** `https://api.zero-ops.io`
-- **Auth Proxy:** `https://auth.zero-ops.io`
-- **Console (Kratos UI):** `https://console.zero-ops.io`
+- **API Gateway:** `https://api.nutgraf.in`
+- **Auth Proxy:** `https://auth.nutgraf.in`
+- **Console (Kratos UI):** `https://console.nutgraf.in`
 
 ## Database Configuration
 

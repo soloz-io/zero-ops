@@ -73,7 +73,7 @@ check_pod_ready "api-gateway" "app=demo-echo" "demo-echo"
 echo ""
 
 echo "Step 6: Checking Ingress..."
-kubectl get ingress -A | grep -E "api.zero-ops.io|auth.zero-ops.io|console.zero-ops.io" >/dev/null
+kubectl get ingress -A | grep -E "api.nutgraf.in|auth.nutgraf.in|console.nutgraf.in" >/dev/null
 if [ $? -eq 0 ]; then
     echo "✓ Ingress resources exist"
 else
@@ -86,10 +86,10 @@ echo "Note: These checks require local DNS (/etc/hosts) and TLS certificates"
 echo ""
 
 # Only check if DNS is configured
-if grep -q "api.zero-ops.io" /etc/hosts 2>/dev/null; then
-    check_endpoint "https://api.zero-ops.io/health" "AgentGateway"
-    check_endpoint "https://auth.zero-ops.io/health/ready" "auth-proxy"
-    check_endpoint "https://console.zero-ops.io" "Kratos UI"
+if grep -q "api.nutgraf.in" /etc/hosts 2>/dev/null; then
+    check_endpoint "https://api.nutgraf.in/health" "AgentGateway"
+    check_endpoint "https://auth.nutgraf.in/health/ready" "auth-proxy"
+    check_endpoint "https://console.nutgraf.in" "Kratos UI"
 else
     echo "⚠️  DNS not configured in /etc/hosts, skipping endpoint checks"
     echo "   Run: ./manifests/ingress/setup-local-dns.sh 127.0.0.1"

@@ -590,7 +590,7 @@ type Config struct {
 
 func Default() *Config {
 	return &Config{
-		APIBaseURL: "https://api.zero-ops.io",
+		APIBaseURL: "https://api.nutgraf.in",
 		LogLevel:   1,
 		Toolsets:   []string{"tenant", "auth", "cluster"},
 		ReadOnly:   false,
@@ -614,7 +614,7 @@ extensions:
       - -y
       - zero-ops-mcp-server@latest
     env:
-      ZERO_OPS_API_URL: https://api.zero-ops.io
+      ZERO_OPS_API_URL: https://api.nutgraf.in
       ZERO_OPS_API_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 

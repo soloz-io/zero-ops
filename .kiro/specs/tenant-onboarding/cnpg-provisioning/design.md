@@ -58,7 +58,7 @@ graph TB
 **Phase 2 (Current Scope):**
 1. CNPG Operator provisions PostgreSQL cluster
 2. CNPG Operator creates base PodMonitor (no relabelings)
-3. cnpg2monitor detects CNPG Cluster with `zero-ops.io/monitored: "true"`
+3. cnpg2monitor detects CNPG Cluster with `nutgraf.in/monitored: "true"`
 4. cnpg2monitor reads topology labels from namespace
 5. cnpg2monitor patches PodMonitor with relabelings via SSA
 6. cnpg2monitor emits K8s Events for lifecycle changes
@@ -104,7 +104,7 @@ func (r *Cnpg2Monitor) SetupWithManager(mgr ctrl.Manager) error {
         For(&cnpgv1.Cluster{}, builder.WithPredicates(
             predicate.NewPredicateFuncs(func(obj client.Object) bool {
                 labels := obj.GetLabels()
-                return labels != nil && labels["zero-ops.io/monitored"] == "true"
+                return labels != nil && labels["nutgraf.in/monitored"] == "true"
             }))).
         Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(
             r.mapNamespaceToCluster)).
@@ -115,7 +115,7 @@ func (r *Cnpg2Monitor) SetupWithManager(mgr ctrl.Manager) error {
 ```
 
 **Watch Strategy:**
-- **Primary:** CNPG Clusters with `zero-ops.io/monitored: "true"` label
+- **Primary:** CNPG Clusters with `nutgraf.in/monitored: "true"` label
 - **Secondary:** Namespace events (for topology label changes)
 - **Tertiary:** PodMonitor events (for creation detection)
 
@@ -216,7 +216,7 @@ func (r *Cnpg2Monitor) patchPodMonitor(ctx context.Context,
             Name:      podMonitor.Name,
             Namespace: podMonitor.Namespace,
             Labels: map[string]string{
-                "zero-ops.io/monitored": "true", // Restore if missing
+                "nutgraf.in/monitored": "true", // Restore if missing
             },
         },
         Spec: monitoringv1.PodMonitorSpec{
@@ -238,7 +238,7 @@ func (r *Cnpg2Monitor) patchPodMonitor(ctx context.Context,
 
 **SSA Field Ownership:**
 - `spec.podMetricsEndpoints[port=metrics].relabelings` - cnpg2monitor owns
-- `metadata.labels.zero-ops.io/monitored` - cnpg2monitor owns
+- `metadata.labels.nutgraf.in/monitored` - cnpg2monitor owns
 - All other fields - CNPG owns
 
 ### 4.2 Missing Topology Labels Handling
@@ -251,13 +251,13 @@ func (r *Cnpg2Monitor) handleMissingTopologyLabels(ctx context.Context,
     // Emit warning event
     r.Recorder.Event(cnpgCluster, corev1.EventTypeWarning,
         "CNPGTopologyLabelsMissing",
-        "Namespace missing required zero-ops.io/* topology labels")
+        "Namespace missing required nutgraf.in/* topology labels")
     
     // Remove monitored label to prevent Alloy discovery using strategic merge patch
     patch := map[string]interface{}{
         "metadata": map[string]interface{}{
             "labels": map[string]interface{}{
-                "zero-ops.io/monitored": nil, // Delete label
+                "nutgraf.in/monitored": nil, // Delete label
             },
         },
     }
@@ -281,12 +281,12 @@ func (r *Cnpg2Monitor) handleMissingTopologyLabels(ctx context.Context,
 
 ```go
 const (
-    MonitoredLabel = "zero-ops.io/monitored"
-    TopologyLabelPrefix = "zero-ops.io/"
+    MonitoredLabel = "nutgraf.in/monitored"
+    TopologyLabelPrefix = "nutgraf.in/"
     CNPGClusterLabel = "postgresql.cnpg.io/cluster"
-    LastScaledInstancesAnnotation = "cnpg2monitor.zero-ops.io/last-scaled-instances"
-    LastConfigGenerationAnnotation = "cnpg2monitor.zero-ops.io/last-config-generation"
-    LastStorageGenerationAnnotation = "cnpg2monitor.zero-ops.io/last-storage-generation"
+    LastScaledInstancesAnnotation = "cnpg2monitor.nutgraf.in/last-scaled-instances"
+    LastConfigGenerationAnnotation = "cnpg2monitor.nutgraf.in/last-config-generation"
+    LastStorageGenerationAnnotation = "cnpg2monitor.nutgraf.in/last-storage-generation"
 )
 
 func (r *Cnpg2Monitor) emitLifecycleEvents(ctx context.Context, 
@@ -393,7 +393,7 @@ func (r *Cnpg2Monitor) mapNamespaceToCluster(ctx context.Context, obj client.Obj
     
     var requests []reconcile.Request
     for _, cluster := range clusterList.Items {
-        if cluster.Labels["zero-ops.io/monitored"] == "true" {
+        if cluster.Labels["nutgraf.in/monitored"] == "true" {
             requests = append(requests, reconcile.Request{
                 NamespacedName: types.NamespacedName{
                     Name:      cluster.Name,
@@ -431,7 +431,7 @@ func (r *Cnpg2Monitor) mapPodMonitorToCluster(ctx context.Context, obj client.Ob
         return nil
     }
     
-    if cluster.Labels["zero-ops.io/monitored"] != "true" {
+    if cluster.Labels["nutgraf.in/monitored"] != "true" {
         return nil
     }
     
@@ -452,7 +452,7 @@ func LoadConfigFromEnv() Config {
     return Config{
         MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "zero-ops-system"),
         EnableEventEmission: parseBoolEnv("ENABLE_EVENT_EMISSION", true),
-        TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "zero-ops.io/"),
+        TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "nutgraf.in/"),
     }
 }
 
@@ -714,7 +714,7 @@ func (r *Cnpg2Monitor) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 func createTestCNPGCluster(name, namespace string, monitored bool) *cnpgv1.Cluster {
     labels := map[string]string{}
     if monitored {
-        labels["zero-ops.io/monitored"] = "true"
+        labels["nutgraf.in/monitored"] = "true"
     }
     
     return &cnpgv1.Cluster{
@@ -737,11 +737,11 @@ func createTestNamespaceWithTopologyLabels(name string) *corev1.Namespace {
         ObjectMeta: metav1.ObjectMeta{
             Name: name,
             Labels: map[string]string{
-                "zero-ops.io/cluster_id":        "mothership",
-                "zero-ops.io/region":            "fsn1",
-                "zero-ops.io/cloud_provider":    "hetzner",
-                "zero-ops.io/availability_zone": "fsn1-dc14",
-                "zero-ops.io/cluster_class":     "management",
+                "nutgraf.in/cluster_id":        "mothership",
+                "nutgraf.in/region":            "fsn1",
+                "nutgraf.in/cloud_provider":    "hetzner",
+                "nutgraf.in/availability_zone": "fsn1-dc14",
+                "nutgraf.in/cluster_class":     "management",
             },
         },
     }

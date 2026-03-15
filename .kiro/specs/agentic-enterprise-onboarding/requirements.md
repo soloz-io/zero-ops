@@ -126,7 +126,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
    - code_challenge_method: S256
    - state: {random_state}
    - scope: tenant:read tenant:write cluster:read cluster:write offline_access
-   - resource: https://api.zero-ops.io (RFC 8707 Resource Indicators)
+   - resource: https://api.nutgraf.in (RFC 8707 Resource Indicators)
 
 5. THE Tenant_Admin SHALL authenticate in the browser via Kratos (email/password or SSO)
 6. THE Hydra SHALL validate the Kratos session and show consent screen (optional, can be skipped for trusted clients)
@@ -138,13 +138,13 @@ This specification defines the complete agentic enterprise onboarding journey, e
    - redirect_uri: http://127.0.0.1:{port}/callback (MUST match authorization request)
    - code_verifier: {original_verifier} (PKCE verification)
    - client_id: mcp-public-client
-   - resource: https://api.zero-ops.io (RFC 8707 Resource Indicators)
+   - resource: https://api.nutgraf.in (RFC 8707 Resource Indicators)
 
 10. THE Hydra SHALL verify SHA256(code_verifier) == code_challenge from the authorization request
 11. THE Hydra SHALL issue a JWT access token with 24-hour TTL
 12. THE Hydra SHALL issue a refresh token with 30-day TTL
 13. THE JWT SHALL contain the standard sub claim and custom claims: tenant_id, email, role, and scope, strictly matching the Ory Kratos traits schema
-14. THE JWT aud claim SHALL contain "https://api.zero-ops.io" per RFC 8707
+14. THE JWT aud claim SHALL contain "https://api.nutgraf.in" per RFC 8707
 15. THE token response SHALL include: access_token, refresh_token, expires_in (86400), token_type (Bearer), scope
 16. THE Cursor SHALL store tokens securely in OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 17. IF the authorization code expires (10 minutes), THE Hydra SHALL return error "invalid_grant"
@@ -219,7 +219,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 #### Acceptance Criteria
 
-1. WHEN tenant_create returns status: AWAITING_CREDENTIALS, THE zero_ops_api SHALL return a Platform Console URL: https://console.zero-ops.io/tenants/{tenant_id}/credentials
+1. WHEN tenant_create returns status: AWAITING_CREDENTIALS, THE zero_ops_api SHALL return a Platform Console URL: https://console.nutgraf.in/tenants/{tenant_id}/credentials
 2. THE Cursor SHALL display the console URL to the Tenant_Admin with instructions: "Please submit your Hetzner API credentials in the Platform Console: {console_url}. Once submitted, return here and ask about your environment status."
 3. THE Cursor SHALL exit immediately after displaying the console URL (no polling, no blocking)
 4. THE Tenant_Admin SHALL authenticate to the Platform Console using their existing Kratos session (same identity as MCP OAuth)
@@ -247,7 +247,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 1. WHEN environment_create is invoked, THE zero_ops_api SHALL verify the requested `tier` does not exceed the tenant's current billing `plan` entitlement
 2. IF the requested `tier` exceeds the `plan` entitlement, THE zero_ops_api SHALL return HTTP 403 Forbidden with a JSON error body: `{"error": "entitlement_mismatch", "message": "Your current plan does not support this tier. Please upgrade your plan in the Platform Console."}`
-3. IF HTTP 403 Forbidden is returned for entitlement mismatch, THE Cursor SHALL display: "Provisioning blocked: Your current plan (Starter) does not allow provisioning an Enterprise environment. Please upgrade your plan in the Platform Console: https://console.zero-ops.io/settings/billing"
+3. IF HTTP 403 Forbidden is returned for entitlement mismatch, THE Cursor SHALL display: "Provisioning blocked: Your current plan (Starter) does not allow provisioning an Enterprise environment. Please upgrade your plan in the Platform Console: https://console.nutgraf.in/settings/billing"
 4. THE environment_create MCP tool SHALL require an environment_suffix parameter (e.g., 'staging', 'production'). THE zero_ops_api SHALL construct a globally unique environment_id as {tenant_id}-{environment_suffix}
 5. IF the generated environment_id already exists, THE zero_ops_api SHALL compare the requested tier, cloud, and region against the existing environment. IF ANY single parameter differs, THE zero_ops_api SHALL return HTTP 409 Conflict with a JSON body detailing the existing parameters to prevent silent overrides
 6. THE zero_ops_api SHALL commit the AINativeSaaS_CR to the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory using a GitHub App Installation Token
@@ -255,7 +255,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 8. IF the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 with response body containing:
    - tenant_id
    - environment_id (e.g., acme-corp-production)
-   - console_url (e.g., https://console.zero-ops.io/environments/{environment_id})
+   - console_url (e.g., https://console.nutgraf.in/environments/{environment_id})
    - estimated_duration_minutes (15 for Enterprise, 1 for Starter)
 9. IF environment_create is called again for the same environment_id with matching parameters, THE zero_ops_api SHALL return HTTP 200 (idempotent) returning the exact same JSON response body schema as the HTTP 202 response (tenant_id, environment_id, console_url, estimated_duration_minutes)
 10. THE Cursor SHALL display the console_url and a message: "Provisioning started in the background. Track progress at: {console_url}"
@@ -273,7 +273,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 1. WHEN the AINativeSaaS_CR is committed, THE Crossplane SHALL detect the new resource
 2. THE Crossplane SHALL select Composition_B based on the enterprise tier
 3. THE Crossplane SHALL provision Hetzner resources using the decrypted API token (decrypted by KSOPS from Git using the tenant's Age private key stored in the management cluster)
-4. THE Crossplane Composition B SHALL utilize a provider-kubernetes Object resource to securely copy the tenant's Age private key Secret from the management cluster directly into the provisioned tenant cluster's ArgoCD namespace. The provider-kubernetes controller SHALL operate using a least-privilege ServiceAccount restricted via RBAC to reading only Secrets labeled zero-ops.io/tenant-age-key=true
+4. THE Crossplane Composition B SHALL utilize a provider-kubernetes Object resource to securely copy the tenant's Age private key Secret from the management cluster directly into the provisioned tenant cluster's ArgoCD namespace. The provider-kubernetes controller SHALL operate using a least-privilege ServiceAccount restricted via RBAC to reading only Secrets labeled nutgraf.in/tenant-age-key=true
 5. THE tenant cluster bootstrap SHALL deploy ArgoCD and KSOPS, configuring ArgoCD to use the injected Age private key Secret to automatically decrypt tenant application secrets from OCI artifacts built from Git
 6. THE Composition_B SHALL typically complete within 15 minutes under normal conditions, including tenant cluster provisioning and ArgoCD bootstrap
 7. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
@@ -355,16 +355,16 @@ This specification defines the complete agentic enterprise onboarding journey, e
 #### Acceptance Criteria
 
 1. THE AgentGateway SHALL expose `GET /.well-known/oauth-protected-resource` returning:
-   - `resource`: https://api.zero-ops.io
-   - `authorization_servers`: ["https://auth.zero-ops.io"]
+   - `resource`: https://api.nutgraf.in
+   - `authorization_servers`: ["https://auth.nutgraf.in"]
    - `bearer_methods_supported`: ["header"]
    - `scopes_supported`: ["tenant:read", "tenant:write", "cluster:read", "cluster:write"]
 
 2. THE identity-service SHALL expose `GET /.well-known/oauth-authorization-server` (proxying Hydra) returning:
-   - `issuer`: https://auth.zero-ops.io
-   - `authorization_endpoint`: https://auth.zero-ops.io/oauth2/auth
-   - `token_endpoint`: https://auth.zero-ops.io/oauth2/token
-   - `jwks_uri`: https://auth.zero-ops.io/.well-known/jwks.json
+   - `issuer`: https://auth.nutgraf.in
+   - `authorization_endpoint`: https://auth.nutgraf.in/oauth2/auth
+   - `token_endpoint`: https://auth.nutgraf.in/oauth2/token
+   - `jwks_uri`: https://auth.nutgraf.in/.well-known/jwks.json
    - `response_types_supported`: ["code"]
    - `grant_types_supported`: ["authorization_code", "refresh_token"]
    - `code_challenge_methods_supported`: ["S256"]
@@ -613,9 +613,9 @@ This specification defines the complete agentic enterprise onboarding journey, e
 1. WHEN the Tenant_Admin issues a deletion command, THE Cursor SHALL invoke the environment_delete MCP tool with the specific environment_id (e.g., acme-corp-production)
 2. THE AgentGateway SHALL validate the JWT and query identity-service Keto to ensure the user has delete permissions for the specified environment_id
 3. THE zero_ops_api SHALL evaluate the historical state of the AINativeSaaS_CR. IF the environment has NEVER achieved a Ready status (phase is Pending, Provisioning, or Degraded), THE zero_ops_api SHALL proceed with immediate deletion
-4. IF the environment has previously achieved a Ready status, THE zero_ops_api SHALL reject immediate deletion to enforce data safety invariants (PRD 5.10.4). IT SHALL generate a Destructive Operation Approval Ticket assigned to the Tenant's administrators, and return HTTP 403 Forbidden with response body: {"error": "approval_required", "message": "Even though the environment may be Degraded, it previously held data. Deletion requires secondary confirmation to prevent data loss.", "approval_url": "https://console.zero-ops.io/approvals/{ticket_id}"}
+4. IF the environment has previously achieved a Ready status, THE zero_ops_api SHALL reject immediate deletion to enforce data safety invariants (PRD 5.10.4). IT SHALL generate a Destructive Operation Approval Ticket assigned to the Tenant's administrators, and return HTTP 403 Forbidden with response body: {"error": "approval_required", "message": "Even though the environment may be Degraded, it previously held data. Deletion requires secondary confirmation to prevent data loss.", "approval_url": "https://console.nutgraf.in/approvals/{ticket_id}"}
 5. IF an Approval Ticket is already pending for the requested environment_id, THE zero_ops_api SHALL idempotently return HTTP 403 Forbidden with the ticket_id and approval_url of the existing pending ticket
-6. WHEN HTTP 403 is returned for deletion approval, THE Cursor SHALL display: "Deletion requires secondary confirmation to prevent data loss. Please review and approve the teardown ticket here: https://console.zero-ops.io/approvals/{ticket_id}"
+6. WHEN HTTP 403 is returned for deletion approval, THE Cursor SHALL display: "Deletion requires secondary confirmation to prevent data loss. Please review and approve the teardown ticket here: https://console.nutgraf.in/approvals/{ticket_id}"
 7. THE pending deletion ticket MAY be approved by any user possessing the tenant_admin role for that tenant_id, OR by a user with the platform_admin role (for support overrides). Notifications SHALL be routed via the Platform Console
 8. THE Tenant_Admin MAY approve OR cancel the pending deletion ticket via the Platform Console
 9. IF the Approval Ticket is not actioned within 7 days, THE zero_ops_api SHALL automatically mark the ticket as Expired, leaving the environment untouched. The Platform Console SHALL display "Expired - Request New Deletion" and allow the Tenant_Admin to immediately re-invoke environment_delete to generate a fresh ticket with a new 7-day window

@@ -65,8 +65,8 @@ kubectl get secret zero-ops-platform-db-app -n zero-ops-system -o jsonpath='{.da
 ### Scenario 2.1: Topology Label Injection (The Golden Path)
 **Description:** Verifies that the operator successfully patches CNPG-generated PodMonitors with fleet topology labels.
 *   **Given** the `cnpg2monitor` operator is running in the `cnpg2monitor-system` namespace
-*   **And** the `zero-ops-system` namespace possesses the label `zero-ops.io/region=fsn1` and `zero-ops.io/cluster_id=mothership`
-*   **When** a CNPG Cluster is created with `labels["zero-ops.io/monitored"]="true"` and `enablePodMonitor: true`
+*   **And** the `zero-ops-system` namespace possesses the label `nutgraf.in/region=fsn1` and `nutgraf.in/cluster_id=mothership`
+*   **When** a CNPG Cluster is created with `labels["nutgraf.in/monitored"]="true"` and `enablePodMonitor: true`
 *   **Then** a `PodMonitor` named `<cluster-name>` is created by CNPG
 *   **And** within 2 seconds, `cnpg2monitor` patches it
 *   **And** the `PodMonitor` contains a `relabelings` array where `targetLabel: region` has `replacement: fsn1`.
@@ -82,7 +82,7 @@ kubectl get podmonitor zero-ops-platform-db -n zero-ops-system -o yaml | grep -A
 ### Scenario 2.2: Ignoring Unmonitored Databases
 **Description:** Ensures the operator respects the opt-in monitoring label.
 *   **Given** the `cnpg2monitor` operator is running
-*   **When** a CNPG Cluster is created *without* the `zero-ops.io/monitored="true"` label (but has `enablePodMonitor: true`)
+*   **When** a CNPG Cluster is created *without* the `nutgraf.in/monitored="true"` label (but has `enablePodMonitor: true`)
 *   **Then** CNPG generates the `PodMonitor`
 *   **And** `cnpg2monitor` ignores it
 *   **And** the `PodMonitor` does *not* contain the custom topology `relabelings` array.
@@ -96,13 +96,13 @@ kubectl get podmonitor test-unmonitored-db -n zero-ops-system -o yaml | grep "re
 ### Scenario 2.3: Dynamic Namespace Label Updates
 **Description:** Verifies the operator updates the PodMonitor if the parent namespace's topology metadata changes.
 *   **Given** a monitored CNPG Cluster with a successfully patched `PodMonitor`
-*   **When** the namespace label `zero-ops.io/region` is updated from `fsn1` to `hel1`
+*   **When** the namespace label `nutgraf.in/region` is updated from `fsn1` to `hel1`
 *   **Then** `cnpg2monitor` detects the namespace change
 *   **And** patches the `PodMonitor` so the `region` replacement value is updated to `hel1`.
 
 **Verification Command:**
 ```bash
-kubectl label namespace zero-ops-system zero-ops.io/region=hel1 --overwrite
+kubectl label namespace zero-ops-system nutgraf.in/region=hel1 --overwrite
 sleep 2
 kubectl get podmonitor zero-ops-platform-db -n zero-ops-system -o yaml | grep -A 1 "targetLabel: region" | grep "hel1"
 ```

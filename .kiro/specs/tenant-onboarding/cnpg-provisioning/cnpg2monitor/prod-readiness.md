@@ -193,7 +193,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"
+    nutgraf.in/monitored: "true"
 spec:
   instances: 3
   storage:
@@ -224,7 +224,7 @@ spec:
 ```
 
 ### **5.3 Defaulting & Automation Logic**
-- **Target Filtering:** The operator only processes `Cluster` CRs possessing the label `zero-ops.io/monitored: "true"`.
+- **Target Filtering:** The operator only processes `Cluster` CRs possessing the label `nutgraf.in/monitored: "true"`.
 - **String Construction:** The operator parses the `<cluster-name>-app` secret. It swaps the host from the RW service to the RO service (`<cluster-name>-ro.<namespace>.svc`).
 
 ### **5.4 Operational Semantics (Lifecycle & Frequency)**

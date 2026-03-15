@@ -109,7 +109,7 @@ graph TB
 | **PostgresAI** | Helm Chart (`pgwatch3` + VM) | Executes heavy SQL metric queries (bloat, wait events) against discovered databases and stores them. |
 
 ### **4.3 Integration & Control Plane**
-- **CNPG Integration:** The operator strictly targets `postgresql.cnpg.io/v1/Cluster` resources labeled with `zero-ops.io/monitored: "true"`. It uses the auto-generated `-ro` (read-only) Service endpoint for safe metric scraping.
+- **CNPG Integration:** The operator strictly targets `postgresql.cnpg.io/v1/Cluster` resources labeled with `nutgraf.in/monitored: "true"`. It uses the auto-generated `-ro` (read-only) Service endpoint for safe metric scraping.
 - **PGWatch Integration:** By updating a K8s Secret mounted into the `pgwatch-prometheus` pod, Kubelet propagates the file change to the container. `pgwatch3` detects the filesystem event and dynamically adds/removes databases without a pod restart.
 
 ---
@@ -138,7 +138,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"
+    nutgraf.in/monitored: "true"
 spec:
   instances: 3
   storage:

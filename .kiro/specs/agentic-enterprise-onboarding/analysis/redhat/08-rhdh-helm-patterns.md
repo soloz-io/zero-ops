@@ -89,7 +89,7 @@ kind: ServiceMonitor
 metadata:
   name: {{ include "auth-proxy.fullname" . }}
   labels:
-    zero-ops.io/component: auth-proxy
+    nutgraf.in/component: auth-proxy
 spec:
   selector:
     matchLabels:

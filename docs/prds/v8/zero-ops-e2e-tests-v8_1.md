@@ -72,7 +72,7 @@ Feature: Platform Admin bootstraps the first fleet shard
       zero-ops mgmt bootstrap --name=shard-eu-1 --region=fsn1
       """
     Then within 20 minutes the command exits with success
-    And the Platform Console is reachable at https://console.zero-ops.io
+    And the Platform Console is reachable at https://console.nutgraf.in
     And the platform admin can log in to the console
     And the console shows shard-eu-1 listed as an active fleet shard
     And the zero-ops-api health endpoint returns HTTP 200
@@ -136,7 +136,7 @@ Feature: User authentication via Platform Console
     And alice has not yet logged in
 
   Scenario: Alice logs in for the first time and lands on her tenant dashboard
-    When alice navigates to https://console.zero-ops.io
+    When alice navigates to https://console.nutgraf.in
     And completes the login flow with her email and password
     Then she is redirected to the Environments tab scoped to acme-corp
     And she sees only acme-corp's environments, not any other tenant's
@@ -152,7 +152,7 @@ Feature: Headless agent authentication via device auth
 
   Scenario: Goose prompts the user with a device code and completes auth automatically
     When the user types: "Onboard Acme Corp on the enterprise plan in eu-central-1"
-    Then Goose displays a device code and the URL https://auth.zero-ops.io/device
+    Then Goose displays a device code and the URL https://auth.nutgraf.in/device
     And Goose does not proceed with the onboarding action yet
     When the user opens the URL in a browser and completes login
     Then Goose automatically retries the onboarding intent without the user retyping the command
@@ -178,7 +178,7 @@ Feature: Device auth code refresh on expiry
 ```gherkin
 Feature: Unauthenticated access is denied
   Scenario: Unauthenticated browser request to the console redirects to login
-    When an unauthenticated user navigates to https://console.zero-ops.io/environments
+    When an unauthenticated user navigates to https://console.nutgraf.in/environments
     Then they are redirected to the login page
     And no environment data is shown before login completes
 
@@ -258,7 +258,7 @@ Feature: Agentic Enterprise tenant onboarding
     When the user types: "Onboard Acme Corp on the enterprise plan in eu-central-1"
     Then Goose prompts for device auth and the user completes browser login
     And Goose confirms the onboarding intent has been accepted
-    And Goose prompts the user to enter their Hetzner API token at https://console.zero-ops.io/settings/credentials
+    And Goose prompts the user to enter their Hetzner API token at https://console.nutgraf.in/settings/credentials
     When the user enters their Hetzner API token in the console
     Then Goose confirms credential acceptance and reports provisioning has started
     And within 15 minutes Goose displays a success summary containing:

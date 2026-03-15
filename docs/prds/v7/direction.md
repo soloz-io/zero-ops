@@ -38,7 +38,7 @@ This is the missing layer. The correct architecture for Zero-Ops is:
 │  LAYER 3 — SaaS Template (NEW)                          │
 │                                                         │
 │  kind: AINativeSaaS  (Crossplane XRD)                  │
-│  apiVersion: zero-ops.io/v1                             │
+│  apiVersion: nutgraf.in/v1                             │
 │                                                         │
 │  spec:                                                  │
 │    tier: production                                     │
@@ -107,7 +107,7 @@ When a new SaaS company (e.g. "BuildCo") joins Zero-Ops:
 ```
 1. Platform Admin or API call creates:
 
-   apiVersion: zero-ops.io/v1
+   apiVersion: nutgraf.in/v1
    kind: AINativeSaaS
    metadata:
      name: buildco-production
@@ -138,7 +138,7 @@ When a new SaaS company (e.g. "BuildCo") joins Zero-Ops:
    → ResourceQuota            → Compute budget enforcement
    → Namespace + RBAC         → Tenant boundary
 
-5. cnpg2monitor detects CNPG Cluster with zero-ops.io/monitored=true
+5. cnpg2monitor detects CNPG Cluster with nutgraf.in/monitored=true
    → PodMonitor patched with topology labels
    → OpenSearch event emitted: "buildco-production provisioned"
 

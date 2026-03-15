@@ -264,11 +264,11 @@ def validate_redirect_uri(uri: str) -> bool:
 **4. Authorization Server Metadata:**
 ```json
 {
-  "issuer": "https://auth.zero-ops.io",
-  "authorization_endpoint": "https://auth.zero-ops.io/oauth2/auth",
-  "token_endpoint": "https://auth.zero-ops.io/oauth2/token",
-  "registration_endpoint": "https://auth.zero-ops.io/oauth2/register",
-  "jwks_uri": "https://auth.zero-ops.io/.well-known/jwks.json",
+  "issuer": "https://auth.nutgraf.in",
+  "authorization_endpoint": "https://auth.nutgraf.in/oauth2/auth",
+  "token_endpoint": "https://auth.nutgraf.in/oauth2/token",
+  "registration_endpoint": "https://auth.nutgraf.in/oauth2/register",
+  "jwks_uri": "https://auth.nutgraf.in/.well-known/jwks.json",
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code", "refresh_token"],
   "code_challenge_methods_supported": ["S256"],

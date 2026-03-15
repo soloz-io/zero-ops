@@ -381,9 +381,9 @@ hydra:
   config:
     urls:
       self:
-        issuer: https://auth.zero-ops.io
-      login: https://auth.zero-ops.io/login  # auth-proxy handles login challenge
-      consent: https://auth.zero-ops.io/consent  # auth-proxy handles consent
+        issuer: https://auth.nutgraf.in
+      login: https://auth.nutgraf.in/login  # auth-proxy handles login challenge
+      consent: https://auth.nutgraf.in/consent  # auth-proxy handles consent
     oauth2:
       expose_internal_errors: false
     ttl:
@@ -425,7 +425,7 @@ kratos:
   config:
     session:
       cookie:
-        domain: zero-ops.io
+        domain: nutgraf.in
         name: ory_kratos_session
     identity:
       default_schema_id: default
@@ -433,14 +433,14 @@ kratos:
         - id: default
           url: file:///etc/config/identity.schema.json
     selfservice:
-      default_browser_return_url: https://console.zero-ops.io/
+      default_browser_return_url: https://console.nutgraf.in/
       allowed_return_urls:
-        - https://auth.zero-ops.io/login
+        - https://auth.nutgraf.in/login
       flows:
         login:
-          ui_url: https://console.zero-ops.io/login
+          ui_url: https://console.nutgraf.in/login
         registration:
-          ui_url: https://console.zero-ops.io/registration
+          ui_url: https://console.nutgraf.in/registration
   
   # Password injection via existingSecret
   extraEnv:
@@ -570,7 +570,7 @@ internal/auth/
 2. Extract Ory-issued JWT from Bearer token
 3. Verify Ory JWT signature using cached JWKS (RS256/ES256)
 4. Verify `exp` claim > current time
-5. Verify `aud` claim contains `https://api.zero-ops.io` (EXPECTED_JWT_AUDIENCE)
+5. Verify `aud` claim contains `https://api.nutgraf.in` (EXPECTED_JWT_AUDIENCE)
 6. On signature failure: refresh JWKS once, reset TTL to now+1h, retry validation
 7. On success: Extract claims from validated Ory JWT and return HTTP 200 with headers. IF a claim is missing (e.g., `tenant_id` for Demo 1 users), the corresponding header MUST be omitted entirely.
    ```
@@ -599,10 +599,10 @@ internal/auth/
 - Minimum 10-second interval between mismatch-triggered refreshes (prevents thundering herd)
 
 **Login Flow (return_to Pattern & Session Re-use):**
-1. Hydra redirects browser to `https://auth.zero-ops.io/login?login_challenge={challenge}`
+1. Hydra redirects browser to `https://auth.nutgraf.in/login?login_challenge={challenge}`
 2. auth-proxy checks for an existing Kratos session cookie.
 3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` (with no claims injected here), and skips to Step 5.
-4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. auth-proxy MUST percent-encode the entire `return_to` value before appending it as a query parameter. The resulting redirect URL takes the form: `https://console.zero-ops.io/login?return_to=https%3A%2F%2Fauth.zero-ops.io%2Flogin%3Flogin_challenge%3D{challenge}`
+4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. auth-proxy MUST percent-encode the entire `return_to` value before appending it as a query parameter. The resulting redirect URL takes the form: `https://console.nutgraf.in/login?return_to=https%3A%2F%2Fauth.nutgraf.in%2Flogin%3Flogin_challenge%3D{challenge}`
 5. User authenticates via Kratos UI, which redirects back to auth-proxy with the challenge intact.
 6. auth-proxy validates session, calls `acceptOAuth2LoginRequest`, and Hydra redirects to the consent endpoint.
 
@@ -638,7 +638,7 @@ KRATOS_ADMIN_URL=http://kratos-admin.ory-system.svc.cluster.local:80
 JWKS_CACHE_TTL=1h
 JWKS_FETCH_TIMEOUT=5s
 JWKS_REFRESH_MIN_INTERVAL=10s
-EXPECTED_JWT_AUDIENCE=https://api.zero-ops.io
+EXPECTED_JWT_AUDIENCE=https://api.nutgraf.in
 LISTEN_ADDR=:8080
 ```
 
@@ -711,7 +711,7 @@ data:
                 policies:
                   directResponse:
                     status: 200
-                    body: '{"resource": "https://api.zero-ops.io", "authorization_servers": ["https://auth.zero-ops.io"], "bearer_methods_supported": ["header"], "scopes_supported": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"]}'
+                    body: '{"resource": "https://api.nutgraf.in", "authorization_servers": ["https://auth.nutgraf.in"], "bearer_methods_supported": ["header"], "scopes_supported": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"]}'
                     headers:
                       Content-Type: "application/json"
 
@@ -786,14 +786,14 @@ data:
 **Request:**
 ```http
 GET /.well-known/oauth-protected-resource HTTP/1.1
-Host: api.zero-ops.io
+Host: api.nutgraf.in
 ```
 
 **Response (AgentGateway):**
 ```json
 {
-  "resource": "https://api.zero-ops.io",
-  "authorization_servers": ["https://auth.zero-ops.io"],
+  "resource": "https://api.nutgraf.in",
+  "authorization_servers": ["https://auth.nutgraf.in"],
   "bearer_methods_supported": ["header"],
   "scopes_supported": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"]
 }
@@ -804,16 +804,16 @@ Host: api.zero-ops.io
 **Request:**
 ```http
 GET /.well-known/oauth-authorization-server HTTP/1.1
-Host: auth.zero-ops.io
+Host: auth.nutgraf.in
 ```
 
 **Response (auth-proxy proxying Hydra):**
 ```json
 {
-  "issuer": "https://auth.zero-ops.io",
-  "authorization_endpoint": "https://auth.zero-ops.io/oauth2/auth",
-  "token_endpoint": "https://auth.zero-ops.io/oauth2/token",
-  "jwks_uri": "https://auth.zero-ops.io/.well-known/jwks.json",
+  "issuer": "https://auth.nutgraf.in",
+  "authorization_endpoint": "https://auth.nutgraf.in/oauth2/auth",
+  "token_endpoint": "https://auth.nutgraf.in/oauth2/token",
+  "jwks_uri": "https://auth.nutgraf.in/.well-known/jwks.json",
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code", "refresh_token"],
   "code_challenge_methods_supported": ["S256"],
@@ -832,7 +832,7 @@ Host: auth.zero-ops.io
 
 **Browser URL:**
 ```
-https://auth.zero-ops.io/oauth2/auth?
+https://auth.nutgraf.in/oauth2/auth?
   client_id=mcp-public-client&
   response_type=code&
   redirect_uri=http://127.0.0.1:54321/callback&
@@ -840,18 +840,18 @@ https://auth.zero-ops.io/oauth2/auth?
   code_challenge_method=S256&
   state=af0ifjsldkj&
   scope=tenant:read+tenant:write+cluster:read+cluster:write+offline_access+openid&
-  resource=https://api.zero-ops.io
+  resource=https://api.nutgraf.in
 ```
 
 ### Step 4: User Authentication
 
 **Flow (return_to Pattern & Session Re-use):**
-1. Hydra redirects browser to `https://auth.zero-ops.io/login?login_challenge={challenge}`
+1. Hydra redirects browser to `https://auth.nutgraf.in/login?login_challenge={challenge}`
 2. auth-proxy checks for an existing Kratos session cookie.
 3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` with `identity.id` as the `subject`, and skips to Step 5.
-4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. *(Example: `https://console.zero-ops.io/login?return_to=https%3A%2F%2Fauth.zero-ops.io%2Flogin%3Flogin_challenge%3D{challenge}`)*
+4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. *(Example: `https://console.nutgraf.in/login?return_to=https%3A%2F%2Fauth.nutgraf.in%2Flogin%3Flogin_challenge%3D{challenge}`)*
 5. User authenticates via Kratos self-service UI (email/password)
-6. Kratos redirects the browser back to auth-proxy with the challenge intact: `https://auth.zero-ops.io/login?login_challenge={challenge}`
+6. Kratos redirects the browser back to auth-proxy with the challenge intact: `https://auth.nutgraf.in/login?login_challenge={challenge}`
 7. auth-proxy validates the Kratos session cookie via `GET /sessions/whoami`
 8. auth-proxy calls Hydra `acceptOAuth2LoginRequest` with the `identity.id` (subject)
 9. Hydra redirects the browser to the consent endpoint
@@ -859,7 +859,7 @@ https://auth.zero-ops.io/oauth2/auth?
 ### Step 5: Consent
 
 **Flow (Headless Claim Injection):**
-1. Hydra redirects the browser to `https://auth.zero-ops.io/consent?consent_challenge={challenge}`
+1. Hydra redirects the browser to `https://auth.nutgraf.in/consent?consent_challenge={challenge}`
 2. auth-proxy fetches the consent request from Hydra.
 3. auth-proxy detects the client is `mcp-public-client` (a trusted first-party client).
 4. auth-proxy DOES NOT render an HTML consent screen. It immediately fetches identity traits from the **Kratos Admin API** using the subject UUID.
@@ -867,7 +867,7 @@ https://auth.zero-ops.io/oauth2/auth?
 ```json
 {
   "grant_scope": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"],
-  "grant_access_token_audience": ["https://api.zero-ops.io"],
+  "grant_access_token_audience": ["https://api.nutgraf.in"],
   "session": {
     "id_token": {
       "email": "admin@acme.com",
@@ -898,7 +898,7 @@ http://127.0.0.1:54321/callback?code=ory_ac_...&state=af0ifjsldkj
 **Token Request:**
 ```http
 POST /oauth2/token HTTP/1.1
-Host: auth.zero-ops.io
+Host: auth.nutgraf.in
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=authorization_code&
@@ -923,9 +923,9 @@ client_id=mcp-public-client
 **JWT Claims (access_token) (G-07 Note):**
 ```json
 {
-  "iss": "https://auth.zero-ops.io",
+  "iss": "https://auth.nutgraf.in",
   "sub": "user-uuid",
-  "aud": ["https://api.zero-ops.io"],
+  "aud": ["https://api.nutgraf.in"],
   "exp": 1710000000,
   "iat": 1709913600,
   "scope": "tenant:read tenant:write cluster:read cluster:write offline_access openid",
@@ -980,11 +980,11 @@ manifests/api-gateway/
 For Demo 1, PKCE flows require HTTPS termination. The following Ingress resources MUST be deployed to the management cluster, mapping public DNS to internal services.
 
 **Ingress Routes:**
-- `api.zero-ops.io` → routes to `agentgateway.api-gateway.svc.cluster.local:3000`
-- `auth.zero-ops.io` → routes to `auth-proxy.identity-services.svc.cluster.local:8080`
-- `console.zero-ops.io` → routes to `kratos-selfservice-ui-node.ory-system.svc.cluster.local:3000`
+- `api.nutgraf.in` → routes to `agentgateway.api-gateway.svc.cluster.local:3000`
+- `auth.nutgraf.in` → routes to `auth-proxy.identity-services.svc.cluster.local:8080`
+- `console.nutgraf.in` → routes to `kratos-selfservice-ui-node.ory-system.svc.cluster.local:3000`
 
-*(Note: `console.zero-ops.io` MUST route to the Ory Kratos Self-Service UI NodeJS application [Docker image: `oryd/kratos-selfservice-ui-node`], NOT the Kratos Public JSON API. The UI node connects internally to the Kratos Public API).*
+*(Note: `console.nutgraf.in` MUST route to the Ory Kratos Self-Service UI NodeJS application [Docker image: `oryd/kratos-selfservice-ui-node`], NOT the Kratos Public JSON API. The UI node connects internally to the Kratos Public API).*
 
 *(Note: TLS termination can be handled by the cloud load balancer, or via cert-manager if deployed. For local Day 1 testing, `/etc/hosts` mapping to a local NGINX ingress with self-signed certs is acceptable).*
 
@@ -993,7 +993,7 @@ For Demo 1, PKCE flows require HTTPS termination. The following Ingress resource
 - **Image:** `oryd/kratos-selfservice-ui-node:v1.3.0` (Pinned to match Kratos v25.4.0)
 - **Configuration (Env Vars):**
   - `KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80`
-  - `KRATOS_BROWSER_URL=https://console.zero-ops.io`
+  - `KRATOS_BROWSER_URL=https://console.nutgraf.in`
 - **Behavior:** Renders the login HTML form. Automatically forwards unknown query parameters (like `return_to`) to Kratos during the flow.
 
 **`demo-echo` Service Specification:**
@@ -1075,7 +1075,7 @@ data:
 
 **Scenario 1: Missing JWT**
 - AgentGateway returns HTTP 401
-- `WWW-Authenticate: Bearer realm="api.zero-ops.io", resource_metadata="https://api.zero-ops.io/.well-known/oauth-protected-resource"`
+- `WWW-Authenticate: Bearer realm="api.nutgraf.in", resource_metadata="https://api.nutgraf.in/.well-known/oauth-protected-resource"`
 - Cursor initiates PKCE flow
 
 **Scenario 2: Expired JWT**
@@ -1119,9 +1119,9 @@ data:
 - **`state` mismatch:** Cursor aborts flow.
 
 ### Demo Success Criteria (Observable Outcomes)
-1. Cursor tool call with no JWT → AgentGateway returns HTTP 401 with `WWW-Authenticate: Bearer realm="api.zero-ops.io", resource_metadata="https://api.zero-ops.io/.well-known/oauth-protected-resource"`.
-2. Browser opens to `https://console.zero-ops.io/login` automatically (Cursor stores `state` parameter in memory).
-3. User logs in with seeded credentials (`demo@zero-ops.io` / `Demo1Password!`) — no consent screen appears.
+1. Cursor tool call with no JWT → AgentGateway returns HTTP 401 with `WWW-Authenticate: Bearer realm="api.nutgraf.in", resource_metadata="https://api.nutgraf.in/.well-known/oauth-protected-resource"`.
+2. Browser opens to `https://console.nutgraf.in/login` automatically (Cursor stores `state` parameter in memory).
+3. User logs in with seeded credentials (`demo@nutgraf.in` / `Demo1Password!`) — no consent screen appears.
 4. Browser redirects back to Cursor callback URL (`127.0.0.1:54321`) and safely closes.
 5. `access_token` is written to OS keychain. (Verified via CLI: `security find-generic-password -s "Cursor MCP" -w | jwt decode -`).
 6. Second Cursor tool call with JWT → AgentGateway returns HTTP 200, routing to `demo-echo` which replies showing `X-Auth-User-Id`, `X-Auth-Email`, and `X-Auth-Role` headers successfully injected.
@@ -1230,7 +1230,7 @@ data:
 2. Deploy CNPG cluster
 3. Create Database CRDs with password references
 4. Deploy Ory Helm charts with initContainers waiting for CNPG readiness
-5. Deploy Ingress routes and verify DNS resolution for api, auth, and console subdomains. For local Day 1 testing, use `mkcert` to generate locally-trusted TLS certificates for `api.zero-ops.io`, `auth.zero-ops.io`, and `console.zero-ops.io`. Install the local CA into the host OS and browser trust stores to prevent PKCE flow termination due to invalid SSL. *(Note: For Electron-based clients like Cursor, verify that the application trusts the OS certificate store. If not, additional Electron-specific certificate configuration may be required.)*
+5. Deploy Ingress routes and verify DNS resolution for api, auth, and console subdomains. For local Day 1 testing, use `mkcert` to generate locally-trusted TLS certificates for `api.nutgraf.in`, `auth.nutgraf.in`, and `console.nutgraf.in`. Install the local CA into the host OS and browser trust stores to prevent PKCE flow termination due to invalid SSL. *(Note: For Electron-based clients like Cursor, verify that the application trusts the OS certificate store. If not, additional Electron-specific certificate configuration may be required.)*
 6. Verify database connectivity
 
 ### Phase 2: Services & Seed Data (Day 1 Afternoon)
@@ -1243,7 +1243,7 @@ data:
    ```bash
    curl -X POST http://kratos-admin.ory-system.svc.cluster.local:80/admin/identities \
      -H "Content-Type: application/json" \
-     -d '{"schema_id": "default","traits": {"email": "demo@zero-ops.io","role": "tenant_admin"},"credentials": {"password": { "config": { "password": "Demo1Password!" } }}}'
+     -d '{"schema_id": "default","traits": {"email": "demo@nutgraf.in","role": "tenant_admin"},"credentials": {"password": { "config": { "password": "Demo1Password!" } }}}'
    ```
 
 ### Phase 3: Integration (Day 1 Evening) (G-14 Resolution)
@@ -1252,10 +1252,10 @@ data:
    {
      "servers": {
        "zero-ops": {
-         "url": "https://api.zero-ops.io",
+         "url": "https://api.nutgraf.in",
          "auth": {
            "type": "oauth2",
-           "discovery_url": "https://api.zero-ops.io/.well-known/oauth-protected-resource"
+           "discovery_url": "https://api.nutgraf.in/.well-known/oauth-protected-resource"
          }
        }
      }

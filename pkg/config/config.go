@@ -15,7 +15,7 @@ func LoadConfigFromEnv() Config {
 	return Config{
 		MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "zero-ops-system"),
 		EnableEventEmission: parseBoolEnv("ENABLE_EVENT_EMISSION", true),
-		TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "zero-ops.io/"),
+		TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "nutgraf.in/"),
 	}
 }
 

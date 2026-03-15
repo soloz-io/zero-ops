@@ -33,10 +33,10 @@
 
 1. **Watch CNPG Cluster CRDs**
    - Monitors `postgresql.cnpg.io/v1 Cluster` resources
-   - Filters by label `zero-ops.io/monitored: "true"`
+   - Filters by label `nutgraf.in/monitored: "true"`
 
 2. **Read Namespace Topology Labels**
-   - Queries namespace for `zero-ops.io/*` labels
+   - Queries namespace for `nutgraf.in/*` labels
    - Extracts: `cluster_id`, `region`, `cloud_provider`, `availability_zone`, `cluster_class`
 
 3. **Generate PodMonitor CRDs**
@@ -91,7 +91,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"  # That's it!
+    nutgraf.in/monitored: "true"  # That's it!
 spec:
   instances: 3
   storage:
@@ -113,11 +113,11 @@ kind: Namespace
 metadata:
   name: zero-ops-system
   labels:
-    zero-ops.io/cluster_id: "mothership-01"
-    zero-ops.io/region: "fsn1"
-    zero-ops.io/cloud_provider: "hetzner"
-    zero-ops.io/availability_zone: "fsn1-dc14"
-    zero-ops.io/cluster_class: "management"
+    nutgraf.in/cluster_id: "mothership-01"
+    nutgraf.in/region: "fsn1"
+    nutgraf.in/cloud_provider: "hetzner"
+    nutgraf.in/availability_zone: "fsn1-dc14"
+    nutgraf.in/cluster_class: "management"
 ```
 
 **Without cnpg2monitor:**
@@ -263,7 +263,7 @@ spec:
 └─────────────────────────────────────────────────────────────┘
                            │
                            │ 1. Creates CNPG Cluster
-                           │    (with label: zero-ops.io/monitored=true)
+                           │    (with label: nutgraf.in/monitored=true)
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ CNPG Operator                                               │

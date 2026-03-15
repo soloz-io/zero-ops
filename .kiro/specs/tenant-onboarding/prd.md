@@ -181,7 +181,7 @@ To ensure high performance and reliability, external dependencies must be handle
 1. **User Action:** Types "Onboard Acme Corp on the pro plan."
 2. **System Action:** Goose maps this to `tenant_create` and fires the tool.
 3. **Platform Action:** Rust Agent Gateway detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header pointing to Hydra's device auth endpoint.
-4. **Agent Action:** Goose intercepts the `401`, pauses execution, and tells the user: *"Please open `https://auth.zero-ops.io/device` and enter code `F7K9-P2XL`."* Goose begins polling Hydra.
+4. **Agent Action:** Goose intercepts the `401`, pauses execution, and tells the user: *"Please open `https://auth.nutgraf.in/device` and enter code `F7K9-P2XL`."* Goose begins polling Hydra.
 5. **User Action:** Completes login in the browser via Ory Kratos.
 6. **Platform Action:** Hydra returns the Access Token to Goose.
 7. **System Action:** Goose automatically retries the `tenant_create` MCP call with the JWT.

@@ -23,21 +23,21 @@ mkdir -p certs
 
 # Generate certificates
 echo "Generating certificates..."
-mkcert -cert-file certs/api.zero-ops.io.crt \
-       -key-file certs/api.zero-ops.io.key \
-       api.zero-ops.io
+mkcert -cert-file certs/api.nutgraf.in.crt \
+       -key-file certs/api.nutgraf.in.key \
+       api.nutgraf.in
 
-mkcert -cert-file certs/auth.zero-ops.io.crt \
-       -key-file certs/auth.zero-ops.io.key \
-       auth.zero-ops.io
+mkcert -cert-file certs/auth.nutgraf.in.crt \
+       -key-file certs/auth.nutgraf.in.key \
+       auth.nutgraf.in
 
-mkcert -cert-file certs/console.zero-ops.io.crt \
-       -key-file certs/console.zero-ops.io.key \
-       console.zero-ops.io
+mkcert -cert-file certs/console.nutgraf.in.crt \
+       -key-file certs/console.nutgraf.in.key \
+       console.nutgraf.in
 
 echo "✅ Certificates generated in ./certs/"
 echo ""
 echo "Create Kubernetes secrets with:"
-echo "  kubectl create secret tls api-zero-ops-tls --cert=certs/api.zero-ops.io.crt --key=certs/api.zero-ops.io.key -n api-gateway"
-echo "  kubectl create secret tls auth-zero-ops-tls --cert=certs/auth.zero-ops.io.crt --key=certs/auth.zero-ops.io.key -n identity-services"
-echo "  kubectl create secret tls console-zero-ops-tls --cert=certs/console.zero-ops.io.crt --key=certs/console.zero-ops.io.key -n ory-system"
+echo "  kubectl create secret tls api-zero-ops-tls --cert=certs/api.nutgraf.in.crt --key=certs/api.nutgraf.in.key -n api-gateway"
+echo "  kubectl create secret tls auth-zero-ops-tls --cert=certs/auth.nutgraf.in.crt --key=certs/auth.nutgraf.in.key -n identity-services"
+echo "  kubectl create secret tls console-zero-ops-tls --cert=certs/console.nutgraf.in.crt --key=certs/console.nutgraf.in.key -n ory-system"

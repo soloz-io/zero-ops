@@ -181,7 +181,7 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 					Name:      "test-monitoring-cluster",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"zero-ops.io/monitored": "true",
+						"nutgraf.in/monitored": "true",
 					},
 				},
 				Spec: cnpgv1.ClusterSpec{
@@ -251,7 +251,7 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 					Name:      "test-dynamic-cluster",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"zero-ops.io/monitored": "true",
+						"nutgraf.in/monitored": "true",
 					},
 				},
 				Spec: cnpgv1.ClusterSpec{
@@ -285,8 +285,8 @@ var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: namespace}, ns)
 			}, timeout, interval).Should(Succeed())
 
-			ns.Labels["zero-ops.io/cluster_id"] = "test-cluster"
-			ns.Labels["zero-ops.io/region"] = "us-west-2"
+			ns.Labels["nutgraf.in/cluster_id"] = "test-cluster"
+			ns.Labels["nutgraf.in/region"] = "us-west-2"
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			podMonitor := &monitoringv1.PodMonitor{}
@@ -336,7 +336,7 @@ var _ = Describe("Suite 3: AI Correlation Event Emission", func() {
 					Name:      "test-scale-cluster",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"zero-ops.io/monitored": "true",
+						"nutgraf.in/monitored": "true",
 					},
 				},
 				Spec: cnpgv1.ClusterSpec{
@@ -400,7 +400,7 @@ var _ = Describe("Suite 3: AI Correlation Event Emission", func() {
 					Name:      "test-config-cluster",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"zero-ops.io/monitored": "true",
+						"nutgraf.in/monitored": "true",
 					},
 				},
 				Spec: cnpgv1.ClusterSpec{

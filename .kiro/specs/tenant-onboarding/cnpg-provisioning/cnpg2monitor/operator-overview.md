@@ -187,9 +187,9 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
    metadata:
      name: tenant-foo
      labels:
-       zero-ops.io/cluster_id: "tenant-foo-us-east-01"
-       zero-ops.io/region: "us-east"
-       zero-ops.io/cloud_provider: "aws"
+       nutgraf.in/cluster_id: "tenant-foo-us-east-01"
+       nutgraf.in/region: "us-east"
+       nutgraf.in/cloud_provider: "aws"
    ```
 
 3. **Tenant Creates CNPG Cluster:**
@@ -200,7 +200,7 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
      name: app-db
      namespace: tenant-foo
      labels:
-       zero-ops.io/monitored: "true"
+       nutgraf.in/monitored: "true"
    spec:
      instances: 3
      monitoring:
@@ -231,7 +231,7 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
 **Solution:** cnpg2monitor watches namespace changes and updates PodMonitors.
 
 **Scenario:**
-1. Namespace label changes: `zero-ops.io/region: "us-east"` → `"us-west"`
+1. Namespace label changes: `nutgraf.in/region: "us-east"` → `"us-west"`
 2. cnpg2monitor detects change
 3. cnpg2monitor updates all PodMonitors in that namespace
 4. Metrics immediately reflect new region label
@@ -245,7 +245,7 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
 **Approach:** Leverage CNPG's `enablePodMonitor: true`, patch the generated PodMonitor.
 
 **Operator Logic:**
-1. Watch CNPG Clusters with label `zero-ops.io/monitored: "true"`
+1. Watch CNPG Clusters with label `nutgraf.in/monitored: "true"`
 2. Wait for CNPG to create PodMonitor
 3. Read namespace topology labels
 4. Patch PodMonitor to add relabelings
@@ -269,7 +269,7 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
 **Approach:** Disable CNPG's `enablePodMonitor`, create PodMonitors from scratch.
 
 **Operator Logic:**
-1. Watch CNPG Clusters with label `zero-ops.io/monitored: "true"`
+1. Watch CNPG Clusters with label `nutgraf.in/monitored: "true"`
 2. Read namespace topology labels
 3. Generate PodMonitor with relabelings
 4. Set owner reference to CNPG Cluster
@@ -310,7 +310,7 @@ cnpg2monitor → K8s Events → kube-events-exporter → OpenSearch → Diagnost
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Tenant creates CNPG Cluster                             │
-│    (with label: zero-ops.io/monitored=true)                │
+│    (with label: nutgraf.in/monitored=true)                │
 └─────────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────────┐

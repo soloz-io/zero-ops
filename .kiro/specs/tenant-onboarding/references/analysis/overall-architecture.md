@@ -59,7 +59,7 @@ Because this is a **Headless PaaS**, the "UI" is the chat window. This wireframe
 |  GOOSE: 🔒 Authentication Required.                                                  |
 |         Please authorize this agent to execute infrastructure commands.             |
 |                                                                                     |
-|         1. Open your browser: https://auth.zero-ops.io/device                       |
+|         1. Open your browser: https://auth.nutgraf.in/device                       |
 |         2. Enter the code:  F7K9-P2XL                                               |
 |                                                                                     |
 |  [... User opens browser, authenticates via Kratos, and approves access ...]        |

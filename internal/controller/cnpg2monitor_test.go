@@ -60,7 +60,7 @@ var _ = Describe("Cnpg2Monitor Controller", func() {
 			cfg := config.LoadConfigFromEnv()
 			Expect(cfg.MonitoringNamespace).To(Equal("zero-ops-system"))
 			Expect(cfg.EnableEventEmission).To(BeTrue())
-			Expect(cfg.TopologyLabelPrefix).To(Equal("zero-ops.io/"))
+			Expect(cfg.TopologyLabelPrefix).To(Equal("nutgraf.in/"))
 		})
 	})
 
@@ -250,8 +250,8 @@ var _ = Describe("Cnpg2Monitor Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-ns",
 					Labels: map[string]string{
-						"zero-ops.io/cluster_id": "mothership",
-						"zero-ops.io/region":     "fsn1",
+						"nutgraf.in/cluster_id": "mothership",
+						"nutgraf.in/region":     "fsn1",
 					},
 				},
 			}
