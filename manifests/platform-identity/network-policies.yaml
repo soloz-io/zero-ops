@@ -83,7 +83,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: ingress-nginx
+          kubernetes.io/metadata.name: ingress-nginx
     ports:
     - protocol: TCP
       port: 3000
@@ -92,7 +92,7 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: identity-services
+          kubernetes.io/metadata.name: identity-services
       podSelector:
         matchLabels:
           app: auth-proxy
@@ -107,6 +107,14 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  # Allow to Hydra for JWKS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ory-system
+    ports:
+    - protocol: TCP
+      port: 4444
   # Allow DNS
   - to:
     - namespaceSelector:
@@ -159,6 +167,14 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
+  # Allow from AgentGateway for JWKS fetch
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: api-gateway
+    ports:
+    - protocol: TCP
+      port: 4444
   egress:
   # Allow to CNPG database
   - to:
