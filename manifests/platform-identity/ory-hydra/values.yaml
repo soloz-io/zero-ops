@@ -16,11 +16,14 @@ hydra:
       system:
         - env://SECRETS_SYSTEM
       cookie:
-        - env://SECRETS_COOKIE
+        - env://SECRETS_SYSTEM
 
   automigration:
     enabled: true
     type: initContainer
+
+secret:
+  enabled: false
 
 deployment:
   extraEnv:
