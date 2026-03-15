@@ -10,6 +10,9 @@ hydra:
     oidc:
       dynamic_client_registration:
         enabled: true
+    oidc:
+      dynamic_client_registration:
+        enabled: true
     ttl:
       access_token: 24h
       refresh_token: 720h
