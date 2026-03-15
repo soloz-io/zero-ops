@@ -1,0 +1,36 @@
+name: auth-proxy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cmd/auth-proxy/**
+      - internal/auth-proxy/**
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: cmd/auth-proxy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/soloz-io/zero-ops/auth-proxy:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
