@@ -7,6 +7,9 @@ hydra:
       consent: https://auth.nutgraf.in/consent
     oauth2:
       expose_internal_errors: false
+    oidc:
+      dynamic_client_registration:
+        enabled: true
     ttl:
       access_token: 24h
       refresh_token: 720h
