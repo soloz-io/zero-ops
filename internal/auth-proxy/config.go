@@ -43,7 +43,7 @@ func LoadConfig() (*Config, error) {
 		JWKSCacheTTL:            cacheTTL,
 		JWKSFetchTimeout:        fetchTimeout,
 		JWKSRefreshMinInterval:  refreshInterval,
-		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.zero-ops.io"),
+		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.nutgraf.in"),
 		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
 	}, nil
 }

@@ -89,7 +89,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// No session exists, redirect to Kratos with return_to
 	returnTo := fmt.Sprintf("%s/login?login_challenge=%s", r.Host, challenge)
 	encodedReturnTo := url.QueryEscape(returnTo)
-	kratosURL := fmt.Sprintf("https://console.zero-ops.io/login?return_to=%s", encodedReturnTo)
+	kratosURL := fmt.Sprintf("https://console.nutgraf.in/login?return_to=%s", encodedReturnTo)
 	
 	http.Redirect(w, r, kratosURL, http.StatusFound)
 }
@@ -147,7 +147,7 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	// Accept consent
 	acceptReq := map[string]interface{}{
 		"grant_scope":                requestedScopes,
-		"grant_access_token_audience": []string{"https://api.zero-ops.io"},
+		"grant_access_token_audience": []string{"https://api.nutgraf.in"},
 		"session":                    session,
 	}
 
