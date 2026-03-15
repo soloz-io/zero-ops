@@ -24,6 +24,18 @@ spec:
           value: "http://ory-kratos-public.ory-system.svc.cluster.local:4433"
         - name: KRATOS_BROWSER_URL
           value: "https://console.nutgraf.in"
+        - name: COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: kratos-ui-secrets
+              key: cookie-secret
+        - name: CSRF_COOKIE_NAME
+          value: "__HOST-csrf"
+        - name: CSRF_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: kratos-ui-secrets
+              key: csrf-cookie-secret
         resources:
           requests:
             cpu: 50m

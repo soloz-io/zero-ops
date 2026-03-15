@@ -78,6 +78,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		{"kube-system", hetznerDNSSecret("kube-system", dnsToken)},
 		{"kube-system", hcloudSecret(hcloudToken)},
 		{"zero-ops-system", postgresPasswordsSecret(hydraPwd, kratosPwd, ketoPwd)},
+		{"ory-system", kratosUISecret()},
 		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
 		{"argocd", argoCDRepoSecret(ghcrUsername, ghcrToken)},
 	}
@@ -162,6 +163,16 @@ func labelArgoCDRepoSecret(ctx context.Context, client kubernetes.Interface) err
 	s.Labels["argocd.argoproj.io/secret-type"] = "repository"
 	_, err = client.CoreV1().Secrets("argocd").Update(ctx, s, metav1.UpdateOptions{})
 	return err
+}
+
+func kratosUISecret() *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "kratos-ui-secrets", Namespace: "ory-system"},
+		StringData: map[string]string{
+			"cookie-secret":      randomHex(),
+			"csrf-cookie-secret": randomHex(),
+		},
+	}
 }
 
 func hcloudSecret(token string) *corev1.Secret {
