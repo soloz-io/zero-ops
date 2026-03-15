@@ -17,8 +17,8 @@ spec:
           name: webhook
           webhook:
             image:
-              repository: ghcr.io/mconfalonieri/external-dns-hetzner-webhook
-              tag: v0.5.1
+              repository: ghcr.io/hetzner/external-dns-hetzner-webhook
+              tag: v0.3.2
             env:
               - name: HETZNER_TOKEN
                 valueFrom:
