@@ -26,3 +26,9 @@ spec:
       backoff:
         duration: 30s
         maxDuration: 10m
+  ignoreDifferences:
+    - kind: Namespace
+      name: identity-services
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
