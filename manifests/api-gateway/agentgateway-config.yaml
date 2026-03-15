@@ -45,7 +45,7 @@ data:
               audiences:
               - https://api.nutgraf.in
               jwks:
-                url: http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+                url: http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:
                 resource: https://api.nutgraf.in
                 scopesSupported:

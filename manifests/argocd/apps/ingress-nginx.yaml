@@ -25,7 +25,7 @@ spec:
     - group: ""
       kind: Service
       jsonPointers:
-        - /status/loadBalancer/ingress/0/ipMode
+        - /status
   syncPolicy:
     automated:
       prune: true
