@@ -2,9 +2,9 @@ hydra:
   config:
     urls:
       self:
-        issuer: https://auth.zero-ops.io
-      login: https://auth.zero-ops.io/login
-      consent: https://auth.zero-ops.io/consent
+        issuer: https://auth.nutgraf.in
+      login: https://auth.nutgraf.in/login
+      consent: https://auth.nutgraf.in/consent
     oauth2:
       expose_internal_errors: false
     ttl:

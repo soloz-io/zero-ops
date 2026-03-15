@@ -23,7 +23,7 @@ spec:
         - name: KRATOS_PUBLIC_URL
           value: "http://ory-kratos-public.ory-system.svc.cluster.local:4433"
         - name: KRATOS_BROWSER_URL
-          value: "https://console.zero-ops.io"
+          value: "https://console.nutgraf.in"
         resources:
           requests:
             cpu: 50m

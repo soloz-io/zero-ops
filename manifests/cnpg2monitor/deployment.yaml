@@ -27,7 +27,7 @@ spec:
         - name: ENABLE_EVENT_EMISSION
           value: "true"
         - name: TOPOLOGY_LABEL_PREFIX
-          value: "zero-ops.io/"
+          value: "nutgraf.in/"
         ports:
         - containerPort: 8080
           name: metrics

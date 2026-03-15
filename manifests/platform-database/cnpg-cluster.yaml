@@ -4,7 +4,7 @@ metadata:
   name: zero-ops-platform-db
   namespace: zero-ops-system
   labels:
-    zero-ops.io/monitored: "true"
+    nutgraf.in/monitored: "true"
 spec:
   instances: 3
   

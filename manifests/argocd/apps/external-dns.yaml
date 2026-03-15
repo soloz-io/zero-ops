@@ -27,7 +27,7 @@ spec:
                     key: api-key
         txtOwnerId: zero-ops-mothership
         domainFilters:
-          - zero-ops.io
+          - nutgraf.in
         sources:
           - ingress
   destination:

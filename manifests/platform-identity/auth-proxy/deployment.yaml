@@ -56,7 +56,7 @@ spec:
         - name: JWKS_REFRESH_MIN_INTERVAL
           value: "10s"
         - name: EXPECTED_JWT_AUDIENCE
-          value: "https://api.zero-ops.io"
+          value: "https://api.nutgraf.in"
         - name: TRUSTED_CLIENT_IDS
           value: "mcp-public-client"
         livenessProbe:

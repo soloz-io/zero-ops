@@ -41,13 +41,13 @@ data:
               - Mcp-Session-Id
             mcpAuthentication:
               mode: strict
-              issuer: https://auth.zero-ops.io
+              issuer: https://auth.nutgraf.in
               audiences:
-              - https://api.zero-ops.io
+              - https://api.nutgraf.in
               jwks:
                 url: http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:
-                resource: https://api.zero-ops.io
+                resource: https://api.nutgraf.in
                 scopesSupported:
                 - tenant:read
                 - tenant:write

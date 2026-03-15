@@ -16,7 +16,7 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - api.zero-ops.io
+  - api.nutgraf.in
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -29,7 +29,7 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - auth.zero-ops.io
+  - auth.nutgraf.in
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -42,4 +42,4 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - console.zero-ops.io
+  - console.nutgraf.in

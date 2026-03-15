@@ -5,7 +5,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: platform@zero-ops.io
+    email: platform@nutgraf.in
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
@@ -15,5 +15,5 @@ spec:
           solverName: hetzner
           config:
             secretName: hetzner-dns
-            zoneName: zero-ops.io
+            zoneName: nutgraf.in
             apiUrl: https://dns.hetzner.com/api/v1

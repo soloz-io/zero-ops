@@ -2,7 +2,7 @@ kratos:
   config:
     session:
       cookie:
-        domain: zero-ops.io
+        domain: nutgraf.in
         name: ory_kratos_session
     identity:
       default_schema_id: default
@@ -10,14 +10,14 @@ kratos:
         - id: default
           url: file:///etc/config/schemas/identity.schema.json
     selfservice:
-      default_browser_return_url: https://console.zero-ops.io/
+      default_browser_return_url: https://console.nutgraf.in/
       allowed_return_urls:
-        - https://auth.zero-ops.io/login
+        - https://auth.nutgraf.in/login
       flows:
         login:
-          ui_url: https://console.zero-ops.io/login
+          ui_url: https://console.nutgraf.in/login
         registration:
-          ui_url: https://console.zero-ops.io/registration
+          ui_url: https://console.nutgraf.in/registration
     dsn: env://DSN
 
   automigration:
