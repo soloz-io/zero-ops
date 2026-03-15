@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/soloz-io/zero-ops/cmd/zero-ops/demo"
 	"github.com/soloz-io/zero-ops/cmd/zero-ops/mgmt"
 	"github.com/spf13/cobra"
 )
@@ -15,6 +16,7 @@ func main() {
 	}
 
 	rootCmd.AddCommand(mgmt.NewMgmtCmd())
+	rootCmd.AddCommand(demo.NewDemoCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
