@@ -12,6 +12,11 @@ hydra:
       refresh_token: 720h
       auth_code: 10m
     dsn: env://DSN
+    secrets:
+      system:
+        - env://SECRETS_SYSTEM
+      cookie:
+        - env://SECRETS_COOKIE
 
   automigration:
     enabled: true
@@ -27,6 +32,11 @@ deployment:
     - name: DSN
       value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
     - name: SECRETS_SYSTEM
+      valueFrom:
+        secretKeyRef:
+          name: identity-postgres-passwords
+          key: hydra-system-secret
+    - name: SECRETS_COOKIE
       valueFrom:
         secretKeyRef:
           name: identity-postgres-passwords
