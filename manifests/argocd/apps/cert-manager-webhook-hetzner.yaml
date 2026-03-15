@@ -13,6 +13,8 @@ spec:
     targetRevision: "1.4.2"
     helm:
       values: |
+        secretName:
+          - hetzner-dns
         resources:
           requests:
             cpu: 5m
