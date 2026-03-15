@@ -7,10 +7,13 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
-  source:
-    repoURL: https://github.com/soloz-io/zero-ops
-    targetRevision: HEAD
-    path: manifests/argocd/demo1/apps
+  sources:
+    - repoURL: https://github.com/soloz-io/zero-ops
+      targetRevision: HEAD
+      path: manifests/argocd/demo1/apps
+    - repoURL: https://github.com/soloz-io/zero-ops
+      targetRevision: HEAD
+      path: manifests/platform-identity/argocd
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
