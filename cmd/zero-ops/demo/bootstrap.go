@@ -22,6 +22,7 @@ var (
 	dnsToken       string
 	ghcrUsername   string
 	ghcrToken      string
+	githubToken    string
 	hydraPwd       string
 	kratosPwd      string
 	ketoPwd        string
@@ -41,10 +42,12 @@ func NewBootstrapCmd() *cobra.Command {
 	cmd.Flags().StringVar(&hydraPwd, "hydra-password", "", "Hydra DB password (auto-generated if empty)")
 	cmd.Flags().StringVar(&kratosPwd, "kratos-password", "", "Kratos DB password (auto-generated if empty)")
 	cmd.Flags().StringVar(&ketoPwd, "keto-password", "", "Keto DB password (auto-generated if empty)")
+	cmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub PAT for ArgoCD repo access")
 	cmd.Flags().StringVar(&hcloudToken, "hcloud-token", "", "Hetzner Cloud token for CCM (defaults to dns-token if empty)")
 	cmd.MarkFlagRequired("dns-token")
 	cmd.MarkFlagRequired("ghcr-username")
 	cmd.MarkFlagRequired("ghcr-token")
+	cmd.MarkFlagRequired("github-token")
 	return cmd
 }
 
@@ -87,18 +90,13 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		{"zero-ops-system", postgresPasswordsSecret(hydraPwd, kratosPwd, ketoPwd)},
 		{"ory-system", kratosUISecret()},
 		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
-		{"argocd", argoCDRepoSecret(ghcrUsername, ghcrToken)},
+		{"argocd", argoCDRepoSecret(githubToken)},
 	}
 
 	for _, s := range secrets {
 		if err := applySecret(ctx, client, s.ns, s.secret); err != nil {
 			return err
 		}
-	}
-
-	// Label ArgoCD repo secret
-	if err := labelArgoCDRepoSecret(ctx, client); err != nil {
-		return err
 	}
 
 	// 4. Wait for ArgoCD apps and TLS certs
@@ -169,19 +167,6 @@ func applySecret(ctx context.Context, client kubernetes.Interface, ns string, s 
 	return nil
 }
 
-func labelArgoCDRepoSecret(ctx context.Context, client kubernetes.Interface) error {
-	s, err := client.CoreV1().Secrets("argocd").Get(ctx, "repo-soloz-io-zero-ops", metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	if s.Labels == nil {
-		s.Labels = map[string]string{}
-	}
-	s.Labels["argocd.argoproj.io/secret-type"] = "repository"
-	_, err = client.CoreV1().Secrets("argocd").Update(ctx, s, metav1.UpdateOptions{})
-	return err
-}
-
 func kratosUISecret() *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "kratos-ui-secrets", Namespace: "ory-system"},
@@ -235,13 +220,17 @@ func ghcrPullSecret(username, token string) *corev1.Secret {
 	}
 }
 
-func argoCDRepoSecret(username, token string) *corev1.Secret {
+func argoCDRepoSecret(token string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "repo-soloz-io-zero-ops", Namespace: "argocd"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "repo-soloz-io-zero-ops",
+			Namespace: "argocd",
+			Labels:    map[string]string{"argocd.argoproj.io/secret-type": "repository"},
+		},
 		StringData: map[string]string{
 			"type":     "git",
 			"url":      "https://github.com/soloz-io/zero-ops",
-			"username": username,
+			"username": "x-access-token",
 			"password": token,
 		},
 	}
