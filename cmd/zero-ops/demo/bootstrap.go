@@ -247,7 +247,7 @@ func argoCDRepoSecret(token string) *corev1.Secret {
 
 func seedDemoUser(ctx context.Context, client kubernetes.Interface, cfg *rest.Config) error {
 	// Find kratos pod
-	pods, err := client.CoreV1().Pods("ory-system").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/name=kratos"})
+	pods, err := client.CoreV1().Pods("ory-system").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/name=kratos,app.kubernetes.io/instance=ory-kratos"})
 	if err != nil || len(pods.Items) == 0 {
 		return fmt.Errorf("kratos pod not found: %w", err)
 	}
