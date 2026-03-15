@@ -1,25 +1,26 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ory-kratos
+  name: ingress-nginx
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
-  sources:
-    - repoURL: https://k8s.ory.sh/helm/charts
-      chart: kratos
-      targetRevision: "0.60.1"
-      helm:
-        valueFiles:
-          - $values/manifests/platform-identity/ory-kratos/values.yaml
-    - repoURL: https://github.com/soloz-io/zero-ops
-      targetRevision: HEAD
-      ref: values
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    chart: ingress-nginx
+    targetRevision: "4.15.0"
+    helm:
+      values: |
+        controller:
+          service:
+            type: LoadBalancer
+            annotations:
+              load-balancer.hetzner.cloud/location: fsn1
   destination:
     server: https://kubernetes.default.svc
-    namespace: ory-system
+    namespace: ingress-nginx
   syncPolicy:
     automated:
       prune: true

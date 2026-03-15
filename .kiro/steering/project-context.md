@@ -17,5 +17,6 @@ inclusion: always
 
 - let us work on each demo at a time
 - Ask the user to create only "design" and "tasks" for each demo as we already have the requirements here .kiro/specs/agentic-enterprise-onboarding/requirements.md
+- Here is the agentic-enterprise-onboarding delivery plan - .kiro/specs/agentic-enterprise-onboarding/zero-ops-sprint-delivery-plan.md
 - Its important that your design proposal is aligned with user. Do not proceed with design craetion until user approves your proposal.
 - lets start with .kiro/specs/agentic-enterprise-onboarding/demos/

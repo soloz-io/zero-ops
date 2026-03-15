@@ -4,7 +4,7 @@ metadata:
   name: agentgateway
   namespace: api-gateway
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: agentgateway
@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
       - name: agentgateway
-        image: ghcr.io/cncf/agentgateway:latest  # Placeholder - update with actual image
+        image: ghcr.io/agentgateway/agentgateway:latest
+        args: ["-f", "/etc/agentgateway/config.yaml"]
         ports:
         - containerPort: 3000
           name: http

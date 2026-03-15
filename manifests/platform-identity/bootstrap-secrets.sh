@@ -5,9 +5,9 @@ echo "Creating ory-system namespace..."
 kubectl create namespace ory-system --dry-run=client -o yaml | kubectl apply -f -
 
 echo "Generating database passwords..."
-HYDRA_PASSWORD=$(openssl rand -base64 32)
-KRATOS_PASSWORD=$(openssl rand -base64 32)
-KETO_PASSWORD=$(openssl rand -base64 32)
+HYDRA_PASSWORD=$(openssl rand -hex 32)
+KRATOS_PASSWORD=$(openssl rand -hex 32)
+KETO_PASSWORD=$(openssl rand -hex 32)
 
 echo "Creating identity-postgres-passwords secret in zero-ops-system..."
 kubectl create secret generic identity-postgres-passwords \

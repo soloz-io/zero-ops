@@ -8,7 +8,7 @@ kratos:
       default_schema_id: default
       schemas:
         - id: default
-          url: file:///etc/config/identity.schema.json
+          url: file:///etc/config/schemas/identity.schema.json
     selfservice:
       default_browser_return_url: https://console.zero-ops.io/
       allowed_return_urls:
@@ -18,7 +18,13 @@ kratos:
           ui_url: https://console.zero-ops.io/login
         registration:
           ui_url: https://console.zero-ops.io/registration
-  
+    dsn: env://DSN
+
+  automigration:
+    enabled: true
+    type: initContainer
+
+deployment:
   extraEnv:
     - name: KRATOS_DB_PASSWORD
       valueFrom:
@@ -28,17 +34,27 @@ kratos:
     - name: DSN
       value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/kratos_db
 
+  automigration:
+    extraEnv:
+      - name: KRATOS_DB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: identity-postgres-passwords
+            key: kratos-password
+      - name: DSN
+        value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/kratos_db
+
   extraVolumes:
     - name: identity-schema
       configMap:
         name: kratos-identity-schema
-  
+
   extraVolumeMounts:
     - name: identity-schema
-      mountPath: /etc/config/identity.schema.json
-      subPath: identity.schema.json
+      mountPath: /etc/config/schemas
+      readOnly: true
 
-  initContainers:
+  extraInitContainers: |
     - name: wait-for-postgres
-      image: postgres:15
+      image: postgres:15-alpine
       command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']

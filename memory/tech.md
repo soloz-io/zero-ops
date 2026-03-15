@@ -9,7 +9,6 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 
 ## Core Languages & Frameworks
 - **Go**: Primary backend language for zero-ops-api, agents, MCP servers
-- **Python**: identity-service (Ory stack abstraction layer)
 - **Rust**: AgentGateway (CNCF open source)
 - **JavaScript/TypeScript**: Platform Console frontend
 - **Bash**: CLI tooling and automation scripts

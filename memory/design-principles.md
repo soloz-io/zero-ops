@@ -9,6 +9,15 @@ update_criteria: Architectural pattern decisions, deployment strategy changes, i
 
 ## GitOps & Deployment Patterns
 
+### Declarative-Only Operations
+- ❌ Imperative kubectl commands or direct API calls in production
+- ✅ All changes via declarative manifests in Git
+- ✅ GitOps reconciliation handles all cluster state
+- ✅ Exception: Bootstrap operations only (initial cluster setup)
+- ✅ Upgrades via declarative version changes in Git (image tags, Helm chart versions, operator versions)
+- ✅ Rollbacks via Git revert operations, not imperative commands
+- Benefits: Audit trail, reproducibility, drift detection, rollback capability, upgrade consistency
+
 ### ArgoCD Application Structure
 - ❌ Monolithic charts for independent services
 - ✅ Deploy each component as separate ArgoCD Application

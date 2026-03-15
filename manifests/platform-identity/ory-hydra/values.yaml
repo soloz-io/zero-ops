@@ -12,8 +12,22 @@ hydra:
       refresh_token: 720h
       auth_code: 10m
     dsn: env://DSN
-  
-  deployment:
+
+  automigration:
+    enabled: true
+    type: initContainer
+
+deployment:
+  extraEnv:
+    - name: HYDRA_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: identity-postgres-passwords
+          key: hydra-password
+    - name: DSN
+      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
+
+  automigration:
     extraEnv:
       - name: HYDRA_DB_PASSWORD
         valueFrom:
@@ -22,8 +36,8 @@ hydra:
             key: hydra-password
       - name: DSN
         value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
-    
-    initContainers:
-      - name: wait-for-postgres
-        image: postgres:15
-        command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']
+
+  extraInitContainers: |
+    - name: wait-for-postgres
+      image: postgres:15-alpine
+      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']

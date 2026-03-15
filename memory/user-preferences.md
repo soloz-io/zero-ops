@@ -12,6 +12,7 @@ update_criteria: User feedback on communication, new preferences expressed, work
 - Values technical accuracy over verbose explanations
 - Wants design-level discussion, not implementation details during report-only mode
 - Expects analysis of related files before answering, never assumptions
+- Keep responses technical at high level, concise and to the point
 
 ## Approval Workflow
 - Wants approval before creating temporary files or README files
@@ -36,3 +37,10 @@ update_criteria: User feedback on communication, new preferences expressed, work
 - Identified issue with memory pollution across multiple contexts
 - Prefers separate memory files for different topics with clear frontmatter
 - Values context-appropriate memory updates, not single-file mixing
+
+## Report-Only Mode
+- Do not implement anything, just report
+- Analyze related files completely before answering
+- Do not generate configurations or code during conversation
+- Keep conversation at design level, not implementation details
+- Analyze user reported prompt with required involved files before proposing fix

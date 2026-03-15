@@ -2,6 +2,8 @@
 # Demo 1 Complete Deployment Script
 set -e
 
+export KUBECONFIG="$(pwd)/secrets/mothership.kubeconfig"
+
 echo "========================================="
 echo "Demo 1: OAuth2 PKCE Flow Deployment"
 echo "========================================="

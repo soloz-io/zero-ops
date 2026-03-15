@@ -15,7 +15,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: api-gateway
+          kubernetes.io/metadata.name: api-gateway
       podSelector:
         matchLabels:
           app: agentgateway
@@ -26,7 +26,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: ingress-nginx
+          kubernetes.io/metadata.name: ingress-nginx
     ports:
     - protocol: TCP
       port: 8080
@@ -35,7 +35,7 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: ory-system
+          kubernetes.io/metadata.name: ory-system
       podSelector:
         matchLabels:
           app.kubernetes.io/name: hydra
@@ -48,22 +48,22 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: ory-system
+          kubernetes.io/metadata.name: ory-system
       podSelector:
         matchLabels:
           app.kubernetes.io/name: kratos
     ports:
     - protocol: TCP
-      port: 4433
-    - protocol: TCP
-      port: 4434
+      port: 80
   # Allow DNS
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
+          kubernetes.io/metadata.name: kube-system
     ports:
     - protocol: UDP
+      port: 53
+    - protocol: TCP
       port: 53
 ---
 apiVersion: networking.k8s.io/v1
@@ -111,9 +111,11 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
+          kubernetes.io/metadata.name: kube-system
     ports:
     - protocol: UDP
+      port: 53
+    - protocol: TCP
       port: 53
 ---
 apiVersion: networking.k8s.io/v1
@@ -123,8 +125,10 @@ metadata:
   namespace: ory-system
 spec:
   podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: ory
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values: [hydra, kratos, keto]
   policyTypes:
   - Ingress
   - Egress
@@ -133,7 +137,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: identity-services
+          kubernetes.io/metadata.name: identity-services
     ports:
     - protocol: TCP
       port: 4444
@@ -151,16 +155,19 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: ingress-nginx
+          kubernetes.io/metadata.name: ingress-nginx
     ports:
     - protocol: TCP
       port: 3000
   egress:
   # Allow to CNPG database
   - to:
-    - podSelector:
+    - namespaceSelector:
         matchLabels:
-          cnpg.io/cluster: identity-postgres
+          kubernetes.io/metadata.name: zero-ops-system
+      podSelector:
+        matchLabels:
+          cnpg.io/cluster: zero-ops-platform-db
     ports:
     - protocol: TCP
       port: 5432
@@ -168,7 +175,9 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
+          kubernetes.io/metadata.name: kube-system
     ports:
     - protocol: UDP
+      port: 53
+    - protocol: TCP
       port: 53

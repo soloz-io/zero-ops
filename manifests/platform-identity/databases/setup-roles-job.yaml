@@ -14,12 +14,20 @@ spec:
         - name: PGHOST
           value: zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local
         - name: PGUSER
-          value: postgres
+          valueFrom:
+            secretKeyRef:
+              name: zero-ops-platform-db-app
+              key: username
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: zero-ops-platform-db-superuser
+              name: zero-ops-platform-db-app
               key: password
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: zero-ops-platform-db-app
+              key: dbname
         - name: HYDRA_PASSWORD
           valueFrom:
             secretKeyRef:

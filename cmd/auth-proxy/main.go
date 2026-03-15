@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	authproxy "cnpg2monitor/internal/auth-proxy"
+	authproxy "auth-proxy/internal/auth-proxy"
 )
 
 func main() {

@@ -1,25 +1,28 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ory-kratos
+  name: cert-manager-webhook-hetzner
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
-  sources:
-    - repoURL: https://k8s.ory.sh/helm/charts
-      chart: kratos
-      targetRevision: "0.60.1"
-      helm:
-        valueFiles:
-          - $values/manifests/platform-identity/ory-kratos/values.yaml
-    - repoURL: https://github.com/soloz-io/zero-ops
-      targetRevision: HEAD
-      ref: values
+  source:
+    repoURL: https://charts.hetzner.cloud
+    chart: cert-manager-webhook-hetzner
+    targetRevision: "0.6.3"
+    helm:
+      values: |
+        resources:
+          requests:
+            cpu: 5m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
   destination:
     server: https://kubernetes.default.svc
-    namespace: ory-system
+    namespace: cert-manager
   syncPolicy:
     automated:
       prune: true

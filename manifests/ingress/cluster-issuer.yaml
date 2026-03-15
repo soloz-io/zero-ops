@@ -9,6 +9,11 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
-    - http01:
-        ingress:
-          class: nginx
+    - dns01:
+        webhook:
+          groupName: acme.hetzner.cloud
+          solverName: hetzner
+          config:
+            secretName: hetzner-dns
+            zoneName: zero-ops.io
+            apiUrl: https://dns.hetzner.com/api/v1

@@ -54,22 +54,11 @@ Cursor/Goose (stores tokens in OS keychain)
 
 ### 1. CNPG Database Cluster
 
-**Resource:** CloudNativePG Cluster CR
+**Resource:** Shared CloudNativePG Cluster (pre-existing)
 
-**Namespace:** `ory-system`
+**Namespace:** `zero-ops-system`
 
-**Configuration:**
-```yaml
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata:
-  name: identity-postgres
-  namespace: ory-system
-spec:
-  instances: 3
-  storage:
-    size: 20Gi
-```
+**Cluster Name:** `zero-ops-platform-db`
 
 **Databases (via Database CRD):**
 - `hydra-db`: OAuth2 clients, sessions, tokens
@@ -77,7 +66,7 @@ spec:
 - `keto-db`: Relationships, permissions
 
 **Connection Pattern:**
-- Service DNS: `identity-postgres-rw.ory-system.svc.cluster.local:5432`
+- Service DNS: `zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432`
 - Each Ory component connects via dedicated database
 
 ### 2. Ory Hydra
@@ -110,15 +99,15 @@ hydra:
           name: identity-postgres-passwords
           key: hydra-password
     - name: DSN
-      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/hydra_db
+      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
 ```
 
 **Endpoints:**
-- Public API: `ory-hydra-public.ory-system.svc.cluster.local:4444`
+- Public API: `hydra-public.ory-system.svc.cluster.local:4444`
   - `/oauth2/auth` - Authorization endpoint
   - `/oauth2/token` - Token endpoint
   - `/.well-known/jwks.json` - JWKS endpoint
-- Admin API: `ory-hydra-admin.ory-system.svc.cluster.local:4445`
+- Admin API: `hydra-admin.ory-system.svc.cluster.local:4445`
   - `/admin/clients` - Client management
 
 **Custom Claims Injection:**
@@ -161,7 +150,7 @@ kratos:
           name: identity-postgres-passwords
           key: kratos-password
     - name: DSN
-      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/kratos_db
+      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/kratos_db
 ```
 
 **Identity Schema (identity.schema.json):**
@@ -193,8 +182,8 @@ kratos:
 ```
 
 **Endpoints:**
-- Public API: `ory-kratos-public.ory-system.svc.cluster.local:4433`
-- Admin API: `ory-kratos-admin.ory-system.svc.cluster.local:4434`
+- Public API: `kratos-public.ory-system.svc.cluster.local:80`
+- Admin API: `kratos-admin.ory-system.svc.cluster.local:80`
 
 ### 4. Ory Keto
 
@@ -218,12 +207,12 @@ keto:
           name: identity-postgres-passwords
           key: keto-password
     - name: DSN
-      value: postgres://keto:$(KETO_DB_PASSWORD)@identity-postgres-rw.ory-system.svc.cluster.local:5432/keto_db
+      value: postgres://keto:$(KETO_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/keto_db
 ```
 
 **Endpoints:**
-- Read API: `ory-keto-read.ory-system.svc.cluster.local:4466`
-- Write API: `ory-keto-write.ory-system.svc.cluster.local:4467`
+- Read API: `keto-read.ory-system.svc.cluster.local:80`
+- Write API: `keto-write.ory-system.svc.cluster.local:80`
 
 ### 5. auth-proxy
 
@@ -334,18 +323,18 @@ internal/auth/
 - If any other error occurs (e.g., Hydra unavailable, 500), `auth-proxy` triggers `log.Fatal()` to utilize Kubernetes CrashLoopBackOff until Hydra is healthy.
 
 **Dependencies:**
-- Hydra Public API: `http://ory-hydra-public.ory-system.svc.cluster.local:4444`
-- Hydra Admin API: `http://ory-hydra-admin.ory-system.svc.cluster.local:4445`
-- Kratos Public API: `http://ory-kratos-public.ory-system.svc.cluster.local:4433` (For session cookie validation)
-- Kratos Admin API: `http://ory-kratos-admin.ory-system.svc.cluster.local:4434` (For identity trait fetching)
+- Hydra Public API: `http://hydra-public.ory-system.svc.cluster.local:4444`
+- Hydra Admin API: `http://hydra-admin.ory-system.svc.cluster.local:4445`
+- Kratos Public API: `http://kratos-public.ory-system.svc.cluster.local:80`
+- Kratos Admin API: `http://kratos-admin.ory-system.svc.cluster.local:80`
 
 **Configuration (environment variables):**
 ```bash
-HYDRA_PUBLIC_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444
-HYDRA_ADMIN_URL=http://ory-hydra-admin.ory-system.svc.cluster.local:4445
-HYDRA_INTERNAL_JWKS_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
-KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433
-KRATOS_ADMIN_URL=http://ory-kratos-admin.ory-system.svc.cluster.local:4434
+HYDRA_PUBLIC_URL=http://hydra-public.ory-system.svc.cluster.local:4444
+HYDRA_ADMIN_URL=http://hydra-admin.ory-system.svc.cluster.local:4445
+HYDRA_INTERNAL_JWKS_URL=http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80
+KRATOS_ADMIN_URL=http://kratos-admin.ory-system.svc.cluster.local:80
 JWKS_CACHE_TTL=1h
 JWKS_FETCH_TIMEOUT=5s
 JWKS_REFRESH_MIN_INTERVAL=10s
@@ -703,7 +692,7 @@ For Demo 1, PKCE flows require HTTPS termination. The following Ingress resource
 - **Namespace:** `ory-system`
 - **Image:** `oryd/kratos-selfservice-ui-node:v1.3.0` (Pinned to match Kratos v25.4.0)
 - **Configuration (Env Vars):**
-  - `KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433`
+  - `KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80`
   - `KRATOS_BROWSER_URL=https://console.zero-ops.io`
 - **Behavior:** Renders the login HTML form. Automatically forwards unknown query parameters (like `return_to`) to Kratos during the flow.
 
@@ -755,10 +744,10 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: hydra-db
-  namespace: ory-system
+  namespace: zero-ops-system
 spec:
   cluster:
-    name: identity-postgres
+    name: zero-ops-platform-db
   name: hydra_db
   owner: hydra
   ownerPasswordSecret:
@@ -952,7 +941,7 @@ data:
 5. Verify OAuth metadata endpoints
 6. Seed demo user via Kratos Admin API:
    ```bash
-   curl -X POST http://ory-kratos-admin.ory-system.svc.cluster.local:4434/admin/identities \
+   curl -X POST http://kratos-admin.ory-system.svc.cluster.local:80/admin/identities \
      -H "Content-Type: application/json" \
      -d '{"schema_id": "default","traits": {"email": "demo@zero-ops.io","role": "tenant_admin"},"credentials": {"password": { "config": { "password": "Demo1Password!" } }}}'
    ```

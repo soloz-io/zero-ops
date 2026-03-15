@@ -6,53 +6,54 @@ metadata:
 data:
   config.yaml: |
     binds:
-      - port: 3000
-        listeners:
-          - name: main-listener
-            protocol: HTTP
-            routes:
-              # Health check
-              - name: health
-                matches:
-                  - path: 
-                      exact: "/health"
-                policies:
-                  directResponse:
-                    status: 200
-                    body: "OK"
-
-              # OAuth metadata (static response)
-              - name: oauth-metadata
-                matches:
-                  - path: 
-                      exact: "/.well-known/oauth-protected-resource"
-                policies:
-                  directResponse:
-                    status: 200
-                    body: '{"resource": "https://api.zero-ops.io", "authorization_servers": ["https://auth.zero-ops.io"], "bearer_methods_supported": ["header"], "scopes_supported": ["tenant:read", "tenant:write", "cluster:read", "cluster:write", "offline_access", "openid"]}'
-                    headers:
-                      Content-Type: "application/json"
-
-              # MCP API routes (protected via extAuthz)
-              - name: mcp-api
-                matches:
-                  - path: 
-                      pathPrefix: "/mcp"
-                policies:
-                  extAuthz:
-                    host: "auth-proxy.identity-services.svc.cluster.local:8080"
-                    timeout: "500ms"
-                    includeRequestHeaders:
-                      - authorization
-                    protocol:
-                      http:
-                        path: '"/internal/validate"'
-                        includeResponseHeaders:
-                          - X-Auth-User-Id
-                          - X-Auth-Tenant-Id
-                          - X-Auth-Email
-                          - X-Auth-Role
-                  requestHeaderModifier:
-                    remove: ["Authorization"]
-                backends:
-                  - host: "demo-echo.api-gateway.svc.cluster.local:8080"
+    - port: 3000
+      listeners:
+      - routes:
+        - matches:
+          - path:
+              exact: /health
+          policies:
+            directResponse:
+              status: 200
+              body: "OK"
+        - backends:
+          - mcp:
+              targets:
+              - name: demo-echo
+                mcp:
+                  host: http://demo-echo.api-gateway.svc.cluster.local:8080/mcp
+          matches:
+          - path:
+              pathPrefix: /mcp
+          - path:
+              exact: /.well-known/oauth-protected-resource
+          - path:
+              exact: /.well-known/oauth-authorization-server
+          policies:
+            cors:
+              allowHeaders:
+              - mcp-protocol-version
+              - content-type
+              - authorization
+              allowOrigins:
+              - '*'
+              exposeHeaders:
+              - Mcp-Session-Id
+            mcpAuthentication:
+              mode: strict
+              issuer: https://auth.zero-ops.io
+              audiences:
+              - https://api.zero-ops.io
+              jwks:
+                url: http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+              resourceMetadata:
+                resource: https://api.zero-ops.io
+                scopesSupported:
+                - tenant:read
+                - tenant:write
+                - cluster:read
+                - cluster:write
+                - offline_access
+                - openid
+                bearerMethodsSupported:
+                - header
