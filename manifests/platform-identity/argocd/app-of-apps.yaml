@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/zero-ops/zero-ops
+    repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
     path: manifests/platform-identity/argocd
   destination:
