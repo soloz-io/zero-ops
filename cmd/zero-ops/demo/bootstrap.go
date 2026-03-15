@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -65,6 +68,10 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	dynClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return err
+	}
 
 	// 3. Apply secrets
 	if hcloudToken == "" {
@@ -94,8 +101,18 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println("\n✅ Bootstrap complete. Apply the app-of-apps:")
-	fmt.Println("   kubectl apply -f manifests/argocd/app-of-apps.yaml")
+	// 4. Wait for ArgoCD apps and TLS certs
+	fmt.Println("\n→ Waiting for ArgoCD apps to become healthy...")
+	if err := waitForArgoCD(ctx, dynClient); err != nil {
+		return err
+	}
+
+	fmt.Println("\n→ Waiting for TLS certificates...")
+	if err := waitForCerts(ctx, dynClient); err != nil {
+		return err
+	}
+
+	fmt.Println("\n✅ Bootstrap complete. Demo 1 is ready.")
 	return nil
 }
 
@@ -236,4 +253,90 @@ func randomHex() string {
 	defer f.Close()
 	f.Read(b)
 	return fmt.Sprintf("%x", b)
+}
+
+var appGVR = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+var certGVR = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
+
+// skipApps are internal/infra apps not relevant to demo health
+var skipApps = map[string]bool{"cert-manager-webhook-hetzner": true}
+
+func waitForArgoCD(ctx context.Context, dyn dynamic.Interface) error {
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		list, err := dyn.Resource(appGVR).Namespace("argocd").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
+		unhealthy := []string{}
+		for _, item := range list.Items {
+			name := item.GetName()
+			if skipApps[name] {
+				continue
+			}
+			health, _, _ := unstructuredString(item.Object, "status", "health", "status")
+			sync, _, _ := unstructuredString(item.Object, "status", "sync", "status")
+			if health != "Healthy" || sync != "Synced" {
+				unhealthy = append(unhealthy, fmt.Sprintf("%s(%s/%s)", name, sync, health))
+			}
+		}
+		if len(unhealthy) == 0 {
+			fmt.Println("  ✓ all ArgoCD apps Synced/Healthy")
+			return nil
+		}
+		fmt.Printf("  waiting: %v\n", unhealthy)
+		time.Sleep(15 * time.Second)
+	}
+	return fmt.Errorf("timed out waiting for ArgoCD apps")
+}
+
+func waitForCerts(ctx context.Context, dyn dynamic.Interface) error {
+	targets := []struct{ ns, name string }{
+		{"api-gateway", "api-zero-ops-tls"},
+		{"identity-services", "auth-zero-ops-tls"},
+		{"ory-system", "console-zero-ops-tls"},
+	}
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		ready := 0
+		for _, t := range targets {
+			cert, err := dyn.Resource(certGVR).Namespace(t.ns).Get(ctx, t.name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+			conditions, ok := cert.Object["status"].(map[string]interface{})["conditions"].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, c := range conditions {
+				cm := c.(map[string]interface{})
+				if cm["type"] == "Ready" && cm["status"] == "True" {
+					fmt.Printf("  ✓ %s/%s\n", t.ns, t.name)
+					ready++
+				}
+			}
+		}
+		if ready == len(targets) {
+			return nil
+		}
+		fmt.Printf("  waiting for certs (%d/%d ready)\n", ready, len(targets))
+		time.Sleep(15 * time.Second)
+	}
+	return fmt.Errorf("timed out waiting for TLS certificates")
+}
+
+func unstructuredString(obj map[string]interface{}, keys ...string) (string, bool, error) {
+	cur := obj
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			v, ok := cur[k].(string)
+			return v, ok, nil
+		}
+		next, ok := cur[k].(map[string]interface{})
+		if !ok {
+			return "", false, nil
+		}
+		cur = next
+	}
+	return "", false, nil
 }
