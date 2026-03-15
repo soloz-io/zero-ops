@@ -8,9 +8,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://charts.hetzner.cloud
+    repoURL: https://cert-manager-webhook-hetzner.github.io/charts
     chart: cert-manager-webhook-hetzner
-    targetRevision: "0.6.3"
+    targetRevision: "1.4.2"
     helm:
       values: |
         resources:

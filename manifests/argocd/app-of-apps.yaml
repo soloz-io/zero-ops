@@ -10,7 +10,7 @@ spec:
   sources:
     - repoURL: https://github.com/soloz-io/zero-ops
       targetRevision: HEAD
-      path: manifests/argocd/demo1/apps
+      path: manifests/argocd/apps
     - repoURL: https://github.com/soloz-io/zero-ops
       targetRevision: HEAD
       path: manifests/platform-identity/argocd

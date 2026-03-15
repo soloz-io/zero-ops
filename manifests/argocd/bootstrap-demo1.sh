@@ -51,4 +51,4 @@ kubectl label secret repo-soloz-io-zero-ops -n argocd \
 
 echo ""
 echo "✅ Bootstrap secrets created. Now apply the app-of-apps:"
-echo "   kubectl apply -f manifests/argocd/demo1/app-of-apps.yaml"
+echo "   kubectl apply -f manifests/argocd/app-of-apps.yaml"
