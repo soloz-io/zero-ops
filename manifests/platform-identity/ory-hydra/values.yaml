@@ -42,11 +42,6 @@ deployment:
         secretKeyRef:
           name: identity-postgres-passwords
           key: hydra-system-secret
-    - name: SECRETS_COOKIE
-      valueFrom:
-        secretKeyRef:
-          name: identity-postgres-passwords
-          key: hydra-system-secret
     - name: OIDC_DYNAMIC_CLIENT_REGISTRATION_ENABLED
       value: "true"
 
