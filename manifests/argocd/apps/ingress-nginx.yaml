@@ -21,6 +21,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx
+  ignoreDifferences:
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /status/loadBalancer/ingress/0/ipMode
   syncPolicy:
     automated:
       prune: true
@@ -29,11 +34,6 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - RespectIgnoreDifferences=true
-  ignoreDifferences:
-    - group: ""
-      kind: Service
-      jsonPointers:
-        - /status/loadBalancer/ingress/0/ipMode
     retry:
       limit: 15
       backoff:
