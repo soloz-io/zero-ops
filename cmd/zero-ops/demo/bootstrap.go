@@ -91,7 +91,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		{"cert-manager", hetznerDNSSecret("cert-manager", dnsToken)},
 		{"kube-system", hetznerDNSSecret("kube-system", dnsToken)},
 		{"kube-system", hcloudSecret(hcloudToken)},
-		{"zero-ops-system", postgresPasswordsSecret(hydraPwd, kratosPwd, ketoPwd)},
+		{"zero-ops-system", postgresPasswordsSecret(ctx, client, hydraPwd, kratosPwd, ketoPwd)},
 		{"ory-system", kratosUISecret()},
 		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
 		{"argocd", argoCDRepoSecret(githubToken)},
@@ -200,7 +200,16 @@ func hetznerDNSSecret(ns, token string) *corev1.Secret {
 	}
 }
 
-func postgresPasswordsSecret(hydra, kratos, keto string) *corev1.Secret {
+func postgresPasswordsSecret(ctx context.Context, client kubernetes.Interface, hydra, kratos, keto string) *corev1.Secret {
+	// Preserve existing hydra-system-secret if already set
+	existing, _ := client.CoreV1().Secrets("zero-ops-system").Get(ctx, "identity-postgres-passwords", metav1.GetOptions{})
+	hydraSystemSecret := ""
+	if existing != nil {
+		hydraSystemSecret = string(existing.Data["hydra-system-secret"])
+	}
+	if hydraSystemSecret == "" {
+		hydraSystemSecret = randomHex()
+	}
 	if hydra == "" {
 		hydra = randomHex()
 	}
@@ -213,9 +222,10 @@ func postgresPasswordsSecret(hydra, kratos, keto string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "identity-postgres-passwords", Namespace: "zero-ops-system"},
 		StringData: map[string]string{
-			"hydra-password":  hydra,
-			"kratos-password": kratos,
-			"keto-password":   keto,
+			"hydra-password":      hydra,
+			"kratos-password":     kratos,
+			"keto-password":       keto,
+			"hydra-system-secret": hydraSystemSecret,
 		},
 	}
 }

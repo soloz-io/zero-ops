@@ -26,6 +26,11 @@ deployment:
           key: hydra-password
     - name: DSN
       value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
+    - name: SECRETS_SYSTEM
+      valueFrom:
+        secretKeyRef:
+          name: identity-postgres-passwords
+          key: hydra-system-secret
 
   automigration:
     extraEnv:
