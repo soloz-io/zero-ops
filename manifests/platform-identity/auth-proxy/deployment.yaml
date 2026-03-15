@@ -25,7 +25,7 @@ spec:
         - sh
         - -c
         - |
-          until curl -f http://hydra-public.ory-system.svc.cluster.local:4444/health/ready; do
+          until curl -f http://ory-hydra-public.ory-system.svc.cluster.local:4444/health/ready; do
             echo "Waiting for Hydra to be ready..."
             sleep 2
           done
@@ -40,11 +40,11 @@ spec:
         - name: LISTEN_ADDR
           value: ":8080"
         - name: HYDRA_PUBLIC_URL
-          value: "http://hydra-public.ory-system.svc.cluster.local:4444"
+          value: "http://ory-hydra-public.ory-system.svc.cluster.local:4444"
         - name: HYDRA_ADMIN_URL
-          value: "http://hydra-admin.ory-system.svc.cluster.local:4445"
+          value: "http://ory-hydra-admin.ory-system.svc.cluster.local:4445"
         - name: HYDRA_INTERNAL_JWKS_URL
-          value: "http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json"
+          value: "http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json"
         - name: KRATOS_PUBLIC_URL
           value: "http://kratos-public.ory-system.svc.cluster.local:80"
         - name: KRATOS_ADMIN_URL
