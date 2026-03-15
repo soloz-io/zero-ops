@@ -115,6 +115,10 @@ spec:
     ports:
     - protocol: TCP
       port: 4444
+  # Allow HTTPS egress for OAuth metadata discovery
+  - ports:
+    - protocol: TCP
+      port: 443
   # Allow DNS
   - to:
     - namespaceSelector:

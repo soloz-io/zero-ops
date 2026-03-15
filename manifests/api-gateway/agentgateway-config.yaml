@@ -17,12 +17,6 @@ data:
               status: 200
               body: "OK"
         - backends:
-          - httpBackend:
-              host: http://ory-hydra-public.ory-system.svc.cluster.local:4444
-          matches:
-          - path:
-              exact: /.well-known/oauth-authorization-server
-        - backends:
           - mcp:
               targets:
               - name: demo-echo
@@ -33,6 +27,8 @@ data:
               pathPrefix: /mcp
           - path:
               exact: /.well-known/oauth-protected-resource
+          - path:
+              exact: /.well-known/oauth-authorization-server
           policies:
             cors:
               allowHeaders:
