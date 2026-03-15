@@ -8,8 +8,3 @@ resources:
 - rbac.yaml
 - deployment.yaml
 - service.yaml
-
-images:
-- name: auth-proxy
-  newName: auth-proxy
-  newTag: latest
