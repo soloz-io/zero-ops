@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
 )
 
 var (
@@ -107,6 +111,11 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\n→ Waiting for TLS certificates...")
 	if err := waitForCerts(ctx, dynClient); err != nil {
+		return err
+	}
+
+	fmt.Println("\n→ Seeding demo user...")
+	if err := seedDemoUser(ctx, client, cfg); err != nil {
 		return err
 	}
 
@@ -234,6 +243,65 @@ func argoCDRepoSecret(token string) *corev1.Secret {
 			"password": token,
 		},
 	}
+}
+
+func seedDemoUser(ctx context.Context, client kubernetes.Interface, cfg *rest.Config) error {
+	// Find kratos pod
+	pods, err := client.CoreV1().Pods("ory-system").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/name=kratos"})
+	if err != nil || len(pods.Items) == 0 {
+		return fmt.Errorf("kratos pod not found: %w", err)
+	}
+	podName := pods.Items[0].Name
+
+	// Port-forward to kratos admin (4434)
+	transport, upgrader, err := spdy.RoundTripperFor(cfg)
+	if err != nil {
+		return err
+	}
+	url := client.CoreV1().RESTClient().Post().
+		Resource("pods").Name(podName).Namespace("ory-system").
+		SubResource("portforward").URL()
+
+	stopCh := make(chan struct{})
+	readyCh := make(chan struct{})
+	defer close(stopCh)
+
+	pf, err := portforward.New(
+		spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url),
+		[]string{"0:4434"}, stopCh, readyCh, nil, nil,
+	)
+	if err != nil {
+		return err
+	}
+	go pf.ForwardPorts()
+	<-readyCh
+
+	ports, err := pf.GetPorts()
+	if err != nil {
+		return err
+	}
+	localPort := ports[0].Local
+
+	// POST identity
+	body, _ := json.Marshal(map[string]interface{}{
+		"schema_id": "default",
+		"traits":    map[string]string{"email": "demo@nutgraf.in", "role": "tenant_admin"},
+		"credentials": map[string]interface{}{
+			"password": map[string]interface{}{
+				"config": map[string]string{"password": "Demo1Password!"},
+			},
+		},
+	})
+	resp, err := http.Post(fmt.Sprintf("http://localhost:%d/admin/identities", localPort), "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("seed user: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusCreated {
+		fmt.Println("  ✓ demo@nutgraf.in")
+		return nil
+	}
+	return fmt.Errorf("seed user unexpected status: %d", resp.StatusCode)
 }
 
 func randomHex() string {
