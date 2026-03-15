@@ -22,6 +22,7 @@ var (
 	hydraPwd       string
 	kratosPwd      string
 	ketoPwd        string
+	hcloudToken    string
 )
 
 func NewBootstrapCmd() *cobra.Command {
@@ -37,6 +38,7 @@ func NewBootstrapCmd() *cobra.Command {
 	cmd.Flags().StringVar(&hydraPwd, "hydra-password", "", "Hydra DB password (auto-generated if empty)")
 	cmd.Flags().StringVar(&kratosPwd, "kratos-password", "", "Kratos DB password (auto-generated if empty)")
 	cmd.Flags().StringVar(&ketoPwd, "keto-password", "", "Keto DB password (auto-generated if empty)")
+	cmd.Flags().StringVar(&hcloudToken, "hcloud-token", "", "Hetzner Cloud token for CCM (defaults to dns-token if empty)")
 	cmd.MarkFlagRequired("dns-token")
 	cmd.MarkFlagRequired("ghcr-username")
 	cmd.MarkFlagRequired("ghcr-token")
@@ -65,12 +67,16 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Apply secrets
+	if hcloudToken == "" {
+		hcloudToken = dnsToken
+	}
 	secrets := []struct {
 		ns     string
 		secret *corev1.Secret
 	}{
 		{"cert-manager", hetznerDNSSecret("cert-manager", dnsToken)},
 		{"kube-system", hetznerDNSSecret("kube-system", dnsToken)},
+		{"kube-system", hcloudSecret(hcloudToken)},
 		{"zero-ops-system", postgresPasswordsSecret(hydraPwd, kratosPwd, ketoPwd)},
 		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
 		{"argocd", argoCDRepoSecret(ghcrUsername, ghcrToken)},
@@ -156,6 +162,13 @@ func labelArgoCDRepoSecret(ctx context.Context, client kubernetes.Interface) err
 	s.Labels["argocd.argoproj.io/secret-type"] = "repository"
 	_, err = client.CoreV1().Secrets("argocd").Update(ctx, s, metav1.UpdateOptions{})
 	return err
+}
+
+func hcloudSecret(token string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "hcloud", Namespace: "kube-system"},
+		StringData: map[string]string{"token": token},
+	}
 }
 
 func hetznerDNSSecret(ns, token string) *corev1.Secret {
