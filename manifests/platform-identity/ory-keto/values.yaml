@@ -1,8 +1,17 @@
 keto:
   config:
+    serve:
+      read:
+        cors:
+          enabled: true
+      write:
+        cors:
+          enabled: true
     namespaces:
       - id: 0
         name: tenants
+      - id: 1
+        name: mcp_clients
     dsn: env://DSN
 
   automigration:
