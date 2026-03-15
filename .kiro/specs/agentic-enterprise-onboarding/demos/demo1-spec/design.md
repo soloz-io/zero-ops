@@ -19,6 +19,306 @@ Cursor/Goose (MCP Client)
     │
     │ 1. Discover OAuth endpoints
     ▼
+AgentGateway (api.nutgraf.in)
+    │ /.well-known/oauth-protected-resource
+    │
+    │ 2. Fetch authorization server metadata
+    ▼
+auth-proxy (auth.nutgraf.in)
+    │ /.well-known/oauth-authorization-server (proxy to Hydra)
+    │
+    │ 3. Authorization Code Flow with PKCE
+    ▼
+Ory Hydra (OAuth2 Server)
+    │
+    │ 4. User authentication
+    ▼
+Ory Kratos (Identity Provider)
+    │
+    │ 5. JWT issuance
+    ▼
+Cursor/Goose (stores tokens in OS keychain)
+```
+
+### Namespace Deployment
+
+**Namespaces:**
+- `ory-system`: Hydra, Kratos, Keto, kratos-selfservice-ui
+- `identity-services`: auth-proxy
+- `api-gateway`: AgentGateway, demo-echo
+- `zero-ops-system`: CNPG identity-postgres cluster
+
+## Component Specifications
+
+### 1. CNPG Database Cluster
+
+**Resource:** CloudNativePG Cluster
+
+**Namespace:** `zero-ops-system`
+
+**Cluster Name:** `identity-postgres`
+
+**Databases:** hydra, kratos, keto (via CNPG Database CRDs)
+
+**Connection Pattern:**
+- Service DNS: `identity-postgres-rw.zero-ops-system.svc.cluster.local:5432`
+
+### 2. Ory Hydra
+
+**Deployment:** Helm chart `ory/hydra` v25.4.0
+
+**Namespace:** `ory-system`
+
+**Endpoints (actual service names):**
+- Public API: `ory-hydra-public.ory-system.svc.cluster.local:4444`
+- Admin API: `ory-hydra-admin.ory-system.svc.cluster.local:4445`
+
+**Note:** Legacy `hydra-public`/`hydra-admin` services also exist from a prior deployment but are not used.
+
+### 3. Ory Kratos
+
+**Deployment:** Helm chart `ory/kratos` v25.4.0
+
+**Namespace:** `ory-system`
+
+**Endpoints (actual service names):**
+- Public API: `kratos-public.ory-system.svc.cluster.local:80`
+- Admin API: `kratos-admin.ory-system.svc.cluster.local:80`
+
+**Identity Schema:** email (required), role (tenant_admin | platform_admin), tenant_id (optional)
+
+### 4. Ory Keto
+
+**Deployment:** Helm chart `ory/keto` v25.4.0
+
+**Namespace:** `ory-system`
+
+**Endpoints:**
+- Read API: `ory-keto-read.ory-system.svc.cluster.local:80`
+- Write API: `ory-keto-write.ory-system.svc.cluster.local:80`
+
+**Note:** Keto dependency deferred to Demo 2.
+
+### 5. auth-proxy
+
+**Location:** `cmd/auth-proxy/`
+
+**Namespace:** `identity-services`
+
+**Service DNS:** `auth-proxy.identity-services.svc.cluster.local:8080`
+
+**Configuration (actual env vars):**
+```bash
+LISTEN_ADDR=:8080
+HYDRA_PUBLIC_URL=http://hydra-public.ory-system.svc.cluster.local:4444
+HYDRA_ADMIN_URL=http://hydra-admin.ory-system.svc.cluster.local:4445
+HYDRA_INTERNAL_JWKS_URL=http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80
+KRATOS_ADMIN_URL=http://kratos-admin.ory-system.svc.cluster.local:80
+JWKS_CACHE_TTL=1h
+JWKS_FETCH_TIMEOUT=5s
+JWKS_REFRESH_MIN_INTERVAL=10s
+EXPECTED_JWT_AUDIENCE=https://api.nutgraf.in
+TRUSTED_CLIENT_IDS=mcp-public-client
+```
+
+**Responsibilities:**
+- Proxy OAuth metadata and JWKS from Hydra
+- Handle login challenge (session re-use via Kratos whoami)
+- Handle consent (headless claim injection for trusted clients)
+- Pre-register `mcp-public-client` on startup
+- extAuthz validation endpoint (`POST /internal/validate`)
+- Cache JWKS with 1h TTL, refresh on key-id mismatch
+
+**extAuthz Response Headers:**
+```
+X-Auth-User-Id: {sub}
+X-Auth-Email: {email}
+X-Auth-Role: {role}
+# X-Auth-Tenant-Id omitted for Demo 1
+```
+
+### 6. AgentGateway
+
+**Namespace:** `api-gateway`
+
+**Service DNS:** `agentgateway.api-gateway.svc.cluster.local:3000`
+
+**JWKS URL (actual):**
+```
+http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
+```
+
+**Routes:**
+- `GET /health` → direct 200
+- `GET /.well-known/oauth-protected-resource` → static JSON
+- `GET /.well-known/oauth-authorization-server` → static JSON
+- `POST /mcp/*` → extAuthz → demo-echo
+
+**extAuthz:** `POST http://auth-proxy.identity-services.svc.cluster.local:8080/internal/validate`
+
+### 7. kratos-selfservice-ui
+
+**Image:** `oryd/kratos-selfservice-ui-node:v1.3.0`
+
+**Namespace:** `ory-system`
+
+**Configuration (env vars):**
+```bash
+KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433
+KRATOS_BROWSER_URL=https://console.nutgraf.in
+COOKIE_SECRET=<from secret kratos-ui-secrets>
+CSRF_COOKIE_NAME=__HOST-csrf
+CSRF_COOKIE_SECRET=<from secret kratos-ui-secrets>
+```
+
+**Secret:** `kratos-ui-secrets` in `ory-system` (created by bootstrap CLI)
+
+### 8. demo-echo
+
+**Image:** `ealen/echo-server:latest`
+
+**Namespace:** `api-gateway`
+
+**Purpose:** Backend MCP stub — echoes all received headers to prove `X-Auth-*` injection works end-to-end.
+
+## DNS and Ingress
+
+**Domain:** `nutgraf.in` (Hetzner Cloud DNS, zone id=471876)
+
+**LB IP:** `167.235.217.188` (Hetzner LB id=5965657, region fsn1)
+
+**DNS A Records:**
+- `api.nutgraf.in` → `167.235.217.188`
+- `auth.nutgraf.in` → `167.235.217.188`
+- `console.nutgraf.in` → `167.235.217.188`
+
+**Ingress Routes:**
+- `api.nutgraf.in` → `agentgateway.api-gateway:3000` (TLS: `api-zero-ops-tls`)
+- `auth.nutgraf.in` → `auth-proxy.identity-services:8080` (TLS: `auth-zero-ops-tls`)
+- `console.nutgraf.in` → `kratos-selfservice-ui-node.ory-system:3000` (TLS: `console-zero-ops-tls`)
+
+**TLS:** cert-manager HTTP-01 via Let's Encrypt (`letsencrypt-prod` ClusterIssuer)
+
+**Ingress Class:** `nginx` (ingress-nginx, `ssl-redirect: false` during cert issuance)
+
+## Bootstrap CLI
+
+**Command:** `go run ./cmd/zero-ops demo bootstrap`
+
+**Flags:**
+```
+--kubeconfig       path to kubeconfig (default: secrets/mothership.kubeconfig)
+--dns-token        Hetzner Cloud API token (validated against api.hetzner.cloud)
+--hcloud-token     Hetzner Cloud token for CCM (defaults to dns-token)
+--ghcr-username    GHCR username (for image pull secret)
+--ghcr-token       GHCR token (for image pull secret)
+--github-token     GitHub PAT for ArgoCD repo access
+```
+
+**Secrets Created:**
+| Secret | Namespace | Purpose |
+|--------|-----------|---------|
+| `hetzner-dns` | `cert-manager` | cert-manager webhook |
+| `hetzner-dns` | `kube-system` | ExternalDNS |
+| `hcloud` | `kube-system` | Hetzner CCM |
+| `identity-postgres-passwords` | `zero-ops-system` | CNPG DB passwords |
+| `kratos-ui-secrets` | `ory-system` | cookie/CSRF secrets |
+| `ghcr-pull-secret` | `identity-services` | GHCR image pull |
+| `repo-soloz-io-zero-ops` | `argocd` | GitHub repo access |
+
+**Post-secret actions:** Waits for all ArgoCD apps `Synced/Healthy` and all 3 TLS certs `Ready: True` before exiting.
+
+## ArgoCD App-of-Apps Structure
+
+```
+manifests/argocd/
+  app-of-apps.yaml              # demo1 parent — source: manifests/argocd/apps
+  apps/
+    api-gateway.yaml
+    cert-manager-webhook-hetzner.yaml
+    external-dns.yaml
+    hcloud-ccm.yaml             # Hetzner CCM v1.20.0
+    ingress-config.yaml
+    ingress-nginx.yaml
+    network-policies.yaml
+    platform-identity.yaml      # points to manifests/platform-identity/argocd/
+manifests/platform-identity/argocd/
+  app-of-apps.yaml
+  ory-hydra.yaml, ory-kratos.yaml, ory-keto.yaml
+  identity-postgres.yaml, auth-proxy.yaml, kratos-ui.yaml, demo-echo.yaml
+```
+
+## Infrastructure
+
+**Cluster:** Hetzner Cloud, region `fsn1`
+
+**CCM:** `hcloud-cloud-controller-manager` v1.20.0 — manages LB targets automatically via `hcloud` secret in `kube-system`
+
+**ExternalDNS:** `docker.io/hetzner/external-dns-hetzner-webhook:v0.3.2` — syncs DNS A records via Hetzner Cloud API
+
+## PKCE Flow Sequence
+
+### Step 1: Metadata Discovery
+Cursor hits `https://api.nutgraf.in` → AgentGateway returns HTTP 401 with `WWW-Authenticate` header pointing to `/.well-known/oauth-protected-resource`.
+
+### Step 2: Authorization Server Metadata
+Cursor fetches `https://auth.nutgraf.in/.well-known/oauth-authorization-server` → auth-proxy proxies from Hydra.
+
+### Step 3: Authorization Request
+Cursor generates PKCE `code_verifier`/`code_challenge`, opens browser to:
+```
+https://auth.nutgraf.in/oauth2/auth?client_id=mcp-public-client&response_type=code&...
+```
+
+### Step 4: User Authentication
+Hydra → auth-proxy login handler → Kratos UI (`console.nutgraf.in/login`) → user logs in → Kratos redirects back to auth-proxy → auth-proxy accepts login challenge.
+
+### Step 5: Consent (Headless)
+auth-proxy detects `mcp-public-client` as trusted, fetches Kratos identity traits, injects `email`+`role` into JWT session, accepts consent programmatically.
+
+### Step 6: Token Exchange
+Cursor exchanges auth code + `code_verifier` at `https://auth.nutgraf.in/oauth2/token`.
+
+### Step 7: Authenticated Request
+Cursor calls `https://api.nutgraf.in/mcp` with `Authorization: Bearer <jwt>` → AgentGateway extAuthz → auth-proxy validates → `X-Auth-*` headers injected → demo-echo responds.
+
+## Demo Success Criteria
+
+1. `https://api.nutgraf.in` returns HTTP 401 with `WWW-Authenticate` header
+2. Browser opens to `https://console.nutgraf.in/login` automatically
+3. User logs in with `demo@nutgraf.in` / `Demo1Password!` — no consent screen
+4. Browser redirects to Cursor callback and closes
+5. Second request returns HTTP 200 from demo-echo showing `X-Auth-User-Id`, `X-Auth-Email`, `X-Auth-Role` headers
+
+## Seed Data
+
+```bash
+kubectl exec -n ory-system deploy/ory-kratos -- \
+  curl -X POST http://localhost:4434/admin/identities \
+  -H "Content-Type: application/json" \
+  -d '{"schema_id":"default","traits":{"email":"demo@nutgraf.in","role":"tenant_admin"},"credentials":{"password":{"config":{"password":"Demo1Password!"}}}}'
+```
+
+## Overview
+
+**Demo Outcome:** "The platform knows who you are"
+
+This design implements OAuth 2.1 Authorization Code Flow with PKCE for MCP client authentication, enabling Cursor/Goose to authenticate users via browser redirect and obtain JWTs for subsequent API calls.
+
+**Scope:** Requirements 2, 10, 12, 13 (partial - pre-registration only)
+
+**Out of Scope:** CIMD (Req 13 AC4-11), token refresh (Req 14), authorization enforcement (Req 3)
+
+## Architecture
+
+### Component Topology
+
+```
+Cursor/Goose (MCP Client)
+    │
+    │ 1. Discover OAuth endpoints
+    ▼
 AgentGateway
     │ /.well-known/oauth-protected-resource
     │
