@@ -16,4 +16,4 @@ spec:
           config:
             secretName: hetzner-dns
             zoneName: nutgraf.in
-            apiUrl: https://dns.hetzner.com/api/v1
+            apiUrl: https://api.hetzner.cloud/v1
