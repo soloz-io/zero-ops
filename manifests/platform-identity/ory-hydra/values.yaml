@@ -10,9 +10,6 @@ hydra:
     oidc:
       dynamic_client_registration:
         enabled: true
-    oidc:
-      dynamic_client_registration:
-        enabled: true
     ttl:
       access_token: 24h
       refresh_token: 720h
@@ -50,6 +47,8 @@ deployment:
         secretKeyRef:
           name: identity-postgres-passwords
           key: hydra-system-secret
+    - name: OIDC_DYNAMIC_CLIENT_REGISTRATION_ENABLED
+      value: "true"
 
   automigration:
     extraEnv:
