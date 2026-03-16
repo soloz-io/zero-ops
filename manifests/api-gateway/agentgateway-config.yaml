@@ -16,15 +16,6 @@ data:
             directResponse:
               status: 200
               body: "OK"
-        - matches:
-          - path:
-              exact: /.well-known/oauth-protected-resource
-          - path:
-              exact: /.well-known/oauth-protected-resource/mcp
-          policies:
-            directResponse:
-              status: 200
-              body: '{"resource":"https://api.nutgraf.in","authorization_servers":["https://auth.nutgraf.in"]}'
         - backends:
           - mcp:
               targets:
@@ -34,6 +25,10 @@ data:
           matches:
           - path:
               pathPrefix: /mcp
+          - path:
+              exact: /.well-known/oauth-protected-resource/mcp
+          - path:
+              exact: /.well-known/oauth-authorization-server/mcp
           policies:
             cors:
               allowHeaders:
@@ -48,11 +43,11 @@ data:
               mode: strict
               issuer: https://auth.nutgraf.in
               audiences:
-              - https://api.nutgraf.in
+              - https://api.nutgraf.in/mcp
               jwks:
                 url: http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:
-                resource: https://api.nutgraf.in
+                resource: https://api.nutgraf.in/mcp
                 scopesSupported:
                 - tenant:read
                 - tenant:write
