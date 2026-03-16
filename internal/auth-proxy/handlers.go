@@ -53,7 +53,61 @@ func (h *Handler) ProxyJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ProxyOAuth2(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/oauth2/register" && r.Method == http.MethodPost {
+		h.proxyDCR(w, r)
+		return
+	}
 	h.proxy(w, r, r.URL.Path)
+}
+
+func (h *Handler) proxyDCR(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+r.URL.Path, r.Body)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	req.Header = r.Header.Clone()
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		http.Error(w, "Bad gateway", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		http.Error(w, "Bad gateway", http.StatusBadGateway)
+		return
+	}
+
+	// Sanitize fields Cursor's Zod schema rejects
+	if v, ok := body["client_uri"]; !ok || v == "" {
+		delete(body, "client_uri")
+	}
+	if v, ok := body["contacts"]; !ok || v == nil {
+		body["contacts"] = []string{}
+	}
+
+	out, _ := json.Marshal(body)
+	for k, v := range resp.Header {
+		w.Header()[k] = v
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	w.Write(out)
 }
 
 func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {

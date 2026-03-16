@@ -19,6 +19,8 @@ hydra:
       dynamic_client_registration:
         enabled: true
         default_scope: ["openid", "offline_access"]
+    strategies:
+      scope: exact
     ttl:
       access_token: 24h
       refresh_token: 720h
