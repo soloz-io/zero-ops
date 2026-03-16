@@ -34,6 +34,8 @@ data:
               pathPrefix: /mcp
           - path:
               exact: /.well-known/oauth-protected-resource/mcp
+          - path:
+              exact: /.well-known/oauth-protected-resource
           policies:
             cors:
               allowHeaders:
