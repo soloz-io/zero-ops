@@ -10,7 +10,7 @@ kratos:
         domain: nutgraf.in
         name: ory_kratos_session
         same_site: Lax
-        secure: true
+        secure: "true"
     identity:
       default_schema_id: default
       schemas:
@@ -21,8 +21,8 @@ kratos:
       allowed_return_urls:
         - https://auth.nutgraf.in/login
         - https://console.nutgraf.in/
-        - http://127.0.0.1:*/callback
-        - http://localhost:*/callback
+        - http://127.0.0.1:6274/oauth/callback
+        - http://localhost:6274/oauth/callback
       flows:
         login:
           ui_url: https://console.nutgraf.in/login
