@@ -110,16 +110,15 @@ Cursor/Goose (stores tokens in OS keychain)
 **Configuration (actual env vars):**
 ```bash
 LISTEN_ADDR=:8080
-HYDRA_PUBLIC_URL=http://hydra-public.ory-system.svc.cluster.local:4444
-HYDRA_ADMIN_URL=http://hydra-admin.ory-system.svc.cluster.local:4445
-HYDRA_INTERNAL_JWKS_URL=http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
-KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80
-KRATOS_ADMIN_URL=http://kratos-admin.ory-system.svc.cluster.local:80
+HYDRA_PUBLIC_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444
+HYDRA_ADMIN_URL=http://ory-hydra-admin.ory-system.svc.cluster.local:4445
+KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433
+KRATOS_ADMIN_URL=http://ory-kratos-admin.ory-system.svc.cluster.local:4434
 JWKS_CACHE_TTL=1h
 JWKS_FETCH_TIMEOUT=5s
 JWKS_REFRESH_MIN_INTERVAL=10s
 EXPECTED_JWT_AUDIENCE=https://api.nutgraf.in
-TRUSTED_CLIENT_IDS=mcp-public-client
+MCP_GATEWAY_BASE_URL=https://api.nutgraf.in
 ```
 
 **Responsibilities:**
@@ -386,6 +385,9 @@ hydra:
       consent: https://auth.nutgraf.in/consent  # auth-proxy handles consent
     oauth2:
       expose_internal_errors: false
+    strategies:
+      scope: exact
+      access_token: jwt  # Issue JWT access tokens (required for AgentGateway JWT validation)
     ttl:
       access_token: 24h
       refresh_token: 720h  # 30 days
@@ -402,13 +404,9 @@ hydra:
       value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
 ```
 
-**Endpoints:**
-- Public API: `hydra-public.ory-system.svc.cluster.local:4444`
-  - `/oauth2/auth` - Authorization endpoint
-  - `/oauth2/token` - Token endpoint
-  - `/.well-known/jwks.json` - JWKS endpoint
-- Admin API: `hydra-admin.ory-system.svc.cluster.local:4445`
-  - `/admin/clients` - Client management
+**Endpoints (actual service names):**
+- Public API: `ory-hydra-public.ory-system.svc.cluster.local:4444`
+- Admin API: `ory-hydra-admin.ory-system.svc.cluster.local:4445`
 
 **Custom Claims Injection:**
 Custom claims (`email`, `role`, optionally `tenant_id`) are injected by auth-proxy's consent handler via `acceptOAuth2ConsentRequest`. See the auth-proxy Consent Flow description and Step 5 of the PKCE Flow Sequence for the canonical session object structure.
@@ -481,9 +479,9 @@ kratos:
 }
 ```
 
-**Endpoints:**
-- Public API: `kratos-public.ory-system.svc.cluster.local:80`
-- Admin API: `kratos-admin.ory-system.svc.cluster.local:80`
+**Endpoints (actual service names):**
+- Public API: `ory-kratos-public.ory-system.svc.cluster.local:4433`
+- Admin API: `ory-kratos-admin.ory-system.svc.cluster.local:4434`
 
 ### 4. Ory Keto
 
@@ -598,23 +596,23 @@ internal/auth/
 - 5-second timeout on JWKS fetch
 - Minimum 10-second interval between mismatch-triggered refreshes (prevents thundering herd)
 
-**Login Flow (return_to Pattern & Session Re-use):**
+**Login Flow (login_challenge Pattern & Session Re-use):**
 1. Hydra redirects browser to `https://auth.nutgraf.in/login?login_challenge={challenge}`
 2. auth-proxy checks for an existing Kratos session cookie.
-3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` (with no claims injected here), and skips to Step 5.
-4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. auth-proxy MUST percent-encode the entire `return_to` value before appending it as a query parameter. The resulting redirect URL takes the form: `https://console.nutgraf.in/login?return_to=https%3A%2F%2Fauth.nutgraf.in%2Flogin%3Flogin_challenge%3D{challenge}`
-5. User authenticates via Kratos UI, which redirects back to auth-proxy with the challenge intact.
-6. auth-proxy validates session, calls `acceptOAuth2LoginRequest`, and Hydra redirects to the consent endpoint.
+3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest`, and skips to Step 5.
+4. IF NO session exists: auth-proxy redirects browser to `https://console.nutgraf.in/login?login_challenge={challenge}`. Kratos handles the OAuth2 login flow natively via `oauth2_provider` integration.
+5. User authenticates via Kratos self-service UI (email/password).
+6. Kratos redirects back to auth-proxy with the challenge intact.
+7. auth-proxy validates session, calls `acceptOAuth2LoginRequest`, Hydra redirects to consent.
 
 **Consent Flow (Headless Claim Injection):**
 - This is the EXCLUSIVE location for injecting custom JWT claims.
 - auth-proxy fetches identity traits from Kratos Admin API.
-- If Kratos Admin API fails, auth-proxy calls Hydra `rejectOAuth2ConsentRequest` with error `access_denied` and error description.
-- auth-proxy reads `requested_scope` from the consent request and uses it as `grant_scope` (not hardcoded).
-- If `requested_scope` is empty or absent, auth-proxy MUST reject the consent request via `rejectOAuth2ConsentRequest` with `error: invalid_scope` and `error_description: 'No scopes requested'`. Do not issue a scopeless token.
-- auth-proxy detects trusted clients via environment variable `TRUSTED_CLIENT_IDS=mcp-public-client` (comma-separated list). For trusted clients, consent is accepted programmatically without UI rendering.
-- auth-proxy builds the `session` object (injecting `email` and `role` into both `session.access_token` and `session.id_token`).
-- auth-proxy calls Hydra `acceptOAuth2ConsentRequest` with this `session` object.
+- If Kratos Admin API fails, auth-proxy calls Hydra `rejectOAuth2ConsentRequest` with error `access_denied`.
+- auth-proxy reads `requested_scope` from the consent request and uses it as `grant_scope`.
+- If `requested_scope` is empty, auth-proxy rejects with `error: invalid_scope`.
+- Consent is accepted programmatically for all DCR clients — no UI rendered, no static client whitelist.
+- auth-proxy builds the `session` object injecting `email` and `role` into both `session.access_token` and `session.id_token`, and sets `grant_access_token_audience: ["https://api.nutgraf.in/mcp"]`.
 
 **Client Registration (Declarative Startup):**
 - On startup: `GET /admin/clients/mcp-public-client`
@@ -623,22 +621,22 @@ internal/auth/
 - If any other error occurs (e.g., Hydra unavailable, 500), `auth-proxy` triggers `log.Fatal()` to utilize Kubernetes CrashLoopBackOff until Hydra is healthy.
 
 **Dependencies:**
-- Hydra Public API: `http://hydra-public.ory-system.svc.cluster.local:4444`
-- Hydra Admin API: `http://hydra-admin.ory-system.svc.cluster.local:4445`
-- Kratos Public API: `http://kratos-public.ory-system.svc.cluster.local:80`
-- Kratos Admin API: `http://kratos-admin.ory-system.svc.cluster.local:80`
+- Hydra Public API: `http://ory-hydra-public.ory-system.svc.cluster.local:4444`
+- Hydra Admin API: `http://ory-hydra-admin.ory-system.svc.cluster.local:4445`
+- Kratos Public API: `http://ory-kratos-public.ory-system.svc.cluster.local:4433`
+- Kratos Admin API: `http://ory-kratos-admin.ory-system.svc.cluster.local:4434`
 
 **Configuration (environment variables):**
 ```bash
-HYDRA_PUBLIC_URL=http://hydra-public.ory-system.svc.cluster.local:4444
-HYDRA_ADMIN_URL=http://hydra-admin.ory-system.svc.cluster.local:4445
-HYDRA_INTERNAL_JWKS_URL=http://hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
-KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80
-KRATOS_ADMIN_URL=http://kratos-admin.ory-system.svc.cluster.local:80
+HYDRA_PUBLIC_URL=http://ory-hydra-public.ory-system.svc.cluster.local:4444
+HYDRA_ADMIN_URL=http://ory-hydra-admin.ory-system.svc.cluster.local:4445
+KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433
+KRATOS_ADMIN_URL=http://ory-kratos-admin.ory-system.svc.cluster.local:4434
 JWKS_CACHE_TTL=1h
 JWKS_FETCH_TIMEOUT=5s
 JWKS_REFRESH_MIN_INTERVAL=10s
 EXPECTED_JWT_AUDIENCE=https://api.nutgraf.in
+MCP_GATEWAY_BASE_URL=https://api.nutgraf.in
 LISTEN_ADDR=:8080
 ```
 
@@ -743,39 +741,32 @@ data:
 
 **Note:** JWKS caching, TTL management, and key rotation handled entirely by auth-proxy, not AgentGateway.
 
-## OAuth Client Pre-Registration
+## OAuth Client Registration
 
-**Client ID:** `mcp-public-client`
+**Method:** Dynamic Client Registration (DCR) — RFC 7591
 
-**Registration Method:** auth-proxy calls Hydra Admin API on startup
+MCP clients (Cursor, Goose) register dynamically at `https://auth.nutgraf.in/oauth2/register` before initiating the authorization flow. auth-proxy proxies DCR requests to Hydra, injecting `audience: ["https://api.nutgraf.in/mcp"]` into the request body so the issued tokens are accepted by AgentGateway.
 
-**Client Specification:**
+**DCR Request (sent by MCP client):**
 ```json
 {
-  "client_id": "mcp-public-client",
-  "client_name": "Zero-Ops MCP Client",
-  "grant_types": ["authorization_code", "refresh_token"],
+  "redirect_uris": ["http://localhost:39639/oauth/callback"],
+  "grant_types": ["authorization_code"],
   "response_types": ["code"],
-  "redirect_uris": [
-    "http://127.0.0.1:54321/callback",
-    "http://localhost:54321/callback",
-    "http://127.0.0.1:18999/callback",
-    "http://localhost:18999/callback",
-    "http://127.0.0.1:3000/callback",
-    "http://localhost:3000/callback",
-    "cursor://anysphere.cursor-mcp/oauth/callback"
-  ],
-  "token_endpoint_auth_method": "none",
-  "scope": "tenant:read tenant:write cluster:read cluster:write offline_access openid"
+  "token_endpoint_auth_method": "none"
 }
 ```
 
-**Redirect URI Validation:**
-- Hydra natively handles exact string matching for redirect URIs.
-- By explicitly registering both `127.0.0.1` and `localhost` variants, Hydra permits whichever loopback interface the Cursor client dynamically binds to. No custom normalization logic is required in auth-proxy.
+**auth-proxy injects before forwarding to Hydra:**
+```json
+{
+  "audience": ["https://api.nutgraf.in/mcp"]
+}
+```
 
-**Consent Behavior:**
-- The `skip_consent` field is intentionally omitted. Hydra will call the consent endpoint for every flow, and auth-proxy will programmatically accept it without rendering a UI. This is the correct pattern for headless claim injection.
+**Security:** DCR is open (no registration token required). Security comes from PKCE (mandatory S256), redirect URI validation by Hydra, and user authentication via Kratos. Any client that completes the full OAuth + PKCE flow is trusted — no static client whitelist.
+
+**Consent Behavior:** auth-proxy accepts consent programmatically for all DCR clients without rendering a UI (headless claim injection). The `TRUSTED_CLIENT_IDS` env var and static client whitelist have been removed.
 
 ## PKCE Flow Sequence
 
@@ -821,14 +812,19 @@ Host: auth.nutgraf.in
 }
 ```
 
-### Step 3: Authorization Request
+### Step 3: Dynamic Client Registration + Authorization Request
 
-**Cursor Actions:**
-1. Generate `code_verifier`: 43-128 chars, base64url-encoded random string
-2. Compute `code_challenge = BASE64URL(SHA256(code_verifier))`
-3. Generate `state`: 32-byte hex-encoded random string
-4. Bind loopback listener on first available port: 54321 → 18999 → 3000
-5. Open system browser to authorization endpoint
+**Cursor first registers dynamically:**
+```http
+POST /oauth2/register HTTP/1.1
+Host: auth.nutgraf.in
+Content-Type: application/json
+
+{"redirect_uris":["http://localhost:39639/oauth/callback"],"grant_types":["authorization_code"],"response_types":["code"],"token_endpoint_auth_method":"none"}
+```
+auth-proxy injects `"audience": ["https://api.nutgraf.in/mcp"]` before forwarding to Hydra.
+
+**Cursor then generates PKCE and opens browser:**
 
 **Browser URL:**
 ```
@@ -849,7 +845,7 @@ https://auth.nutgraf.in/oauth2/auth?
 1. Hydra redirects browser to `https://auth.nutgraf.in/login?login_challenge={challenge}`
 2. auth-proxy checks for an existing Kratos session cookie.
 3. IF session exists: auth-proxy calls Kratos Public API `GET /sessions/whoami`. On HTTP 200, it extracts `identity.id`, calls Hydra `acceptOAuth2LoginRequest` with `identity.id` as the `subject`, and skips to Step 5.
-4. IF NO session exists: auth-proxy percent-encodes the `return_to` parameter and redirects the browser to Kratos. *(Example: `https://console.nutgraf.in/login?return_to=https%3A%2F%2Fauth.nutgraf.in%2Flogin%3Flogin_challenge%3D{challenge}`)*
+4. IF NO session exists: auth-proxy redirects the browser directly to Kratos UI with the `login_challenge` parameter: `https://console.nutgraf.in/login?login_challenge={challenge}`. Kratos handles the OAuth2 login flow natively via the `oauth2_provider` integration.
 5. User authenticates via Kratos self-service UI (email/password)
 6. Kratos redirects the browser back to auth-proxy with the challenge intact: `https://auth.nutgraf.in/login?login_challenge={challenge}`
 7. auth-proxy validates the Kratos session cookie via `GET /sessions/whoami`
@@ -861,8 +857,7 @@ https://auth.nutgraf.in/oauth2/auth?
 **Flow (Headless Claim Injection):**
 1. Hydra redirects the browser to `https://auth.nutgraf.in/consent?consent_challenge={challenge}`
 2. auth-proxy fetches the consent request from Hydra.
-3. auth-proxy detects the client is `mcp-public-client` (a trusted first-party client).
-4. auth-proxy DOES NOT render an HTML consent screen. It immediately fetches identity traits from the **Kratos Admin API** using the subject UUID.
+3. auth-proxy DOES NOT render an HTML consent screen for any DCR client. It immediately fetches identity traits from the **Kratos Admin API** using the subject UUID.
 5. auth-proxy builds the session object, injecting custom claims into both id_token and access_token, and explicitly setting the audience:
 ```json
 {
@@ -992,7 +987,7 @@ For Demo 1, PKCE flows require HTTPS termination. The following Ingress resource
 - **Namespace:** `ory-system`
 - **Image:** `oryd/kratos-selfservice-ui-node:v1.3.0` (Pinned to match Kratos v25.4.0)
 - **Configuration (Env Vars):**
-  - `KRATOS_PUBLIC_URL=http://kratos-public.ory-system.svc.cluster.local:80`
+  - `KRATOS_PUBLIC_URL=http://ory-kratos-public.ory-system.svc.cluster.local:4433`
   - `KRATOS_BROWSER_URL=https://console.nutgraf.in`
 - **Behavior:** Renders the login HTML form. Automatically forwards unknown query parameters (like `return_to`) to Kratos during the flow.
 
