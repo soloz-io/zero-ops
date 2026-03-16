@@ -64,6 +64,8 @@ func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request
 		"scopes_supported":                      []string{"openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"},
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, MCP-Protocol-Version")
 	json.NewEncoder(w).Encode(meta)
 }
 
