@@ -16,6 +16,9 @@ kratos:
       schemas:
         - id: default
           url: file:///etc/config/schemas/identity.schema.json
+    oauth2_provider:
+      url: http://ory-hydra-admin.ory-system.svc.cluster.local:4445
+      override_return_to: true
     selfservice:
       default_browser_return_url: https://console.nutgraf.in/
       allowed_return_urls:

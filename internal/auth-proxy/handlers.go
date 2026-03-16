@@ -181,11 +181,8 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No session exists, redirect to Kratos with return_to
-	returnTo := fmt.Sprintf("https://%s/login?login_challenge=%s", r.Host, challenge)
-	encodedReturnTo := url.QueryEscape(returnTo)
-	kratosURL := fmt.Sprintf("https://console.nutgraf.in/login?return_to=%s", encodedReturnTo)
-	
+	// No session exists, redirect to Kratos UI with login_challenge
+	kratosURL := fmt.Sprintf("https://console.nutgraf.in/login?login_challenge=%s", challenge)
 	http.Redirect(w, r, kratosURL, http.StatusFound)
 }
 
