@@ -6,6 +6,8 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-http2: "false"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
 spec:
   ingressClassName: nginx
   tls:
@@ -70,6 +72,13 @@ spec:
   - host: console.nutgraf.in
     http:
       paths:
+      - path: /self-service
+        pathType: Prefix
+        backend:
+          service:
+            name: ory-kratos-public
+            port:
+              number: 80
       - path: /
         pathType: Prefix
         backend:
