@@ -18,7 +18,7 @@ hydra:
     oidc:
       dynamic_client_registration:
         enabled: true
-        default_scope: ["openid", "offline_access"]
+        default_scope: ["openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"]
     strategies:
       scope: exact
     ttl:
