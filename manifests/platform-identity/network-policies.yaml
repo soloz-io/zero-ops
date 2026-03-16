@@ -163,6 +163,16 @@ spec:
       port: 4466
     - protocol: TCP
       port: 4467
+  # Allow from within ory-system (UI node → Kratos)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ory-system
+    ports:
+    - protocol: TCP
+      port: 4433
+    - protocol: TCP
+      port: 4434
   # Allow from Ingress for Kratos UI and public API
   - from:
     - namespaceSelector:
