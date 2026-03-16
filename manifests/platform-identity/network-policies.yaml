@@ -163,7 +163,7 @@ spec:
       port: 4466
     - protocol: TCP
       port: 4467
-  # Allow from Ingress for Kratos UI
+  # Allow from Ingress for Kratos UI and public API
   - from:
     - namespaceSelector:
         matchLabels:
@@ -171,6 +171,8 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
+    - protocol: TCP
+      port: 80
   # Allow from AgentGateway for JWKS fetch
   - from:
     - namespaceSelector:
