@@ -17,6 +17,7 @@ type Config struct {
 	JWKSRefreshMinInterval  time.Duration
 	ExpectedJWTAudience     string
 	TrustedClientIDs        string
+	AuthPublicBaseURL       string // public-facing base URL for auth server metadata (e.g. https://auth.nutgraf.in)
 }
 
 func LoadConfig() (*Config, error) {
@@ -45,6 +46,7 @@ func LoadConfig() (*Config, error) {
 		JWKSRefreshMinInterval:  refreshInterval,
 		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.nutgraf.in"),
 		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
+		AuthPublicBaseURL:       getEnv("AUTH_PUBLIC_BASE_URL", "https://auth.nutgraf.in"),
 	}, nil
 }
 

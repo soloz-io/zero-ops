@@ -32,6 +32,7 @@ func main() {
 		cfg.JWKSFetchTimeout,
 		cfg.TrustedClientIDs,
 		cfg.ExpectedJWTAudience,
+		cfg.AuthPublicBaseURL,
 	)
 
 	// Perform initial JWKS fetch to verify connectivity
@@ -54,6 +55,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/oauth-authorization-server", handler.ProxyMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/jwks.json", handler.ProxyJWKS)
 	mux.HandleFunc("/health/ready", handler.HealthReady)
 	mux.HandleFunc("/login", handler.LoginHandler)

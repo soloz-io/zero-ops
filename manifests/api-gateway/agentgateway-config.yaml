@@ -17,6 +17,11 @@ data:
               status: 200
               body: "OK"
         - backends:
+          - host: auth-proxy.identity-services.svc.cluster.local:8080
+          matches:
+          - path:
+              exact: /.well-known/oauth-authorization-server/mcp
+        - backends:
           - mcp:
               targets:
               - name: demo-echo
@@ -27,8 +32,6 @@ data:
               pathPrefix: /mcp
           - path:
               exact: /.well-known/oauth-protected-resource/mcp
-          - path:
-              exact: /.well-known/oauth-authorization-server/mcp
           policies:
             cors:
               allowHeaders:

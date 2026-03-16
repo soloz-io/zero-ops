@@ -13,18 +13,19 @@ import (
 )
 
 type Handler struct {
-	hydraPublicURL string
-	hydraAdminURL  string
-	kratosClient   *KratosClient
-	hydraClient    *HydraClient
-	client         *http.Client
-	trustedClients map[string]bool
-	jwksURL        string
+	hydraPublicURL   string
+	hydraAdminURL    string
+	kratosClient     *KratosClient
+	hydraClient      *HydraClient
+	client           *http.Client
+	trustedClients   map[string]bool
+	jwksURL          string
 	expectedAudience string
-	ready          bool
+	authPublicBaseURL string
+	ready            bool
 }
 
-func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience string) *Handler {
+func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL string) *Handler {
 	trustedClients := make(map[string]bool)
 	for _, id := range strings.Split(trustedClientIDs, ",") {
 		trustedClients[strings.TrimSpace(id)] = true
@@ -38,10 +39,29 @@ func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL s
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		trustedClients:   trustedClients,
-		jwksURL:          hydraPublicURL + "/.well-known/jwks.json",
-		expectedAudience: expectedAudience,
+		trustedClients:    trustedClients,
+		jwksURL:           hydraPublicURL + "/.well-known/jwks.json",
+		expectedAudience:  expectedAudience,
+		authPublicBaseURL: authPublicBaseURL,
 	}
+}
+
+func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
+	base := h.authPublicBaseURL
+	meta := map[string]interface{}{
+		"issuer":                                base,
+		"authorization_endpoint":                base + "/oauth2/auth",
+		"token_endpoint":                        base + "/oauth2/token",
+		"registration_endpoint":                 base + "/oauth2/register",
+		"revocation_endpoint":                   base + "/oauth2/revoke",
+		"jwks_uri":                              base + "/.well-known/jwks.json",
+		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"token_endpoint_auth_methods_supported": []string{"none"},
+		"code_challenge_methods_supported":      []string{"S256"},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(meta)
 }
 
 func (h *Handler) ProxyMetadata(w http.ResponseWriter, r *http.Request) {
