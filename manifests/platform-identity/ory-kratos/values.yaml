@@ -19,8 +19,7 @@ kratos:
     selfservice:
       default_browser_return_url: https://console.nutgraf.in/
       allowed_return_urls:
-        - https://auth.nutgraf.in/login
-        - https://auth.nutgraf.in/login?*
+        - https://auth.nutgraf.in/
         - https://console.nutgraf.in/
         - http://127.0.0.1:6274/oauth/callback
         - http://localhost:6274/oauth/callback
