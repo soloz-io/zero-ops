@@ -18,7 +18,7 @@ data:
               body: "OK"
         - matches:
           - path:
-              exact: /.well-known/oauth-protected-resource
+              pathPrefix: /.well-known/oauth-protected-resource
           policies:
             directResponse:
               status: 200
