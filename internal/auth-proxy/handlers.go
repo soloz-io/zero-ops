@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -141,6 +142,7 @@ func (h *Handler) proxyDCR(w http.ResponseWriter, r *http.Request) {
 		w.Header()[k] = v
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
 	w.WriteHeader(http.StatusCreated)
 	w.Write(out)
 }
