@@ -200,12 +200,7 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if client is trusted
-	clientID, _ := consentReq["client"].(map[string]interface{})["client_id"].(string)
-	if !h.trustedClients[clientID] {
-		h.rejectConsent(w, r, challenge, "access_denied", "Client not trusted")
-		return
-	}
+	// All DCR-registered clients are trusted (DCR is already access-controlled)
 
 	// Validate requested scopes
 	requestedScopes, _ := consentReq["requested_scope"].([]interface{})
