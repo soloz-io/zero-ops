@@ -34,8 +34,6 @@ data:
           matches:
           - path:
               pathPrefix: /mcp
-          - path:
-              exact: /.well-known/oauth-authorization-server
           policies:
             cors:
               allowHeaders:
