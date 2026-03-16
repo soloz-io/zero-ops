@@ -33,6 +33,7 @@ func main() {
 		cfg.TrustedClientIDs,
 		cfg.ExpectedJWTAudience,
 		cfg.AuthPublicBaseURL,
+		cfg.MCPGatewayBaseURL,
 	)
 
 	// Perform initial JWKS fetch to verify connectivity
@@ -54,7 +55,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/oauth-authorization-server", handler.ProxyMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/jwks.json", handler.ProxyJWKS)
 	mux.HandleFunc("/health/ready", handler.HealthReady)

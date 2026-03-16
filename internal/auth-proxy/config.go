@@ -18,6 +18,7 @@ type Config struct {
 	ExpectedJWTAudience     string
 	TrustedClientIDs        string
 	AuthPublicBaseURL       string // public-facing base URL for auth server metadata (e.g. https://auth.nutgraf.in)
+	MCPGatewayBaseURL       string // base URL of the MCP gateway (e.g. https://api.nutgraf.in) used as issuer in gateway-served metadata
 }
 
 func LoadConfig() (*Config, error) {
@@ -47,6 +48,7 @@ func LoadConfig() (*Config, error) {
 		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.nutgraf.in"),
 		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
 		AuthPublicBaseURL:       getEnv("AUTH_PUBLIC_BASE_URL", "https://auth.nutgraf.in"),
+		MCPGatewayBaseURL:       getEnv("MCP_GATEWAY_BASE_URL", "https://api.nutgraf.in"),
 	}, nil
 }
 

@@ -21,6 +21,8 @@ data:
           matches:
           - path:
               exact: /.well-known/oauth-authorization-server/mcp
+          - path:
+              exact: /.well-known/oauth-authorization-server
         - backends:
           - mcp:
               targets:

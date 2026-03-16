@@ -13,19 +13,20 @@ import (
 )
 
 type Handler struct {
-	hydraPublicURL   string
-	hydraAdminURL    string
-	kratosClient     *KratosClient
-	hydraClient      *HydraClient
-	client           *http.Client
-	trustedClients   map[string]bool
-	jwksURL          string
-	expectedAudience string
+	hydraPublicURL    string
+	hydraAdminURL     string
+	kratosClient      *KratosClient
+	hydraClient       *HydraClient
+	client            *http.Client
+	trustedClients    map[string]bool
+	jwksURL           string
+	expectedAudience  string
 	authPublicBaseURL string
-	ready            bool
+	mcpGatewayBaseURL string
+	ready             bool
 }
 
-func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL string) *Handler {
+func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL string) *Handler {
 	trustedClients := make(map[string]bool)
 	for _, id := range strings.Split(trustedClientIDs, ",") {
 		trustedClients[strings.TrimSpace(id)] = true
@@ -43,18 +44,19 @@ func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL s
 		jwksURL:           hydraPublicURL + "/.well-known/jwks.json",
 		expectedAudience:  expectedAudience,
 		authPublicBaseURL: authPublicBaseURL,
+		mcpGatewayBaseURL: mcpGatewayBaseURL,
 	}
 }
 
 func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
-	base := h.authPublicBaseURL
+	auth := h.authPublicBaseURL
 	meta := map[string]interface{}{
-		"issuer":                                base,
-		"authorization_endpoint":                base + "/oauth2/auth",
-		"token_endpoint":                        base + "/oauth2/token",
-		"registration_endpoint":                 base + "/oauth2/register",
-		"revocation_endpoint":                   base + "/oauth2/revoke",
-		"jwks_uri":                              base + "/.well-known/jwks.json",
+		"issuer":                                h.mcpGatewayBaseURL,
+		"authorization_endpoint":                auth + "/oauth2/auth",
+		"token_endpoint":                        auth + "/oauth2/token",
+		"registration_endpoint":                 auth + "/oauth2/register",
+		"revocation_endpoint":                   auth + "/oauth2/revoke",
+		"jwks_uri":                              auth + "/.well-known/jwks.json",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
