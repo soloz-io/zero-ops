@@ -26,9 +26,9 @@ data:
         - backends:
           - mcp:
               targets:
-              - name: demo-echo
+              - name: mcp-server
                 mcp:
-                  host: http://demo-echo.api-gateway.svc.cluster.local:8080/mcp
+                  host: http://mcp-server.api-gateway.svc.cluster.local:8080/mcp
           matches:
           - path:
               pathPrefix: /mcp

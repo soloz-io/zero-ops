@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: demo-echo
+  name: mcp-server
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/api-gateway/demo-echo
+    path: manifests/api-gateway/mcp-server
   destination:
     server: https://kubernetes.default.svc
     namespace: api-gateway

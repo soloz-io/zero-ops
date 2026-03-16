@@ -99,11 +99,11 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # Allow to demo-echo backend
+  # Allow to mcp-server backend
   - to:
     - podSelector:
         matchLabels:
-          app: demo-echo
+          app: mcp-server
     ports:
     - protocol: TCP
       port: 8080
