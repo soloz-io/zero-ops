@@ -7,7 +7,13 @@
       "properties": {
         "email": {
           "type": "string",
-          "format": "email"
+          "format": "email",
+          "title": "E-Mail",
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": { "identifier": true }
+            }
+          }
         },
         "tenant_id": {
           "type": "string"
