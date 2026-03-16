@@ -18,7 +18,6 @@ type Handler struct {
 	kratosClient      *KratosClient
 	hydraClient       *HydraClient
 	client            *http.Client
-	trustedClients    map[string]bool
 	jwksURL           string
 	expectedAudience  string
 	authPublicBaseURL string
@@ -27,11 +26,6 @@ type Handler struct {
 }
 
 func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL string) *Handler {
-	trustedClients := make(map[string]bool)
-	for _, id := range strings.Split(trustedClientIDs, ",") {
-		trustedClients[strings.TrimSpace(id)] = true
-	}
-
 	return &Handler{
 		hydraPublicURL: hydraPublicURL,
 		hydraAdminURL:  hydraAdminURL,
@@ -40,7 +34,6 @@ func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL s
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		trustedClients:    trustedClients,
 		jwksURL:           hydraPublicURL + "/.well-known/jwks.json",
 		expectedAudience:  expectedAudience,
 		authPublicBaseURL: authPublicBaseURL,
@@ -197,13 +190,6 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Failed to fetch consent request: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Check if client is trusted
-	clientID, _ := consentReq["client"].(map[string]interface{})["client_id"].(string)
-	if !h.trustedClients[clientID] {
-		h.rejectConsent(w, r, challenge, "access_denied", "Client not trusted")
 		return
 	}
 
