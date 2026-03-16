@@ -31,6 +31,7 @@ hydra:
         default_scope: ["openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"]
     strategies:
       scope: exact
+      access_token: jwt
     ttl:
       access_token: 24h
       refresh_token: 720h
