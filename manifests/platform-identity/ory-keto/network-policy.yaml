@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ory-keto-netpol
+  namespace: ory-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keto
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from auth-proxy
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: identity-services
+    ports:
+    - protocol: TCP
+      port: 4466
+    - protocol: TCP
+      port: 4467
+  egress:
+  # Allow to CNPG database
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: zero-ops-system
+      podSelector:
+        matchLabels:
+          cnpg.io/cluster: zero-ops-platform-db
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
