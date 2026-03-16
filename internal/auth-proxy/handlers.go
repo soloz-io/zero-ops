@@ -1,6 +1,7 @@
 package authproxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,12 +83,22 @@ func (h *Handler) proxyDCR(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+r.URL.Path, r.Body)
+	// Inject audience into DCR request body
+	var reqBody map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	reqBody["audience"] = []string{h.mcpGatewayBaseURL + "/mcp"}
+	injected, _ := json.Marshal(reqBody)
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+r.URL.Path, bytes.NewReader(injected))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	req.Header = r.Header.Clone()
+	req.Header.Set("Content-Length", strconv.Itoa(len(injected)))
 
 	resp, err := h.client.Do(req)
 	if err != nil {
