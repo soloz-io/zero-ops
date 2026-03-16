@@ -116,15 +116,18 @@ func (h *Handler) proxyDCR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sanitize fields Cursor's Zod schema rejects
-	for _, f := range []string{"client_uri", "logo_uri", "tos_uri", "policy_uri", "owner"} {
-		if v, ok := body[f]; !ok || v == "" {
-			delete(body, f)
+	// Remove null and empty fields that Cursor's Zod schema rejects
+	for k, v := range body {
+		if v == nil {
+			delete(body, k)
+			continue
 		}
-	}
-	if jwks, ok := body["jwks"]; ok {
-		if m, ok := jwks.(map[string]interface{}); ok && len(m) == 0 {
-			delete(body, "jwks")
+		if s, ok := v.(string); ok && s == "" {
+			delete(body, k)
+			continue
+		}
+		if m, ok := v.(map[string]interface{}); ok && len(m) == 0 {
+			delete(body, k)
 		}
 	}
 	if v, ok := body["contacts"]; !ok || v == nil {
