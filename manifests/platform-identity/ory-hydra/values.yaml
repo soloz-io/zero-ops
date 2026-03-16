@@ -10,12 +10,11 @@ hydra:
         base_url: https://auth.nutgraf.in
         cors:
           enabled: true
+    webfinger:
+      oidc_discovery:
+        client_registration_url: https://auth.nutgraf.in/oauth2/register
     oauth2:
       expose_internal_errors: false
-    oidc:
-      dynamic_client_registration:
-        enabled: true
-        default_scope: ["openid", "offline_access"]
     oidc:
       dynamic_client_registration:
         enabled: true
@@ -51,8 +50,6 @@ deployment:
         secretKeyRef:
           name: identity-postgres-passwords
           key: hydra-system-secret
-    - name: OIDC_DYNAMIC_CLIENT_REGISTRATION_ENABLED
-      value: "true"
 
   automigration:
     extraEnv:
