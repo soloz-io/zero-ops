@@ -2,7 +2,7 @@ kratos:
   config:
     serve:
       public:
-        base_url: https://auth.nutgraf.in
+        base_url: https://console.nutgraf.in
         cors:
           enabled: true
     session:
