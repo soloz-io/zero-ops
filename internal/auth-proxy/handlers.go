@@ -340,7 +340,14 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	req.Header = r.Header.Clone()
 	req.URL.RawQuery = r.URL.RawQuery
 
-	resp, err := h.client.Do(req)
+	noRedirectClient := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := noRedirectClient.Do(req)
 	if err != nil {
 		log.Printf("Failed to proxy request to Hydra: %v", err)
 		http.Error(w, "Bad gateway", http.StatusBadGateway)
@@ -352,7 +359,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(resp.StatusCode)
-	
+
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Printf("Failed to copy response body: %v", err)
 	}
