@@ -51,7 +51,7 @@ func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL s
 func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	auth := h.authPublicBaseURL
 	meta := map[string]interface{}{
-		"issuer":                                h.mcpGatewayBaseURL,
+		"issuer":                                auth,
 		"authorization_endpoint":                auth + "/oauth2/auth",
 		"token_endpoint":                        auth + "/oauth2/token",
 		"registration_endpoint":                 auth + "/oauth2/register",
@@ -61,6 +61,7 @@ func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"code_challenge_methods_supported":      []string{"S256"},
+		"scopes_supported":                      []string{"openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(meta)
@@ -227,7 +228,7 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	// Accept consent
 	acceptReq := map[string]interface{}{
 		"grant_scope":                requestedScopes,
-		"grant_access_token_audience": []string{"https://api.nutgraf.in"},
+		"grant_access_token_audience": []string{h.mcpGatewayBaseURL + "/mcp"},
 		"session":                    session,
 	}
 
