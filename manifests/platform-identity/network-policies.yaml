@@ -163,7 +163,7 @@ spec:
       port: 4466
     - protocol: TCP
       port: 4467
-  # Allow from within ory-system (UI node → Kratos)
+  # Allow from within ory-system (UI node → Kratos, Kratos → Hydra admin)
   - from:
     - namespaceSelector:
         matchLabels:
@@ -173,6 +173,8 @@ spec:
       port: 4433
     - protocol: TCP
       port: 4434
+    - protocol: TCP
+      port: 4445
   # Allow from Ingress for Kratos UI and public API
   - from:
     - namespaceSelector:
