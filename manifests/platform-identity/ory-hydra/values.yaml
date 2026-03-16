@@ -10,6 +10,16 @@ hydra:
         base_url: https://auth.nutgraf.in
         cors:
           enabled: true
+          allowed_origins:
+            - "*"
+          allowed_methods:
+            - GET
+            - POST
+            - OPTIONS
+          allowed_headers:
+            - Authorization
+            - Content-Type
+            - MCP-Protocol-Version
     webfinger:
       oidc_discovery:
         client_registration_url: https://auth.nutgraf.in/oauth2/register
