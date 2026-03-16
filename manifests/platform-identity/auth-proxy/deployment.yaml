@@ -46,9 +46,9 @@ spec:
         - name: HYDRA_INTERNAL_JWKS_URL
           value: "http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json"
         - name: KRATOS_PUBLIC_URL
-          value: "http://kratos-public.ory-system.svc.cluster.local:80"
+          value: "http://ory-kratos-public.ory-system.svc.cluster.local:80"
         - name: KRATOS_ADMIN_URL
-          value: "http://kratos-admin.ory-system.svc.cluster.local:80"
+          value: "http://ory-kratos-admin.ory-system.svc.cluster.local:80"
         - name: JWKS_CACHE_TTL
           value: "1h"
         - name: JWKS_FETCH_TIMEOUT
