@@ -215,3 +215,11 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
+  # Allow Kratos → Hydra admin within ory-system
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ory-system
+    ports:
+    - protocol: TCP
+      port: 4445
