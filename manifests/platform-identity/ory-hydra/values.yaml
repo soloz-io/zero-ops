@@ -63,6 +63,14 @@ deployment:
         secretKeyRef:
           name: identity-postgres-passwords
           key: hydra-system-secret
+    - name: SERVE_PUBLIC_CORS_ENABLED
+      value: "true"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_ORIGINS
+      value: "*"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_METHODS
+      value: "GET,POST,OPTIONS"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_HEADERS
+      value: "Authorization,Content-Type,MCP-Protocol-Version"
 
   automigration:
     extraEnv:
