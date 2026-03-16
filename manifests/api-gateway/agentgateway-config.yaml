@@ -51,10 +51,12 @@ data:
               issuer: https://auth.nutgraf.in
               audiences:
               - https://api.nutgraf.in/mcp
+              realm: MCP
               jwks:
                 url: http://ory-hydra-public.ory-system.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:
                 resource: https://api.nutgraf.in/mcp
+                mcpProtocolVersion: "2024-11-05"
                 scopesSupported:
                 - tenant:read
                 - tenant:write
