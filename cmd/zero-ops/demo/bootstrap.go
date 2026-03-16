@@ -94,6 +94,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		{"zero-ops-system", postgresPasswordsSecret(ctx, client, hydraPwd, kratosPwd, ketoPwd)},
 		{"ory-system", kratosUISecret()},
 		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
+		{"api-gateway", ghcrPullSecret(ghcrUsername, ghcrToken)},
 		{"argocd", argoCDRepoSecret(githubToken)},
 	}
 
