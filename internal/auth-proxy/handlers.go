@@ -52,6 +52,10 @@ func (h *Handler) ProxyJWKS(w http.ResponseWriter, r *http.Request) {
 	h.proxy(w, r, "/.well-known/jwks.json")
 }
 
+func (h *Handler) ProxyOAuth2(w http.ResponseWriter, r *http.Request) {
+	h.proxy(w, r, r.URL.Path)
+}
+
 func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
 	if !h.ready {
 		http.Error(w, "Not ready", http.StatusServiceUnavailable)
@@ -240,12 +244,14 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", h.hydraPublicURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+path, r.Body)
 	if err != nil {
 		log.Printf("Failed to create proxy request: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	req.Header = r.Header.Clone()
+	req.URL.RawQuery = r.URL.RawQuery
 
 	resp, err := h.client.Do(req)
 	if err != nil {

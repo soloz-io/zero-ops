@@ -59,6 +59,7 @@ func main() {
 	mux.HandleFunc("/login", handler.LoginHandler)
 	mux.HandleFunc("/consent", handler.ConsentHandler)
 	mux.HandleFunc("/internal/validate", handler.ValidateHandler)
+	mux.HandleFunc("/oauth2/", handler.ProxyOAuth2)
 
 	srv := &http.Server{
 		Addr:    cfg.ListenAddr,
