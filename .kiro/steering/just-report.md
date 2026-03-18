@@ -13,3 +13,4 @@ inclusion: manual
 - do not generate any configurations or code during the conversation. 
 - keep the conversation at design level and not implementation details.
 - Analyse the user reported prompt with required involved files before proposig the fix.
+- keep your responses short and concise to maintain context efficiently for large conversation.
