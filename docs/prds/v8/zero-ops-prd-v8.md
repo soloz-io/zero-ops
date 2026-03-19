@@ -336,7 +336,7 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │  PLATFORM IDENTITY LAYER (shared, one instance)                       │
   │                                                                       │
   │  ┌─────────────────────────────────────────────────────────────────┐ │
-  │  │  identity-service (Python) — Ory stack abstraction layer        │ │
+  │  │  auth-proxy (Go) — Ory stack abstraction layer              │ │
   │  │  Exposes: JWT validation, JWKS, OAuth metadata, Keto checks     │ │
   │  └────────────────────────┬────────────────────────────────────────┘ │
   │                           │                                           │
@@ -346,13 +346,13 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │  All users: platform admins, tenant admins, tenant end-users          │
   │  Isolation: tenant_id in Kratos identity traits + Keto tuples         │
   └─────────────────────────────┬─────────────────────────────────────────┘
-                                │  JWT (Hydra-signed via identity-service)
+                                │  JWT (Hydra-signed via auth-proxy)
                                 ▼
   ┌───────────────────────────────────────────────────────────────────────┐
   │  AGENTGATEWAY (CNCF, Rust) — single auth enforcement point           │
   │                                                                       │
   │  Routes: MCP tool calls, A2A communications                           │
-  │  Validates: JWT via identity-service (never calls Ory directly)       │
+  │  Validates: JWT via auth-proxy (never calls Ory directly)         │
   │  Individual MCP tool servers: no auth logic (AgentGateway owns it)    │
   │                                                                       │
   │  Clients: Goose (reference), Cursor, Claude Desktop, any MCP client  │
@@ -455,10 +455,10 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 | **Composition A — Starter** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: starter`) into shared cluster namespace resources. Provisions in seconds. |
 | **Composition B — Enterprise** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: enterprise`) into full dedicated cluster stack. Provisions in 10–15 minutes. |
 | **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
-| **identity-service** | Python service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. AgentGateway never calls Ory directly. |
-| **Ory Kratos** | Ory Kratos OSS, Kubernetes Helm chart | All identity: platform team, tenant admins, tenant end-users. `tenant_id` in identity traits for isolation. Accessed only via identity-service. |
-| **Ory Hydra** | Ory Hydra OSS, stateless, Kubernetes Helm chart | OAuth2/OIDC token issuer. Issues JWTs after Authorization Code + PKCE flow. Accessed only via identity-service. |
-| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. Accessed only via identity-service. |
+| **auth-proxy** | Go service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. AgentGateway never calls Ory directly. |
+| **Ory Kratos** | Ory Kratos OSS, Kubernetes Helm chart | All identity: platform team, tenant admins, tenant end-users. `tenant_id` in identity traits for isolation. Accessed only via auth-proxy. |
+| **Ory Hydra** | Ory Hydra OSS, stateless, Kubernetes Helm chart | OAuth2/OIDC token issuer. Issues JWTs after Authorization Code + PKCE flow. Accessed only via auth-proxy. |
+| **Ory Keto** | Ory Keto OSS, Kubernetes Helm chart | Relationship-based RBAC. Defines who can see which tenant's resources, who can approve which operations. Accessed only via auth-proxy. |
 | **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point. No per-tool-server auth logic needed. |
 | **Crossplane** | Crossplane OSS, management cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
 | **ProvisioningAgent** | New Worker Agent (Go) | Handles `AINativeSaaS` provisioning intents. Calls `crossplane-mcp` to create/update/delete XR claims. |
@@ -488,8 +488,8 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
 | LLM Gateway | Renamed and superseded by **AgentGateway** for MCP/A2A routing. LLM backend governance (rate limiting, cost attribution, fallback) retained as AgentGateway sub-feature. |
 | CAPI ClusterClass OS | Ubuntu (kubeadm) replaces Talos. `KubeadmControlPlaneTemplate` is the control plane template. `manifests/classes/hetzner-prod-ubuntu-v1.yaml` replaces `hetzner-prod-talos-v1.yaml`. |
 | cnpg2monitor | Promoted from `Role` (management namespace only) to `ClusterRole` (all namespaces). Phase 3 upgrade is now Phase 2b prerequisite. |
-| MCP tool servers | Individual servers no longer implement auth logic. AgentGateway is the single enforcement point via identity-service. |
-| Ory stack access | All Ory stack interactions (Kratos, Hydra, Keto) are proxied through identity-service. AgentGateway never calls Ory directly. |
+| MCP tool servers | Individual servers no longer implement auth logic. AgentGateway is the single enforcement point via auth-proxy. |
+| Ory stack access | All Ory stack interactions (Kratos, Hydra, Keto) are proxied through auth-proxy. AgentGateway never calls Ory directly. |
 
 ### 4.3 Integration & Control Plane
 
@@ -665,10 +665,10 @@ Both databases reside in the same CNPG cluster (Enterprise) or shared CNPG insta
 #### 5.3.1 Platform Identity Stack (shared, one instance per Zero-Ops deployment)
 
 ```
-identity-service (Python)
+auth-proxy (Go)
   Abstraction layer between AgentGateway and Ory stack
   Exposes: JWKS endpoint, OAuth metadata, JWT validation, Keto permission checks
-  AgentGateway calls identity-service ONLY (never Ory directly)
+  AgentGateway calls auth-proxy ONLY (never Ory directly)
   
   ↓ interfaces with ↓
 
@@ -676,39 +676,39 @@ Ory Kratos
   Identity store for: platform admins, tenant admins, tenant end-users
   Isolation: tenant_id field in identity traits schema
   Schema: { email, name, tenant_id, role: [platform_admin|tenant_admin|tenant_user] }
-  Accessed only via identity-service
+  Accessed only via auth-proxy
 
 Ory Hydra
   OAuth2/OIDC token issuer
   Clients: MCP clients via Authorization Code + PKCE flow
   Token claims include: sub, tenant_id, role, scope
-  Accessed only via identity-service
+  Accessed only via auth-proxy
 
 Ory Keto
   Relationship tuples define access:
     tenant:acme-corp#admin@user:alice     (alice is admin of acme-corp)
     tenant:acme-corp#viewer@user:bob      (bob can view acme-corp)
     platform#admin@user:carol            (carol is platform admin — sees all tenants)
-  Accessed only via identity-service
+  Accessed only via auth-proxy
 ```
 
 #### 5.3.2 JWT Flow
 
 ```
-User/Agent authenticates via Kratos (through identity-service)
+User/Agent authenticates via Kratos (through auth-proxy)
         │
 Kratos confirms identity + tenant_id
         │
-Hydra issues JWT (via identity-service):
+Hydra issues JWT (via auth-proxy):
   { sub: "user-uuid", tenant_id: "acme-corp", role: "tenant_admin", scope: "..." }
         │
 JWT passed in Authorization: Bearer header to AgentGateway
         │
-AgentGateway calls identity-service to validate JWT signature
-identity-service fetches JWKS from Hydra, validates, returns claims
+AgentGateway calls auth-proxy to validate JWT signature
+auth-proxy fetches JWKS from Hydra, validates, returns claims
         │
-AgentGateway calls identity-service Keto check: "can this user call this MCP tool?"
-identity-service queries Keto, returns allow/deny
+AgentGateway calls auth-proxy Keto check: "can this user call this MCP tool?"
+auth-proxy queries Keto, returns allow/deny
         │
 If authorized: routes MCP call to tool server
 If not: returns 403 Forbidden
@@ -837,8 +837,8 @@ teardown_actions:
 
 | Dependency | When Read | Caching Strategy |
 |---|---|---|
-| identity-service JWKS endpoint | AgentGateway startup + cache refresh on 401 | Cached in memory, refreshed on JWT validation failure or every 5 minutes |
-| identity-service Keto check API | Per MCP tool call (authorization check) | No cache — authorization decisions must be real-time |
+| auth-proxy JWKS endpoint | AgentGateway startup + cache refresh on 401 | Cached in memory, refreshed on JWT validation failure or every 5 minutes |
+| auth-proxy Keto check API | Per MCP tool call (authorization check) | No cache — authorization decisions must be real-time |
 | Hetzner pricing API | At tenant provisioning request time (cost estimate) | Per-request, not cached — prices change |
 | CNPG backup (CSI snapshot restore) | At PR environment creation and AgentSandbox pod startup | One-time per lifecycle event — not per request |
 | OCI catalog (Git → CI → ArgoCD pull) | ArgoCD polling interval (default: 3 minutes) | ArgoCD native cache |
@@ -850,16 +850,16 @@ teardown_actions:
 #### 5.9.2 Idiomatic Behavior & Anti-Patterns
 
 **Idiomatic:**
-- AgentGateway caches JWKS from identity-service at startup and refreshes on cache miss — not on every request.
+- AgentGateway caches JWKS from auth-proxy at startup and refreshes on cache miss — not on every request.
 - CNPG snapshot restores happen once per PR environment or AgentSandbox pod lifecycle — not on every agent execution step.
 - ArgoCD polls OCI catalog (built from Git) on a fixed interval — not triggered by API calls.
 - agent memory (pgvector) is read once per agent conversation session and updated at session end — not on every message.
 
 **Anti-patterns (must NOT):**
 - Must NOT call Hetzner pricing API on every dashboard page load — derive from provisioning-time snapshot, refresh on explicit user action only.
-- Must NOT call Keto check API from MCP tool server implementations — authorization is AgentGateway's responsibility via identity-service.
+- Must NOT call Keto check API from MCP tool server implementations — authorization is AgentGateway's responsibility via auth-proxy.
 - Must NOT fetch JWKS on every JWT validation — cache with TTL.
-- Must NOT call Ory stack (Kratos, Hydra, Keto) directly from AgentGateway — always use identity-service.
+- Must NOT call Ory stack (Kratos, Hydra, Keto) directly from AgentGateway — always use auth-proxy.
 - Must NOT restore CSI snapshot on every agent tool call — snapshot is the pod's initial state, not a per-call operation.
 - Must NOT call `zero-ops-api` directly from ArgoCD — ArgoCD pulls from OCI artifact store only. API is not a reconciliation dependency.
 
@@ -921,12 +921,12 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 
 1. Tenant Admin types in Goose: `"Onboard Acme Corp on the enterprise plan in eu-central-1."`
 2. Goose calls `tenant_create` via AgentGateway MCP endpoint.
-3. AgentGateway detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header with resource_metadata URL pointing to identity-service.
-4. Goose discovers OAuth endpoints via identity-service metadata endpoints, initiates OAuth 2.1 Authorization Code + PKCE flow: generates code_verifier, computes code_challenge (SHA256), opens system browser to authorization URL (via identity-service) with PKCE parameters and custom URI scheme redirect (goose://callback).
-5. Tenant Admin opens browser (automatically), completes Kratos login (email + password or SSO) via identity-service.
-6. Hydra (via identity-service) redirects to goose://callback?code={authorization_code}&state={state}. Goose validates state, exchanges authorization code + code_verifier for Access Token (JWT) via identity-service token endpoint.
+3. AgentGateway detects missing JWT. Returns `401 Unauthorized` + `WWW-Authenticate` header with resource_metadata URL pointing to auth-proxy.
+4. Goose discovers OAuth endpoints via auth-proxy metadata endpoints, initiates OAuth 2.1 Authorization Code + PKCE flow: generates code_verifier, computes code_challenge (SHA256), opens system browser to authorization URL (via auth-proxy) with PKCE parameters and custom URI scheme redirect (goose://callback).
+5. Tenant Admin opens browser (automatically), completes Kratos login (email + password or SSO) via auth-proxy.
+6. Hydra (via auth-proxy) redirects to goose://callback?code={authorization_code}&state={state}. Goose validates state, exchanges authorization code + code_verifier for Access Token (JWT) via auth-proxy token endpoint.
 7. Goose retries `tenant_create` automatically with JWT.
-7. AgentGateway validates JWT via identity-service. Calls identity-service Keto check: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
+7. AgentGateway validates JWT via auth-proxy. Calls auth-proxy Keto check: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
 8. `zero-ops-api` creates tenant record in PostgreSQL. Returns `201 Created` with `tenant_id: acme-corp`.
 9. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.nutgraf.in/settings/credentials"`. Goose pauses and polls for credential confirmation.
 10. Tenant Admin opens console (already authenticated via Kratos session). Console displays credential submission form (read-only view with "Resolve in IDE" button).
@@ -1215,7 +1215,7 @@ Infrastructure Fleet Platforms        Developer Platforms         BaaS / Backend
 
 **What separates Zero-Ops from BaaS:** Full Kubernetes control plane access. AI-native agent system with runbook-grounded remediation. Fleet-wide observability (VictoriaMetrics + OpenSearch) with cross-cluster correlation. Autopilot-with-consent model. Eject option — tenant can take full ownership of their environment at any time.
 
-**The build vs. adopt principle (v8.0 extended):** Crossplane (composition), Ory Kratos/Hydra/Keto (identity), PostgREST (auto API), gVisor (sandbox isolation), LiteLLM (AI gateway), PgBouncer (connection pooling), KSOPS+Age (secrets) — all production-proven, CNCF-aligned or open source tools used at scale. Custom code is reserved for: the thin MCP integration layer, the agent reasoning logic, the Crossplane Compositions that wire these tools together, and the Platform Console that surfaces them to tenants. This is the engineering strategy that makes the platform viable without a 100-person platform team.
+**The build vs. adopt principle (v8.0 extended):** Crossplane (composition), Ory Kratos/Hydra/Keto (identity), PostgREST (auto API), gVisor (sandbox isolation), LiteLLM (AI gateway), PgBouncer (connection pooling), Infisical + External Secrets Operator (secrets) — all production-proven, CNCF-aligned or open source tools used at scale. Custom code is reserved for: the thin MCP integration layer, the agent reasoning logic, the Crossplane Compositions that wire these tools together, and the Platform Console that surfaces them to tenants. This is the engineering strategy that makes the platform viable without a 100-person platform team.
 
 ---
 
