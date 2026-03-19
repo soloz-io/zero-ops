@@ -47,7 +47,7 @@ update_criteria: Auth pattern decisions, security principle changes, Ory stack c
 - ❌ AgentGateway does NOT need Kratos Admin API access
 - ❌ AgentGateway does NOT proxy OAuth endpoints
 
-### identity-service Scope
+### auth-proxy Scope
 - ✅ Thin orchestration layer for: onboarding, user management, org management
 - ✅ Calls Hydra Admin API for client lifecycle
 - ✅ Owns login/consent endpoints
@@ -93,7 +93,7 @@ CloudNativePG Cluster
 - Prevents token validation failures during Hydra key rotation
 
 ### Consent Service Ownership
-- identity-service owns the consent endpoint (not Hydra directly)
-- Flow: `Hydra → redirect to consent app → identity-service evaluates → acceptOAuth2ConsentRequest`
+- auth-proxy owns the consent endpoint (not Hydra directly)
+- Flow: `Hydra → redirect to consent app → auth-proxy evaluates → acceptOAuth2ConsentRequest`
 - Keeps business logic outside Hydra
 - Allows custom consent rules per tenant/organization

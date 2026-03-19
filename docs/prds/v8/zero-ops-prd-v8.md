@@ -364,12 +364,15 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │                                                                       │
   │  Platform Console (RBAC-scoped UI)                                    │
   │       │  REST / WebSocket                                             │
-  │  zero-ops-api  ◄──────────────────────────────────────────────────┐  │
-  │       │  Commits AINativeSaaS CR to Git                            │  │
+  │  zero-ops-api (Hub API)                                            │  │
+  │       │  1. Commits AINativeSaaS CR directly to Git                │  │
+  │       │  2. Reads status strictly from PostgreSQL                  │  │
   │       ▼                                                            │  │
   │  Tenant Control Plane Repository (Zero-Ops managed Git)            │  │
-  │       │  ArgoCD watches                                            │  │
-  │       ▼                                                            │  │
+  │                                                                    │  │
+  │  tenant-controller (Status Sync) ◄──────────────────────────────┐  │  │
+  │       │  Watches Crossplane Claims & Updates PostgreSQL DB      │  │  │
+  │       ▼                                                          │  │  │
   │  ┌─────────────────────────────────────────────────────────────┐  │  │
   │  │  MULTI-AGENT COLLABORATION SYSTEM (v7.0, unchanged)         │  │  │
   │  │  Collaborator → MetricsAgent, LifecycleAgent, GitOpsAgent,  │  │  │
@@ -468,6 +471,7 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 | **PgBouncer** | Bundled with CNPG via `spec.pooler` | Connection pooling for PostgreSQL. Prevents connection exhaustion under high concurrency. |
 | **pgvector** | CNPG `shared_preload_libraries: vector` | Vector similarity search extension. Enables agent memory storage and retrieval. Powers tenant AI features. |
 | **cnpg2monitor (v8.0)** | Promoted to `ClusterRole` (fleet-wide) | Monitors CNPG clusters in ALL tenant namespaces. Patches PodMonitors with topology labels. Emits lifecycle events to OpenSearch. Prerequisite for AINativeSaaS template. |
+| **tenant-controller** | Go Kubernetes Controller | Watches Crossplane AINativeSaaS claims (Synced/Ready status) and continuously writes the provisioning status and messages to the PostgreSQL tenants table. Prevents API from directly querying K8s. |
 
 #### 4.2.2 Retained v7.0 Components (unchanged unless noted)
 
@@ -496,8 +500,19 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
         │
 2. zero-ops-api validates intent + Hetzner credentials
         │
-3. zero-ops-api commits AINativeSaaS CR to
-   Tenant Control Plane Repository (Zero-Ops managed Git)
+3. zero-ops-api inserts tenant record into PostgreSQL with status 'pending'
+        │
+4. zero-ops-api commits AINativeSaaS CR to Tenant Control Plane Repository
+        │
+5. ArgoCD detects commit and syncs manifests to cluster
+        │
+6. Crossplane reconciles infrastructure (CAPI, CNPG, etc.)
+        │
+7. tenant-controller watches Crossplane claim conditions
+        │
+8. tenant-controller updates PostgreSQL 'provisioning_status' (provisioning, ready, failed) based on K8s state
+        │
+9. Platform Console/Agent queries zero-ops-api, which reads the current status from PostgreSQL.
         │
 4. ArgoCD (management cluster) detects commit
         │

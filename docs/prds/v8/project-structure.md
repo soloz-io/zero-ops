@@ -17,68 +17,19 @@ This structure enforces a strict separation of concerns between the Control Plan
 
 ```text
 zero-ops/
-├── cmd/                             # Entrypoints (The "Apps")
-│   ├── zero-ops/                    # Thin CLI (REST API Client only)
-│   ├── zero-ops-api/                # SaaS Control Plane (Tenant/Shard Router)
-│   ├── zero-ops-worker/             # Async billing & telemetry polling
-│   └── zero-ops-agent/              # Multi-Agent Collaboration System
-│
-├── pkg/                             # Shared Go Code
-│   ├── api/                         # REST API handlers & models
-│   ├── agents/                      # AI Agent logic
-│   │   ├── collaborator/            # Orchestrator agent
-│   │   ├── workers/                 # Specialist agents (Diagnostics, Upgrade)
-│   │   └── mcp/                     # MCP Tool Servers (capi-mcp, opensearch-mcp)
-│   ├── sharding/                    # Fleet Shard dispatch + health checker
-│   ├── db/                          # PostgreSQL sqlc generated code
-│   ├── execution/                   # Safe Execution Layer (Policy Gates)
-│   ├── fleetstate/                  # Fleet state management & query.go
-│   ├── policies/                    # Policy evaluation engine
-│   ├── llmgateway/                  # LLM gateway and routing
-│   └── rag/                         # RAG system for AI agents
-│
-├── manifests/                       # Fleet Shard Infrastructure (Pushed by API)
-│   ├── shards/                      # Shard bootstrap manifests (CAPI, CAPH)
-│   └── classes/                     # CAPI Topologies (Talos + Hetzner)
-│
-├── argo-workflows/                  # Safe Execution Layer Workflows
-│   ├── scale-workers.yaml           # Worker node scaling workflow
-│   ├── safe-node-drain.yaml         # Safe node maintenance workflow
-│   ├── safe-pod-restart.yaml        # Safe pod restart workflow
-│   ├── addon-upgrade.yaml           # Addon upgrade workflow
-│   └── cluster-delete.yaml          # Cluster deletion workflow
-│
-├── edge-catalog/                    # Edge Components (Injected at Boot)
-│   ├── argocd-edge.yaml             # Tenant-local GitOps engine
-│   ├── grafana-alloy.yaml           # Telemetry forwarder
-│   ├── kube-events-exporter.yaml    # K8s event forwarder to OpenSearch
-│   ├── k8sgpt-operator.yaml         # K8sGPT operator for AI diagnostics
-│   ├── k8sgpt-result-exporter.yaml  # K8sGPT findings exporter
-│   ├── fleet-heartbeat.yaml         # Fleet connectivity heartbeat
-│   ├── cilium.yaml                  # CNI configuration
-│   └── ccm-csi.yaml                 # Cloud controller manager & CSI
-│
-├── catalog/                         # Selectable Services (Packaged to OCI)
-│   ├── cni/
-│   ├── databases/
-│   └── observability/
-│
-├── observability/                   # Platform Observability Stack
-│   ├── victoriametrics/             # VictoriaMetrics configuration
-│   │   ├── vmcluster-values.yaml    # VMCluster Helm values
-│   │   ├── vmalert-rules.yaml       # Alerting rules
-│   │   └── alertmanager-config.yaml # Alertmanager configuration
-│   └── opensearch/                  # OpenSearch configuration
-│       ├── opensearch-values.yaml   # OpenSearch Helm values
-│       └── index-templates/         # Index templates (5 files)
-│           ├── cluster-events.json
-│           ├── k8sgpt-findings.json
-│           ├── fleet-heartbeat.json
-│           ├── audit-logs.json
-│           └── metrics-metadata.json
-│
-├── go.mod                           # One module to rule them all
-└── Makefile
+├── cmd/                    # Binary entry points
+│   ├── hub/                # Hub cluster management
+│   ├── opensbt/            # SaaS builder toolkit control plane
+│   ├── zero-ops-api/       # Tenant lifecycle API
+│   ├── auth-proxy/         # OAuth2/JWT authentication proxy
+│   ├── tenant-controller/  # K8s Status Sync Controller (Crossplane -> Postgres)
+│   └── mcp-server/         # Model Context Protocol server
+└── internal/               # Private packages
+    ├── hub/                # Hub cluster logic
+    ├── opensbt/            # OpenSBT packages
+    ├── auth-proxy/         # Auth proxy logic
+    ├── api/                # API handlers
+    └── db/                 # Database layer
 ```
 
 ### 3. Execution Path: Where does code actually run?

@@ -49,8 +49,8 @@ open-sbt is a Go-based SaaS builder toolkit for the zero-ops platform, inspired 
 
 **Communication Pattern:**
 ```
-Control Plane → NATS Event → Application Plane
-Application Plane → NATS Event → Control Plane (status updates)
+Infrastructure Provisioning (95%): Control Plane → Git Commit → ArgoCD → Crossplane → Status Controller → PostgreSQL
+Coordination/Orchestration (5%): Control Plane → NATS Event → Application Plane (Cross-cluster, non-Git actions)
 ```
 
 ### 2. Interface-Based Abstraction
@@ -214,7 +214,7 @@ controlPlane := zerosbt.NewControlPlane(zerosbt.ControlPlaneConfig{
 
 ### 3. Event-Driven Communication
 
-**Principle:** Use NATS as the message bus for asynchronous communication between Control Plane and Application Plane.
+**Principle:** NATS is strictly for coordination (5%) such as cross-cluster execution and user-initiated restarts. Infrastructure provisioning and status updates (95%) are strictly handled via GitOps and the Status Controller updating PostgreSQL.
 
 **Standard Events:**
 
@@ -315,18 +315,15 @@ The zero-ops platform implements a dual-path onboarding strategy to optimize for
 
 **Standard Tenant Registration Workflow:**
 ```
-1. POST /tenant-registrations
-   → Creates registration record (status: pending)
-   → Publishes opensbt_onboardingRequest event
+1. API receives request
+   → Inserts 'pending' record in PostgreSQL
+   → Commits AINativeSaaS CR to Git
    
-2. Application Plane receives event
-   → Provisions resources (Warm Pool claim OR Crossplane + Argo Workflows)
-   → Publishes opensbt_provisionSuccess event
+2. ArgoCD & Crossplane
+   → Syncs and provisions infrastructure automatically
    
-3. Control Plane receives success event
-   → Updates registration (status: active)
-   → Creates tenant record
-   → Returns tenant details to caller
+3. Status Controller (tenant-controller)
+   → Watches K8s state and updates PostgreSQL to 'ready'
 ```
 
 **Tenant Offboarding Workflow:**

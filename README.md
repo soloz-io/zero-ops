@@ -1,8 +1,16 @@
-# zero-ops
+# Zero-Ops Platform:
 
-Zero-Ops Platform: 
+## Elevator Pitch:
 
-Zero-Ops is an MCP-first, Gitops platform that provisions production-grade, multi-tenant AI-native SaaS environments for building products like replit, Lovable, Emergent. 
+**Zero-Ops** is an MCP-first, Gitops platform that provisions production-grade, multi-tenant AI-native SaaS environments for building products like replit, Lovable, Emergent. 
+
+## Elevator Pitch Extended
+
+**One-click AI-native SaaS infrastructure, fully automated.**
+
+Zero-Ops is an MCP-first platform that provisions production-grade, multi-tenant SaaS environments in a single declarative command. Speak to your IDE: "Create my enterprise environment" — get a complete stack: Kubernetes cluster (Crossplane + CAPI), HA PostgreSQL with pgvector, GitOps (ArgoCD), secrets management (Infisical), observability (VictoriaMetrics + Grafana), and privileged access (Teleport). 
+
+**BYOC model** — runs in your cloud account. **GitOps-first** — all changes via Git, zero imperative mutations. **Agentic-native** — AI agents propose infrastructure changes via PRs, you approve. From zero to production in 15 minutes, with full Kubernetes control and eject capability.
 
 ## Architecture
 
@@ -43,13 +51,6 @@ export HCLOUD_TOKEN=<your-hetzner-token>
 ./bin/hub bootstrap \
   --name=mothership \
   --region=fsn1
-
-# Bootstrap with Talos (auto-builds snapshot)
-./bin/hub bootstrap \
-  --name=mothership \
-  --region=fsn1 \
-  --os=talos \
-  --build-talos-image
 
 # Teardown cluster
 ./bin/hub teardown --name=mothership
@@ -144,11 +145,9 @@ docker build -f cmd/mcp-server/Dockerfile -t zero-ops/mcp-server:latest .
 
 ## OS Support (Hub Cluster)
 
-Hub supports both Ubuntu and Talos via `--os` flag:
+Hub supports Ubuntu only:
 
 **Ubuntu (default):** Production-ready with ClusterClass support. Uses KubeadmControlPlane for scalable cluster topology management. Immutable OS with atomic updates, no Packer build required.
-
-**Talos:** Available for testing. Uses TalosControlPlane with direct cluster resources. Requires Packer-built snapshot via `--build-talos-image` flag.
 
 ## State Management
 

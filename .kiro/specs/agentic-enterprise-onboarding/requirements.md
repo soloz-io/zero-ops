@@ -73,14 +73,15 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 ## Glossary
 
-- **AgentGateway**: Single authentication and authorization enforcement point. Validates JWTs, enforces RBAC via identity-service, and routes tool calls to backend MCP servers
-- **identity-service**: Python service layer that interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway
+- **AgentGateway**: Single authentication and authorization enforcement point. Validates JWTs, enforces RBAC via auth-proxy, and routes tool calls to backend MCP servers
+- **auth-proxy**: Go-based custom implementation that interfaces with the Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway
 - **Cursor**: IDE client that invokes MCP tools on behalf of the Tenant_Admin
 - **Tenant_Admin**: User with administrative privileges who initiates onboarding
 - **Platform_Admin**: Operator managing the hub cluster and platform infrastructure
-- **Hydra**: OAuth2 server that issues JWTs after Authorization Code Flow with PKCE (accessed via identity-service)
-- **Kratos**: Identity provider that handles user authentication (accessed via identity-service)
-- **Keto**: Authorization service that evaluates permission policies (accessed via identity-service)
+- **Hydra**: OAuth2 server that issues JWTs after Authorization Code Flow with PKCE (accessed via auth-proxy)
+- **Kratos**: Identity provider that handles user authentication (accessed via auth-proxy)
+- **Keto**: Authorization service that evaluates permission policies (accessed via auth-proxy)
+- **tenant-controller**: A lightweight Go controller running in the hub cluster that watches Crossplane claims and synchronizes their Ready/Synced status back to the PostgreSQL database.
 - **zero_ops_api**: Backend MCP server that manages tenant and environment lifecycle (receives pre-authenticated requests from AgentGateway)
 - **crossplane_mcp**: Backend MCP server that manages AINativeSaaS custom resources (receives pre-authenticated requests from AgentGateway)
 - **Composition_B**: Crossplane composition for enterprise-tier infrastructure that uses CAPI providers underneath
@@ -175,13 +176,13 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 #### Acceptance Criteria
 
-1. WHEN the Cursor retries tenant_create with a JWT, THE AgentGateway SHALL validate the JWT signature using cached JWKS (fetched from identity-service)
+1. WHEN the Cursor retries tenant_create with a JWT, THE AgentGateway SHALL validate the JWT signature using cached JWKS (fetched from auth-proxy)
 2. THE AgentGateway SHALL verify the JWT has not expired (exp claim > current time)
 3. THE AgentGateway SHALL extract the subject claim, tenant_id claim, and scope claim from the JWT
 4. THE AgentGateway SHALL verify the scope contains "tenant:write" for tenant_create operations
 5. THE AgentGateway SHALL verify the scope contains "cluster:write" for environment_create operations
-6. THE AgentGateway SHALL call identity-service to query Keto with the subject and required permission
-7. THE identity-service SHALL return permission decision from Keto (allow/deny)
+6. THE AgentGateway SHALL call auth-proxy to query Keto with the subject and required permission
+7. THE auth-proxy SHALL return permission decision from Keto (allow/deny)
 8. IF Keto denies permission, THEN THE AgentGateway SHALL return HTTP 403
 9. IF JWT is expired, THEN THE AgentGateway SHALL return HTTP 401 with error "invalid_token" and error_description "Token expired"
 10. WHEN authorization succeeds, THE AgentGateway SHALL forward the request to zero_ops_api with headers:
@@ -265,7 +266,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 3. IF HTTP 403 Forbidden is returned for entitlement mismatch, THE Cursor SHALL display: "Provisioning blocked: Your current plan (Starter) does not allow provisioning an Enterprise environment. Please upgrade your plan in the Platform Console: https://console.nutgraf.in/settings/billing"
 4. THE environment_create MCP tool SHALL require an environment_suffix parameter (e.g., 'staging', 'production'). THE zero_ops_api SHALL construct a globally unique environment_id as {tenant_id}-{environment_suffix}
 5. IF the generated environment_id already exists, THE zero_ops_api SHALL compare the requested tier, cloud, and region against the existing environment. IF ANY single parameter differs, THE zero_ops_api SHALL return HTTP 409 Conflict with a JSON body detailing the existing parameters to prevent silent overrides
-6. THE zero_ops_api SHALL commit the AINativeSaaS_CR to the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory using a GitHub App Installation Token
+6. THE zero_ops_api SHALL commit the AINativeSaaS_CR directly to the {tenant_id}-control-plane Git repository under overlays/{tier}/ directory, acting as the absolute source of truth for infrastructure.
 7. IF the Git commit fails, THE zero_ops_api SHALL return HTTP 500, and the Cursor MAY retry environment_create
 8. IF the Git commit succeeds, THE zero_ops_api SHALL return HTTP 202 with response body containing:
    - tenant_id
@@ -323,9 +324,9 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 1. WHEN the Tenant_Admin asks for environment status (e.g., "Is my environment ready?"), THE Cursor SHALL invoke the environment_status MCP tool
 2. THE environment_status MCP tool SHALL route through AgentGateway with JWT authentication
-3. THE AgentGateway SHALL validate the JWT and query identity-service Keto to authorize read access for the specific tenant_id
-4. THE zero_ops_api SHALL fetch the AINativeSaaS_CR from the Kubernetes API
-5. THE zero_ops_api SHALL map Crossplane Conditions to a normalized phase enum: Pending, Provisioning, Ready, or Degraded
+3. THE AgentGateway SHALL validate the JWT and query auth-proxy Keto to authorize read access for the specific tenant_id
+4. THE zero_ops_api SHALL NOT query the Kubernetes API directly.
+5. THE zero_ops_api SHALL fetch the environment status exclusively by querying the provisioning_status and provisioning_message columns from the PostgreSQL tenants table (populated asynchronously by the tenant-controller).
 6. THE zero_ops_api SHALL return a JSON response containing the fields defined in Requirement 16 AC4
 7. THE Cursor SHALL display the phase and summary_message to the Tenant_Admin
 8. IF phase is Ready, THE Cursor SHALL display provisioned resource endpoints (cluster endpoint, database connection reference, ArgoCD URL, Grafana URL)
@@ -338,15 +339,15 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **User Story:** As a system operator, I want JWT validation to be fast, so that API requests have low latency.
 
-**CRITICAL:** AgentGateway fetches JWKS from identity-service (which proxies Hydra), NOT directly from Hydra.
+**CRITICAL:** AgentGateway fetches JWKS from auth-proxy (which proxies Hydra), NOT directly from Hydra.
 
 #### Acceptance Criteria
 
-1. WHEN the AgentGateway starts, THE AgentGateway SHALL call identity-service to fetch the JWKS
-2. THE identity-service SHALL fetch JWKS from Hydra and return it to AgentGateway
+1. WHEN the AgentGateway starts, THE AgentGateway SHALL call auth-proxy to fetch the JWKS
+2. THE auth-proxy SHALL fetch JWKS from Hydra and return it to AgentGateway
 3. THE AgentGateway SHALL cache the JWKS in memory with a 1-hour TTL
 4. WHEN validating a JWT, THE AgentGateway SHALL use the cached JWKS
-5. IF the JWT signature fails validation, THEN THE AgentGateway SHALL call identity-service to refresh the JWKS cache once
+5. IF the JWT signature fails validation, THEN THE AgentGateway SHALL call auth-proxy to refresh the JWKS cache once
 6. IF validation fails after refresh, THEN THE AgentGateway SHALL return HTTP 401
 
 ### Requirement 11: Parse and Format Configuration (Internal - Library Quality)
@@ -367,7 +368,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **User Story:** As an MCP client, I want to discover OAuth endpoints dynamically, so that I can adapt to different authorization server configurations.
 
-**CRITICAL:** OAuth metadata is exposed by AgentGateway (proxying identity-service), NOT by individual MCP servers.
+**CRITICAL:** OAuth metadata is exposed by AgentGateway (proxying auth-proxy), NOT by individual MCP servers.
 
 #### Acceptance Criteria
 
@@ -377,7 +378,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
    - `bearer_methods_supported`: ["header"]
    - `scopes_supported`: ["tenant:read", "tenant:write", "cluster:read", "cluster:write"]
 
-2. THE identity-service SHALL expose `GET /.well-known/oauth-authorization-server` (proxying Hydra) returning:
+2. THE auth-proxy SHALL expose `GET /.well-known/oauth-authorization-server` (proxying Hydra) returning:
    - `issuer`: https://auth.nutgraf.in
    - `authorization_endpoint`: https://auth.nutgraf.in/oauth2/auth
    - `token_endpoint`: https://auth.nutgraf.in/oauth2/token
@@ -391,7 +392,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 3. THE MCP client SHALL discover endpoints by:
    - Step 1: Receive 401 from AgentGateway with WWW-Authenticate header containing resource_metadata URL
    - Step 2: Fetch resource metadata from AgentGateway to get authorization_servers array
-   - Step 3: Fetch authorization server metadata from identity-service to get endpoints
+   - Step 3: Fetch authorization server metadata from auth-proxy to get endpoints
    - Step 4: Initiate PKCE flow using discovered endpoints
 
 ### Requirement 13: Client Registration (Pre-registered + CIMD)
@@ -404,7 +405,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **Pre-registered Client (Primary - Zero-Config):**
 
-1. THE identity-service SHALL pre-register a public client with Hydra:
+1. THE auth-proxy SHALL pre-register a public client with Hydra:
    - `client_id`: mcp-public-client
    - `client_name`: Zero-Ops MCP Client
    - `redirect_uris`: [
@@ -422,13 +423,13 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 2. THE Cursor/Goose clients SHALL use `client_id: mcp-public-client` by default (hardcoded)
 
-3. THE identity-service SHALL normalize redirect URIs during authorization:
+3. THE auth-proxy SHALL normalize redirect URIs during authorization:
    - IF client sends "localhost", ALSO accept "127.0.0.1" variant
    - IF client sends "127.0.0.1", ALSO accept "localhost" variant
 
 **CIMD (Secondary - Future Clients):**
 
-4. THE identity-service SHALL advertise CIMD support in authorization server metadata:
+4. THE auth-proxy SHALL advertise CIMD support in authorization server metadata:
    - `client_id_metadata_document_supported`: true
 
 5. THE MCP client MAY host client metadata at an HTTPS URL (e.g., https://newclient.com/.well-known/client-metadata.json)
@@ -449,16 +450,16 @@ This specification defines the complete agentic enterprise onboarding journey, e
    }
    ```
 
-7. WHEN the MCP client sends authorization request with HTTPS URL as client_id, THE identity-service SHALL fetch the metadata document
+7. WHEN the MCP client sends authorization request with HTTPS URL as client_id, THE auth-proxy SHALL fetch the metadata document
 
-8. THE identity-service SHALL validate:
+8. THE auth-proxy SHALL validate:
    - client_id in document matches the URL exactly
    - Document is valid JSON with required fields
    - redirect_uris are valid per MCP spec
 
-9. THE identity-service SHALL cache metadata respecting HTTP cache headers
+9. THE auth-proxy SHALL cache metadata respecting HTTP cache headers
 
-10. THE identity-service SHALL implement SSRF protections:
+10. THE auth-proxy SHALL implement SSRF protections:
     - Block private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8)
     - Require HTTPS scheme only
     - Implement request timeouts (5 seconds)
@@ -478,22 +479,22 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **User Story:** As an MCP client, I want to refresh expired access tokens automatically, so that users don't need to re-authenticate frequently.
 
-**CRITICAL:** Token refresh is handled by identity-service (proxying Hydra). The 24-hour access token TTL covers the full 15-minute provisioning window (Requirement 7). However, for long-running operations or multi-day workflows, automatic token refresh is required.
+**CRITICAL:** Token refresh is handled by auth-proxy (proxying Hydra). The 24-hour access token TTL covers the full 15-minute provisioning window (Requirement 7). However, for long-running operations or multi-day workflows, automatic token refresh is required.
 
 #### Acceptance Criteria
 
 1. WHEN the AgentGateway returns 401 with error "invalid_token" and error_description "Token expired", THE Cursor SHALL attempt token refresh transparently
-2. THE Cursor SHALL send `POST {token_endpoint}` to identity-service with:
+2. THE Cursor SHALL send `POST {token_endpoint}` to auth-proxy with:
    - `grant_type=refresh_token`
    - `refresh_token={refresh_token}`
    - `client_id={client_id}`
    - `scope=tenant:read tenant:write cluster:read cluster:write offline_access`
 
-3. THE identity-service SHALL forward the request to Hydra
+3. THE auth-proxy SHALL forward the request to Hydra
 4. THE Hydra SHALL validate the refresh token (30-day TTL)
-5. THE Hydra SHALL issue a new access token with 24-hour TTL. THE identity-service SHALL configure Hydra to re-hydrate custom claims (tenant_id, email, role) from the latest Kratos identity traits during the refresh grant, ensuring newly assigned tenant_ids are successfully populated into the new token
+5. THE Hydra SHALL issue a new access token with 24-hour TTL. THE auth-proxy SHALL configure Hydra to re-hydrate custom claims (tenant_id, email, role) from the latest Kratos identity traits during the refresh grant, ensuring newly assigned tenant_ids are successfully populated into the new token
 6. THE Hydra SHALL rotate the refresh token (issue new refresh token, invalidate old one)
-7. THE identity-service SHALL return the new tokens to the Cursor
+7. THE auth-proxy SHALL return the new tokens to the Cursor
 8. THE Cursor SHALL update stored tokens in OS keychain
 9. THE Cursor SHALL retry the original failed request with the new access token
 10. IF refresh fails (expired/revoked), THE Cursor SHALL restart the authorization flow and notify the user
@@ -504,7 +505,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - AND the access token expires at T=24h
 - WHEN the Tenant_Admin invokes environment_create at T=25h
 - THEN the AgentGateway returns 401 "Token expired"
-- AND the Cursor transparently refreshes the token via identity-service
+- AND the Cursor transparently refreshes the token via auth-proxy
 - AND the Cursor retries environment_create with the new access token
 - AND the operation succeeds without user intervention
 
@@ -540,7 +541,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 1. THE zero_ops_api SHALL expose the environment_status MCP tool, mapped to GET /api/v1/environments/{environment_id}/status. TO support pre-environment routing, THE zero_ops_api SHALL ALSO expose a tenant-level status endpoint mapped to GET /api/v1/tenants/{tenant_id}/status. This tenant endpoint SHALL handle all pre-environment phases (INCOMPLETE_IDENTITY_SETUP, INCOMPLETE_GIT_SETUP, AWAITING_CREDENTIALS, CREDENTIALS_READY)
 2. THE endpoint SHALL require JWT authentication via AgentGateway
-3. THE AgentGateway SHALL validate JWT and query identity-service Keto to authorize read access for the specific tenant_id
+3. THE AgentGateway SHALL validate JWT and query auth-proxy Keto to authorize read access for the specific tenant_id
 4. BOTH endpoints SHALL return the identical JSON response schema (pre-environment states will return null for environment-specific fields):
 ```json
 {
@@ -562,7 +563,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
   ]
 }
 ```
-5. THE zero_ops_api SHALL derive phase from Crossplane Conditions using these rules:
+5. THE tenant-controller SHALL derive phase from Crossplane Conditions and write to DB using these rules: Claim created = provisioning; Synced=False = failed; Ready=True = ready; DeletionTimestamp set = deleting. THE zero_ops_api SHALL read phase exclusively from PostgreSQL:
    - CREDENTIALS_READY: PostgreSQL tenant record exists with credentials submitted, but no environment provisioning intent recorded
    - Pending: The PostgreSQL DB confirms the environment intent exists, BUT the Kubernetes API returns 404 for the AINativeSaaS_CR (ArgoCD has not yet synced)
    - Provisioning: Condition Ready: False with Reason: Creating, Syncing, or Reconciling
