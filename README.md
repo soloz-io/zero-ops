@@ -2,7 +2,7 @@
 
 Zero-Ops Platform: 
 
-An MCP first, AI-native SaaS factory that lets developers spin up production-grade, fully isolated SaaS tenants — infrastructure, identity, and AI agents included — through a single API call or IDE tool call, with every provisioning decision auditable in Git.
+Zero-Ops is an MCP-first, Gitops platform that provisions production-grade, multi-tenant AI-native SaaS environments for building products like replit, Lovable, Emergent. 
 
 ## Architecture
 
