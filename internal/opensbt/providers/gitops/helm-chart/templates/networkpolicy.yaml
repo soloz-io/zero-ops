@@ -1,0 +1,27 @@
+# 15.8 — NetworkPolicy: deny all cross-tenant traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-isolation
+  namespace: tenant-{{ .Values.tenantId }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              opensbt.io/tenant-id: {{ .Values.tenantId | quote }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              opensbt.io/tenant-id: {{ .Values.tenantId | quote }}
+    # Allow DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

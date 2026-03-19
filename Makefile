@@ -1,18 +1,60 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down run
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down run build-all build-auth-proxy build-mcp-server build-opensbt build-hub
 
 # Build variables
-BINARY_NAME=zero-ops
 API_BINARY_NAME=zero-ops-api
+AUTH_PROXY_BINARY=auth-proxy
+MCP_SERVER_BINARY=mcp-server
+OPENSBT_BINARY=opensbt
+HUB_BINARY=hub
 BUILD_DIR=bin
 GO=go
 DATABASE_URL?=postgres://localhost:5432/zeroops?sslmode=disable
 
-# Build the CLI binary
-build:
-	@echo "Building $(BINARY_NAME)..."
+# Build all binaries
+build-all:
+	@echo "Building all binaries..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(BINARY_NAME) cmd/zero-ops/main.go
-	@echo "✓ Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) ./cmd/zero-ops-api
+	$(GO) build -o $(BUILD_DIR)/$(AUTH_PROXY_BINARY) ./cmd/auth-proxy
+	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
+	$(GO) build -o $(BUILD_DIR)/$(OPENSBT_BINARY) ./cmd/opensbt
+	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
+	@echo "✓ All builds complete"
+
+# Build the hub binary (main CLI)
+build:
+	@echo "Building $(HUB_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
+	@echo "✓ Build complete: $(BUILD_DIR)/$(HUB_BINARY)"
+
+# Build the auth-proxy binary
+build-auth-proxy:
+	@echo "Building $(AUTH_PROXY_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(AUTH_PROXY_BINARY) ./cmd/auth-proxy
+	@echo "✓ Build complete: $(BUILD_DIR)/$(AUTH_PROXY_BINARY)"
+
+# Build the mcp-server binary
+build-mcp-server:
+	@echo "Building $(MCP_SERVER_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
+	@echo "✓ Build complete: $(BUILD_DIR)/$(MCP_SERVER_BINARY)"
+
+# Build the opensbt binary
+build-opensbt:
+	@echo "Building $(OPENSBT_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(OPENSBT_BINARY) ./cmd/opensbt
+	@echo "✓ Build complete: $(BUILD_DIR)/$(OPENSBT_BINARY)"
+
+# Build the hub binary
+build-hub:
+	@echo "Building $(HUB_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
+	@echo "✓ Build complete: $(BUILD_DIR)/$(HUB_BINARY)"
 
 # Clean build artifacts
 clean:
@@ -73,7 +115,7 @@ migrate-down:
 build-api:
 	@echo "Building $(API_BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) cmd/zero-ops-api/main.go
+	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) ./cmd/zero-ops-api
 	@echo "✓ Build complete: $(BUILD_DIR)/$(API_BINARY_NAME)"
 
 # Run the API server

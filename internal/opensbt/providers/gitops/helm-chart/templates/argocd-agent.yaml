@@ -1,0 +1,44 @@
+# 16.2 — ArgoCD Agent deployment in tenant namespace
+{{- if .Values.argocdAgent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-agent
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    opensbt.io/tenant-id: {{ .Values.tenantId | quote }}
+    opensbt.io/component: argocd-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argocd-agent
+  template:
+    metadata:
+      labels:
+        app: argocd-agent
+        opensbt.io/tenant-id: {{ .Values.tenantId | quote }}
+    spec:
+      serviceAccountName: tenant-{{ .Values.tenantId }}-sa
+      containers:
+        - name: argocd-agent
+          image: quay.io/argoproj/argocd-agent:latest
+          args:
+            - agent
+            - --mode={{ .Values.argocdAgent.mode }}
+            {{- if .Values.argocdAgent.principalEndpoint }}
+            - --principal-endpoint={{ .Values.argocdAgent.principalEndpoint }}
+            {{- end }}
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenantId | quote }}
+            - name: AGENT_MODE
+              value: {{ .Values.argocdAgent.mode | quote }}
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+{{- end }}

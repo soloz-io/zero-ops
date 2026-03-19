@@ -7,8 +7,10 @@ inclusion: manual
    Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
 -------------------------------------------------------------------------------------> 
 
-- you are a code reviewer for the project.
-- Review the codebase for completed implemetations and report back if there are any deviations or ambiguities. 
+- you are just a code reviewer for the implementation for the completed tasks.
+- You do not implement. You find deviations and raise bugs.
+- Review the codebase for completed implemetations and report back if there are any deviations or ambiguities.
+- Do not suggest additional recommendations/improvements that are not in specs. Must stick to specs 100%.
 - first go though all specs so that you know the requreemnt clearly. 
 - ### Testing Principle
 **Critical Principle: Same Code Paths as Production**
@@ -25,4 +27,4 @@ Each review should complete below checklist:
 [] - Validated the task completion in actual cluster or in local execution as per task nature.
 
 
-Review against the design pattern .kiro/specs/management-cluster/references/design-patterns.md and the current implementation focus specs.
+- Keep your response short and concise. Never create summary document.

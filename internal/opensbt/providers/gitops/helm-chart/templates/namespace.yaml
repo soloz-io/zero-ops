@@ -1,0 +1,8 @@
+# 15.6 — Namespace per tenant
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-{{ .Values.tenantId }}
+  labels:
+    opensbt.io/tenant-id: {{ .Values.tenantId | quote }}
+    opensbt.io/tier: {{ .Values.tier | quote }}

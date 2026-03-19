@@ -44,3 +44,9 @@ update_criteria: User feedback on communication, new preferences expressed, work
 - Do not generate configurations or code during conversation
 - Keep conversation at design level, not implementation details
 - Analyze user reported prompt with required involved files before proposing fix
+
+## Interface Preferences
+- **MCP-Only Interaction**: All tenant/platform interactions MUST be via MCP (Model Context Protocol)
+- **No CLI/UI in Phase 1-2**: CLI is ONLY for initial hub bootstrap, not for tenant operations
+- **No Web UI in Phase 1-2**: All operations through MCP servers, no web console
+- **Agent-First Design**: Platform designed for AI agents as primary users, not humans

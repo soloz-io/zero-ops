@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tenant-factory
+description: Universal Tenant Helm Chart for open-sbt
+type: application
+version: 1.0.0

@@ -1,0 +1,20 @@
+tenantId: ""
+tier: "basic"
+ownerEmail: ""
+assigned: false
+suspended: false
+
+resources:
+  requestsCPU: "500m"
+  requestsMemory: "1Gi"
+  limitsCPU: "1"
+  limitsMemory: "2Gi"
+
+database:
+  type: "shared"
+  name: "shared-db"
+
+argocdAgent:
+  enabled: false
+  mode: "managed"
+  principalEndpoint: ""

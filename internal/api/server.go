@@ -14,7 +14,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/config"
 	"github.com/soloz-io/zero-ops/internal/db"
 	"github.com/soloz-io/zero-ops/internal/service"
-	customValidator "github.com/soloz-io/zero-ops/pkg/validator"
+	customValidator "github.com/soloz-io/zero-ops/internal/hub/validator"
 	"go.uber.org/zap"
 )
 

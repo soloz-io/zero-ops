@@ -2,13 +2,12 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-COPY cmd/mcp-server/go.mod cmd/mcp-server/go.sum ./
-
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY cmd/mcp-server/main.go ./
+COPY cmd/mcp-server/ ./cmd/mcp-server/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o mcp-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -o mcp-server ./cmd/mcp-server
 
 FROM alpine:latest
 

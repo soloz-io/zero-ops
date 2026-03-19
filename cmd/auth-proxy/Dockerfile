@@ -1,12 +1,14 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-COPY cmd/auth-proxy/go.mod cmd/auth-proxy/go.sum ./
-COPY cmd/auth-proxy/main.go ./
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/auth-proxy/ ./cmd/auth-proxy/
 COPY internal/auth-proxy/ ./internal/auth-proxy/
 
-RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o auth-proxy .
+RUN CGO_ENABLED=0 GOOS=linux go build -o auth-proxy ./cmd/auth-proxy
 
 FROM alpine:latest
 

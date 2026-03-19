@@ -1,0 +1,15 @@
+# 15.10 — Crossplane CompositeResource for tenant infrastructure
+{{- if eq .Values.database.type "dedicated" }}
+apiVersion: platform.opensbt.io/v1alpha1
+kind: TenantDatabase
+metadata:
+  name: tenant-{{ .Values.tenantId }}-db
+  namespace: tenant-{{ .Values.tenantId }}
+spec:
+  tenantId: {{ .Values.tenantId | quote }}
+  tier: {{ .Values.tier | quote }}
+  databaseName: {{ .Values.database.name | quote }}
+  compositionSelector:
+    matchLabels:
+      opensbt.io/tier: {{ .Values.tier | quote }}
+{{- end }}

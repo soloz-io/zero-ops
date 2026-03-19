@@ -1,0 +1,12 @@
+# 15.7 — ResourceQuota based on tier
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: tenant-{{ .Values.tenantId }}
+spec:
+  hard:
+    requests.cpu: {{ .Values.resources.requestsCPU | quote }}
+    requests.memory: {{ .Values.resources.requestsMemory | quote }}
+    limits.cpu: {{ .Values.resources.limitsCPU | quote }}
+    limits.memory: {{ .Values.resources.limitsMemory | quote }}

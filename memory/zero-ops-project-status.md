@@ -22,16 +22,30 @@ Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS
 
 ## Completed Specs
 
-### 1. Management Cluster Bootstrap
+### 1. Management Cluster Bootstrap (Hub Cluster)
 **Location:** `.kiro/specs/management-cluster/`
-**Status:** ✅ COMPLETE (All 12 phases)
+**Status:** ✅ COMPLETE AND OPERATIONAL
+**Cluster Name:** `mothership`
+**Infrastructure:**
+- 3 control plane nodes (Hetzner, Ubuntu 24.04, k8s v1.31.6)
+- 2 worker nodes
+- CAPI/CAPH/Kubeadm providers in `capi-operator-system`
+- ArgoCD with ApplicationSet controller in `argocd` namespace
+- CloudNativePG operator in `cnpg-system`
+- ClusterClass: `hetzner-mgmt-ubuntu-v1` (in zero-ops-system namespace)
 **What's Done:**
-- Full CLI implementation for bootstrapping Talos Linux management cluster
-- CAPI/CAPH/Talos provider installation via cluster-api-operator
+- Full CLI implementation for bootstrapping Ubuntu management cluster
+- CAPI/CAPH/Kubeadm provider installation via cluster-api-operator
 - Pivot from Kind to self-hosted management cluster
 - ClusterClass library deployment (Ubuntu-based)
 - ArgoCD, capi2argo, CloudNativePG installation
 - Teardown and upgrade commands
+**Hub Bootstrap Code:** `zero-ops/internal/hub/` (Go implementation)
+- Bootstrap orchestrator with recovery/resume capability
+- Component installer (ArgoCD via Helm, capi2argo, CNPG)
+- CAPI operator installation and secret management
+- ClusterClass deployer
+- Pivot orchestrator for CAPI resource migration
 
 ### 2. Zero-Ops API (Core Tenant CRUD)
 **Location:** `.kiro/specs/tenant-onboarding/zero-ops-api/`
@@ -75,3 +89,33 @@ Zero-Ops v8.0 is a SaaS factory platform that provisions complete AI-native SaaS
   - ✅ Task 8: Startup ordering and health checks (COMPLETE - MCP integration working)
   - ✅ DEMO SUCCESS: MCP server connected to Kiro, tenant_list working, authentication flow operational
 - ✅ Agent System - /agent swap zero-ops-orchestrator
+
+### 4. Hub-Spoke MVP (Phase 1)
+**Location:** `.kiro/specs/hub-spoke-mvp/`
+**Status:** 🔄 REQUIREMENTS COMPLETE, DESIGN PHASE STARTING
+**Workflow:** Requirements-first (confirmed)
+**What's Done:**
+- ✅ requirements.md complete (30 requirements covering Phase 1 MVP)
+- ✅ Hub cluster verified operational (mothership - 3 CP + 2 workers)
+- ✅ CAPI/CAPH/Kubeadm providers confirmed running
+- ✅ ArgoCD confirmed installed and part of hub orchestration
+- ✅ CloudNativePG operator confirmed running
+**Phase 1 MVP Scope:**
+1. Tenant onboarding (manual GitHub repo creation)
+2. Dedicated spoke provisioning (CAPI)
+3. ArgoCD agent deployment
+4. Fleet registry + ApplicationSets
+5. Basic observability
+**Key Architectural Decisions:**
+- MCP-only interaction (no CLI/UI for tenant operations)
+- Fleet registry in monorepo (`zero-ops/fleet-registry/`)
+- VictoriaMetrics + Grafana to be added to hub bootstrap postboot phase
+- Tenant onboarding API extends existing `zero-ops-api`
+- New ClusterClass templates: `hetzner-prod-ubuntu-v1`, `hetzner-staging-ubuntu-v1`
+- Grafana Alloy for spoke metrics collection (basic push metrics)
+**Missing Components Identified:**
+- VictoriaMetrics (observability stack)
+- Grafana (dashboards)
+- Fleet registry Git structure
+- Tenant onboarding MCP server
+- Spoke-specific ClusterClass templates

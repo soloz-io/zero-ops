@@ -65,8 +65,9 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **No Unit Tests**: E2E tests only following TDD principles
 - **HTTPS Only**: All endpoints require TLS 1.2+
 - **GitOps First**: No direct Kubernetes API writes except bootstrap
-- **MCP First**: All platform capabilities via MCP interface
+- **MCP First**: All platform capabilities via MCP interface (no CLI/UI for tenant operations in Phase 1-2)
 - **BYOC Only**: No shared cloud billing, tenant owns compute costs
+- **Hub Cluster**: Management cluster named "mothership" (3 CP + 2 workers, Hetzner, Ubuntu 24.04, k8s v1.31.6)
 
 ## GitOps Architecture Research (2026)
 

@@ -1,0 +1,38 @@
+# 15.15, 15.16 — ArgoCD ApplicationSet with Git Directory Generator
+# Deploy this once to the ArgoCD namespace. It watches tenants/* and
+# auto-creates an Application per tenant folder.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: opensbt-tenant-factory
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: "{{ .RepoURL }}"
+        revision: HEAD
+        directories:
+          - path: tenants/*
+  template:
+    metadata:
+      name: "tenant-{{`{{path.basename}}`}}"
+      labels:
+        opensbt.io/managed-by: opensbt
+    spec:
+      project: tenants
+      source:
+        repoURL: "{{ .RepoURL }}"
+        targetRevision: HEAD
+        path: "{{ .ChartsDir }}"
+        helm:
+          valueFiles:
+            - "../../tenants/{{`{{path.basename}}`}}/values.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "tenant-{{`{{path.basename}}`}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
