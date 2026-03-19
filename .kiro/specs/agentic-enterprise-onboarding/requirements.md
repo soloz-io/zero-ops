@@ -2,16 +2,21 @@
 
 ## Introduction
 
-This specification defines the complete agentic enterprise onboarding journey, enabling tenant administrators to provision enterprise-tier environments through natural language commands in their IDE. The system handles OAuth2 Authorization Code Flow with PKCE authentication, authorization, tenant creation, encrypted credential storage via KSOPS, and automated infrastructure provisioning via Crossplane.
+This specification defines the complete agentic enterprise onboarding journey, enabling tenant administrators to provision enterprise-tier environments through natural language commands in their IDE. The system handles OAuth2 Authorization Code Flow with PKCE authentication, authorization, tenant creation, encrypted credential storage via Infisical, and automated infrastructure provisioning via Crossplane + CAPI.
 
 **Architecture Principles:**
 - **Idempotent Operations**: All API operations are safe to retry infinitely. The system returns current state, not errors, for duplicate requests.
 - **Declarative State Machine**: The system is not transactional. Each operation moves the tenant through states: AWAITING_CREDENTIALS → CREDENTIALS_READY → PROVISIONING → READY.
 - **Eventual Consistency**: Crossplane reconciles continuously. There are no terminal failure states, only degraded states that self-heal when external issues resolve.
-- **GitOps-First**: All infrastructure changes are committed to Git. CI renders manifests to OCI artifacts. ArgoCD Agent (from https://github.com/argoproj-labs/argocd-agent/) and Crossplane reconcile from OCI artifacts built from Git, not from direct API calls.
+- **GitOps-First**: All infrastructure changes are committed to Git. Standard ArgoCD with ApplicationSets reconciles from Git repositories. Crossplane provisions infrastructure using CAPI as the underlying cluster provisioning engine.
 - **Async Agent Pattern**: The Agent submits intents and exits immediately. It does NOT block or poll for long-running operations. Status is queried on-demand via conversational prompts or Platform Console.
+- **Crossplane + CAPI Pattern**: Crossplane provides the declarative API layer (AINativeSaaS CRs) while CAPI handles the actual cluster provisioning underneath. This separation allows tenant-facing abstractions while leveraging battle-tested CAPI for infrastructure.
+- **Secrets Management**: Self-hosted Infisical for secrets storage and Teleport for privileged access management (PAM). Credentials are stored encrypted in Infisical and injected into clusters via External Secrets Operator.
+- **Observability**: VictoriaMetrics for centralized metrics, Grafana for dashboards, and Grafana Alloy agents on spoke clusters pushing telemetry to the hub. Tracks tenant count, cluster health, ArgoCD sync status, and resource utilization.
 
-**GitOps Pattern**: Zero-Ops follows the enterprise Git+OCI pattern: Git (source of truth) → CI renders manifests → OCI registry artifact → ArgoCD Agent pulls OCI → Cluster reconciliation. Reference: https://argo-cd.readthedocs.io/en/latest/user-guide/oci/
+**GitOps Pattern**: Zero-Ops uses standard ArgoCD with ApplicationSets for GitOps reconciliation. Git serves as the source of truth, ArgoCD watches repositories and syncs manifests to clusters. Crossplane uses CAPI providers underneath to provision actual infrastructure.
+
+**Hub-Spoke Architecture**: The hub cluster hosts all control-plane services (VictoriaMetrics, Grafana, ClickHouse, identity services, ArgoCD, Crossplane). Spoke clusters host isolated tenant workloads and run Grafana Alloy agents that push metrics/logs to the hub asynchronously.
 
 ## Tenant Lifecycle State Machine
 
@@ -72,26 +77,37 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - **identity-service**: Python service layer that interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway
 - **Cursor**: IDE client that invokes MCP tools on behalf of the Tenant_Admin
 - **Tenant_Admin**: User with administrative privileges who initiates onboarding
+- **Platform_Admin**: Operator managing the hub cluster and platform infrastructure
 - **Hydra**: OAuth2 server that issues JWTs after Authorization Code Flow with PKCE (accessed via identity-service)
 - **Kratos**: Identity provider that handles user authentication (accessed via identity-service)
 - **Keto**: Authorization service that evaluates permission policies (accessed via identity-service)
 - **zero_ops_api**: Backend MCP server that manages tenant and environment lifecycle (receives pre-authenticated requests from AgentGateway)
 - **crossplane_mcp**: Backend MCP server that manages AINativeSaaS custom resources (receives pre-authenticated requests from AgentGateway)
-- **Composition_B**: Crossplane composition for enterprise-tier infrastructure
+- **Composition_B**: Crossplane composition for enterprise-tier infrastructure that uses CAPI providers underneath
 - **PKCE**: Proof Key for Code Exchange - security extension for OAuth public clients
 - **code_verifier**: Random string generated by client for PKCE flow
 - **code_challenge**: SHA256 hash of code_verifier, sent in authorization request
 - **JWT**: JSON Web Token used for authenticated API requests
 - **AINativeSaaS_CR**: Custom resource defining tenant environment configuration
 - **JWKS**: JSON Web Key Set used to validate JWT signatures
-- **Age_Key**: Encryption keypair (public/private) used to protect cloud provider credentials via KSOPS
-- **KSOPS**: Kustomize plugin that encrypts/decrypts Kubernetes Secrets using SOPS and Age
 - **Idempotent**: Operation that can be safely retried infinitely with the same result
 - **Eventual Consistency**: System state converges to desired state over time through continuous reconciliation
-- **fleet-registry**: Global Git repository containing tenant descriptors that trigger ArgoCD ApplicationSet to watch new tenant control plane repositories. CI builds OCI artifacts from Git changes.
+- **fleet-registry**: Global Git repository containing tenant descriptors that trigger ArgoCD ApplicationSet to watch new tenant control plane repositories
 - **GitHub App Installation Token**: Short-lived JWT used by zero_ops_api to authenticate Git API operations (repo creation, commits)
 - **Plan**: The billing entitlement associated with a tenant record in PostgreSQL (e.g., Starter, Enterprise). Determines which infrastructure tiers the tenant is authorized to provision
 - **Tier**: The infrastructure topology specified in the AINativeSaaS XRD (e.g., starter, enterprise). Defines the actual resources provisioned by Crossplane
+- **Hub_Cluster**: Central management cluster hosting control-plane services (VictoriaMetrics, Grafana, ArgoCD, Crossplane, identity services)
+- **Spoke_Cluster**: Tenant-dedicated Kubernetes cluster provisioned via Crossplane + CAPI, hosting isolated tenant workloads
+- **VictoriaMetrics**: Time-series database for centralized metrics storage on the hub cluster
+- **Grafana**: Visualization and dashboarding platform for observability data
+- **Grafana Alloy**: Lightweight telemetry agent deployed on spoke clusters that pushes metrics to the hub
+- **Infisical**: Self-hosted secrets management platform for storing encrypted cloud provider credentials
+- **Teleport**: Privileged access management (PAM) platform for audited, time-limited access to clusters
+- **External Secrets Operator (ESO)**: Kubernetes operator that syncs secrets from Infisical to cluster namespaces
+- **ClusterClass**: CAPI template defining cluster topology (control plane + worker nodes) for spoke cluster provisioning
+- **CAPI**: Cluster API - Kubernetes-native declarative API for cluster lifecycle management (used by Crossplane underneath)
+- **ClusterResourceSet (CRS)**: CAPI feature for automatic addon installation (CNI, CCM, CSI) during cluster bootstrap
+
 
 ## Requirements
 
@@ -188,7 +204,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 1. WHEN zero_ops_api receives a tenant_create request, IT SHALL check if the user already has an assigned tenant_id. IF the user has a tenant_id AND the requested tenant name matches their existing record, IT SHALL bypass creation and proceed to idempotency state checks. IF the requested name differs from their existing record, IT SHALL return HTTP 403 Forbidden with JSON body: {"error": "single_tenant_limit", "message": "Each user account may only be associated with one tenant.", "existing_tenant_id": "{tenant_id}"}
 2. IF the tenant name does NOT exist, THE zero_ops_api SHALL insert a tenant record into PostgreSQL with name, plan, and region, and return HTTP 201 with tenant_id and status: AWAITING_CREDENTIALS
 3. UPON successful DB insertion, THE zero_ops_api SHALL call the Kratos Admin API to update the user's identity traits with the new tenant_id, AND call Keto to create the relationship tuple tenant:{tenant_id}#admin@user:{sub}. IF invoked by a Platform Admin on behalf of a user, IT SHALL use the provided target_user_id parameter instead of the caller's sub
-4. DURING tenant creation, THE zero_ops_api SHALL generate a new Age key pair for the tenant, store the private key as a Kubernetes Secret in the management cluster, backup the private key to the Zero-Ops Platform's internal disaster recovery S3 bucket, and embed the public key into the Git .sops.yaml scaffold
+4. DURING tenant creation, THE zero_ops_api SHALL create an Infisical project for the tenant with path: /tenants/{tenant_id}/ for storing tenant-specific secrets
 5. IF the Kratos trait update or Keto tuple creation fails after the database insert, THE zero_ops_api SHALL persist the tenant record with status INCOMPLETE_IDENTITY_SETUP and return HTTP 500. Retrying tenant_create SHALL idempotently re-attempt the missing identity steps. UPON successful completion of the identity steps during a retry, THE zero_ops_api SHALL automatically proceed to execute the Git provisioning steps (AC10-AC12) and return HTTP 201 with {"force_token_refresh": true, "tenant_id": "{tenant_id}"}
 6. THE zero_ops_api SHALL return HTTP 201 with a JSON response body containing {"force_token_refresh": true, "tenant_id": "{tenant_id}"}. WHEN the Cursor client receives force_token_refresh: true, IT SHALL immediately execute the Token Refresh flow (Requirement 14) so the new tenant_id is populated in the JWT for subsequent calls
 7. IF the tenant name exists AND credentials are missing, THE zero_ops_api SHALL return HTTP 200 with JSON body {"force_token_refresh": false, "tenant_id": "{tenant_id}", "phase": "AWAITING_CREDENTIALS"}
@@ -196,11 +212,10 @@ This specification defines the complete agentic enterprise onboarding journey, e
 9. IF the tenant name exists AND environment is provisioned, THE zero_ops_api SHALL return HTTP 200 with JSON body {"force_token_refresh": false, "tenant_id": "{tenant_id}", "phase": "READY"}
 10. WHEN zero_ops_api processes tenant creation, IT SHALL invoke the Git Provider API (GitHub or GitLab) to create a new repository named {tenant_id}-control-plane within the Zero-Ops organization
 11. THE zero_ops_api SHALL initialize the repository with a default Kustomize structure:
-   - .sops.yaml (defines Age public key encryption rule)
-   - base/kustomization.yaml (configures KSOPS plugin)
-   - base/secrets/ (destination for encrypted credentials)
+   - base/kustomization.yaml (base manifests)
    - overlays/starter/ (destination for Starter tier CRs)
    - overlays/enterprise/ (destination for Enterprise tier CRs)
+   - README.md (tenant onboarding documentation)
 12. THE zero_ops_api SHALL commit a tenant descriptor to the global fleet-registry repository, which SHALL trigger the management cluster's ArgoCD ApplicationSet to begin watching the new tenant repository
 13. IF the Git repository creation or the fleet-registry commit fails, THE zero_ops_api SHALL NOT rollback the PostgreSQL record. Instead, it SHALL persist the tenant record with status: INCOMPLETE_GIT_SETUP, emit a critical OpenSearch event for platform alerting, and return HTTP 500 with a JSON body containing {"error_code": "git_service_unavailable", "message": "Platform repository service is currently unavailable. Our engineering team has been notified. Please try again later."}
 14. WHEN tenant_create is invoked for a tenant name that already exists in INCOMPLETE_GIT_SETUP state, THE zero_ops_api SHALL idempotently retry the missing Git provisioning steps (verify repo exists, create if missing, push scaffold, commit to fleet-registry). Upon success, it SHALL update status to AWAITING_CREDENTIALS and return HTTP 200
@@ -215,7 +230,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **SECURITY PRINCIPLE:** Credentials MUST NEVER transit through the AI agent or IDE client. This is a critical security requirement validated across all MCP OAuth implementations.
 
-**CRITICAL:** Credentials are stored in Git using KSOPS (encrypted with Age). Only the private Age key is stored in S3. This operation follows the Async Agent Pattern - the Agent displays the console URL and exits. The user resumes the flow conversationally after submitting credentials.
+**CRITICAL:** Credentials are stored in Infisical (self-hosted secrets management platform). This operation follows the Async Agent Pattern - the Agent displays the console URL and exits. The user resumes the flow conversationally after submitting credentials.
 
 #### Acceptance Criteria
 
@@ -226,16 +241,16 @@ This specification defines the complete agentic enterprise onboarding journey, e
 5. THE Platform Console SHALL verify the Tenant_Admin has permission to submit credentials for {tenant_id} by checking X-Tenant-ID claim from JWT
 6. THE Tenant_Admin SHALL enter the Hetzner API token in the authenticated console form (NOT in the agent)
 7. THE Platform Console SHALL submit credentials via HTTPS POST to zero_ops_api backend with JWT authentication
-8. THE zero_ops_api backend SHALL encrypt the API token using the tenant's Age public key
-9. THE zero_ops_api SHALL commit the SOPS-encrypted Secret to the {tenant_id}-control-plane Git repository under base/secrets/ directory using a GitHub App Installation Token
-10. THE zero_ops_api SHALL store the tenant's Age private key as a Kubernetes Secret in the management cluster for hub ArgoCD/KSOPS decryption of tenant infrastructure secrets from OCI artifacts built from Git
-11. THE zero_ops_api SHALL backup the tenant's Age private key to S3 at path: s3://{tenant}-secrets/age-private-key for disaster recovery only
-12. THE tenant SHALL remain in AWAITING_CREDENTIALS state indefinitely until credentials are submitted (no automatic cleanup)
-13. IF credential submission fails (Git commit error), THE zero_ops_api SHALL return HTTP 500, and the Tenant_Admin MAY retry via the console form
-14. WHEN the Tenant_Admin returns to Cursor and asks about environment status, THE Cursor SHALL invoke environment_status MCP tool (Requirement 17 handles resumption)
-15. THE credential submission operation SHALL be idempotent - resubmitting updates the encrypted Secret in Git. IF concurrent submissions occur, the zero_ops_api SHALL process them sequentially, applying a last-write-wins resolution where the final Git commit contains the most recently submitted credentials
-16. IF the Platform Console receives HTTP 401 Unauthorized during credential submission (JWT expiry), IT SHALL prompt the Tenant_Admin to re-authenticate WITHOUT clearing the entered Hetzner API token from the UI form, and automatically retry the submission upon successful re-authentication
-17. ALL credential submission endpoints SHALL require HTTPS (TLS 1.2+)
+8. THE zero_ops_api backend SHALL store the credentials in Infisical under path: /tenants/{tenant_id}/credentials/hetzner with AES-256-GCM encryption
+9. THE zero_ops_api SHALL tag the Infisical secret with metadata: tenant_id, created_at, created_by
+10. THE zero_ops_api SHALL update the tenant status in PostgreSQL to CREDENTIALS_READY
+11. THE tenant SHALL remain in AWAITING_CREDENTIALS state indefinitely until credentials are submitted (no automatic cleanup)
+12. IF credential submission fails (Infisical API error), THE zero_ops_api SHALL return HTTP 500, and the Tenant_Admin MAY retry via the console form
+13. WHEN the Tenant_Admin returns to Cursor and asks about environment status, THE Cursor SHALL invoke environment_status MCP tool (Requirement 17 handles resumption)
+14. THE credential submission operation SHALL be idempotent - resubmitting updates the secret in Infisical. IF concurrent submissions occur, the zero_ops_api SHALL process them sequentially, applying a last-write-wins resolution where the final Infisical write contains the most recently submitted credentials
+15. IF the Platform Console receives HTTP 401 Unauthorized during credential submission (JWT expiry), IT SHALL prompt the Tenant_Admin to re-authenticate WITHOUT clearing the entered Hetzner API token from the UI form, and automatically retry the submission upon successful re-authentication
+16. ALL credential submission endpoints SHALL require HTTPS (TLS 1.2+)
+17. THE Infisical audit log SHALL record all credential write operations with timestamp, user identity, and tenant_id
 
 ### Requirement 6: Initiate Environment Provisioning (Idempotent, Async)
 
@@ -266,18 +281,20 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **User Story:** As a system operator, I want Crossplane to provision enterprise infrastructure, so that tenants receive consistent, compliant environments.
 
-**CRITICAL:** Crossplane reconciles continuously. There is no "timeout" or "max retries" - only eventual consistency.
+**CRITICAL:** Crossplane reconciles continuously. There is no "timeout" or "max retries" - only eventual consistency. Crossplane uses CAPI providers underneath for actual cluster provisioning.
 
 #### Acceptance Criteria
 
 1. WHEN the AINativeSaaS_CR is committed, THE Crossplane SHALL detect the new resource
 2. THE Crossplane SHALL select Composition_B based on the enterprise tier
-3. THE Crossplane SHALL provision Hetzner resources using the decrypted API token (decrypted by KSOPS from Git using the tenant's Age private key stored in the management cluster)
-4. THE Crossplane Composition B SHALL utilize a provider-kubernetes Object resource to securely copy the tenant's Age private key Secret from the management cluster directly into the provisioned tenant cluster's ArgoCD namespace. The provider-kubernetes controller SHALL operate using a least-privilege ServiceAccount restricted via RBAC to reading only Secrets labeled nutgraf.in/tenant-age-key=true
-5. THE tenant cluster bootstrap SHALL deploy ArgoCD and KSOPS, configuring ArgoCD to use the injected Age private key Secret to automatically decrypt tenant application secrets from OCI artifacts built from Git
-6. THE Composition_B SHALL typically complete within 15 minutes under normal conditions, including tenant cluster provisioning and ArgoCD bootstrap
-7. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
-8. THE Crossplane SHALL NEVER enter a terminal "failed" state - only Degraded or Unready states that allow continued reconciliation
+3. THE Crossplane Composition SHALL create CAPI Cluster resources using the appropriate ClusterClass template (hetzner-spoke-prod-v1 or hetzner-spoke-staging-v1)
+4. THE Crossplane Composition SHALL create an ExternalSecret resource that fetches the Hetzner API token from Infisical path: /tenants/{tenant_id}/credentials/hetzner
+5. THE External Secrets Operator SHALL sync the credentials from Infisical to a Kubernetes Secret in the spoke cluster namespace
+6. THE CAPI provider SHALL use the synced credentials to provision Hetzner infrastructure (VMs, networks, load balancers)
+7. THE Composition_B SHALL typically complete within 15 minutes under normal conditions, including tenant cluster provisioning and ArgoCD bootstrap
+8. WHEN provisioning completes successfully, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
+9. THE Crossplane SHALL NEVER enter a terminal "failed" state - only Degraded or Unready states that allow continued reconciliation
+10. THE Crossplane Composition SHALL install Grafana Alloy, Teleport agent, and External Secrets Operator on the provisioned spoke cluster via ClusterResourceSet
 
 ### Requirement 8: Handle Provisioning Errors (Continuous Reconciliation)
 
@@ -491,24 +508,22 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - AND the Cursor retries environment_create with the new access token
 - AND the operation succeeds without user intervention
 
-### Requirement 15: Platform Git Authentication and Secret Bootstrap
+### Requirement 15: Platform Git Authentication
 
-**User Story:** As a system operator, I want the platform to securely authenticate with Git and automatically recover from cluster loss, so that GitOps reconciliation via Git → CI → OCI is secure and resilient.
+**User Story:** As a system operator, I want the platform to securely authenticate with Git, so that GitOps reconciliation is secure and auditable.
 
-**CRITICAL:** This requirement solves the "Secret Zero" problem in GitOps. The Master Platform Age Private Key is the single secret that must be injected imperatively during bootstrap. All other secrets (GitHub App Private Key, tenant credentials) are encrypted in Git and decrypted at apply-time using this master key.
-
-**Industry Context:** All GitOps secret management tools (KSOPS, Sealed Secrets, External Secrets Operator) require bootstrap injection of a master secret. No operator eliminates this step - it is a fundamental security requirement. The pattern used here matches CNCF best practices for GitOps secret management with Git → CI → OCI artifact distribution. ArgoCD Agent (https://github.com/argoproj-labs/argocd-agent/) natively supports OCI artifacts as application sources (see [ArgoCD OCI Documentation](https://argo-cd.readthedocs.io/en/latest/user-guide/oci/)).
+**CRITICAL:** GitHub App Installation Tokens provide short-lived, scoped authentication for Git operations. Tokens are generated on-demand and cached for performance.
 
 #### Acceptance Criteria
 
-1. **AC 15.1 (Bootstrap):** THE management cluster SHALL contain a Master Platform Age Private Key, injected exclusively at cluster creation time via the `zero-ops mgmt bootstrap` CLI command
-2. **AC 15.2 (Decryption):** THE `zero_ops_api` SHALL read the GitHub App Private Key from a mounted Kubernetes Secret. This Secret SHALL be synced from the `fleet-registry` Git repository and decrypted at apply-time by ArgoCD/KSOPS using the Master Platform Age Private Key
-3. **AC 15.3 (Token Generation):** WHEN `zero_ops_api` needs to commit to a tenant repository, IT SHALL dynamically generate a short-lived GitHub App Installation Token using the mounted GitHub App Private Key
+1. **AC 15.1 (Bootstrap):** THE management cluster SHALL contain a GitHub App Private Key Secret, stored in Infisical under path: /platform/github-app/private-key
+2. **AC 15.2 (Secret Sync):** THE External Secrets Operator SHALL sync the GitHub App Private Key from Infisical to a Kubernetes Secret in the zero-ops-api namespace
+3. **AC 15.3 (Token Generation):** WHEN `zero_ops_api` needs to commit to a tenant repository, IT SHALL dynamically generate a short-lived GitHub App Installation Token using the synced GitHub App Private Key
 4. **AC 15.4 (Token Cache):** THE `zero_ops_api` SHALL cache the generated Installation Token in memory for up to 55 minutes (proactively expiring before the strict 1-hour GitHub TTL)
 5. **AC 15.5 (Idempotent Refresh):** IF a Git commit operation returns HTTP 401 Unauthorized (indicating premature token expiry or revocation), THE `zero_ops_api` SHALL immediately invalidate the cached token, generate a fresh Installation Token, and retry the commit operation EXACTLY ONCE
 6. **AC 15.6 (Terminal Failure):** IF the retry using a freshly generated token also returns HTTP 401, THE `zero_ops_api` SHALL abort the operation, return HTTP 500 to the Agent, and log a critical authorization error
-7. **AC 15.7 (Disaster Recovery):** THE Master Platform Age Private Key SHALL be backed up securely off-cluster in the Zero-Ops organization's enterprise password vault (e.g., 1Password, Bitwarden, or offline secure vault)
-8. **AC 15.8 (Cluster Recreation):** IF the management cluster is destroyed, THE Platform Admin SHALL run `zero-ops mgmt bootstrap --name=shard-eu-1 --master-age-key=$SECURE_VAULT_KEY` to provision a new cluster, install ArgoCD Agent (https://github.com/argoproj-labs/argocd-agent/), and inject the master key. ArgoCD Agent SHALL connect to Git, decrypt the GitHub App Private Key, and the entire platform SHALL auto-reconcile back into existence
+7. **AC 15.7 (Disaster Recovery):** THE GitHub App Private Key SHALL be backed up securely in the Zero-Ops organization's enterprise password vault (e.g., 1Password, Bitwarden)
+8. **AC 15.8 (Cluster Recreation):** IF the management cluster is destroyed, THE Platform Admin SHALL run `zero-ops mgmt bootstrap --name=shard-eu-1` to provision a new cluster, install Infisical, sync the GitHub App Private Key from the password vault to Infisical, and the entire platform SHALL auto-reconcile back into existence
 
 **Rationale for Single Idempotent Retry:**
 - GitHub App Installation Tokens have deterministic 1-hour expiry (not transient network errors)
@@ -516,12 +531,6 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - Single retry handles edge cases: premature expiry, token revocation, clock skew
 - Exponential backoff is inappropriate for deterministic authorization failures
 - Fast failure (2 attempts max) provides clear signal for critical auth issues
-
-**Tools Comparison:**
-- KSOPS: Requires `kubectl create secret` with Age private key during bootstrap
-- Sealed Secrets: Controller generates keypair, admin must backup private key manually
-- External Secrets Operator: Requires `kubectl create secret` with cloud credentials during bootstrap
-- **Zero-Ops approach**: Matches KSOPS pattern (industry standard for GitOps + SOPS + Age)
 
 ### Requirement 16: Environment Status Schema and Phase Mapping
 
@@ -630,3 +639,293 @@ This specification defines the complete agentic enterprise onboarding journey, e
 16. THE OpenSearch SHALL capture K8s deletion events for the environment
 17. IF environment_delete is invoked while the AINativeSaaS_CR is already deleted from Git but Crossplane teardown is actively running, THE zero_ops_api SHALL return HTTP 202 Accepted with message: "Deletion already in progress"
 18. THE environment_delete operation SHALL be idempotent - deleting an already-deleted environment_id returns HTTP 200 with message: "Environment already deleted"
+
+### Requirement 20: Hub Observability Stack Installation
+
+**User Story:** As a Platform_Admin, I want observability infrastructure installed on the hub cluster, so that I can monitor tenant environments and platform health centrally.
+
+**CRITICAL:** Observability is a foundational requirement for Phase 1 MVP. VictoriaMetrics, Grafana, and Grafana Alloy form the telemetry backbone for the Hub-Spoke architecture.
+
+#### Acceptance Criteria
+
+1. THE hub bootstrap process SHALL install VictoriaMetrics using the victoria-metrics-k8s-stack Helm chart in the observability namespace
+2. THE VictoriaMetrics installation SHALL include:
+   - VictoriaMetrics single-node or cluster deployment (based on scale requirements)
+   - VMAgent for metrics collection
+   - VMAlert for alerting rules
+   - Retention period of 30 days minimum
+3. THE hub bootstrap process SHALL install Grafana in the observability namespace
+4. THE Grafana installation SHALL be pre-configured with VictoriaMetrics as the default datasource
+5. THE Grafana installation SHALL include pre-built dashboards for:
+   - Platform health overview (tenant count, cluster count, sync status)
+   - Tenant resource utilization (CPU, memory, storage per tenant)
+   - ArgoCD sync status (applications in sync/out-of-sync/degraded)
+   - Spoke cluster health (node status, pod health)
+6. THE hub bootstrap process SHALL create ServiceMonitor resources for:
+   - ArgoCD metrics (application sync status, reconciliation duration)
+   - Crossplane metrics (resource provisioning status, reconciliation errors)
+   - CAPI metrics (cluster provisioning status, machine health)
+   - CloudNativePG metrics (database health, replication lag)
+7. THE VictoriaMetrics SHALL expose a remote_write endpoint for spoke clusters to push metrics
+8. THE VictoriaMetrics remote_write endpoint SHALL require mTLS authentication from spoke clusters
+9. THE hub bootstrap process SHALL generate and store a CA certificate for spoke cluster authentication
+10. THE observability stack SHALL be managed via ArgoCD Application manifests in the fleet-registry repository
+
+### Requirement 21: Spoke Cluster Metrics Collection
+
+**User Story:** As a Platform_Admin, I want spoke clusters to push metrics to the hub, so that I can monitor tenant resource usage and cluster health centrally.
+
+**CRITICAL:** Grafana Alloy is the lightweight agent deployed on spoke clusters. It pushes metrics asynchronously to the hub with buffering for resilience.
+
+#### Acceptance Criteria
+
+1. WHEN a spoke cluster is provisioned, THE Crossplane Composition SHALL include a Grafana Alloy DaemonSet deployment
+2. THE Grafana Alloy DaemonSet SHALL run on all worker nodes in the spoke cluster
+3. THE Grafana Alloy configuration SHALL collect metrics from:
+   - Kubernetes API server (cluster-level metrics)
+   - kubelet (node and pod metrics)
+   - cAdvisor (container resource usage)
+   - kube-state-metrics (Kubernetes object state)
+4. THE Grafana Alloy SHALL push metrics to the hub VictoriaMetrics remote_write endpoint every 30 seconds
+5. THE Grafana Alloy SHALL use mTLS certificates for authentication to the hub
+6. THE Grafana Alloy SHALL buffer metrics locally for up to 2 hours if the hub is unreachable
+7. WHEN the hub becomes reachable, THE Grafana Alloy SHALL flush buffered metrics with idempotent batch ingestion
+8. THE Grafana Alloy SHALL add labels to all metrics:
+   - tenant_id: {tenant_id}
+   - cluster_id: {spoke_cluster_name}
+   - environment_id: {environment_id}
+   - tier: {starter|enterprise}
+9. THE Grafana Alloy SHALL NOT collect application-level logs in Phase 1 (defer to Phase 2)
+10. THE Grafana Alloy configuration SHALL be stored in the tenant's control-plane Git repository and synced via ArgoCD
+
+### Requirement 22: Tenant Count Metrics
+
+**User Story:** As a Platform_Admin, I want to track the number of active tenants, so that I can monitor platform growth and capacity planning.
+
+#### Acceptance Criteria
+
+1. THE zero_ops_api SHALL expose Prometheus metrics at /metrics endpoint
+2. THE zero_ops_api SHALL expose a gauge metric: zero_ops_tenants_total with labels:
+   - plan: {free|shared|dedicated}
+   - status: {AWAITING_CREDENTIALS|CREDENTIALS_READY|PROVISIONING|READY|DEGRADED}
+3. THE zero_ops_api SHALL update tenant count metrics every 60 seconds by querying PostgreSQL
+4. THE VictoriaMetrics VMAgent SHALL scrape the zero_ops_api /metrics endpoint every 30 seconds
+5. THE Grafana platform health dashboard SHALL display:
+   - Total tenant count (all statuses)
+   - Tenant count by plan (pie chart)
+   - Tenant count by status (bar chart)
+   - Tenant growth over time (line chart)
+6. THE dashboard SHALL refresh automatically every 30 seconds
+
+### Requirement 23: Cluster Health Metrics
+
+**User Story:** As a Platform_Admin, I want to monitor spoke cluster health, so that I can detect infrastructure failures and capacity issues.
+
+#### Acceptance Criteria
+
+1. THE Grafana Alloy on spoke clusters SHALL collect node health metrics:
+   - node_status (Ready|NotReady|Unknown)
+   - node_cpu_utilization_percent
+   - node_memory_utilization_percent
+   - node_disk_utilization_percent
+2. THE Grafana Alloy SHALL collect control plane health metrics:
+   - kube_apiserver_up (1=healthy, 0=down)
+   - etcd_server_has_leader (1=has leader, 0=no leader)
+   - kube_controller_manager_up
+   - kube_scheduler_up
+3. THE VictoriaMetrics SHALL aggregate cluster health metrics by tenant_id and cluster_id
+4. THE Grafana cluster health dashboard SHALL display:
+   - Cluster status (Ready|Degraded|Failed) per tenant
+   - Node count and health status per cluster
+   - Control plane component health per cluster
+   - Cluster age (time since provisioning)
+5. THE VictoriaMetrics SHALL define alerting rules:
+   - ClusterNodeNotReady: Alert if any node is NotReady for >5 minutes
+   - ClusterControlPlaneDown: Alert if any control plane component is down for >2 minutes
+   - ClusterHighCPU: Alert if cluster-wide CPU utilization >80% for >10 minutes
+   - ClusterHighMemory: Alert if cluster-wide memory utilization >80% for >10 minutes
+6. THE VMAlert SHALL send alerts to the Platform Console notification system
+
+### Requirement 24: ArgoCD Sync Status Metrics
+
+**User Story:** As a Platform_Admin, I want to track ArgoCD sync status for all tenant applications, so that I can detect deployment failures and drift.
+
+#### Acceptance Criteria
+
+1. THE VictoriaMetrics VMAgent SHALL scrape ArgoCD metrics from the argocd-metrics service
+2. THE ArgoCD metrics SHALL include:
+   - argocd_app_info (application metadata with labels: name, namespace, project, sync_status, health_status)
+   - argocd_app_sync_total (counter of sync operations)
+   - argocd_app_reconcile_duration_seconds (histogram of reconciliation duration)
+3. THE VictoriaMetrics SHALL aggregate sync status metrics by tenant_id (derived from application name pattern)
+4. THE Grafana ArgoCD dashboard SHALL display:
+   - Total applications count
+   - Applications by sync status (Synced|OutOfSync|Unknown)
+   - Applications by health status (Healthy|Progressing|Degraded|Suspended|Missing)
+   - Sync failures over time (line chart)
+   - Average reconciliation duration per tenant
+5. THE VictoriaMetrics SHALL define alerting rules:
+   - ArgoCDAppOutOfSync: Alert if application is OutOfSync for >10 minutes
+   - ArgoCDAppDegraded: Alert if application health is Degraded for >5 minutes
+   - ArgoCDSyncFailure: Alert on repeated sync failures (>3 in 15 minutes)
+6. THE Grafana dashboard SHALL allow filtering by tenant_id and environment_id
+
+### Requirement 25: Resource Utilization Metrics
+
+**User Story:** As a Platform_Admin, I want to track resource utilization across all spoke clusters, so that I can optimize capacity and identify cost optimization opportunities.
+
+#### Acceptance Criteria
+
+1. THE Grafana Alloy SHALL collect resource utilization metrics:
+   - container_cpu_usage_seconds_total (per container)
+   - container_memory_working_set_bytes (per container)
+   - container_fs_usage_bytes (per container)
+   - kube_pod_container_resource_requests (CPU and memory requests)
+   - kube_pod_container_resource_limits (CPU and memory limits)
+2. THE VictoriaMetrics SHALL aggregate resource utilization by:
+   - tenant_id
+   - environment_id
+   - namespace
+   - workload (deployment, statefulset, daemonset)
+3. THE Grafana resource utilization dashboard SHALL display:
+   - CPU utilization per tenant (cores used vs requested)
+   - Memory utilization per tenant (GB used vs requested)
+   - Storage utilization per tenant (GB used)
+   - Resource efficiency (used vs requested ratio)
+   - Top 10 resource consumers (by tenant, by workload)
+4. THE VictoriaMetrics SHALL calculate derived metrics:
+   - tenant_cpu_utilization_percent = (cpu_used / cpu_requested) * 100
+   - tenant_memory_utilization_percent = (memory_used / memory_requested) * 100
+   - tenant_storage_utilization_percent = (storage_used / storage_capacity) * 100
+5. THE VictoriaMetrics SHALL define alerting rules:
+   - TenantHighCPU: Alert if tenant CPU utilization >80% for >15 minutes
+   - TenantHighMemory: Alert if tenant memory utilization >80% for >15 minutes
+   - TenantHighStorage: Alert if tenant storage utilization >85%
+6. THE Grafana dashboard SHALL support time range selection (1h, 6h, 24h, 7d, 30d)
+7. THE Grafana dashboard SHALL allow exporting resource utilization data as CSV for billing integration
+
+### Requirement 26: Observability Data Retention and Backup
+
+**User Story:** As a Platform_Admin, I want observability data retained for compliance and troubleshooting, so that I can investigate historical issues.
+
+#### Acceptance Criteria
+
+1. THE VictoriaMetrics SHALL retain metrics data for 30 days minimum
+2. THE VictoriaMetrics SHALL use persistent volumes for data storage with daily snapshots
+3. THE VictoriaMetrics snapshots SHALL be backed up to S3-compatible object storage daily
+4. THE VictoriaMetrics SHALL implement data retention policies:
+   - High-resolution metrics (15s interval): 7 days
+   - Medium-resolution metrics (1m interval): 30 days
+   - Low-resolution metrics (5m interval): 90 days (optional, for long-term trends)
+5. THE Grafana dashboard configurations SHALL be stored in Git (fleet-registry repository)
+6. THE Grafana dashboard changes SHALL be version-controlled and synced via ArgoCD
+7. THE VictoriaMetrics SHALL expose backup/restore procedures in runbooks for disaster recovery
+8. THE observability namespace SHALL have resource quotas to prevent unbounded growth:
+   - CPU limit: 8 cores
+   - Memory limit: 32 GB
+   - Storage limit: 500 GB (adjustable based on tenant count)
+
+### Requirement 27: Secrets Management with Infisical
+
+**User Story:** As a Platform_Admin, I want cloud provider credentials stored securely in Infisical, so that secrets are encrypted at rest and access is audited.
+
+**CRITICAL:** This requirement replaces KSOPS/Age pattern with self-hosted Infisical for centralized secrets management and Teleport for PAM.
+
+#### Acceptance Criteria
+
+1. THE hub bootstrap process SHALL install Infisical server in the secrets-management namespace
+2. THE Infisical installation SHALL use CloudNativePG for its PostgreSQL backend
+3. THE Infisical installation SHALL be configured with:
+   - Encryption at rest using AES-256-GCM
+   - TLS for all API communications
+   - RBAC policies for tenant isolation
+4. THE hub bootstrap process SHALL install External Secrets Operator (ESO) in the secrets-management namespace
+5. THE ESO SHALL be configured with Infisical as a SecretStore backend
+6. WHEN a tenant submits cloud provider credentials via the Platform Console, THE zero_ops_api SHALL:
+   - Store the credentials in Infisical under path: /tenants/{tenant_id}/credentials/hetzner
+   - Tag the secret with metadata: tenant_id, created_at, created_by
+   - NOT commit credentials to Git (Infisical is the source of truth)
+7. WHEN Crossplane provisions a spoke cluster, THE Composition SHALL create an ExternalSecret resource that:
+   - References the Infisical SecretStore
+   - Fetches credentials from /tenants/{tenant_id}/credentials/hetzner
+   - Creates a Kubernetes Secret in the spoke cluster namespace
+8. THE ExternalSecret SHALL refresh credentials every 5 minutes to detect rotation
+9. THE Infisical SHALL maintain an audit log of all secret access operations including:
+   - Timestamp
+   - User/service account identity
+   - Secret path accessed
+   - Operation (read/write/delete)
+10. THE Infisical audit logs SHALL be exported to OpenSearch for centralized security monitoring
+11. THE Infisical SHALL support secret rotation workflows where updating a secret in Infisical automatically propagates to all ExternalSecrets within 5 minutes
+
+### Requirement 28: Privileged Access Management with Teleport
+
+**User Story:** As a Platform_Admin, I want privileged access to clusters managed via Teleport, so that all administrative actions are audited and time-limited.
+
+**CRITICAL:** Teleport provides zero-trust access to Kubernetes clusters, SSH nodes, and databases with session recording and just-in-time access.
+
+#### Acceptance Criteria
+
+1. THE hub bootstrap process SHALL install Teleport cluster in the teleport namespace
+2. THE Teleport installation SHALL be configured with:
+   - PostgreSQL backend (CloudNativePG)
+   - TLS certificates for all components
+   - RBAC roles: platform_admin, tenant_admin, read_only
+3. THE Teleport SHALL integrate with Ory Kratos for SSO authentication
+4. THE Teleport SHALL register the hub cluster as a trusted cluster
+5. WHEN a spoke cluster is provisioned, THE Crossplane Composition SHALL:
+   - Install Teleport agent on the spoke cluster
+   - Register the spoke cluster with the hub Teleport cluster
+   - Configure RBAC to allow tenant_admin role access only to their tenant's clusters
+6. THE Teleport SHALL enforce access policies:
+   - platform_admin: Full access to all clusters
+   - tenant_admin: Access only to clusters with matching tenant_id label
+   - read_only: Read-only kubectl access
+7. THE Teleport SHALL record all kubectl exec sessions and store recordings for 90 days
+8. THE Teleport SHALL enforce just-in-time access:
+   - Access requests require approval from platform_admin
+   - Access grants expire after 8 hours
+   - Emergency access (break-glass) requires multi-party approval
+9. THE Teleport SHALL integrate with Slack/PagerDuty for access request notifications
+10. THE Teleport audit logs SHALL be exported to OpenSearch for compliance reporting
+11. THE Platform Console SHALL display Teleport access links for tenant admins to connect to their clusters
+
+### Requirement 29: Spoke ClusterClass Templates
+
+**User Story:** As a Platform_Admin, I want spoke-specific ClusterClass templates, so that tenant clusters are provisioned with appropriate sizing and configuration.
+
+**CRITICAL:** Spoke clusters have different requirements than the management cluster (smaller, tenant-focused, cost-optimized).
+
+#### Acceptance Criteria
+
+1. THE hub bootstrap process SHALL deploy ClusterClass templates to the zero-ops-system namespace:
+   - hetzner-spoke-prod-v1 (production workloads)
+   - hetzner-spoke-staging-v1 (staging/dev workloads)
+2. THE hetzner-spoke-prod-v1 ClusterClass SHALL define:
+   - Control plane: 3 nodes, cx23 instance type (2 vCPU, 4 GB RAM)
+   - Worker pool: Auto-scaling 2-10 nodes, cx33 instance type (4 vCPU, 8 GB RAM)
+   - Kubernetes version: v1.31.6
+   - CNI: Cilium 1.15.6
+   - CCM: Hetzner Cloud Controller Manager
+   - CSI: Hetzner CSI Driver
+3. THE hetzner-spoke-staging-v1 ClusterClass SHALL define:
+   - Control plane: 3 nodes, cx23 instance type (2 vCPU, 4 GB RAM)
+   - Worker pool: Auto-scaling 1-5 nodes, cx23 instance type (2 vCPU, 4 GB RAM)
+   - Kubernetes version: v1.31.6
+   - CNI: Cilium 1.15.6
+   - CCM: Hetzner Cloud Controller Manager
+   - CSI: Hetzner CSI Driver
+4. THE ClusterClass templates SHALL distribute nodes across 3 availability zones (Hetzner regions: fsn1, nbg1, hel1)
+5. THE ClusterClass templates SHALL include ClusterResourceSet (CRS) for automatic addon installation:
+   - Cilium CNI (via Helm)
+   - Hetzner CCM (via Helm)
+   - Hetzner CSI (via manifest)
+   - Grafana Alloy (via Helm)
+   - Teleport agent (via Helm)
+6. THE ClusterClass templates SHALL be version-controlled in the fleet-registry Git repository
+7. THE ClusterClass templates SHALL be deployed via ArgoCD Application manifests
+8. THE Crossplane AINativeSaaS Composition SHALL reference these ClusterClass templates when provisioning spoke clusters
+9. THE ClusterClass templates SHALL support in-place upgrades for Kubernetes version updates
+10. THE ClusterClass templates SHALL include node taints and labels for workload isolation:
+    - Taint: tenant={tenant_id}:NoSchedule (prevent cross-tenant pod scheduling)
+    - Label: tenant_id={tenant_id}, tier={starter|enterprise}

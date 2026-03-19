@@ -1,6 +1,8 @@
 # zero-ops
 
-Zero-Ops Platform: A Go monorepo for Kubernetes infrastructure automation with multiple service binaries.
+Zero-Ops Platform: 
+
+An MCP first, AI-native SaaS factory that lets developers spin up production-grade, fully isolated SaaS tenants — infrastructure, identity, and AI agents included — through a single API call or IDE tool call, with every provisioning decision auditable in Git.
 
 ## Architecture
 

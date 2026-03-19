@@ -2,27 +2,44 @@
 
 ## Introduction
 
-This document defines the requirements for Phase 1 MVP of the Hub-Spoke SaaS platform tenant onboarding system. The system enables multi-tenant SaaS operations using a Hub-Spoke Kubernetes architecture where the hub cluster manages all control-plane services (VictoriaMetrics, ClickHouse, Grafana, identity services, SaaS control plane APIs) and each spoke cluster hosts isolated tenant workloads. The architecture follows a GitOps-first approach where all provisioning is declarative via Git commits that ArgoCD reconciles.
+This document defines the requirements for Phase 1 MVP of the Hub-Spoke SaaS platform tenant onboarding system. The system enables multi-tenant SaaS operations using a Hub-Spoke Kubernetes architecture where the hub cluster manages all control-plane services (VictoriaMetrics, Grafana, identity services, ArgoCD, Crossplane) and each spoke cluster hosts isolated tenant workloads. The architecture follows a GitOps-first approach where all provisioning is declarative via Git commits that ArgoCD reconciles.
 
-Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant metadata, provisioning dedicated spoke clusters, deploying ArgoCD agents, implementing fleet registry with ApplicationSets, and establishing basic observability.
+**Architecture Principles:**
+- **Crossplane + CAPI Pattern**: Crossplane provides the declarative API layer (AINativeSaaS CRs) while CAPI handles the actual cluster provisioning underneath. This separation allows tenant-facing abstractions while leveraging battle-tested CAPI for infrastructure.
+- **Secrets Management**: Self-hosted Infisical for secrets storage and Teleport for privileged access management (PAM). Credentials are stored encrypted in Infisical and injected into clusters via External Secrets Operator.
+- **GitOps-First**: All infrastructure changes are committed to Git. Standard ArgoCD with ApplicationSets reconciles from Git repositories.
+- **Observability**: VictoriaMetrics for centralized metrics, Grafana for dashboards, and Grafana Alloy agents on spoke clusters pushing telemetry to the hub. Tracks tenant count, cluster health, ArgoCD sync status, and resource utilization.
+- **MCP-First Interaction**: All tenant operations are performed via MCP tools (no CLI or UI in Phase 1-2). The existing MCP server integrates with the hub identity stack.
+
+Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant metadata via MCP, provisioning dedicated spoke clusters via Crossplane + CAPI, deploying standard ArgoCD for GitOps, implementing fleet registry with ApplicationSets, and establishing basic observability with VictoriaMetrics + Grafana.
 
 ## Glossary
 
-- **Hub_Cluster**: The central Kubernetes cluster that hosts all control-plane services, shared infrastructure, and orchestration components
-- **Spoke_Cluster**: A Kubernetes cluster dedicated to hosting one or more tenant workloads with isolated resources
+- **Hub_Cluster**: The central Kubernetes cluster that hosts all control-plane services (VictoriaMetrics, Grafana, ArgoCD, Crossplane, identity services, MCP server)
+- **Spoke_Cluster**: A Kubernetes cluster dedicated to hosting tenant workloads, provisioned via Crossplane + CAPI
 - **Tenant**: An organization or customer using the SaaS platform with dedicated or shared infrastructure
-- **Fleet_Registry**: A Git repository containing tenant descriptor files that define tenant configuration and cluster assignments
-- **ArgoCD_Agent**: A lightweight ArgoCD component deployed on spoke clusters that connects to the hub and synchronizes applications
-- **CAPI**: Cluster API, the Kubernetes-native declarative API for cluster lifecycle management
-- **ClusterClass**: A CAPI template defining the configuration for provisioning clusters (e.g., hetzner-prod-ubuntu-v1)
+- **Fleet_Registry**: A Git repository containing tenant descriptor files that trigger ArgoCD ApplicationSets to watch tenant repositories
+- **ArgoCD**: Standard ArgoCD installation (not ArgoCD Agent labs project) for GitOps reconciliation
+- **ApplicationSet**: An ArgoCD resource that automatically generates Application resources based on templates and generators
+- **CAPI**: Cluster API, the Kubernetes-native declarative API for cluster lifecycle management (used by Crossplane underneath)
+- **Crossplane**: Declarative infrastructure orchestration layer that uses CAPI providers to provision spoke clusters
+- **ClusterClass**: A CAPI template defining the configuration for provisioning clusters (e.g., hetzner-spoke-prod-v1)
 - **Control_Plane_Repo**: A Git repository containing Kubernetes manifests and Helm charts for a tenant's control plane services
 - **App_Plane_Repo**: A Git repository containing Kubernetes manifests and application code for a tenant's workloads
-- **ApplicationSet**: An ArgoCD resource that automatically generates Application resources based on templates and generators
 - **Tenant_Descriptor**: A YAML file in the fleet registry defining tenant metadata, repository URLs, cluster references, and configuration
 - **mTLS**: Mutual TLS authentication where both client and server verify each other's certificates
 - **HA_Control_Plane**: High-availability Kubernetes control plane with 3 master nodes distributed across 3 availability zones
-- **Platform_Admin**: An operator or administrator managing the Hub-Spoke platform infrastructure
+- **Platform_Admin**: An operator or administrator managing the Hub-Spoke platform infrastructure via MCP tools
 - **Tenant_Admin**: An administrator within a tenant organization managing their applications and services
+- **VictoriaMetrics**: Time-series database for centralized metrics storage on the hub cluster
+- **Grafana**: Visualization and dashboarding platform for observability data
+- **Grafana Alloy**: Lightweight telemetry agent deployed on spoke clusters that pushes metrics to the hub
+- **Infisical**: Self-hosted secrets management platform for storing encrypted cloud provider credentials
+- **Teleport**: Privileged access management (PAM) platform for audited, time-limited access to clusters
+- **External Secrets Operator (ESO)**: Kubernetes operator that syncs secrets from Infisical to cluster namespaces
+- **MCP_Server**: Model Context Protocol server that exposes tenant management tools, integrated with hub identity stack
+- **AINativeSaaS_CR**: Crossplane custom resource defining tenant environment configuration
+- **ClusterResourceSet (CRS)**: CAPI feature for automatic addon installation (CNI, CCM, CSI, Grafana Alloy, Teleport agent) during cluster bootstrap
 
 ## Requirements
 
@@ -42,20 +59,28 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 7. WHEN tenant metadata is captured, THE Onboarding_System SHALL store the tenant record in the database
 8. WHEN a duplicate tenant_id is provided, THE Onboarding_System SHALL return an error indicating the tenant already exists
 
-### Requirement 2: Manual Tenant Repository Creation
+### Requirement 2: Automated Tenant Repository Creation via MCP
 
-**User Story:** As a Platform_Admin, I want to manually create tenant Git repositories, so that I can establish GitOps infrastructure for the tenant.
+**User Story:** As a Platform_Admin, I want tenant Git repositories created automatically via MCP tools, so that I can establish GitOps infrastructure without manual Git operations.
+
+**CRITICAL:** This operation is triggered via MCP tools (tenant_create), not manual CLI or UI operations. The MCP server integrates with the hub identity stack for authentication.
 
 #### Acceptance Criteria
 
-1. THE Platform_Admin SHALL manually create a Control_Plane_Repo for the tenant in GitHub
-2. THE Platform_Admin SHALL manually create an App_Plane_Repo for the tenant in GitHub
-3. THE Control_Plane_Repo SHALL contain Kubernetes manifests for tenant control plane services
-4. THE App_Plane_Repo SHALL contain Kubernetes manifests for tenant application workloads
-5. THE Platform_Admin SHALL record the Control_Plane_Repo URL in the tenant record
-6. THE Platform_Admin SHALL record the App_Plane_Repo URL in the tenant record
-7. THE Control_Plane_Repo SHALL be initialized with a README file
-8. THE App_Plane_Repo SHALL be initialized with a README file
+1. WHEN the tenant_create MCP tool is invoked, THE MCP_Server SHALL authenticate the request via the hub identity stack (Ory Hydra/Kratos/Keto)
+2. THE MCP_Server SHALL invoke zero_ops_api to create a Control_Plane_Repo for the tenant in GitHub using a GitHub App Installation Token
+3. THE MCP_Server SHALL invoke zero_ops_api to create an App_Plane_Repo for the tenant in GitHub using a GitHub App Installation Token
+4. THE Control_Plane_Repo SHALL be initialized with a default Kustomize structure:
+   - base/kustomization.yaml (base manifests)
+   - overlays/starter/ (destination for Starter tier CRs)
+   - overlays/enterprise/ (destination for Enterprise tier CRs)
+   - README.md (tenant onboarding documentation)
+5. THE App_Plane_Repo SHALL be initialized with sample application manifests and README
+6. THE zero_ops_api SHALL record the Control_Plane_Repo URL in the tenant record
+7. THE zero_ops_api SHALL record the App_Plane_Repo URL in the tenant record
+8. IF Git repository creation fails, THE zero_ops_api SHALL persist the tenant record with status: INCOMPLETE_GIT_SETUP and return HTTP 500
+9. WHEN tenant_create is retried for a tenant in INCOMPLETE_GIT_SETUP state, THE zero_ops_api SHALL idempotently retry the Git provisioning steps
+10. THE GitHub App Private Key SHALL be stored in Infisical and synced to the zero_ops_api namespace via External Secrets Operator
 
 ### Requirement 3: Fleet Registry Tenant Registration
 
@@ -75,23 +100,30 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 10. WHEN the Tenant_Descriptor is committed, THE Git_System SHALL trigger a webhook notification
 
 
-### Requirement 4: Dedicated Spoke Cluster Provisioning
+### Requirement 4: Dedicated Spoke Cluster Provisioning via Crossplane
 
-**User Story:** As a Platform_Admin, I want to provision dedicated spoke clusters using CAPI, so that tenants have isolated infrastructure for their workloads.
+**User Story:** As a Platform_Admin, I want to provision dedicated spoke clusters using Crossplane + CAPI, so that tenants have isolated infrastructure with a declarative API layer.
+
+**CRITICAL:** Crossplane provides the tenant-facing API (AINativeSaaS CR) while CAPI handles the actual cluster provisioning underneath. This follows the industry best practice of separating abstraction (Crossplane) from implementation (CAPI).
 
 #### Acceptance Criteria
 
-1. WHEN a tenant with plan=dedicated is registered, THE Provisioning_System SHALL create a CAPI Cluster resource
-2. THE Provisioning_System SHALL use ClusterClass hetzner-prod-ubuntu-v1 for production tenants
-3. THE Provisioning_System SHALL use ClusterClass hetzner-staging-ubuntu-v1 for staging tenants
-4. THE Provisioning_System SHALL provision an HA_Control_Plane with 3 master nodes
-5. THE Provisioning_System SHALL distribute the 3 master nodes across 3 availability zones
-6. THE Provisioning_System SHALL provision worker node pools with auto-scaling enabled
-7. THE Provisioning_System SHALL distribute worker nodes across availability zones
-8. THE Provisioning_System SHALL assign a unique cluster name using the pattern `spoke-{tenant_id}`
-9. WHEN the CAPI Cluster resource is created, THE CAPI_Controller SHALL reconcile the cluster to Ready state
-10. WHEN cluster provisioning fails, THE Provisioning_System SHALL update the tenant status to Failed
-11. WHEN the cluster reaches Ready state, THE Provisioning_System SHALL update the tenant status to ClusterReady
+1. WHEN a tenant with plan=dedicated is registered, THE Provisioning_System SHALL create an AINativeSaaS_CR in the hub cluster
+2. THE AINativeSaaS_CR SHALL specify tier (starter or enterprise), cloud provider (hetzner), and region
+3. THE Crossplane Composition SHALL select the appropriate ClusterClass template based on tier:
+   - Starter tier → hetzner-spoke-staging-v1
+   - Enterprise tier → hetzner-spoke-prod-v1
+4. THE Crossplane Composition SHALL create CAPI Cluster resources using the selected ClusterClass
+5. THE ClusterClass SHALL provision an HA_Control_Plane with 3 master nodes distributed across 3 availability zones (Hetzner regions: fsn1, nbg1, hel1)
+6. THE ClusterClass SHALL provision worker node pools with auto-scaling enabled (2-10 nodes for prod, 1-5 for staging)
+7. THE Crossplane Composition SHALL create an ExternalSecret resource that fetches Hetzner API credentials from Infisical path: /tenants/{tenant_id}/credentials/hetzner
+8. THE External Secrets Operator SHALL sync the credentials from Infisical to a Kubernetes Secret in the spoke cluster namespace
+9. THE CAPI provider SHALL use the synced credentials to provision Hetzner infrastructure (VMs, networks, load balancers)
+10. THE Crossplane Composition SHALL assign a unique cluster name using the pattern `spoke-{tenant_id}-{environment_suffix}`
+11. WHEN the CAPI Cluster resource reaches Ready state, THE Crossplane SHALL update the AINativeSaaS_CR status to Ready: True
+12. WHEN cluster provisioning encounters errors, THE Crossplane SHALL update the AINativeSaaS_CR status to Degraded with error details
+13. THE Crossplane SHALL continuously reconcile and retry provisioning (no terminal failure states)
+14. WHEN the cluster reaches Ready state, THE Provisioning_System SHALL update the tenant status to ClusterReady
 
 ### Requirement 5: Spoke Cluster Health Monitoring
 
@@ -108,35 +140,38 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 7. THE Monitoring_System SHALL expose cluster health metrics to VictoriaMetrics on the Hub_Cluster
 8. THE Monitoring_System SHALL check cluster health at intervals not exceeding 60 seconds
 
-### Requirement 6: ArgoCD Agent Deployment
+### Requirement 6: ArgoCD Installation on Spoke Clusters
 
-**User Story:** As a Platform_Admin, I want to deploy ArgoCD agents on spoke clusters, so that applications can be synchronized from the hub.
+**User Story:** As a Platform_Admin, I want ArgoCD installed on spoke clusters, so that applications can be synchronized from tenant Git repositories.
 
-#### Acceptance Criteria
-
-1. WHEN a Spoke_Cluster reaches Ready state, THE Agent_Deployment_System SHALL install the ArgoCD_Agent
-2. THE Agent_Deployment_System SHALL deploy the ArgoCD_Agent in the argocd namespace
-3. THE Agent_Deployment_System SHALL generate an mTLS certificate for the ArgoCD_Agent
-4. THE Agent_Deployment_System SHALL configure the ArgoCD_Agent to connect to the Hub_Cluster ArgoCD server
-5. THE ArgoCD_Agent SHALL authenticate to the hub using the mTLS certificate
-6. WHEN the ArgoCD_Agent is deployed, THE Agent_Deployment_System SHALL verify agent connectivity within 120 seconds
-7. WHEN agent connectivity verification fails, THE Agent_Deployment_System SHALL retry deployment up to 3 times
-8. WHEN agent connectivity is verified, THE Agent_Deployment_System SHALL update the tenant status to AgentReady
-
-
-### Requirement 7: ArgoCD Agent Connectivity Monitoring
-
-**User Story:** As a Platform_Admin, I want to monitor ArgoCD agent connectivity, so that I can detect and troubleshoot synchronization issues.
+**CRITICAL:** This uses standard ArgoCD (not ArgoCD Agent labs project). ArgoCD is installed via ClusterResourceSet during CAPI cluster bootstrap.
 
 #### Acceptance Criteria
 
-1. THE Monitoring_System SHALL track ArgoCD_Agent connectivity status as one of (Connected, Disconnected, Unknown)
-2. THE Monitoring_System SHALL check ArgoCD_Agent connectivity at intervals not exceeding 60 seconds
-3. WHEN an ArgoCD_Agent fails to report within 180 seconds, THE Monitoring_System SHALL set status to Disconnected
-4. WHEN an ArgoCD_Agent reconnects, THE Monitoring_System SHALL set status to Connected
-5. THE Monitoring_System SHALL expose agent connectivity metrics to VictoriaMetrics on the Hub_Cluster
-6. WHEN an ArgoCD_Agent status changes to Disconnected, THE Monitoring_System SHALL emit an alert
-7. THE Monitoring_System SHALL record the last successful connection timestamp for each ArgoCD_Agent
+1. WHEN a Spoke_Cluster reaches Ready state, THE ClusterResourceSet SHALL automatically install ArgoCD via Helm chart
+2. THE ArgoCD installation SHALL be deployed in the argocd namespace on the spoke cluster
+3. THE ArgoCD installation SHALL be configured to watch the tenant's Control_Plane_Repo and App_Plane_Repo
+4. THE ArgoCD installation SHALL use ApplicationSets for auto-discovery of applications from the tenant repositories
+5. THE ArgoCD installation SHALL authenticate to Git repositories using GitHub App Installation Tokens (synced from Infisical via External Secrets Operator)
+6. WHEN ArgoCD is deployed, THE Provisioning_System SHALL verify ArgoCD server is healthy within 120 seconds
+7. WHEN ArgoCD health check fails, THE Provisioning_System SHALL retry verification up to 3 times
+8. WHEN ArgoCD is verified healthy, THE Provisioning_System SHALL update the tenant status to ArgoCDReady
+
+
+### Requirement 7: ArgoCD Health Monitoring
+
+**User Story:** As a Platform_Admin, I want to monitor ArgoCD health on spoke clusters, so that I can detect and troubleshoot synchronization issues.
+
+#### Acceptance Criteria
+
+1. THE Monitoring_System SHALL track ArgoCD health status as one of (Healthy, Progressing, Degraded, Suspended)
+2. THE Monitoring_System SHALL scrape ArgoCD metrics from the argocd-metrics service on spoke clusters
+3. THE Grafana Alloy agent on spoke clusters SHALL push ArgoCD metrics to VictoriaMetrics on the hub
+4. WHEN ArgoCD server pod is not Running, THE Monitoring_System SHALL set status to Degraded
+5. WHEN ArgoCD server is Running and healthy, THE Monitoring_System SHALL set status to Healthy
+6. THE Monitoring_System SHALL expose ArgoCD health metrics to VictoriaMetrics on the Hub_Cluster
+7. WHEN ArgoCD status changes to Degraded, THE Monitoring_System SHALL emit an alert
+8. THE Monitoring_System SHALL record the last successful health check timestamp for each spoke ArgoCD instance
 
 ### Requirement 8: Fleet Registry ApplicationSet Implementation
 
@@ -160,14 +195,14 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 
 #### Acceptance Criteria
 
-1. WHEN an Application resource is created, THE ArgoCD_Agent SHALL synchronize manifests from the Control_Plane_Repo
-2. THE ArgoCD_Agent SHALL apply Kubernetes manifests to the Spoke_Cluster
-3. THE ArgoCD_Agent SHALL render Helm charts with tenant-specific values
-4. WHEN synchronization completes successfully, THE ArgoCD_Agent SHALL report sync status as Synced
-5. WHEN synchronization fails, THE ArgoCD_Agent SHALL report sync status as OutOfSync
-6. THE ArgoCD_Agent SHALL report application health as one of (Healthy, Progressing, Degraded, Suspended, Missing, Unknown)
-7. WHEN all application resources are healthy, THE ArgoCD_Agent SHALL report health status as Healthy
-8. THE ArgoCD_Agent SHALL retry failed synchronizations with exponential backoff up to 300 seconds
+1. WHEN an Application resource is created by ApplicationSet, THE ArgoCD on the spoke cluster SHALL synchronize manifests from the Control_Plane_Repo
+2. THE ArgoCD SHALL apply Kubernetes manifests to the Spoke_Cluster
+3. THE ArgoCD SHALL render Helm charts with tenant-specific values
+4. WHEN synchronization completes successfully, THE ArgoCD SHALL report sync status as Synced
+5. WHEN synchronization fails, THE ArgoCD SHALL report sync status as OutOfSync
+6. THE ArgoCD SHALL report application health as one of (Healthy, Progressing, Degraded, Suspended, Missing, Unknown)
+7. WHEN all application resources are healthy, THE ArgoCD SHALL report health status as Healthy
+8. THE ArgoCD SHALL retry failed synchronizations with exponential backoff up to 300 seconds
 
 
 ### Requirement 10: Application Plane Deployment
@@ -176,15 +211,14 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 
 #### Acceptance Criteria
 
-1. THE ApplicationSet_System SHALL create a second ApplicationSet for app plane deployments
-2. THE app plane ApplicationSet SHALL watch the Fleet_Registry for Tenant_Descriptor files
-3. WHEN a Tenant_Descriptor is discovered, THE ApplicationSet SHALL generate an Application resource for the App_Plane_Repo
-4. THE Application resource SHALL reference the tenant's App_Plane_Repo
-5. THE Application resource SHALL target the tenant's assigned Spoke_Cluster
-6. THE ArgoCD_Agent SHALL synchronize manifests from the App_Plane_Repo
-7. THE ArgoCD_Agent SHALL apply application workload manifests to the Spoke_Cluster
-8. WHEN synchronization completes successfully, THE ArgoCD_Agent SHALL report sync status as Synced
-9. WHEN all application resources are healthy, THE ArgoCD_Agent SHALL report health status as Healthy
+1. THE ApplicationSet on the spoke cluster SHALL watch the tenant's App_Plane_Repo for application manifests
+2. WHEN new applications are detected in the App_Plane_Repo, THE ApplicationSet SHALL generate Application resources
+3. THE Application resources SHALL reference the tenant's App_Plane_Repo
+4. THE Application resources SHALL target namespaces on the Spoke_Cluster
+5. THE ArgoCD SHALL synchronize manifests from the App_Plane_Repo
+6. THE ArgoCD SHALL apply application workload manifests to the Spoke_Cluster
+7. WHEN synchronization completes successfully, THE ArgoCD SHALL report sync status as Synced
+8. WHEN all application resources are healthy, THE ArgoCD SHALL report health status as Healthy
 
 ### Requirement 11: ArgoCD Sync Status Tracking
 
@@ -232,20 +266,24 @@ Phase 1 MVP focuses on the core tenant onboarding workflow: capturing tenant met
 9. WHEN memory utilization exceeds 80 percent for more than 300 seconds, THE Monitoring_System SHALL emit an alert
 10. WHEN storage utilization exceeds 80 percent, THE Monitoring_System SHALL emit an alert
 
-### Requirement 14: mTLS Certificate Generation
+### Requirement 14: Secrets Management with Infisical
 
-**User Story:** As a Platform_Admin, I want mTLS certificates generated for ArgoCD agents, so that spoke-to-hub communication is authenticated and encrypted.
+**User Story:** As a Platform_Admin, I want cloud provider credentials stored securely in Infisical, so that secrets are encrypted at rest and access is audited.
+
+**CRITICAL:** Infisical replaces traditional GitOps secret management (KSOPS/Age, Sealed Secrets) with a centralized secrets platform. External Secrets Operator syncs secrets from Infisical to clusters.
 
 #### Acceptance Criteria
 
-1. WHEN an ArgoCD_Agent is deployed, THE Certificate_System SHALL generate an mTLS certificate
-2. THE Certificate_System SHALL generate a unique certificate for each ArgoCD_Agent
-3. THE mTLS certificate SHALL include the Spoke_Cluster identifier in the subject
-4. THE mTLS certificate SHALL be valid for 365 days
-5. THE Certificate_System SHALL store the certificate in a Kubernetes Secret on the Spoke_Cluster
-6. THE Certificate_System SHALL store the certificate authority certificate on the Hub_Cluster
-7. THE ArgoCD_Agent SHALL use the mTLS certificate for all connections to the Hub_Cluster
-8. WHEN a certificate expires within 30 days, THE Certificate_System SHALL generate a new certificate
+1. THE hub cluster SHALL have Infisical server installed in the secrets-management namespace
+2. THE Infisical installation SHALL use CloudNativePG for its PostgreSQL backend
+3. THE hub cluster SHALL have External Secrets Operator (ESO) installed in the secrets-management namespace
+4. WHEN a tenant is created, THE zero_ops_api SHALL create an Infisical project at path: /tenants/{tenant_id}/
+5. WHEN cloud provider credentials are submitted, THE zero_ops_api SHALL store them in Infisical at path: /tenants/{tenant_id}/credentials/hetzner with AES-256-GCM encryption
+6. WHEN a spoke cluster is provisioned, THE Crossplane Composition SHALL create an ExternalSecret resource that references the Infisical SecretStore
+7. THE ExternalSecret SHALL fetch credentials from /tenants/{tenant_id}/credentials/hetzner and create a Kubernetes Secret in the spoke cluster namespace
+8. THE ExternalSecret SHALL refresh credentials every 5 minutes to detect rotation
+9. THE Infisical SHALL maintain an audit log of all secret access operations (timestamp, identity, secret path, operation)
+10. THE Infisical audit logs SHALL be exported to the hub observability stack for security monitoring
 
 ### Requirement 15: Tenant Status Lifecycle
 

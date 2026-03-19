@@ -47,7 +47,7 @@ This approach ensures the platform is optimized for agentic workflows from day o
 | Platform console | Not defined | **New deliverable** — single RBAC-scoped console for platform team and all tenants. Read-only monitoring and observability. All write actions via "Resolve in IDE" button that generates deep links to IDE/MCP clients. |
 | Identity & auth | Not defined | **Ory Kratos + Hydra + Keto** (platform-level, shared, one instance) handles all identity: platform team, tenant admins, tenant end-users. Tenant-level identity isolated via `tenant_id` in Kratos traits. |
 | MCP/A2A gateway | LLM Gateway (proxy only) | **AgentGateway** (CNCF open source, Rust) — A2A + MCP communications, JWT validation via Hydra. Single auth enforcement point for all MCP tool calls. |
-| Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Hetzner S3, KSOPS secret management, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM) |
+| Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Hetzner S3, Infisical secret management, External Secrets Operator, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM), Teleport PAM |
 | Autopilot | Not defined | **Autopilot mode** — platform raises PRs to tenant control plane repo for all proposed changes. Tenant approves or rejects. No silent mutations to tenant infrastructure under any mode. |
 | PR environments | Not defined | **Ephemeral PR environments** — Argo Workflow creates per-branch namespace with single-node CNPG bootstrapped from staging CSI snapshot. Torn down on PR close. |
 | Provider switching | Single provider (Hetzner) | **Blue-green provider migration** — `spec.cloud` field change triggers new cluster provisioning + CNPG PITR restore + DNS cutover. Old cluster retained for rollback window. |
@@ -76,7 +76,7 @@ management cluster and contains only tenant workloads. _(Composition A target. O
 | **Data Plane DB** | The `{tenant}-dataplane` CNPG database provisioned per tenant. Contains the tenant's SaaS application data. Schema owned and managed by the tenant. Zero-Ops has no visibility into its contents. |
 | **BYOC** | Bring Your Own Cloud. Tenants supply their own cloud provider API credentials. All tenant compute runs in their cloud account. Zero-Ops has no billing relationship with the tenant's cloud provider. |
 | **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace, RLS-scoped databases, and baseline services within the Shared Cluster. _(Out of scope for v8.0 delivery.)_ |
-| **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated CAPI cluster, two CNPG clusters, S3 bucket, KSOPS Age key, and all baseline services in the tenant's Hetzner account. **Two variants:** Autopilot (ArgoCD Agent) or Self-Managed (Full ArgoCD). |
+| **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated CAPI cluster, two CNPG clusters, S3 bucket, Infisical secrets project, and all baseline services in the tenant's Hetzner account. Uses standard ArgoCD (not ArgoCD Agent) for GitOps. |
 
 ---
 
@@ -108,7 +108,7 @@ The v7.0 architecture can provision a Kubernetes cluster. It cannot provision a 
 | PostgreSQL HA | Separate, manual | ✅ CNPG in XRD baseline |
 | Vector search (AI features) | Not provided | ✅ pgvector extension in XRD |
 | Object storage | Not provided | ✅ Hetzner S3 bucket in XRD |
-| Secret management | Not provided | ✅ KSOPS + Age key in XRD |
+| Secret management | Not provided | ✅ Infisical + External Secrets Operator in XRD |
 | GitOps wiring | Partial (CRS inject) | ✅ ArgoCD Application CR in XRD |
 | Observability | Alloy + VictoriaMetrics | ✅ Same, per-tenant topology labels |
 | Agent runtime (AI coding) | Not provided | ✅ AgentSandbox (gVisor) in XRD |
@@ -308,7 +308,7 @@ Unchanged from v7.0 Journey D except: the Platform Console is now a defined deli
 | Scale CNPG instances | Tenant Admin | "Resolve in IDE" → Update `spec.database.instances` in control plane repo PR via MCP |
 | Add team member | Tenant Admin | "Resolve in IDE" → Ory Kratos admin API via MCP OR Platform Console `Team` tab (read-only roster) |
 | Upload tenant-specific runbook | Tenant Admin | "Resolve in IDE" → MCP tool uploads to tenant RAG corpus |
-| Rotate Age encryption key | Platform Admin | CLI or MCP tool re-encrypts secrets with new Age key |
+| Rotate Infisical secret | Platform Admin | CLI or MCP tool rotates secrets in Infisical, External Secrets Operator auto-syncs to clusters |
 | View Grafana dashboard | Any tenant user | Platform Console `Monitoring` tab → "View in Grafana" link (read-only) |
 | Query agent about environment | Any tenant user | Platform Console agent conversation interface (read-only history, "Resolve in IDE" for actions) |
 
@@ -399,8 +399,8 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │       └── Composition B (Enterprise)                              │  │
   │           CAPI Cluster CR (Ubuntu kubeadm, CAPH)                  │  │
   │           CNPG Cluster CR (HA, pgvector, PgBouncer)               │  │
-  │           ArgoCD Application CR (Git → CI → OCI catalog)          │  │
-  │           Hetzner S3 bucket + KSOPS Age secret                    │  │
+  │           ArgoCD Application CR (Git sync)                        │  │
+  │           Hetzner S3 bucket + Infisical secrets project           │  │
   │           Ingress (nginx) + cert-manager + external-dns           │  │
   │           AgentSandbox (gVisor persistent deployment)             │  │
   │           LiteLLM AI Gateway                                      │  │
@@ -432,7 +432,8 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
   │    cnpg2monitor (fleet-wide ClusterRole)                          │  │
   │    AgentSandbox (gVisor, snapshot-restore per execution)          │  │
   │    LiteLLM AI Gateway (third-party LLM routing)                   │  │
-  │    KSOPS + Age key (secret management)                            │  │
+  │    Infisical + External Secrets Operator (secret management)      │  │
+  │    Teleport (privileged access management, session recording)     │  │
   │    CNPG ScheduledBackup → Hetzner S3                              │  │
   │    nginx Ingress + cert-manager + external-dns                    │  │
   │                                                                   │  │
@@ -462,7 +463,8 @@ ZERO-OPS v8.0 — SAAS FACTORY ARCHITECTURE
 | **LiteLLM AI Gateway** | LiteLLM OSS, per-tenant deployment | Routes tenant LLM calls to configured third-party providers (OpenAI, Anthropic, Together, Groq). Cost attribution per model call. |
 | **PostgREST** | PostgREST standalone container, per-tenant | Auto-generates REST API from tenant PostgreSQL schema. JWT/RLS validation via Ory Hydra tokens. |
 | **AgentSandbox** | gVisor (`runsc`) persistent deployment, per-tenant | Sandboxed execution environment for agent workloads. CSI snapshot downloaded at pod startup for consistent state across executions. |
-| **KSOPS + Age** | KSOPS Kustomize plugin + Age encryption | Secret management. Age public key stored in tenant Hetzner S3. KSOPS encrypts/decrypts Kubernetes Secrets at GitOps apply time. |
+| **Infisical + ESO** | Infisical server + External Secrets Operator | Secret management. Infisical stores encrypted secrets (AES-256-GCM). External Secrets Operator syncs secrets from Infisical to Kubernetes namespaces. Credentials never stored in Git. |
+| **Teleport** | Teleport cluster + agents | Privileged access management (PAM). Zero-trust access to clusters with session recording, just-in-time access, and audit logging. Integrates with Ory Kratos for SSO. |
 | **PgBouncer** | Bundled with CNPG via `spec.pooler` | Connection pooling for PostgreSQL. Prevents connection exhaustion under high concurrency. |
 | **pgvector** | CNPG `shared_preload_libraries: vector` | Vector similarity search extension. Enables agent memory storage and retrieval. Powers tenant AI features. |
 | **cnpg2monitor (v8.0)** | Promoted to `ClusterRole` (fleet-wide) | Monitors CNPG clusters in ALL tenant namespaces. Patches PodMonitors with topology labels. Emits lifecycle events to OpenSearch. Prerequisite for AINativeSaaS template. |
@@ -714,25 +716,30 @@ Tool server uses tenant_id from JWT for data scoping
 
 **URL stability:** Each AgentSandbox deployment has a stable internal DNS name: `{tenant}-sandbox.{namespace}.svc.cluster.local`. This URL does not change across pod restarts or snapshot restores.
 
-### 5.5 Secret Management (KSOPS + Age)
+### 5.5 Secret Management (Infisical + External Secrets Operator)
 
 ```
 At tenant onboarding:
-  1. Platform generates Age keypair for tenant
-  2. Age public key stored in tenant's Hetzner S3 bucket: s3://{tenant}-secrets/age.pub
-  3. Age private key stored as Kubernetes Secret in management cluster (sealed by platform key)
+  1. Platform creates Infisical project for tenant at path: /tenants/{tenant_id}/
+  2. Tenant credentials stored in Infisical with AES-256-GCM encryption
+  3. External Secrets Operator (ESO) installed on management cluster and spoke clusters
 
 At secret creation (e.g. Hetzner API token, LiteLLM API keys):
-  1. Secret value encrypted with tenant Age public key → produces encrypted .sops.yaml
-  2. Encrypted secret committed to tenant control plane repository
-  3. ArgoCD applies via KSOPS Kustomize plugin → decrypts at apply time using Age private key
-  4. Kubernetes Secret created in tenant namespace — never stored in Git in plaintext
+  1. Secret value stored in Infisical at path: /tenants/{tenant_id}/secrets/{secret_name}
+  2. ExternalSecret CR created in tenant namespace referencing Infisical SecretStore
+  3. ESO syncs secret from Infisical to Kubernetes Secret in tenant namespace
+  4. Secrets never stored in Git (Infisical is source of truth)
 
-Key rotation:
-  1. New Age keypair generated
-  2. All encrypted secrets re-encrypted with new public key
-  3. New public key uploaded to tenant S3
-  4. Old private key deleted after grace period
+Secret rotation:
+  1. New secret value updated in Infisical
+  2. ESO detects change (polls every 5 minutes)
+  3. Kubernetes Secret automatically updated in all clusters
+  4. Applications reload secrets (via restart or watch mechanism)
+
+Disaster recovery:
+  1. Infisical data backed up to S3 daily
+  2. Infisical uses CloudNativePG for its PostgreSQL backend (HA + backups)
+  3. Platform GitHub App Private Key stored in Infisical for Git operations
 ```
 
 ### 5.6 cnpg2monitor v8.0 — Fleet-Wide Promotion
@@ -770,7 +777,7 @@ The Platform Console is a web application deployed in the management cluster. It
 | **Runbooks** | Platform SOP runbooks (read-only). Tenant-uploadable runbooks (scoped to tenant RAG corpus). |
 | **Team** | Ory Kratos identity management for tenant users. Invite, role assignment, revoke. |
 | **Billing** | Real-time cost from Hetzner pricing API. Per-environment monthly estimate. Usage breakdown. |
-| **Settings** | Autopilot mode toggle. Provider credentials (Hetzner API token — write-only input). Age key management. Eject option. |
+| **Settings** | Autopilot mode toggle. Provider credentials (Hetzner API token — write-only input, stored in Infisical). Teleport access management. Eject option. |
 
 ### 5.8 PR Environment Specification
 
@@ -870,7 +877,8 @@ Regardless of autopilot mode setting, the following operations **always require 
 - Any change to `spec.cloud` (provider migration)
 - CNPG cluster deletion
 - Namespace deletion
-- Age key rotation
+- Infisical secret rotation
+- Teleport access policy changes
 
 The following operations can be proposed via autopilot PR without pre-approval escalation:
 
@@ -960,7 +968,7 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 
 1. Tenant Admin selects `Settings → Migrate Provider → AWS` in Platform Console.
 2. Console displays: estimated migration window, CNPG PITR restore strategy explanation, rollback window (default 2 hours after cutover).
-3. Tenant Admin provides AWS credentials. Console encrypts with Age key, stores in tenant S3.
+3. Tenant Admin provides AWS credentials. Console stores in Infisical at path: /tenants/{tenant_id}/credentials/aws.
 4. Tenant Admin confirms. `zero-ops-api` updates `spec.cloud: aws` in tenant control plane repository via a platform-authored PR. Tenant Admin approves this specific PR (provider migration is always human-approved regardless of autopilot mode).
 5. ArgoCD applies. Crossplane detects `spec.cloud` drift from `hetzner` to `aws`.
 6. Crossplane triggers blue-green migration sequence:

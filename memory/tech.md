@@ -17,7 +17,7 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Kubernetes**: Container orchestration (Ubuntu + kubeadm, not Talos)
 - **Crossplane**: Infrastructure provisioning engine
 - **ArgoCD**: GitOps continuous deployment
-- **CAPI/CAPH**: Cluster API with Hetzner provider
+- **CAPI+ClusterClass+CAPH**: Cluster API with Hetzner provider
 - **Hetzner Cloud**: Primary cloud provider (BYOC model)
 
 ## Data & Storage
@@ -25,7 +25,7 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **pgvector**: Vector similarity search for AI features
 - **PgBouncer**: Connection pooling (via CNPG spec.pooler)
 - **Hetzner S3**: Object storage
-- **KSOPS + Age**: Secret encryption in Git
+
 
 ## Authentication & Security
 - **Ory Kratos**: Identity management
@@ -33,6 +33,8 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Ory Keto**: Relationship-based authorization
 - **JWT**: Authentication tokens with JWKS validation
 - **cert-manager**: TLS certificate management
+- **Infisical**: Secret manager
+- **Teleport**: PAM
 
 ## Observability & Monitoring
 - **VictoriaMetrics**: Metrics storage and querying
@@ -68,107 +70,54 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **MCP First**: All platform capabilities via MCP interface (no CLI/UI for tenant operations in Phase 1-2)
 - **BYOC Only**: No shared cloud billing, tenant owns compute costs
 - **Hub Cluster**: Management cluster named "mothership" (3 CP + 2 workers, Hetzner, Ubuntu 24.04, k8s v1.31.6)
+- **Standard ArgoCD**: Use standard ArgoCD (not ArgoCD Agent labs project) for Phase 1 MVP
 
-## GitOps Architecture Research (2026)
+## open-sbt Abstraction Layer
 
-### Zero-Ops Edge GitOps Validation
-**Research Question:** Is Zero-Ops edge GitOps approach correct vs centralized hub model?
+**Purpose**: Reusable Go library for multi-tenant SaaS backends (Kubernetes-native alternative to AWS SBT)
 
-**Industry Evidence:**
-1. **AWS Scalability Study (2023)**: ArgoCD hits limits at ~10K apps across 97 clusters. Sharding helps but doesn't solve fundamental centralized bottleneck.
+**Core Philosophy**: Provider-agnostic interfaces. Swap Ory→Keycloak or NATS→Kafka without changing business logic.
 
-2. **Harness "Argo Ceiling" (2026)**: Centralized GitOps breaks down at scale due to:
-   - Fragmented visibility across clusters
-   - Script entropy and glue code accumulation
-   - Awkward promotion flows
-   - Secret sprawl
-   - Difficult audits
+### Core Interfaces
+- **IAuth**: Authentication and authorization (Ory Stack implementation)
+- **IEventBus**: Async event communication (NATS implementation)
+- **IProvisioner**: Infrastructure provisioning (Crossplane implementation)
+- **IStorage**: Data persistence (PostgreSQL implementation)
+- **ISecretManager**: Secret management (Infisical implementation)
 
-3. **Red Hat Agent-Based Preview (2026)**: OpenShift moving to agent-based GitOps with local reconciliation to address scalability/security challenges.
+### Default Providers
+- **Ory Stack**: Auth provider (Kratos + Hydra + Keto)
+- **NATS**: Event bus provider (replaces AWS EventBridge)
+- **PostgreSQL + sqlc**: Storage provider (replaces DynamoDB)
+- **Infisical**: Secret manager (replaces AWS Secrets Manager)
+- **Crossplane + ArgoCD**: Provisioning provider (replaces CloudFormation)
 
-4. **Cloud Native Now Analysis (2026)**: "Federated GitOps" emerging as best practice - central policies, local execution.
+### Architecture Separation
+- **Control Plane**: Tenant management, billing, provisioning, identity, MCP server
+- **Application Plane**: Tenant workloads, databases, application services
 
-### Zero-Ops Approach Validation: ✅ CORRECT
+**Key Principle**: Control Plane and Application Plane are logically separated but can run on same or different clusters depending on tier (Starter vs Enterprise).
 
-**Why Edge GitOps is Superior:**
-- **Scalability**: No etcd limits, distributed reconciliation
-- **Resilience**: Survives management cluster outages
-- **Latency**: Local reconciliation, no network hops
-- **Security**: Least privilege per cluster
-- **Autonomy**: Regional teams don't wait for central bottleneck
+### Package Structure
+```
+open-sbt/pkg/
+├── interfaces/       # Core interfaces (IAuth, IEventBus, etc.)
+├── models/           # Data models (Tenant, User, Event)
+├── providers/        # Default implementations (ory/, nats/, postgres/, infisical/)
+├── controlplane/     # Control Plane components
+├── applicationplane/ # Application Plane components
+├── events/           # Event definitions and handlers
+├── mcp/              # MCP server implementation
+└── libraries/        # Multi-tenant microservice libraries
+```
 
-**Industry Trend**: Moving FROM centralized TO edge/federated models
-- Red Hat: Hub → Agent-based
-- AWS: Acknowledges centralized limits
-- Harness: Promotes control plane above GitOps
+### When to Use open-sbt
+- Building multi-tenant SaaS backends
+- Need provider flexibility (swap auth, events, storage)
+- Want Control/App plane separation
+- Kubernetes-native architecture
 
-**Zero-Ops Implementation Details:**
-- ArgoCD deployed via ClusterResourceSet into each tenant cluster
-- Pulls from OCI catalog (not Git repos)
-- Management cluster provides policy/catalog, not direct reconciliation
-- Decoupled availability: tenant clusters work independently
-
-**Conclusion**: Zero-Ops edge GitOps is ahead of industry curve, solving problems others are just recognizing.
-
-## ArgoCD Agent Analysis (Native Edge Solution)
-
-### ArgoCD Agent Overview
-**Status**: argoproj-labs project, production-ready, actively developed
-**Architecture**: Hub-and-spoke with agents pulling from central control plane
-
-### Key Capabilities
-- **Massive Scale**: Thousands of apps across hundreds of clusters
-- **Network Resilient**: Works with intermittent connections, high latency
-- **Two Modes**: 
-  - Managed: Control plane pushes config to agents
-  - Autonomous: Agents manage locally, report status to hub
-- **Security**: mTLS everywhere, zero-trust, certificate-based auth
-- **Lightweight**: Minimal footprint on workload clusters
-
-### Comparison with Zero-Ops Edge GitOps
-
-| Aspect | Zero-Ops Current | ArgoCD Agent | Assessment |
-|---|---|---|---|
-| **Architecture** | ClusterResourceSet + ArgoCD per cluster | Agent + Principal hub-spoke | Similar concept, different implementation |
-| **Source** | OCI catalog | Git repos (standard ArgoCD) | Zero-Ops more advanced (OCI) |
-| **Bootstrap** | CAPI ClusterResourceSet | Agent registration | Zero-Ops more automated |
-| **Autonomy** | Full autonomy when hub down | Autonomous mode available | Equivalent |
-| **Scale** | Unlimited (distributed) | Thousands of apps/hundreds clusters | Equivalent |
-| **Network** | Works offline | Intermittent connection support | Equivalent |
-
-### Adoption Recommendation: **EVALUATE BUT DON'T REPLACE**
-
-**Reasons to KEEP Zero-Ops approach:**
-1. **OCI Catalog**: More advanced than Git-based approach
-2. **CAPI Integration**: Seamless bootstrap via ClusterResourceSet
-3. **Fleet Observability**: Already integrated with VictoriaMetrics/OpenSearch
-4. **Proven Architecture**: Already working in Zero-Ops v7.0
-
-**Potential ArgoCD Agent Benefits:**
-1. **Community Support**: Official ArgoCD project, long-term maintenance
-2. **Standard GitOps**: Uses standard Git repos, not custom OCI
-3. **Hub Observability**: Single pane of glass for all clusters
-4. **mTLS Security**: Built-in certificate-based authentication
-
-**Recommendation**: Zero-Ops should EVALUATE ArgoCD Agent for future versions but NOT replace current edge GitOps implementation. Current approach is more advanced (OCI catalog) and better integrated with CAPI/fleet observability.
-## CRITICAL DECISION CHANGE: Use ArgoCD Agent Instead of Custom Edge GitOps
-
-### User Instruction (Final Decision):
-Zero-Ops should NOT build custom edge GitOps workflow. Instead, use the community-built ArgoCD Agent.
-
-**Reference:** https://github.com/argoproj-labs/argocd-agent/
-
-### Impact on Architecture:
-- **REPLACE**: Custom ClusterResourceSet + ArgoCD per cluster
-- **WITH**: ArgoCD Agent (hub-and-spoke) from argoproj-labs
-- **BENEFIT**: Community-maintained, production-ready, officially supported
-
-### Files to Update:
-1. `docs/prds/v8/zero-ops-prd-v8.md` - Replace edge GitOps references
-2. `.kiro/specs/agentic-enterprise-onboarding/requirements.md` - Update GitOps patterns
-
-### Key Change:
-- FROM: Zero-Ops custom edge GitOps implementation
-- TO: ArgoCD Agent community solution with Git → CI → OCI support
-
-This is a major architectural decision that changes the core GitOps implementation approach.
+### When NOT to Use open-sbt
+- Single-tenant applications
+- Vendor lock-in acceptable (use AWS SBT directly)
+- Non-Kubernetes deployments
