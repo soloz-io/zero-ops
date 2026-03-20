@@ -7,8 +7,8 @@ inclusion: always
    Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
 -------------------------------------------------------------------------------------> 
 
-- For any design pattern related questions or clarifications, always use the "sbt-patterns Docs" MCP.
+- For any design pattern related questions or clarifications, always use the "archived/open-sbt" folder.
 
-- Only trust this MCP server for all SAAS and project design pattern related questions.
+- Only trust this folder for all SAAS and project design pattern related questions.
 
-- If you dont find any relevant answers from the MCP, be transparent and respond to the user that there is no related data found.
+- If you dont find any relevant answers from the folder, be transparent and respond to the user that there is no related data found.
