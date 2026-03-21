@@ -1,19 +1,19 @@
 # Zero-Ops Platform — Product Requirements Document
 
-**Version:** 8.0 + 8.1 — SaaS Factory: AINativeSaaS Template, Platform Console & Tenant Onboarding  
+**Version:** 9.0 — Hub-Spoke Architecture with Distributed Identity & Control Plane  
 **Status:** DRAFT  
 **Project:** zero-ops  
 **Repo Model:** Go-Centric Monorepo  
 **Author:** Platform Architecture Team  
 **Date:** 2026  
 **Classification:** CONFIDENTIAL — INTERNAL USE ONLY  
-**Supersedes:** v7.0 (Open Source Fleet Observability Stack & Correlation Engine)
+**Supersedes:** v8.1 (SaaS Factory: AINativeSaaS Template, Platform Console & Tenant Onboarding)
 
 ---
 
 ## Interface Priority & Development Approach
 
-**Zero-Ops v8.0 is an MCP-first agentic platform.** All platform capabilities are designed and tested through the Model Context Protocol (MCP) interface first, enabling AI-native interactions via IDEs like Cursor, Claude Desktop, and other MCP-compatible clients.
+**Zero-Ops v9.0 is an MCP-first agentic platform.** All platform capabilities are designed and tested through the Model Context Protocol (MCP) interface first, enabling AI-native interactions via IDEs like Cursor, Claude Desktop, and other MCP-compatible clients.
 
 **Development Priority:**
 1. **MCP Interface** — Primary interface for all operations. MCP tool servers expose platform capabilities to AI agents and IDE integrations.
@@ -62,13 +62,13 @@ The following terms appear throughout this document. Definitions are provided he
 
 | Term | Definition |
 |---|---|
-| **Hub Cluster** | The Zero-Ops platform control plane cluster (formerly Management Cluster/Mothership). Bootstrapped imperatively. Runs global routing, central identity (Kratos/Hydra), NATS JetStream, Hub Centralised DB, ClickHouse, and fleet-wide observability. |
-| **Spoke Pool Cluster** | A multi-tenant shared execution environment managed by the Hub. Hosts multiple "Starter" tier tenants as isolated projects/namespaces. Uses an in-memory JWKS cache to validate Hub-issued tokens. Writes operational data directly to the Hub. |
-| **Spoke Silo Cluster** | A dedicated, single-tenant environment provisioned for "Enterprise" tier tenants requiring strict isolation. Runs its own localized instances of Kratos, Hydra, and AgentGateway. Writes state to a local Control Plane DB and syncs upstream via NATS. |
-| **Hub Centralised DB** | A PostgreSQL database in the Hub storing fleet state, resource status across all tenants, and cross-cluster routing data. Subject to OLTP workloads and exposed via Hub-side PostgREST. |
-| **Control Plane Shared DB** | A PostgreSQL database storing tenant configuration, provisioning state, and user sessions. Spoke Pool clusters connect to this directly; Spoke Silo clusters sync to it asynchronously. |
-| **NATS JetStream / Leaf Node** | The asynchronous event and messaging backbone. The Hub runs a JetStream cluster; Spoke Pool/Silo clusters run Leaf Nodes. Used for billing telemetry, lifecycle triggers, and silo state sync. |
-| **IControlPlaneStore** | An interface abstracting database writes. Spoke Pools use `HubStore` (direct connection to Control Plane Shared DB). Spoke Silos use `LocalStore` (writes locally, NATS carries state upstream). |
+| **Hub Cluster** | The Zero-Ops platform control plane cluster (formerly Management Cluster/Mothership). Bootstrapped imperatively. Runs global identity (Ory Keto, Kratos, Hydra), AgentGateway with Auth proxy, NATS JetStream Cluster, Hub Centralised DB (PostgreSQL), Control Plane Shared DB (PostgreSQL), VictoriaMetrics, Loki, Grafana, Hub Event Router, and Platform Admin dashboard. ClickHouse is deferred — added only when PostgreSQL billing queries become a bottleneck (typically 10M+ rows). |
+| **Spoke Pool Cluster** | A multi-tenant shared execution environment managed by the Hub. Hosts multiple "Starter" tier tenants as isolated namespaces (Tenant A, Tenant C). Uses in-memory JWKS cache (sbt-auth) to validate Hub-issued tokens. Runs NATS Leaf Node, Spoke Controller, Tenant routing, and shared KSM/Grafana Alloy. Writes resource status directly to Hub Centralised DB via Hub-side PostgREST. |
+| **Spoke Silo Cluster** | A dedicated, single-tenant environment provisioned for "Enterprise" tier tenants requiring strict isolation. Runs its own localized instances of Kratos, Hydra, AgentGateway, and Auth proxy. Maintains a local Tenant Control Plane DB and syncs state upstream via NATS Leaf Node. Runs dedicated KSM, Grafana Alloy, and Tenant routing. |
+| **Hub Centralised DB (PostgreSQL)** | Fleet state database in the Hub. Stores cluster health, resource status across all tenants. Written by: Spoke Controller (via Hub-side PostgREST) and Hub Event Router (NATS consumer). Read by: Platform Admin dashboard (fleet view) and Tenant Admin dashboard (resource status). Exposed via Hub-side PostgREST with per-spoke write scoping enforced by RLS. |
+| **Control Plane Shared DB (PostgreSQL)** | Tenant configuration database in the Hub. Stores tenant config, provisioning state, user sessions. Written by: Spoke Control Plane applications via direct synchronous connection (Spoke Pool) or local writes synced via NATS (Spoke Silo). Read by: Tenant Admin dashboards and Spoke APIs. Exposed via Spoke-side PostgREST for operational business data. |
+| **NATS JetStream / Leaf Node** | The asynchronous event and messaging backbone. The Hub runs a JetStream cluster; Spoke Pool/Silo clusters run Leaf Nodes. Used exclusively for: billing telemetry (`spoke.*.billing.usage` → Hub Centralised DB), lifecycle triggers (`spoke.*.lifecycle.>` → Hub workflows), notifications (`spoke.*.notifications.>` → notification service), and Spoke Silo state sync (local Control Plane DB → upstream to Hub). NATS is NOT used for: resource status updates (Spoke Controller writes directly via Hub-side PostgREST), metrics (Alloy remote_write to VictoriaMetrics), or Spoke Pool operational data (direct synchronous connection to Control Plane Shared DB). |
+| **IControlPlaneStore** | A Go interface abstracting Control Plane database writes. Spoke Pools use `HubStore` implementation (direct PgSQL connection to Control Plane Shared DB in Hub). Spoke Silos use `LocalStore` implementation (writes to local Tenant Control Plane DB, NATS Leaf Node carries state upstream to Hub). The shared spoke code uses HubStore (remote) vs LocalStore (local DB) — not two different code paths. |
 | **BYOC** | Bring Your Own Cloud. Tenants supply their own cloud provider API credentials. All tenant compute runs in their cloud account. Zero-Ops has no billing relationship with the tenant's cloud provider. |
 | **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace, RLS-scoped databases, and baseline services within the Spoke Pool Cluster. _(Out of scope for v8.0 delivery.)_ |
 | **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated Spoke Silo cluster with localized Ory stack, local Control Plane DB, NATS Leaf Node, and all baseline services in the tenant's Hetzner account. |
@@ -77,7 +77,7 @@ The following terms appear throughout this document. Definitions are provided he
 
 ## 1. Executive Summary
 
-Zero-Ops v8.0 transforms the platform from a fleet management tool into a **SaaS factory** — a self-service infrastructure platform that provisions complete, production-grade AI-native SaaS environments on demand, in a single declarative click, for both the Zero-Ops platform team and external SaaS builders.
+Zero-Ops v9.0 transforms the platform from a fleet management tool into a **SaaS factory** — a self-service infrastructure platform that provisions complete, production-grade AI-native SaaS environments on demand, in a single declarative click, for both the Zero-Ops platform team and external SaaS builders.
 
 The primary product is the `AINativeSaaS` Crossplane XRD: a single declarative object that expands into a full-stack AI-native environment comprising Kubernetes, PostgreSQL HA, vector search, object storage, secret management, observability, GitOps, sandboxed agent runtime, authentication, and AI model gateway. The Zero-Ops platform team is itself a tenant of this template — its own control plane runs on the same `AINativeSaaS` composition as every external SaaS builder.
 
@@ -311,7 +311,7 @@ Unchanged from v7.0 Journey D except: the Platform Console is now a defined deli
 
 ## 4. Proposed Architecture
 
-### 4.1 High-Level Architecture (v8.0)
+### 4.1 High-Level Architecture (v9.0)
 
 **Cluster topology — three distinct cluster types:**
 
@@ -321,28 +321,29 @@ Unchanged from v7.0 Journey D except: the Platform Console is now a defined deli
 | **Spoke Pool Cluster** | Hub Cluster (Day 1 setup) | Multi-tenant shared workloads, NATS Leaf Node, JWKS auth cache. |
 | **Spoke Silo Cluster** | Crossplane (On demand) | Single-tenant dedicated workloads, localized Ory Auth stack, local control plane DB. |
 
-```
-ZERO-OPS v8.0 — HUB & SPOKE ARCHITECTURE
+```text
+ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  HUB CLUSTER (Control Plane)                                             │
 │                                                                          │
 │  ┌───────────────────────┐       ┌────────────────────────────────────┐  │
 │  │  Global Identity      │       │  Centralised Data & Events         │  │
-│  │  Ory Kratos & Hydra   │       │  NATS JetStream Cluster            │  │
-│  │  Auth Proxy           │       │  Hub Event Router                  │  │
+│  │  Ory Keto, Kratos,    │       │  NATS JetStream Cluster            │  │
+│  │  Hydra, Auth Proxy    │       │  Hub Event Router                  │  │
 │  └──────────┬────────────┘       └─────────┬──────────────────────────┘  │
 │             │                              │                             │
 │  ┌──────────▼────────────┐       ┌─────────▼──────────────────────────┐  │
 │  │  AgentGateway         │       │  Hub Centralised DB (PostgreSQL)   │  │
 │  │  (A2A & MCP routing)  │       │  - Fleet state, resource status    │  │
-│  └───────────────────────┘       │  - Exposed via PostgREST (Hub-side)│  │
+│  │                        │       │  - Exposed via Hub-side PostgREST  │  │
+│  └───────────────────────┘       │  - Written by Spoke Controller     │  │
 │                                  └────────────────────────────────────┘  │
 │  ┌───────────────────────┐       ┌────────────────────────────────────┐  │
 │  │  Observability Stack  │       │  Control Plane Shared DB (PgSQL)   │  │
 │  │  VictoriaMetrics      │       │  - Tenant config, sessions         │  │
-│  │  ClickHouse (Billing) │       │  - Target for IControlPlaneStore   │  │
-│  │  Loki, Grafana        │       │  - Exposed via PostgREST (Spoke)   │  │
+│  │  Loki, Grafana        │       │  - Target for IControlPlaneStore   │  │
+│  │  (ClickHouse deferred)│       │  - Exposed via Spoke-side PostgREST│  │
 │  └───────────────────────┘       └────────────────────────────────────┘  │
 └───────────────▲──────────────────────────────────▲───────────────────────┘
                 │ NATS Events / Metrics            │ Postgres / PostgREST
@@ -351,6 +352,23 @@ ZERO-OPS v8.0 — HUB & SPOKE ARCHITECTURE
 │                               │  │                                       │
 │ ┌───────────────────────────┐ │  │ ┌───────────────────────────────────┐ │
 │ │ Local Identity & Routing  │ │  │ │ Lightweight Auth                  │ │
+│ │ Kratos, Hydra, Auth Proxy │ │  │ │ In-memory JWKS cache (sbt-auth)   │ │
+│ │ AgentGateway              │ │  │ └───────────────────────────────────┘ │
+│ └───────────────────────────┘ │  │                                       │
+│ ┌───────────────────────────┐ │  │ ┌───────────────────────────────────┐ │
+│ │ Spoke Control Plane       │ │  │ │ Spoke Control Plane               │ │
+│ │ Local Control Plane DB    │ │  │ │ NATS Leaf Node                    │ │
+│ │ sync via NATS upstream    │ │  │ │ Spoke Controller (writes direct)  │ │
+│ └───────────────────────────┘ │  │ └───────────────────────────────────┘ │
+│                               │  │                                       │
+│ ┌───────────────────────────┐ │  │ ┌─────────────────┐ ┌───────────────┐ │
+│ │ Tenant Workload           │ │  │ │ Tenant A        │ │ Tenant C      │ │
+│ │ Tenant Application DB     │ │  │ │ Tenant A App DB │ │ Tenant C DB   │ │
+│ │ KSM, Grafana Alloy        │ │  │ └─────────────────┘ └───────────────┘ │
+└───────────────────────────────┘  └───────────────────────────────────────┘
+```
+
+### 4.2 Components & Responsibilities
 │ │ Kratos, Hydra, Auth Proxy │ │  │ │ In-memory JWKS cache (sbt-auth)   │ │
 │ │ AgentGateway              │ │  │ └───────────────────────────────────┘ │
 │ └───────────────────────────┘ │  │                                       │
@@ -477,23 +495,25 @@ ZERO-OPS v8.0 — HUB & SPOKE ARCHITECTURE
 
 | Component | Implementation | Responsibility |
 |---|---|---|
-| **NATS JetStream** | NATS Server | Core messaging backbone. Hub runs a full cluster. Handles asynchronous events: `spoke.*.billing.usage`, `spoke.*.notifications.alert`, `spoke.*.lifecycle.created`. |
+| **NATS JetStream** | NATS Server | Core messaging backbone. Hub runs a full JetStream cluster. Handles asynchronous events via Hub Event Router with specific consumer routing:<br>• `spoke.*.billing.usage` → writes to Hub Centralised DB (usage metering records)<br>• `spoke.*.notifications.>` → triggers notification service (email, Slack)<br>• `spoke.*.lifecycle.>` → triggers Hub workflows (onboarding, cleanup)<br>• Spoke Silo state sync: local Tenant Control Plane DB → NATS → Control Plane Shared DB<br>**The Hub Event Router never writes to the analytics layer (VictoriaMetrics/ClickHouse). Analytics receives data exclusively from Grafana Alloy remote_write pipeline.** |
+| **Hub Event Router** | Go service (Hub) | Consumes NATS JetStream subjects on the Hub. Routes events to downstream handlers:<br>• `spoke.*.billing.usage` → Hub Centralised DB (billing records)<br>• `spoke.*.notifications.>` → notification service<br>• `spoke.*.lifecycle.>` → Hub workflows<br>• Spoke Silo sync events → Control Plane Shared DB<br>**Never writes to the analytics layer (VictoriaMetrics/ClickHouse).** Analytics receives data from Grafana Alloy remote_write pipeline only. |
 | **NATS Leaf Node** | NATS Server (Leaf mode) | Runs in spokes to bridge local events securely back to the Hub JetStream cluster. |
-| **ClickHouse** | ClickHouse OSS | Columnar OLAP database in the Hub. Receives usage metering events (`spoke.*.billing.usage`) via NATS/Alloy for billing aggregation and analytics. |
+| **ClickHouse** | ClickHouse OSS *(deferred)* | Columnar OLAP database for billing aggregation at scale. **Deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows).** Until then, billing records are stored in Hub Centralised DB (PostgreSQL). When introduced, it will receive usage metering data. It will never receive data from the Hub Event Router — the analytics layer receives data from Grafana Alloy remote_write pipeline only. |
 | **Loki** | Grafana Loki | Centralized log aggregation in the Hub. |
-| **PostgREST** | PostgREST OSS | Automatically exposes PostgreSQL DBs as REST APIs. Runs Hub-side (exposing `resource-status` from Hub Centralised DB) and Spoke-side (exposing Control Plane Shared DB). |
-| **IControlPlaneStore** | Go Interface Pattern | Abstract storage interface injected at deployment time. Spoke Pools use `HubStore` (direct PgSQL connection to Hub). Spoke Silos use `LocalStore` (writes to local Spoke DB, syncs via NATS). |
-| **Hub Centralised DB** | PostgreSQL | Stores fleet state, cluster health, and resource status across all tenants. Target for Platform Admin dashboards. |
-| **Control Plane Shared DB**| PostgreSQL | Stores tenant config, provisioning state, user sessions. |
-| **Ory Stack (Hub)** | Kratos + Hydra + Keto | Central identity management. Issues tokens for all tenants in the Spoke Pool. |
-| **Ory Stack (Silo)** | Kratos + Hydra | Localized deployment inside Enterprise Spoke Silos to guarantee strict auth isolation and survivability if the Hub disconnects. |
-| **sbt-auth** | Go Service / Cache | In-memory JWKS cache running in spokes. Allows local validation of Hub-issued tokens without synchronous network hops. |
+| **PostgREST** | PostgREST OSS | Two distinct instances with separate responsibilities:<br>**Hub-side PostgREST:** Exposes Hub Centralised DB. Receives inbound HTTPS writes from Spoke Controllers (`POST /resource-status`). Auth: per-spoke JWT (Hydra client_credentials grant, provisioned at spoke bootstrap). RLS enforces strict per-spoke write scoping — a spoke can only write its own tenant rows. URL: `https://postgrest.hub.zero-ops.io/resource-status`<br>**Spoke-side PostgREST (Pool):** Deployed in Spoke Pool clusters. Exposes the Hub's Control Plane Shared DB for operational business data. Receives synchronous direct writes from Spoke Pool Control Plane applications (user sessions, tenant config, provisioning state).<br>**Spoke-side PostgREST (Silo):** Deployed in Spoke Silo clusters. Exposes the local Tenant Control Plane DB — NOT the Hub's Control Plane Shared DB. The Silo is the source of truth for its own control plane data. Silo state syncs upstream to the Hub via NATS Leaf Node, not via direct DB connection. These instances are never merged and serve different databases. |
+| **IControlPlaneStore** | Go Interface Pattern | Abstract storage interface injected at deployment time. The same interface, two implementations, injected at spoke bootstrap — not two different code paths.<br>• **HubStore (Spoke Pool):** Direct PgSQL connection to Control Plane Shared DB on Hub. Synchronous writes.<br>• **LocalStore (Spoke Silo):** Writes to local Tenant Control Plane DB on the Silo (source of truth). NATS Leaf Node carries state upstream to Hub Event Router → Hub Control Plane Shared DB (eventual consistency). If Hub is unreachable, Silo operates fully independently — NATS buffers events until Hub reconnects. |
+| **Spoke Controller** | Go service, controller-runtime (Spoke) | Watches Crossplane `AINativeSaaS` claim conditions on the spoke. On condition change, derives platform status (provisioning/ready/failed/deleting) and writes directly to Hub Centralised DB via Hub-side PostgREST (`POST /resource-status`, Bearer JWT auth). Handles retry with exponential backoff natively via controller-runtime reconcile loop. Runs in both Spoke Pool and Spoke Silo clusters. Does NOT use NATS for status writes. Does NOT write to Control Plane Shared DB. |
+| **Hub Centralised DB** | PostgreSQL | **Shape: normalized relational, OLTP workload.** Stores fleet state, cluster health, and resource status across all tenants. Written by: Spoke Controller (via Hub-side PostgREST) and Hub Event Router (NATS consumer). Read by: Platform Admin dashboards (fleet view) and Tenant Admin dashboards (resource status). Exposed via Hub-side PostgREST. |
+| **Control Plane Shared DB**| PostgreSQL | **Shape: normalized relational, OLTP workload.** Stores tenant config, provisioning state, user sessions. Written by: Spoke Pool applications (direct connection) and Spoke Silo applications (local writes synced via NATS). Read by: Tenant Admin dashboards and Spoke APIs. Exposed via Spoke-side PostgREST. |
+| **Ory Stack (Hub)** | Keto + Kratos + Hydra | Central identity management in the Hub. Keto handles relationship-based authorization. Kratos manages identity. Hydra issues OAuth2/OIDC tokens. Issues tokens for all tenants in the Spoke Pool. Accessed via auth-proxy only — never directly. |
+| **Ory Stack (Silo)** | Kratos + Hydra | Localized deployment inside Enterprise Spoke Silos to guarantee strict auth isolation and survivability if the Hub disconnects. Accessed via local auth-proxy. |
+| **sbt-auth** | Go Service / Cache | In-memory JWKS cache running in spokes. Periodically fetches public keys from Hydra (Hub or local Silo). Allows local validation of tokens without synchronous network hops per request. |
 | **AINativeSaaS XRD** | Crossplane `CompositeResourceDefinition` | Defines the `nutgraf.in/v1` API schema for the SaaS environment intent. Cloud-provider agnostic schema. |
 | **Composition A — Starter** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: starter`) into Spoke Pool namespace resources. Provisions in seconds. |
 | **Composition B — Enterprise** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: enterprise`) into full dedicated Spoke Silo cluster stack with localized Ory stack. Provisions in 10–15 minutes. |
 | **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
-| **auth-proxy** | Go service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. AgentGateway never calls Ory directly. |
-| **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point. No per-tool-server auth logic needed. |
+| **auth-proxy** | Go service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local auth). AgentGateway never calls Ory directly — always via auth-proxy. |
+| **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point via auth-proxy. Routes authenticated MCP calls to tool servers. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local routing). No per-tool-server auth logic needed. |
 | **Crossplane** | Crossplane OSS, Hub cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
 | **ProvisioningAgent** | New Worker Agent (Go) | Handles `AINativeSaaS` provisioning intents. Calls `crossplane-mcp` to create/update/delete XR claims. |
 | **crossplane-mcp** | New MCP tool server (Go) | Exposes typed Crossplane XR operations to the agent system. Creates/reads/updates `AINativeSaaS` claims. |
@@ -504,6 +524,18 @@ ZERO-OPS v8.0 — HUB & SPOKE ARCHITECTURE
 | **PgBouncer** | Bundled with CNPG via `spec.pooler` | Connection pooling for PostgreSQL. Prevents connection exhaustion under high concurrency. |
 | **pgvector** | CNPG `shared_preload_libraries: vector` | Vector similarity search extension. Enables agent memory storage and retrieval. Powers tenant AI features. |
 | **cnpg2monitor (v8.0)** | Promoted to `ClusterRole` (fleet-wide) | Monitors CNPG clusters in ALL tenant namespaces. Patches PodMonitors with topology labels. Emits lifecycle events to NATS. Prerequisite for AINativeSaaS template. |
+
+**Architectural Principle: The Hub's Three Distinct Stores**
+
+The Hub cluster maintains three strictly separated persistent stores that are **never merged**. Each has a distinct write path, query pattern, and consumer:
+
+1. **Hub Centralised DB (PostgreSQL):** Fleet operational state, resource status across all tenants, billing records. Written by: Spoke Controller (direct PostgREST) and Hub Event Router (NATS consumer). Read by: Platform Admin dashboard (fleet view) and Tenant Admin dashboard (resource status).
+
+2. **Control Plane Shared DB (PostgreSQL):** Tenant config, provisioning state, user sessions. Written by: Spoke Control Plane applications via direct synchronous connection. Read by: Tenant Admin dashboards and Spoke APIs.
+
+3. **Observability Stack (VictoriaMetrics + Loki + Grafana):** Time-series metrics and logs. Written by: Grafana Alloy remote_write pipeline on all spokes. Read by: Grafana dashboards. **ClickHouse is deferred — added only when PostgreSQL billing queries become a bottleneck. The Hub Event Router never writes to this layer under any circumstances.**
+
+These stores are never merged. The Hub Event Router writes only to Store 1. The analytics pipeline writes only to Store 3. There is no overlap.
 
 #### 4.2.2 Retained v7.0 Components (unchanged unless noted)
 
@@ -525,7 +557,13 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
 
 ### 4.3 Integration & Control Plane
 
-#### 4.3.1 Event-Driven Provisioning Flow (NATS Backbone)
+#### 4.3.1 State Sync & Provisioning Flows
+
+The platform utilizes a dual-path synchronization model for spoke-to-hub communication, separating asynchronous lifecycle events from synchronous resource status updates.
+
+**Path A: Event-Driven Lifecycle Flow (NATS Backbone)**
+
+Used for provisioning triggers, billing events, and cross-cluster coordination.
 
 ```
 1. Tenant Admin intent (Console/Goose) via AgentGateway.
@@ -544,10 +582,36 @@ All v7.0 components remain in scope: Grafana Alloy, VictoriaMetrics (vmcluster),
 7. Event propagates to Hub NATS JetStream Cluster.
         │
 8. Hub Event Router consumes event, triggers onboarding workflows,
-   and updates the Hub Centralised DB (provisioning status).
+   and updates the Hub Centralised DB.
+```
+
+**Path B: Direct Resource Status Sync (PostgREST)**
+
+Used for continuous, synchronous updates of resource provisioning status directly to the Hub Centralised DB. The Spoke Controller writes via Hub-side PostgREST — no intermediate API layer.
+
+```
+1. Spoke Controller (controller-runtime) detects Crossplane condition change.
         │
-9. Platform Console/Agent queries Hub Centralised DB (via PostgREST)
-   to reflect `Ready` status to the user.
+2. Spoke Controller derives platform status:
+   Ready=True + Synced=True → "ready"
+   Synced=False             → "failed" + condition message
+   DeletionTimestamp set    → "deleting"
+   No conditions yet        → "provisioning"
+        │
+3. Spoke Controller executes HTTPS POST directly to Hub-side PostgREST:
+   `https://postgrest.hub.zero-ops.io/resource-status`
+   Header: `Authorization: Bearer <spoke-service-jwt>`
+   (JWT is a Hydra client_credentials token, scoped to this spoke's tenant_id,
+    provisioned during spoke bootstrap by Crossplane Composition)
+        │
+4. PostgREST enforces Row-Level Security:
+   spoke can only write rows where tenant_id = its own tenant_id.
+        │
+5. Hub Centralised DB updated.
+   Tenant Admin dashboard and Platform Admin dashboard read from here.
+        │
+6. On failure: controller-runtime requeues with exponential backoff.
+   No data loss — next successful reconcile writes the current state.
 ```
 
 #### 4.3.2 Tenant Control Plane Repository Ownership
@@ -685,62 +749,43 @@ Enterprise tenants require strict physical isolation and high availability indep
 
 - **Local Kratos & Hydra:** Deployed directly within the Spoke Silo.
 - **Local AgentGateway & Auth Proxy:** Routes and validates requests locally.
+- **sbt-auth (Spoke Silo):** The in-memory JWKS cache is deployed within the Silo to provide fast local validation of tokens issued by the *local* Hydra instance, maintaining consistent application routing logic across tiers.
 - **Federation:** Tenant users authenticate against their localized Kratos instance. This ensures that even if the connection to the Hub Cluster is severed, siloed tenant applications remain fully accessible to their end-users.
 
-#### 5.3.3 JWT Flow (Hub-Issued Tokens for Spoke Pool)
+#### 5.3.3 Identity Federation & Token Validation
 
-```
+```text
 auth-proxy (Go)
   Abstraction layer between AgentGateway and Ory stack
   Exposes: JWKS endpoint, OAuth metadata, JWT validation, Keto permission checks
-  AgentGateway calls auth-proxy ONLY (never Ory directly)
   
   ↓ interfaces with ↓
 
 Ory Kratos
   Identity store for: platform admins, tenant admins, tenant end-users
   Isolation: tenant_id field in identity traits schema
-  Schema: { email, name, tenant_id, role: [platform_admin|tenant_admin|tenant_user] }
-  Accessed only via auth-proxy
 
 Ory Hydra
   OAuth2/OIDC token issuer
   Clients: MCP clients via Authorization Code + PKCE flow
-  Token claims include: sub, tenant_id, role, scope
-  Accessed only via auth-proxy
 
 Ory Keto
-  Relationship tuples define access:
-    tenant:acme-corp#admin@user:alice     (alice is admin of acme-corp)
-    tenant:acme-corp#viewer@user:bob      (bob can view acme-corp)
-    platform#admin@user:carol            (carol is platform admin — sees all tenants)
-  Accessed only via auth-proxy
+  Relationship tuples define access (e.g., tenant:acme-corp#admin@user:alice)
 ```
 
-#### 5.3.2 JWT Flow
+**Unified JWT Validation Flow (Auth Proxy):**
 
-```
-User/Agent authenticates via Kratos (through auth-proxy)
-        │
-Kratos confirms identity + tenant_id
-        │
-Hydra issues JWT (via auth-proxy):
-  { sub: "user-uuid", tenant_id: "acme-corp", role: "tenant_admin", scope: "..." }
-        │
-JWT passed in Authorization: Bearer header to AgentGateway
-        │
-AgentGateway calls auth-proxy to validate JWT signature
-auth-proxy fetches JWKS from Hydra, validates, returns claims
-        │
-AgentGateway calls auth-proxy Keto check: "can this user call this MCP tool?"
-auth-proxy queries Keto, returns allow/deny
-        │
-If authorized: routes MCP call to tool server
-If not: returns 403 Forbidden
-        │
-MCP tool server receives call — no auth logic needed
-Tool server uses tenant_id from JWT for data scoping
-```
+The `auth-proxy` serves as the single enforcement point for JWT validation and authorization. The full 5-step flow is the target architecture. Steps 3 and 5 (Keto) are deferred to Demo 2 (Req 3 — Authorization Enforcement):
+
+1. **Validate JWT signature** via Hydra JWKS (Hydra). *(Demo 1)*
+2. **Fetch identity traits** (role, `tenant_id`) from Kratos. *(Demo 1)*
+3. **Check permission:** Evaluate `can {subject} {action} {object}?` via Keto. *(Demo 2 — deferred)*
+4. **If all pass:** Return `200 OK` with injected `X-Auth-*` headers (containing traits and scoping data). *(Demo 1)*
+5. **If Keto denies:** Return `403 Forbidden`. *(Demo 2 — deferred)*
+
+*Demo 1 implements steps 1, 2, and 4 only. Step 3 returns a pass-through until Keto is deployed.*
+
+*AgentGateway receives the injected `X-Auth-*` headers and routes the authenticated MCP call to the respective tool server. Tool servers require no local auth logic, relying entirely on the header context for data scoping.*
 
 ### 5.4 AgentSandbox Specification
 
@@ -865,7 +910,7 @@ teardown_actions:
 | auth-proxy JWKS endpoint | Spoke `sbt-auth` sync | Cached in-memory locally in Spokes, refreshed periodically |
 | Hetzner pricing API | At tenant provisioning request time | Per-request, not cached |
 | NATS JetStream | Continuous subscription | Push-based event consumption via Hub Event Router |
-| ClickHouse | Billing aggregation & Analytics dashboard | Real-time OLAP queries (columnar read optimization) |
+| ClickHouse | *(Deferred)* Billing aggregation at scale | Not active until PostgreSQL billing queries become a bottleneck. PostgreSQL (Hub Centralised DB) handles billing records until that point. |
 | Hub Centralised DB | Console dashboard load | Queried via PostgREST `resource-status` endpoint |
 | Runbook RAG embeddings | At DiagnosticsAgent query time | Vector index in PostgreSQL |
 | CNPG backup (CSI snapshot restore) | At PR environment creation and AgentSandbox pod startup | One-time per lifecycle event |
@@ -888,6 +933,7 @@ teardown_actions:
 - Must NOT call Ory stack (Kratos, Hydra, Keto) directly from AgentGateway — always use auth-proxy.
 - Must NOT restore CSI snapshot on every agent tool call — snapshot is the pod's initial state, not a per-call operation.
 - Must NOT call `zero-ops-api` directly from ArgoCD — ArgoCD pulls from OCI artifact store only. API is not a reconciliation dependency.
+- Must NOT write from Hub Event Router to VictoriaMetrics, ClickHouse, or Loki — analytics layer receives data from Alloy remote_write pipeline only. Hub Event Router writes exclusively to Hub Centralised DB and downstream operational services.
 
 ### 5.10 Security, Compliance & Reliability
 
@@ -952,17 +998,17 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 5. Tenant Admin opens browser (automatically), completes Kratos login (email + password or SSO) via auth-proxy.
 6. Hydra (via auth-proxy) redirects to goose://callback?code={authorization_code}&state={state}. Goose validates state, exchanges authorization code + code_verifier for Access Token (JWT) via auth-proxy token endpoint.
 7. Goose retries `tenant_create` automatically with JWT.
-7. AgentGateway validates JWT via auth-proxy. Calls auth-proxy Keto check: `"can user:acme-admin perform tenant:create?"` — passes (new tenants can self-create).
-8. `zero-ops-api` creates tenant record in PostgreSQL. Returns `201 Created` with `tenant_id: acme-corp`.
-9. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.nutgraf.in/settings/credentials"`. Goose pauses and polls for credential confirmation.
-10. Tenant Admin opens console (already authenticated via Kratos session). Console displays credential submission form (read-only view with "Resolve in IDE" button).
-11. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=submit_credentials&tenant_id=acme-corp`.
-12. Cursor/Goose receives deep link, prompts Tenant Admin for Hetzner API token in IDE (secure input, never transits agent).
-13. Cursor/Goose calls `credentials_submit` MCP tool with encrypted token. `zero-ops-api` stores encrypted token in Hetzner S3.
-14. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
-12. `zero-ops-api` commits `AINativeSaaS` CR to tenant control plane repository. Returns `202 Accepted` with provisioning status URL.
-13. Goose displays: `"Provisioning in progress. Track at https://console.nutgraf.in/environments/acme-corp-production"`.
-14. 12 minutes later: Crossplane Composition B completes. Console shows `Ready`. Goose displays final summary.
+8. AgentGateway validates JWT via auth-proxy. Auth-proxy validates signature and fetches identity traits. Returns `200 OK` — tenant:create is permitted. *(Note: Keto permission check deferred to Demo 2.)*
+9. `zero-ops-api` creates tenant record in PostgreSQL. Returns `201 Created` with `tenant_id: acme-corp`.
+10. Goose prompts: `"Please provide your Hetzner API token via the console at https://console.nutgraf.in/settings/credentials"`. Goose pauses and polls for credential confirmation.
+11. Tenant Admin opens console (already authenticated via Kratos session). Console displays credential submission form (read-only view with "Resolve in IDE" button).
+12. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=submit_credentials&tenant_id=acme-corp`.
+13. Cursor/Goose receives deep link, prompts Tenant Admin for Hetzner API token in IDE (secure input, never transits agent).
+14. Cursor/Goose calls `credentials_submit` MCP tool with encrypted token. `zero-ops-api` stores encrypted token in Infisical.
+15. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
+16. `zero-ops-api` commits `AINativeSaaS` CR to tenant control plane repository. Returns `202 Accepted` with provisioning status URL.
+17. Goose displays: `"Provisioning in progress. Track at https://console.nutgraf.in/environments/acme-corp-production"`.
+18. 12 minutes later: Crossplane Composition B completes. Spoke Controller detects Ready=True, writes status to Hub Centralised DB via PostgREST. Console shows `Ready`. Goose displays final summary.
 
 **Variations:**
 
@@ -1033,6 +1079,7 @@ zero-ops/
 ├── cmd/
 │   ├── api/                          # zero-ops-api entrypoint
 │   ├── agentgateway/                 # AgentGateway entrypoint (or separate process)
+│   ├── hub-event-router/             # NEW v9.0 — NATS JetStream consumer
 │   └── mgmt/                         # CLI: bootstrap, eject, migrate
 │
 ├── pkg/
@@ -1143,9 +1190,18 @@ zero-ops/
 │           └── alert-firings.json
 │
 ├── operators/
-│   └── cnpg2monitor/                 # cnpg2monitor operator source
-│       ├── cmd/main.go
-│       └── internal/controller/
+│   ├── cnpg2monitor/                 # cnpg2monitor operator source
+│   │   ├── cmd/main.go
+│   │   └── internal/controller/
+│   └── spoke-controller/             # NEW v9.0 — Crossplane condition watcher
+│       ├── cmd/main.go               # controller-runtime entrypoint
+│       └── internal/
+│           ├── controller/
+│           │   └── ainativesaas_controller.go  # Watches AINativeSaaS claims → PostgREST
+│           └── store/
+│               ├── interface.go      # IControlPlaneStore interface
+│               ├── hub_store.go      # HubStore: direct PostgREST to Hub Centralised DB
+│               └── local_store.go   # LocalStore: local DB + NATS upstream sync
 │
 ├── go.mod
 └── Makefile
@@ -1165,7 +1221,7 @@ zero-ops/
 | 5 | Safe Execution Layer | Policy Gate, Argo Workflow templates (incl. PR env + provider migration), CNPG ticket integration, `agent_audit_log` | Phase 4 | Planned |
 | 6 | MCP Tool Servers | All 8 MCP servers (7 from v7.0 + crossplane-mcp) with AgentGateway auth integration | Phase 5 | Planned |
 | **7** | **Platform Identity** | Ory Kratos + Hydra + Keto deployment, JWT flow, AgentGateway integration, Authorization Code + PKCE for MCP clients | Phase 1 | **NEW — Planned** |
-| **8** | **AINativeSaaS Template** | Crossplane deployment, XRD definition, Composition A (Starter), Composition B (Enterprise), ProvisioningAgent, crossplane-mcp | Phases 3, 7 | **NEW — Planned** |
+| **8** | **AINativeSaaS Template** | Crossplane deployment, XRD definition, Composition A (Starter), Composition B (Enterprise), ProvisioningAgent, crossplane-mcp, **Spoke Controller** (controller-runtime, writes AINativeSaaS status to Hub Centralised DB via PostgREST), **Hub Event Router** (NATS JetStream consumer, routes billing/lifecycle/notification subjects) | Phases 3, 7 | **NEW — Planned** |
 | **9** | **Platform Console** | Console web app, RBAC views, environment dashboard, agent conversation interface, approval queue, Grafana escape hatch, cost estimates | Phases 4, 7, 8 | **NEW — Planned** |
 | 10 | Multi-Agent Collaboration | LLM governance via AgentGateway, Collaborator Agent, all Worker Agents incl. ProvisioningAgent, Runbook RAG, end-to-end test suite | Phases 6, 7, 8, 9 | Planned |
 
@@ -1194,7 +1250,7 @@ zero-ops/
 |---|---|---|
 | A-09 | Goose Authorization Code + PKCE flow completes: 401 → browser opens → login → redirect to goose://callback → JWT exchange → retry succeeds | Manual flow test; Goose output shows `tenant_create` result after auth |
 | A-10 | AgentGateway rejects MCP calls without valid JWT | `curl -X POST https://gateway.nutgraf.in/mcp -d '...'` without Authorization header returns `401` |
-| A-11 | Tenant A cannot call MCP tools scoped to Tenant B | JWT with `tenant_id: tenant-a` calling `crossplane-mcp:get` for `tenant-b` resource returns `403` |
+| A-11 | Tenant A cannot call MCP tools scoped to Tenant B *(Demo 2 — requires Keto)* | JWT with `tenant_id: tenant-a` calling `crossplane-mcp:get` for `tenant-b` resource returns `403`. **Deferred to Demo 2 (Req 3 — Authorization Enforcement). Demo 1 validates JWT signature and identity traits only; cross-tenant enforcement requires Keto.** |
 | A-12 | Platform admin JWT can query all tenant resources | Platform admin JWT calling `fleet-state-mcp:list` returns results from all tenants |
 
 ### Agent System
@@ -1222,7 +1278,7 @@ zero-ops/
 
 ---
 
-## 10. Architectural Position (v8.0)
+## 10. Architectural Position (v9.0)
 
 ```
 Infrastructure Fleet Platforms        Developer Platforms         BaaS / Backend Factories
@@ -1232,14 +1288,14 @@ Infrastructure Fleet Platforms        Developer Platforms         BaaS / Backend
         └──────────────────────┬───────────────┘───────────────────────────┘
                                │
                     SaaS Factory Platform
-                        (Zero-Ops v8.0)
+                        (Zero-Ops v9.0)
 ```
 
 **What separates Zero-Ops from fleet platforms:** The AINativeSaaS XRD provisions a complete SaaS product backend — not a bare cluster. Tenants get PostgreSQL HA, vector search, object storage, secret management, observability, auth, agent runtime, and AI gateway in a single declarative object.
 
 **What separates Zero-Ops from developer platforms:** Direct infrastructure control via CAPI and CAPH. BYOC model with physical tenant isolation at Enterprise tier. Crossplane-driven composition with blue-green provider migration. No vendor lock-in by design.
 
-**What separates Zero-Ops from BaaS:** Full Kubernetes control plane access. AI-native agent system with runbook-grounded remediation. Fleet-wide observability (VictoriaMetrics + OpenSearch) with cross-cluster correlation. Autopilot-with-consent model. Eject option — tenant can take full ownership of their environment at any time.
+**What separates Zero-Ops from BaaS:** Full Kubernetes control plane access. AI-native agent system with runbook-grounded remediation. Fleet-wide observability (VictoriaMetrics for metrics, Loki for logs, OpenSearch for event search and K8sGPT findings) with cross-cluster correlation. Autopilot-with-consent model. Eject option — tenant can take full ownership of their environment at any time.
 
 **The build vs. adopt principle (v8.0 extended):** Crossplane (composition), Ory Kratos/Hydra/Keto (identity), PostgREST (auto API), gVisor (sandbox isolation), LiteLLM (AI gateway), PgBouncer (connection pooling), Infisical + External Secrets Operator (secrets) — all production-proven, CNCF-aligned or open source tools used at scale. Custom code is reserved for: the thin MCP integration layer, the agent reasoning logic, the Crossplane Compositions that wire these tools together, and the Platform Console that surfaces them to tenants. This is the engineering strategy that makes the platform viable without a 100-person platform team.
 

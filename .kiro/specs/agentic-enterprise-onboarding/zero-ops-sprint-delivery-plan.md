@@ -96,8 +96,8 @@ The 19 requirements have hard technical dependencies that cannot be broken. What
 
 | # | Requirement slice | Owner |
 |---|---|---|
-| 14 | Req 15 AC1: `zero-ops mgmt bootstrap` CLI injects Master Platform Age Private Key | Platform |
-| 15 | Req 15 AC2: ArgoCD/KSOPS decrypts GitHub App Private Key from fleet-registry Git at apply-time | Platform |
+| 14 | Req 15 AC1 + Req 27 AC1-AC3: Hub bootstrap installs Infisical (CNPG backend, AES-256-GCM, TLS, RBAC); GitHub App Private Key stored in Infisical at /platform/github-app/private-key | Platform |
+| 15 | Req 15 AC2 + Req 27 AC4-AC5: Hub bootstrap installs External Secrets Operator; ESO configured with Infisical SecretStore; ESO syncs GitHub App Private Key from Infisical to K8s Secret in zero-ops-api namespace | Platform |
 | 16 | Req 15 AC3–AC4: zero_ops_api generates GitHub App Installation Token, caches 55 min | Backend |
 | 17 | Req 15 AC5–AC6: Single idempotent retry on HTTP 401 from GitHub; terminal failure on second failure | Backend |
 | 18 | Req 11: AINativeSaaS_CR YAML parser + pretty-printer (internal library, ships today — no user-facing demo) | Backend |
@@ -143,8 +143,8 @@ The 19 requirements have hard technical dependencies that cannot be broken. What
 |---|---|---|
 | 29 | Req 5 AC1–AC3: Cursor displays console URL and exits immediately | Client |
 | 30 | Req 5 AC4–AC5: Platform Console Kratos session auth + Keto permission check for credential submission | Frontend |
-| 31 | Req 5 AC6–AC9: Console form → HTTPS POST → zero_ops_api → Age encryption → SOPS-encrypted commit to Git | Backend + Frontend |
-| 32 | Req 5 AC10–AC11: Age private key stored as K8s Secret; backed up to S3 | Backend |
+| 31 | Req 5 AC6–AC9: Console form → HTTPS POST → zero_ops_api → store encrypted credential in Infisical at /tenants/{tenant_id}/credentials/hetzner (AES-256-GCM) → update tenant status to CREDENTIALS_READY in PostgreSQL | Backend + Frontend |
+| 32 | Req 5 AC10–AC11: Infisical audit log records credential write; idempotent resubmission updates Infisical secret (last-write-wins) | Backend |
 | 33 | Req 5 AC12–AC17: Idempotent resubmission (last-write-wins), HTTP 401 re-auth without clearing form, HTTPS requirement | Backend + Frontend |
 
 **Demo script:** "Cursor shows the credentials URL and stops. I open the console, type the Hetzner token, submit. Here is the encrypted secret committed to the tenant's Git repository. The token never appeared in the IDE, the logs, or any API response."

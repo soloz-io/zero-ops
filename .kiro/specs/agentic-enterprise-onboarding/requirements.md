@@ -16,7 +16,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 
 **GitOps Pattern**: Zero-Ops uses standard ArgoCD with ApplicationSets for GitOps reconciliation. Git serves as the source of truth, ArgoCD watches repositories and syncs manifests to clusters. Crossplane uses CAPI providers underneath to provision actual infrastructure.
 
-**Hub-Spoke Architecture**: The hub cluster hosts all control-plane services (VictoriaMetrics, Grafana, ClickHouse, identity services, ArgoCD, Crossplane). Spoke clusters host isolated tenant workloads and run Grafana Alloy agents that push metrics/logs to the hub asynchronously.
+**Hub-Spoke Architecture**: The hub cluster hosts all control-plane services: global identity (Ory Kratos, Hydra, Keto, auth-proxy), AgentGateway, ArgoCD, Crossplane, NATS JetStream Cluster, Hub Event Router, Hub Centralised DB (PostgreSQL — fleet state), Control Plane Shared DB (PostgreSQL — tenant config), VictoriaMetrics, Loki, Grafana. Spoke clusters host isolated tenant workloads and run Grafana Alloy agents that push metrics and logs to the hub asynchronously via remote_write. ClickHouse is deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows).
 
 ## Tenant Lifecycle State Machine
 
@@ -81,7 +81,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 - **Hydra**: OAuth2 server that issues JWTs after Authorization Code Flow with PKCE (accessed via auth-proxy)
 - **Kratos**: Identity provider that handles user authentication (accessed via auth-proxy)
 - **Keto**: Authorization service that evaluates permission policies (accessed via auth-proxy)
-- **tenant-controller**: A lightweight Go controller running in the hub cluster that watches Crossplane claims and synchronizes their Ready/Synced status back to the PostgreSQL database.
+- **Spoke Controller**: A controller-runtime operator running on each spoke cluster (both Pool and Silo). Watches Crossplane `AINativeSaaS` claim conditions on the spoke. Derives platform status (provisioning/ready/failed/deleting) from conditions and writes directly to Hub Centralised DB via Hub-side PostgREST (`POST /resource-status`, Bearer JWT auth, RLS enforces per-spoke write scope). Uses controller-runtime native retry with exponential backoff. Does NOT run on the hub. Does NOT write directly to PostgreSQL — writes via PostgREST only.
 - **zero_ops_api**: Backend MCP server that manages tenant and environment lifecycle (receives pre-authenticated requests from AgentGateway)
 - **crossplane_mcp**: Backend MCP server that manages AINativeSaaS custom resources (receives pre-authenticated requests from AgentGateway)
 - **Composition_B**: Crossplane composition for enterprise-tier infrastructure that uses CAPI providers underneath
@@ -184,6 +184,9 @@ This specification defines the complete agentic enterprise onboarding journey, e
 6. THE AgentGateway SHALL call auth-proxy to query Keto with the subject and required permission
 7. THE auth-proxy SHALL return permission decision from Keto (allow/deny)
 8. IF Keto denies permission, THEN THE AgentGateway SHALL return HTTP 403
+
+**Implementation Note:** ACs 6, 7, and 8 (Keto permission checks) are deferred to Demo 2 (Req 3 — Authorization Enforcement per PRD section 5.3.3). Demo 1 implements ACs 1–5 (JWT validation + scope check) and AC 9 onwards. The Keto call in AC6 returns a pass-through allow until Demo 2.
+
 9. IF JWT is expired, THEN THE AgentGateway SHALL return HTTP 401 with error "invalid_token" and error_description "Token expired"
 10. WHEN authorization succeeds, THE AgentGateway SHALL forward the request to zero_ops_api with headers:
     - X-User-ID: {sub from JWT}
@@ -326,7 +329,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
 2. THE environment_status MCP tool SHALL route through AgentGateway with JWT authentication
 3. THE AgentGateway SHALL validate the JWT and query auth-proxy Keto to authorize read access for the specific tenant_id
 4. THE zero_ops_api SHALL NOT query the Kubernetes API directly.
-5. THE zero_ops_api SHALL fetch the environment status exclusively by querying the provisioning_status and provisioning_message columns from the PostgreSQL tenants table (populated asynchronously by the tenant-controller).
+5. THE zero_ops_api SHALL fetch the environment status exclusively by querying the provisioning_status and provisioning_message columns from the Hub Centralised DB (populated asynchronously by the Spoke Controller running on the spoke cluster, writing via Hub-side PostgREST with per-spoke JWT auth and RLS enforcement).
 6. THE zero_ops_api SHALL return a JSON response containing the fields defined in Requirement 16 AC4
 7. THE Cursor SHALL display the phase and summary_message to the Tenant_Admin
 8. IF phase is Ready, THE Cursor SHALL display provisioned resource endpoints (cluster endpoint, database connection reference, ArgoCD URL, Grafana URL)
@@ -563,9 +566,9 @@ This specification defines the complete agentic enterprise onboarding journey, e
   ]
 }
 ```
-5. THE tenant-controller SHALL derive phase from Crossplane Conditions and write to DB using these rules: Claim created = provisioning; Synced=False = failed; Ready=True = ready; DeletionTimestamp set = deleting. THE zero_ops_api SHALL read phase exclusively from PostgreSQL:
+5. THE Spoke Controller (controller-runtime, runs on the spoke) SHALL derive phase from Crossplane Conditions and write to Hub Centralised DB via Hub-side PostgREST using these rules: Claim created = provisioning; Synced=False = failed; Ready=True = ready; DeletionTimestamp set = deleting. THE zero_ops_api SHALL read phase exclusively from PostgreSQL:
    - CREDENTIALS_READY: PostgreSQL tenant record exists with credentials submitted, but no environment provisioning intent recorded
-   - Pending: The PostgreSQL DB confirms the environment intent exists, BUT the Kubernetes API returns 404 for the AINativeSaaS_CR (ArgoCD has not yet synced)
+   - Pending: The PostgreSQL DB confirms the environment intent exists (environment record inserted), but the Spoke Controller has not yet written any status to Hub Centralised DB (ArgoCD has not yet synced the CR to the cluster, so Crossplane has not started reconciling). Detected by: environment record present in PostgreSQL with no corresponding status row in Hub Centralised DB.
    - Provisioning: Condition Ready: False with Reason: Creating, Syncing, or Reconciling
    - Ready: Condition Ready: True
    - Degraded: Condition Ready: False with Reason containing "Error", "Exceeded", "Failed", or "Invalid"
@@ -579,7 +582,7 @@ This specification defines the complete agentic enterprise onboarding journey, e
    - Ready: "Environment is ready. All resources provisioned successfully."
    - Degraded: "{error_reason}. Crossplane will retry automatically."
 7. IF phase is Degraded, THE summary_message SHALL include the specific error reason and suggested remediation
-8. THE zero_ops_api SHALL cache the Kubernetes API response for 5 seconds to reduce API load during console polling
+8. THE zero_ops_api SHALL cache the Hub Centralised DB response for 5 seconds to reduce database load during console polling (the 10-second console poll interval means a 5-second cache still provides fresh data while halving DB query rate)
 
 ### Requirement 17: Conversational Resumability
 
