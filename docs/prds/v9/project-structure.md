@@ -18,45 +18,24 @@ This structure enforces strict separation between the Hub (control plane), Spoke
 ```text
 zero-ops/
 ├── cmd/                          # Binary entry points
-│   ├── api/                      # zero-ops-api (Hub)
-│   ├── agentgateway/             # AgentGateway (Hub + Silo)
+│   ├── mcp-server/               # MCP tool server (Hub) - ALL tenant/environment tools
 │   ├── hub-event-router/         # NATS JetStream consumer (Hub)
 │   ├── auth-proxy/               # Ory stack interface (Hub + Silo)
-│   └── mgmt/                     # CLI: bootstrap, eject, migrate
+│   ├── spoke-controller/         # Status sync (Spoke → Hub via PostgREST)
+│   └── hub/                      # CLI: bootstrap, teardown, diagnostics
 │
-├── pkg/
-│   ├── api/                      # REST API handlers
-│   ├── fleetstate/               # Fleet routing metadata
-│   ├── policies/                 # Policy evaluation engine
-│   ├── agents/
-│   │   ├── collaborator/
-│   │   ├── workers/
-│   │   │   ├── metrics_agent.go
-│   │   │   ├── lifecycle_agent.go
-│   │   │   ├── gitops_agent.go
-│   │   │   ├── diagnostics_agent.go
-│   │   │   ├── upgrade_agent.go
-│   │   │   ├── report_agent.go
-│   │   │   └── provisioning_agent.go  # NEW v9.0 — AINativeSaaS XR claims
-│   │   └── mcp/
-│   │       ├── fleet_state_mcp.go
-│   │       ├── victoriametrics_mcp.go
-│   │       ├── opensearch_mcp.go
-│   │       ├── capi_mcp.go
-│   │       ├── argocd_mcp.go
-│   │       ├── k8sgpt_mcp.go
-│   │       ├── audit_mcp.go
-│   │       └── crossplane_mcp.go      # NEW v9.0 — XR claim operations
-│   ├── agentgateway/              # NEW v9.0 — A2A + MCP routing
-│   ├── identity/                  # NEW v9.0 — Ory Kratos/Hydra/Keto clients
-│   ├── console/                   # NEW v9.0 — Platform Console backend
-│   ├── hubeventrouter/            # NEW v9.0 — NATS consumer routing
-│   ├── rag/
-│   ├── execution/
-│   │   ├── policy_gate.go
-│   │   ├── workflows.go
-│   │   └── approval.go
-│   └── db/
+├── internal/
+│   ├── opensbt/                  # SaaS Builder Toolkit (used by mcp-server)
+│   │   ├── controlplane/         # Control Plane constructs
+│   │   ├── applicationplane/     # Application Plane constructs
+│   │   ├── interfaces/           # IAuth, IEventBus, IProvisioner, IStorage
+│   │   ├── models/               # Tenant, User, Event, Provisioning
+│   │   ├── providers/            # ory/, nats/, postgres/, gitops/
+│   │   └── libraries/            # Shared utilities
+│   ├── db/                       # Database layer (sqlc-generated)
+│   ├── auth-proxy/               # Auth-proxy handlers
+│   ├── controller/               # Spoke Controller reconciler
+│   └── hub/                      # Hub bootstrap logic
 │
 ├── operators/
 │   ├── cnpg2monitor/              # Fleet-wide CNPG monitoring
@@ -87,8 +66,8 @@ To understand this structure, you must understand the v9.0 hub-spoke deployment 
 1. **Developer's Laptop:** Runs MCP-compatible clients (Goose, Cursor). Makes authenticated MCP calls to AgentGateway.
 
 2. **Hub Cluster (Control Plane):** Runs:
-   - `cmd/api/` — zero-ops-api (tenant lifecycle, commits to Git)
-   - `cmd/agentgateway/` — AgentGateway (MCP routing, JWT validation via auth-proxy)
+   - AgentGateway (external Rust binary) — MCP routing, JWT validation via auth-proxy
+   - `cmd/mcp-server/` — Backend MCP tool server (tenant_create, environment_create, etc.)
    - `cmd/hub-event-router/` — NATS JetStream consumer (billing/lifecycle/notifications)
    - `cmd/auth-proxy/` — Ory stack interface (Kratos/Hydra/Keto)
    - Crossplane (watches AINativeSaaS XRs, reconciles Compositions)
@@ -145,16 +124,22 @@ You should start with a Monorepo. You should **only** split (Polyrepo) if:
 
 **Recommendation:** Stick to the Monorepo. It is the only way to build a complex, multi-agent, hub-spoke platform rapidly without drowning in versioning drift.
 
-### 6. MCP Tool Server Process Architecture
+### 6. MCP Server Architecture (Corrected)
 
-**Important Note:** MCP tool servers in `pkg/agents/mcp/` are written as Go packages but run as separate processes per the PRD architecture. Each MCP server requires:
+**Single MCP Server Pattern:** `cmd/mcp-server/` is a single Go binary that exposes ALL MCP tools (tenant_create, environment_create, environment_status, etc.). It is NOT split into multiple services.
 
-- **Separate Process:** Independent process with its own RBAC ServiceAccount
-- **Network Listener:** Dedicated network endpoint for MCP protocol
-- **Entrypoint Strategy:** Either separate `cmd/` entrypoints or goroutines within agent binary
-- **No Direct Auth:** AgentGateway handles all JWT validation via auth-proxy; tool servers receive pre-validated requests with injected `X-Auth-*` headers
+**Architecture:**
+- **Single Process:** One MCP server process with one ServiceAccount
+- **Network Listener:** Single HTTP endpoint at `/mcp` for MCP protocol
+- **Tool Organization:** Tools organized by domain (tenant/, environment/, user/) within the binary
+- **No Direct Auth:** AgentGateway handles all JWT validation via auth-proxy; mcp-server receives pre-validated requests with injected `X-Auth-*` headers
+- **Uses opensbt Toolkit:** All tools use `internal/opensbt/controlplane` for business logic
 
-This distinction affects agent binary structure in Phase 6 implementation.
+**Why Not Multiple MCP Servers:**
+- Single opensbt.ControlPlane instance (shared state, transactions)
+- Single database connection pool
+- Simpler routing (AgentGateway → one backend)
+- No cross-service coordination needed
 
 ### 7. Critical v9.0 Architectural Constraints
 

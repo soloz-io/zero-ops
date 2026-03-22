@@ -71,11 +71,11 @@ spoke_types: ["pool", "silo"]  # NEW v9.0 — Which spoke types can use this
 
 Let's trace what happens when a tenant requests a database via the API or MCP client (`environment_create` with database spec):
 
-1. **Intent:** The MCP request hits AgentGateway → zero-ops-api (Hub).
+1. **Intent:** The MCP request hits AgentGateway → mcp-server (Hub).
 
-2. **Validation:** The API checks the tenant's quota and parses the requested service against the known catalog metadata.
+2. **Validation:** The mcp-server checks the tenant's quota and parses the requested service against the known catalog metadata.
 
-3. **Tenant Config Update:** The zero-ops-api commits an `AINativeSaaS` CR to the tenant's control plane repository with database specifications.
+3. **Tenant Config Update:** The mcp-server commits an `AINativeSaaS` CR to the tenant's control plane repository with database specifications.
 
 4. **Crossplane Reconciliation:** Crossplane (Hub) detects the CR, expands Composition B (Enterprise), provisions:
    - CAPI Cluster CR (Ubuntu kubeadm, CAPH)
@@ -106,7 +106,7 @@ To add a new service (e.g., **Redis**) to the platform, no Go code needs to be m
 
 4. **CI/CD Pipeline:** GitHub Actions builds a new OCI image: `ghcr.io/zero-ops/catalog:v1.6.0`.
 
-5. **API Update:** The zero-ops-api dynamically discovers the new service by reading the OCI image metadata.
+5. **API Update:** The mcp-server dynamically discovers the new service by reading the OCI image metadata.
 
 6. **Availability:** Tenants can immediately request Redis via MCP or API.
 
@@ -175,7 +175,7 @@ The platform uses **two distinct delivery mechanisms** for different types of co
 
 ### 8. Why this is the "Idiomatic Way" for Hub-Spoke Fleet Scale
 
-**No Central Bottleneck:** zero-ops-api is completely decoupled from the actual application of YAMLs. If the Hub goes down:
+**No Central Bottleneck:** mcp-server is completely decoupled from the actual application of YAMLs. If the Hub goes down:
 - Spoke Pool clusters continue running (no new provisioning)
 - Spoke Silo clusters operate fully independently (local Ory stack, local DB, NATS buffers events)
 - ArgoCD in spokes keeps reconciling against the OCI registry

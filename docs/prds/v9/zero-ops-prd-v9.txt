@@ -408,20 +408,21 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
   │                                                                       │
   │  Platform Console (RBAC-scoped UI)                                    │
   │       │  REST / WebSocket                                             │
-  │  zero-ops-api (Hub API)                                            │  │
+  │  mcp-server (Hub MCP Server)                                       │  │
   │       │  1. Commits AINativeSaaS CR directly to Git                │  │
   │       │  2. Reads status strictly from PostgreSQL                  │  │
+  │       │  3. Uses internal/opensbt toolkit for business logic      │  │
   │       ▼                                                            │  │
   │  Tenant Control Plane Repository (Zero-Ops managed Git)            │  │
   │                                                                    │  │
-  │  tenant-controller (Status Sync) ◄──────────────────────────────┐  │  │
+  │  Spoke Controller (Status Sync) ◄──────────────────────────────┐  │  │
   │       │  Watches Crossplane Claims & Updates PostgreSQL DB      │  │  │
   │       ▼                                                          │  │  │
   │  ┌─────────────────────────────────────────────────────────────┐  │  │
   │  │  MULTI-AGENT COLLABORATION SYSTEM (v7.0, unchanged)         │  │  │
   │  │  Collaborator → MetricsAgent, LifecycleAgent, GitOpsAgent,  │  │  │
   │  │  DiagnosticsAgent, UpgradeAgent, ReportAgent                │  │  │
-  │  │  + ProvisioningAgent (NEW v8.0) → crossplane-mcp            │  │  │
+  │  │  + ProvisioningAgent (NEW v8.0) → mcp-server tools         │  │  │
   │  └─────────────────────────┬───────────────────────────────────┘  │  │
   │                            │                                       │  │
   │  ┌─────────────────────────▼───────────────────────────────────┐  │  │
@@ -514,9 +515,10 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 | **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
 | **auth-proxy** | Go service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local auth). AgentGateway never calls Ory directly — always via auth-proxy. |
 | **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point via auth-proxy. Routes authenticated MCP calls to tool servers. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local routing). No per-tool-server auth logic needed. |
+| **mcp-server** | Go service (Hub) | Single backend MCP server exposing ALL platform tools (tenant_create, environment_create, environment_status, etc.). Uses internal/opensbt toolkit for business logic. Receives pre-authenticated requests from AgentGateway with X-Auth-* headers. NOT split into multiple services — one process handles all tools. |
+| **opensbt** | Go library (internal/) | SaaS Builder Toolkit providing reusable SaaS patterns (like @cdklabs/sbt-aws). Lives in internal/opensbt/ and is used by mcp-server. NOT a service itself — it's a library. Provides Control Plane and Application Plane constructs, interfaces (IAuth, IEventBus, IProvisioner), and provider implementations. |
 | **Crossplane** | Crossplane OSS, Hub cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
-| **ProvisioningAgent** | New Worker Agent (Go) | Handles `AINativeSaaS` provisioning intents. Calls `crossplane-mcp` to create/update/delete XR claims. |
-| **crossplane-mcp** | New MCP tool server (Go) | Exposes typed Crossplane XR operations to the agent system. Creates/reads/updates `AINativeSaaS` claims. |
+| **ProvisioningAgent** | New Worker Agent (Go) | Handles `AINativeSaaS` provisioning intents. Calls mcp-server tools to create/update/delete XR claims. |
 | **LiteLLM AI Gateway** | LiteLLM OSS, per-tenant deployment | Routes tenant LLM calls to configured third-party providers (OpenAI, Anthropic, Together, Groq). Cost attribution per model call. |
 | **AgentSandbox** | gVisor (`runsc`) persistent deployment, per-tenant | Sandboxed execution environment for agent workloads. CSI snapshot downloaded at pod startup for consistent state across executions. |
 | **Infisical + ESO** | Infisical server + External Secrets Operator | Secret management. Infisical stores encrypted secrets (AES-256-GCM). External Secrets Operator syncs secrets from Infisical to Kubernetes namespaces. Credentials never stored in Git. |
@@ -1077,13 +1079,13 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 zero-ops/
 │
 ├── cmd/
-│   ├── api/                          # zero-ops-api entrypoint
+│   ├── mcp-server/                   # Single MCP server — ALL tools (tenant_create, environment_create, etc.)
 │   ├── agentgateway/                 # AgentGateway entrypoint (or separate process)
 │   ├── hub-event-router/             # NEW v9.0 — NATS JetStream consumer
 │   └── mgmt/                         # CLI: bootstrap, eject, migrate
 │
 ├── pkg/
-│   ├── api/                          # REST API handlers
+│   ├── api/                          # REST API handlers (DEPRECATED — MCP-first architecture)
 │   ├── fleetstate/                   # Fleet routing metadata (PostgreSQL)
 │   ├── policies/                     # Policy evaluation engine
 │   ├── agents/
@@ -1096,15 +1098,6 @@ zero-ops/
 │   │   │   ├── upgrade_agent.go
 │   │   │   ├── report_agent.go
 │   │   │   └── provisioning_agent.go  # NEW v8.0 — AINativeSaaS XR claims
-│   │   └── mcp/
-│   │       ├── fleet_state_mcp.go
-│   │       ├── victoriametrics_mcp.go
-│   │       ├── opensearch_mcp.go
-│   │       ├── capi_mcp.go
-│   │       ├── argocd_mcp.go
-│   │       ├── k8sgpt_mcp.go
-│   │       ├── audit_mcp.go
-│   │       └── crossplane_mcp.go      # NEW v8.0 — XR claim operations
 │   ├── agentgateway/                  # NEW v8.0 — A2A + MCP routing, JWT validation
 │   ├── identity/                      # NEW v8.0 — Ory Kratos/Hydra/Keto clients
 │   ├── console/                       # NEW v8.0 — Platform Console backend
@@ -1115,6 +1108,15 @@ zero-ops/
 │   │   ├── workflows.go
 │   │   └── approval.go
 │   └── db/
+│
+├── internal/
+│   └── opensbt/                       # SaaS Builder Toolkit (like @cdklabs/sbt-aws)
+│       ├── controlplane/              # Control Plane constructs
+│       ├── applicationplane/          # Application Plane constructs
+│       ├── interfaces/                # IAuth, IEventBus, IProvisioner, IStorage
+│       ├── models/                    # Tenant, User, Event, Provisioning
+│       ├── providers/                 # ory/, nats/, postgres/, gitops/
+│       └── libraries/                 # Shared utilities
 │
 ├── xrds/                              # NEW v8.0 — Crossplane SaaS Templates
 │   ├── definitions/
@@ -1219,9 +1221,9 @@ zero-ops/
 | 3 | CAPI Dispatch & ArgoCD Agent | Ubuntu ClusterClass, CAPI dispatch, ClusterResourceSet injection (ArgoCD Agent from https://github.com/argoproj-labs/argocd-agent/), Git → CI → OCI catalog delivery | Phase 2 | Planned |
 | 4 | Fleet Observability Stack | VictoriaMetrics vmcluster, Alloy config, vmalert, Alertmanager webhook, OpenSearch, index templates, K8sGPT result exporter | Phase 3 | Planned |
 | 5 | Safe Execution Layer | Policy Gate, Argo Workflow templates (incl. PR env + provider migration), CNPG ticket integration, `agent_audit_log` | Phase 4 | Planned |
-| 6 | MCP Tool Servers | All 8 MCP servers (7 from v7.0 + crossplane-mcp) with AgentGateway auth integration | Phase 5 | Planned |
+| 6 | MCP Server | Single mcp-server with ALL tools (tenant_create, environment_create, environment_status, etc.) using internal/opensbt toolkit, AgentGateway auth integration | Phase 5 | Planned |
 | **7** | **Platform Identity** | Ory Kratos + Hydra + Keto deployment, JWT flow, AgentGateway integration, Authorization Code + PKCE for MCP clients | Phase 1 | **NEW — Planned** |
-| **8** | **AINativeSaaS Template** | Crossplane deployment, XRD definition, Composition A (Starter), Composition B (Enterprise), ProvisioningAgent, crossplane-mcp, **Spoke Controller** (controller-runtime, writes AINativeSaaS status to Hub Centralised DB via PostgREST), **Hub Event Router** (NATS JetStream consumer, routes billing/lifecycle/notification subjects) | Phases 3, 7 | **NEW — Planned** |
+| **8** | **AINativeSaaS Template** | Crossplane deployment, XRD definition, Composition A (Starter), Composition B (Enterprise), ProvisioningAgent, **Spoke Controller** (controller-runtime, writes AINativeSaaS status to Hub Centralised DB via PostgREST), **Hub Event Router** (NATS JetStream consumer, routes billing/lifecycle/notification subjects) | Phases 3, 7 | **NEW — Planned** |
 | **9** | **Platform Console** | Console web app, RBAC views, environment dashboard, agent conversation interface, approval queue, Grafana escape hatch, cost estimates | Phases 4, 7, 8 | **NEW — Planned** |
 | 10 | Multi-Agent Collaboration | LLM governance via AgentGateway, Collaborator Agent, all Worker Agents incl. ProvisioningAgent, Runbook RAG, end-to-end test suite | Phases 6, 7, 8, 9 | Planned |
 
@@ -1259,7 +1261,7 @@ zero-ops/
 |---|---|---|
 | A-13 | DiagnosticsAgent queries OpenSearch before runbook RAG for every alert | Agent audit log shows `opensearch-mcp` call preceding `rag-query` call in every diagnostics trace |
 | A-14 | Autopilot mode raises PR (not direct commit) for PgBouncer pool size increase | PR exists in tenant control plane repo within 2 minutes of alert |
-| A-15 | ProvisioningAgent creates `AINativeSaaS` XR claim via `crossplane-mcp` and does not call CAPI directly | No `capi-mcp` calls in ProvisioningAgent audit log for environment creation intents |
+| A-15 | ProvisioningAgent creates `AINativeSaaS` XR claim via mcp-server tools and does not call CAPI directly | No direct CAPI API calls in ProvisioningAgent audit log for environment creation intents |
 
 ### Console & Cost
 
