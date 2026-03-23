@@ -8,7 +8,7 @@ inclusion: always
 -------------------------------------------------------------------------------------> 
 
  **CRITICAL - Must read all files first:**
-- docs/prds/v8/zero-ops-prd-v8.md
+- docs/prds/v8/zero-ops-prd-v9.md
 - docs/prds/v8/v8-hub-spoke.md
 - .kiro/specs/agentic-enterprise-onboarding/requirements.md
 - .kiro/specs/agentic-enterprise-onboarding/zero-ops-sprint-delivery-plan.md
