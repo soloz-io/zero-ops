@@ -1,21 +1,68 @@
 ---
 purpose: Map Kagent Enterprise UI screens to available/missing backend APIs
 scope: UI-to-API mapping for custom platform console
-topics: REST APIs, K8s CRDs, missing endpoints, dashboard metrics
+topics: REST APIs, K8s CRDs, missing endpoints, dashboard metrics, capability mapping
 update_criteria: When analyzing UI replication requirements or API gaps
 last_updated: 2026-03-24
-validation_status: Verified against kagent codebase
+validation_status: Verified against kagent codebase (go, ui, helm, python, docker, scripts, reports)
 ---
 
 # Kagent UI to API Mapping
 
 > **Validation Status:** ✅ Verified against open-source Kagent codebase  
 > **Last Updated:** March 24, 2026  
+> **Folders Verified:** go/, ui/, helm/, python/, docker/, scripts/, reports/  
 > **Key Corrections Applied:**
 > - Fixed API path prefix (removed `/v1/`)
 > - Confirmed SSE streaming support (not WebSocket)
 > - Verified pagination implementation
-> - Clarified token usage tracking architecture
+> - Clarified token usage: Data persisted in event.Data as JSON, NOT indexed for aggregation
+> - Confirmed AccessPolicy CRD does NOT exist in open-source
+> - Verified no dashboard/tracing UI components exist
+
+---
+
+## Capability Matrix
+
+### ✅ Fully Available in Open-Source
+
+| Capability | Status | Implementation | Reference |
+|-----------|--------|----------------|-----------|
+| **ADK (Go & Python)** | ✅ | Agent runtime frameworks | `go/adk/pkg/agent/agent.go`, `python/packages/kagent-adk/` |
+| **CrewAI Integration** | ✅ | State management APIs | `go/core/internal/httpserver/handlers/crewai.go` |
+| **LangGraph Integration** | ✅ | Checkpoint APIs | `go/core/internal/httpserver/handlers/checkpoints.go` |
+| **BYO Agents** | ✅ | Custom container support | `go/api/v1alpha2/agent_types.go` (BYOAgentSpec) |
+| **MCP Tool Servers** | ✅ | Remote MCP integration | `go/api/v1alpha2/remotemcpserver_types.go` |
+| **Skills (Git/OCI)** | ✅ | Skill loading from repos | `go/api/v1alpha2/agent_types.go` (SkillForAgent) |
+| **Session Management** | ✅ | Full CRUD + pagination | `go/core/internal/httpserver/handlers/sessions.go` |
+| **Human-in-the-Loop** | ✅ | HITL approval flow | `go/adk/pkg/a2a/hitl.go` |
+| **SSE Streaming** | ✅ | Real-time A2A streaming | `go/adk/pkg/a2a/eventqueue.go` |
+| **Vector Memory** | ✅ | pgvector integration | `go/adk/pkg/memory/kagent_service.go` |
+| **Context Compression** | ✅ | Event compaction | `go/api/v1alpha2/agent_types.go` (ContextCompressionConfig) |
+| **OIDC/OAuth** | ✅ | Authentication middleware | `go/core/internal/httpserver/auth/authn.go` |
+| **OpenTelemetry** | ✅ | OTLP span export | `go/core/internal/telemetry/tracing.go` |
+| **Agent Mesh (A2A)** | ✅ | Agent-to-agent calls | `go/core/internal/a2a/a2a_handler_mux.go` |
+| **Agent HA** | ✅ | K8s deployment HA | `go/core/internal/controller/translator/agent/deployments.go` |
+
+### ⚠️ Partially Available (Needs Extension)
+
+| Capability | Status | What Exists | What's Missing |
+|-----------|--------|-------------|----------------|
+| **Token Usage Tracking** | ⚠️ | Emitted in A2A stream (`go/adk/pkg/models/openai_adk.go:267-273`) | Aggregation API, persistence layer |
+| **Metrics** | ⚠️ | Basic Prometheus metrics | Dashboard aggregation endpoints |
+| **Tracing** | ⚠️ | OTLP export to backend | Query API, visual DAG, replay |
+
+### ❌ Missing in Open-Source
+
+| Capability | Status | Enterprise Feature | Implementation Required |
+|-----------|--------|-------------------|------------------------|
+| **Evaluation Engine** | ❌ | No native eval APIs | Custom eval framework |
+| **Access Policies (RBAC)** | ❌ | Uses NoopAuthorizer | AccessPolicy CRD + PolicyAuthorizer |
+| **mTLS / Token Exchange** | ❌ | Relies on service mesh | Native STS integration |
+| **Multi-Cluster** | ❌ | Single-cluster only | Fleet management layer |
+| **Dashboard Aggregation** | ❌ | No summary endpoints | Metrics aggregation service |
+
+---
 
 ## Screen 1: Dashboard Overview
 
@@ -41,37 +88,27 @@ GET /api/namespaces - List namespaces (proxy for clusters) ✅
 ### Missing APIs:
 ```
 ❌ GET /api/metrics/agent-runs?timeRange=24h
-   Response: { total: 106, byTime: [...] }
-
 ❌ GET /api/metrics/tokens?groupBy=model&timeRange=24h
-   Response: { totalByModel: {...}, dailyUsage: [...] }
-   
-   NOTE: Token data EXISTS in A2A stream (genai.GenerateContentResponseUsageMetadata)
-   but is NOT persisted to database. Custom backend must intercept A2A stream
-   and aggregate PromptTokenCount/CandidatesTokenCount into metrics table.
-
 ❌ GET /api/clusters
-   Response: [{ name, version, status, agentCount, toolCount }]
-   
-   NOTE: Open-source Kagent is single-cluster only. Multi-cluster requires
-   custom fleet management layer.
-
 ❌ GET /api/metrics/dashboard/summary
-   Response: { agentRuns, deployedAgents, models, tools }
 ```
 
 ### Database Support:
 - Task table has created_at ✅
 - Session table tracks agent_id ✅
-- Token usage in A2A stream but NOT persisted ⚠️
+- Event table stores event.Data as JSON string (includes UsageMetadata) ✅
+- Token usage NOT indexed for aggregation queries ❌
 - No cluster metadata table ❌
+- No metrics aggregation tables ❌
 
-### Token Usage Architecture:
-**Source:** `go/adk/pkg/models/openai_adk.go`, `go/adk/pkg/models/anthropic_adk.go`
-- ADK maps provider responses to `genai.GenerateContentResponseUsageMetadata`
-- Metadata includes `PromptTokenCount` and `CandidatesTokenCount`
-- Data flows through A2A stream but is NOT stored in database
-- **Custom Solution Required:** Intercept A2A stream, parse metadata, store in metrics table
+**Verification Notes:**
+- UI folder confirms: TokenStats component exists (`ui/src/components/chat/TokenStats.tsx`)
+- No Dashboard component found in UI codebase
+- Helm CRDs verified: Only Agent, ModelConfig, RemoteMCPServer, ToolServer, Memory exist
+- Python packages: ADK only, no metrics/dashboard services
+- Docker/scripts: Build tooling only, no backend services
+
+*(See Critical Architecture Note 1 for token usage implementation)*
 
 ---
 
@@ -104,11 +141,10 @@ RemoteMCPServer CRD ✅
 ### Missing APIs:
 ```
 ❌ GET /api/toolservers?search=fetch&category=Argo&cluster=cluster-1
-   (Search/filter not implemented - endpoints return flat lists only)
-
 ❌ GET /api/policies?targetKind=MCPServer&targetName=resend-mcp
-   (AccessPolicy CRD and API completely missing from open-source)
 ```
+
+*(Advanced filtering not implemented. AccessPolicy CRD missing - see Critical Architecture Note 3)*
 
 ### Database Support:
 - ToolServer table ✅
@@ -149,14 +185,11 @@ Agent CRD ✅
 ### Missing APIs:
 ```
 ❌ GET /api/agent-templates
-   Response: [{ id, name, description, systemMessage, suggestedTools }]
    
-   NOTE: No template CRD or database schema exists. Must be built entirely
-   by custom backend.
-
 ❌ GET /api/clusters/{cluster}/namespaces
-   (Cluster-specific namespace listing - requires multi-cluster architecture)
 ```
+
+*(No template CRD or database schema exists. Multi-cluster requires custom fleet layer - see Critical Architecture Note 2)*
 
 ---
 
@@ -168,18 +201,15 @@ Agent CRD ✅
 - Session management
 - "What is today's news?" prompt suggestions
 
-### Available APIs:
+### Available APIs (UI-Facing):
 ```
 GET /api/sessions - List sessions ✅
 POST /api/sessions - Create session ✅
-GET /api/sessions/{session_id} - Get session ✅
+GET /api/sessions/{session_id} - Get session with events ✅
   Query params: ?limit=50&order=asc&after=2026-03-23T10:00:00Z ✅
 DELETE /api/sessions/{session_id} - Delete session ✅
 PUT /api/sessions/{session_id} - Update session ✅
-POST /api/sessions/{session_id}/events - Add event ✅
 GET /api/sessions/{session_id}/tasks - List tasks ✅
-POST /api/tasks - Create task ✅
-GET /api/tasks/{task_id} - Get task ✅
 
 POST /api/a2a/{namespace}/{name} - A2A streaming endpoint ✅
   Content-Type: application/json
@@ -187,29 +217,45 @@ POST /api/a2a/{namespace}/{name} - A2A streaming endpoint ✅
   Returns: SSE stream with JSON-RPC responses
 ```
 
+### Available APIs (Agent-Facing):
+```
+POST /api/sessions/{session_id}/events - Add event (called by Agent Pod) ✅
+POST /api/tasks - Create task (called by Agent Pod) ✅
+GET /api/tasks/{task_id} - Get task ✅
+```
+
 ### Database Support:
 - Session table ✅
-- Event table (stores protocol.Message as JSON) ✅
+- Event table (stores protocol.Message as JSON, includes UsageMetadata) ✅
 - Task table (stores protocol.Task as JSON) ✅
 
 ### Streaming Architecture:
 **Implementation:** Server-Sent Events (SSE), NOT WebSocket  
 **Client Code:** `ui/src/lib/a2aClient.ts`
+
+**UI Flow:**
 ```typescript
-// UI sends JSON-RPC request to A2A endpoint
+// 1. UI sends JSON-RPC request to A2A endpoint
 POST /api/a2a/{namespace}/{name}
 Headers: { Accept: 'text/event-stream' }
 Body: { jsonrpc: "2.0", method: "message/stream", params: {...} }
 
-// Backend streams SSE events
-data: {"result": {...}}\n\n
+// 2. Backend streams SSE events
+data: {"result": {..., "usageMetadata": {...}}}\n\n
 data: {"result": {...}}\n\n
 data: [DONE]\n\n
 
-// UI processes via async iterator
+// 3. UI processes via async iterator
 for await (const event of stream) {
   // Handle streaming response chunks
 }
+```
+
+**Agent State Persistence Flow:**
+```
+Agent Pod (ADK) → POST /api/sessions/{session_id}/events
+                → Stores event.Data as JSON string
+                → Includes UsageMetadata in payload
 ```
 
 ### Missing APIs:
@@ -248,19 +294,18 @@ OpenTelemetry tracing configured ✅
 ### Missing APIs:
 ```
 ❌ GET /api/traces?agentName=newsheadline&timeRange=24h
-   Response: [{ traceId, startTime, duration, status }]
-
 ❌ GET /api/traces/{trace_id}
-   Response: { spans[], events[], attributes }
-
 ❌ GET /api/traces/{trace_id}/replay
-   Response: { executionFlow, timings, nodeStates }
 ```
+
+*(See Critical Architecture Note 4 for implementation details)*
 
 ### Required Backend:
 - Query layer over OTLP backend (Jaeger/Tempo) ❌
 - Trace aggregation service ❌
 - Replay state reconstruction ❌
+
+*(See Critical Architecture Note 4)*
 
 ---
 
@@ -281,14 +326,10 @@ GET /api/toolservers - List tool servers ✅
 ### Missing APIs:
 ```
 ❌ GET /api/tools?search=incident&category=Cilium&cluster=mgmt-cluster
-   (Advanced filtering not implemented - endpoints return flat lists only)
-
 ❌ GET /api/tools/{tool_id}/usage-stats
-   Response: { callCount, lastUsed, avgDuration }
-   
-   NOTE: Tool usage tracking not implemented. Would require custom
-   instrumentation in A2A/MCP handlers.
 ```
+
+*(Advanced filtering and usage tracking not implemented)*
 
 ---
 
@@ -321,13 +362,150 @@ GET /api/toolservers - List tool servers ✅
 - Policy enforcement in A2A/MCP handlers ❌
 - REST API layer ❌
 
-### Authorization Architecture:
-**Current State:** `go/core/internal/httpserver/auth/authz.go`
+*(See Critical Architecture Note 3 for implementation details)*
+
+---
+
+## Product Team Implementation Roadmap
+
+### Epic 1: Core UI (Use Existing APIs)
+**Effort:** 2-3 sprints | **Risk:** Low
+
+Build UI screens using available Kagent REST APIs:
+- Agent CRUD, Chat (SSE), Tool/ToolServer management, Model configs, Session history
+
+**Key Implementation Notes:**
+- Use `/api/` prefix (NOT `/api/v1/`)
+- SSE streaming via `POST /api/a2a/{namespace}/{name}` (NOT WebSocket)
+- Pagination: `?limit=50&order=asc&after=RFC3339_timestamp`
+
+### Epic 2: Metrics Aggregation Service
+**Effort:** 1-2 sprints | **Risk:** Medium
+
+Build custom service to power dashboard charts:
+- Intercept A2A stream, parse UsageMetadata from event.Data JSON
+- Store in time-series metrics table (agent_id, model, timestamp, tokens)
+- Build `/api/metrics/*` endpoints for dashboard queries
+
+**Why Needed:** Token data exists in event.Data but NOT indexed for aggregation
+
+### Epic 3: AccessPolicy System
+**Effort:** 2-3 sprints | **Risk:** High
+
+Build RBAC enforcement (currently NoopAuthorizer):
+- Design AccessPolicy CRD, implement PolicyAuthorizer, build controller
+- Enforce in A2A/MCP handlers, build REST API
+
+**Why Needed:** CRD does NOT exist in open-source codebase
+
+### Epic 4: Tracing Query Layer
+**Effort:** 2 sprints | **Risk:** Medium
+
+Build query service over OTLP backend:
+- Deploy Jaeger/Tempo, build query API, implement visual DAG/replay
+
+**Why Needed:** OTLP export exists, but no query/visualization APIs
+
+### Epic 5: Multi-Cluster Federation (Optional)
+**Effort:** 3-4 sprints | **Risk:** High
+
+Build fleet management layer:
+- Cluster registry, federated API gateway, health monitoring
+
+**Why Needed:** Open-source is single-cluster only
+
+---
+
+## Critical Architecture Notes
+
+### 1. Token Usage Flow
+```
+┌─────────────────┐
+│  LLM Provider   │ (OpenAI, Anthropic, etc.)
+└────────┬────────┘
+         │ Returns usage: {prompt_tokens, completion_tokens}
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  ADK Layer (go/adk/pkg/models/openai_adk.go:267-273)   │
+│  Maps to: genai.GenerateContentResponseUsageMetadata   │
+│  - PromptTokenCount                                     │
+│  - CandidatesTokenCount                                 │
+│  - TotalTokenCount                                      │
+└────────┬────────────────────────────────────────────────┘
+         │ Included in JSON-RPC response
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  A2A Stream (SSE)                                       │
+│  data: {"result": {..., "usageMetadata": {...}}}       │
+└────────┬────────────────────────────────────────────────┘
+         │ Real-time to UI + Persisted to DB
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  ✅ PERSISTED as JSON in event.Data column              │
+│  Agent Pod → POST /api/sessions/{id}/events             │
+│  Stores: event.Data = JSON string with UsageMetadata    │
+│  ❌ NOT INDEXED - Cannot query SUM(tokens) efficiently  │
+└────────┬────────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  ⚠️ Custom Metrics Aggregator Required                  │
+│  YOUR CODE: Parse event.Data JSON → Extract tokens      │
+│             → Store in dedicated metrics table          │
+└────────┬────────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  Metrics Database Table (Custom)                        │
+│  Schema: agent_id, model, timestamp, prompt_tokens,     │
+│          completion_tokens, total_tokens                │
+└────────┬────────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  Dashboard API (Custom)                                 │
+│  GET /api/metrics/tokens?groupBy=model&timeRange=24h    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Clarification:** Token data IS persisted in the event table's Data column as a JSON string, but querying thousands of JSON blobs for aggregation will crash your database. Build a dedicated metrics table.
+
+### 2. Multi-Cluster Architecture
+**Current State:** Open-source Kagent is **single-cluster only**
+
+**Enterprise Multi-Cluster Requirements:**
+```
+┌──────────────────────────────────────────────────────┐
+│  Management Plane (Custom)                           │
+│  - Cluster registry                                  │
+│  - Health monitoring                                 │
+│  - Federated API gateway                             │
+└────────┬─────────────────────────────────────────────┘
+         │
+         ├─────────────┬─────────────┬─────────────┐
+         ↓             ↓             ↓             ↓
+    ┌────────┐   ┌────────┐   ┌────────┐   ┌────────┐
+    │Cluster1│   │Cluster2│   │Cluster3│   │ClusterN│
+    │ Kagent │   │ Kagent │   │ Kagent │   │ Kagent │
+    └────────┘   └────────┘   └────────┘   └────────┘
+```
+
+**Implementation Approach:**
+1. Deploy Kagent controller per cluster
+2. Build centralized management API
+3. Federate queries across clusters
+4. Aggregate metrics/status
+5. Route agent requests to target cluster
+
+### 3. Authorization Enforcement
+**Current State:** `NoopAuthorizer` (always allows)
+
 ```go
+// go/core/internal/httpserver/auth/authz.go
 type NoopAuthorizer struct{}
 
 func (a *NoopAuthorizer) Check(...) error {
-    return nil  // Always allows access
+    return nil  // ← Always allows
 }
 ```
 
@@ -338,132 +516,94 @@ type Authorizer interface {
 }
 ```
 
-**To Implement Policies:**
-1. Create AccessPolicy CRD (subjects, targets, actions)
-2. Implement `PolicyAuthorizer` that reads CRDs
-3. Inject into controller instead of `NoopAuthorizer`
-4. Enforce in A2A/MCP request handlers
-5. Build REST API for policy CRUD
-
----
-
-## Summary: API Coverage
-
-### ✅ Fully Available (70%):
-- Agent CRUD
-- Session/Chat management
-- Task execution
-- Tool/ToolServer management
-- Model configuration
-- Memory (vector search)
-- Feedback
-- LangGraph checkpoints
-- CrewAI integration
-
-### ⚠️ Partially Available (15%):
-- Namespace listing (exists but not cluster-aware)
-- Tool discovery (exists but no search/filter)
-- Token usage (exists in A2A stream but not persisted)
-
-### ❌ Missing (15%):
-- Dashboard metrics aggregation (need to intercept A2A stream for tokens)
-- Cluster management APIs (open-source is single-cluster only)
-- AccessPolicy CRUD (CRD, controller, enforcement, REST API)
-- Tracing query/replay APIs (need OTEL backend integration)
-- Token usage persistence (data exists in stream, need aggregation layer)
-- Agent templates (no CRD or database schema)
-- Advanced search/filtering (endpoints return flat lists only)
-- Tool usage statistics (no instrumentation)
-
----
-
-## Implementation Priority for Custom UI:
-
-### Phase 1 (MVP - Use existing APIs):
-1. Agent management screens (CRUD via `/api/agents`)
-2. Chat interface (SSE streaming via `/api/a2a/{namespace}/{name}`)
-3. Tool/ToolServer management (CRUD via `/api/tools`, `/api/toolservers`)
-4. Model configuration (CRUD via `/api/modelconfigs`)
-5. Session management with pagination (`/api/sessions?limit=50&order=asc&after=...`)
-
-**Key Corrections:**
-- ✅ Use SSE streaming (NOT polling, NOT WebSocket)
-- ✅ Pagination already exists (use query params)
-- ✅ All API paths use `/api/` prefix (NOT `/api/v1/`)
-
-### Phase 2 (Add aggregation/metrics):
-1. **Token Usage Aggregation Service**
-   - Intercept A2A stream responses
-   - Parse `genai.GenerateContentResponseUsageMetadata`
-   - Store `PromptTokenCount`/`CandidatesTokenCount` in metrics table
-   - Build `/api/metrics/tokens` endpoint for dashboard
-
-2. **Dashboard Metrics Service**
-   - Aggregate task counts by time range
-   - Count deployed agents, models, tools
-   - Build `/api/metrics/dashboard/summary` endpoint
-
-3. **Advanced Filtering**
-   - Add search/filter layer over flat list endpoints
-   - Implement `/api/tools?search=...&category=...`
-   - Implement `/api/toolservers?search=...&cluster=...`
-
-4. **Cluster Management** (if multi-cluster needed)
-   - Design fleet management architecture
-   - Build `/api/clusters` endpoint
-   - Federate queries to multiple Kagent instances
-
-### Phase 3 (Advanced features):
-1. **AccessPolicy System**
-   - Design AccessPolicy CRD schema
-   - Implement `PolicyAuthorizer` (replace `NoopAuthorizer`)
-   - Build policy controller
-   - Add enforcement to A2A/MCP handlers
-   - Build REST API (`/api/policies`)
-
-2. **Tracing Integration**
-   - Deploy OTEL backend (Jaeger/Tempo)
-   - Build query layer over OTEL API
-   - Implement `/api/traces` endpoints
-   - Build replay/visualization service
-
-3. **Agent Templates**
-   - Design template schema (CRD or database)
-   - Build template CRUD API
-   - Integrate with agent creation flow
-
-4. **Tool Usage Statistics**
-   - Instrument A2A/MCP handlers
-   - Track tool invocations, latency, errors
-   - Build `/api/tools/{id}/usage-stats` endpoint
-
----
-
-## Critical Architecture Notes
-
-### Token Usage Flow:
+**To Implement AccessPolicy:**
 ```
-LLM Provider → ADK (openai_adk.go/anthropic_adk.go)
-  ↓ Maps to genai.GenerateContentResponseUsageMetadata
-A2A Stream (JSON-RPC response)
-  ↓ Contains PromptTokenCount, CandidatesTokenCount
-Custom Interceptor (YOUR CODE)
-  ↓ Parse metadata from stream
-Metrics Database Table
-  ↓ Store aggregated data
-Dashboard API (/api/metrics/tokens)
+┌─────────────────────────────────────────────────────┐
+│  1. Create AccessPolicy CRD                         │
+│     apiVersion: policy.kagent.io/v1alpha1           │
+│     kind: AccessPolicy                              │
+│     spec:                                           │
+│       subjects: [agents, users]                     │
+│       targets: [tools, agents]                      │
+│       actions: [ALLOW, DENY]                        │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  2. Implement PolicyAuthorizer                      │
+│     - Reads AccessPolicy CRDs from K8s              │
+│     - Evaluates rules against principal/resource    │
+│     - Returns error if denied                       │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  3. Inject into HTTP Server                         │
+│     Replace NoopAuthorizer with PolicyAuthorizer    │
+│     in ServerConfig                                 │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  4. Enforce in Handlers                             │
+│     - Check before K8s API calls                    │
+│     - Check in A2A proxy before forwarding          │
+│     - Check in MCP handler before tool execution    │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Multi-Cluster Architecture:
-Open-source Kagent is **single-cluster only**. Enterprise multi-cluster requires:
-- Centralized management plane
-- Fleet controller to orchestrate multiple Kagent instances
-- Federated API gateway
-- Cluster registry and health monitoring
+### 4. Tracing Architecture
+**Current State:** Exports OTLP spans, no query API
 
-### Authorization Enforcement:
-`NoopAuthorizer` is pluggable via `auth.Authorizer` interface. To enforce policies:
-1. Implement `PolicyAuthorizer` that reads AccessPolicy CRDs
-2. Inject into HTTP server config
-3. Add authorization checks in handlers before K8s API calls
-4. Enforce in A2A proxy before forwarding to agents
+```
+┌─────────────────┐
+│  Kagent Agent   │
+│  Execution      │
+└────────┬────────┘
+         │ Emits OTLP spans
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  OpenTelemetry Collector                            │
+│  (go/core/internal/telemetry/tracing.go)            │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  OTLP Backend (Jaeger / Tempo)                      │
+│  Stores spans, builds trace trees                   │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  ❌ Custom Query Layer Required                      │
+│  - Query Jaeger/Tempo API                           │
+│  - Build execution flow DAG                         │
+│  - Format for UI visualization                      │
+│  - Implement replay logic                           │
+└────────┬────────────────────────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────────────────────────┐
+│  Tracing UI Endpoints (Custom)                      │
+│  GET /api/traces?agent=...&timeRange=...            │
+│  GET /api/traces/{trace_id}                         │
+│  GET /api/traces/{trace_id}/replay                  │
+└─────────────────────────────────────────────────────┘
+```
+
+### 5. Evaluation Engine
+**Status:** ❌ Not implemented in open-source
+
+**Required Components:**
+- Evaluation framework (accuracy, latency, cost metrics)
+- Test dataset management
+- Baseline comparison
+- A/B testing infrastructure
+- Evaluation result storage
+- Reporting API
+
+**Reference Implementations:**
+- LangSmith evaluation
+- Weights & Biases for LLMs
+- Custom eval harness
+
