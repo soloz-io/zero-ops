@@ -21,7 +21,7 @@ This document maps each phase to source code implementations.
 ## Phase 1: Build (Agent Registration)
 
 ### What Happens
-Tenant defines agent configuration via API. Config stored in PostgreSQL. **No runtime deployed yet.**
+Tenant defines agent configuration via API. Config stored in Control Plane Shared DB (schema: agents). **No runtime deployed yet.**
 
 ### API Endpoint
 ```
@@ -69,7 +69,7 @@ func HandleCreateAgent(ctx context.Context, input *CreateAgentInput) (*AgentResp
 
 ```go
 func (s *registryServiceImpl) CreateAgent(ctx context.Context, agent *models.AgentJSON) (*models.Agent, error) {
-    // Stores agent JSON in PostgreSQL
+    // Stores agent JSON in Control Plane Shared DB (schema: agents)
     // Does NOT deploy runtime
     return s.db.CreateAgent(ctx, nil, agent)
 }
@@ -80,15 +80,22 @@ func (s *registryServiceImpl) CreateAgent(ctx context.Context, agent *models.Age
 
 ```go
 func (db *PostgreSQL) CreateAgent(ctx context.Context, tx pgx.Tx, agent *models.AgentJSON) (*models.Agent, error) {
-    // INSERT INTO agents (name, version, config, ...) VALUES (...)
-    // Agent config stored as JSONB
+    // INSERT INTO agents.agent_definitions (name, version, config, ...) VALUES (...)
+    // Agent config stored as JSONB in Control Plane Shared DB
 }
 ```
 
 ### Database Schema
+**Location**: Control Plane Shared DB (Hub Cluster)  
+**Schema**: `agents`
+
 ```sql
-CREATE TABLE agents (
+-- Control Plane Shared DB
+-- Schema: agents
+
+CREATE TABLE agent_definitions (
     id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
     name TEXT NOT NULL,
     version TEXT NOT NULL,
     description TEXT,
@@ -97,8 +104,13 @@ CREATE TABLE agents (
     env JSONB,           -- Environment variables
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
-    UNIQUE(name, version)
+    UNIQUE(tenant_id, name, version)
 );
+
+-- RLS policy for tenant isolation
+ALTER TABLE agent_definitions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON agent_definitions
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
 ```
 
 **Reference**: `archived/agentic-ai/solo/agentregistry/internal/registry/database/` (schema migrations)
@@ -336,11 +348,18 @@ func (r *A2ARegistrar) RegisterAgent(agent *v1alpha2.Agent) error {
 **Reference**: `archived/agentic-ai/solo/kagent/go/core/internal/a2a/a2a_registrar.go`
 
 ### Deployment State Tracking
+**Location**: Control Plane Shared DB (Hub Cluster)  
+**Schema**: `agents`
+
 **Source**: `archived/agentic-ai/solo/agentregistry/internal/registry/database/postgres.go:2871-2900`
 
 ```sql
+-- Control Plane Shared DB
+-- Schema: agents
+
 CREATE TABLE deployments (
     id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
     server_name TEXT NOT NULL,      -- Agent name
     version TEXT NOT NULL,
     status TEXT NOT NULL,            -- "deploying", "deployed", "failed"
@@ -349,6 +368,11 @@ CREATE TABLE deployments (
     deployed_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 );
+
+-- RLS policy for tenant isolation
+ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON deployments
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
 ```
 
 ### Key Takeaway
@@ -483,13 +507,14 @@ func (a *Agent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 ##### Memory Service (Context Retrieval)
 ```go
-// Agent calls Memory Service
+// Agent calls Memory Service (Hub Cluster)
+// Queries Control Plane Shared DB (schema: memory) via pgvector
 resp, err := http.Post(
-    "http://memory-service:8080/search",
+    "http://memory-service.hub.svc.cluster.local:8080/search",
     "application/json",
-    bytes.NewBuffer([]byte(`{"query": "invoice generation", "namespace": "billing-agent"}`)),
+    bytes.NewBuffer([]byte(`{"query": "invoice generation", "namespace": "billing-agent", "tenant_id": "acme-corp"}`)),
 )
-// Returns: Top-K relevant chunks from pgvector
+// Returns: Top-K relevant chunks from pgvector (schema: memory)
 ```
 
 **Reference**: Platform service (to be implemented in Zero-Ops)

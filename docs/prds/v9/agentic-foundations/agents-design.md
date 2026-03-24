@@ -21,14 +21,14 @@ Looking at your Hub-Spoke architecture and the agent lifecycle docs, I can see t
 ```
 Hub Cluster
 ├── AgentRegistry (NEW)
-│   └── PostgreSQL (agent configs)
+│   └── Control Plane Shared DB (schema: agents)
 ├── AgentGateway (NEW) 
 │   └── A2A/MCP routing + RBAC
 ├── Platform Services (Shared by ALL Spokes)
 │   ├── LiteLLM Gateway (multi-tenant)
-│   ├── Memory Service (pgvector)
+│   ├── Memory Service (Control Plane Shared DB, schema: memory, pgvector)
 │   ├── Guardrail Engine
-│   ├── Context Service
+│   ├── Context Service (Control Plane Shared DB, schema: context, pgvector)
 │   └── Outcome Listener (billing)
 ├── Existing Hub Services
 │   ├── Ory Stack (Keto/Kratos/Hydra)
@@ -60,7 +60,7 @@ Spoke Silo Cluster (Tenant C)
 ```
 Tenant → Platform Console (Hub) 
        → POST /v0/agents 
-       → AgentRegistry (Hub PostgreSQL)
+       → AgentRegistry (Control Plane Shared DB, schema: agents)
 ```
 
 ### Phase 2: Deploy (Hub→Spoke)
@@ -96,10 +96,11 @@ User → AgentGateway (Hub)
 │                                                     │
 │ ┌─────────────────┐  ┌──────────────────────────┐ │
 │ │ AgentRegistry   │  │ Platform Services        │ │
-│ │ (PostgreSQL)    │  │ - LiteLLM (multi-tenant) │ │
-│ └─────────────────┘  │ - Memory (pgvector)      │ │
-│                      │ - Guardrail Engine       │ │
-│ ┌─────────────────┐  │ - Context Service        │ │
+│ │ (CP Shared DB)  │  │ - LiteLLM (multi-tenant) │ │
+│ │ schema: agents  │  │ - Memory (schema: memory)│ │
+│ └─────────────────┘  │ - Guardrail Engine       │ │
+│                      │ - Context (schema:       │ │
+│ ┌─────────────────┐  │   context)               │ │
 │ │ AgentGateway    │  └──────────────────────────┘ │
 │ │ (Rust)          │                               │
 │ └────────┬────────┘  ┌──────────────────────────┐ │

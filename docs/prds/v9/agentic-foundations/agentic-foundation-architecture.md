@@ -10,12 +10,12 @@
 ## Core Principles
 
 1. **Three-phase agent lifecycle** (see [agent-lifecycle.md](./agent-lifecycle.md))  
-   - **Build**: Define agent config via AgentRegistry API → PostgreSQL  
+   - **Build**: Define agent config via AgentRegistry API → Control Plane Shared DB (schema: agents)  
    - **Deploy**: Provision runtime via Kagent Controller → Agent Pod  
    - **Execute**: Invoke on-demand via A2A protocol → Platform services
 
 2. **Tenant agents are API-driven, not GitOps**  
-   Tenants create agents via Platform Console → AgentRegistry API → PostgreSQL  
+   Tenants create agents via Platform Console → AgentRegistry API → Control Plane Shared DB  
    Deployment triggers Kagent CRD creation (no Git commits for tenant agents)
 
 3. **Platform agents are GitOps-managed**  
@@ -33,7 +33,7 @@
 Central registry for agent definitions and deployment orchestration.
 
 **Responsibilities**:
-- Store agent configurations (PostgreSQL)
+- Store agent configurations (Control Plane Shared DB, schema: agents)
 - Expose agent CRUD APIs (`/v0/agents`, `/v0/deployments`)
 - Trigger Kagent CRD provisioning via Deployment Adapters
 - Track deployment status
@@ -53,6 +53,73 @@ Kubernetes-native agent runtime framework.
 
 ---
 
+## Database Architecture
+
+### Hub Cluster Data Stores
+
+Zero-Ops v10 maintains the three-store principle from v9:
+
+1. **Hub Centralised DB** (PostgreSQL via CNPG)
+2. **Control Plane Shared DB** (PostgreSQL via CNPG) ← Agentic data here
+3. **Observability Stack** (VictoriaMetrics, Loki, OpenSearch, Tempo)
+
+### Control Plane Shared DB Schema Layout
+
+```
+Control Plane Shared DB (PostgreSQL with pgvector)
+├── schema: tenants (existing)
+│   └── Tenant config, sessions, provisioning state
+├── schema: agents (NEW)
+│   ├── agent_definitions (agent configs)
+│   ├── deployments (deployment status)
+│   └── versions (agent versioning)
+├── schema: workflows (NEW)
+│   ├── sessions (agent sessions)
+│   ├── tasks (task execution state)
+│   ├── events (execution events)
+│   └── checkpoints (LangGraph checkpoints)
+├── schema: memory (NEW - pgvector enabled)
+│   ├── embeddings (vector embeddings)
+│   └── vector_index (HNSW index)
+└── schema: context (NEW - pgvector enabled)
+    ├── document_chunks (chunked documents)
+    └── reranked_results (search results cache)
+```
+
+**Key Benefits**:
+- Single CNPG cluster (no new infrastructure)
+- Shared connection pooling via PgBouncer
+- Unified backups and HA
+- Cross-schema queries (agent + tenant data)
+- RLS policies per schema for tenant isolation
+
+### Hub Centralised DB
+
+```
+Hub Centralised DB (PostgreSQL via CNPG)
+├── resource_status (existing)
+│   └── Crossplane claim status
+└── agent_deployment_status (NEW)
+    └── Pod ready/failed/scaling status
+    └── Written by: Spoke Agent Status Controller → Hub PostgREST
+```
+
+### PostgREST API Mapping
+
+```
+Hub-side PostgREST (Control Plane Shared DB)
+├── /tenants/*     → schema: tenants
+├── /agents/*      → schema: agents
+├── /workflows/*   → schema: workflows
+├── /memory/*      → schema: memory
+└── /context/*     → schema: context
+
+Hub-side PostgREST (Hub Centralised DB)
+└── /status/*      → agent_deployment_status table
+```
+
+---
+
 ## Service Layer Mapping
 
 ### 1. AUTOMATE LAYER → Kagent Runtime
@@ -61,8 +128,8 @@ Kubernetes-native agent runtime framework.
 |---|---|---|
 | **Agent Runtime Service** | Kagent Agent Pod (ADK) | Crossplane provisions pod from Agent CRD |
 | **Workflow Orchestrator** | Kagent A2A Protocol | Collaborator → Worker agent routing |
-| **State Machine Service** | Kagent Task/Session API | Stores state in Control Plane DB |
-| **Session Manager** | Kagent Session CRD | PostgreSQL backend via ADK |
+| **State Machine Service** | Kagent Task/Session API | Stores state in Control Plane Shared DB (schema: workflows) |
+| **Session Manager** | Kagent Session CRD | Control Plane Shared DB (schema: workflows) via ADK |
 | **Code Interpreter** | AgentSandbox (gVisor) | Mounted as sidecar to Agent Pod |
 | **Browser Tool Service** | MCP Tool Server | Exposed via `spec.declarative.tools[type=McpServer]` |
 
@@ -80,7 +147,7 @@ POST /v0/agents
   }
 }
 ```
-→ Stored in AgentRegistry PostgreSQL  
+→ Stored in Control Plane Shared DB (schema: agents)  
 → Tenant triggers: `POST /v0/deployments`  
 → Deployment Adapter provisions Kagent Agent CRD in Spoke  
 → Kagent Controller creates Pod + injects platform services
