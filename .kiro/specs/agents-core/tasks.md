@@ -48,11 +48,13 @@ This implementation follows a phased approach with manual testing gates between 
 
 - [x] 1.5 Implement Hub PostgREST client
   - [x] 1.5.1 Create `internal/agent-core/client/hub_client.go`
-  - [x] 1.5.2 Implement GetAgentInfraStatus (query agent_infra_status table)
+  - [x] 1.5.2 Implement GetAgentInfraStatus (query agent_infra_status by deployment_id)
+  - [x] 1.5.3 Implement ListAgentDeployments (query agent_infra_status by tenant_id)
 
 **Manual Testing Checkpoint:**
-- Verify database migrations applied successfully
-- Verify sqlc generated code compiles
+- Apply `manifests/platform-database/platform-db.yaml` → verify CNPG cluster Ready
+- Apply `manifests/platform-database/migrations/control-plane-migrations.yaml` → verify Job completes
+- Apply `manifests/platform-database/migrations/hub-migrations.yaml` → verify Job completes
 - Test AgentRegistry client against local AgentRegistry instance
 - Test Hub PostgREST client against Hub Centralised DB
 

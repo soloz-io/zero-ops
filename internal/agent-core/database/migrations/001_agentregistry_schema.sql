@@ -3,6 +3,10 @@
 
 CREATE SCHEMA IF NOT EXISTS agentregistry;
 
+GRANT USAGE ON SCHEMA agentregistry TO agentregistry;
+GRANT CREATE ON SCHEMA agentregistry TO agentregistry;
+GRANT USAGE ON SCHEMA agentregistry TO mcp_server;
+
 -- Agent definitions table with tenant isolation
 -- Matches requirements.md FR-1 schema exactly
 CREATE TABLE IF NOT EXISTS agentregistry.agent_definitions (

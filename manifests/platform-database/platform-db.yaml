@@ -1,0 +1,31 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: platform-db
+  namespace: zero-ops-system
+spec:
+  instances: 3
+  storage:
+    size: 20Gi
+    storageClass: hcloud-volumes
+
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: postgres
+      postInitSQL:
+        # Databases
+        - CREATE DATABASE control_plane;
+        - CREATE DATABASE hub;
+
+        # Users
+        - CREATE USER agentregistry WITH PASSWORD 'changeme';
+        - CREATE USER mcp_server WITH PASSWORD 'changeme';
+        - CREATE USER spoke_controller WITH PASSWORD 'changeme';
+
+        # control_plane grants
+        - GRANT ALL PRIVILEGES ON DATABASE control_plane TO agentregistry;
+        - GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;
+
+        # hub grants
+        - GRANT ALL PRIVILEGES ON DATABASE hub TO spoke_controller;

@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: control-plane-migrations
+  namespace: zero-ops-system
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-db
+        image: postgres:16
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h platform-db-rw -p 5432; do
+              echo "Waiting for database..."
+              sleep 2
+            done
+      containers:
+      - name: migrate
+        image: migrate/migrate:latest
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: password
+        command:
+          - migrate
+          - -path=/migrations
+          - -database=postgresql://mcp_server:$(DB_PASSWORD)@platform-db-rw:5432/control_plane?sslmode=require
+          - up
+        volumeMounts:
+        - name: migrations
+          mountPath: /migrations
+      volumes:
+      - name: migrations
+        configMap:
+          name: control-plane-migrations

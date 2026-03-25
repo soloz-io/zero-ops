@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control-plane-migrations
+  namespace: zero-ops-system
+data:
+  001_agentregistry_schema.sql: |
+    CREATE SCHEMA IF NOT EXISTS agentregistry;
+
+    GRANT USAGE ON SCHEMA agentregistry TO agentregistry;
+    GRANT CREATE ON SCHEMA agentregistry TO agentregistry;
+    GRANT USAGE ON SCHEMA agentregistry TO mcp_server;
+
+    CREATE TABLE IF NOT EXISTS agentregistry.agent_definitions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        agent_type TEXT NOT NULL,
+        system_message TEXT NOT NULL,
+        tool_access JSONB NOT NULL,
+        memory_config JSONB NOT NULL,
+        guardrail_policies JSONB NOT NULL,
+        model_config JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(tenant_id, name, version)
+    );
+
+    ALTER TABLE agentregistry.agent_definitions ENABLE ROW LEVEL SECURITY;
+
+    CREATE POLICY tenant_isolation ON agentregistry.agent_definitions
+        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_definitions_tenant ON agentregistry.agent_definitions(tenant_id);
+
+    CREATE TABLE IF NOT EXISTS agentregistry.deployments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL,
+        agent_id UUID NOT NULL REFERENCES agentregistry.agent_definitions(id),
+        provider_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'deploying',
+        provider_metadata JSONB,
+        deployed_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    ALTER TABLE agentregistry.deployments ENABLE ROW LEVEL SECURITY;
+
+    CREATE POLICY tenant_isolation ON agentregistry.deployments
+        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+
+    CREATE INDEX IF NOT EXISTS idx_deployments_tenant ON agentregistry.deployments(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_deployments_agent_id ON agentregistry.deployments(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_deployments_status ON agentregistry.deployments(status);
+
+  002_agents_schema.sql: |
+    CREATE SCHEMA IF NOT EXISTS agents;
+
+    GRANT USAGE ON SCHEMA agents TO mcp_server;
+    GRANT CREATE ON SCHEMA agents TO mcp_server;
+    GRANT USAGE ON SCHEMA public TO mcp_server;
+
+    CREATE TABLE IF NOT EXISTS agents.authorized_tools (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        tool_name VARCHAR(255) NOT NULL,
+        category VARCHAR(100),
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(tenant_id, tool_name)
+    );
+
+    ALTER TABLE agents.authorized_tools ENABLE ROW LEVEL SECURITY;
+
+    CREATE POLICY tenant_isolation ON agents.authorized_tools
+        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+
+    CREATE INDEX IF NOT EXISTS idx_authorized_tools_tenant ON agents.authorized_tools(tenant_id);

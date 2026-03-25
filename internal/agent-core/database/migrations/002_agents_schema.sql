@@ -2,6 +2,10 @@
 
 CREATE SCHEMA IF NOT EXISTS agents;
 
+GRANT USAGE ON SCHEMA agents TO mcp_server;
+GRANT CREATE ON SCHEMA agents TO mcp_server;
+GRANT USAGE ON SCHEMA public TO mcp_server;
+
 -- Authorized tools per tenant
 -- tenant_id references public.tenants per design.md section 2.2
 CREATE TABLE IF NOT EXISTS agents.authorized_tools (
