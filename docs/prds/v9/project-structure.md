@@ -32,6 +32,12 @@ zero-ops/
 │   │   ├── models/               # Tenant, User, Event, Provisioning
 │   │   ├── providers/            # ory/, nats/, postgres/, gitops/
 │   │   └── libraries/            # Shared utilities
+│   ├── agent-core/               # NEW v9.0 — Agent domain logic (used by mcp-server)
+│   │   ├── service/              # Business logic (agent, deployment, status)
+│   │   ├── models/               # Agent domain models
+│   │   ├── repository/           # Data access (sqlc)
+│   │   ├── adapters/             # Kagent CRD generation, GitOps
+│   │   └── validators/           # Agent config & policy validation
 │   ├── db/                       # Database layer (sqlc-generated)
 │   ├── auth-proxy/               # Auth-proxy handlers
 │   ├── controller/               # Spoke Controller reconciler
@@ -126,14 +132,20 @@ You should start with a Monorepo. You should **only** split (Polyrepo) if:
 
 ### 6. MCP Server Architecture (Corrected)
 
-**Single MCP Server Pattern:** `cmd/mcp-server/` is a single Go binary that exposes ALL MCP tools (tenant_create, environment_create, environment_status, etc.). It is NOT split into multiple services.
+**Single MCP Server Pattern:** `cmd/mcp-server/` is a single Go binary that exposes ALL MCP tools (tenant_create, environment_create, environment_status, deploy_agent, etc.). It is NOT split into multiple services.
 
 **Architecture:**
 - **Single Process:** One MCP server process with one ServiceAccount
 - **Network Listener:** Single HTTP endpoint at `/mcp` for MCP protocol
-- **Tool Organization:** Tools organized by domain (tenant/, environment/, user/) within the binary
+- **Tool Organization:** Tools organized by domain (tenant/, environment/, agents/) within the binary
 - **No Direct Auth:** AgentGateway handles all JWT validation via auth-proxy; mcp-server receives pre-validated requests with injected `X-Auth-*` headers
-- **Uses opensbt Toolkit:** All tools use `internal/opensbt/controlplane` for business logic
+- **Uses opensbt Toolkit:** All tools use `internal/opensbt/controlplane` for SaaS patterns
+- **Uses agent-core Package:** Agent-specific tools use `internal/agent-core/service` for domain logic
+
+**Package Separation:**
+- `internal/opensbt/` - Generic SaaS patterns (IAuth, IEventBus, IProvisioner, IStorage)
+- `internal/agent-core/` - Agent-specific domain logic (agent lifecycle, deployment, status)
+- `cmd/mcp-server/tools/` - Thin MCP tool wrappers that delegate to services
 
 **Why Not Multiple MCP Servers:**
 - Single opensbt.ControlPlane instance (shared state, transactions)

@@ -26,7 +26,6 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **PgBouncer**: Connection pooling (via CNPG spec.pooler)
 - **Hetzner S3**: Object storage
 
-
 ## Authentication & Security
 - **Ory Kratos**: Identity management
 - **Ory Hydra**: OAuth2/OIDC token issuer
@@ -51,8 +50,10 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Kustomize**: Kubernetes configuration management
 
 ## AI & Agent Runtime
-- **LiteLLM**: AI model gateway and routing
-- **gVisor (runsc)**: Sandboxed agent execution environment
+- **AgentRegistry**: Build, deploy, execute agents
+- **KAgent**: Runtime for agents and ToolServer creation
+- **AgentGateway**: ToolServer Gateway for agents and tenants
+- **AgentSandbox**: Sandboxed agent execution environment
 - **MCP (Model Context Protocol)**: Agent-to-platform communication
 - **PostgREST**: Auto-generated REST APIs from PostgreSQL schema
 
