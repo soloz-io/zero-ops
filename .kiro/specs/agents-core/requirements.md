@@ -98,10 +98,11 @@ Enable tenant admins to create and deploy their first agent via MCP tools within
 
 **Database Schema:**
 ```sql
--- Control Plane Shared DB, schema: agents
+-- Control Plane Shared DB, schema: agentregistry (managed by AgentRegistry OSS)
+-- Reference: B-01 resolution - tenant isolation via RLS
 CREATE TABLE agent_definitions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
+    tenant_id UUID NOT NULL,  -- Tenant isolation column
     name TEXT NOT NULL,
     version TEXT NOT NULL,
     agent_type TEXT NOT NULL,
@@ -112,9 +113,17 @@ CREATE TABLE agent_definitions (
     model_config JSONB NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(tenant_id, name, version)
+    UNIQUE(tenant_id, name, version)  -- Tenant-scoped uniqueness
 );
+
+-- RLS policy for tenant isolation (SBT pattern)
+ALTER TABLE agent_definitions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON agent_definitions
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
 ```
+
+**Tenant Context Setting:**
+agent-core sets `app.tenant_id` before calling AgentRegistry API to enforce RLS.
 
 ---
 
@@ -160,21 +169,27 @@ CREATE TABLE agent_definitions (
 - `spoke_controller_sync_failed`: Spoke Controller failed to sync status to Hub
 
 **Backend Flow:**
-1. MCP server validates JWT token (tenant_id, spoke_cluster_id extraction from claims)
+1. MCP server validates JWT token (tenant_id, spoke_cluster_id extraction from claims - B-03 resolution)
 2. MCP server → AgentRegistry API (POST /v0/deployments)
 3. AgentRegistry creates deployment record in Control Plane Shared DB (status: "deploying")
 4. MCP server (agent-core) retrieves agent config from AgentRegistry
 5. MCP server (agent-core) generates Kagent Agent CRD YAML
 6. MCP server (agent-core) commits Agent CRD to Tenant Control Plane Repository via IProvisioner
-7. Return immediately with status "deploying" (async pattern to avoid MCP client timeout)
-8. ArgoCD syncs the manifest to the target Spoke cluster (async)
-9. Kagent Controller (Spoke) reconciles Agent CRD:
+7. MCP server publishes NATS event: `hub.platform.agent.deployed` (H-08 resolution)
+8. Return immediately with status "deploying" (async pattern to avoid MCP client timeout)
+9. ArgoCD syncs the manifest to the target Spoke cluster (async)
+10. Kagent Controller (Spoke) reconciles Agent CRD:
    - Creates Kubernetes Deployment (Agent Pod)
    - Injects environment variables (Memory, Guardrail endpoints)
    - Creates KEDA ScaledObject (scale-to-zero config)
    - Registers A2A handler in Kagent A2AHandlerMux
-10. Spoke Controller watches Agent CRD status and syncs to Hub Centralised DB via PostgREST
-11. Client polls get_agent_status to check deployment completion
+11. Spoke Controller watches Agent CRD status and syncs to Hub Centralised DB via PostgREST
+12. Client polls get_agent_status to check deployment completion
+
+**Note on spoke_cluster_id (B-03 resolution):**
+- Set during environment_create, stored in `tenants.spoke_cluster_id`
+- Ory Hydra enriches JWT with spoke_cluster_id from tenant record
+- No `provider_id` parameter needed - derived from JWT claims
 
 **Database Schema:**
 ```sql

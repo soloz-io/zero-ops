@@ -20,8 +20,23 @@ Based on `archived/agentic-ai/solo/agentregistry/`:
 ### Deployment Management (DB Records Only)
 - **POST /v0/deployments** - Create deployment record in DB
 - **GET /v0/deployments** - List deployment records from DB
-- **GET /v0/deployments/{id}** - Get deployment details from DB
+- **GET /v0/deployments/{id}** - Get deployment details from DB (single source of truth)
 - **DELETE /v0/deployments/{id}** - Delete deployment record from DB
+
+### Database Storage (B-02 Resolution)
+
+**CRITICAL:** AgentRegistry uses **Control Plane Shared DB (agentregistry schema) ONLY**
+
+- All agent definitions stored in `agentregistry.agent_definitions`
+- All deployment records stored in `agentregistry.deployments`
+- `GET /v0/deployments/{id}` is the **single source of truth** for deployment status
+- **Hub Centralised DB is NOT used** - that's only for Crossplane resource provisioning status
+
+**Status Values:**
+- `deploying` - Deployment initiated, GitOps in progress
+- `deployed` - Agent CRD applied and reconciled
+- `failed` - Deployment failed
+- `cancelled` - Deployment cancelled
 
 ### What AgentRegistry Does NOT Do
 - ❌ Does NOT handle Git commits
@@ -29,6 +44,7 @@ Based on `archived/agentic-ai/solo/agentregistry/`:
 - ❌ Does NOT interact with GitOps repos
 - ❌ Does NOT call deployment adapters
 - ❌ Does NOT orchestrate provisioning
+- ❌ Does NOT write to Hub Centralised DB
 
 ## What agent-core Must Orchestrate
 
@@ -54,3 +70,31 @@ MCP Client → agent-core service
 - AgentRegistry is a **registry service** (database + API)
 - AgentRegistry does **NOT** have deployment adapters or Git integration
 - All provisioning logic belongs in **agent-core orchestration layer**
+
+
+## Status Query Pattern (B-02 Resolution)
+
+**Single Source of Truth:** AgentRegistry `GET /v0/deployments/{id}`
+
+```go
+// agent-core queries deployment status from AgentRegistry ONLY
+func (s *StatusService) GetAgentStatus(ctx context.Context, deploymentID string) (*DeploymentStatus, error) {
+    // Query AgentRegistry API (Control Plane Shared DB, agentregistry schema)
+    deployment, err := s.agentRegistryClient.GetDeployment(ctx, deploymentID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // AgentRegistry deployment.Status is authoritative
+    return &DeploymentStatus{
+        DeploymentID: deployment.ID,
+        AgentID:      deployment.ServerName,
+        Status:       deployment.Status,  // deploying, deployed, failed, cancelled
+        UpdatedAt:    deployment.UpdatedAt,
+    }, nil
+}
+```
+
+**No Hub Centralised DB queries needed** - that database is only for Crossplane resource provisioning status (infrastructure layer), not agent deployments.
+
+**Spoke Controller** writes Crossplane claim status to Hub Centralised DB, but agent deployment status remains in AgentRegistry Control Plane Shared DB only.

@@ -13,7 +13,7 @@ This design implements the Agents Core MCP server that exposes agent lifecycle m
 
 - **MCP-First**: All capabilities exposed via MCP tools (no web UI)
 - **GitOps-First**: All infrastructure changes via Git commits (no direct kubectl)
-- **Status via PostgREST**: Spoke Controllers write status to Hub Centralised DB
+- **Status via AgentRegistry**: AgentRegistry API is single source of truth for deployment status
 - **NATS for Side Effects**: Billing/notifications only (not in provisioning path)
 - **Single MCP Server**: Unified `cmd/mcp-server/` with all tools
 - **Interface-Based**: Uses `internal/opensbt/` abstractions
@@ -32,8 +32,8 @@ internal/opensbt/controlplane/
 Git Commit → ArgoCD → Crossplane → Spoke
     ↓ Kagent Controller reconciles
 Spoke Controller watches Agent CRD
-    ↓ POST /resource-status (Bearer JWT)
-Hub Centralised DB (PostgreSQL + PostgREST)
+    ↓ Updates AgentRegistry deployment status via API
+AgentRegistry (Control Plane Shared DB - agentregistry schema)
 ```
 
 **JWT Claims Structure (from SBT patterns):**
@@ -42,12 +42,21 @@ Hub Centralised DB (PostgreSQL + PostgREST)
 type TenantClaims struct {
     TenantID       string `json:"tenant_id"`
     TenantTier     string `json:"tenant_tier"`
-    SpokeClusterID string `json:"spoke_cluster_id"`  // Assigned during onboarding
+    SpokeClusterID string `json:"spoke_cluster_id"`  // Set during environment_create
     UserID         string `json:"sub"`
     Email          string `json:"email"`
     jwt.RegisteredClaims
 }
 ```
+
+**spoke_cluster_id Assignment (B-03 Resolution):**
+1. During tenant onboarding, `environment_create` provisions spoke cluster via Crossplane
+2. Spoke cluster ID written to Control Plane Shared DB: `tenants.spoke_cluster_id`
+3. Ory Hydra enriches JWT with `spoke_cluster_id` from tenant record during token generation
+4. If tenant has multiple environments, JWT contains primary spoke cluster ID
+5. Token refresh after spoke migration handled by Hydra reading updated tenant record
+
+**Reference:** `archived/sbt-patterns/docs/microservice-utils.md` - Identity Token Manager pattern
 
 ## 2. Component Architecture
 
@@ -211,37 +220,60 @@ func TenantContextMiddleware() gin.HandlerFunc {
 
 **Schema: `agentregistry`** (managed by agentregistry OSS project)
 ```sql
--- AgentRegistry manages its own schema
+-- AgentRegistry manages its own schema with tenant isolation
 -- Reference: archived/agentic-ai/solo/agentregistry/internal/registry/database/postgres.go
--- Tables: agents, deployments, providers, etc.
--- RLS policies enforced by agentregistry
+-- Reference: docs/prds/v9/agentic/agentic-foundations/agent-lifecycle.md
+
+CREATE TABLE agent_definitions (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,  -- ADDED: Tenant isolation column
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    description TEXT,
+    system_message TEXT,
+    dependencies JSONB,
+    env JSONB,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    UNIQUE(tenant_id, name, version)  -- UPDATED: Tenant-scoped uniqueness
+);
+
+-- RLS policy for tenant isolation (SBT pattern)
+ALTER TABLE agent_definitions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON agent_definitions
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
+
+CREATE TABLE deployments (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,  -- ADDED: Tenant isolation column
+    server_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    provider_metadata JSONB,
+    deployed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+
+-- RLS policy for tenant isolation
+ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON deployments
+    USING (tenant_id = current_setting('app.tenant_id')::UUID);
+```
+
+**Tenant Context Setting (agent-core responsibility):**
+```go
+// Before calling AgentRegistry API, set tenant context
+// Reference: archived/sbt-patterns/docs/sbt-design-principles.md
+func (s *AgentService) setTenantContext(ctx context.Context, tx pgx.Tx) error {
+    tenantID := ctx.Value("tenant_id").(string)
+    _, err := tx.Exec(ctx, "SET app.tenant_id = $1", tenantID)
+    return err
+}
 ```
 
 **Schema: `agents`** (Zero-Ops platform-specific extensions)
 ```sql
--- Tenant-specific model authorization (tier-based access control)
-CREATE TABLE available_models (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider VARCHAR(100) NOT NULL,  -- Matches kagent ModelProvider enum
-    model VARCHAR(100) NOT NULL,
-    tier_required VARCHAR(50) NOT NULL,  -- basic, standard, premium, enterprise
-    cost_per_1k_tokens DECIMAL(10, 4),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(provider, model)
-);
-
--- Seed data (example)
-INSERT INTO available_models (provider, model, tier_required) VALUES
-    ('OpenAI', 'gpt-3.5-turbo', 'basic'),
-    ('OpenAI', 'gpt-4', 'premium'),
-    ('OpenAI', 'gpt-4-turbo', 'enterprise'),
-    ('Anthropic', 'claude-3-haiku', 'standard'),
-    ('Anthropic', 'claude-3-sonnet', 'premium'),
-    ('Anthropic', 'claude-3-opus', 'enterprise');
-
-CREATE INDEX idx_available_models_provider ON available_models(provider);
-CREATE INDEX idx_available_models_tier ON available_models(tier_required);
-
 -- Tenant-specific tool authorization
 CREATE TABLE authorized_tools (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -253,7 +285,10 @@ CREATE TABLE authorized_tools (
     UNIQUE(tenant_id, tool_name)
 );
 
-CREATE INDEX idx_authorized_tools_tenant ON authorized_tools(tenant_id);
+-- Note: Model authorization is managed via Kagent ModelConfig CRDs, not database tables.
+-- ModelConfigs are namespace-scoped K8s resources that define available models per tenant.
+-- Validation queries the K8s API server, not SQL.
+```CREATE INDEX idx_authorized_tools_tenant ON authorized_tools(tenant_id);
 
 -- RLS Policy
 ALTER TABLE authorized_tools ENABLE ROW LEVEL SECURITY;
@@ -284,43 +319,30 @@ mcpServerDB := &postgres.Config{
 }
 ```
 
+**CRITICAL - Database Architecture:**
 
-**Hub Centralised DB (PostgreSQL):**
+**Control Plane Shared DB (agentregistry schema):**
+- App-layer deployment status: `deploying`, `deployed`, `failed`, `cancelled`
+- Single source of truth for agent deployment lifecycle
+- Updated by: AgentRegistry API + NATS event subscriber
 
-```sql
--- Agent deployment status (written by Spoke Controller via PostgREST)
--- Reference: archived/agentic-ai/solo/agentregistry/pkg/models/deployment.go
-CREATE TABLE agent_deployments (
-    deployment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    agent_id UUID NOT NULL,
-    spoke_cluster_id VARCHAR(255) NOT NULL,
-    status VARCHAR(50) NOT NULL,  -- deploying, provisioning, ready, failed, cancelled
-    phase VARCHAR(50),             -- Running, Idle, Failed (from KEDA)
-    replicas INT DEFAULT 0,
-    message TEXT,
-    error TEXT,                    -- Error details if status=failed
-    provider_metadata JSONB,       -- Spoke-specific metadata
-    last_sync_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+**Hub Centralised DB:**
+- Infra-layer resource status: `provisioning`, `ready` (pod-level)
+- Phase tracking: `Running`, `Idle`, `Failed` (KEDA scale state)
+- Replica counts: 0, 1, 2, etc.
+- Updated by: Spoke Controller writes directly via PostgREST
 
-CREATE INDEX idx_agent_deployments_tenant ON agent_deployments(tenant_id);
-CREATE INDEX idx_agent_deployments_agent ON agent_deployments(agent_id);
-CREATE INDEX idx_agent_deployments_status ON agent_deployments(status);
-CREATE INDEX idx_agent_deployments_deployment ON agent_deployments(deployment_id);
-
--- RLS Policy (Spoke Controllers write with bypass_rls=true)
-ALTER TABLE agent_deployments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON agent_deployments
-    USING (tenant_id = current_setting('app.tenant_id')::uuid);
-
--- Status transition constraints (matches agentregistry pattern)
--- deploying → provisioning → ready
--- deploying → failed
--- ready → failed
--- * → cancelled
+**Event Flow (Infra → App Layer):**
+```
+Spoke Controller watches K8s pods
+  ↓
+Writes status to Hub Centralised DB (PostgREST)
+  ↓
+Hub DB trigger publishes NATS event
+  ↓
+Control Plane NATS Subscriber
+  ↓
+Updates AgentRegistry deployments.status (deploying → deployed)
 ```
 
 ### 2.3 GitOps Integration
@@ -365,9 +387,9 @@ spec:
 
 **Responsibilities:**
 1. Watch Agent CRDs in spoke cluster (controller-runtime pattern from kagent)
-2. Derive status from Deployment.status.availableReplicas
+2. Derive infra status from Deployment.status.availableReplicas
 3. Map KEDA scale-to-zero to phase field
-4. Write status to Hub Centralised DB via PostgREST
+4. Write infra status to Hub Centralised DB via PostgREST (triggers NATS event)
 
 **Controller Pattern (from kagent AgentController):**
 ```go
@@ -390,11 +412,11 @@ func (r *AgentStatusController) Reconcile(ctx context.Context, req ctrl.Request)
         return ctrl.Result{}, client.IgnoreNotFound(err)
     }
     
-    // Derive status from underlying Deployment
-    status := r.deriveAgentStatus(ctx, &agent)
+    // Derive infra status from underlying Deployment
+    infraStatus := r.deriveInfraStatus(ctx, &agent)
     
-    // Sync to Hub Centralised DB via PostgREST
-    if err := r.syncToHub(ctx, &agent, status); err != nil {
+    // Write to Hub Centralised DB (triggers NATS event to update AgentRegistry)
+    if err := r.syncToHub(ctx, &agent, infraStatus); err != nil {
         return ctrl.Result{RequeueAfter: 30 * time.Second}, err
     }
     
@@ -413,7 +435,7 @@ func (r *AgentStatusController) SetupWithManager(mgr ctrl.Manager) error {
 }
 ```
 
-**Status Mapping Logic:**
+**Infra Status Mapping Logic:**
 ```go
 func deriveAgentPhase(deployment *appsv1.Deployment) string {
     if deployment.Status.AvailableReplicas == 0 {
@@ -428,8 +450,8 @@ func deriveAgentPhase(deployment *appsv1.Deployment) string {
     return "Unknown"
 }
 
-func deriveAgentStatus(agent *v1alpha2.Agent, deployment *appsv1.Deployment) string {
-    // Map from kagent Agent CRD conditions to deployment status
+func deriveInfraStatus(agent *v1alpha2.Agent, deployment *appsv1.Deployment) string {
+    // Map from kagent Agent CRD conditions to infra status
     if agent.Status.Conditions has Ready=True {
         return "ready"
     }
@@ -440,26 +462,153 @@ func deriveAgentStatus(agent *v1alpha2.Agent, deployment *appsv1.Deployment) str
 }
 ```
 
-**PostgREST Write Pattern:**
+**Hub Centralised DB Write Pattern:**
 ```go
 // Spoke Controller uses per-spoke JWT (Hydra client_credentials)
-// Reference: agentregistry deployment status update pattern
-func (c *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.Agent, status AgentStatus) error {
-    payload := AgentDeploymentStatus{
-        TenantID:       agent.Labels["tenant-id"],
-        AgentID:        agent.Labels["agent-id"],
-        DeploymentID:   agent.Labels["deployment-id"],
+// Writes infra status to Hub Centralised DB (NOT AgentRegistry)
+func (c *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.Agent, infraStatus InfraStatus) error {
+    // Validate required labels before syncing (skip unlabelled CRDs)
+    tenantID := agent.Labels["tenant-id"]
+    agentID := agent.Labels["agent-id"]
+    deploymentID := agent.Labels["deployment-id"]
+    
+    if tenantID == "" || agentID == "" || deploymentID == "" {
+        // Skip platform agents or unlabelled CRDs - do not sync to Hub DB
+        c.Log.Info("Skipping agent without required labels", 
+            "name", agent.Name, 
+            "namespace", agent.Namespace,
+            "has_tenant_id", tenantID != "",
+            "has_agent_id", agentID != "",
+            "has_deployment_id", deploymentID != "")
+        return nil
+    }
+    
+    payload := AgentInfraStatus{
+        TenantID:       tenantID,
+        AgentID:        agentID,
+        DeploymentID:   deploymentID,
         SpokeClusterID: c.ClusterID,
-        Status:         status.Status,
-        Phase:          status.Phase,
-        Replicas:       status.Replicas,
-        Message:        status.Message,
+        Status:         infraStatus.Status,  // provisioning, ready, failed
+        Phase:          infraStatus.Phase,   // Running, Idle, Failed
+        Replicas:       infraStatus.Replicas,
+        Message:        infraStatus.Message,
         LastSyncAt:     time.Now(),
     }
     
     // POST to Hub-side PostgREST with Bearer JWT
-    return c.HubClient.Post(ctx, "/agent_deployments", payload)
+    // Hub DB trigger publishes NATS event → Control Plane subscriber updates AgentRegistry
+    return c.HubClient.Post(ctx, "/agent_infra_status", payload)
 }
+```
+
+### 2.5 NATS Event Subscriber (Control Plane)
+
+**Purpose:** Subscribe to Hub NATS events and update AgentRegistry deployment status
+
+**Location:** `cmd/nats-subscriber/main.go` (NEW component)
+
+**Responsibilities:**
+1. Subscribe to Hub NATS subject: `hub.platform.agent.infra_status`
+2. Map infra status (`provisioning`, `ready`) to app status (`deploying`, `deployed`)
+3. Update AgentRegistry deployments table via direct DB write
+
+**Implementation:**
+```go
+// cmd/nats-subscriber/main.go
+type NATSSubscriber struct {
+    natsConn *nats.Conn
+    db       *pgxpool.Pool
+}
+
+func (s *NATSSubscriber) Start(ctx context.Context) error {
+    // Subscribe to Hub NATS events
+    _, err := s.natsConn.Subscribe("hub.platform.agent.infra_status", func(msg *nats.Msg) {
+        var event InfraStatusEvent
+        if err := json.Unmarshal(msg.Data, &event); err != nil {
+            log.Printf("Failed to unmarshal event: %v", err)
+            return
+        }
+        
+        // Map infra status to app status
+        appStatus := s.mapInfraToAppStatus(event.Status)
+        
+        // Update AgentRegistry deployments table
+        if err := s.updateAgentRegistryStatus(ctx, event.DeploymentID, appStatus); err != nil {
+            log.Printf("Failed to update AgentRegistry: %v", err)
+        }
+    })
+    
+    return err
+}
+
+func (s *NATSSubscriber) mapInfraToAppStatus(infraStatus string) string {
+    switch infraStatus {
+    case "provisioning":
+        return "deploying"
+    case "ready":
+        return "deployed"
+    case "failed":
+        return "failed"
+    default:
+        return "deploying"
+    }
+}
+
+func (s *NATSSubscriber) updateAgentRegistryStatus(ctx context.Context, deploymentID, status string) error {
+    // Direct DB write to Control Plane Shared DB (agentregistry schema)
+    _, err := s.db.Exec(ctx, `
+        UPDATE agentregistry.deployments 
+        SET status = $1, updated_at = NOW() 
+        WHERE id = $2
+    `, status, deploymentID)
+    return err
+}
+```
+
+**Hub Centralised DB Schema (Infra Status):**
+```sql
+-- Hub Centralised DB
+-- Agent infra status (written by Spoke Controller)
+CREATE TABLE agent_infra_status (
+    deployment_id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    agent_id UUID NOT NULL,
+    spoke_cluster_id VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL,  -- provisioning, ready, failed
+    phase VARCHAR(50),             -- Running, Idle, Failed (from KEDA)
+    replicas INT DEFAULT 0,
+    message TEXT,
+    error TEXT,
+    provider_metadata JSONB,
+    last_sync_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_agent_infra_status_tenant ON agent_infra_status(tenant_id);
+CREATE INDEX idx_agent_infra_status_deployment ON agent_infra_status(deployment_id);
+
+-- DB trigger to publish NATS event on status change
+CREATE OR REPLACE FUNCTION notify_agent_infra_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify(
+        'hub.platform.agent.infra_status',
+        json_build_object(
+            'deployment_id', NEW.deployment_id,
+            'status', NEW.status,
+            'phase', NEW.phase,
+            'replicas', NEW.replicas
+        )::text
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER agent_infra_status_change
+AFTER INSERT OR UPDATE ON agent_infra_status
+FOR EACH ROW
+EXECUTE FUNCTION notify_agent_infra_status_change();
 ```
 
 ## 3. MCP Tool Implementations
@@ -493,12 +642,14 @@ func (c *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.A
 func (s *AgentService) CreateAgent(ctx context.Context, params map[string]interface{}) (interface{}, error) {
     // 1. Extract tenant context from JWT (set by middleware)
     tenantID := ctx.Value("tenant_id").(string)
-    tenantTier := ctx.Value("tenant_tier").(string)
+    tenantNamespace := ctx.Value("tenant_namespace").(string)  // K8s namespace for tenant
     
     // 2. Platform-specific validation (NOT in AgentRegistry OSS)
-    // Validate model authorization (tier-based access control)
-    if err := s.validators.ValidateModelAuthorization(ctx, params["provider"], params["model"], tenantTier); err != nil {
-        return nil, err  // e.g., "Model gpt-4 not authorized for basic tier"
+    // Validate model authorization via Kagent ModelConfig CRDs
+    // ModelConfigs are namespace-scoped K8s resources managed by Kagent
+    modelConfigRef := params["model_config"].(string)  // Format: "namespace/name" or "name" (defaults to tenant namespace)
+    if err := s.validators.ValidateModelConfigExists(ctx, tenantNamespace, modelConfigRef); err != nil {
+        return nil, err  // e.g., "ModelConfig default/gpt-4 not found or not accessible"
     }
     
     // Validate tool authorization (tenant-specific permissions)
@@ -523,12 +674,12 @@ func (s *AgentService) CreateAgent(ctx context.Context, params map[string]interf
     }
     
     // 4. Publish NATS event (platform-specific side effect)
+    // Reference: archived/sbt-patterns/docs/saas-architecture-principles.md
     s.controlPlane.EventBus().Publish(ctx, opensbt.Event{
-        DetailType: "opensbt_agentCreated",
-        Source:     "opensbt.control.plane",
+        Subject:    "hub.platform.agent.created",  // Hub NATS subject namespace
+        TenantID:   tenantID,
         Detail: map[string]interface{}{
-            "tenant_id":   tenantID,
-            "agent_name":  agentResp.Agent.Name,
+            "agent_name":    agentResp.Agent.Name,
             "agent_version": agentResp.Agent.Version,
         },
     })
@@ -641,8 +792,8 @@ func (s *DeploymentService) DeployAgent(ctx context.Context, params map[string]i
     
     // 6. Publish NATS event (platform-specific side effect)
     s.controlPlane.EventBus().Publish(ctx, opensbt.Event{
-        DetailType: "opensbt_agentDeployed",
-        Source:     "opensbt.control.plane",
+        Subject:    "hub.platform.agent.deployed",
+        TenantID:   tenantID,
         Detail: map[string]interface{}{
             "tenant_id":        tenantID,
             "agent_id":         agentID,
@@ -729,9 +880,9 @@ All provisioning logic is in agent-core.
 
 ### 3.3 get_agent_status Tool
 
-**Purpose:** Read agent deployment status from Hub Centralised DB
+**Purpose:** Read agent deployment status from AgentRegistry API
 
-**Reference Implementation:** `archived/agentic-ai/solo/agentregistry/internal/registry/api/handlers/v0/deployments.go:get-deployment`
+**Reference Implementation:** `archived/agentic-ai/solo/agentregistry/openapi.yaml` - `GET /v0/deployments/{id}`
 
 **Implementation Location:** `internal/agent-core/service/status_service.go`
 
@@ -746,40 +897,41 @@ All provisioning logic is in agent-core.
 }
 ```
 
-
 **Implementation:**
 ```go
 // internal/agent-core/service/status_service.go
-// Reference: agentregistry GetDeploymentByID pattern
+// Query AgentRegistry API (single source of truth for app-layer status)
 func (s *StatusService) GetAgentStatus(ctx context.Context, params map[string]interface{}) (interface{}, error) {
     tenantID := ctx.Value("tenant_id").(string)
     deploymentID := params["deployment_id"].(string)
     
-    // Query Hub Centralised DB via PostgREST
-    deployment, err := s.hubClient.GetAgentDeployment(ctx, GetAgentDeploymentParams{
-        TenantID:     tenantID,
-        DeploymentID: deploymentID,
-    })
+    // Query AgentRegistry GET /v0/deployments/{id}
+    deployment, err := s.agentRegistryClient.GetDeployment(ctx, deploymentID)
     if err != nil {
         return nil, fmt.Errorf("failed to get deployment status: %w", err)
     }
     
-    // Return status matching agentregistry Deployment model
+    // Return status matching AgentRegistry Deployment model
     return map[string]interface{}{
-        "deployment_id":    deployment.DeploymentID,
-        "agent_id":         deployment.AgentID,
-        "status":           deployment.Status,  // deploying, provisioning, ready, failed, cancelled
-        "phase":            deployment.Phase,   // Running, Idle, Failed
-        "replicas":         deployment.Replicas,
-        "message":          deployment.Message,
+        "deployment_id":    deployment.ID,
+        "agent_id":         deployment.ServerName,
+        "version":          deployment.Version,
+        "status":           deployment.Status,  // deploying, deployed, failed, cancelled
+        "provider_id":      deployment.ProviderID,
         "error":            deployment.Error,
-        "spoke_cluster_id": deployment.SpokeClusterID,
-        "last_sync_at":     deployment.LastSyncAt,
-        "created_at":       deployment.CreatedAt,
+        "deployed_at":      deployment.DeployedAt,
         "updated_at":       deployment.UpdatedAt,
     }, nil
 }
 ```
+
+**AgentRegistry Deployment Status Values:**
+- `deploying` - Deployment initiated, waiting for infra provisioning
+- `deployed` - Agent pod is provisioned and ready (updated via NATS from Hub)
+- `failed` - Deployment failed at any stage
+- `cancelled` - Deployment cancelled by user
+
+**Note:** Infra-layer details (phase, replicas) are NOT exposed via this API. AgentRegistry tracks app-layer lifecycle only.
 
 ### 3.4 list_providers Tool
 
@@ -921,8 +1073,8 @@ func (a *MCPAdapter) UpdateAgent(ctx context.Context, params map[string]interfac
         
         // Publish NATS event (platform-specific side effect)
         a.controlPlane.EventBus().Publish(ctx, opensbt.Event{
-            DetailType: "opensbt_agentUpdated",
-            Source:     "opensbt.control.plane",
+            Subject:    "hub.platform.agent.updated",
+            TenantID:   tenantID,
             Detail: map[string]interface{}{
                 "tenant_id":        tenantID,
                 "agent_id":         agentID,
@@ -993,16 +1145,16 @@ All redeployment orchestration is in agent-core.
 }
 ```
 
-**Implementation (Orchestration Pattern):**
+**Implementation (Pure AgentRegistry Delegation):**
 ```go
 // internal/agent-core/service/agent_service.go
 func (s *AgentService) ListAgents(ctx context.Context, params map[string]interface{}) (interface{}, error) {
     // 1. Extract tenant context from JWT
     tenantID := ctx.Value("tenant_id").(string)
-    spokeClusterID := ctx.Value("spoke_cluster_id").(string)
     
     // 2. Call AgentRegistry GET /v0/agents (pure delegation)
     // Reference: archived/agentic-ai/solo/agentregistry/openapi.yaml
+    // Response includes _meta['aregistry.ai/deployments'] with deployment count and summaries
     agentsResp, err := s.agentRegistryClient.ListAgents(ctx, &client.ListAgentsRequest{
         // AgentRegistry filters by tenant context (from middleware)
         Limit: params["limit"].(int),
@@ -1011,44 +1163,45 @@ func (s *AgentService) ListAgents(ctx context.Context, params map[string]interfa
         return nil, fmt.Errorf("agentregistry API error: %w", err)
     }
     
-    // 3. Enrich with deployment status from Hub Centralised DB (platform-specific)
+    // 3. Transform AgentRegistry response to MCP format
+    // AgentRegistry already includes deployment metadata in _meta field - no additional queries needed
     enrichedAgents := make([]map[string]interface{}, 0, len(agentsResp.Agents))
-    for _, agent := range agentsResp.Agents {
-        // Query Hub PostgREST for deployment status
-        deployment, _ := s.hubClient.GetAgentDeployment(ctx, client.GetAgentDeploymentParams{
-            TenantID:       tenantID,
-            AgentID:        agent.Name,  // AgentRegistry uses name as ID
-            SpokeClusterID: spokeClusterID,
-        })
+    for _, agentResp := range agentsResp.Agents {
+        agent := agentResp.Agent
+        meta := agentResp.Meta
         
         enrichedAgent := map[string]interface{}{
             "agent_id":      agent.Name,
             "name":          agent.Name,
             "version":       agent.Version,
-            "provider":      agent.ModelProvider,
-            "model":         agent.Model,
-            "created_at":    agent.CreatedAt,
-            "updated_at":    agent.UpdatedAt,
+            "created_at":    meta.CreatedAt,
+            "updated_at":    meta.UpdatedAt,
         }
         
-        // Add deployment status if exists
-        if deployment != nil {
-            enrichedAgent["deployment_status"] = deployment.Status
-            enrichedAgent["deployment_phase"] = deployment.Phase
-            enrichedAgent["deployment_replicas"] = deployment.Replicas
-            enrichedAgent["deployment_id"] = deployment.DeploymentID
+        // Extract deployment info from _meta['aregistry.ai/deployments']
+        if deploymentsMeta := meta.Deployments; deploymentsMeta != nil {
+            enrichedAgent["deployment_count"] = deploymentsMeta.Count
+            if deploymentsMeta.Count > 0 && len(deploymentsMeta.Deployments) > 0 {
+                // Use first deployment as primary status
+                deployment := deploymentsMeta.Deployments[0]
+                enrichedAgent["deployment_status"] = deployment.Status  // deploying, deployed, failed
+                enrichedAgent["deployment_id"] = deployment.ID
+            } else {
+                enrichedAgent["deployment_status"] = "not_deployed"
+            }
         } else {
             enrichedAgent["deployment_status"] = "not_deployed"
+            enrichedAgent["deployment_count"] = 0
         }
         
         enrichedAgents = append(enrichedAgents, enrichedAgent)
     }
     
-    // 4. Filter by status if specified (platform-specific logic)
+    // 4. Filter by status if specified
     if statusFilter, ok := params["status"].(string); ok && statusFilter != "all" {
         filtered := make([]map[string]interface{}, 0)
         for _, agent := range enrichedAgents {
-            if statusFilter == "deployed" && agent["deployment_status"] != "not_deployed" {
+            if statusFilter == "deployed" && agent["deployment_status"] == "deployed" {
                 filtered = append(filtered, agent)
             } else if statusFilter == "not_deployed" && agent["deployment_status"] == "not_deployed" {
                 filtered = append(filtered, agent)
@@ -1077,7 +1230,7 @@ func (s *registryServiceImpl) ListAgents(ctx context.Context, filter *AgentFilte
         return nil, err
     }
     
-    // 2. Return agent list (no deployment status - agentregistry doesn't know about Hub)
+    // 2. Return agent list (no deployment status - separate API)
     return &AgentListResponse{
         Agents: agents,
         Total:  len(agents),
@@ -1105,7 +1258,7 @@ func (s *registryServiceImpl) ListAgents(ctx context.Context, filter *AgentFilte
 }
 ```
 
-**Implementation (agent-core Orchestration):**
+**Implementation (AgentRegistry Delegation):**
 ```go
 // internal/agent-core/service/agent_service.go
 func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interface{}) (interface{}, error) {
@@ -1118,7 +1271,7 @@ func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interf
         version = "latest"
     }
     
-    // 2. Check if agent has active deployments via AgentRegistry
+    // 2. Query deployments via AgentRegistry
     deployments, err := s.agentRegistryClient.ListDeployments(ctx, &client.DeploymentFilter{
         ResourceType: "agent",
         ResourceName: agentID,
@@ -1128,38 +1281,42 @@ func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interf
         return nil, fmt.Errorf("failed to check deployments: %w", err)
     }
     
-    // 3. Delete deployments first (if any) - agent-core orchestration
+    // 3. For each deployment: commit CRD deletion to Git via IProvisioner
+    // AgentRegistry adapter will remove CRD when it reconciles the Git change
     var deletedDeployments []string
     for _, deployment := range deployments {
-        if deployment.Status != "cancelled" {
-            // Delete Agent CRD from GitOps repo (agent-core responsibility)
-            _, err := s.controlPlane.Provisioner().DeleteManifest(ctx, opensbt.DeleteManifestRequest{
-                TenantID:       tenantID,
-                SpokeClusterID: spokeClusterID,
-                Path:           fmt.Sprintf("agents/agent-%s.yaml", agentID),
-                Message:        fmt.Sprintf("Delete agent %s deployment", agentID),
-            })
-            if err != nil {
-                return nil, fmt.Errorf("failed to delete manifest: %w", err)
-            }
-            
-            // Delete deployment record from AgentRegistry (CRUD only)
-            if err := s.agentRegistryClient.DeleteDeployment(ctx, deployment.ID); err != nil {
-                return nil, fmt.Errorf("failed to delete deployment %s: %w", deployment.ID, err)
-            }
-            deletedDeployments = append(deletedDeployments, deployment.ID)
+        // Use IProvisioner.UpdateTenantResources to remove agent CRD from Git
+        // This commits the deletion - ArgoCD syncs it, Kagent Controller removes the pod
+        updateReq := opensbt.UpdateRequest{
+            TenantID:       tenantID,
+            SpokeClusterID: spokeClusterID,
+            Operation:      "delete",
+            ResourceType:   "agent",
+            ResourcePath:   fmt.Sprintf("agents/agent-%s.yaml", deployment.ID),
+            CommitMessage:  fmt.Sprintf("Delete agent %s (deployment %s)", agentID, deployment.ID),
         }
+        
+        if _, err := s.controlPlane.Provisioner().UpdateTenantResources(ctx, updateReq); err != nil {
+            return nil, fmt.Errorf("failed to commit CRD deletion for deployment %s: %w", deployment.ID, err)
+        }
+        
+        // Delete deployment record from AgentRegistry (after Git commit succeeds)
+        if err := s.agentRegistryClient.DeleteDeployment(ctx, deployment.ID); err != nil {
+            return nil, fmt.Errorf("failed to delete deployment record %s: %w", deployment.ID, err)
+        }
+        
+        deletedDeployments = append(deletedDeployments, deployment.ID)
     }
     
-    // 4. Delete agent definition from AgentRegistry (CRUD only)
+    // 4. Delete agent definition from AgentRegistry
     if err := s.agentRegistryClient.DeleteAgent(ctx, agentID, version); err != nil {
         return nil, fmt.Errorf("agentregistry delete failed: %w", err)
     }
     
-    // 5. Publish NATS event (platform-specific side effect)
+    // 5. Publish NATS event (audit/billing)
     s.controlPlane.EventBus().Publish(ctx, opensbt.Event{
-        DetailType: "opensbt_agentDeleted",
-        Source:     "opensbt.control.plane",
+        Subject:    "hub.platform.agent.deleted",
+        TenantID:   tenantID,
         Detail: map[string]interface{}{
             "tenant_id":            tenantID,
             "agent_id":             agentID,
@@ -1180,22 +1337,41 @@ func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interf
 }
 ```
 
-**What AgentRegistry OSS Does (CRUD Only - Cannot Modify):**
-```go
-// Reference: archived/agentic-ai/solo/agentregistry/internal/registry/api/handlers/v0/deployments.go
-// This is what AgentRegistry does internally when it receives DELETE requests
+**Delete Flow (Async via GitOps):**
+```
+1. User calls delete_agent
+   ↓
+2. agent-core calls IProvisioner.UpdateTenantResources(operation: "delete")
+   (commits CRD deletion to Git)
+   ↓
+3. ArgoCD detects Git change and syncs deletion
+   ↓
+4. Kagent Controller reconciles → deletes agent pod
+   ↓
+5. Spoke Controller detects pod deletion → writes status to Hub DB
+   ↓
+6. agent-core deletes deployment record from AgentRegistry
+   ↓
+7. agent-core deletes agent definition from AgentRegistry
+   ↓
+8. agent-core publishes NATS event (audit/billing)
+```
 
-// DELETE /v0/deployments/{id}
-func (h *DeploymentHandler) DeleteDeployment(ctx context.Context, deploymentID string) error {
-    // 1. Fetch deployment from agentregistry schema
-    deployment, err := h.db.GetDeploymentByID(ctx, deploymentID)
-    if err != nil {
-        return err
-    }
-    
-    // 2. Update deployment status to "cancelled" (DB only)
-    return h.db.UpdateDeploymentStatus(ctx, deploymentID, "cancelled")
-}
+**Note on Memory Cleanup:**
+Kagent manages agent memory lifecycle automatically. Memory is tied to the agent pod and namespace. When the agent CRD is deleted, Kagent Controller cleans up associated memory resources. No custom cleanup logic needed in delete_agent.
+   ↓
+7. Return: {status: "deleted"}
+   ↓
+8. Kagent Controller detects CRD deletion (async)
+   ↓
+9. Deletes Deployment + Service + KEDA ScaledObject
+   ↓
+10. Spoke Controller detects pod termination
+    ↓
+11. Writes to Hub Centralised DB (status: "deleted")
+    ↓
+12. Hub DB trigger publishes NATS event (confirmation for audit)
+```
 
 // DELETE /v0/agents/{name}/versions/{version}
 func (h *AgentHandler) DeleteAgent(ctx context.Context, name, version string) error {
@@ -1245,36 +1421,50 @@ All deletion orchestration is in agent-core.
    ↓
 3. agent-core creates deployment record in AgentRegistry (POST /v0/deployments - DB only)
    ↓
-4. agent-core generates Agent CRD YAML
+4. AgentRegistry calls KubernetesDeploymentAdapter.Deploy()
    ↓
-5. agent-core commits to GitOps repo via IProvisioner.CommitManifest() (non-blocking)
+5. Adapter materializes Kagent Agent CRD YAML
    ↓
-6. Return immediately: {status: "deploying", deployment_id, commit_sha}
+6. Adapter applies CRD to Spoke cluster
    ↓
-7. ArgoCD detects commit → syncs to spoke cluster (async)
+7. AgentRegistry updates deployment status to "deployed" (app layer)
    ↓
-8. Kagent Controller reconciles Agent CRD
+8. Return immediately: {status: "deployed", deployment_id}
+   ↓
+9. Kagent Controller reconciles Agent CRD (async)
    (Reference: archived/agentic-ai/solo/kagent/go/core/internal/controller/agent_controller.go)
    ↓
-9. Creates Deployment + Service + KEDA ScaledObject
-   ↓
-10. Spoke Controller watches Agent CRD status
+10. Creates Deployment + Service + KEDA ScaledObject
     ↓
-11. POST /agent_deployments → Hub Centralised DB (status: "provisioning")
+11. Spoke Controller watches Agent CRD status
     ↓
-12. When Deployment ready → POST /agent_deployments (status: "ready")
+12. Writes infra status to Hub Centralised DB (status: "provisioning")
     ↓
-13. MCP Client polls get_agent_status → reads from Hub Centralised DB
+13. Hub DB trigger publishes NATS event
     ↓
-14. Returns: {status: "ready", phase: "Running", replicas: 1}
+14. Control Plane NATS Subscriber receives event
+    ↓
+15. Updates AgentRegistry deployments.status (deploying → deployed)
+    ↓
+16. When Deployment ready → Spoke Controller writes (status: "ready")
+    ↓
+17. Hub NATS event → AgentRegistry updated (status: "deployed")
+    ↓
+18. MCP Client polls get_agent_status → reads from AgentRegistry
+    ↓
+19. Returns: {status: "deployed"}
 ```
 
-**Status Lifecycle:**
-- `deploying` - Git commit succeeded, waiting for ArgoCD sync
+**Status Lifecycle (App Layer - AgentRegistry):**
+- `deploying` - Git commit succeeded, waiting for infra provisioning
+- `deployed` - Agent pod is provisioned and ready (updated via NATS from Hub)
+- `failed` - Deployment failed at any stage
+- `cancelled` - Deployment cancelled by user
+
+**Infra Status (Hub Centralised DB - Not exposed via AgentRegistry API):**
 - `provisioning` - Agent CRD created, Kagent reconciling
 - `ready` - Deployment available, agent operational
 - `failed` - Deployment failed (Git commit, ArgoCD, or Kagent error)
-- `cancelled` - Deployment cancelled by user
 
 
 ### 4.3 Status Synchronization Flow
@@ -1290,12 +1480,20 @@ Spoke Cluster:
   KEDA ScaledObject
     ↓ watched by
   Spoke Controller (controller-runtime)
-    ↓ derives status
+    ↓ derives infra status
   {status: ready, phase: Running, replicas: 2}
     ↓ POST with Bearer JWT
-  Hub-side PostgREST (/resource-status)
-    ↓ RLS enforced
-  Hub Centralised DB (agent_deployments table)
+  Hub-side PostgREST (/agent_infra_status)
+    ↓ writes to
+  Hub Centralised DB (agent_infra_status table)
+    ↓ DB trigger publishes
+  Hub NATS (hub.platform.agent.infra_status)
+    ↓ consumed by
+  Control Plane NATS Subscriber
+    ↓ maps infra → app status
+  {provisioning → deploying, ready → deployed}
+    ↓ updates
+  AgentRegistry deployments table (Control Plane Shared DB)
     ↓ queried by
   mcp-server (get_agent_status tool)
     ↓ returns to
@@ -1305,9 +1503,26 @@ Spoke Cluster:
 ### 4.4 KEDA Scale-to-Zero Behavior
 
 **Idle Detection:**
-- KEDA monitors agent request queue (NATS subject or HTTP metrics)
-- If no requests for 5 minutes → scale Deployment to 0 replicas
+- KEDA HTTP Add-on monitors agent A2A request traffic via HTTP interceptor
+- If no HTTP requests for 5 minutes → scale Deployment to 0 replicas
 - Deployment.status.availableReplicas = 0
+
+**KEDA Configuration:**
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: HTTPScaledObject
+metadata:
+  name: agent-{{ .Values.agentId }}
+  namespace: {{ .Values.tenantNamespace }}
+spec:
+  scaleTargetRef:
+    name: agent-{{ .Values.agentId }}
+    kind: Deployment
+  hosts:
+    - {{ .Values.agentId }}.{{ .Values.tenantNamespace }}.svc.cluster.local
+  targetPendingRequests: 1
+  scaledownPeriod: 300  # 5 minutes idle before scale to zero
+```
 
 **Status Mapping:**
 ```go
@@ -1319,8 +1534,10 @@ if deployment.Status.AvailableReplicas == 0 {
 ```
 
 **Scale-Up:**
-- New request arrives → KEDA detects queue depth > 0
-- Scales Deployment to 1+ replicas
+- New A2A request arrives → KEDA HTTP Add-on intercepts
+- Detects 0 replicas → scales Deployment to 1
+- Buffers request until pod is ready
+- Forwards request to agent pod
 - Spoke Controller detects replicas > 0 → phase = "Running"
 
 ## 5. Error Handling
