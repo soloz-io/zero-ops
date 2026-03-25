@@ -18,41 +18,37 @@ This implementation follows a phased approach with manual testing gates between 
 
 ### Tasks
 
-- [ ] 1.1 Create database migration for Control Plane Shared DB
-  - [ ] 1.1.1 Create `agentregistry` schema with tenant isolation (B-01 resolution)
-  - [ ] 1.1.2 Add `tenant_id` column to agent_definitions table
-  - [ ] 1.1.3 Update UNIQUE constraint to (tenant_id, name, version)
-  - [ ] 1.1.4 Create RLS policy: `tenant_isolation` using `app.tenant_id`
-  - [ ] 1.1.5 Create `agents` schema for platform-specific extensions
-  - [ ] 1.1.6 Create `available_models` table with tier-based authorization
-  - [ ] 1.1.7 Create `authorized_tools` table with RLS policies
-  - [ ] 1.1.8 Seed `available_models` with initial data (OpenAI, Anthropic models)
+- [x] 1.1 Create database migration for Control Plane Shared DB
+  - [x] 1.1.1 Create `agentregistry` schema with tenant isolation (B-01 resolution)
+  - [x] 1.1.2 Add `tenant_id` column to agent_definitions table
+  - [x] 1.1.3 Update UNIQUE constraint to (tenant_id, name, version)
+  - [x] 1.1.4 Create RLS policy: `tenant_isolation` using `app.tenant_id`
+  - [x] 1.1.5 Create `agents` schema for platform-specific extensions
+  - [x] 1.1.6 Create `authorized_tools` table with RLS policies
 
-- [ ] 1.2 Create database migration for Hub Centralised DB
-  - [ ] 1.2.1 Create `agent_deployments` table
-  - [ ] 1.2.2 Add indexes for tenant_id, agent_id, deployment_id, status
-  - [ ] 1.2.3 Create RLS policy for tenant isolation
+- [x] 1.2 Create database migration for Hub Centralised DB
+  - [x] 1.2.1 Create `agent_infra_status` table
+  - [x] 1.2.2 Add indexes for tenant_id, agent_id, deployment_id
+  - [x] 1.2.3 Create pg_notify trigger for NATS event publishing
 
-- [ ] 1.3 Generate sqlc queries for platform-specific tables
-  - [ ] 1.3.1 Create `internal/agent-core/database/queries.sql`
-  - [ ] 1.3.2 Add queries for available_models (GetModelsByTier, ValidateModelAccess)
-  - [ ] 1.3.3 Add queries for authorized_tools (GetAuthorizedTools, ValidateToolAccess)
-  - [ ] 1.3.4 Run `sqlc generate`
+- [x] 1.3 Create sqlc queries for platform-specific tables
+  - [x] 1.3.1 Create `internal/agent-core/database/queries.sql`
+  - [x] 1.3.2 Add queries for authorized_tools (GetAuthorizedTools, GetAuthorizedToolsByCategory, ValidateToolAccess)
+  - [x] 1.3.3 Create sqlc.yaml config
 
-- [ ] 1.4 Implement AgentRegistry HTTP client
-  - [ ] 1.4.1 Create `internal/agent-core/client/agentregistry_client.go`
-  - [ ] 1.4.2 Implement CreateAgent (POST /v0/agents)
-  - [ ] 1.4.3 Implement GetAgent (GET /v0/agents/{name}/versions/{version})
-  - [ ] 1.4.4 Implement ListAgents (GET /v0/agents)
-  - [ ] 1.4.5 Implement DeleteAgent (DELETE /v0/agents/{name}/versions/{version})
-  - [ ] 1.4.6 Implement CreateDeployment (POST /v0/deployments)
-  - [ ] 1.4.7 Implement ListDeployments (GET /v0/deployments)
-  - [ ] 1.4.8 Implement DeleteDeployment (DELETE /v0/deployments/{id})
+- [x] 1.4 Implement AgentRegistry HTTP client
+  - [x] 1.4.1 Create `internal/agent-core/client/agentregistry_client.go`
+  - [x] 1.4.2 Implement CreateAgent (POST /v0/agents)
+  - [x] 1.4.3 Implement GetAgent (GET /v0/agents/{name}/versions/{version})
+  - [x] 1.4.4 Implement ListAgents (GET /v0/agents)
+  - [x] 1.4.5 Implement DeleteAgent (DELETE /v0/agents/{name}/versions/{version})
+  - [x] 1.4.6 Implement CreateDeployment (POST /v0/deployments)
+  - [x] 1.4.7 Implement ListDeployments (GET /v0/deployments)
+  - [x] 1.4.8 Implement DeleteDeployment (DELETE /v0/deployments/{id})
 
-- [ ] 1.5 Implement Hub PostgREST client
-  - [ ] 1.5.1 Create `internal/agent-core/client/hub_client.go`
-  - [ ] 1.5.2 Implement GetAgentDeployment (query agent_deployments table)
-  - [ ] 1.5.3 Implement ListAgentDeployments (query with filters)
+- [x] 1.5 Implement Hub PostgREST client
+  - [x] 1.5.1 Create `internal/agent-core/client/hub_client.go`
+  - [x] 1.5.2 Implement GetAgentInfraStatus (query agent_infra_status table)
 
 **Manual Testing Checkpoint:**
 - Verify database migrations applied successfully

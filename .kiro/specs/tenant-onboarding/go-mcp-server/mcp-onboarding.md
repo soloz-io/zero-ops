@@ -1,1 +1,0 @@
-“MCP onboarding architecture” used by AI-native tools (registry + OAuth + agent install)
