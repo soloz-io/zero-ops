@@ -7,7 +7,11 @@
 
 ## 1. Overview
 
-This design implements the Agents Core MCP server that exposes agent lifecycle management capabilities to MCP clients (Cursor, Goose, Claude Desktop). The implementation follows the Hub-Spoke architecture with strict GitOps patterns, distributed identity, and PostgREST-based status synchronization.
+This design implements the Agents Core MCP server that exposes agent lifecycle management capabilities to MCP clients (Cursor, Goose, Claude Desktop). The implementation follows the Hub-Spoke architecture with distributed identity and PostgREST-based status synchronization.
+
+**IMPORTANT - Dual Provisioning Paths:**
+- **Business Agents (tenant-created via MCP)**: AgentRegistry → Deployment Adapter → Direct Kubernetes API apply (NO GitOps, NO ArgoCD)
+- **Infrastructure Agents (platform team)**: Direct Git commits → ArgoCD → Spoke cluster (GitOps only)
 
 **IMPORTANT - opensbt Architectural Alignment:**
 This design assumes the opensbt Control Plane follows the correct SBT patterns:
@@ -21,12 +25,12 @@ This design assumes the opensbt Control Plane follows the correct SBT patterns:
 ### 1.1 Design Principles
 
 - **MCP-First**: All capabilities exposed via MCP tools (no web UI)
-- **GitOps-First**: All infrastructure changes via Git commits (no direct kubectl)
+- **Direct Kubernetes API for Business Agents**: AgentRegistry uses Deployment Adapter to apply CRDs directly (no GitOps)
 - **Status via AgentRegistry**: AgentRegistry API is single source of truth for deployment status
 - **NATS for Side Effects**: Billing/notifications only (not in provisioning path)
 - **Single MCP Server**: Unified `cmd/mcp-server/` with all tools
 - **Interface-Based**: Uses `internal/opensbt/` abstractions
-- **Async Deployment**: Agent deployment emits events, does not block on Git commits
+- **Synchronous Deployment**: Agent deployment applies CRD directly, returns immediately with deployment_id
 
 ### 1.2 Architecture Context
 
@@ -36,11 +40,14 @@ MCP Client (Cursor/Goose)
 AgentGateway (validates JWT via auth-proxy)
     ↓ HTTP + X-Auth-* headers (X-Auth-Tenant-ID, X-Auth-Spoke-Cluster-ID)
 cmd/mcp-server/ (agents-core tools)
-    ↓ Extracts spoke_cluster_id from context (no provider_id param needed)
-internal/opensbt/controlplane/
-    ↓ IProvisioner.CommitTenantState(spokeClusterID)
-Git Commit → ArgoCD → Crossplane → Spoke
-    ↓ Kagent Controller reconciles
+    ↓ Extracts spoke_cluster_id from context
+AgentRegistry API (POST /v0/deployments)
+    ↓ Creates deployment record in DB
+AgentRegistry Deployment Adapter
+    ↓ Generates Kagent Agent CRD
+    ↓ Applies CRD directly to Spoke cluster via Kubernetes API (client-go)
+Kagent Controller (Spoke)
+    ↓ Reconciles Agent CRD → Creates Deployment + KEDA ScaledObject
 Spoke Controller watches Agent CRD
     ↓ Updates AgentRegistry deployment status via API
 AgentRegistry (Control Plane Shared DB - agentregistry schema)
@@ -120,11 +127,13 @@ DELETE /v0/deployments/{id}                    # Delete deployment record from D
 - Tenant context extraction from JWT (tenant_id, tenant_tier, spoke_cluster_id)
 - Model authorization validation (tier-based access control)
 - Tool authorization validation (tenant-specific permissions)
-- **Agent CRD generation** (agent-core responsibility)
-- **GitOps commits via IProvisioner** (agent-core responsibility)
-- Hub PostgREST queries for deployment status
-- NATS event publishing for side effects (billing, notifications)
 - MCP request/response formatting
+- NATS event publishing for side effects (billing, notifications)
+
+**Integration with AgentRegistry:**
+- agent-core calls AgentRegistry API for CRUD operations
+- AgentRegistry handles CRD generation and Kubernetes API calls via Deployment Adapter
+- AgentRegistry manages deployment lifecycle and status updates
 
 **Integration with opensbt:**
 ```go
@@ -355,38 +364,36 @@ Control Plane NATS Subscriber
 Updates AgentRegistry deployments.status (deploying → deployed)
 ```
 
-### 2.3 GitOps Integration
+### 2.3 Deployment Adapter Pattern
 
-**Tenant Repository Structure:**
-```
-tenant-{tenant-id}-gitops/
-├── agents/
-│   ├── agent-{agent-name}-v1.yaml    # Agent CRD
-│   └── agent-{agent-name}-v2.yaml
-├── databases/
-└── services/
+**Business Agent Deployment (Direct Kubernetes API):**
+
+AgentRegistry uses a Deployment Adapter to apply Kagent CRDs directly to Spoke clusters without GitOps:
+
+```go
+// AgentRegistry internal component (not in agent-core)
+type DeploymentAdapter struct {
+    k8sClients map[string]*kubernetes.Clientset  // spoke_cluster_id → client
+}
+
+func (a *DeploymentAdapter) Deploy(ctx context.Context, agent *Agent, spokeClusterID string) error {
+    // 1. Generate Kagent Agent CRD
+    crd := a.generateAgentCRD(agent)
+    
+    // 2. Get Kubernetes client for target spoke
+    client := a.k8sClients[spokeClusterID]
+    
+    // 3. Apply CRD directly (kubectl apply equivalent)
+    _, err := client.Resource(agentGVR).Namespace(agent.Namespace).
+        Create(ctx, crd, metav1.CreateOptions{})
+    
+    return err
+}
 ```
 
-**Agent CRD Template:**
-```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
-metadata:
-  name: {{ .AgentName }}
-  namespace: tenant-{{ .TenantID }}
-spec:
-  type: Declarative
-  declarative:
-    modelConfig: {{ .Provider }}-{{ .Model }}
-    systemMessage: {{ .SystemPrompt }}
-    tools:
-    {{- range .Tools }}
-    - mcpServer:
-        kind: Service
-        name: mcp-tool-{{ . }}
-        namespace: platform-mcp
-    {{- end }}
-```
+**Infrastructure Agent Deployment (GitOps):**
+
+Platform team commits Agent CRDs directly to Git → ArgoCD syncs to clusters.
 
 
 ### 2.4 Spoke Controller Integration
@@ -758,7 +765,7 @@ func (s *registryServiceImpl) CreateAgent(ctx context.Context, req *AgentJSON) (
 **CRITICAL - Async Pattern (SBT Aligned):**
 The MCP tool MUST NOT synchronously commit to Git. It creates the deployment record and emits an event. A background worker handles the Git commit asynchronously.
 
-**Implementation Pattern (Synchronous MCP Handler):**
+**Implementation Pattern (Synchronous - AgentRegistry Handles Deployment):**
 ```go
 // internal/agent-core/service/deployment_service.go
 func (s *DeploymentService) DeployAgent(ctx context.Context, params map[string]interface{}) (interface{}, error) {
@@ -773,34 +780,39 @@ func (s *DeploymentService) DeployAgent(ctx context.Context, params map[string]i
         return nil, fmt.Errorf("failed to fetch agent: %w", err)
     }
     
-    // 3. Create deployment record in AgentRegistry (Status: "deploying")
+    // 3. Create deployment via AgentRegistry (handles CRD generation and Kubernetes apply)
     deploymentReq := &client.DeploymentRequest{
-        ResourceType: "agent",
-        ServerName:   agentID,
-        ProviderID:   spokeClusterID,
-        Env: map[string]string{
-            "TENANT_ID": tenantID,
-        },
+        AgentID:    agentID,
+        ProviderID: spokeClusterID,
     }
     
     deploymentResp, err := s.agentRegistryClient.CreateDeployment(ctx, deploymentReq)
     if err != nil {
-        return nil, fmt.Errorf("failed to create deployment record: %w", err)
+        return nil, fmt.Errorf("failed to create deployment: %w", err)
     }
     
-    // 4. Publish NATS event for async GitOps commit (DO NOT COMMIT HERE)
-    s.controlPlane.EventBus.PublishAsync(ctx, models.NewEvent(
-        "zeroops_agentDeployRequested",  // Platform event
+    // 4. Publish NATS event for side effects (billing, audit)
+    s.controlPlane.EventBus.Publish(ctx, models.NewEvent(
+        "hub.platform.agent.deployed",
         models.PlatformEventSource,
         map[string]interface{}{
             "tenant_id":        tenantID,
             "agent_id":         agentID,
             "deployment_id":    deploymentResp.ID,
             "spoke_cluster_id": spokeClusterID,
-            "agent_name":       agent.Name,
-            "model_provider":   agent.ModelProvider,
-            "model":            agent.Model,
-            "system_message":   agent.SystemMessage,
+        },
+    ))
+    
+    // 5. Return immediately with deployment_id
+    return map[string]interface{}{
+        "agent_id":         agentID,
+        "deployment_id":    deploymentResp.ID,
+        "status":           deploymentResp.Status,  // "deploying"
+        "spoke_cluster_id": spokeClusterID,
+        "message":          "Deployment initiated. Poll get_agent_status for completion.",
+    }, nil
+}
+```
             "tools":            agent.Tools,
         },
     ))
@@ -816,141 +828,51 @@ func (s *DeploymentService) DeployAgent(ctx context.Context, params map[string]i
 }
 ```
 
-**Async GitOps Worker (Background Process):**
-```go
-// internal/agent-core/orchestrator/gitops_worker.go
-type GitOpsWorker struct {
-    eventBus    interfaces.IEventBus
-    provisioner interfaces.IProvisioner
-    storage     interfaces.IStorage
-    logger      *zap.Logger
-}
-
-func (w *GitOpsWorker) Start(ctx context.Context) error {
-    // Subscribe to deployment events
-    return w.eventBus.SubscribeQueue(ctx, "zeroops_agentDeployRequested", "agents-core", w.handleDeploy)
-}
-
-func (w *GitOpsWorker) handleDeploy(ctx context.Context, event models.Event) error {
-    // 1. Check idempotency (Inbox pattern)
-    if processed, _ := w.storage.IsEventProcessed(ctx, event.ID); processed {
-        return nil
-    }
-    
-    // 2. Generate Agent CRD
-    agentCRD := w.generateAgentCRD(event.Detail)
-    
-    // 3. Commit to Git via IProvisioner (slow operation, runs async)
-    _, err := w.provisioner.CommitManifest(ctx, models.CommitManifestRequest{
-        TenantID:       event.Detail["tenant_id"].(string),
-        SpokeClusterID: event.Detail["spoke_cluster_id"].(string),
-        Path:           fmt.Sprintf("agents/agent-%s.yaml", event.Detail["agent_id"]),
-        Content:        agentCRD,
-        Message:        fmt.Sprintf("Deploy agent %s", event.Detail["agent_id"]),
-    })
-    
-    if err != nil {
-        w.logger.Error("failed to commit agent CRD", zap.Error(err))
-        // Update deployment status to "failed" via AgentRegistry API
-        return err
-    }
-    
-    // 4. Publish success event (audit trail)
-    w.eventBus.Publish(ctx, models.NewEvent("zeroops_agentGitCommitted", 
-        models.PlatformEventSource,
-        map[string]interface{}{
-            "deployment_id": event.Detail["deployment_id"],
-            "agent_id":      event.Detail["agent_id"],
-        },
-    ))
-    
-    return nil
-}
-
-func (w *GitOpsWorker) generateAgentCRD(detail map[string]interface{}) string {
-    return fmt.Sprintf(`apiVersion: kagent.dev/v1alpha2
-kind: Agent
-metadata:
-  name: %s
-  namespace: tenant-%s
-  labels:
-    tenant-id: %s
-    agent-id: %s
-    deployment-id: %s
-spec:
-  type: Declarative
-  declarative:
-    modelConfig: %s-%s
-    systemMessage: %s
-    tools:
-%s
-`, detail["agent_name"], detail["tenant_id"], detail["tenant_id"], 
-   detail["agent_id"], detail["deployment_id"],
-   detail["model_provider"], detail["model"], detail["system_message"],
-   formatTools(detail["tools"]))
-}
-```
-
-**Daemon Startup:**
-```go
-// cmd/agents-core-daemon/main.go
-func main() {
-    // Initialize GitOps worker
-    worker := orchestrator.NewGitOpsWorker(orchestrator.Config{
-        EventBus:    natsClient,
-        Provisioner: gitopsProvisioner,
-        Storage:     storageClient,
-        Logger:      logger,
-    })
-    
-    // Start background worker
-    go worker.Start(context.Background())
-    
-    // Keep daemon running
-    select {}
-}
-```
-```
-
-**What AgentRegistry OSS Does (CRUD Only - Cannot Modify):**
+**What AgentRegistry OSS Does (Cannot Modify):**
 ```go
 // Reference: archived/agentic-ai/solo/agentregistry/internal/registry/api/handlers/v0/deployments.go
 // This is what AgentRegistry does internally when it receives POST /v0/deployments
 
 func (h *DeploymentHandler) CreateDeployment(ctx context.Context, req *DeploymentRequest) (*Deployment, error) {
     // 1. Validate request
-    if req.ServerName == "" || req.ProviderID == "" {
-        return nil, errors.New("serverName and providerId required")
+    if req.AgentID == "" || req.ProviderID == "" {
+        return nil, errors.New("agentId and providerId required")
     }
     
     // 2. Create deployment record in agentregistry schema (DB only)
     deployment := &models.Deployment{
-        ID:           uuid.New().String(),
-        ResourceType: req.ResourceType,
-        ServerName:   req.ServerName,
-        ProviderID:   req.ProviderID,
-        Status:       "deploying",  // Initial status
-        Origin:       "managed",
-        Env:          req.Env,
-        CreatedAt:    time.Now(),
+        ID:         uuid.New().String(),
+        AgentID:    req.AgentID,
+        ProviderID: req.ProviderID,
+        Status:     "deploying",  // Initial status
+        CreatedAt:  time.Now(),
     }
     
     if err := h.db.CreateDeployment(ctx, deployment); err != nil {
         return nil, err
     }
     
-    // 3. Return deployment record (NO Git commits, NO CRD generation)
+    // 3. Invoke Deployment Adapter to apply CRD to Spoke cluster
+    if err := h.deploymentAdapter.Deploy(ctx, deployment); err != nil {
+        deployment.Status = "failed"
+        h.db.UpdateDeployment(ctx, deployment)
+        return nil, err
+    }
+    
+    // 4. Return deployment record
     return deployment, nil
 }
 ```
 
-**CRITICAL: AgentRegistry does NOT:**
-- Generate CRDs
-- Commit to Git
-- Call deployment adapters
-- Orchestrate provisioning
+**CRITICAL: AgentRegistry Deployment Adapter handles:**
+- CRD generation
+- Direct Kubernetes API calls (client-go)
+- Spoke cluster authentication
 
-All provisioning logic is in agent-core.
+**agent-core does NOT:**
+- Generate CRDs
+- Call Kubernetes APIs
+- Manage GitOps repos
 
 ### 3.3 get_agent_status Tool
 
@@ -1109,19 +1031,10 @@ func (a *MCPAdapter) UpdateAgent(ctx context.Context, params map[string]interfac
     if isDeployed {
         deploymentID = deployments[0].ID
         
-        // Generate updated Agent CRD (agent-core responsibility)
-        agentCRD := a.generateAgentCRD(agentResp.Agent, tenantID, deploymentID)
-        
-        // Commit to GitOps repo via IProvisioner (agent-core responsibility)
-        _, err := a.controlPlane.Provisioner().CommitManifest(ctx, opensbt.CommitManifestRequest{
-            TenantID:       tenantID,
-            SpokeClusterID: spokeClusterID,
-            Path:           fmt.Sprintf("agents/agent-%s.yaml", agentID),
-            Content:        agentCRD,
-            Message:        fmt.Sprintf("Update agent %s", agentID),
-        })
+        // Call AgentRegistry to update deployment (triggers Deployment Adapter)
+        _, err := a.agentRegistryClient.UpdateDeployment(ctx, deploymentID, agentResp.Agent)
         if err != nil {
-            return nil, fmt.Errorf("failed to commit update: %w", err)
+            return nil, fmt.Errorf("failed to update deployment: %w", err)
         }
         
         // Publish NATS event (platform-specific side effect)
@@ -1334,28 +1247,12 @@ func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interf
         return nil, fmt.Errorf("failed to check deployments: %w", err)
     }
     
-    // 3. For each deployment: commit CRD deletion to Git via IProvisioner
-    // AgentRegistry adapter will remove CRD when it reconciles the Git change
+    // 3. For each deployment: delete via AgentRegistry
     var deletedDeployments []string
     for _, deployment := range deployments {
-        // Use IProvisioner.UpdateTenantResources to remove agent CRD from Git
-        // This commits the deletion - ArgoCD syncs it, Kagent Controller removes the pod
-        updateReq := opensbt.UpdateRequest{
-            TenantID:       tenantID,
-            SpokeClusterID: spokeClusterID,
-            Operation:      "delete",
-            ResourceType:   "agent",
-            ResourcePath:   fmt.Sprintf("agents/agent-%s.yaml", deployment.ID),
-            CommitMessage:  fmt.Sprintf("Delete agent %s (deployment %s)", agentID, deployment.ID),
-        }
-        
-        if _, err := s.controlPlane.Provisioner().UpdateTenantResources(ctx, updateReq); err != nil {
-            return nil, fmt.Errorf("failed to commit CRD deletion for deployment %s: %w", deployment.ID, err)
-        }
-        
-        // Delete deployment record from AgentRegistry (after Git commit succeeds)
+        // AgentRegistry handles CRD deletion via Deployment Adapter
         if err := s.agentRegistryClient.DeleteDeployment(ctx, deployment.ID); err != nil {
-            return nil, fmt.Errorf("failed to delete deployment record %s: %w", deployment.ID, err)
+            return nil, fmt.Errorf("failed to delete deployment %s: %w", deployment.ID, err)
         }
         
         deletedDeployments = append(deletedDeployments, deployment.ID)
@@ -1390,24 +1287,21 @@ func (s *AgentService) DeleteAgent(ctx context.Context, params map[string]interf
 }
 ```
 
-**Delete Flow (Async via GitOps):**
+**Delete Flow (Synchronous via AgentRegistry):**
 ```
 1. User calls delete_agent
    ↓
-2. agent-core calls IProvisioner.UpdateTenantResources(operation: "delete")
-   (commits CRD deletion to Git)
+2. agent-core calls AgentRegistry DELETE /v0/deployments/{id}
    ↓
-3. ArgoCD detects Git change and syncs deletion
+3. AgentRegistry invokes Deployment Adapter
    ↓
-4. Kagent Controller reconciles → deletes agent pod
+4. Deployment Adapter deletes CRD from Spoke cluster via Kubernetes API
    ↓
-5. Spoke Controller detects pod deletion → writes status to Hub DB
+5. Kagent Controller detects deletion → removes agent pod
    ↓
-6. agent-core deletes deployment record from AgentRegistry
+6. agent-core deletes agent definition from AgentRegistry
    ↓
-7. agent-core deletes agent definition from AgentRegistry
-   ↓
-8. agent-core publishes NATS event (audit/billing)
+7. agent-core publishes NATS event (audit/billing)
 ```
 
 **Note on Memory Cleanup:**

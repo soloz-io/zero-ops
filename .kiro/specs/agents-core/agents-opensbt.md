@@ -1,11 +1,3 @@
-Based on my review of your `design.md`, `requirements.md`, `tasks.md`, and the architecture diagrams, your team has done an excellent job conceptualizing the **Hub-and-Spoke** topology and the **Status Controller** pattern. 
-
-However, there is **one critical pattern deviation** in how the `deploy_agent` tool is currently designed to use `IProvisioner`, which violates the core asynchronous principle of the SaaS Builder Toolkit (SBT).
-
-Here is the definitive **Implementation Pattern Guide for `agents-core`**. You should share this with your platform team to ensure they build the agent infrastructure while strictly adhering to the SBT boundaries.
-
----
-
 # Agents-Core Implementation Pattern Guide (SBT Aligned)
 
 ## 1. Architectural Positioning

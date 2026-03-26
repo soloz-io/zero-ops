@@ -172,19 +172,24 @@ agent-core sets `app.tenant_id` before calling AgentRegistry API to enforce RLS.
 1. MCP server validates JWT token (tenant_id, spoke_cluster_id extraction from claims - B-03 resolution)
 2. MCP server → AgentRegistry API (POST /v0/deployments)
 3. AgentRegistry creates deployment record in Control Plane Shared DB (status: "deploying")
-4. MCP server (agent-core) retrieves agent config from AgentRegistry
-5. MCP server (agent-core) generates Kagent Agent CRD YAML
-6. MCP server (agent-core) commits Agent CRD to Tenant Control Plane Repository via IProvisioner
-7. MCP server publishes NATS event: `hub.platform.agent.deployed` (H-08 resolution)
-8. Return immediately with status "deploying" (async pattern to avoid MCP client timeout)
-9. ArgoCD syncs the manifest to the target Spoke cluster (async)
-10. Kagent Controller (Spoke) reconciles Agent CRD:
+4. AgentRegistry retrieves agent config from its database
+5. AgentRegistry invokes Deployment Adapter (Kubernetes client-go)
+6. Deployment Adapter generates Kagent Agent CRD YAML
+7. Deployment Adapter applies CRD directly to Spoke cluster via Kubernetes API (kubectl apply equivalent)
+8. AgentRegistry updates deployment status to "deployed" and returns response
+9. MCP server publishes NATS event: `hub.platform.agent.deployed` (H-08 resolution)
+10. Return immediately with deployment_id and status "deploying"
+11. Kagent Controller (Spoke) reconciles Agent CRD (async):
    - Creates Kubernetes Deployment (Agent Pod)
    - Injects environment variables (Memory, Guardrail endpoints)
    - Creates KEDA ScaledObject (scale-to-zero config)
    - Registers A2A handler in Kagent A2AHandlerMux
-11. Spoke Controller watches Agent CRD status and syncs to Hub Centralised DB via PostgREST
-12. Client polls get_agent_status to check deployment completion
+12. Spoke Controller watches Agent CRD status and syncs to Hub Centralised DB via PostgREST
+13. Client polls get_agent_status to check deployment completion
+
+**Note on Provisioning Paths:**
+- **Business Agents (tenant-created)**: AgentRegistry → Deployment Adapter → Direct Kubernetes API apply (NO GitOps)
+- **Infrastructure Agents (platform team)**: Direct Git commits → ArgoCD → Spoke cluster (GitOps only)
 
 **Note on spoke_cluster_id (B-03 resolution):**
 - Set during environment_create, stored in `tenants.spoke_cluster_id`
@@ -284,12 +289,12 @@ CREATE TABLE deployments (
    - Tool access permissions (if tool_access provided)
    - Guardrail policy syntax (if guardrail_policies provided)
 4. AgentRegistry updates JSONB config in Control Plane Shared DB (agents.agent_definitions table)
-5. **Check if agent is deployed** (query Hub Centralised DB for deployment record):
+5. **Check if agent is deployed** (query deployments table):
    - **If NOT deployed**: Return success immediately (no redeployment needed)
    - **If deployed**: Proceed with redeployment (steps 6-8)
-6. Deployment Adapter commits updated Agent CRD to Tenant Control Plane Repository
-7. ArgoCD syncs changes to Spoke cluster
-8. Kagent Controller performs rolling update of Agent Pod (or updates ConfigMap)
+6. AgentRegistry invokes Deployment Adapter with updated config
+7. Deployment Adapter applies updated Agent CRD directly to Spoke cluster via Kubernetes API
+8. Kagent Controller performs rolling update of Agent Pod
 9. Return updated agent metadata
 
 ---
@@ -434,10 +439,11 @@ CREATE TABLE deployments (
 3. AgentRegistry soft-deletes the agent record in Control Plane Shared DB (sets deleted_at timestamp)
 4. AgentRegistry retains the pgvector memory namespace in Control Plane Shared DB (schema: memory) by default to prevent accidental data loss
 5. If purge_memory=true, delete vector embeddings from memory schema
-6. Deployment Adapter removes Agent CRD from Tenant Control Plane Repository
-7. ArgoCD syncs deletion to Spoke cluster
-8. Kagent Controller deletes Agent Pod and KEDA ScaledObject
-9. Return deletion status
+6. AgentRegistry queries deployments table for active deployments
+7. For each deployment: AgentRegistry invokes Deployment Adapter to delete CRD
+8. Deployment Adapter deletes Agent CRD from Spoke cluster via Kubernetes API (kubectl delete equivalent)
+9. Kagent Controller detects deletion and removes Agent Pod and KEDA ScaledObject
+10. Return deletion status
 
 ---
 
@@ -651,9 +657,9 @@ CREATE TABLE deployments (
 - **Response:** Agent ID + status
 
 ### 6.2 Deployment Adapter (Kubernetes)
-- **Input:** Agent definition + provider config
-- **Output:** Kagent Agent CRD YAML
-- **Action:** Commits the Kagent Agent CRD to the Tenant Control Plane Repository. ArgoCD syncs the manifest to the target Spoke cluster.
+- **Input:** Agent definition + spoke cluster credentials
+- **Output:** Kagent Agent CRD applied to cluster
+- **Action:** Uses Kubernetes client-go to directly apply the Kagent Agent CRD to the target Spoke cluster. No Git repository or ArgoCD involved for business agents.
 
 ### 6.3 Kagent Controller (Spoke)
 - **Input:** Agent CRD

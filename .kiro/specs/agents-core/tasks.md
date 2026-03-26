@@ -131,46 +131,34 @@ This implementation follows a phased approach with manual testing gates between 
 
 ---
 
-## Phase 4: Deployment Service - CRD Generation & GitOps
+## Phase 4: Deployment Service - CRD Generation & Kubernetes API Integration
 
-**Goal:** Implement deploy_agent MCP tool with CRD generation and GitOps commit
+**Goal:** Implement deploy_agent MCP tool with AgentRegistry integration
 
 ### Tasks
 
-- [ ] 4.1 Implement CRD generation
-  - [ ] 4.1.1 Create `internal/agent-core/service/crd_generator.go`
-  - [ ] 4.1.2 Implement GenerateAgentCRD (Kagent Agent CRD template)
-  - [ ] 4.1.3 Add labels: tenant-id, agent-id, deployment-id
-  - [ ] 4.1.4 Map agent config to Kagent spec (modelConfig, systemMessage, tools)
+- [ ] 4.1 Implement deployment service
+  - [ ] 4.1.1 Create `internal/agent-core/service/deployment_service.go`
+  - [ ] 4.1.2 Add service struct with dependencies
+  - [ ] 4.1.3 Implement DeployAgent method (calls AgentRegistry API)
 
-- [ ] 4.2 Implement deployment service
-  - [ ] 4.2.1 Create `internal/agent-core/service/deployment_service.go`
-  - [ ] 4.2.2 Add service struct with dependencies
-  - [ ] 4.2.3 Implement DeployAgent method (orchestration pattern)
+- [ ] 4.2 Implement deploy_agent MCP tool
+  - [ ] 4.2.1 Create `cmd/mcp-server/tools/agents/deploy_agent.go`
+  - [ ] 4.2.2 Extract tenant context from JWT (tenant_id, spoke_cluster_id) - B-03 resolution
+  - [ ] 4.2.3 Fetch agent from AgentRegistry
+  - [ ] 4.2.4 Create deployment via AgentRegistry API (POST /v0/deployments)
+  - [ ] 4.2.5 AgentRegistry invokes Deployment Adapter to apply CRD to Spoke cluster
+  - [ ] 4.2.6 Publish NATS event: `hub.platform.agent.deployed` (H-08 resolution)
+  - [ ] 4.2.7 Return MCP response with status "deploying" (deployment_id, spoke_cluster_id)
 
-- [ ] 4.3 Implement deploy_agent MCP tool
-  - [ ] 4.3.1 Create `cmd/mcp-server/tools/agents/deploy_agent.go`
-  - [ ] 4.3.2 Extract tenant context from JWT (tenant_id, spoke_cluster_id) - B-03 resolution
-  - [ ] 4.3.3 Fetch agent from AgentRegistry
-  - [ ] 4.3.4 Create deployment record in AgentRegistry (status: "deploying")
-  - [ ] 4.3.5 Generate Agent CRD with labels (tenant-id, agent-id, deployment-id)
-  - [ ] 4.3.6 Commit CRD to GitOps repo via IProvisioner.CommitManifest
-  - [ ] 4.3.7 Publish NATS event: `hub.platform.agent.deployed` (H-08 resolution)
-  - [ ] 4.3.8 Return MCP response with status "deploying" (async pattern)
-  - [ ] 4.3.5 Generate Agent CRD YAML
-  - [ ] 4.3.6 Commit to GitOps repo via IProvisioner.CommitManifest()
-  - [ ] 4.3.7 Publish NATS event (opensbt_agentDeployed)
-  - [ ] 4.3.8 Return MCP-formatted response (status: "deploying", deployment_id, commit_sha)
-
-- [ ] 4.4 Register deploy_agent tool
-  - [ ] 4.4.1 Update `cmd/mcp-server/main.go` to initialize deployment service
-  - [ ] 4.4.2 Register deploy_agent tool
+- [ ] 4.3 Register deploy_agent tool
+  - [ ] 4.3.1 Update `cmd/mcp-server/main.go` to initialize deployment service
+  - [ ] 4.3.2 Register deploy_agent tool
 
 **Manual Testing Checkpoint:**
 - Test deploy_agent via MCP client
 - Verify deployment record created in AgentRegistry
-- Verify Agent CRD committed to GitOps repo
-- Verify ArgoCD syncs CRD to Spoke cluster
+- Verify Agent CRD applied to Spoke cluster (kubectl get agents)
 - Verify Kagent Controller reconciles Agent CRD
 
 **PAUSE: User must approve Phase 4 before proceeding to Phase 5**
