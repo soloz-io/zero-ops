@@ -4,6 +4,7 @@ metadata:
   name: hub-migrations
   namespace: zero-ops-system
 spec:
+  ttlSecondsAfterFinished: 60
   backoffLimit: 3
   template:
     spec:
