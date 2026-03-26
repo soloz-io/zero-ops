@@ -5,6 +5,9 @@ metadata:
   namespace: zero-ops-system
 data:
   1_agentregistry_schema.up.sql: |
+    GRANT CREATE ON SCHEMA public TO mcp_server;
+    GRANT CREATE ON SCHEMA public TO agentregistry;
+
     CREATE SCHEMA IF NOT EXISTS agentregistry;
 
     GRANT USAGE ON SCHEMA agentregistry TO agentregistry;

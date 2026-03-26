@@ -22,16 +22,10 @@ spec:
       containers:
       - name: migrate
         image: migrate/migrate:latest
-        env:
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: platform-db-app
-              key: password
         command:
           - sh
           - -c
-          - migrate -path=/migrations -database="postgresql://postgres:${DB_PASSWORD}@platform-db-rw:5432/hub?sslmode=require" up
+          - migrate -path=/migrations -database="postgresql://spoke_controller:changeme@platform-db-rw:5432/hub?sslmode=require" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations
