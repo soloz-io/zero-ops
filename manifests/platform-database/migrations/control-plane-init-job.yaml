@@ -1,10 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: control-plane-migrations
+  name: control-plane-init
   namespace: zero-ops-system
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   backoffLimit: 3
   template:
@@ -22,23 +22,23 @@ spec:
               sleep 2
             done
       containers:
-      - name: migrate
-        image: migrate/migrate:latest
+      - name: init
+        image: postgres:16
         env:
-        - name: DB_PASSWORD
+        - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
               name: platform-db-app
               key: password
         command:
-          - migrate
-          - -path=/migrations
-          - -database=postgresql://mcp_server:$(DB_PASSWORD)@platform-db-rw:5432/control_plane?sslmode=require
-          - up
-        volumeMounts:
-        - name: migrations
-          mountPath: /migrations
-      volumes:
-      - name: migrations
-        configMap:
-          name: control-plane-migrations
+          - psql
+          - -h
+          - platform-db-rw
+          - -U
+          - postgres
+          - -d
+          - control_plane
+          - -c
+          - |
+            GRANT CREATE ON SCHEMA public TO mcp_server;
+            GRANT CREATE ON SCHEMA public TO agentregistry;

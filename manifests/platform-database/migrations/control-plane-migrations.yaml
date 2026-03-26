@@ -4,10 +4,6 @@ metadata:
   name: control-plane-migrations
   namespace: zero-ops-system
 data:
-  0_grants.up.sql: |
-    GRANT CREATE ON SCHEMA public TO mcp_server;
-    GRANT CREATE ON SCHEMA public TO agentregistry;
-
   1_agentregistry_schema.up.sql: |
     CREATE SCHEMA IF NOT EXISTS agentregistry;
 
