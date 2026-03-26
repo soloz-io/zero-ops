@@ -1,126 +1,114 @@
+**Agents-Core Implementation Pattern Guide**
+
+This version properly distinguishes the **Dual Provisioning Path** (GitOps for platform infrastructure vs. Direct API for business agents) and accurately reflects the `Kagent Lifecycle` diagram you provided.
+
+---
+
 # Agents-Core Implementation Pattern Guide (SBT Aligned)
 
 ## 1. Architectural Positioning
-Before writing any code, the team must understand where `agents-core` lives in the architecture:
-* **`open-sbt`** is the generic SaaS framework (Auth, Billing, NATS, GitOps client).
-* **`agents-core`** is a **Platform Service** (your specific business domain). 
-* **`mcp-server`** is the API gateway/presentation layer for `agents-core`.
+Before writing any code, the team must understand the distinct boundaries between the SaaS framework, the platform services, and the provisioning layers:
 
-`agents-core` *consumes* `open-sbt` interfaces (`IEventBus`, `IAuth`, `IProvisioner`), but `open-sbt` must never contain any code related to "Agents", "Prompts", or "LLMs".
+* **`open-sbt`**: The generic SaaS framework (Auth, Billing, NATS, multi-tenant primitives). Contains zero agent logic.
+* **`agents-core`**: Your Platform Service handling business domain logic. It exposes the MCP API, enforces tool/model authorization, and orchestrates the `AgentRegistry`.
+* **The Dual Provisioning Path**:
+  * **Platform Agents & Infrastructure (App Plane):** Deployed by platform engineers. Triggered via Control Plane events, committed to Git via `IProvisioner`, and synced via ArgoCD.
+  * **Business Agents (Data Plane):** Deployed dynamically by tenants/users via MCP. Bypasses GitOps entirely. Provisioned instantly using a **Deployment Adapter** that applies the Kagent CRD directly to the Spoke Kubernetes API.
 
 ---
 
 ## 2. Project Structure & Boundaries
-To enforce this separation, your repository must be structured to prevent domain logic from leaking into the `open-sbt` framework.
+The repository must be structured to prevent domain logic from leaking into the generic `open-sbt` framework, while accommodating the Deployment Adapter for business agents.
 
 ```text
 /internal
-  ├── /opensbt/                 # STAYS GENERIC. Do not modify for agents.
+  ├── /opensbt/                 # 🔒 STRICT BOUNDARY: Do not modify for agents.
   │   ├── interfaces/           # IEventBus, IProvisioner, IAuth
-  │   └── providers/            # GitOps, NATS, Postgres
+  │   └── providers/            # NATS, Postgres, GitOps
   │
-  ├── /agents-core/             # YOUR BUSINESS DOMAIN
-  │   ├── /mcp/                 # MCP Tool Definitions (The API)
+  ├── /agents-core/             # ✅ YOUR BUSINESS DOMAIN
+  │   ├── /mcp/                 # MCP Tool Definitions (Presentation Layer)
   │   │   ├── create_agent.go   
   │   │   └── deploy_agent.go   
-  │   ├── /service/             # Synchronous business logic (AuthZ, DB writes)
-  │   │   └── agent_service.go  
-  │   ├── /orchestrator/        # ★ NEW: Async worker for GitOps commits
-  │   │   └── gitops_worker.go  
+  │   ├── /service/             # Orchestration & Validation
+  │   │   ├── agent_service.go  
+  │   │   └── deployment_service.go 
+  │   ├── /adapter/             # ★ NEW: Deployment Adapter for Business Agents
+  │   │   └── k8s_spoke_adapter.go # Directly applies CRDs to Spoke K8s APIs
   │   ├── /client/              # External integrations (AgentRegistry OSS, Hub)
-  │   └── /database/            # Platform-specific SQL & schema (authorized_tools)
+  │   └── /database/            # Platform-specific SQL & schema
   │
   └── /spoke-controller/        # Deployed to Spokes. Writes status to Hub.
 ```
 
 ---
 
-## 3. CRITICAL CORRECTION: The `deploy_agent` Flow
+## 3. The `deploy_agent` Flow (Business Agents)
 
-### 🛑 The Deviation in Current `design.md`
-In your `design.md` (Section 3.2) and `tasks.md` (Phase 4.3), the MCP Tool `deploy_agent` is instructed to synchronously generate the Agent CRD and commit it to Git via `IProvisioner.CommitManifest()`, *before* returning the MCP response.
+Because Business Agents bypass GitOps, the `deploy_agent` MCP tool uses a synchronous-to-asynchronous handoff. It synchronously applies the CRD to the Spoke cluster (which takes milliseconds), but **does not wait for the Pod to boot**. 
 
-**Why this breaks the SBT Pattern:** 
-Git operations (pull, resolve conflicts, commit, push) are slow and prone to network timeouts. Tying an HTTP/MCP API response to a synchronous Git commit violates the SBT rule: **"APIs must never wait for infrastructure orchestration."**
+### Step 1: The MCP Handler (Orchestration)
+The handler extracts JWT claims, registers the intent in the DB, applies the CRD, and returns immediately.
 
-### ✅ The SBT-Aligned Flow (The Right Way)
-The MCP API must only update the database, emit an event, and return immediately. An asynchronous background worker must handle the Git commit.
-
-**Step 1: The Synchronous MCP API (`internal/agents-core/mcp/deploy_agent.go`)**
 ```go
-func (s *AgentService) DeployAgent(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+// internal/agents-core/service/deployment_service.go
+func (s *DeploymentService) DeployAgent(ctx context.Context, params map[string]interface{}) (interface{}, error) {
     tenantID := ctx.Value("tenant_id").(string)
-    
-    // 1. Create deployment record in AgentRegistry (Status: "deploying")
+    spokeClusterID := ctx.Value("spoke_cluster_id").(string)
+    agentID := params["agent_id"].(string)
+
+    // 1. Create deployment record in AgentRegistry DB (Status: "deploying")
+    // This calls POST /v0/deployments on AgentRegistry OSS
     deployResp, _ := s.agentRegistryClient.CreateDeployment(ctx, req)
-    
-    // 2. Publish intent to NATS
-    s.eventBus.Publish(ctx, models.NewEvent(
-        "zeroops_agentDeployRequested", // Platform event, NOT an opensbt event
+
+    // 2. Materialize Kagent Agent CRD
+    agentCRD := s.generateKagentCRD(agentID, tenantID, deployResp.ID)
+
+    // 3. Deployment Adapter: Apply DIRECTLY to Spoke Cluster
+    // Bypasses IProvisioner/GitOps completely for speed & scale
+    err := s.k8sSpokeAdapter.ApplyCRD(ctx, spokeClusterID, agentCRD)
+    if err != nil {
+        return nil, fmt.Errorf("failed to apply CRD to spoke: %w", err)
+    }
+
+    // 4. Publish intent to NATS for billing/auditing (Fire and Forget)
+    s.eventBus.PublishAsync(ctx, models.NewEvent(
+        "zeroops_agentDeployRequested", // Platform event, NOT an opensbt_ event
         models.PlatformEventSource,
         map[string]interface{}{
             "tenant_id":        tenantID,
-            "agent_id":         params["agent_id"],
+            "agent_id":         agentID,
             "deployment_id":    deployResp.ID,
-            "spoke_cluster_id": ctx.Value("spoke_cluster_id").(string),
         },
     ))
-    
-    // 3. Return immediately! DO NOT COMMIT TO GIT HERE.
+
+    // 5. Return immediately to the LLM/Client
     return map[string]interface{}{
-        "status": "deploying",
-        "message": "Deployment initiated. Poll get_agent_status.",
+        "status":        "deploying",
+        "deployment_id": deployResp.ID,
+        "message":       "Deployment initiated. Use get_agent_status to poll.",
     }, nil
-}
-```
-
-**Step 2: The Asynchronous Worker (`internal/agents-core/orchestrator/gitops_worker.go`)**
-```go
-// This worker runs as a background goroutine in the agents-core daemon
-func (w *GitOpsWorker) Start(ctx context.Context) {
-    w.eventBus.SubscribeQueue(ctx, "zeroops_agentDeployRequested", "agents-core", w.handleDeploy)
-}
-
-func (w *GitOpsWorker) handleDeploy(ctx context.Context, event models.Event) error {
-    // 1. Check idempotency (Inbox pattern via IStorage)
-    if processed, _ := w.storage.IsEventProcessed(ctx, event.ID); processed { return nil }
-
-    // 2. Generate CRD YAML
-    agentCRD := w.generateAgentCRD(event.Detail)
-
-    // 3. Commit to Git via IProvisioner
-    _, err := w.provisioner.CommitManifest(ctx, opensbt.CommitManifestRequest{
-        TenantID: event.Detail["tenant_id"].(string),
-        Content:  agentCRD,
-    })
-    
-    if err != nil {
-        // Mark failed in DB via AgentRegistry API
-        return err 
-    }
-
-    // 4. Publish success (Audit trail)
-    w.eventBus.Publish(ctx, models.NewEvent("zeroops_agentGitCommitted", ...))
-    return nil
 }
 ```
 
 ---
 
-## 4. The Status Synchronization Loop
+## 4. The Status Synchronization Loop (Status Controller Pattern)
 
-Your design for the Spoke Controller accurately perfectly aligns with the SBT **"Status Controller"** pattern. Here is the strict implementation contract the team must follow:
+Even though the CRD application is direct, **status checking must remain strictly decoupled and asynchronous**. 
 
-1. **No Kubernetes API queries from the Hub.** The `get_agent_status` MCP tool must **only** query the `AgentRegistry` database via `agentRegistryClient.GetDeployment()`.
-2. **Spoke Controller writes, Hub NATS reacts.** 
-    * The Spoke Controller (using Kagent) watches the local Pod/ScaledObject.
-    * It does a `POST /agent_infra_status` to the Hub PostgREST endpoint.
-    * The Hub PostgreSQL database triggers `pg_notify`, which publishes the `hub.platform.agent.infra_status` NATS event.
-3. **The Control Plane NATS Subscriber:**
-    * You defined a `NATSSubscriber` in `cmd/nats-subscriber/main.go`. This is correct.
-    * This daemon listens to `hub.platform.agent.infra_status` and executes an `UPDATE agentregistry.deployments SET status = $1` query.
+**Rule:** The `mcp-server` must NEVER use the Kubernetes API to check if an agent pod is running during a `get_agent_status` request. 
 
-**Implementation Rule:** If `get_agent_status` takes longer than 50ms to execute, you are doing something wrong. It should be a pure, indexed SQL read.
+### The Implementation Flow:
+1. **The Spoke:** The `Kagent` controller reconciles the applied CRD and provisions the Pod and KEDA ScaledObject.
+2. **The Spoke Controller:** Watches the Pod/KEDA status. When it detects a change (e.g., `provisioning` -> `ready`), it executes an HTTP POST to the Hub's PostgREST endpoint using an Ory Hydra `client_credentials` token.
+3. **The Hub DB:** The `agent_infra_status` table receives the update. A PostgreSQL trigger executes `pg_notify`.
+4. **The NATS Subscriber (`cmd/nats-subscriber`):**
+    * Listens to the `pg_notify` (forwarded to NATS).
+    * Executes an `UPDATE agentregistry.deployments SET status = $1` directly in the Control Plane database.
+5. **The MCP Tool (`get_agent_status`):**
+    * Simply does a `GET /v0/deployments/{id}` to the `AgentRegistry` API.
+    * Returns the database status instantly (<50ms).
 
 ---
 
@@ -135,7 +123,7 @@ When the MCP Client (Cursor/Goose) connects to the AgentGateway, it passes a JWT
 * `X-Auth-Spoke-Cluster-ID`
 
 ### 5.2 Enforcing RLS on Database Connections
-Before your `agents-core` makes *any* query to the `agents` schema (e.g., in `list_authorized_tools.go`), it MUST set the local context on the transaction.
+Before `agents-core` makes *any* SQL query to platform-specific tables (e.g., `authorized_tools`), it MUST set the local context on the transaction so PostgreSQL can enforce Tenant Isolation.
 
 ```go
 // Inside internal/agents-core/database/db.go
@@ -152,16 +140,20 @@ func (s *DBClient) WithTenant(ctx context.Context, tenantID string, fn func(db.Q
 }
 ```
 
-### 5.3 Validating Tool Access
-In `create_agent` and `update_agent`, the team must validate that a tenant is allowed to use a tool (e.g., `github_mcp`, `stripe_api`).
-* **Do:** Query the `authorized_tools` table passing the `tenantID`.
-* **Do Not:** Hardcode tool names or rely solely on frontend/MCP client validation. The MCP Server is the gatekeeper.
+### 5.3 Validating Tool/Model Access
+In `create_agent` and `update_agent`, the team must validate that a tenant is allowed to use a requested tool or LLM.
+* **Do:** Query the `authorized_tools` database table passing the `tenantID` (which triggers the RLS filter).
+* **Do Not:** Rely on the frontend or the MCP client to limit choices. The `agents-core` service is the ultimate gatekeeper.
 
 ---
 
-## 6. Summary of Action Items for the Platform Team
+## 6. Summary Checklist for Code Reviews
 
-1. **Fix `deploy_agent` and `delete_agent`:** Move the `IProvisioner.CommitManifest` calls out of the MCP synchronous handlers. Create an `orchestrator` package in `agents-core` that listens to NATS events and does the Git commits asynchronously.
-2. **Remove `list_providers`:** As correctly noted in your `design.md`, the `spoke_cluster_id` is determined during onboarding and baked into the JWT. The user does not need to select a provider.
-3. **Isolate `agents-core`:** Ensure `AgentRegistryClient` and `HubClient` stay in `internal/agents-core/client/` and are not placed in `internal/opensbt/`. 
-4. **Adhere to the Status Flow:** Ensure no developer attempts to use the Kubernetes Go client (`client-go`) inside the Hub MCP server to check if an agent pod is running. All status checks must read from the PostgreSQL database.
+When reviewing PRs from the platform team, ensure they adhere to these rules:
+
+* [ ] **Dual Provisioning Awareness:** Does the code correctly bypass GitOps (`IProvisioner`) when deploying Business Agents? (It must use the direct Deployment Adapter instead).
+* [ ] **Domain Leakage:** Are there Agent structs in `/internal/opensbt/models`? *(Reject: Move to `/internal/agent-core/models`)*.
+* [ ] **API Blocking:** Is the `deploy_agent` tool waiting for the K8s Pod to report "Ready"? *(Reject: It must return "deploying" immediately after the CRD is accepted by the Spoke K8s API).*
+* [ ] **Status Violation:** Is `get_agent_status` importing `k8s.io/client-go` to check the Spoke? *(Reject: It must query the `AgentRegistry` database).*
+* [ ] **RLS Bypass:** Is the database client executing a `SELECT` without calling `SET LOCAL app.tenant_id` first? *(Reject: Fix transaction scope).*
+* [ ] **Event Naming:** Are custom platform events using the `opensbt_` prefix? *(Reject: Only `open-sbt` core events use that prefix. Agent events should use `zeroops_` or `hub.platform.` conventions).*
