@@ -10,7 +10,7 @@ GRANT USAGE ON SCHEMA public TO mcp_server;
 -- tenant_id references public.tenants per design.md section 2.2
 CREATE TABLE IF NOT EXISTS agents.authorized_tools (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+    tenant_id UUID NOT NULL,
     tool_name VARCHAR(255) NOT NULL,
     category VARCHAR(100),
     enabled BOOLEAN DEFAULT true,
