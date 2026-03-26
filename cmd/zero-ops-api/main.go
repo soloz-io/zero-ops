@@ -12,6 +12,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/api"
 	"github.com/soloz-io/zero-ops/internal/config"
 	"github.com/soloz-io/zero-ops/internal/db"
+	"github.com/soloz-io/zero-ops/internal/opensbt/providers/nats"
 	"go.uber.org/zap"
 )
 
@@ -35,7 +36,15 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	srv := api.NewServer(cfg, dbPool, logger)
+	eventBus, err := nats.NewEventBus(nats.Config{
+		URLs: getEnv("NATS_URLS", "nats://nats:4222"),
+	})
+	if err != nil {
+		logger.Fatal("failed to connect to NATS", zap.Error(err))
+	}
+	defer eventBus.Close()
+
+	srv := api.NewServer(cfg, dbPool, logger, eventBus)
 
 	go func() {
 		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
@@ -57,4 +66,11 @@ func main() {
 	}
 
 	logger.Info("server exited")
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

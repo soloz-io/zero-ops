@@ -17,7 +17,7 @@ VALUES (
     $3,
     $4,
     $5,
-    'active',
+    'creating',
     $6,
     $7,
     now(),

@@ -77,3 +77,6 @@ inclusion: always
 - **GitOps First**: No direct Kubernetes API writes except bootstrap
 - **MCP First**: All platform capabilities via MCP interface
 - **BYOC Only**: No shared cloud billing, tenant owns compute costs
+- **Status Controller Pattern**: Control Plane APIs MUST read tenant status from PostgreSQL cache only, NEVER query Kubernetes/ArgoCD APIs directly. ArgoCD webhooks update the cache via NATS events (`opensbt_argoSyncCompleted`)
+- **Event-Driven Provisioning**: Tenant creation MUST emit NATS events (`opensbt_onboardingRequest`) and return immediately. Application Plane handles async provisioning and emits success/failure events
+- **Two-Step Onboarding**: Use TenantRegistration (pending) → Event → Provisioning → Tenant (active) flow, not direct tenant creation

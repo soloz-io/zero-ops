@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 )
 
 // Config for the GitOps Helm Provisioner.
@@ -31,6 +33,9 @@ type Config struct {
 
 	// Warm pool settings
 	WarmPoolTarget int // default: 10 slots per tier
+	
+	// Storage for Status Controller Pattern
+	Storage interfaces.IStorage
 }
 
 func (c *Config) defaults() {

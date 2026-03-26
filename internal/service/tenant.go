@@ -10,18 +10,25 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/soloz-io/zero-ops/internal/db"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 	"go.uber.org/zap"
 )
 
 var rfc1123Regex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 type TenantService struct {
-	queries db.Querier
-	logger  *zap.Logger
+	queries  db.Querier
+	logger   *zap.Logger
+	eventBus interfaces.IEventBus
 }
 
-func NewTenantService(queries db.Querier, logger *zap.Logger) *TenantService {
-	return &TenantService{queries: queries, logger: logger}
+func NewTenantService(queries db.Querier, logger *zap.Logger, eventBus interfaces.IEventBus) *TenantService {
+	return &TenantService{
+		queries:  queries,
+		logger:   logger,
+		eventBus: eventBus,
+	}
 }
 
 type Quotas struct {
@@ -96,6 +103,25 @@ func (s *TenantService) CreateTenant(ctx context.Context, name, email, plan stri
 		return nil, false, NewInternalError("Failed to create tenant")
 	}
 
+	// Emit opensbt_onboardingRequest event if this is a new tenant
+	if result.Created && s.eventBus != nil {
+		tenantIDStr, _ := uuid.FromBytes(result.ID.Bytes[:])
+		event := models.NewEvent(
+			models.EventOnboardingRequest,
+			models.ControlPlaneEventSource,
+			map[string]interface{}{
+				"tenantId": tenantIDStr.String(),
+				"name":     name,
+				"email":    email,
+				"tier":     plan,
+				"quotas":   quotas,
+			},
+		)
+		if err := s.eventBus.PublishAsync(ctx, event); err != nil {
+			s.logger.Error("failed to publish onboarding event", zap.Error(err), zap.String("tenantId", tenantIDStr.String()))
+		}
+	}
+
 	return &result, result.Created, nil
 }
 
@@ -151,6 +177,7 @@ func validateStatusTransition(current, next string) error {
 		return NewValidationError("status", "Cannot transition from 'deleted' to any other status")
 	}
 	validTransitions := map[string][]string{
+		"creating":  {"active", "suspended", "deleted"},
 		"active":    {"suspended", "deleted"},
 		"suspended": {"active", "deleted"},
 	}

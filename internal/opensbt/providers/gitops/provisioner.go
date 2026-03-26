@@ -123,35 +123,23 @@ func (p *Provisioner) UpdateTenantResources(ctx context.Context, req models.Upda
 	return &models.UpdateResult{TenantID: req.TenantID, Status: "updated", UpdatedAt: time.Now().UTC()}, nil
 }
 
-// GetProvisioningStatus queries ArgoCD API for the tenant application status (15.14).
+// GetProvisioningStatus reads tenant status from Storage (Status Controller Pattern).
+// The Control Plane MUST NOT query ArgoCD API directly; it reads from the PostgreSQL
+// cache which is updated by ArgoCD webhook events (opensbt_argoSyncCompleted).
 func (p *Provisioner) GetProvisioningStatus(ctx context.Context, tenantID string) (*models.ProvisioningStatus, error) {
-	if p.cfg.ArgoCDAPIURL == "" {
+	if p.cfg.Storage == nil {
 		return &models.ProvisioningStatus{TenantID: tenantID, Status: "unknown"}, nil
 	}
-	url := fmt.Sprintf("%s/api/v1/applications/tenant-%s", p.cfg.ArgoCDAPIURL, tenantID)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	req.Header.Set("Authorization", "Bearer "+p.cfg.ArgoCDAPIToken)
-	resp, err := http.DefaultClient.Do(req)
+	
+	tenant, err := p.cfg.Storage.GetTenant(ctx, tenantID)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
 		return &models.ProvisioningStatus{TenantID: tenantID, Status: "not_found"}, nil
 	}
-	var app struct {
-		Status struct {
-			Sync   struct{ Status string } `json:"sync"`
-			Health struct{ Status string } `json:"health"`
-		} `json:"status"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&app); err != nil {
-		return nil, err
-	}
+	
 	return &models.ProvisioningStatus{
 		TenantID:     tenantID,
-		Status:       app.Status.Sync.Status,
-		LastSyncTime: time.Now().UTC(),
+		Status:       tenant.Status,
+		LastSyncTime: tenant.UpdatedAt,
 	}, nil
 }
 

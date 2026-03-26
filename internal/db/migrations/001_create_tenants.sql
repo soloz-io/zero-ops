@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     name VARCHAR(63) NOT NULL,
     email VARCHAR(255) NOT NULL,
     plan VARCHAR(20) NOT NULL CHECK (plan IN ('free', 'professional', 'enterprise')),
-    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'deleted')),
+    status VARCHAR(20) NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'active', 'suspended', 'deleted')),
     quotas JSONB NOT NULL,
     metadata JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

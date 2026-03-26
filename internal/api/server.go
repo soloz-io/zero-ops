@@ -13,6 +13,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/api/middleware"
 	"github.com/soloz-io/zero-ops/internal/config"
 	"github.com/soloz-io/zero-ops/internal/db"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/service"
 	customValidator "github.com/soloz-io/zero-ops/internal/hub/validator"
 	"go.uber.org/zap"
@@ -24,7 +25,7 @@ type Server struct {
 	config *config.Config
 }
 
-func NewServer(cfg *config.Config, dbPool *pgxpool.Pool, logger *zap.Logger) *Server {
+func NewServer(cfg *config.Config, dbPool *pgxpool.Pool, logger *zap.Logger, eventBus interfaces.IEventBus) *Server {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -41,7 +42,7 @@ func NewServer(cfg *config.Config, dbPool *pgxpool.Pool, logger *zap.Logger) *Se
 	router.Use(middleware.ErrorMiddleware())
 
 	queries := db.New(dbPool)
-	tenantService := service.NewTenantService(queries, logger)
+	tenantService := service.NewTenantService(queries, logger, eventBus)
 	tenantHandler := handlers.NewTenantHandler(tenantService, queries)
 	healthHandler := handlers.NewHealthHandler(dbPool)
 
