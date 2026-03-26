@@ -294,11 +294,11 @@ This implementation follows a phased approach with manual testing gates between 
 
 - [x] 8.1 Implement Spoke Controller
   - [x] 8.1.1 Create `operators/spoke-controller/internal/controller/agent_controller.go`
-  - [ ] 8.1.2 Implement controller-runtime pattern (watch Agent CRDs)
-  - [ ] 8.1.3 Implement Reconcile method
-  - [ ] 8.1.4 Derive status from Deployment.status.availableReplicas
-  - [ ] 8.1.5 Map KEDA HTTP Add-on scale-to-zero to phase field (Idle/Running/Failed)
-  - [ ] 8.1.6 Add label validation (skip CRDs without tenant-id/agent-id/deployment-id labels)
+  - [x] 8.1.2 Implement controller-runtime pattern (watch Agent CRDs)
+  - [x] 8.1.3 Implement Reconcile method
+  - [x] 8.1.4 Derive status from Deployment.status.availableReplicas
+  - [x] 8.1.5 Map KEDA HTTP Add-on scale-to-zero to phase field (Idle/Running/Failed)
+  - [x] 8.1.6 Add label validation (skip CRDs without tenant-id/agent-id/deployment-id labels)
 
 - [x] 8.2 Implement Hub PostgREST client for Spoke Controller
   - [x] 8.2.1 Create `operators/spoke-controller/internal/client/hub_client.go`
@@ -306,11 +306,11 @@ This implementation follows a phased approach with manual testing gates between 
   - [x] 8.2.3 Implement POST /agent_deployments (write status to Hub)
   - [x] 8.2.4 Add retry logic with exponential backoff
 
-- [ ] 8.3 Implement status sync logic
-  - [ ] 8.3.1 Add syncToHub method to agent_controller.go
-  - [ ] 8.3.2 Authenticate with Hub using Hydra client_credentials
-  - [ ] 8.3.3 POST status to Hub PostgREST with Bearer token
-  - [ ] 8.3.4 Handle sync failures with retry
+- [x] 8.3 Implement status sync logic
+  - [x] 8.3.1 Add syncToHub method to agent_controller.go
+  - [x] 8.3.2 Authenticate with Hub using Hydra client_credentials
+  - [x] 8.3.3 POST status to Hub PostgREST with Bearer token
+  - [x] 8.3.4 Handle sync failures with retry
 
 - [x] 8.4 Deploy Spoke Controller
   - [x] 8.4.1 Create Kubernetes manifests (Deployment, ServiceAccount, RBAC)
@@ -335,22 +335,22 @@ This implementation follows a phased approach with manual testing gates between 
 
 ### Tasks
 
-- [ ] 9.1 Add Prometheus metrics
-  - [ ] 9.1.1 Create `internal/agent-core/telemetry/metrics.go`
-  - [ ] 9.1.2 Add metric: agents_mcp_tool_duration_seconds (histogram)
-  - [ ] 9.1.3 Add metric: agents_deployments_total (gauge by status, phase)
-  - [ ] 9.1.4 Instrument all MCP tool handlers
+- [x] 9.1 Add Prometheus metrics
+  - [x] 9.1.1 Create `internal/agent-core/telemetry/metrics.go`
+  - [x] 9.1.2 Add metric: agents_mcp_tool_duration_seconds (histogram)
+  - [x] 9.1.3 Add metric: agents_deployments_total (gauge by status, phase)
+  - [x] 9.1.4 Instrument all MCP tool handlers
 
-- [ ] 9.2 Add structured logging
-  - [ ] 9.2.1 Add log statements to all service methods
-  - [ ] 9.2.2 Include fields: tenant_id, agent_id, deployment_id, tool
-  - [ ] 9.2.3 Log errors with stack traces
+- [x] 9.2 Add structured logging
+  - [x] 9.2.1 Add log statements to all service methods
+  - [x] 9.2.2 Include fields: tenant_id, agent_id, deployment_id, tool
+  - [x] 9.2.3 Log errors with stack traces
 
-- [ ] 9.3 Add OpenTelemetry tracing
-  - [ ] 9.3.1 Add tracing to all MCP tool handlers
-  - [ ] 9.3.2 Add spans for AgentRegistry API calls
-  - [ ] 9.3.3 Add spans for Hub PostgREST queries
-  - [ ] 9.3.4 Add spans for GitOps commits
+- [x] 9.3 Add OpenTelemetry tracing
+  - [x] 9.3.1 Add tracing to all MCP tool handlers
+  - [x] 9.3.2 Add spans for AgentRegistry API calls
+  - [x] 9.3.3 Add spans for Hub PostgREST queries
+  - [x] 9.3.4 Add spans for GitOps commits
 
 **Manual Testing Checkpoint:**
 - Verify metrics exposed at /metrics endpoint
