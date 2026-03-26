@@ -1,0 +1,508 @@
+# Platform Core Services - Technical Design
+
+**Spec ID:** platform-core-services  
+**Status:** Draft  
+**Created:** 2026-03-26  
+**Last Updated:** 2026-03-26
+
+## 1. Overview
+
+This design implements the Day 0 core platform services required for agent-core functionality. These services bridge the gap between foundational infrastructure (identity, databases) and business domain services (agents-core, mcp-server).
+
+**CRITICAL DEPENDENCY CHAIN:**
+- `cmd/mcp-server/main.go` → AgentRegistry OSS → Control Plane DB
+- `operators/spoke-controller` → Hub PostgREST → Hub Centralised DB  
+- `internal/agent-core/service` → NATS → Event-driven orchestration
+- `deploy_agent` MCP tool → Spoke clusters → CAPI kubeconfig secrets
+
+### 1.1 Architecture Corrections
+
+**CORRECTED - GitOps First Constraint:**
+- Spoke cluster creation uses GitOps fleet repository commits, NOT direct Kubernetes API
+- Hub CLI generates manifests and commits to Git, ArgoCD syncs to cluster
+- No direct `k8sClient.Create()` calls except during bootstrap
+
+**CORRECTED - Database Routing:**
+- AgentRegistry connects to `control_plane` database (agentregistry schema)
+- Hub PostgREST connects to `hub` database (agent_infra_status table)
+- Clear separation between Control Plane Shared DB and Hub Centralised DB
+
+**CORRECTED - Status Sync Architecture:**
+- Hub DB pg_notify triggers publish to NATS `hub.platform.agent.infra_status`
+- NATS subscriber consumes events and updates AgentRegistry via API
+- No direct PostgreSQL listeners bypassing NATS
+
+### 1.2 Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ PLATFORM CORE SERVICES (Day 0)                         │
+│                                                         │
+│ ├── AgentRegistry OSS → Control Plane DB               │
+│ ├── VictoriaMetrics → Metrics storage & collection     │
+│ ├── NATS Cluster → Event-driven messaging              │
+│ ├── Hub PostgREST → Hub Centralised DB API             │
+│ ├── OpenSearch → Log aggregation                       │
+│ ├── Tempo → Distributed tracing                        │
+│ └── Spoke Provisioning → GitOps fleet repository       │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 2. Component Implementations
+
+### 2.1 AgentRegistry OSS Service
+
+**Location:** `platform-agentregistry` namespace  
+**Purpose:** CRUD-only database wrapper for agent definitions and deployments
+
+**Database Connection (CORRECTED):**
+```yaml
+# manifests/platform-agentregistry/deployment.yaml
+env:
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: control-plane-db-credentials  # CRITICAL: Control Plane DB
+      key: url
+```
+
+**Key Requirements:**
+- Connect to Control Plane Shared DB (`control_plane` database)
+- Access `agentregistry` schema with proper RLS policies
+- Expose REST API at `agentregistry.platform-agentregistry.svc.cluster.local:8080`
+- NO Kubernetes operations (CRUD-only)
+
+**API Endpoints:**
+```
+POST   /v0/agents                              # Create agent definition
+GET    /v0/agents                              # List agents (RLS filtered)
+GET    /v0/agents/{name}/versions/{version}   # Get specific agent
+DELETE /v0/agents/{name}/versions/{version}   # Delete agent
+POST   /v0/deployments                         # Create deployment record
+GET    /v0/deployments/{id}                    # Get deployment status
+PATCH  /v0/deployments/{id}                    # Update deployment status
+DELETE /v0/deployments/{id}                    # Delete deployment
+```
+
+### 2.2 VictoriaMetrics Observability Stack
+
+**Location:** `zero-ops-system` namespace  
+**Purpose:** Metrics storage and collection for platform and spoke clusters
+
+**Components:**
+- VictoriaMetrics cluster (vmcluster) for metrics storage
+- Prometheus Operator for ServiceMonitor CRD support
+- Grafana Alloy for metrics collection and forwarding
+- Basic Grafana dashboards for platform monitoring
+
+**KEDA Integration (CORRECTED):**
+- Spoke clusters configured to query Hub VictoriaMetrics for scaling decisions
+- Secure cross-cluster metrics access via service accounts
+- KEDA ScaledObjects reference Hub metrics endpoint
+
+**Service Endpoints:**
+```
+victoriametrics.zero-ops-system.svc.cluster.local:8428  # PromQL API
+grafana-alloy.zero-ops-system.svc.cluster.local:9090   # Metrics collection
+```
+
+### 2.3 NATS Messaging Cluster
+
+**Location:** `zero-ops-system` namespace  
+**Purpose:** Event-driven communication for status synchronization
+
+**JetStream Configuration:**
+```yaml
+# Required subjects for agent lifecycle
+subjects:
+  - hub.platform.agent.created
+  - hub.platform.agent.deployed  
+  - hub.platform.agent.updated
+  - hub.platform.agent.deleted
+  - hub.platform.agent.infra_status  # CRITICAL: Status sync subject
+```
+
+**Status Sync Flow (CORRECTED):**
+1. Spoke Controller writes to Hub PostgREST
+2. Hub DB pg_notify trigger publishes to NATS `hub.platform.agent.infra_status`
+3. NATS subscriber consumes events and updates AgentRegistry via API
+
+### 2.4 Hub PostgREST Configuration
+
+**Location:** `zero-ops-system` namespace  
+**Purpose:** REST API for Hub Centralised DB access
+
+**Database Connection (CORRECTED):**
+```yaml
+# manifests/hub-postgrest/deployment.yaml
+env:
+- name: PGRST_DB_URI
+  valueFrom:
+    secretKeyRef:
+      name: hub-db-credentials  # CRITICAL: Hub Centralised DB
+      key: url
+```
+
+**Key Requirements:**
+- Connect to Hub Centralised DB (`hub` database)
+- Expose `agent_infra_status` table with RLS policies
+- JWT authentication with Ory Hydra integration
+- External endpoint: `postgrest.hub.zero-ops.io`
+- Internal endpoint: `hub-postgrest.zero-ops-system.svc.cluster.local:3000`
+
+**Database Schema:**
+```sql
+-- Hub Centralised DB (hub database)
+CREATE TABLE agent_infra_status (
+    tenant_id UUID NOT NULL,
+    agent_id VARCHAR NOT NULL,
+    deployment_id UUID NOT NULL,
+    spoke_cluster_id VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,  -- provisioning, ready, failed
+    phase VARCHAR NOT NULL,   -- Unknown, Idle, Running, Failed
+    replicas INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    last_sync_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (deployment_id)
+);
+
+-- pg_notify trigger for NATS integration
+CREATE OR REPLACE FUNCTION notify_agent_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify('hub.platform.agent.infra_status', 
+        json_build_object(
+            'deployment_id', NEW.deployment_id,
+            'status', NEW.status,
+            'phase', NEW.phase,
+            'replicas', NEW.replicas
+        )::text
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER agent_status_notify
+    AFTER INSERT OR UPDATE ON agent_infra_status
+    FOR EACH ROW EXECUTE FUNCTION notify_agent_status_change();
+```
+
+### 2.5 OpenSearch Log Aggregation
+
+**Location:** `zero-ops-system` namespace  
+**Purpose:** Centralized log storage and search
+
+**Components:**
+- OpenSearch cluster (3 nodes for HA)
+- Grafana Alloy for log collection from all namespaces
+- Index templates for structured agent logs
+- Log correlation via trace IDs
+
+**Service Endpoints:**
+```
+opensearch.zero-ops-system.svc.cluster.local:9200  # REST API
+opensearch-dashboards.zero-ops-system.svc.cluster.local:5601  # UI
+```
+
+### 2.6 Tempo Distributed Tracing
+
+**Location:** `zero-ops-system` namespace  
+**Purpose:** Distributed tracing for request correlation
+
+**Configuration:**
+- OTLP endpoint for trace ingestion
+- S3-compatible storage (Hetzner S3) for trace data
+- Integration with OpenSearch for log correlation
+- Grafana integration for trace visualization
+
+**Service Endpoints:**
+```
+tempo.zero-ops-system.svc.cluster.local:4318  # OTLP gRPC
+tempo.zero-ops-system.svc.cluster.local:3200  # HTTP API
+```
+
+### 2.7 Spoke Cluster Provisioning (CORRECTED - GitOps)
+
+**Purpose:** Automate spoke cluster lifecycle via GitOps
+
+**GitOps Flow (CORRECTED):**
+```go
+// cmd/hub/spoke.go - CORRECTED implementation
+func createSpokeCluster(clusterName, clusterType, region string) error {
+    // 1. Generate CAPI Cluster and ClusterClass manifests
+    manifests := generateCAPIManifests(clusterName, clusterType, region)
+    
+    // 2. Commit to GitOps fleet repository (NOT direct K8s API)
+    err := gitops.CommitToFleetRepo(manifests, fmt.Sprintf("Add spoke cluster %s", clusterName))
+    if err != nil {
+        return fmt.Errorf("failed to commit to fleet repo: %w", err)
+    }
+    
+    // 3. ArgoCD will sync and provision the cluster
+    fmt.Printf("Spoke cluster %s queued for provisioning via GitOps\n", clusterName)
+    return nil
+}
+```
+
+**CLI Commands (CORRECTED):**
+```bash
+# GitOps-based spoke management
+hub spoke create <cluster-name> --type=pool|silo --region=<region>  # Commits to Git
+hub spoke list                                                      # Reads from Git
+hub spoke delete <cluster-name>                                     # Commits deletion to Git
+```
+
+**CAPI Integration:**
+- ClusterClass definitions for pool and silo spoke types
+- Automatic kubeconfig secret generation in `zero-ops-system` namespace
+- Spoke Controller deployment via GitOps fleet repository
+
+## 3. Database Architecture (CORRECTED)
+
+### 3.1 Database Separation
+
+**Control Plane Shared DB (`control_plane` database):**
+- AgentRegistry schema and tables
+- Identity services (Ory stack) data
+- Tenant management data
+- Connection: `control-plane-db-credentials` secret
+
+**Hub Centralised DB (`hub` database):**
+- `agent_infra_status` table for status synchronization
+- Cross-cluster status aggregation
+- PostgREST API exposure
+- Connection: `hub-db-credentials` secret
+
+### 3.2 Connection String Routing (CORRECTED)
+
+```yaml
+# AgentRegistry deployment
+env:
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: control-plane-db-credentials  # → control_plane database
+      key: url
+
+---
+# Hub PostgREST deployment  
+env:
+- name: PGRST_DB_URI
+  valueFrom:
+    secretKeyRef:
+      name: hub-db-credentials  # → hub database
+      key: url
+```
+
+## 4. Status Synchronization Architecture (CORRECTED)
+
+### 4.1 Event Flow
+
+```
+Spoke Controller (Spoke Cluster)
+    ↓ HTTP POST with JWT
+Hub PostgREST (Hub Cluster)
+    ↓ INSERT/UPDATE agent_infra_status
+Hub Centralised DB
+    ↓ pg_notify trigger
+NATS hub.platform.agent.infra_status subject
+    ↓ NATS subscription
+NATS Status Subscriber (Hub Cluster)
+    ↓ HTTP PATCH
+AgentRegistry API
+    ↓ UPDATE deployments table
+Control Plane Shared DB
+```
+
+### 4.2 NATS Status Subscriber (CORRECTED)
+
+**Location:** `cmd/nats-subscriber/main.go`  
+**Purpose:** Bridge NATS events to AgentRegistry API
+
+```go
+// CORRECTED: Uses NATS, not direct PostgreSQL
+func (s *NATSStatusSubscriber) Start(ctx context.Context) error {
+    // Subscribe to NATS subject (NOT pg_notify)
+    _, err := s.natsConn.Subscribe("hub.platform.agent.infra_status", s.handleStatusUpdate)
+    if err != nil {
+        return fmt.Errorf("failed to subscribe to NATS: %w", err)
+    }
+    
+    s.logger.InfoContext(ctx, "NATS status subscriber started")
+    <-ctx.Done()
+    return nil
+}
+
+func (s *NATSStatusSubscriber) handleStatusUpdate(msg *nats.Msg) {
+    var update models.InfraStatusUpdate
+    json.Unmarshal(msg.Data, &update)
+    
+    // Map infrastructure status to deployment status
+    deploymentStatus := s.mapInfraStatusToDeploymentStatus(update.Status)
+    
+    // Update AgentRegistry via API (NOT direct DB)
+    s.agentRegistryClient.UpdateDeployment(ctx, update.DeploymentID, deploymentStatus)
+}
+```
+
+## 5. Observability Integration
+
+### 5.1 Cross-Cluster Metrics (CORRECTED)
+
+**Hub VictoriaMetrics Configuration:**
+- Expose metrics endpoint externally for spoke cluster access
+- Configure service accounts for cross-cluster authentication
+- KEDA in spoke clusters queries Hub VictoriaMetrics for scaling decisions
+
+**Spoke Cluster KEDA Configuration:**
+```yaml
+# KEDA ScaledObject in spoke cluster
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: agent-scaler
+spec:
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: https://victoriametrics.hub.zero-ops.io  # Hub metrics
+      metricName: agent_queue_depth
+      threshold: '1'
+      query: sum(agent_queue_depth{tenant_id="{{.tenant_id}}"})
+```
+
+### 5.2 Telemetry Stack
+
+**Metrics:** VictoriaMetrics with Prometheus client libraries  
+**Tracing:** Tempo with OpenTelemetry instrumentation  
+**Logging:** OpenSearch with structured JSON logs  
+**Dashboards:** Grafana with pre-built platform dashboards
+
+## 6. Deployment Architecture
+
+### 6.1 ArgoCD Applications
+
+```yaml
+# manifests/argocd/apps/platform-core-services.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-core-services
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"  # After identity and database
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: HEAD
+    path: manifests/platform-core-services
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+### 6.2 Deployment Order
+
+1. **Database Extensions** (sync-wave: 4)
+   - Extend existing CNPG clusters with new schemas
+   - Create connection secrets for service routing
+
+2. **Core Infrastructure** (sync-wave: 5)
+   - NATS cluster with JetStream
+   - VictoriaMetrics cluster
+   - OpenSearch cluster
+   - Tempo deployment
+
+3. **Platform Services** (sync-wave: 6)
+   - AgentRegistry OSS
+   - Hub PostgREST
+   - NATS Status Subscriber
+
+4. **Observability** (sync-wave: 7)
+   - Grafana Alloy configuration
+   - ServiceMonitor CRDs
+   - Grafana dashboards
+
+### 6.3 Network Security
+
+**Internal Service Communication:**
+- All services use cluster DNS for discovery
+- Network policies restrict cross-namespace access
+- Service accounts for authentication
+
+**External Access:**
+- Hub PostgREST via ingress with TLS
+- VictoriaMetrics via ingress for spoke cluster access
+- Grafana dashboards for monitoring
+
+## 7. Integration Points
+
+### 7.1 Agent-Core Dependencies
+
+**Required Services:**
+- AgentRegistry OSS at `agentregistry.platform-agentregistry.svc.cluster.local:8080`
+- NATS cluster at `nats.zero-ops-system.svc.cluster.local:4222`
+- Hub PostgREST at `postgrest.hub.zero-ops.io` (external)
+- VictoriaMetrics at `victoriametrics.zero-ops-system.svc.cluster.local:8428`
+
+**Service Discovery:**
+- All services accessible via consistent cluster DNS naming
+- Health checks and readiness probes configured
+- Service mesh integration (if applicable)
+
+### 7.2 Tenant Onboarding Integration
+
+**Spoke Cluster Assignment:**
+- Tenant tier determines spoke cluster type (pool vs silo)
+- JWT tokens include `spoke_cluster_id` claim
+- AgentGateway routes based on spoke assignment
+
+**Cross-Cluster RBAC:**
+- Spoke Controllers authenticate to Hub PostgREST via OAuth2
+- CAPI kubeconfig secrets managed automatically
+- Service account rotation and credential refresh
+
+## 8. Testing Strategy
+
+### 8.1 Service Health Validation
+
+```bash
+# Verify all services are running
+kubectl get pods -n platform-agentregistry
+kubectl get pods -n zero-ops-system
+
+# Test API endpoints
+curl -X GET http://agentregistry.platform-agentregistry.svc.cluster.local:8080/v0/agents
+curl -X GET http://victoriametrics.zero-ops-system.svc.cluster.local:8428/api/v1/query?query=up
+```
+
+### 8.2 Status Sync Validation
+
+```bash
+# Test NATS connectivity
+nats --server=nats://nats.zero-ops-system.svc.cluster.local:4222 pub hub.platform.agent.infra_status '{"deployment_id":"test","status":"ready"}'
+
+# Verify AgentRegistry receives update
+curl -X GET http://agentregistry.platform-agentregistry.svc.cluster.local:8080/v0/deployments/test
+```
+
+### 8.3 GitOps Spoke Provisioning
+
+```bash
+# Test spoke cluster creation (GitOps)
+hub spoke create test-spoke --type=pool --region=fsn1
+
+# Verify manifest committed to fleet repository
+git log --oneline fleet-repository/
+
+# Verify ArgoCD syncs the cluster
+kubectl get clusters -n zero-ops-system
+```
+
+This design addresses all architectural deviations and provides a solid foundation for agent-core integration.

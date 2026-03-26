@@ -53,10 +53,26 @@ func (s *DBClient) WithTenant(ctx context.Context, tenantID string, fn func(db.Q
 - Agent events: zeroops_ prefix (e.g., zeroops_agentDeployRequested)
 - Hub NATS subjects: hub.platform.agent.* (e.g., hub.platform.agent.infra_status)
 
+## Observability Stack
+- **VictoriaMetrics**: Metrics storage and querying (NOT Prometheus server)
+- **Prometheus client libraries**: Used to expose metrics in Prometheus format (VictoriaMetrics compatible)
+- **ServiceMonitor CRDs**: Required for VictoriaMetrics to discover /metrics endpoints
+- **Grafana Alloy**: Metrics collection and forwarding to VictoriaMetrics
+- **OpenSearch**: Log aggregation and search
+- **OpenTelemetry**: Distributed tracing via OTEL_EXPORTER_OTLP_ENDPOINT
+
+## CAPI Integration (CRITICAL)
+- **Kubeconfig Secrets**: CAPI generates `<cluster-name>-kubeconfig` secrets in zero-ops-system namespace
+- **Deployment Adapter**: Reads CAPI secrets to authenticate with Spoke clusters
+- **RBAC**: mcp-server ServiceAccount MUST have access to secrets with "*-kubeconfig" resourceNames
+
 ## Code Review Rules
 - Business agents MUST use Deployment Adapter, NOT IProvisioner
+- Deployment Adapter MUST read CAPI kubeconfig secrets from zero-ops-system namespace
 - Agent structs MUST be in /internal/agent-core/models, NOT /internal/opensbt/models
 - deploy_agent MUST return "deploying" immediately after CRD accepted
 - get_agent_status MUST NOT import k8s client-go
 - All SQL MUST use SET LOCAL app.tenant_id (RLS)
 - No opensbt_ prefix on agent events
+- Use Prometheus client libraries for metrics (VictoriaMetrics scrapes Prometheus format)
+- NATS Subscriber MUST use AgentRegistry API, NOT direct DB access

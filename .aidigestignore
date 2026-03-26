@@ -6,3 +6,4 @@ chat-logs
 bin
 test
 .kiro
+.vscode
