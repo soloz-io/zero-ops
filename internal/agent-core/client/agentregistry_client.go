@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -314,5 +315,27 @@ func (c *AgentRegistryClient) DeleteDeployment(ctx context.Context, id string) e
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("agentregistry delete deployment: status %d", resp.StatusCode)
 	}
+	return nil
+}
+// DeploymentUpdateRequest represents a deployment status update
+type DeploymentUpdateRequest struct {
+	Status string `json:"status"`
+}
+
+// UpdateDeployment updates deployment status via PATCH /v0/deployments/{id}
+func (c *AgentRegistryClient) UpdateDeployment(ctx context.Context, deploymentID string, req *DeploymentUpdateRequest) error {
+	path := fmt.Sprintf("/v0/deployments/%s", deploymentID)
+	
+	resp, err := c.do(ctx, "PATCH", path, req)
+	if err != nil {
+		return fmt.Errorf("failed to update deployment: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("AgentRegistry API error %d: %s", resp.StatusCode, string(body))
+	}
+	
 	return nil
 }

@@ -1,12 +1,12 @@
 -- name: GetAuthorizedTools :many
-SELECT tool_name, category, enabled
+SELECT tool_name, category, enabled, description, required_tier
 FROM agents.authorized_tools
 WHERE tenant_id = $1
   AND enabled = true
 ORDER BY tool_name;
 
 -- name: GetAuthorizedToolsByCategory :many
-SELECT tool_name, category, enabled
+SELECT tool_name, category, enabled, description, required_tier
 FROM agents.authorized_tools
 WHERE tenant_id = $1
   AND category = $2

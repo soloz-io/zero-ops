@@ -513,7 +513,7 @@ func (c *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.A
     }
     
     // POST to Hub-side PostgREST with Bearer JWT
-    // Hub DB trigger publishes NATS event → Control Plane subscriber updates AgentRegistry
+    // Hub DB trigger publishes NATS event → Control Plane subscriber updates AgentRegistry via API
     return c.HubClient.Post(ctx, "/agent_infra_status", payload)
 }
 ```
@@ -527,38 +527,59 @@ func (c *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.A
 **Responsibilities:**
 1. Subscribe to Hub NATS subject: `hub.platform.agent.infra_status`
 2. Map infra status (`provisioning`, `ready`) to app status (`deploying`, `deployed`)
-3. Update AgentRegistry deployments table via direct DB write
+3. Update AgentRegistry deployments table via AgentRegistry API
+
+**CRITICAL - API Boundary Pattern:**
+The NATS subscriber uses the AgentRegistry API (not direct DB access or PostgREST) because:
+- The `agentregistry` schema is NOT exposed via PostgREST (only `dashboard` schema is exposed)
+- AgentRegistry API provides proper tenant isolation and validation
+- Maintains clean API boundaries between components
 
 **Implementation:**
 ```go
 // cmd/nats-subscriber/main.go
-type NATSSubscriber struct {
-    natsConn *nats.Conn
-    db       *pgxpool.Pool
+type StatusSubscriber struct {
+    db                  *sql.DB
+    agentRegistryClient *client.AgentRegistryClient
 }
 
-func (s *NATSSubscriber) Start(ctx context.Context) error {
-    // Subscribe to Hub NATS events
-    _, err := s.natsConn.Subscribe("hub.platform.agent.infra_status", func(msg *nats.Msg) {
-        var event InfraStatusEvent
-        if err := json.Unmarshal(msg.Data, &event); err != nil {
-            log.Printf("Failed to unmarshal event: %v", err)
-            return
+func (s *StatusSubscriber) Listen(ctx context.Context) error {
+    // Listen for pg_notify events from Hub Centralised DB
+    listener := pq.NewListener(s.db.Driver().(*pq.Driver).Open, 10*time.Second, time.Minute, nil)
+    defer listener.Close()
+
+    if err := listener.Listen("agent_infra_status_updates"); err != nil {
+        return fmt.Errorf("failed to listen to pg_notify channel: %w", err)
+    }
+
+    for {
+        select {
+        case <-ctx.Done():
+            return nil
+        case notification := <-listener.Notify:
+            if notification != nil {
+                if err := s.handleStatusUpdate(ctx, notification.Extra); err != nil {
+                    log.Printf("Failed to handle status update: %v", err)
+                }
+            }
         }
-        
-        // Map infra status to app status
-        appStatus := s.mapInfraToAppStatus(event.Status)
-        
-        // Update AgentRegistry deployments table
-        if err := s.updateAgentRegistryStatus(ctx, event.DeploymentID, appStatus); err != nil {
-            log.Printf("Failed to update AgentRegistry: %v", err)
-        }
-    })
-    
-    return err
+    }
 }
 
-func (s *NATSSubscriber) mapInfraToAppStatus(infraStatus string) string {
+func (s *StatusSubscriber) handleStatusUpdate(ctx context.Context, payload string) error {
+    var update InfraStatusUpdate
+    if err := json.Unmarshal([]byte(payload), &update); err != nil {
+        return fmt.Errorf("failed to unmarshal status update: %w", err)
+    }
+
+    // Map infra status to app status
+    deploymentStatus := mapInfraStatusToDeploymentStatus(update.Status)
+
+    // Update via AgentRegistry API (PATCH /v0/deployments/{id})
+    return s.updateAgentRegistryDeployment(ctx, update.DeploymentID, deploymentStatus)
+}
+
+func mapInfraStatusToDeploymentStatus(infraStatus string) string {
     switch infraStatus {
     case "provisioning":
         return "deploying"
@@ -571,14 +592,18 @@ func (s *NATSSubscriber) mapInfraToAppStatus(infraStatus string) string {
     }
 }
 
-func (s *NATSSubscriber) updateAgentRegistryStatus(ctx context.Context, deploymentID, status string) error {
-    // Direct DB write to Control Plane Shared DB (agentregistry schema)
-    _, err := s.db.Exec(ctx, `
-        UPDATE agentregistry.deployments 
-        SET status = $1, updated_at = NOW() 
-        WHERE id = $2
-    `, status, deploymentID)
-    return err
+func (s *StatusSubscriber) updateAgentRegistryDeployment(ctx context.Context, deploymentID, status string) error {
+    // Update via AgentRegistry API (PATCH /v0/deployments/{id})
+    updateReq := &client.DeploymentUpdateRequest{
+        Status: status,
+    }
+    
+    err := s.agentRegistryClient.UpdateDeployment(ctx, deploymentID, updateReq)
+    if err != nil {
+        return fmt.Errorf("failed to update deployment via AgentRegistry API: %w", err)
+    }
+    
+    return nil
 }
 ```
 

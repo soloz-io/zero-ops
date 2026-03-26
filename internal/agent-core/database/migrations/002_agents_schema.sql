@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS agents.authorized_tools (
     tenant_id UUID NOT NULL,
     tool_name VARCHAR(255) NOT NULL,
     category VARCHAR(100),
+    description TEXT,
+    required_tier VARCHAR(50),
     enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(tenant_id, tool_name)

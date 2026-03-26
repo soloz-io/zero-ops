@@ -173,10 +173,10 @@ agent-core sets `app.tenant_id` before calling AgentRegistry API to enforce RLS.
 2. MCP server → AgentRegistry API (POST /v0/deployments)
 3. AgentRegistry creates deployment record in Control Plane Shared DB (status: "deploying")
 4. AgentRegistry retrieves agent config from its database
-5. AgentRegistry invokes Deployment Adapter (Kubernetes client-go)
+5. agents-core invokes Deployment Adapter (Kubernetes client-go)
 6. Deployment Adapter generates Kagent Agent CRD YAML
 7. Deployment Adapter applies CRD directly to Spoke cluster via Kubernetes API (kubectl apply equivalent)
-8. AgentRegistry updates deployment status to "deployed" and returns response
+8. Deployment status remains "deploying"; asynchronous status sync updates it to "deployed" (via NATS subscriber)
 9. MCP server publishes NATS event: `hub.platform.agent.deployed` (H-08 resolution)
 10. Return immediately with deployment_id and status "deploying"
 11. Kagent Controller (Spoke) reconciles Agent CRD (async):
@@ -188,7 +188,7 @@ agent-core sets `app.tenant_id` before calling AgentRegistry API to enforce RLS.
 13. Client polls get_agent_status to check deployment completion
 
 **Note on Provisioning Paths:**
-- **Business Agents (tenant-created)**: AgentRegistry → Deployment Adapter → Direct Kubernetes API apply (NO GitOps)
+- **Business Agents (tenant-created)**: agents-core → Deployment Adapter → Direct Kubernetes API apply (NO GitOps)
 - **Infrastructure Agents (platform team)**: Direct Git commits → ArgoCD → Spoke cluster (GitOps only)
 
 **Note on spoke_cluster_id (B-03 resolution):**
