@@ -4,7 +4,7 @@ metadata:
   name: hub-migrations
   namespace: zero-ops-system
 data:
-  001_agent_infra_status.sql: |
+  1_agent_infra_status.up.sql: |
     CREATE TABLE IF NOT EXISTS agent_infra_status (
         deployment_id UUID PRIMARY KEY,
         tenant_id UUID NOT NULL,

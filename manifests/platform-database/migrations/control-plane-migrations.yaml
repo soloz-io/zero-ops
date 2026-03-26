@@ -4,7 +4,7 @@ metadata:
   name: control-plane-migrations
   namespace: zero-ops-system
 data:
-  001_agentregistry_schema.sql: |
+  1_agentregistry_schema.up.sql: |
     CREATE SCHEMA IF NOT EXISTS agentregistry;
 
     GRANT USAGE ON SCHEMA agentregistry TO agentregistry;
@@ -54,7 +54,7 @@ data:
     CREATE INDEX IF NOT EXISTS idx_deployments_agent_id ON agentregistry.deployments(agent_id);
     CREATE INDEX IF NOT EXISTS idx_deployments_status ON agentregistry.deployments(status);
 
-  002_agents_schema.sql: |
+  2_agents_schema.up.sql: |
     CREATE SCHEMA IF NOT EXISTS agents;
 
     GRANT USAGE ON SCHEMA agents TO mcp_server;
