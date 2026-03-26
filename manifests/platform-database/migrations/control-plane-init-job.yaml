@@ -31,14 +31,9 @@ spec:
               name: platform-db-app
               key: password
         command:
-          - psql
-          - -h
-          - platform-db-rw
-          - -U
-          - postgres
-          - -d
-          - control_plane
+          - sh
           - -c
           - |
-            GRANT CREATE ON SCHEMA public TO mcp_server;
-            GRANT CREATE ON SCHEMA public TO agentregistry;
+            psql -h platform-db-rw -U postgres -d control_plane \
+              -c "GRANT CREATE ON SCHEMA public TO mcp_server;" \
+              -c "GRANT CREATE ON SCHEMA public TO agentregistry;"

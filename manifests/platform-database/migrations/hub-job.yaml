@@ -29,10 +29,9 @@ spec:
               name: platform-db-app
               key: password
         command:
-          - migrate
-          - -path=/migrations
-          - -database=postgresql://spoke_controller:$(DB_PASSWORD)@platform-db-rw:5432/hub?sslmode=require
-          - up
+          - sh
+          - -c
+          - migrate -path=/migrations -database="postgresql://postgres:${DB_PASSWORD}@platform-db-rw:5432/hub?sslmode=require" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations
