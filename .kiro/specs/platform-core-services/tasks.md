@@ -406,7 +406,72 @@ This implementation provides Day 0 core platform services required for agent-cor
 - Performance test with multiple concurrent operations
 - Confirm all services are ready for agent-core integration
 
-**PAUSE: User must approve final validation before agent-core integration**
+**PAUSE: User must approve Phase 10 before proceeding to Phase 11**
+
+---
+
+## Phase 11: Crossplane Abstraction Layer Deployment (CRITICAL)
+
+**Goal:** Deploy Crossplane platform APIs to enforce open-sbt patterns
+
+### Tasks
+
+- [ ] 11.1 Deploy Crossplane core infrastructure
+  - [ ] 11.1.1 Deploy Crossplane to Hub cluster in `crossplane-system` namespace
+  - [ ] 11.1.2 Install `provider-kubernetes` for CNPG and secret management
+  - [ ] 11.1.3 Install `provider-helm` for spoke cluster deployments
+  - [ ] 11.1.4 Configure Crossplane RBAC and service accounts
+
+- [ ] 11.2 Deploy External Secrets Operator (Infisical integration)
+  - [ ] 11.2.1 Deploy External Secrets Operator to Hub cluster
+  - [ ] 11.2.2 Create `ClusterSecretStore` for Infisical backend
+  - [ ] 11.2.3 Configure Infisical API credentials and endpoints
+  - [ ] 11.2.4 Test PushSecret functionality with sample secret
+
+- [ ] 11.3 Deploy Velero (Backup management)
+  - [ ] 11.3.1 Deploy Velero to Hub cluster with Hetzner S3 backend
+  - [ ] 11.3.2 Configure backup schedules for CNPG clusters
+  - [ ] 11.3.3 Set up backup retention policies
+  - [ ] 11.3.4 Test backup and restore functionality
+
+- [ ] 11.4 Create Platform XRDs (CRITICAL - No K8s Import Rule)
+  - [ ] 11.4.1 Create `xrds/definitions/database.opensbt.io_tenantdatabases.yaml`
+  - [ ] 11.4.2 Create `xrds/definitions/cluster.opensbt.io_spokeclusters.yaml`
+  - [ ] 11.4.3 Create `xrds/definitions/storage.opensbt.io_tenantbuckets.yaml`
+  - [ ] 11.4.4 Apply XRDs to Hub cluster
+
+- [ ] 11.5 Create Platform Compositions (CRITICAL - Crossplane Border Rule)
+  - [ ] 11.5.1 Create `xrds/compositions/database-cnpg-velero-infisical.yaml`
+  - [ ] 11.5.2 Create `xrds/compositions/cluster-hetzner-capi.yaml`
+  - [ ] 11.5.3 Create `xrds/compositions/storage-hetzner-s3.yaml`
+  - [ ] 11.5.4 Apply Compositions to Hub cluster
+
+- [ ] 11.6 Update Application Plane Helm Chart (CRITICAL - Invisible Secrets Rule)
+  - [ ] 11.6.1 Replace raw CNPG YAMLs with TenantDatabase Claims
+  - [ ] 11.6.2 Remove all direct Kubernetes resource templates
+  - [ ] 11.6.3 Ensure only Namespaces, RBAC, and Claims are generated
+  - [ ] 11.6.4 Update Go code to use ISecretManager (Infisical) instead of K8s secrets
+
+- [ ] 11.7 Enforce architectural rules
+  - [ ] 11.7.1 Audit `internal/opensbt/` for `k8s.io/client-go` imports (FORBIDDEN)
+  - [ ] 11.7.2 Verify Helm charts only emit Claims, not raw resources
+  - [ ] 11.7.3 Confirm Go code uses Infisical SDK for secret access
+  - [ ] 11.7.4 Test tenant provisioning via Crossplane Claims
+
+**Manual Testing Checkpoint:**
+- Verify Crossplane providers are healthy and ready
+- Test XRD and Composition deployment
+- Create test TenantDatabase Claim and verify CNPG cluster creation
+- Confirm Infisical PushSecret pushes credentials correctly
+- Verify Velero backup annotations work on CNPG clusters
+- Test complete tenant provisioning flow via Claims
+
+**CRITICAL VALIDATION:**
+- NO Go code in `internal/opensbt/` imports `k8s.io/client-go`
+- Helm charts emit ONLY Claims, Namespaces, and RBAC
+- All database passwords retrieved via Infisical API, not K8s secrets
+
+**PAUSE: User must approve Phase 11 before production deployment**
 
 ---
 

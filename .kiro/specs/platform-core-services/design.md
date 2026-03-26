@@ -257,6 +257,178 @@ hub spoke delete <cluster-name>                                     # Commits de
 - Automatic kubeconfig secret generation in `zero-ops-system` namespace
 - Spoke Controller deployment via GitOps fleet repository
 
+### 2.8 Crossplane Platform APIs (XRDs) - CRITICAL
+
+**Purpose:** Enforce open-sbt abstraction layer to prevent custom infrastructure code
+
+**CRITICAL RULE ENFORCEMENT:**
+- Hub cluster hosts Crossplane and platform XRDs
+- Application Plane NEVER writes raw Kubernetes resources
+- All infrastructure provisioned via Crossplane Claims
+- Secrets managed via Infisical integration
+- Backups handled via Velero annotations
+
+**Directory Structure (MANDATORY):**
+```
+zero-ops/
+├── xrds/                                  # Platform Definitions (Hub Day 0)
+│   ├── definitions/                       # APIs exposed to Application Plane
+│   │   ├── database.opensbt.io_tenantdatabases.yaml
+│   │   ├── cluster.opensbt.io_spokeclusters.yaml
+│   │   └── storage.opensbt.io_tenantbuckets.yaml
+│   │
+│   └── compositions/                      # Implementation of APIs
+│       ├── database-cnpg-velero-infisical.yaml  # CNPG + Infisical + Velero
+│       ├── cluster-hetzner-capi.yaml
+│       └── storage-hetzner-s3.yaml
+│
+├── internal/opensbt/providers/gitops/
+│   └── helm-chart/                        # Tenant Instances (Spoke Day 1+)
+│       ├── templates/
+│       │   ├── database-claim.yaml        # XRC Claims only
+│       │   ├── namespace.yaml
+│       │   └── rbac.yaml
+│       └── values.yaml
+```
+
+**Crossplane Provider Requirements:**
+- `provider-kubernetes`: Deploy CNPG clusters and secrets
+- `provider-helm`: Deploy Helm charts to spoke clusters
+- External Secrets Operator: Infisical integration
+- Velero: Automated backup management
+
+**XRD Example - Tenant Database:**
+```yaml
+# xrds/definitions/database.opensbt.io_tenantdatabases.yaml
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xtenantdatabases.platform.opensbt.io
+spec:
+  group: platform.opensbt.io
+  names:
+    kind: XTenantDatabase
+    plural: xtenantdatabases
+  claimNames:
+    kind: TenantDatabase
+    plural: tenantdatabases
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              size:
+                type: string
+                enum: ["small", "medium", "large"]
+              backup:
+                type: boolean
+                default: true
+          status:
+            type: object
+            properties:
+              connectionSecret:
+                type: string
+```
+
+**Composition Example - Database with Infisical + Velero:**
+```yaml
+# xrds/compositions/database-cnpg-velero-infisical.yaml
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tenant-database-standard
+  labels:
+    crossplane.io/xrd: xtenantdatabases.platform.opensbt.io
+spec:
+  mode: Resources
+  compositeTypeRef:
+    apiVersion: platform.opensbt.io/v1alpha1
+    kind: XTenantDatabase
+  resources:
+  # 1. CNPG Cluster with Velero backup annotations
+  - name: cnpg-cluster
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              annotations:
+                backup.velero.io/backup-volumes: "pgdata"
+            spec:
+              instances: 2
+              storage:
+                size: 20Gi
+              backup:
+                barmanObjectStore:
+                  destinationPath: s3://zero-ops-backups/tenants/
+                  endpointURL: https://fsn1.your-objectstorage.com
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.claimRef.namespace
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+    
+  # 2. Infisical PushSecret for zero-touch credential management
+  - name: infisical-push-secret
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: external-secrets.io/v1alpha1
+            kind: PushSecret
+            spec:
+              refreshInterval: "1h"
+              secretStoreRefs:
+              - name: infisical-backend
+                kind: ClusterSecretStore
+              data:
+              - match:
+                  secretKey: password
+                  remoteRef:
+                    remoteKey: DB_PASSWORD
+    patches:
+    - type: CombineFromComposite
+      combine:
+        variables:
+        - fromFieldPath: spec.claimRef.namespace
+        strategy: string
+        string:
+          fmt: "/tenants/%s/DB_PASSWORD"
+      toFieldPath: spec.forProvider.manifest.spec.data[0].match.remoteRef.remoteKey
+```
+
+**Application Plane Helm Chart (CORRECTED):**
+```yaml
+# internal/opensbt/providers/gitops/helm-chart/templates/database-claim.yaml
+apiVersion: platform.opensbt.io/v1alpha1
+kind: TenantDatabase  # Crossplane Claim - NOT raw CNPG
+metadata:
+  name: {{ .Values.tenantId }}-db
+  namespace: {{ .Values.tenantId }}
+spec:
+  size: {{ .Values.database.size | default "small" }}
+  backup: {{ .Values.database.backup | default true }}
+  compositionRef:
+    name: tenant-database-standard
+```
+
+**CRITICAL ENFORCEMENT RULES:**
+
+1. **No K8s Import Rule:** No Go file in `internal/opensbt/` may import `k8s.io/client-go`
+2. **Crossplane Border Rule:** Helm charts emit ONLY Namespaces, RBAC, and Crossplane Claims
+3. **Invisible Secrets Rule:** Go code uses `ISecretManager` (Infisical), never K8s secrets
+
 ## 3. Database Architecture (CORRECTED)
 
 ### 3.1 Database Separation
@@ -451,22 +623,39 @@ spec:
 - Hub PostgREST at `postgrest.hub.zero-ops.io` (external)
 - VictoriaMetrics at `victoriametrics.zero-ops-system.svc.cluster.local:8428`
 
+**Crossplane Platform APIs (CRITICAL):**
+- XRDs deployed to Hub cluster for tenant abstraction
+- Compositions handle CNPG + Infisical + Velero integration
+- External Secrets Operator for zero-touch credential management
+- Velero for automated backup management
+
 **Service Discovery:**
 - All services accessible via consistent cluster DNS naming
 - Health checks and readiness probes configured
 - Service mesh integration (if applicable)
 
-### 7.2 Tenant Onboarding Integration
+### 7.2 Tenant Onboarding Integration (UPDATED)
 
 **Spoke Cluster Assignment:**
 - Tenant tier determines spoke cluster type (pool vs silo)
 - JWT tokens include `spoke_cluster_id` claim
 - AgentGateway routes based on spoke assignment
 
+**Crossplane Provisioning (CORRECTED):**
+- Tenant databases provisioned via `TenantDatabase` Claims
+- Crossplane Compositions handle CNPG, Infisical, and Velero
+- Application Plane Helm charts emit ONLY Claims, not raw resources
+- Secrets managed via Infisical, never direct K8s secret access
+
 **Cross-Cluster RBAC:**
 - Spoke Controllers authenticate to Hub PostgREST via OAuth2
 - CAPI kubeconfig secrets managed automatically
 - Service account rotation and credential refresh
+
+**CRITICAL ENFORCEMENT RULES:**
+1. **No K8s Import Rule:** No Go file in `internal/opensbt/` may import `k8s.io/client-go`
+2. **Crossplane Border Rule:** Helm charts emit ONLY Namespaces, RBAC, and Crossplane Claims
+3. **Invisible Secrets Rule:** Go code uses `ISecretManager` (Infisical), never K8s secrets
 
 ## 8. Testing Strategy
 
