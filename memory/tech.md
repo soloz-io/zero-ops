@@ -94,6 +94,10 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Infisical**: Secret manager (replaces AWS Secrets Manager)
 - **Crossplane + ArgoCD**: Provisioning provider (replaces CloudFormation)
 
+### Backup
+- **velero**: Kubernetes backup and recovery tool
+- **S3 Backup**: CNPG Database backup
+
 ### Architecture Separation
 - **Control Plane**: Tenant management, billing, provisioning, identity, MCP server
 - **Application Plane**: Tenant workloads, databases, application services
