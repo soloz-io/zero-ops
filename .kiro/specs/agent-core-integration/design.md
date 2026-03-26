@@ -13,6 +13,7 @@ This design implements the missing integration components for agents-core identi
 - MCP Server executable entrypoint (`cmd/mcp-server/main.go`)
 - Kubernetes Deployment Adapter for direct Spoke cluster CRD application
 - Spoke Controller for status synchronization
+- Hub Event Router for pg_notify → NATS bridge (`cmd/hub-event-router/main.go`)
 - NATS Status Subscriber for closing the status loop
 - Cluster deployment manifests and RBAC
 - Telemetry integration with opensbt libraries
@@ -30,7 +31,7 @@ This design implements the missing integration components for agents-core identi
 - **Telemetry First**: All components instrumented with metrics, tracing, and logging
 - **Production Ready**: Includes deployment manifests, RBAC, and cluster integration
 
-### 1.2 Integration Architecture
+### 1.2 Integration Architecture (CORRECTED)
 
 ```
 MCP Client (Cursor/Goose)
@@ -47,11 +48,18 @@ Kagent Controller (Spoke)
     ↓ Reconciles Agent CRD → Pod + KEDA
 Spoke Controller (NEW - operators/spoke-controller)
     ↓ Watches pods → writes status to Hub PostgREST
-Hub DB trigger → pg_notify → NATS
-    ↓
-NATS Subscriber (NEW - cmd/nats-subscriber)
+Hub Centralised DB
+    ↓ pg_notify trigger
+Hub Event Router (NEW - cmd/hub-event-router)
+    ↓ Listens to pg_notify → publishes to NATS
+NATS hub.platform.agent.infra_status subject
+    ↓ NATS subscription
+NATS Status Subscriber (NEW - cmd/nats-subscriber)
     ↓ Updates AgentRegistry deployment status
 ```
+
+**CRITICAL CORRECTION - pg_notify Bridge:**
+PostgreSQL pg_notify cannot natively publish to NATS. A Hub Event Router service is required to bridge pg_notify events to NATS subjects.
 
 ## 2. Missing Component Implementations
 
@@ -182,6 +190,14 @@ type K8sSpokeAdapter struct {
 }
 
 func (a *K8sSpokeAdapter) getSpokeClient(ctx context.Context, spokeClusterID string) (dynamic.Interface, error) {
+    // Check cache first
+    a.mutex.RLock()
+    if client, exists := a.spokeClients[spokeClusterID]; exists {
+        a.mutex.RUnlock()
+        return client, nil
+    }
+    a.mutex.RUnlock()
+    
     // 1. Read CAPI-generated kubeconfig secret from Hub cluster
     secret := &corev1.Secret{}
     err := a.hubClient.Get(ctx, client.ObjectKey{
@@ -198,8 +214,26 @@ func (a *K8sSpokeAdapter) getSpokeClient(ctx context.Context, spokeClusterID str
         return nil, fmt.Errorf("failed to parse kubeconfig: %w", err)
     }
     
-    // 3. Return dynamic client for unstructured CRD operations
-    return dynamic.NewForConfig(restConfig)
+    // 3. Create dynamic client for unstructured CRD operations
+    dynamicClient, err := dynamic.NewForConfig(restConfig)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+    }
+    
+    // 4. Cache the client
+    a.mutex.Lock()
+    a.spokeClients[spokeClusterID] = dynamicClient
+    a.mutex.Unlock()
+    
+    return dynamicClient, nil
+}
+
+func (a *K8sSpokeAdapter) invalidateClient(spokeClusterID string) {
+    a.mutex.Lock()
+    delete(a.spokeClients, spokeClusterID)
+    a.mutex.Unlock()
+    a.logger.InfoContext(context.Background(), "Invalidated cached client due to auth failure", 
+        "spoke_cluster_id", spokeClusterID)
 }
 
 func (a *K8sSpokeAdapter) ApplyCRD(ctx context.Context, spokeClusterID string, agent *models.Agent, deploymentID string) error {
@@ -259,9 +293,35 @@ func (a *K8sSpokeAdapter) ApplyCRD(ctx context.Context, spokeClusterID string, a
         })
     
     if err != nil {
-        a.metrics.IncrementCRDApplyError(spokeClusterID)
-        span.RecordError(err)
-        return fmt.Errorf("failed to apply CRD to spoke %s: %w", spokeClusterID, err)
+        // Check if error is due to authentication/authorization (kubeconfig rotation)
+        if isAuthError(err) {
+            a.logger.WarnContext(ctx, "Authentication error detected, invalidating client cache",
+                "spoke_cluster_id", spokeClusterID,
+                "error", err,
+            )
+            a.invalidateClient(spokeClusterID)
+            
+            // Retry once with fresh client
+            spokeClient, retryErr := a.getSpokeClient(ctx, spokeClusterID)
+            if retryErr != nil {
+                a.metrics.IncrementCRDApplyError(spokeClusterID)
+                span.RecordError(retryErr)
+                return fmt.Errorf("failed to get fresh spoke client after auth error: %w", retryErr)
+            }
+            
+            _, err = spokeClient.Resource(gvr).
+                Namespace(agent.Namespace).
+                Apply(ctx, crd.GetName(), crd, metav1.ApplyOptions{
+                    FieldManager: "agents-core-deployment-adapter",
+                    Force:        true,
+                })
+        }
+        
+        if err != nil {
+            a.metrics.IncrementCRDApplyError(spokeClusterID)
+            span.RecordError(err)
+            return fmt.Errorf("failed to apply CRD to spoke %s: %w", spokeClusterID, err)
+        }
     }
     
     a.metrics.IncrementCRDApplySuccess(spokeClusterID)
@@ -286,9 +346,35 @@ func (a *K8sSpokeAdapter) DeleteCRD(ctx context.Context, spokeClusterID string, 
         Resource: "agents",
     }
     
-    return spokeClient.Resource(gvr).
+    err = spokeClient.Resource(gvr).
         Namespace(namespace).
         Delete(ctx, fmt.Sprintf("agent-%s", agentID), metav1.DeleteOptions{})
+    
+    // Handle auth errors for delete operations too
+    if err != nil && isAuthError(err) {
+        a.invalidateClient(spokeClusterID)
+        spokeClient, retryErr := a.getSpokeClient(ctx, spokeClusterID)
+        if retryErr != nil {
+            return fmt.Errorf("failed to get fresh spoke client for delete: %w", retryErr)
+        }
+        err = spokeClient.Resource(gvr).
+            Namespace(namespace).
+            Delete(ctx, fmt.Sprintf("agent-%s", agentID), metav1.DeleteOptions{})
+    }
+    
+    return err
+}
+
+// Helper function to detect authentication/authorization errors
+func isAuthError(err error) bool {
+    if err == nil {
+        return false
+    }
+    errStr := strings.ToLower(err.Error())
+    return strings.Contains(errStr, "unauthorized") ||
+           strings.Contains(errStr, "forbidden") ||
+           strings.Contains(errStr, "x509") ||
+           strings.Contains(errStr, "certificate")
 }
 ```
 
@@ -429,7 +515,90 @@ func (r *AgentStatusController) syncToHub(ctx context.Context, agent *v1alpha2.A
 }
 ```
 
-### 2.4 NATS Status Subscriber
+### 2.4 Hub Event Router (NEW - pg_notify Bridge)
+
+**Location:** `cmd/hub-event-router/main.go`
+
+**Purpose:** Bridge PostgreSQL pg_notify events to NATS subjects
+
+**CRITICAL:** PostgreSQL pg_notify cannot natively publish to NATS. This service is required to bridge the gap.
+
+**Key Requirements:**
+- Listen to Hub Centralised DB pg_notify events
+- Publish events to NATS `hub.platform.agent.infra_status` subject
+- Handle connection failures and retries
+- Instrument with telemetry
+
+**Implementation Pattern:**
+```go
+// cmd/hub-event-router/main.go
+type HubEventRouter struct {
+    dbListener *pq.Listener
+    natsConn   *nats.Conn
+    tracer     trace.Tracer
+    metrics    *metrics.Manager
+    logger     *slog.Logger
+}
+
+func (r *HubEventRouter) Start(ctx context.Context) error {
+    // 1. Connect to Hub Centralised DB for pg_notify
+    r.dbListener = pq.NewListener(r.hubDBConnectionString, 10*time.Second, time.Minute, nil)
+    err := r.dbListener.Listen("hub.platform.agent.infra_status")
+    if err != nil {
+        return fmt.Errorf("failed to listen to pg_notify: %w", err)
+    }
+    
+    // 2. Start event processing loop
+    go r.processEvents(ctx)
+    
+    r.logger.InfoContext(ctx, "Hub event router started")
+    <-ctx.Done()
+    return nil
+}
+
+func (r *HubEventRouter) processEvents(ctx context.Context) {
+    for {
+        select {
+        case notification := <-r.dbListener.Notify:
+            if notification != nil {
+                r.handleNotification(ctx, notification)
+            }
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+
+func (r *HubEventRouter) handleNotification(ctx context.Context, notification *pq.Notification) {
+    ctx, span := r.tracer.StartSpan(ctx, "hub_event_router.handle_notification")
+    defer span.End()
+    
+    // Parse pg_notify payload
+    var payload map[string]interface{}
+    if err := json.Unmarshal([]byte(notification.Extra), &payload); err != nil {
+        r.logger.ErrorContext(ctx, "Failed to parse pg_notify payload", "error", err)
+        r.metrics.IncrementEventProcessingError("parse_error")
+        return
+    }
+    
+    // Publish to NATS subject
+    err := r.natsConn.Publish("hub.platform.agent.infra_status", []byte(notification.Extra))
+    if err != nil {
+        r.logger.ErrorContext(ctx, "Failed to publish to NATS", "error", err)
+        r.metrics.IncrementEventProcessingError("nats_publish_error")
+        span.RecordError(err)
+        return
+    }
+    
+    r.metrics.IncrementEventProcessingSuccess()
+    r.logger.InfoContext(ctx, "Event routed successfully",
+        "channel", notification.Channel,
+        "payload", notification.Extra,
+    )
+}
+```
+
+### 2.5 NATS Status Subscriber
 
 **Location:** `cmd/nats-subscriber/main.go`
 
@@ -454,7 +623,7 @@ type NATSStatusSubscriber struct {
 }
 
 func (s *NATSStatusSubscriber) Start(ctx context.Context) error {
-    // Subscribe to Hub NATS subject
+    // Subscribe to NATS subject (receives events from Hub Event Router)
     _, err := s.natsConn.Subscribe("hub.platform.agent.infra_status", s.handleStatusUpdate)
     if err != nil {
         return fmt.Errorf("failed to subscribe to NATS: %w", err)
@@ -608,6 +777,10 @@ manifests/
     │   ├── servicemonitor.yaml      # NEW - VictoriaMetrics integration
     │   ├── configmap.yaml
     │   └── rbac.yaml
+    ├── hub-event-router/            # NEW - pg_notify → NATS bridge
+    │   ├── deployment.yaml
+    │   ├── configmap.yaml
+    │   └── rbac.yaml
     ├── nats-subscriber/
     │   ├── deployment.yaml
     │   ├── configmap.yaml
@@ -655,6 +828,11 @@ roleRef:
 - Watch Agent CRDs and Deployments in Spoke cluster
 - Read access to KEDA ScaledObjects
 - Network access to Hub PostgREST with client_credentials JWT
+
+**Hub Event Router RBAC:**
+- Database connection to Hub Centralised DB for pg_notify
+- NATS publish permissions to `hub.platform.agent.infra_status` subject
+- Network access between Hub DB and NATS cluster
 
 **NATS Subscriber RBAC:**
 - NATS subscribe permissions
