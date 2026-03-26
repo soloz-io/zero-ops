@@ -389,6 +389,17 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Println("[postboot] ✓ All components installed")
 	
+	// Apply platform-core app-of-apps
+	fmt.Println("[postboot] Applying platform-core app-of-apps...")
+	cmd := exec.CommandContext(ctx, "kubectl", "apply",
+		"--kubeconfig", mgmtKubeconfig,
+		"-f", "manifests/argocd/app-of-apps.yaml",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply app-of-apps: %w\n%s", err, output)
+	}
+	fmt.Println("[postboot] ✓ platform-core app-of-apps applied")
+	
 		// Update state
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
 		bootstrapState.CurrentPhase = state.PhaseComplete
