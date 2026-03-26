@@ -11,6 +11,8 @@ spec:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
     path: manifests/platform-database
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: zero-ops-system
