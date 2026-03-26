@@ -208,7 +208,7 @@ This implementation follows a phased approach with manual testing gates between 
   - [ ] 6.1.1 Add UpdateAgent method to agent_service.go
   - [ ] 6.1.2 Update agent in AgentRegistry (POST /v0/agents - upsert)
   - [ ] 6.1.3 Check deployment status via AgentRegistry
-  - [ ] 6.1.4 If deployed: generate updated CRD and commit to GitOps
+  - [ ] 6.1.4 If deployed: call AgentRegistry to update deployment (triggers Deployment Adapter)
   - [ ] 6.1.5 If not deployed: return success immediately
   - [ ] 6.1.6 Publish NATS event (opensbt_agentUpdated)
 
@@ -221,7 +221,7 @@ This implementation follows a phased approach with manual testing gates between 
 - [ ] 6.3 Implement delete_agent method
   - [ ] 6.3.1 Add DeleteAgent method to agent_service.go
   - [ ] 6.3.2 Check deployments via AgentRegistry
-  - [ ] 6.3.3 For each deployment: commit CRD deletion to Git via IProvisioner.UpdateTenantResources(operation: "delete")
+  - [ ] 6.3.3 For each deployment: call AgentRegistry DELETE /v0/deployments/{id} (triggers Deployment Adapter)
   - [ ] 6.3.4 Delete deployment records from AgentRegistry
   - [ ] 6.3.5 Delete agent from AgentRegistry
   - [ ] 6.3.6 Publish NATS event (hub.platform.agent.deleted)

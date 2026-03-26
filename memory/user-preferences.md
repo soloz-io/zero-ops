@@ -50,3 +50,8 @@ update_criteria: User feedback on communication, new preferences expressed, work
 - **No CLI/UI in Phase 1-2**: CLI is ONLY for initial hub bootstrap, not for tenant operations
 - **No Web UI in Phase 1-2**: All operations through MCP servers, no web console
 - **Agent-First Design**: Platform designed for AI agents as primary users, not humans
+
+## GitOps Workflow
+- **Never apply manifests manually**: All Kubernetes resources MUST be managed via GitOps
+- **ArgoCD is source of truth**: Commit to Git, ArgoCD syncs automatically
+- **Bootstrap exception**: Only hub bootstrap CLI can apply root ArgoCD app, everything else via Git
