@@ -26,12 +26,18 @@ metadata:
   namespace: zero-ops-system
 data:
   nats.conf: |
+    server_name: $POD_NAME
     listen: 0.0.0.0:4222
     http: 8222
     
     cluster {
+      name: zero-ops-nats
       listen: 0.0.0.0:6222
-      routes: ["nats://nats-0.nats.zero-ops-system.svc.cluster.local:6222"]
+      routes: [
+        "nats://nats-0.nats.zero-ops-system.svc.cluster.local:6222",
+        "nats://nats-1.nats.zero-ops-system.svc.cluster.local:6222",
+        "nats://nats-2.nats.zero-ops-system.svc.cluster.local:6222"
+      ]
     }
     
     jetstream {
@@ -68,6 +74,11 @@ spec:
       containers:
       - name: nats
         image: nats:2.10
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         ports:
         - containerPort: 4222
           name: client
