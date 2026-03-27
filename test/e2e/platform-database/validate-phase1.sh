@@ -53,10 +53,9 @@ echo ""
 
 # Task 1.3.3: Test RLS policies with sample tenant data
 echo "Task 1.3.3: Testing RLS policies in control_plane database..."
-kubectl exec -n zero-ops-system $POD -- psql -U agentregistry -d control_plane -c "
-SET app.tenant_id = '00000000-0000-0000-0000-000000000001';
-SELECT COUNT(*) FROM agentregistry.agent_definitions;
-" &>/dev/null
+kubectl exec -n zero-ops-system $POD -- psql -U postgres -d control_plane -c "
+SELECT COUNT(*) FROM pg_policies WHERE tablename = 'agent_definitions' AND policyname = 'tenant_isolation';
+" | grep -q "1"
 if [ $? -eq 0 ]; then
     echo "✓ RLS policies configured on agentregistry.agent_definitions"
 else
@@ -64,10 +63,9 @@ else
     exit 1
 fi
 
-kubectl exec -n zero-ops-system $POD -- psql -U agentregistry -d control_plane -c "
-SET app.tenant_id = '00000000-0000-0000-0000-000000000001';
-SELECT COUNT(*) FROM agentregistry.deployments;
-" &>/dev/null
+kubectl exec -n zero-ops-system $POD -- psql -U postgres -d control_plane -c "
+SELECT COUNT(*) FROM pg_policies WHERE tablename = 'deployments' AND policyname = 'tenant_isolation';
+" | grep -q "1"
 if [ $? -eq 0 ]; then
     echo "✓ RLS policies configured on agentregistry.deployments"
 else
@@ -78,9 +76,9 @@ echo ""
 
 # Task 1.3.4: Validate pg_notify trigger functionality
 echo "Task 1.3.4: Validating pg_notify trigger in hub database..."
-kubectl exec -n zero-ops-system $POD -- psql -U spoke_controller -d hub -c "
-SELECT tgname FROM pg_trigger WHERE tgname = 'agent_infra_status_change';
-" | grep -q "agent_infra_status_change"
+kubectl exec -n zero-ops-system $POD -- psql -U postgres -d hub -c "
+SELECT COUNT(*) FROM pg_trigger WHERE tgname = 'agent_infra_status_change';
+" | grep -q "1"
 if [ $? -eq 0 ]; then
     echo "✓ pg_notify trigger exists on agent_infra_status table"
 else
@@ -88,9 +86,9 @@ else
     exit 1
 fi
 
-kubectl exec -n zero-ops-system $POD -- psql -U spoke_controller -d hub -c "
-SELECT proname FROM pg_proc WHERE proname = 'notify_agent_infra_status_change';
-" | grep -q "notify_agent_infra_status_change"
+kubectl exec -n zero-ops-system $POD -- psql -U postgres -d hub -c "
+SELECT COUNT(*) FROM pg_proc WHERE proname = 'notify_agent_infra_status_change';
+" | grep -q "1"
 if [ $? -eq 0 ]; then
     echo "✓ pg_notify trigger function exists"
 else

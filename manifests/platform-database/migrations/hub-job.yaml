@@ -23,10 +23,16 @@ spec:
       containers:
       - name: migrate
         image: migrate/migrate:latest
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: hub-db-credentials
+              key: url
         command:
           - sh
           - -c
-          - migrate -path=/migrations -database="postgresql://spoke_controller:changeme@platform-db-rw:5432/hub?sslmode=require" up
+          - migrate -path=/migrations -database="${DATABASE_URL}" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations

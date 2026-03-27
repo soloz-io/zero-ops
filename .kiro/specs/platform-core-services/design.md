@@ -445,7 +445,79 @@ spec:
 - PostgREST API exposure
 - Connection: `hub-db-credentials` secret
 
-### 3.2 Connection String Routing (CORRECTED)
+### 3.2 Secure Credential Management (CRITICAL)
+
+**Zero-Touch Credential Pattern (from Identity Setup):**
+
+All database credentials MUST follow the secure pattern established in `manifests/platform-identity/databases/`:
+
+1. **Secret Generation:** Credentials generated via Infisical or secure bootstrap script
+2. **Role Creation Job:** Kubernetes Job reads secrets via `secretKeyRef` and creates database roles
+3. **No Hardcoded Passwords:** NEVER use hardcoded passwords in CNPG `postInitSQL` or manifests
+
+**Example (Correct Pattern):**
+```yaml
+# Step 1: Generate secure credentials (via Infisical or bootstrap)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agentregistry-db-credentials
+  namespace: platform-agentregistry
+type: Opaque
+data:
+  password: <base64-encoded-secure-password>  # Generated, NOT hardcoded
+  url: <base64-encoded-connection-string>
+
+---
+# Step 2: Create database roles via Job (NOT postInitSQL)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: setup-agentregistry-role
+  namespace: zero-ops-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: setup-role
+        image: postgres:16-alpine
+        env:
+        - name: AGENTREGISTRY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: agentregistry-db-credentials
+              key: password
+        - name: PGHOST
+          value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+        - name: PGDATABASE
+          value: "control_plane"
+        - name: PGUSER
+          value: "postgres"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-superuser
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          psql -c "CREATE ROLE agentregistry_user WITH LOGIN PASSWORD '${AGENTREGISTRY_PASSWORD}';"
+          psql -c "GRANT ALL PRIVILEGES ON SCHEMA agentregistry TO agentregistry_user;"
+          psql -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA agentregistry TO agentregistry_user;"
+      restartPolicy: OnFailure
+```
+
+**FORBIDDEN Pattern:**
+```yaml
+# NEVER DO THIS - Hardcoded passwords
+bootstrap:
+  initdb:
+    postInitSQL:
+    - CREATE USER agentregistry WITH PASSWORD 'changeme';  # FORBIDDEN
+```
+
+### 3.3 Connection String Routing (CORRECTED)
 
 ```yaml
 # AgentRegistry deployment

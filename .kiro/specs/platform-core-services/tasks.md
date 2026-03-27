@@ -18,31 +18,46 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 **Goal:** Extend existing CNPG clusters with required schemas and routing
 
+**CRITICAL SECURITY REQUIREMENT:** All database credentials MUST follow the secure pattern from `manifests/platform-identity/databases/setup-roles-job.yaml`. NO hardcoded passwords allowed.
+
 ### Tasks
 
-- [x] 1.1 Extend Control Plane Shared DB
-  - [x] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
-  - [x] 1.1.2 Create agent definitions and deployments tables
-  - [x] 1.1.3 Configure RLS policies for tenant isolation
-  - [x] 1.1.4 Create `control-plane-db-credentials` secret with proper routing
+- [ ] 1.1 Extend Control Plane Shared DB
+  - [ ] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
+  - [ ] 1.1.2 Create agent definitions and deployments tables
+  - [ ] 1.1.3 Configure RLS policies for tenant isolation
+  - [ ] 1.1.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
+  - [ ] 1.1.5 **SECURITY:** Create Kubernetes Job to create `agentregistry_user` role using `secretKeyRef` pattern
+  - [ ] 1.1.6 Create `control-plane-db-credentials` secret with proper routing
 
-- [x] 1.2 Extend Hub Centralised DB
-  - [x] 1.2.1 Add `agent_infra_status` table to existing `hub` database
-  - [x] 1.2.2 Create pg_notify trigger for NATS integration
-  - [x] 1.2.3 Configure RLS policies for cross-cluster access
-  - [x] 1.2.4 Create `hub-db-credentials` secret with proper routing
+- [ ] 1.2 Extend Hub Centralised DB
+  - [ ] 1.2.1 Add `agent_infra_status` table to existing `hub` database
+  - [ ] 1.2.2 Create pg_notify trigger for NATS integration
+  - [ ] 1.2.3 Configure RLS policies for cross-cluster access
+  - [ ] 1.2.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
+  - [ ] 1.2.5 **SECURITY:** Create Kubernetes Job to create `hub_postgrest_user` role using `secretKeyRef` pattern
+  - [ ] 1.2.6 Create `hub-db-credentials` secret with proper routing
 
 - [ ] 1.3 Database connection validation
   - [ ] 1.3.1 Verify `control-plane-db-credentials` routes to `control_plane` database
   - [ ] 1.3.2 Verify `hub-db-credentials` routes to `hub` database
   - [ ] 1.3.3 Test RLS policies with sample tenant data
   - [ ] 1.3.4 Validate pg_notify trigger functionality
+  - [ ] 1.3.5 **SECURITY:** Verify NO hardcoded passwords exist in any manifests or CNPG postInitSQL
+
+**Security Enforcement Checklist:**
+- [ ] All passwords generated via Infisical or secure bootstrap script
+- [ ] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
+- [ ] NO hardcoded passwords in CNPG `postInitSQL` blocks
+- [ ] NO plaintext passwords committed to Git
+- [ ] Pattern matches `manifests/platform-identity/databases/setup-roles-job.yaml`
 
 **Manual Testing Checkpoint:**
 - Connect to both databases using respective credentials
 - Verify schema separation and table access
 - Test RLS policies with different tenant contexts
 - Confirm pg_notify trigger fires on status updates
+- Audit all manifests for hardcoded credentials
 
 **PAUSE: User must approve Phase 1 before proceeding to Phase 2**
 
