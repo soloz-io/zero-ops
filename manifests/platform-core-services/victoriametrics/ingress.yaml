@@ -1,0 +1,69 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoriametrics-external
+  namespace: observability
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: victoriametrics-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "VictoriaMetrics Authentication Required"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - victoriametrics.hub.zero-ops.io
+    secretName: victoriametrics-tls
+  rules:
+  - host: victoriametrics.hub.zero-ops.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: victoria-metrics-cluster-vmselect
+            port:
+              number: 8481
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: victoriametrics-basic-auth
+  namespace: observability
+type: Opaque
+data:
+  # Username: keda-spoke
+  # Password: PLACEHOLDER - Replace with actual password via Infisical
+  auth: a2VkYS1zcG9rZTokYXByMSRILjRkTGRQRyRGdGhQdGRQdGhQdGhQdGhQdGhQdGg=
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keda-spoke-metrics
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: victoriametrics-query
+rules:
+- apiGroups: [""]
+  resources:
+  - services
+  verbs: ["get"]
+  resourceNames:
+  - victoria-metrics-cluster-vmselect
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keda-spoke-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: victoriametrics-query
+subjects:
+- kind: ServiceAccount
+  name: keda-spoke-metrics
+  namespace: observability
