@@ -1,10 +1,10 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: platform-victoriametrics
+  name: victoria-metrics-operator
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   project: default
   source:
@@ -13,7 +13,69 @@ spec:
     chart: victoria-metrics-operator
   destination:
     server: https://kubernetes.default.svc
-    namespace: victoriametrics-operator
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: victoria-metrics-cluster
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+  source:
+    repoURL: https://victoriametrics.github.io/helm-charts
+    targetRevision: 0.15.7
+    chart: victoria-metrics-cluster
+    helm:
+      values: |
+        vmselect:
+          replicaCount: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+        vminsert:
+          replicaCount: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+        vmstorage:
+          replicaCount: 2
+          persistentVolume:
+            enabled: true
+            size: 50Gi
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+        retentionPeriod: 30d
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
   syncPolicy:
     automated:
       prune: true
