@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://victoriametrics.github.io/helm-charts
-    targetRevision: 0.48.4
+    targetRevision: 0.59.3
     chart: victoria-metrics-operator
   destination:
     server: https://kubernetes.default.svc
