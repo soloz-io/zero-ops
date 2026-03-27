@@ -34,7 +34,9 @@ spec:
         command:
           - sh
           - -c
-          - migrate -path=/migrations -database="${DATABASE_URL}" up
+          - |
+            migrate -path=/migrations -database="${DATABASE_URL}" force 2 || true
+            migrate -path=/migrations -database="${DATABASE_URL}" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations

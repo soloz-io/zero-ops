@@ -55,3 +55,10 @@ As we implement the Platform Core Services, we must adhere strictly to the `open
 ### Summary and Intent
 
 Do not allow developer to work via isolated manual commands. Nip this in the bud now. By forcing them to test through ArgoCD during development, development might feel slightly slower today, but it guarantees that when you merge to `main`, your Day 0 platform will deploy flawlessly.
+
+**Pro tip**: Developers can use manual forced sync to test their changes faster in right way instead of waiting for argocd auto-sync.
+
+Example:
+kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"source":{"targetRevision":"272a135"}}}'
+
+kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
