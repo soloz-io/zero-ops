@@ -13,7 +13,7 @@ spec:
     chart: victoria-metrics-operator
   destination:
     server: https://kubernetes.default.svc
-    namespace: observability
+    namespace: victoriametrics
   syncPolicy:
     automated:
       prune: true
@@ -75,7 +75,7 @@ spec:
         retentionPeriod: 30d
   destination:
     server: https://kubernetes.default.svc
-    namespace: observability
+    namespace: victoriametrics
   syncPolicy:
     automated:
       prune: true
