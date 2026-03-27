@@ -30,6 +30,12 @@ data:
     listen: 0.0.0.0:4222
     http: 8222
     
+    # Allow anonymous access for internal cluster operations
+    # TODO: Implement proper auth via secrets in production
+    authorization {
+      timeout: 1
+    }
+    
     cluster {
       name: zero-ops-nats
       listen: 0.0.0.0:6222
