@@ -8,12 +8,12 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/soloz-io/zero-ops
-    targetRevision: HEAD
-    path: manifests/platform-core-services/victoriametrics
+    repoURL: https://victoriametrics.github.io/helm-charts
+    targetRevision: 0.48.4
+    chart: victoria-metrics-operator
   destination:
     server: https://kubernetes.default.svc
-    namespace: victoriametrics
+    namespace: victoriametrics-operator
   syncPolicy:
     automated:
       prune: true
