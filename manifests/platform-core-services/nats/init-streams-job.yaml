@@ -33,11 +33,8 @@ spec:
               --storage=file \
               --retention=limits \
               --max-age=7d \
-              --max-msgs=-1 \
-              --max-bytes=-1 \
-              --discard=old \
               --replicas=3 \
-              --force || echo "Stream agent-created already exists"
+              --defaults 2>/dev/null || echo "Stream agent-created exists"
             
             # Stream 2: Agent Deployed Events
             nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-deployed \
@@ -46,7 +43,7 @@ spec:
               --retention=limits \
               --max-age=7d \
               --replicas=3 \
-              --force || echo "Stream agent-deployed already exists"
+              --defaults 2>/dev/null || echo "Stream agent-deployed exists"
             
             # Stream 3: Agent Updated Events
             nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-updated \
@@ -55,7 +52,7 @@ spec:
               --retention=limits \
               --max-age=7d \
               --replicas=3 \
-              --force || echo "Stream agent-updated already exists"
+              --defaults 2>/dev/null || echo "Stream agent-updated exists"
             
             # Stream 4: Agent Deleted Events
             nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-deleted \
@@ -64,7 +61,7 @@ spec:
               --retention=limits \
               --max-age=7d \
               --replicas=3 \
-              --force || echo "Stream agent-deleted already exists"
+              --defaults 2>/dev/null || echo "Stream agent-deleted exists"
             
             # Stream 5: Agent Infrastructure Status (CRITICAL for Phase 6)
             nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-infra-status \
@@ -73,7 +70,7 @@ spec:
               --retention=limits \
               --max-age=30d \
               --replicas=3 \
-              --force || echo "Stream agent-infra-status already exists"
+              --defaults 2>/dev/null || echo "Stream agent-infra-status exists"
             
             echo "All JetStream streams created successfully"
             nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream list
