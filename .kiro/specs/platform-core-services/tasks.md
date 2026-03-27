@@ -69,11 +69,11 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 ### Tasks
 
-- [ ] 2.1 Deploy NATS cluster
-  - [ ] 2.1.1 Create `manifests/platform-core-services/nats/cluster.yaml`
-  - [ ] 2.1.2 Configure JetStream with persistent storage
-  - [ ] 2.1.3 Set up required subjects for agent lifecycle
-  - [ ] 2.1.4 Configure ACLs and subject permissions
+- [x] 2.1 Deploy NATS cluster
+  - [x] 2.1.1 Create `manifests/platform-core-services/nats/cluster.yaml`
+  - [x] 2.1.2 Configure JetStream with persistent storage
+  - [x] 2.1.3 Set up required subjects for agent lifecycle
+  - [x] 2.1.4 Configure ACLs and subject permissions
 
 - [ ] 2.2 Configure event subjects
   - [ ] 2.2.1 Create `hub.platform.agent.created` subject
@@ -83,8 +83,8 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 2.2.5 Create `hub.platform.agent.infra_status` subject (CRITICAL for status sync)
 
 - [ ] 2.3 Service configuration
-  - [ ] 2.3.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
-  - [ ] 2.3.2 Configure health checks and monitoring
+  - [x] 2.3.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
+  - [x] 2.3.2 Configure health checks and monitoring
   - [ ] 2.3.3 Set up service accounts for client authentication
   - [ ] 2.3.4 Configure network policies for secure access
 
