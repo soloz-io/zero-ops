@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-access
+  namespace: zero-ops-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  podSelector:
+    matchLabels:
+      app: nats
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow NATS client connections from zero-ops-system namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: zero-ops-system
+    ports:
+    - protocol: TCP
+      port: 4222
+  # Allow cluster communication between NATS pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 6222
+  # Allow monitoring/health checks
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: zero-ops-system
+    ports:
+    - protocol: TCP
+      port: 8222
+  egress:
+  # Allow NATS cluster communication
+  - to:
+    - podSelector:
+        matchLabels:
+          app: nats
+    ports:
+    - protocol: TCP
+      port: 6222
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53

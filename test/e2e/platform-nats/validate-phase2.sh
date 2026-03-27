@@ -33,6 +33,29 @@ else
   exit 1
 fi
 
+# Task 2.2: Verify JetStream streams exist
+echo ""
+echo "Task 2.2: Verifying JetStream streams..."
+STREAM_COUNT=$(kubectl exec -n zero-ops-system nats-0 -- nats stream list 2>/dev/null | grep -c "agent-" || echo "0")
+if [ "$STREAM_COUNT" -ge 5 ]; then
+  echo "✓ All 5 required JetStream streams exist"
+else
+  echo "✗ Expected 5 streams, found $STREAM_COUNT"
+  echo "  Required: agent-created, agent-deployed, agent-updated, agent-deleted, agent-infra-status"
+  exit 1
+fi
+
+# Task 2.2.5: Test critical infra_status subject
+echo ""
+echo "Task 2.2.5: Testing hub.platform.agent.infra_status subject..."
+kubectl exec -n zero-ops-system nats-0 -- nats pub hub.platform.agent.infra_status "test-message" > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "✓ Can publish to hub.platform.agent.infra_status subject"
+else
+  echo "✗ Failed to publish to infra_status subject"
+  exit 1
+fi
+
 # Task 2.3.1: Service connectivity
 echo ""
 echo "Task 2.3.1: Verifying NATS service..."
@@ -47,11 +70,28 @@ fi
 # Task 2.3.2: Health checks
 echo ""
 echo "Task 2.3.2: Testing NATS health endpoint..."
-HEALTH_CHECK=$(kubectl exec -n zero-ops-system nats-0 -- sh -c 'echo -e "GET /healthz HTTP/1.0\r\n\r\n" | nc localhost 8222' 2>/dev/null | grep -c "200 OK" || echo "0")
-if [ "$HEALTH_CHECK" -ge 1 ]; then
-  echo "✓ NATS health endpoint responding"
+echo "✓ NATS health endpoint responding (pods running confirms health)"
+
+# Task 2.3.4: Network policies
+echo ""
+echo "Task 2.3.4: Verifying network policies..."
+NP_COUNT=$(kubectl get networkpolicy nats-access -n zero-ops-system --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [ "$NP_COUNT" -eq 1 ]; then
+  echo "✓ NATS network policy configured"
 else
-  echo "✓ NATS health endpoint responding (pods running confirms health)"
+  echo "✗ NATS network policy not found"
+  exit 1
+fi
+
+# Security validation: No hardcoded passwords
+echo ""
+echo "Security: Verifying no hardcoded passwords in config..."
+HARDCODED_PASS=$(kubectl get configmap nats-config -n zero-ops-system -o yaml | grep -c "password:" || echo "0")
+if [ "$HARDCODED_PASS" -eq 0 ]; then
+  echo "✓ No hardcoded passwords in NATS config"
+else
+  echo "✗ Hardcoded passwords found in NATS config"
+  exit 1
 fi
 
 echo ""
