@@ -13,43 +13,60 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: init-streams
-        image: curlimages/curl:latest
+        image: natsio/nats-box:latest
         command:
           - sh
           - -c
           - |
             set -e
             echo "Waiting for NATS cluster..."
-            until curl -s http://nats.zero-ops-system.svc.cluster.local:8222/healthz > /dev/null; do
+            until nats --server=nats.zero-ops-system.svc.cluster.local:4222 server check connection 2>/dev/null; do
               echo "NATS not ready, retrying..."
               sleep 5
             done
             
-            echo "Creating JetStream streams via API..."
+            echo "Creating JetStream streams..."
+            
+            # Create config file for non-interactive stream creation
+            cat > /tmp/stream-config.json <<EOF
+            {
+              "name": "PLACEHOLDER",
+              "subjects": ["PLACEHOLDER"],
+              "retention": "limits",
+              "max_age": 604800000000000,
+              "storage": "file",
+              "replicas": 3
+            }
+            EOF
             
             # Stream 1: Agent Created Events
-            curl -X POST http://nats.zero-ops-system.svc.cluster.local:8222/jsz/api/v1/stream/agent-created \
-              -H "Content-Type: application/json" \
-              -d '{"name":"agent-created","subjects":["hub.platform.agent.created"],"retention":"limits","max_age":604800000000000,"storage":"file","replicas":3}' || echo "Stream 1 exists"
+            sed 's/PLACEHOLDER/agent-created/; s/"PLACEHOLDER"/"hub.platform.agent.created"/' /tmp/stream-config.json | \
+              nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-created --config=/dev/stdin || echo "Stream 1 exists"
             
-            # Stream 2: Agent Deployed Events  
-            curl -X POST http://nats.zero-ops-system.svc.cluster.local:8222/jsz/api/v1/stream/agent-deployed \
-              -H "Content-Type: application/json" \
-              -d '{"name":"agent-deployed","subjects":["hub.platform.agent.deployed"],"retention":"limits","max_age":604800000000000,"storage":"file","replicas":3}' || echo "Stream 2 exists"
+            # Stream 2: Agent Deployed Events
+            sed 's/PLACEHOLDER/agent-deployed/; s/"PLACEHOLDER"/"hub.platform.agent.deployed"/' /tmp/stream-config.json | \
+              nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-deployed --config=/dev/stdin || echo "Stream 2 exists"
             
             # Stream 3: Agent Updated Events
-            curl -X POST http://nats.zero-ops-system.svc.cluster.local:8222/jsz/api/v1/stream/agent-updated \
-              -H "Content-Type: application/json" \
-              -d '{"name":"agent-updated","subjects":["hub.platform.agent.updated"],"retention":"limits","max_age":604800000000000,"storage":"file","replicas":3}' || echo "Stream 3 exists"
+            sed 's/PLACEHOLDER/agent-updated/; s/"PLACEHOLDER"/"hub.platform.agent.updated"/' /tmp/stream-config.json | \
+              nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-updated --config=/dev/stdin || echo "Stream 3 exists"
             
             # Stream 4: Agent Deleted Events
-            curl -X POST http://nats.zero-ops-system.svc.cluster.local:8222/jsz/api/v1/stream/agent-deleted \
-              -H "Content-Type: application/json" \
-              -d '{"name":"agent-deleted","subjects":["hub.platform.agent.deleted"],"retention":"limits","max_age":604800000000000,"storage":"file","replicas":3}' || echo "Stream 4 exists"
+            sed 's/PLACEHOLDER/agent-deleted/; s/"PLACEHOLDER"/"hub.platform.agent.deleted"/' /tmp/stream-config.json | \
+              nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-deleted --config=/dev/stdin || echo "Stream 4 exists"
             
             # Stream 5: Agent Infrastructure Status (CRITICAL for Phase 6)
-            curl -X POST http://nats.zero-ops-system.svc.cluster.local:8222/jsz/api/v1/stream/agent-infra-status \
-              -H "Content-Type: application/json" \
-              -d '{"name":"agent-infra-status","subjects":["hub.platform.agent.infra_status"],"retention":"limits","max_age":2592000000000000,"storage":"file","replicas":3}' || echo "Stream 5 exists"
+            cat > /tmp/infra-status-config.json <<EOF
+            {
+              "name": "agent-infra-status",
+              "subjects": ["hub.platform.agent.infra_status"],
+              "retention": "limits",
+              "max_age": 2592000000000000,
+              "storage": "file",
+              "replicas": 3
+            }
+            EOF
+            nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream add agent-infra-status --config=/tmp/infra-status-config.json || echo "Stream 5 exists"
             
             echo "All JetStream streams created successfully"
+            nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream list

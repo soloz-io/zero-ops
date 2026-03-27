@@ -36,20 +36,29 @@ fi
 # Task 2.2: Verify JetStream streams exist
 echo ""
 echo "Task 2.2: Verifying JetStream streams..."
-STREAM_COUNT=$(kubectl logs -n zero-ops-system job/nats-init-streams 2>/dev/null | grep -c "Stream agent-" || echo "0")
+# Create temporary pod to query NATS streams
+kubectl run nats-stream-check --image=natsio/nats-box:latest --rm -i --restart=Never -n zero-ops-system -- \
+  nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream list > /tmp/nats-streams.txt 2>&1 || true
+
+STREAM_COUNT=$(grep -c "agent-" /tmp/nats-streams.txt 2>/dev/null || echo "0")
 if [ "$STREAM_COUNT" -ge 5 ]; then
   echo "✓ All 5 required JetStream streams exist"
+  rm -f /tmp/nats-streams.txt
 else
   echo "✗ Expected 5 streams, found $STREAM_COUNT"
   echo "  Required: agent-created, agent-deployed, agent-updated, agent-deleted, agent-infra-status"
+  cat /tmp/nats-streams.txt 2>/dev/null || echo "  Could not query streams"
+  rm -f /tmp/nats-streams.txt
   exit 1
 fi
 
 # Task 2.2.5: Test critical infra_status subject
 echo ""
 echo "Task 2.2.5: Testing hub.platform.agent.infra_status subject..."
-INFRA_STATUS_STREAM=$(kubectl logs -n zero-ops-system job/nats-init-streams 2>/dev/null | grep -c "agent-infra-status" || echo "0")
-if [ "$INFRA_STATUS_STREAM" -ge 1 ]; then
+# Verify the critical stream exists in the list
+if grep -q "agent-infra-status" /tmp/nats-streams.txt 2>/dev/null || \
+   kubectl run nats-infra-check --image=natsio/nats-box:latest --rm -i --restart=Never -n zero-ops-system -- \
+   nats --server=nats.zero-ops-system.svc.cluster.local:4222 stream info agent-infra-status > /dev/null 2>&1; then
   echo "✓ hub.platform.agent.infra_status stream exists (CRITICAL for Phase 6)"
 else
   echo "✗ agent-infra-status stream not found"
