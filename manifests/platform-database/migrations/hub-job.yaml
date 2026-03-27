@@ -3,6 +3,8 @@ kind: Job
 metadata:
   name: hub-migrations-v1
   namespace: zero-ops-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   ttlSecondsAfterFinished: 60
   backoffLimit: 3
