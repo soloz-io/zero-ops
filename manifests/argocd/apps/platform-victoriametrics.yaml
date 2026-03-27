@@ -38,7 +38,7 @@ spec:
   project: default
   source:
     repoURL: https://victoriametrics.github.io/helm-charts
-    targetRevision: 0.15.7
+    targetRevision: 0.37.0
     chart: victoria-metrics-cluster
     helm:
       values: |
