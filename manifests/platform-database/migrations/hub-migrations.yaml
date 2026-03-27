@@ -24,9 +24,15 @@ data:
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    ALTER TABLE agent_infra_status ENABLE ROW LEVEL SECURITY;
+
+    CREATE POLICY spoke_cluster_isolation ON agent_infra_status
+        USING (spoke_cluster_id = current_setting('app.spoke_cluster_id', true));
+
     CREATE INDEX IF NOT EXISTS idx_agent_infra_status_tenant ON agent_infra_status(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_agent_infra_status_deployment ON agent_infra_status(deployment_id);
     CREATE INDEX IF NOT EXISTS idx_agent_infra_status_agent ON agent_infra_status(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_infra_status_spoke ON agent_infra_status(spoke_cluster_id);
 
     CREATE OR REPLACE FUNCTION notify_agent_infra_status_change()
     RETURNS TRIGGER AS $$

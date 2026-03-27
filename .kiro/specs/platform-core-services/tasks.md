@@ -20,17 +20,17 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 ### Tasks
 
-- [ ] 1.1 Extend Control Plane Shared DB
-  - [ ] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
-  - [ ] 1.1.2 Create agent definitions and deployments tables
-  - [ ] 1.1.3 Configure RLS policies for tenant isolation
-  - [ ] 1.1.4 Create `control-plane-db-credentials` secret with proper routing
+- [x] 1.1 Extend Control Plane Shared DB
+  - [x] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
+  - [x] 1.1.2 Create agent definitions and deployments tables
+  - [x] 1.1.3 Configure RLS policies for tenant isolation
+  - [x] 1.1.4 Create `control-plane-db-credentials` secret with proper routing
 
-- [ ] 1.2 Extend Hub Centralised DB
-  - [ ] 1.2.1 Add `agent_infra_status` table to existing `hub` database
-  - [ ] 1.2.2 Create pg_notify trigger for NATS integration
-  - [ ] 1.2.3 Configure RLS policies for cross-cluster access
-  - [ ] 1.2.4 Create `hub-db-credentials` secret with proper routing
+- [x] 1.2 Extend Hub Centralised DB
+  - [x] 1.2.1 Add `agent_infra_status` table to existing `hub` database
+  - [x] 1.2.2 Create pg_notify trigger for NATS integration
+  - [x] 1.2.3 Configure RLS policies for cross-cluster access
+  - [x] 1.2.4 Create `hub-db-credentials` secret with proper routing
 
 - [ ] 1.3 Database connection validation
   - [ ] 1.3.1 Verify `control-plane-db-credentials` routes to `control_plane` database
