@@ -1,4 +1,5 @@
 ---
+inclusion: always
 purpose: Product definition, target users, features, and business objectives
 scope: Product overview, user personas, key features, success metrics, technical constraints
 topics: [product-purpose, target-users, core-capabilities, business-objectives, technical-constraints]

@@ -7,7 +7,7 @@ inclusion: always
    Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
 -------------------------------------------------------------------------------------> 
 
-- For any design pattern related questions or clarifications, always use the "archived/open-sbt" folder.
+- For any design pattern related questions or clarifications, always use the "archived/zero/sbt-patterns/" folder.
 
 - Only trust this folder for all SAAS and project design pattern related questions.
 

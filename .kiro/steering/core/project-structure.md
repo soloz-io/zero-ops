@@ -1,3 +1,6 @@
+---
+inclusion: always
+---
 
 **File:** `docs/architecture/project-structure.md`
 **Status:** APPROVED (Aligned with PRD v9.0)

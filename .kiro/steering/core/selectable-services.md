@@ -1,3 +1,7 @@
+---
+inclusion: always
+---
+
 Here are the updated, v9.0-compliant architectural documents. They reflect the shift to **Hub-Spoke Architecture**, **Distributed Identity**, **PostgREST + NATS State Sync**, and the **Agentic Control Plane**.
 
 ---
