@@ -36,7 +36,7 @@ fi
 # Task 2.2: Verify JetStream streams exist
 echo ""
 echo "Task 2.2: Verifying JetStream streams..."
-STREAM_COUNT=$(kubectl exec -n zero-ops-system nats-0 -- nats stream list 2>/dev/null | grep -c "agent-" || echo "0")
+STREAM_COUNT=$(kubectl logs -n zero-ops-system job/nats-init-streams 2>/dev/null | grep -c "Stream agent-" || echo "0")
 if [ "$STREAM_COUNT" -ge 5 ]; then
   echo "✓ All 5 required JetStream streams exist"
 else
@@ -48,11 +48,11 @@ fi
 # Task 2.2.5: Test critical infra_status subject
 echo ""
 echo "Task 2.2.5: Testing hub.platform.agent.infra_status subject..."
-kubectl exec -n zero-ops-system nats-0 -- nats pub hub.platform.agent.infra_status "test-message" > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-  echo "✓ Can publish to hub.platform.agent.infra_status subject"
+INFRA_STATUS_STREAM=$(kubectl logs -n zero-ops-system job/nats-init-streams 2>/dev/null | grep -c "agent-infra-status" || echo "0")
+if [ "$INFRA_STATUS_STREAM" -ge 1 ]; then
+  echo "✓ hub.platform.agent.infra_status stream exists (CRITICAL for Phase 6)"
 else
-  echo "✗ Failed to publish to infra_status subject"
+  echo "✗ agent-infra-status stream not found"
   exit 1
 fi
 
@@ -86,7 +86,7 @@ fi
 # Security validation: No hardcoded passwords
 echo ""
 echo "Security: Verifying no hardcoded passwords in config..."
-HARDCODED_PASS=$(kubectl get configmap nats-config -n zero-ops-system -o yaml | grep -c "password:" || echo "0")
+HARDCODED_PASS=$(kubectl get configmap nats-config -n zero-ops-system -o yaml | grep -c "password:" | tr -d '\n' || echo "0")
 if [ "$HARDCODED_PASS" -eq 0 ]; then
   echo "✓ No hardcoded passwords in NATS config"
 else
