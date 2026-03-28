@@ -75,18 +75,18 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 2.1.3 Set up required subjects for agent lifecycle
   - [x] 2.1.4 Configure ACLs and subject permissions
 
-- [ ] 2.2 Configure event subjects
-  - [ ] 2.2.1 Create `hub.platform.agent.created` subject
-  - [ ] 2.2.2 Create `hub.platform.agent.deployed` subject
-  - [ ] 2.2.3 Create `hub.platform.agent.updated` subject
-  - [ ] 2.2.4 Create `hub.platform.agent.deleted` subject
-  - [ ] 2.2.5 Create `hub.platform.agent.infra_status` subject (CRITICAL for status sync)
+- [x] 2.2 Configure event subjects
+  - [x] 2.2.1 Create `hub.platform.agent.created` subject
+  - [x] 2.2.2 Create `hub.platform.agent.deployed` subject
+  - [x] 2.2.3 Create `hub.platform.agent.updated` subject
+  - [x] 2.2.4 Create `hub.platform.agent.deleted` subject
+  - [x] 2.2.5 Create `hub.platform.agent.infra_status` subject (CRITICAL for status sync)
 
-- [ ] 2.3 Service configuration
+- [x] 2.3 Service configuration
   - [x] 2.3.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
   - [x] 2.3.2 Configure health checks and monitoring
-  - [ ] 2.3.3 Set up service accounts for client authentication
-  - [ ] 2.3.4 Configure network policies for secure access
+  - [x] 2.3.3 Set up service accounts for client authentication
+  - [x] 2.3.4 Configure network policies for secure access
 
 **Manual Testing Checkpoint:**
 - Test NATS connectivity from within cluster
@@ -104,9 +104,9 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 ### Tasks
 
-- [ ] 3.1 Deploy VictoriaMetrics cluster
-  - [ ] 3.1.1 Create `manifests/platform-core-services/victoriametrics/cluster.yaml`
-  - [ ] 3.1.2 Configure persistent storage for metrics data
+- [-] 3.1 Deploy VictoriaMetrics cluster
+  - [x] 3.1.1 Create `manifests/platform-core-services/victoriametrics/cluster.yaml`
+  - [x] 3.1.2 Configure persistent storage for metrics data
   - [ ] 3.1.3 Set up PromQL-compatible query API
   - [ ] 3.1.4 Configure retention policies and storage limits
 
