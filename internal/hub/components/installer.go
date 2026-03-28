@@ -226,7 +226,7 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 	
 	// Install ArgoCD
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "argocd", "argo/argo-cd",
-		"--version", "5.51.6",
+		"--version", "7.7.12",
 		"--namespace", "argocd",
 		"--create-namespace",
 		"--kubeconfig", i.Kubeconfig,
