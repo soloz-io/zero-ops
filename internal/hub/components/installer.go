@@ -319,3 +319,73 @@ func (i *Installer) InstallCCM(ctx context.Context, hcloudToken string) error {
 	fmt.Println("[ccm] ✓ Hetzner CCM installed")
 	return nil
 }
+// InstallInfisicalAuth creates the infisical-auth secret for External Secrets Operator
+// This is a break-glass bootstrap method that enables the GitOps flow.
+// The secret contains Infisical API credentials (client-id and client-secret) that ESO uses
+// to authenticate to Infisical and fetch secrets.
+func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSecret string) error {
+	fmt.Println("[bootstrap] Creating infisical-auth secret...")
+
+	secretYAML := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: external-secrets-system
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: %s
+`, clientID, clientSecret)
+
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"apply", "-f", "-",
+	)
+	cmd.Stdin = bytes.NewReader([]byte(secretYAML))
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create infisical-auth secret: %w\n%s", err, output)
+	}
+
+	fmt.Println("[bootstrap] ✓ infisical-auth secret created")
+	return nil
+}
+
+// FixArgoCDGitHubAuth creates the ArgoCD GitHub repository secret
+// This is a break-glass bootstrap method that fixes the chicken-and-egg problem:
+// ArgoCD needs GitHub auth to pull ESO manifests, but ESO manages GitHub credentials.
+// This method creates a temporary secret with the argocd.argoproj.io/secret-type label
+// so ArgoCD auto-discovers it. After ESO deploys, it takes over credential management.
+func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string) error {
+	fmt.Println("[bootstrap] Creating ArgoCD GitHub repository secret...")
+
+	secretYAML := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-soloz-io-zero-ops
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: https://github.com/soloz-io/zero-ops
+  username: zero-ops-bot
+  password: %s
+`, githubToken)
+
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", i.Kubeconfig,
+		"apply", "-f", "-",
+	)
+	cmd.Stdin = bytes.NewReader([]byte(secretYAML))
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create ArgoCD GitHub secret: %w\n%s", err, output)
+	}
+
+	fmt.Println("[bootstrap] ✓ ArgoCD GitHub secret created")
+	fmt.Println("[bootstrap] Note: ESO will take over credential management after deployment")
+	return nil
+}
+

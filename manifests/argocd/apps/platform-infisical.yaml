@@ -1,0 +1,58 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-infisical
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    chart: infisical-standalone
+    repoURL: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+    targetRevision: 1.7.5
+    helm:
+      values: |
+        infisical:
+          enabled: true
+          replicaCount: 2
+          image:
+            repository: infisical/infisical
+            tag: "v0.158.0"
+          
+          useExistingPostgresSecret:
+            enabled: true
+            existingConnectionStringSecret:
+              name: infisical-postgres-connection
+              key: connection-string
+
+          service:
+            type: ClusterIP
+            annotations: {}
+
+          resources:
+            limits:
+              memory: 1000Mi
+            requests:
+              cpu: 350m
+              memory: 1000Mi
+
+        postgresql:
+          enabled: false
+
+        redis:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: zero-ops-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 15
+      backoff:
+        duration: 30s
+        maxDuration: 10m

@@ -6,15 +6,15 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
 
 ## Tasks
 
-- [ ] 0. Break-glass bootstrap (one-time imperative)
-  - [ ] 0.1 Add InstallInfisicalAuth method to installer.go
+- [x] 0. Break-glass bootstrap (one-time imperative)
+  - [x] 0.1 Add InstallInfisicalAuth method to installer.go
     - Method signature: `InstallInfisicalAuth(ctx context.Context, clientID, clientSecret string) error`
     - Create `infisical-auth` secret in `external-secrets-system` namespace
     - Secret contains `client-id` and `client-secret` keys
     - Use kubectl apply via exec.CommandContext
     - _Requirements: 3.3, 3.6_
 
-  - [ ] 0.2 Add FixArgoCDGitHubAuth method to installer.go
+  - [x] 0.2 Add FixArgoCDGitHubAuth method to installer.go
     - Method signature: `FixArgoCDGitHubAuth(ctx context.Context, githubToken string) error`
     - Create `repo-soloz-io-zero-ops` secret in `argocd` namespace
     - Add label: `argocd.argoproj.io/secret-type: repository`
@@ -22,14 +22,14 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Use kubectl apply via exec.CommandContext
     - _Requirements: 4.1, 4.3, 4.5_
 
-  - [ ] 0.3 Document bootstrap workflow
+  - [x] 0.3 Document bootstrap workflow
     - Add comments explaining chicken-and-egg problem
     - Document that bootstrap secrets enable GitOps flow
     - Note that ESO takes over after initial sync
     - _Requirements: 7.1, 7.2_
 
-- [ ] 1. Create ArgoCD Application manifests
-  - [ ] 1.1 Create platform-infisical ArgoCD Application
+- [x] 1. Create ArgoCD Application manifests
+  - [x] 1.1 Create platform-infisical ArgoCD Application
     - Create `manifests/argocd/apps/platform-infisical.yaml`
     - Set sync-wave annotation to "3"
     - Configure automated sync with prune and selfHeal
@@ -38,7 +38,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Target namespace: zero-ops-system
     - _Requirements: 5.1, 5.2, 5.4, 5.5, 5.6_
 
-  - [ ] 1.2 Create platform-external-secrets ArgoCD Application
+  - [x] 1.2 Create platform-external-secrets ArgoCD Application
     - Create `manifests/argocd/apps/platform-external-secrets.yaml`
     - Set sync-wave annotation to "4"
     - Configure automated sync with prune and selfHeal
@@ -47,7 +47,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Target namespace: external-secrets-system
     - _Requirements: 5.1, 5.2, 5.4, 5.5, 5.6_
 
-  - [ ] 1.3 Create platform-cluster-secret-store ArgoCD Application
+  - [x] 1.3 Create platform-cluster-secret-store ArgoCD Application
     - Create `manifests/argocd/apps/platform-cluster-secret-store.yaml`
     - Set sync-wave annotation to "5"
     - Configure automated sync with prune and selfHeal
@@ -56,7 +56,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Target namespace: external-secrets-system
     - _Requirements: 5.1, 5.2, 5.4, 5.5, 5.6_
 
-  - [ ] 1.4 Create platform-argocd-github-auth ArgoCD Application
+  - [x] 1.4 Create platform-argocd-github-auth ArgoCD Application
     - Create `manifests/argocd/apps/platform-argocd-github-auth.yaml`
     - Set sync-wave annotation to "6"
     - Configure automated sync with prune and selfHeal
@@ -65,15 +65,15 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Target namespace: argocd
     - _Requirements: 5.1, 5.2, 5.4, 5.5, 5.6_
 
-- [ ] 2. Create Infisical deployment manifests
-  - [ ] 2.1 Create Infisical namespace and PostgreSQL connection secret
+- [x] 2. Create Infisical deployment manifests
+  - [x] 2.1 Create Infisical namespace and PostgreSQL connection secret
     - Create `manifests/platform-infisical/namespace.yaml` for zero-ops-system
     - Create `manifests/platform-infisical/postgres-connection-secret.yaml`
     - Secret should reference CloudNativePG connection string
     - Use placeholder for password (to be replaced via KSOPS/Age)
     - _Requirements: 1.2, 1.3_
 
-  - [ ] 2.2 Create Infisical Helm values configuration
+  - [x] 2.2 Create Infisical Helm values configuration
     - Create `manifests/platform-infisical/values.yaml`
     - Set chart version to v1.7.5
     - Disable built-in PostgreSQL (postgresql.enabled: false)
@@ -83,7 +83,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Configure resource requests (cpu: 350m, memory: 1000Mi)
     - _Requirements: 1.1, 1.3, 1.6_
 
-  - [ ] 2.3 Create Infisical HelmRelease and ingress
+  - [x] 2.3 Create Infisical HelmRelease and ingress
     - Create `manifests/platform-infisical/helm-release.yaml`
     - Reference Helm chart from archived/references/identity-auth/infisical/helm-charts/infisical-standalone-postgres
     - Create `manifests/platform-infisical/ingress.yaml`
@@ -91,8 +91,8 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Set hostname to infisical.zero-ops.local
     - _Requirements: 1.1, 1.4, 1.5_
 
-- [ ] 3. Create External Secrets Operator deployment manifests
-  - [ ] 3.1 Create ESO namespace and Helm values
+- [x] 3. Create External Secrets Operator deployment manifests
+  - [x] 3.1 Create ESO namespace and Helm values
     - Create `manifests/platform-external-secrets/namespace.yaml` for external-secrets-system
     - Create `manifests/platform-external-secrets/values.yaml`
     - Set chart version to v2.2.0
@@ -101,14 +101,14 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Enable ServiceMonitor for metrics
     - _Requirements: 2.1, 2.2, 2.4, 2.5_
 
-  - [ ] 3.2 Create ESO HelmRelease
+  - [x] 3.2 Create ESO HelmRelease
     - Create `manifests/platform-external-secrets/helm-release.yaml`
     - Reference Helm chart from archived/references/identity-auth/external-secrets/deploy/charts/external-secrets
     - Configure automated sync policy
     - _Requirements: 2.1, 2.3, 2.6_
 
-- [ ] 4. Create ClusterSecretStore manifests
-  - [ ] 4.1 Create ClusterSecretStore resource
+- [x] 4. Create ClusterSecretStore manifests
+  - [x] 4.1 Create ClusterSecretStore resource
     - Create `manifests/platform-cluster-secret-store/cluster-secret-store.yaml`
     - Name: infisical-backend
     - Configure Infisical provider with API endpoint
@@ -116,8 +116,8 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Set cluster scope (ClusterSecretStore, not SecretStore)
     - _Requirements: 3.1, 3.2, 3.4, 3.5, 3.7_
 
-- [ ] 5. Create ArgoCD GitHub authentication manifests
-  - [ ] 5.1 Create ExternalSecret for GitHub credentials
+- [x] 5. Create ArgoCD GitHub authentication manifests
+  - [x] 5.1 Create ExternalSecret for GitHub credentials
     - Create `manifests/platform-argocd-github-auth/external-secret.yaml`
     - Name: argocd-github-creds
     - Reference ClusterSecretStore "infisical-backend"
@@ -136,7 +136,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
   - Verify bootstrap secret replaced by ESO-managed secret
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Create validation scripts for secret flow
+- [-] 7. Create validation scripts for secret flow
   - [ ] 7.1 Implement health check validation script
     - Create `test/e2e/check-secret-health.sh`
     - Add shebang and set error handling (set -euo pipefail)
@@ -148,35 +148,35 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Verify ArgoCD applications can sync (GitHub auth working)
     - _Requirements: 6.1, 6.7, 6.8_
 
-  - [ ] 7.2 Implement E2E secret flow test script
+  - [x] 7.2 Implement E2E secret flow test script
     - Create `test/e2e/e2e-secret-flow.sh`
     - Add shebang and set error handling (set -euo pipefail)
     - Define configuration variables (API endpoint, timeout)
     - Add cleanup trap to ensure resources are deleted on exit
     - _Requirements: 6.1, 6.7, 6.8_
 
-  - [ ] 7.3 Implement Infisical secret creation step
+  - [x] 7.3 Implement Infisical secret creation step
     - Add function to create test secret in Infisical via API
     - Use curl with Bearer token authentication
     - Generate unique secret key and random value
     - Add error handling for API failures
     - _Requirements: 6.1, 6.4_
 
-  - [ ] 7.4 Implement ExternalSecret creation and verification
+  - [x] 7.4 Implement ExternalSecret creation and verification
     - Add function to create ExternalSecret resource
     - Reference ClusterSecretStore "infisical-backend"
     - Wait for Kubernetes secret creation (max 60 seconds)
     - Verify secret value matches Infisical value
     - _Requirements: 6.2, 6.3, 6.4_
 
-  - [ ] 7.5 Implement pod deployment and secret consumption test
+  - [x] 7.5 Implement pod deployment and secret consumption test
     - Add function to deploy test pod with secret mount
     - Wait for pod to be ready
     - Execute command in pod to read secret file
     - Verify pod can read secret value correctly
     - _Requirements: 6.5, 6.6_
 
-  - [ ] 7.6 Implement cleanup function
+  - [x] 7.6 Implement cleanup function
     - Add function to delete test pod, ExternalSecret, and Kubernetes secret
     - Delete test secret from Infisical via API
     - Ensure cleanup runs even on script failure
