@@ -73,8 +73,7 @@ spec:
         redis:
           enabled: true
           auth:
-            existingSecret: "infisical-redis-credentials"
-            existingSecretPasswordKey: "password"
+            password: "changeme"
           architecture: standalone
 
         ingress:
