@@ -1,6 +1,12 @@
 infisical:
   enabled: true
   replicaCount: 1
+  
+  # Use Recreate strategy to avoid resource contention during updates
+  # (terminates old pod before creating new one)
+  strategy:
+    type: Recreate
+  
   image:
     repository: infisical/infisical
     tag: "v0.158.0"
