@@ -506,6 +506,14 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		return fmt.Errorf("failed to generate auth secret: %w", err)
 	}
 
+	// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
+	redisBytes := make([]byte, 32)
+	if _, err := rand.Read(redisBytes); err != nil {
+		return fmt.Errorf("failed to generate redis password: %w", err)
+	}
+	redisPassword := hex.EncodeToString(redisBytes)[:32]
+	redisURL := fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword)
+
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
@@ -534,7 +542,22 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		fmt.Printf("[bootstrap] Created namespace %s\n", namespace)
 	}
 
-	// Create the secret
+	// Extract CNPG CA certificate for DB_ROOT_CERT
+	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
+	}
+
+	caCert := cnpgCASecret.Data["ca.crt"]
+	if len(caCert) == 0 {
+		return fmt.Errorf("ca.crt not found in platform-db-ca secret")
+	}
+
+	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
+	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
+
+	// Create the master infisical-secrets secret with ALL dynamic values
+	// This secret is consumed via envFrom in the Helm chart, bypassing extraEnv bugs
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-secrets",
@@ -548,6 +571,8 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		StringData: map[string]string{
 			"ENCRYPTION_KEY": encryptionKey,
 			"AUTH_SECRET":    authSecret,
+			"REDIS_URL":      redisURL,
+			"DB_ROOT_CERT":   caCertBase64,
 		},
 	}
 
@@ -559,19 +584,12 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create or update infisical-secrets: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-secrets updated")
+		fmt.Println("[bootstrap] ✓ infisical-secrets updated (with REDIS_URL and DB_ROOT_CERT)")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-secrets created")
+		fmt.Println("[bootstrap] ✓ infisical-secrets created (with REDIS_URL and DB_ROOT_CERT)")
 	}
 
-	// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
-	redisBytes := make([]byte, 32)
-	if _, err := rand.Read(redisBytes); err != nil {
-		return fmt.Errorf("failed to generate redis password: %w", err)
-	}
-	redisPassword := hex.EncodeToString(redisBytes)[:32]
-
-	// Create Redis credentials secret
+	// Create Redis credentials secret (for standalone Redis pod only)
 	redisSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-redis-credentials",
@@ -584,9 +602,6 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			"password": redisPassword,
-			// Pre-format the URL for Infisical to consume via env override
-			// The Helm chart creates a service named "redis-master" (not platform-infisical-redis-master)
-			"url": fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword),
 		},
 	}
 
@@ -839,16 +854,13 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 }
 
 // generateSecurePassword generates a cryptographically secure random password
-// For encryption keys (32 bytes), this produces a base64-encoded string that decodes to exactly 32 bytes
+// For encryption keys (32 bytes), this produces exactly 32 hex characters (32 bytes when interpreted as UTF-8)
 func generateSecurePassword(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
-	// For 32-byte encryption keys, return base64 encoding (Infisical will decode to get 32 bytes)
-	// For other passwords, return hex encoding truncated to length
-	if length == 32 {
-		return base64.StdEncoding.EncodeToString(bytes), nil
-	}
+	// Always return hex encoding truncated to exact length
+	// For 32-byte keys: hex.EncodeToString produces 64 chars, truncate to 32
 	return hex.EncodeToString(bytes)[:length], nil
 }
