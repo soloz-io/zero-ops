@@ -1238,7 +1238,7 @@ spec:
     "error": "unauthorized_tool",
     "message": "Stripe API not authorized for tenant 'acme-corp'. Contact support to enable.",
     "tool": "stripe_api",
-    "support_url": "https://support.zero-ops.io/enable-tool"
+    "support_url": "https://support.nutgrat.in/enable-tool"
   }
   ```
 - Tenant Admin contacts support via MCP tool: `create_support_ticket`

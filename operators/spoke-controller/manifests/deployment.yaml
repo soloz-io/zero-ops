@@ -24,7 +24,7 @@ spec:
         imagePullPolicy: Always
         env:
         - name: HUB_POSTGREST_URL
-          value: "https://postgrest.hub.zero-ops.io"
+          value: "https://postgrest.hub.nutgrat.in"
         - name: HYDRA_CLIENT_ID
           valueFrom:
             secretKeyRef:
@@ -36,7 +36,7 @@ spec:
               name: spoke-controller-credentials
               key: client-secret
         - name: HYDRA_TOKEN_URL
-          value: "https://hydra.hub.zero-ops.io/oauth2/token"
+          value: "https://hydra.hub.nutgrat.in/oauth2/token"
         - name: SPOKE_CLUSTER_ID
           valueFrom:
             configMapKeyRef:

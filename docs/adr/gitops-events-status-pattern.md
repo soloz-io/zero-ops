@@ -296,7 +296,7 @@ kind: ClusterRole
 metadata:
   name: tenant-controller
 rules:
-- apiGroups: ["platform.zero-ops.io"]
+- apiGroups: ["platform.nutgrat.in"]
   resources: ["ainativesaas"]
   verbs: ["get", "list", "watch"]
 ---

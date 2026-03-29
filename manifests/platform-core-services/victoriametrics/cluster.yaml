@@ -96,10 +96,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - victoriametrics.hub.zero-ops.io
+    - victoriametrics.hub.nutgrat.in
     secretName: victoriametrics-tls
   rules:
-  - host: victoriametrics.hub.zero-ops.io
+  - host: victoriametrics.hub.nutgrat.in
     http:
       paths:
       - path: /

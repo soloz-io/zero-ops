@@ -147,7 +147,7 @@ env:
 - Connect to Hub Centralised DB (`hub` database)
 - Expose `agent_infra_status` table with RLS policies
 - JWT authentication with Ory Hydra integration
-- External endpoint: `postgrest.hub.zero-ops.io`
+- External endpoint: `postgrest.hub.nutgrat.in`
 - Internal endpoint: `hub-postgrest.zero-ops-system.svc.cluster.local:3000`
 
 **Database Schema:**
@@ -609,7 +609,7 @@ spec:
   triggers:
   - type: prometheus
     metadata:
-      serverAddress: https://victoriametrics.hub.zero-ops.io  # Hub metrics
+      serverAddress: https://victoriametrics.hub.nutgrat.in  # Hub metrics
       metricName: agent_queue_depth
       threshold: '1'
       query: sum(agent_queue_depth{tenant_id="{{.tenant_id}}"})
@@ -692,7 +692,7 @@ spec:
 **Required Services:**
 - AgentRegistry OSS at `agentregistry.platform-agentregistry.svc.cluster.local:8080`
 - NATS cluster at `nats.zero-ops-system.svc.cluster.local:4222`
-- Hub PostgREST at `postgrest.hub.zero-ops.io` (external)
+- Hub PostgREST at `postgrest.hub.nutgrat.in` (external)
 - VictoriaMetrics at `victoriametrics.zero-ops-system.svc.cluster.local:8428`
 
 **Crossplane Platform APIs (CRITICAL):**

@@ -105,7 +105,7 @@ hub.platform.agent.infra_status
 **Requirements:**
 - Deploy PostgREST against Hub Centralised DB
 - Configure JWT authentication with Ory Hydra
-- Expose service at `postgrest.hub.zero-ops.io` (external) and internal cluster DNS
+- Expose service at `postgrest.hub.nutgrat.in` (external) and internal cluster DNS
 - Enable RLS policies for tenant isolation
 - Support agent infrastructure status queries
 - Configure proper CORS and security headers

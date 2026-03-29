@@ -895,7 +895,7 @@ spec:
         - name: AGENTREGISTRY_URL
           value: "http://agentregistry.platform-agentregistry.svc.cluster.local:8080"
         - name: HUB_POSTGREST_URL
-          value: "https://postgrest.hub.zero-ops.io"
+          value: "https://postgrest.hub.nutgrat.in"
         - name: NATS_URL
           value: "nats://nats.zero-ops-system.svc.cluster.local:4222"
         # Database Connection

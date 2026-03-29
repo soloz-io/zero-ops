@@ -35,7 +35,7 @@ func main() {
 
 	// Initialize Hub PostgREST client
 	hubClient := client.NewHubClient(client.HubConfig{
-		BaseURL: "https://postgrest.hub.zero-ops.io",
+		BaseURL: "https://postgrest.hub.nutgrat.in",
 		Timeout: 10 * time.Second,
 	})
 

@@ -123,7 +123,7 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 3.3.4 Configure service discovery for dynamic targets
 
 - [ ] 3.4 Cross-cluster metrics access (CRITICAL for KEDA)
-  - [ ] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.zero-ops.io`
+  - [ ] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgrat.in`
   - [ ] 3.4.2 Configure TLS and authentication for spoke cluster access
   - [ ] 3.4.3 Create service accounts for cross-cluster queries
   - [ ] 3.4.4 Test KEDA integration with Hub metrics endpoint
@@ -188,7 +188,7 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 5.1.1 Create `manifests/platform-core-services/hub-postgrest/deployment.yaml`
   - [ ] 5.1.2 Configure connection to Hub Centralised DB (CRITICAL routing)
   - [ ] 5.1.3 Set up internal service at `hub-postgrest.zero-ops-system.svc.cluster.local:3000`
-  - [ ] 5.1.4 Configure external ingress at `postgrest.hub.zero-ops.io`
+  - [ ] 5.1.4 Configure external ingress at `postgrest.hub.nutgrat.in`
 
 - [ ] 5.2 Configure database access
   - [ ] 5.2.1 Use `hub-db-credentials` secret (routes to hub DB)

@@ -27,7 +27,7 @@ The `agents-core` services act as an orchestration layer on top of the open-sour
 ### 1.2 Hub PostgREST Deployment
 The `Status Service` reads deployment infrastructure statuses via PostgREST to adhere to the Status Controller pattern.
 *   **Action:** Ensure PostgREST is deployed against the Hub Centralised DB.
-*   **Network:** Expose it internally at `https://postgrest.hub.zero-ops.io`.
+*   **Network:** Expose it internally at `https://postgrest.hub.nutgrat.in`.
 *   **Auth:** Configure PostgREST to accept Ory Hydra JWTs (`postgrest_auth` role) so `agents-core` can query the `agent_infra_status` table.
 
 ### 1.3 Database Schema Migrations

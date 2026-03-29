@@ -186,7 +186,7 @@ func main() {
 Adhere to the Status Controller pattern. `mcp-server` **must not** use the `Deployment Adapter` to check status.
 
 1. **Spoke:** Kagent Controller starts the Pod.
-2. **Spoke Controller:** Watches the Pod. Uses `client_credentials` JWT to call `POST https://postgrest.hub.zero-ops.io/agent_infra_status`.
+2. **Spoke Controller:** Watches the Pod. Uses `client_credentials` JWT to call `POST https://postgrest.hub.nutgrat.in/agent_infra_status`.
 3. **Hub DB:** Inserts record. Trigger fires `pg_notify`.
 4. **NATS Subscriber (`cmd/nats-subscriber/main.go`):**
    ```go
