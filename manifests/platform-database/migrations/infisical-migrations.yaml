@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: infisical-migrations
+  namespace: zero-ops-system
+data:
+  1_init_schema.up.sql: |
+    -- Infisical database initialization
+    -- This migration is idempotent and safe to run multiple times
+    
+    -- Grant necessary privileges to infisical role
+    GRANT ALL PRIVILEGES ON SCHEMA public TO infisical;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO infisical;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO infisical;
+    
+    -- Set default privileges for future objects
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;
