@@ -82,20 +82,24 @@ spec:
             sleep 2
           done
 
-          echo "Creating mcp_server role..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'mcp_server'" | grep -q 1 || \
+          echo "Creating/updating mcp_server role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'mcp_server'" | grep -q 1 && \
+            psql -c "ALTER ROLE mcp_server WITH PASSWORD '${MCP_SERVER_PASSWORD}';" || \
             psql -c "CREATE ROLE mcp_server WITH LOGIN PASSWORD '${MCP_SERVER_PASSWORD}';"
 
-          echo "Creating agentregistry role..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'agentregistry'" | grep -q 1 || \
+          echo "Creating/updating agentregistry role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'agentregistry'" | grep -q 1 && \
+            psql -c "ALTER ROLE agentregistry WITH PASSWORD '${AGENTREGISTRY_PASSWORD}';" || \
             psql -c "CREATE ROLE agentregistry WITH LOGIN PASSWORD '${AGENTREGISTRY_PASSWORD}';"
 
-          echo "Creating spoke_controller role..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spoke_controller'" | grep -q 1 || \
+          echo "Creating/updating spoke_controller role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spoke_controller'" | grep -q 1 && \
+            psql -c "ALTER ROLE spoke_controller WITH PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';" || \
             psql -c "CREATE ROLE spoke_controller WITH LOGIN PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';"
 
-          echo "Creating infisical role..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 || \
+          echo "Creating/updating infisical role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 && \
+            psql -c "ALTER ROLE infisical WITH PASSWORD '${INFISICAL_PASSWORD}';" || \
             psql -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
 
           echo "Granting privileges on control_plane database..."
