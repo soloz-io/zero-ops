@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: setup-platform-roles
+  name: setup-platform-roles-v3
   namespace: zero-ops-system
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "3"
 spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
   template:
     spec:
       restartPolicy: OnFailure
