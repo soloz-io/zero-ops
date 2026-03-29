@@ -588,6 +588,8 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			"password": redisPassword,
+			// Pre-format the URL for Infisical to consume via env override
+			"url": fmt.Sprintf("redis://:%s@platform-infisical-redis-master:6379", redisPassword),
 		},
 	}
 
@@ -601,39 +603,6 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 	} else {
 		fmt.Println("[bootstrap] ✓ infisical-redis-credentials created")
 	}
-
-	// Patch ArgoCD Application to use the generated Redis password
-	// This is necessary because the Infisical Helm chart's helper template
-	// hardcodes redis.auth.password in the REDIS_URL environment variable
-	fmt.Println("[bootstrap] Patching ArgoCD Application with Redis password...")
-	
-	patchData := fmt.Sprintf(`{
-		"spec": {
-			"source": {
-				"helm": {
-					"values": "infisical:\n  enabled: true\n  replicaCount: 1\n  image:\n    repository: infisical/infisical\n    tag: \"v0.158.0\"\n\n  service:\n    type: ClusterIP\n    annotations: {}\n\n  resources:\n    limits:\n      memory: 1000Mi\n    requests:\n      cpu: 350m\n      memory: 1000Mi\n\npostgresql:\n  enabled: false\n  useExistingPostgresSecret:\n    enabled: true\n    existingConnectionStringSecret:\n      name: infisical-postgres-connection\n      key: connection-string\n\nredis:\n  enabled: true\n  auth:\n    password: \"%s\"\n  architecture: standalone\n\ningress:\n  enabled: false\n  nginx:\n    enabled: false\n"
-				}
-			}
-		}
-	}`, redisPassword)
-
-	// Use kubectl to patch the ArgoCD Application
-	// We use kubectl here because the ArgoCD Application API is in a different API group
-	// and would require additional client-go setup
-	patchCmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", i.Kubeconfig,
-		"patch", "application", "platform-infisical",
-		"-n", "argocd",
-		"--type", "merge",
-		"-p", patchData,
-	)
-	
-	if output, err := patchCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to patch ArgoCD Application: %w\n%s", err, output)
-	}
-	
-	fmt.Println("[bootstrap] ✓ ArgoCD Application patched with Redis password")
-	fmt.Println("[bootstrap] Note: ArgoCD will sync the updated configuration automatically")
 
 	return nil
 }
