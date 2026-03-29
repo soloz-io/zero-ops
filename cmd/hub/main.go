@@ -16,6 +16,7 @@ func main() {
 
 	rootCmd.AddCommand(newBootstrapCmd())
 	rootCmd.AddCommand(newTeardownCmd())
+	rootCmd.AddCommand(newConfigureESOCmd())
 	rootCmd.AddCommand(demo.NewDemoCmd())
 
 	if err := rootCmd.Execute(); err != nil {

@@ -17,3 +17,4 @@ spec:
         # Databases only - users created via setup-platform-roles-job
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
+        - CREATE DATABASE infisical;

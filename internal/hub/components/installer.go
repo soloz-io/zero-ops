@@ -3,12 +3,18 @@ package components
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // Installer installs management cluster components
@@ -320,72 +326,327 @@ func (i *Installer) InstallCCM(ctx context.Context, hcloudToken string) error {
 	return nil
 }
 // InstallInfisicalAuth creates the infisical-auth secret for External Secrets Operator
-// This is a break-glass bootstrap method that enables the GitOps flow.
-// The secret contains Infisical API credentials (client-id and client-secret) that ESO uses
-// to authenticate to Infisical and fetch secrets.
+// This is Secret Zero - it enables ESO to authenticate to Infisical.
+// CRITICAL: This secret MUST be injected via client-go, NEVER stored in Git.
+// 
+// Production Workflow:
+// 1. Developer accesses Infisical UI (after Infisical pods are running)
+// 2. Creates Machine Identity "eso-operator" in Infisical UI
+// 3. Copies Client ID and Client Secret from Infisical UI
+// 4. Runs: hub platform-core configure-eso --infisical-client-id=<id> --infisical-client-secret=<secret>
+// 5. This method uses client-go to inject the secret directly into the cluster
+// 6. ArgoCD syncs ClusterSecretStore (wave 5) which reads this secret
+// 7. ESO authenticates to Infisical and manages all other secrets via GitOps
 func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSecret string) error {
 	fmt.Println("[bootstrap] Creating infisical-auth secret...")
 
-	secretYAML := fmt.Sprintf(`apiVersion: v1
-kind: Secret
-metadata:
-  name: infisical-auth
-  namespace: external-secrets-system
-type: Opaque
-stringData:
-  client-id: %s
-  client-secret: %s
-`, clientID, clientSecret)
-
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", i.Kubeconfig,
-		"apply", "-f", "-",
-	)
-	cmd.Stdin = bytes.NewReader([]byte(secretYAML))
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create infisical-auth secret: %w\n%s", err, output)
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
-	fmt.Println("[bootstrap] ✓ infisical-auth secret created")
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create namespace if it doesn't exist
+	namespace := "external-secrets-system"
+	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		// Namespace doesn't exist, create it
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: namespace,
+			},
+		}
+		_, err = clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create namespace %s: %w", namespace, err)
+		}
+		fmt.Printf("[bootstrap] Created namespace %s\n", namespace)
+	}
+
+	// Create the secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-auth",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"client-id":     clientID,
+			"client-secret": clientSecret,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update infisical-auth secret: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ infisical-auth secret updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ infisical-auth secret created")
+	}
+
 	return nil
 }
 
 // FixArgoCDGitHubAuth creates the ArgoCD GitHub repository secret
-// This is a break-glass bootstrap method that fixes the chicken-and-egg problem:
-// ArgoCD needs GitHub auth to pull ESO manifests, but ESO manages GitHub credentials.
-// This method creates a temporary secret with the argocd.argoproj.io/secret-type label
-// so ArgoCD auto-discovers it. After ESO deploys, it takes over credential management.
+// This is Secret Zero for ArgoCD - it fixes the chicken-and-egg problem.
+// CRITICAL: This secret MUST be injected via client-go, NEVER stored in Git.
+//
+// Chicken-and-Egg Problem:
+// - ArgoCD needs GitHub auth to pull ESO manifests from Git
+// - ESO manages GitHub credentials declaratively
+// - But ESO manifests are in Git, which ArgoCD can't pull without auth
+//
+// Solution:
+// 1. This method injects temporary GitHub PAT using client-go
+// 2. ArgoCD can now pull ESO manifests (waves 4-6)
+// 3. ESO deploys and takes over credential management
+// 4. ESO replaces this bootstrap secret with Infisical-backed secret
+// 5. Future credential rotations happen via Infisical + ESO (GitOps)
+//
+// Production Workflow:
+// 1. Developer runs: hub platform-core configure-eso --github-token=<pat>
+// 2. This method uses client-go to inject the secret with proper labels
+// 3. ArgoCD auto-discovers the secret (via argocd.argoproj.io/secret-type label)
+// 4. ArgoCD syncs ESO manifests from GitHub
+// 5. ESO takes over and replaces this secret with Infisical-backed version
 func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string) error {
 	fmt.Println("[bootstrap] Creating ArgoCD GitHub repository secret...")
 
-	secretYAML := fmt.Sprintf(`apiVersion: v1
-kind: Secret
-metadata:
-  name: repo-soloz-io-zero-ops
-  namespace: argocd
-  labels:
-    argocd.argoproj.io/secret-type: repository
-type: Opaque
-stringData:
-  type: git
-  url: https://github.com/soloz-io/zero-ops
-  username: zero-ops-bot
-  password: %s
-`, githubToken)
-
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", i.Kubeconfig,
-		"apply", "-f", "-",
-	)
-	cmd.Stdin = bytes.NewReader([]byte(secretYAML))
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create ArgoCD GitHub secret: %w\n%s", err, output)
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
-	fmt.Println("[bootstrap] ✓ ArgoCD GitHub secret created")
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create the secret with ArgoCD auto-discovery label
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "repo-soloz-io-zero-ops",
+			Namespace: "argocd",
+			Labels: map[string]string{
+				"argocd.argoproj.io/secret-type": "repository",
+				"app.kubernetes.io/managed-by":   "zero-ops-hub-cli",
+				"app.kubernetes.io/component":    "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"type":     "git",
+			"url":      "https://github.com/soloz-io/zero-ops",
+			"username": "zero-ops-bot",
+			"password": githubToken,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets("argocd").Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets("argocd").Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update ArgoCD GitHub secret: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ ArgoCD GitHub secret updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ ArgoCD GitHub secret created")
+	}
+
 	fmt.Println("[bootstrap] Note: ESO will take over credential management after deployment")
+	return nil
+}
+
+// generateSecureKey generates a cryptographically secure random key
+func generateSecureKey(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// InstallInfisicalSecrets generates and injects Infisical base secrets (Secret Zero)
+// This is called during bootstrap BEFORE ArgoCD syncs Infisical.
+// CRITICAL: These secrets enable Infisical to boot, NEVER store in Git.
+//
+// Generated Secrets:
+// - ENCRYPTION_KEY: 32-byte hex string for encrypting secrets at rest
+// - AUTH_SECRET: 32-byte hex string for JWT signing
+//
+// Production Workflow:
+// 1. Developer runs: hub platform-core bootstrap
+// 2. This method generates secure random keys using crypto/rand
+// 3. Creates infisical-secrets in zero-ops-system namespace
+// 4. ArgoCD syncs Infisical Helm chart (wave 3)
+// 5. Infisical pods start and use these secrets
+func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
+	fmt.Println("[bootstrap] Generating Infisical base secrets...")
+
+	// Generate secure random keys
+	encryptionKey, err := generateSecureKey(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate encryption key: %w", err)
+	}
+
+	authSecret, err := generateSecureKey(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate auth secret: %w", err)
+	}
+
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create namespace if it doesn't exist
+	namespace := "zero-ops-system"
+	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		// Namespace doesn't exist, create it
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: namespace,
+			},
+		}
+		_, err = clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create namespace %s: %w", namespace, err)
+		}
+		fmt.Printf("[bootstrap] Created namespace %s\n", namespace)
+	}
+
+	// Create the secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-secrets",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"ENCRYPTION_KEY": encryptionKey,
+			"AUTH_SECRET":    authSecret,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update infisical-secrets: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ infisical-secrets updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ infisical-secrets created")
+	}
+
+	return nil
+}
+
+// InstallPostgresConnectionSecret creates the PostgreSQL connection secret for Infisical
+// This is called during bootstrap BEFORE ArgoCD syncs Infisical.
+// CRITICAL: This secret enables Infisical to connect to CNPG, NEVER store in Git.
+//
+// NOTE: This method reads the password from the infisical-db-credentials secret
+// that was created by the platform-database setup. It does NOT generate a new password.
+//
+// Production Workflow:
+// 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
+// 2. Developer runs: hub platform-core bootstrap
+// 3. This method reads the password from infisical-db-credentials
+// 4. Creates infisical-postgres-connection with the connection string
+// 5. ArgoCD syncs Infisical Helm chart (wave 3)
+// 6. Infisical pods connect to CNPG using this connection string
+func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
+	fmt.Println("[bootstrap] Creating PostgreSQL connection secret for Infisical...")
+
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Read password from infisical-db-credentials secret
+	namespace := "zero-ops-system"
+	credentialsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to read infisical-db-credentials secret (ensure platform-database is deployed): %w", err)
+	}
+
+	password := string(credentialsSecret.Data["password"])
+	if password == "" {
+		return fmt.Errorf("password not found in infisical-db-credentials secret")
+	}
+
+	// Build connection string using the password from the credentials secret
+	connectionString := fmt.Sprintf(
+		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=require",
+		password,
+	)
+
+	// Create the secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-postgres-connection",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"connection-string": connectionString,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created")
+	}
+
 	return nil
 }
 

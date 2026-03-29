@@ -11,7 +11,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Method signature: `InstallInfisicalAuth(ctx context.Context, clientID, clientSecret string) error`
     - Create `infisical-auth` secret in `external-secrets-system` namespace
     - Secret contains `client-id` and `client-secret` keys
-    - Use kubectl apply via exec.CommandContext
+    - Use client-go kubernetes clientset (PRODUCTION READY)
     - _Requirements: 3.3, 3.6_
 
   - [x] 0.2 Add FixArgoCDGitHubAuth method to installer.go
@@ -19,7 +19,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Create `repo-soloz-io-zero-ops` secret in `argocd` namespace
     - Add label: `argocd.argoproj.io/secret-type: repository`
     - Include fields: `type: git`, `url`, `username`, `password`
-    - Use kubectl apply via exec.CommandContext
+    - Use client-go kubernetes clientset (PRODUCTION READY)
     - _Requirements: 4.1, 4.3, 4.5_
 
   - [x] 0.3 Document bootstrap workflow
@@ -27,6 +27,29 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Document that bootstrap secrets enable GitOps flow
     - Note that ESO takes over after initial sync
     - _Requirements: 7.1, 7.2_
+
+  - [x] 0.4 Add InstallInfisicalSecrets method to installer.go
+    - Method signature: `InstallInfisicalSecrets(ctx context.Context) error`
+    - Generate ENCRYPTION_KEY (32-byte hex) using crypto/rand
+    - Generate AUTH_SECRET (32-byte hex) using crypto/rand
+    - Create `infisical-secrets` in `zero-ops-system` namespace
+    - Use client-go kubernetes clientset (PRODUCTION READY)
+    - _Requirements: 1.2, 7.1_
+
+  - [x] 0.5 Add InstallPostgresConnectionSecret method to installer.go
+    - Method signature: `InstallPostgresConnectionSecret(ctx context.Context) error`
+    - Generate secure random password using crypto/rand
+    - Build PostgreSQL connection string for CNPG
+    - Create `infisical-postgres-connection` in `zero-ops-system` namespace
+    - Use client-go kubernetes clientset (PRODUCTION READY)
+    - _Requirements: 1.3, 7.1_
+
+  - [x] 0.6 Create configure-eso CLI command
+    - Create `cmd/hub/configure_eso.go`
+    - Accept flags: `--infisical-client-id`, `--infisical-client-secret`, `--github-token`, `--kubeconfig`
+    - Call InstallInfisicalAuth() and FixArgoCDGitHubAuth()
+    - Add command to main CLI in `cmd/hub/main.go`
+    - _Requirements: 3.6, 4.5_
 
 - [x] 1. Create ArgoCD Application manifests
   - [x] 1.1 Create platform-infisical ArgoCD Application
