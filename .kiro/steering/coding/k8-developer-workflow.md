@@ -61,4 +61,7 @@ Do not allow developer to work via isolated manual commands. Nip this in the bud
 Example:
 kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"source":{"targetRevision":"272a135"}}}'
 
+kubectl patch application platform-infisical-prerequisites -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"syncStrategy":{"hook":{},"apply":{"force":true}}}}}'
+
+
 kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
