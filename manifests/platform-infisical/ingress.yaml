@@ -12,9 +12,9 @@ spec:
   tls:
     - secretName: infisical-tls
       hosts:
-        - infisical.zero-ops.dev
+        - infisical.nutgraf.in
   rules:
-    - host: infisical.zero-ops.dev
+    - host: infisical.nutgraf.in
       http:
         paths:
           - path: /
