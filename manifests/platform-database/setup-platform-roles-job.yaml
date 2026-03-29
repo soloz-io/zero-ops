@@ -29,7 +29,10 @@ spec:
         - name: PGUSER
           value: postgres
         - name: PGPASSWORD
-          value: ""
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: password
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
