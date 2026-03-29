@@ -31,16 +31,15 @@ spec:
           value: "platform-db-rw.zero-ops-system.svc.cluster.local"
         - name: PGPORT
           value: "5432"
+        - name: PGDATABASE
+          value: "postgres"
         - name: PGUSER
           valueFrom:
             secretKeyRef:
               name: platform-db-app
               key: username
-        - name: PGPASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: platform-db-app
-              key: password
+        - name: PGPASSFILE
+          value: "/tmp/.pgpass"
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -61,11 +60,17 @@ spec:
             secretKeyRef:
               name: infisical-db-credentials
               key: password
+        volumeMounts:
+        - name: pgpass
+          mountPath: /tmp
+          readOnly: true
         command:
         - /bin/sh
         - -c
         - |
           set -e
+          
+          chmod 600 /tmp/.pgpass
           
           echo "Waiting for PostgreSQL to be ready..."
           until psql -d postgres -c "SELECT 1" > /dev/null 2>&1; do 
@@ -100,3 +105,11 @@ spec:
           psql -d infisical -c "GRANT ALL PRIVILEGES ON DATABASE infisical TO infisical;"
 
           echo "✓ Platform roles created successfully"
+      volumes:
+      - name: pgpass
+        secret:
+          secretName: platform-db-app
+          items:
+          - key: pgpass
+            path: .pgpass
+          defaultMode: 0600
