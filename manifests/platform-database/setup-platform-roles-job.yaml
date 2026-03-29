@@ -10,8 +10,7 @@ metadata:
     # Replace=true: Deletes and recreates the job when spec changes (handles immutable pod templates)
     # Idempotency: Script checks if roles exist before creating (safe to re-run)
     argocd.argoproj.io/sync-wave: "3"
-    argocd.argoproj.io/sync-options: Replace=true
-    updated-at: "2026-03-29T21:30:00Z"
+    updated-at: "2026-03-29T21:35:00Z"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3
