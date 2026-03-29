@@ -569,6 +569,39 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		fmt.Println("[bootstrap] ✓ infisical-secrets created")
 	}
 
+	// Generate Redis password
+	redisPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate redis password: %w", err)
+	}
+
+	// Create Redis credentials secret
+	redisSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-redis-credentials",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"password": redisPassword,
+		},
+	}
+
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, redisSecret, metav1.CreateOptions{})
+	if err != nil {
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, redisSecret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update infisical-redis-credentials: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ infisical-redis-credentials updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ infisical-redis-credentials created")
+	}
+
 	return nil
 }
 
@@ -650,3 +683,146 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	return nil
 }
 
+
+// InstallPlatformDatabaseCredentials generates secure passwords for all platform database users
+// and updates their secrets in the cluster.
+//
+// This function replaces the "changeme" placeholder passwords in Git manifests with
+// cryptographically secure random passwords.
+//
+// Updated secrets:
+// - control-plane-db-credentials (mcp_server, agentregistry users)
+// - hub-db-credentials (spoke_controller user)
+// - infisical-db-credentials (infisical user)
+//
+// CRITICAL: This must run BEFORE setup-platform-roles-job, as that job reads these passwords
+// to create the PostgreSQL roles.
+func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) error {
+	fmt.Println("[bootstrap] Generating secure passwords for platform database users...")
+
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := "zero-ops-system"
+	dbHost := "platform-db-rw.zero-ops-system.svc.cluster.local"
+	dbPort := "5432"
+
+	// Generate passwords for each database user
+	controlPlanePassword, err := generateSecurePassword(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate control-plane password: %w", err)
+	}
+
+	hubPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate hub password: %w", err)
+	}
+
+	infisicalPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate infisical password: %w", err)
+	}
+
+	// Update control-plane-db-credentials (used by mcp_server and agentregistry)
+	controlPlaneURL := fmt.Sprintf("postgresql://mcp_server:%s@%s:%s/control_plane?sslmode=require", controlPlanePassword, dbHost, dbPort)
+	controlPlaneSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "control-plane-db-credentials",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"url":      controlPlaneURL,
+			"host":     dbHost,
+			"port":     dbPort,
+			"database": "control_plane",
+			"username": "mcp_server",
+			"password": controlPlanePassword,
+		},
+	}
+
+	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, controlPlaneSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update control-plane-db-credentials: %w", err)
+	}
+	fmt.Println("[bootstrap] ✓ control-plane-db-credentials updated")
+
+	// Update hub-db-credentials (used by spoke_controller)
+	hubURL := fmt.Sprintf("postgresql://spoke_controller:%s@%s:%s/hub?sslmode=require", hubPassword, dbHost, dbPort)
+	hubSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "hub-db-credentials",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"url":      hubURL,
+			"host":     dbHost,
+			"port":     dbPort,
+			"database": "hub",
+			"username": "spoke_controller",
+			"password": hubPassword,
+		},
+	}
+
+	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, hubSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update hub-db-credentials: %w", err)
+	}
+	fmt.Println("[bootstrap] ✓ hub-db-credentials updated")
+
+	// Update infisical-db-credentials (used by infisical)
+	infisicalURL := fmt.Sprintf("postgresql://infisical:%s@%s:%s/infisical?sslmode=require", infisicalPassword, dbHost, dbPort)
+	infisicalSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-db-credentials",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"url":      infisicalURL,
+			"host":     dbHost,
+			"port":     dbPort,
+			"database": "infisical",
+			"username": "infisical",
+			"password": infisicalPassword,
+		},
+	}
+
+	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, infisicalSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update infisical-db-credentials: %w", err)
+	}
+	fmt.Println("[bootstrap] ✓ infisical-db-credentials updated")
+
+	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes)[:length], nil
+}

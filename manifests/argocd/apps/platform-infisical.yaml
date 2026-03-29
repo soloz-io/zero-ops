@@ -72,7 +72,11 @@ spec:
           enabled: false
 
         redis:
-          enabled: false
+          enabled: true
+          auth:
+            existingSecret: "infisical-redis-credentials"
+            existingSecretPasswordKey: "password"
+          architecture: standalone
   destination:
     server: https://kubernetes.default.svc
     namespace: zero-ops-system
