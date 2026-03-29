@@ -62,15 +62,14 @@ spec:
               key: password
         volumeMounts:
         - name: pgpass
-          mountPath: /tmp
+          mountPath: /tmp/.pgpass
+          subPath: .pgpass
           readOnly: true
         command:
         - /bin/sh
         - -c
         - |
           set -e
-          
-          chmod 600 /tmp/.pgpass
           
           echo "Waiting for PostgreSQL to be ready..."
           until psql -d postgres -c "SELECT 1" > /dev/null 2>&1; do 
