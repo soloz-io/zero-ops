@@ -33,18 +33,23 @@ spec:
         image: postgres:15-alpine
         env:
         - name: PGHOST
-          value: "platform-db-rw"
+          value: "platform-db-rw.zero-ops-system.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE
           value: "postgres"
+        - name: PGSSLMODE
+          value: "require"
         - name: PGUSER
           valueFrom:
             secretKeyRef:
               name: platform-db-app
               key: username
-        - name: PGPASSFILE
-          value: "/tmp/.pgpass"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: password
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -65,38 +70,32 @@ spec:
             secretKeyRef:
               name: infisical-db-credentials
               key: password
-        volumeMounts:
-        - name: pgpass
-          mountPath: /tmp/.pgpass
-          subPath: .pgpass
-          readOnly: true
-        command:
         - /bin/sh
         - -c
         - |
           set -e
           
           echo "Waiting for PostgreSQL to be ready..."
-          until psql -d postgres -c "SELECT 1" > /dev/null 2>&1; do 
+          until psql -c "SELECT 1" > /dev/null 2>&1; do 
             echo "Waiting for database..."
             sleep 2
           done
 
           echo "Creating mcp_server role..."
-          psql -d postgres -tc "SELECT 1 FROM pg_roles WHERE rolname = 'mcp_server'" | grep -q 1 || \
-            psql -d postgres -c "CREATE ROLE mcp_server WITH LOGIN PASSWORD '${MCP_SERVER_PASSWORD}';"
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'mcp_server'" | grep -q 1 || \
+            psql -c "CREATE ROLE mcp_server WITH LOGIN PASSWORD '${MCP_SERVER_PASSWORD}';"
 
           echo "Creating agentregistry role..."
-          psql -d postgres -tc "SELECT 1 FROM pg_roles WHERE rolname = 'agentregistry'" | grep -q 1 || \
-            psql -d postgres -c "CREATE ROLE agentregistry WITH LOGIN PASSWORD '${AGENTREGISTRY_PASSWORD}';"
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'agentregistry'" | grep -q 1 || \
+            psql -c "CREATE ROLE agentregistry WITH LOGIN PASSWORD '${AGENTREGISTRY_PASSWORD}';"
 
           echo "Creating spoke_controller role..."
-          psql -d postgres -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spoke_controller'" | grep -q 1 || \
-            psql -d postgres -c "CREATE ROLE spoke_controller WITH LOGIN PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';"
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spoke_controller'" | grep -q 1 || \
+            psql -c "CREATE ROLE spoke_controller WITH LOGIN PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';"
 
           echo "Creating infisical role..."
-          psql -d postgres -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 || \
-            psql -d postgres -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 || \
+            psql -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
 
           echo "Granting privileges on control_plane database..."
           psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;"
@@ -109,11 +108,3 @@ spec:
           psql -d infisical -c "GRANT ALL PRIVILEGES ON DATABASE infisical TO infisical;"
 
           echo "✓ Platform roles created successfully"
-      volumes:
-      - name: pgpass
-        secret:
-          secretName: platform-db-app
-          items:
-          - key: pgpass
-            path: .pgpass
-          defaultMode: 0600
