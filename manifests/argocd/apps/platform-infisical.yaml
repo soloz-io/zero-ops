@@ -50,12 +50,6 @@ spec:
           image:
             repository: infisical/infisical
             tag: "v0.158.0"
-          
-          useExistingPostgresSecret:
-            enabled: true
-            existingConnectionStringSecret:
-              name: infisical-postgres-connection
-              key: connection-string
 
           service:
             type: ClusterIP
@@ -70,6 +64,11 @@ spec:
 
         postgresql:
           enabled: false
+          useExistingPostgresSecret:
+            enabled: true
+            existingConnectionStringSecret:
+              name: infisical-postgres-connection
+              key: connection-string
 
         redis:
           enabled: true
