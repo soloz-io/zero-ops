@@ -112,5 +112,10 @@ spec:
 
           echo "Granting privileges on infisical database..."
           psql -d infisical -c "GRANT ALL PRIVILEGES ON DATABASE infisical TO infisical;"
+          psql -d infisical -c "GRANT ALL ON SCHEMA public TO infisical;"
+          psql -d infisical -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO infisical;"
+          psql -d infisical -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO infisical;"
+          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;"
+          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
 
           echo "✓ Platform roles created successfully"
