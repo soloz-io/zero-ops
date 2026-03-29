@@ -46,7 +46,7 @@ spec:
       values: |
         infisical:
           enabled: true
-          replicaCount: 2
+          replicaCount: 1
           image:
             repository: infisical/infisical
             tag: "v0.158.0"
