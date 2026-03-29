@@ -1,25 +1,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: infisical
+  name: infisical-ingress
   namespace: zero-ops-system
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
 spec:
   ingressClassName: nginx
   tls:
     - secretName: infisical-tls
       hosts:
-        - infisical.zero-ops.local
+        - infisical.zero-ops.dev
   rules:
-    - host: infisical.zero-ops.local
+    - host: infisical.zero-ops.dev
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: infisical
+                name: platform-infisical-infisical-standalone-infisical
                 port:
-                  number: 80
+                  number: 8080
