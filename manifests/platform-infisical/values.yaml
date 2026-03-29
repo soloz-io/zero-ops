@@ -1,0 +1,51 @@
+infisical:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: infisical/infisical
+    tag: "v0.158.0"
+
+  # Kubernetes late-binding overrides
+  extraEnv:
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: infisical-redis-credentials
+        key: url
+  - name: DB_ROOT_CERT
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: ca-cert
+
+  service:
+    type: ClusterIP
+    annotations: {}
+
+  resources:
+    limits:
+      memory: 1000Mi
+    requests:
+      cpu: 350m
+      memory: 1000Mi
+
+postgresql:
+  enabled: false
+  useExistingPostgresSecret:
+    enabled: true
+    existingConnectionStringSecret:
+      name: infisical-postgres-connection
+      key: connection-string
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    # This secures the Redis pod (Bitnami subchart supports existingSecret)
+    existingSecret: infisical-redis-credentials
+    existingSecretPasswordKey: password
+
+ingress:
+  enabled: false
+  nginx:
+    enabled: false
