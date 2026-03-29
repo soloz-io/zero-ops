@@ -584,7 +584,8 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		StringData: map[string]string{
 			"password": redisPassword,
 			// Pre-format the URL for Infisical to consume via env override
-			"url": fmt.Sprintf("redis://:%s@platform-infisical-redis-master:6379", redisPassword),
+			// The Helm chart creates a service named "redis-master" (not platform-infisical-redis-master)
+			"url": fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword),
 		},
 	}
 
