@@ -70,6 +70,7 @@ spec:
             secretKeyRef:
               name: infisical-db-credentials
               key: password
+        command:
         - /bin/sh
         - -c
         - |
