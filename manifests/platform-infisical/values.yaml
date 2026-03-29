@@ -9,6 +9,10 @@ infisical:
   # are injected via envFrom.secretRef.name=infisical-secrets by the Helm chart
   # This bypasses the Helm chart's buggy extraEnv indentation issues
 
+  podAnnotations:
+    # Force pod restart to pick up updated secrets
+    kubectl.kubernetes.io/restartedAt: "2025-01-27T10:30:00Z"
+
   service:
     type: ClusterIP
     annotations: {}
