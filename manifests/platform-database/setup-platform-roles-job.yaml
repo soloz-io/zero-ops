@@ -11,6 +11,7 @@ metadata:
     # Idempotency: Script checks if roles exist before creating (safe to re-run)
     argocd.argoproj.io/sync-wave: "3"
     argocd.argoproj.io/sync-options: Replace=true
+    updated-at: "2026-03-29T15:00:00Z"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3
