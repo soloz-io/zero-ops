@@ -94,3 +94,9 @@ spec:
       backoff:
         duration: 30s
         maxDuration: 10m
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    name: platform-infisical-infisical-standalone-infisical
+    jsonPointers:
+    - /spec/template/spec/containers/0/env
