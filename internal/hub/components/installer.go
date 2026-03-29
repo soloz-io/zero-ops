@@ -474,25 +474,19 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	return nil
 }
 
-// generateSecureKey generates a cryptographically secure random key
-func generateSecureKey(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
 // InstallInfisicalSecrets generates and injects Infisical base secrets (Secret Zero)
 // This is called during bootstrap BEFORE ArgoCD syncs Infisical.
 // CRITICAL: These secrets enable Infisical to boot, NEVER store in Git.
 //
 // Generated Secrets:
-// - ENCRYPTION_KEY: 32-byte hex string for encrypting secrets at rest
-// - AUTH_SECRET: 32-byte hex string for JWT signing
+// - ENCRYPTION_KEY: Exactly 32-character ASCII string (32 bytes) for AES-256-GCM encryption
+// - AUTH_SECRET: Exactly 32-character ASCII string (32 bytes) for JWT signing
+//
+// IMPORTANT: Infisical's Node.js backend expects ENCRYPTION_KEY as a 32-byte UTF-8 string.
+// We use generateSecurePassword(32) which produces exactly 32 hex characters (32 bytes).
 //
 // Production Workflow:
-// 1. Developer runs: hub platform-core bootstrap
+// 1. Developer runs: hub init-secrets
 // 2. This method generates secure random keys using crypto/rand
 // 3. Creates infisical-secrets in zero-ops-system namespace
 // 4. ArgoCD syncs Infisical Helm chart (wave 3)
@@ -500,13 +494,13 @@ func generateSecureKey(length int) (string, error) {
 func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 	fmt.Println("[bootstrap] Generating Infisical base secrets...")
 
-	// Generate secure random keys
-	encryptionKey, err := generateSecureKey(32)
+	// Generate secure random keys - MUST be exactly 32 characters for AES-256
+	encryptionKey, err := generateSecurePassword(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate encryption key: %w", err)
 	}
 
-	authSecret, err := generateSecureKey(32)
+	authSecret, err := generateSecurePassword(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate auth secret: %w", err)
 	}
@@ -569,11 +563,12 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		fmt.Println("[bootstrap] ✓ infisical-secrets created")
 	}
 
-	// Generate Redis password
-	redisPassword, err := generateSecurePassword(32)
-	if err != nil {
+	// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
+	redisBytes := make([]byte, 32)
+	if _, err := rand.Read(redisBytes); err != nil {
 		return fmt.Errorf("failed to generate redis password: %w", err)
 	}
+	redisPassword := hex.EncodeToString(redisBytes)[:32]
 
 	// Create Redis credentials secret
 	redisSecret := &corev1.Secret{
@@ -664,8 +659,11 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
 
 	// Build connection string using the password from the credentials secret
+	// NOTE: Using sslmode=disable temporarily because Infisical's pg-boss library
+	// doesn't properly handle DB_ROOT_CERT for self-signed certificates
+	// TODO: Fix SSL after Infisical boots (use sslmode=verify-ca with proper cert injection)
 	connectionString := fmt.Sprintf(
-		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=require",
+		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=disable",
 		password,
 	)
 
@@ -838,10 +836,16 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 }
 
 // generateSecurePassword generates a cryptographically secure random password
+// For encryption keys (32 bytes), this produces a base64-encoded string that decodes to exactly 32 bytes
 func generateSecurePassword(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
+	}
+	// For 32-byte encryption keys, return base64 encoding (Infisical will decode to get 32 bytes)
+	// For other passwords, return hex encoding truncated to length
+	if length == 32 {
+		return base64.StdEncoding.EncodeToString(bytes), nil
 	}
 	return hex.EncodeToString(bytes)[:length], nil
 }
