@@ -52,7 +52,7 @@ spec:
             tag: "v0.158.0"
 
           # Kubernetes late-binding overrides
-          env:
+          extraEnv:
           - name: REDIS_URL
             valueFrom:
               secretKeyRef:
