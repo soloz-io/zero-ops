@@ -38,12 +38,9 @@ postgresql:
       key: connection-string
 
 redis:
-  enabled: true
-  architecture: standalone
-  auth:
-    # This secures the Redis pod (Bitnami subchart supports existingSecret)
-    existingSecret: infisical-redis-credentials
-    existingSecretPasswordKey: password
+  # CRITICAL: Set to false to prevent Helm chart from generating hardcoded REDIS_URL
+  # We deploy Redis separately and provide REDIS_URL via extraEnv
+  enabled: false
 
 ingress:
   enabled: false
