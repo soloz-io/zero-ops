@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"time"
 
@@ -663,9 +664,10 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	// NOTE: Using sslmode=disable temporarily because Infisical's pg-boss library
 	// doesn't properly handle DB_ROOT_CERT for self-signed certificates
 	// TODO: Fix SSL after Infisical boots (use sslmode=verify-ca with proper cert injection)
+	// IMPORTANT: URL-encode the password to handle special characters like / and =
 	connectionString := fmt.Sprintf(
 		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=disable",
-		password,
+		url.QueryEscape(password),
 	)
 
 	// Create the secret with both connection string and CA certificate
