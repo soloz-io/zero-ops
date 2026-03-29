@@ -612,15 +612,16 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 // CRITICAL: This secret enables Infisical to connect to CNPG, NEVER store in Git.
 //
 // NOTE: This method reads the password from the infisical-db-credentials secret
-// that was created by the platform-database setup. It does NOT generate a new password.
+// and extracts the CA certificate from CNPG's cluster certificate secret.
 //
 // Production Workflow:
 // 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
-// 2. Developer runs: hub platform-core bootstrap
+// 2. Developer runs: hub init-secrets
 // 3. This method reads the password from infisical-db-credentials
-// 4. Creates infisical-postgres-connection with the connection string
-// 5. ArgoCD syncs Infisical Helm chart (wave 3)
-// 6. Infisical pods connect to CNPG using this connection string
+// 4. Extracts CNPG CA certificate from platform-db-ca secret
+// 5. Creates infisical-postgres-connection with connection string + CA cert
+// 6. ArgoCD syncs Infisical Helm chart (wave 3)
+// 7. Infisical pods connect to CNPG using sslmode=require with trusted CA
 func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	fmt.Println("[bootstrap] Creating PostgreSQL connection secret for Infisical...")
 
@@ -635,8 +636,9 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	// Read password from infisical-db-credentials secret
 	namespace := "zero-ops-system"
+
+	// Read password from infisical-db-credentials secret
 	credentialsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to read infisical-db-credentials secret (ensure platform-database is deployed): %w", err)
@@ -647,13 +649,27 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		return fmt.Errorf("password not found in infisical-db-credentials secret")
 	}
 
+	// Extract CNPG CA certificate from cluster certificate secret
+	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
+	}
+
+	caCert := cnpgCASecret.Data["ca.crt"]
+	if len(caCert) == 0 {
+		return fmt.Errorf("ca.crt not found in platform-db-ca secret")
+	}
+
+	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
+	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
+
 	// Build connection string using the password from the credentials secret
 	connectionString := fmt.Sprintf(
 		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=require",
 		password,
 	)
 
-	// Create the secret
+	// Create the secret with both connection string and CA certificate
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
@@ -666,6 +682,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			"connection-string": connectionString,
+			"ca-cert":           caCertBase64,
 		},
 	}
 
@@ -677,9 +694,9 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated")
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated (with CA cert)")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created")
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created (with CA cert)")
 	}
 
 	return nil
