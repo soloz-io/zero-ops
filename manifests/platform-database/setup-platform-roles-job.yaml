@@ -30,7 +30,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: platform-db-app
-              key: url
+              key: uri
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
