@@ -672,22 +672,8 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		return false, fmt.Errorf("password not found in infisical-db-credentials secret")
 	}
 
-	// Extract CNPG CA certificate from cluster certificate secret
-	cnpgCASecret2, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
-	}
-
-	caCert := cnpgCASecret2.Data["ca.crt"]
-	if len(caCert) == 0 {
-		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
-	}
-
-	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
-	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
-
 	// Create the secret with individual DB parameters
-	// Knex will use these parameters and DB_ROOT_CERT from infisical-secrets for SSL
+	// Pooler->PostgreSQL uses TLS, but client->pooler doesn't need SSL verification
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
