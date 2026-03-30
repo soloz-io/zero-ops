@@ -40,6 +40,8 @@ spec:
           value: "postgres"
         - name: PGSSLMODE
           value: "require"
+        - name: PGSSLROOTCERT
+          value: "/etc/postgresql/ca.crt"
         - name: PGUSER
           valueFrom:
             secretKeyRef:
@@ -70,6 +72,10 @@ spec:
             secretKeyRef:
               name: infisical-db-credentials
               key: password
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/postgresql
+          readOnly: true
         command:
         - /bin/sh
         - -c
@@ -118,3 +124,10 @@ spec:
           psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
 
           echo "✓ Platform roles created successfully"
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: platform-db-ca
+          items:
+          - key: ca.crt
+            path: ca.crt
