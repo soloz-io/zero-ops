@@ -11,6 +11,13 @@ spec:
 
   enableSuperuserAccess: true
 
+  certificates:
+    serverAltDNSNames:
+      - platform-db-pooler
+      - platform-db-pooler.zero-ops-system
+      - platform-db-pooler.zero-ops-system.svc
+      - platform-db-pooler.zero-ops-system.svc.cluster.local
+
   bootstrap:
     initdb:
       database: postgres
