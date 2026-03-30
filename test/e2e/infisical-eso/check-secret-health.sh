@@ -22,7 +22,7 @@ fi
 
 # Step 2: Verify External Secrets Operator is running
 echo "2. Verifying External Secrets Operator..."
-REPLICAS=$(kubectl get deployment external-secrets -n external-secrets-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+REPLICAS=$(kubectl get deployment platform-external-secrets -n external-secrets-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
 if [ "$REPLICAS" -ge 1 ]; then
   echo "   ✓ External Secrets Operator is running ($REPLICAS replicas)"
 else

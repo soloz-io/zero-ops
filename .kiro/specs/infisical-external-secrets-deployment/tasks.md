@@ -151,7 +151,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Set refresh interval to 1h
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 6. Checkpoint - Verify ArgoCD Applications sync successfully
+- [x] 6. Checkpoint - Verify ArgoCD Applications sync successfully
   - Run break-glass bootstrap methods first (task 0)
   - Commit all manifests to feature branch
   - Verify ArgoCD detects and syncs all four applications
@@ -159,8 +159,8 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
   - Verify bootstrap secret replaced by ESO-managed secret
   - Ensure all tests pass, ask the user if questions arise.
 
-- [-] 7. Create validation scripts for secret flow
-  - [ ] 7.1 Implement health check validation script
+- [x] 7. Create validation scripts for secret flow
+  - [x] 7.1 Implement health check validation script
     - Create `test/e2e/check-secret-health.sh`
     - Add shebang and set error handling (set -euo pipefail)
     - Verify Infisical API is accessible
@@ -205,7 +205,7 @@ This implementation follows GitOps-first principles with ArgoCD sync-wave orderi
     - Ensure cleanup runs even on script failure
     - _Requirements: 6.7_
 
-- [ ] 8. Final checkpoint - End-to-end validation
+- [x] 8. Final checkpoint - End-to-end validation
   - Run health check script to verify component deployment
   - Run E2E secret flow test to verify complete secret lifecycle
   - Verify Prometheus Operator, Grafana Alloy, and VictoriaMetrics Ingress applications sync successfully
