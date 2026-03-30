@@ -274,6 +274,22 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 5. Check database roles created
 6. Proceed to Infisical deployment
 
+**Validation Results (2026-03-30T10:30:00Z):**
+- ✅ Manual kubectl apply succeeded
+- ✅ Job completed in 19 seconds
+- ✅ Password authentication with platform-db-app user works
+- ✅ All 4 roles created: mcp_server, agentregistry, spoke_controller, infisical
+- ✅ All roles have LOGIN privilege
+- ✅ Database privileges granted successfully
+
+**ArgoCD Issue (Unresolved):**
+- ArgoCD reports "job.batch/setup-platform-roles created" but job never appears in cluster
+- Manual kubectl apply works immediately
+- This is an ArgoCD-specific issue, not a manifest or authentication problem
+- Requires further investigation of ArgoCD sync behavior with Jobs
+
+**Next Step:** Proceed to Infisical deployment now that database roles are confirmed working
+
 ---
 
 ## Files Modified (Historical)

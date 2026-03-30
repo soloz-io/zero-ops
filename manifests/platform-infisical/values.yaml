@@ -11,18 +11,39 @@ infisical:
     repository: infisical/infisical
     tag: "v0.158.0"
 
-  # All dynamic secrets are injected via envFrom
-  # - infisical-secrets: ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT
-  # - infisical-postgres-connection: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_ROOT_CERT
-  envFrom:
-  - secretRef:
-      name: infisical-secrets
-  - secretRef:
-      name: infisical-postgres-connection
+  # All dynamic secrets are injected via envFrom and extraEnv
+  # - infisical-secrets: ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT (via kubeSecretRef)
+  # - infisical-postgres-connection: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (via extraEnv)
+  extraEnv:
+  - name: DB_HOST
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: DB_HOST
+  - name: DB_PORT
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: DB_PORT
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: DB_USER
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: DB_PASSWORD
+  - name: DB_NAME
+    valueFrom:
+      secretKeyRef:
+        name: infisical-postgres-connection
+        key: DB_NAME
 
   podAnnotations:
     # Force pod restart to pick up updated secrets
-    kubectl.kubernetes.io/restartedAt: "2026-03-30T09:00:00Z"
+    kubectl.kubernetes.io/restartedAt: "2026-03-30T10:35:00Z"
 
   service:
     type: ClusterIP
