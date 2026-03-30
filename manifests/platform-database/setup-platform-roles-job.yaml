@@ -41,15 +41,17 @@ spec:
         - name: PGDATABASE
           value: "postgres"
         - name: PGUSER
-          value: "postgres"
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: password
         - name: PGSSLMODE
-          value: "verify-ca"
-        - name: PGSSLROOTCERT
-          value: "/etc/postgresql/ca/ca.crt"
-        - name: PGSSLCERT
-          value: "/etc/postgresql/client/tls.crt"
-        - name: PGSSLKEY
-          value: "/etc/postgresql/client/tls.key"
+          value: "require"
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -70,13 +72,6 @@ spec:
             secretKeyRef:
               name: infisical-db-credentials
               key: password
-        volumeMounts:
-        - name: ca-cert
-          mountPath: /etc/postgresql/ca
-          readOnly: true
-        - name: client-cert
-          mountPath: /etc/postgresql/client
-          readOnly: true
         command:
         - /bin/sh
         - -c
@@ -124,15 +119,4 @@ spec:
           psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;"
           psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
 
-          echo "✓ Platform roles created successfully via mTLS"
-      volumes:
-      - name: ca-cert
-        secret:
-          secretName: platform-db-ca
-          items:
-          - key: ca.crt
-            path: ca.crt
-      - name: client-cert
-        secret:
-          secretName: platform-db-server
-          defaultMode: 0600
+          echo "✓ Platform roles created successfully"

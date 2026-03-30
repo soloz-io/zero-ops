@@ -243,12 +243,36 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 - Kept `defaultMode: 0600` for security (psql requires restrictive permissions on private keys)
 - Secret will mount all keys (tls.crt, tls.key) at `/etc/postgresql/client/`
 
+**Issue Found (2026-03-30T10:20:00Z) - mTLS Authentication Failure:**
+- Manual kubectl apply succeeded, job created and running
+- Job stuck in "Waiting for database..." loop
+- Error: `SSL error: ssl/tls alert unsupported certificate`
+- Root cause: `platform-db-server` secret contains SERVER certificates, not CLIENT certificates
+- mTLS requires client certificates for authentication, but CNPG doesn't provide separate client certs
+- The `platform-db-server` secret is for server-side TLS, not client authentication
+
+**Solution Applied (2026-03-30T10:25:00Z):**
+- Switched from mTLS (postgres superuser) to password authentication (app user)
+- Changed `PGUSER` from `postgres` to use `platform-db-app` secret username
+- Changed `PGPASSWORD` to use `platform-db-app` secret password
+- Changed `PGSSLMODE` from `verify-ca` to `require` (SSL without client cert verification)
+- Removed all mTLS-related environment variables (PGSSLCERT, PGSSLKEY, PGSSLROOTCERT)
+- Removed volume mounts for certificates (ca-cert, client-cert)
+- Removed volumes section entirely
+
+**Why mTLS Failed:**
+- CNPG `platform-db-server` secret contains server certificates for TLS encryption
+- These are NOT client certificates for mutual TLS authentication
+- PostgreSQL rejected connection: "unsupported certificate"
+- The app user (`platform-db-app`) uses standard password authentication with SSL encryption
+
 **Next Actions:**
-1. Commit and push the volume mount fix
-2. Wait for ArgoCD sync to complete (do not proceed until verified)
-3. Check pod events: `kubectl get events -n zero-ops-system --sort-by='.lastTimestamp'`
-4. Verify job completes: `kubectl logs -n zero-ops-system -l job-name=setup-platform-roles`
-5. Only then proceed to Infisical deployment
+1. Delete manually created job: `kubectl delete job setup-platform-roles -n zero-ops-system`
+2. Commit and push password authentication fix
+3. Wait for ArgoCD sync to complete
+4. Verify job completes successfully
+5. Check database roles created
+6. Proceed to Infisical deployment
 
 ---
 
