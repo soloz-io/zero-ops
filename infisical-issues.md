@@ -779,3 +779,8 @@ connection: {
 - No manual `kubectl apply` for platform services
 - Bash scripts only for read-only validation/testing
 - Manual forced sync acceptable for faster iteration during development
+
+### HOOK ISSUES:
+ArgoCD is not seeing the Sync Hook jobs (setup-platform-roles, infisical-migrations-v1, reset-infisical-db). This is because Sync Hooks are not tracked as regular resources - they only appear during sync operations.
+
+The issue is that ArgoCD Sync Hooks with hook: Sync are ephemeral - they don't persist as resources. They only execute during sync operations and then disappear.

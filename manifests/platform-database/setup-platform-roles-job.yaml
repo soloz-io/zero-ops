@@ -4,11 +4,8 @@ metadata:
   name: setup-platform-roles
   namespace: zero-ops-system
   annotations:
-    # ArgoCD Sync Hook: Runs on every sync operation
-    # BeforeHookCreation: Deletes old job before creating new one (handles immutable Job specs)
-    # This ensures database roles are always synced with latest passwords from secrets
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # Runs after reset-infisical-db (sync-wave 3 > 2)
+    # This ensures database roles are created with latest passwords from secrets
     argocd.argoproj.io/sync-wave: "3"
 spec:
   ttlSecondsAfterFinished: 300

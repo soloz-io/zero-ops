@@ -4,12 +4,8 @@ metadata:
   name: reset-infisical-db
   namespace: zero-ops-system
   annotations:
-    # ArgoCD Sync Hook: Runs on every sync operation
-    # BeforeHookCreation: Deletes old job before creating new one
     # Runs BEFORE setup-platform-roles (sync-wave 2 < 3)
     # This ensures clean Infisical database state for fresh migrations
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "2"
 spec:
   ttlSecondsAfterFinished: 300

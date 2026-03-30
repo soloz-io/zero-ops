@@ -4,11 +4,7 @@ metadata:
   name: infisical-migrations-v1
   namespace: zero-ops-system
   annotations:
-    # ArgoCD Sync Hook: Runs on every sync operation
-    # BeforeHookCreation: Deletes old job before creating new one (handles immutable Job specs)
-    # Runs after setup-platform-roles (sync-wave 3) creates the infisical role
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # Runs after setup-platform-roles (sync-wave 4 > 3) creates the infisical role
     argocd.argoproj.io/sync-wave: "4"
 spec:
   ttlSecondsAfterFinished: 60
