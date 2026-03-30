@@ -12,7 +12,9 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -485,71 +487,71 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 // IMPORTANT: Infisical's Node.js backend expects ENCRYPTION_KEY as a 32-byte UTF-8 string.
 // We use generateSecurePassword(32) which produces exactly 32 hex characters (32 bytes).
 //
+// IDEMPOTENCY: Returns (true, nil) if secrets were created/modified, (false, nil) if they already exist.
+// This prevents secret drift and unnecessary pod churn from repeated CLI executions.
+//
 // Production Workflow:
 // 1. Developer runs: hub init-secrets
 // 2. This method generates secure random keys using crypto/rand
 // 3. Creates infisical-secrets in zero-ops-system namespace
 // 4. ArgoCD syncs Infisical Helm chart (wave 3)
 // 5. Infisical pods start and use these secrets
-func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
-	fmt.Println("[bootstrap] Generating Infisical base secrets...")
+func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := "zero-ops-system"
+
+	// Check if both secrets already exist and are populated
+	infSecret, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-secrets", metav1.GetOptions{})
+	redisSecret, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-redis-credentials", metav1.GetOptions{})
+
+	if err1 == nil && err2 == nil && 
+		len(infSecret.Data["ENCRYPTION_KEY"]) > 0 && 
+		len(infSecret.Data["REDIS_URL"]) > 0 &&
+		len(redisSecret.Data["password"]) > 0 {
+		fmt.Println("[bootstrap-secrets] ✓ Infisical & Redis secrets already exist. Immutable lock applied; skipping.")
+		return false, nil
+	}
+
+	fmt.Println("[bootstrap-secrets] Generating initial Infisical & Redis secrets...")
 
 	// Generate secure random keys - MUST be exactly 32 characters for AES-256
 	encryptionKey, err := generateSecurePassword(32)
 	if err != nil {
-		return fmt.Errorf("failed to generate encryption key: %w", err)
+		return false, fmt.Errorf("failed to generate encryption key: %w", err)
 	}
 
 	authSecret, err := generateSecurePassword(32)
 	if err != nil {
-		return fmt.Errorf("failed to generate auth secret: %w", err)
+		return false, fmt.Errorf("failed to generate auth secret: %w", err)
 	}
 
 	// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
 	redisBytes := make([]byte, 32)
 	if _, err := rand.Read(redisBytes); err != nil {
-		return fmt.Errorf("failed to generate redis password: %w", err)
+		return false, fmt.Errorf("failed to generate redis password: %w", err)
 	}
 	redisPassword := hex.EncodeToString(redisBytes)[:32]
 	redisURL := fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword)
 
-	// Load kubeconfig and create clientset
-	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	// Create namespace if it doesn't exist
-	namespace := "zero-ops-system"
-	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
-	if err != nil {
-		// Namespace doesn't exist, create it
-		ns := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: namespace,
-			},
-		}
-		_, err = clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create namespace %s: %w", namespace, err)
-		}
-		fmt.Printf("[bootstrap] Created namespace %s\n", namespace)
-	}
-
 	// Extract CNPG CA certificate for DB_ROOT_CERT
 	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
+		return false, fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
 	}
 
 	caCert := cnpgCASecret.Data["ca.crt"]
 	if len(caCert) == 0 {
-		return fmt.Errorf("ca.crt not found in platform-db-ca secret")
+		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
 	}
 
 	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
@@ -581,15 +583,15 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		// Secret might already exist, try to update
 		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create or update infisical-secrets: %w", err)
+			return false, fmt.Errorf("failed to create or update infisical-secrets: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-secrets updated (with REDIS_URL and DB_ROOT_CERT)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets updated (with REDIS_URL and DB_ROOT_CERT)")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-secrets created (with REDIS_URL and DB_ROOT_CERT)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets created (with REDIS_URL and DB_ROOT_CERT)")
 	}
 
 	// Create Redis credentials secret (for standalone Redis pod only)
-	redisSecret := &corev1.Secret{
+	redisSecretObj := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-redis-credentials",
 			Namespace: namespace,
@@ -604,18 +606,18 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 		},
 	}
 
-	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, redisSecret, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, redisSecretObj, metav1.CreateOptions{})
 	if err != nil {
-		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, redisSecret, metav1.UpdateOptions{})
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, redisSecretObj, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create or update infisical-redis-credentials: %w", err)
+			return false, fmt.Errorf("failed to create or update infisical-redis-credentials: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-redis-credentials updated")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials updated")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-redis-credentials created")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials created")
 	}
 
-	return nil
+	return true, nil
 }
 
 // InstallPostgresConnectionSecret creates the PostgreSQL connection secret for Infisical
@@ -625,6 +627,9 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 // NOTE: This method provides individual DB parameters (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
 // instead of a connection string. This allows Infisical's Knex to properly use DB_ROOT_CERT for SSL.
 //
+// IDEMPOTENCY: Returns (true, nil) if secret was created/modified, (false, nil) if it already exists.
+// This prevents secret drift and unnecessary pod churn from repeated CLI executions.
+//
 // Production Workflow:
 // 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
 // 2. Developer runs: hub init-secrets
@@ -633,42 +638,49 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 // 5. Creates infisical-postgres-connection with individual DB params + CA cert
 // 6. ArgoCD syncs Infisical Helm chart (wave 3)
 // 7. Infisical pods connect to CNPG using SSL with DB_ROOT_CERT validation
-func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
-	fmt.Println("[bootstrap] Creating PostgreSQL connection secret for Infisical...")
-
+func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
+		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
+		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
 	namespace := "zero-ops-system"
 
+	// Check if secret already exists and is populated
+	connSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-postgres-connection", metav1.GetOptions{})
+	if err == nil && len(connSecret.Data["DB_PASSWORD"]) > 0 {
+		fmt.Println("[bootstrap-secrets] ✓ Infisical DB connection parameters already exist. Skipping.")
+		return false, nil
+	}
+
+	fmt.Println("[bootstrap-secrets] Generating initial Infisical DB connection secret...")
+
 	// Read password from infisical-db-credentials secret
 	credentialsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to read infisical-db-credentials secret (ensure platform-database is deployed): %w", err)
+		return false, fmt.Errorf("failed to read infisical-db-credentials secret (ensure platform-database is deployed): %w", err)
 	}
 
 	password := string(credentialsSecret.Data["password"])
 	if password == "" {
-		return fmt.Errorf("password not found in infisical-db-credentials secret")
+		return false, fmt.Errorf("password not found in infisical-db-credentials secret")
 	}
 
 	// Extract CNPG CA certificate from cluster certificate secret
 	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
+		return false, fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
 	}
 
 	caCert := cnpgCASecret.Data["ca.crt"]
 	if len(caCert) == 0 {
-		return fmt.Errorf("ca.crt not found in platform-db-ca secret")
+		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
 	}
 
 	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
@@ -702,14 +714,14 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		// Secret might already exist, try to update
 		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
+			return false, fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated (individual DB params)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection updated (individual DB params)")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created (individual DB params)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection created (individual DB params)")
 	}
 
-	return nil
+	return true, nil
 }
 
 
@@ -724,40 +736,56 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 // - hub-db-credentials (spoke_controller user)
 // - infisical-db-credentials (infisical user)
 //
+// IDEMPOTENCY: Returns (true, nil) if secrets were created/modified, (false, nil) if they already exist.
+// This prevents secret drift and unnecessary pod churn from repeated CLI executions.
+//
 // CRITICAL: This must run BEFORE setup-platform-roles-job, as that job reads these passwords
 // to create the PostgreSQL roles.
-func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) error {
-	fmt.Println("[bootstrap] Generating secure passwords for platform database users...")
-
+func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
+		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
+		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
 	namespace := "zero-ops-system"
-	dbHost := "platform-db-rw.zero-ops-system.svc.cluster.local"
-	dbPort := "5432"
+
+	// Check if all secrets already exist and are populated
+	cpSecret, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "control-plane-db-credentials", metav1.GetOptions{})
+	hubSecret, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "hub-db-credentials", metav1.GetOptions{})
+	infSecret, err3 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+
+	if err1 == nil && err2 == nil && err3 == nil &&
+		len(cpSecret.Data["password"]) > 0 &&
+		len(hubSecret.Data["password"]) > 0 &&
+		len(infSecret.Data["password"]) > 0 {
+		fmt.Println("[bootstrap-secrets] ✓ Platform DB credentials already exist. Immutable lock applied; skipping.")
+		return false, nil
+	}
+
+	fmt.Println("[bootstrap-secrets] Generating initial platform database credentials...")
+
+	dbHost, dbPort := "platform-db-rw.zero-ops-system.svc.cluster.local", "5432"
 
 	// Generate passwords for each database user
 	controlPlanePassword, err := generateSecurePassword(32)
 	if err != nil {
-		return fmt.Errorf("failed to generate control-plane password: %w", err)
+		return false, fmt.Errorf("failed to generate control-plane password: %w", err)
 	}
 
 	hubPassword, err := generateSecurePassword(32)
 	if err != nil {
-		return fmt.Errorf("failed to generate hub password: %w", err)
+		return false, fmt.Errorf("failed to generate hub password: %w", err)
 	}
 
 	infisicalPassword, err := generateSecurePassword(32)
 	if err != nil {
-		return fmt.Errorf("failed to generate infisical password: %w", err)
+		return false, fmt.Errorf("failed to generate infisical password: %w", err)
 	}
 
 	// Update control-plane-db-credentials (used by mcp_server and agentregistry)
@@ -784,9 +812,9 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 
 	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, controlPlaneSecret, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to update control-plane-db-credentials: %w", err)
+		return false, fmt.Errorf("failed to update control-plane-db-credentials: %w", err)
 	}
-	fmt.Println("[bootstrap] ✓ control-plane-db-credentials updated")
+	fmt.Println("[bootstrap-secrets] ✓ control-plane-db-credentials updated")
 
 	// Update hub-db-credentials (used by spoke_controller)
 	hubURL := fmt.Sprintf("postgresql://spoke_controller:%s@%s:%s/hub?sslmode=require", hubPassword, dbHost, dbPort)
@@ -812,9 +840,9 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 
 	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, hubSecret, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to update hub-db-credentials: %w", err)
+		return false, fmt.Errorf("failed to update hub-db-credentials: %w", err)
 	}
-	fmt.Println("[bootstrap] ✓ hub-db-credentials updated")
+	fmt.Println("[bootstrap-secrets] ✓ hub-db-credentials updated")
 
 	// Update infisical-db-credentials (used by infisical)
 	infisicalURL := fmt.Sprintf("postgresql://infisical:%s@%s:%s/infisical?sslmode=require", infisicalPassword, dbHost, dbPort)
@@ -840,14 +868,14 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 
 	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, infisicalSecret, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to update infisical-db-credentials: %w", err)
+		return false, fmt.Errorf("failed to update infisical-db-credentials: %w", err)
 	}
-	fmt.Println("[bootstrap] ✓ infisical-db-credentials updated")
+	fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials updated")
 
 	// CRITICAL: Force database role updates by deleting the setup job
 	// This triggers ArgoCD/Kubernetes to recreate the job with fresh passwords
 	// The job uses ALTER ROLE to sync PostgreSQL passwords with the updated secrets
-	fmt.Println("[bootstrap] Triggering database role updates...")
+	fmt.Println("[bootstrap-secrets] Triggering database role updates...")
 	
 	propagationPolicy := metav1.DeletePropagationBackground
 	err = clientset.BatchV1().Jobs(namespace).Delete(ctx, "setup-platform-roles", metav1.DeleteOptions{
@@ -855,13 +883,13 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 	})
 	if err != nil {
 		// It's okay if it doesn't exist yet (e.g., brand new cluster)
-		fmt.Println("[bootstrap] Note: setup-platform-roles job not found or already deleted")
+		fmt.Println("[bootstrap-secrets] Note: setup-platform-roles job not found or already deleted")
 	} else {
-		fmt.Println("[bootstrap] ✓ Queued setup-platform-roles job for recreation")
-		fmt.Println("[bootstrap] ArgoCD will recreate the job to sync database role passwords")
+		fmt.Println("[bootstrap-secrets] ✓ Queued setup-platform-roles job for recreation")
+		fmt.Println("[bootstrap-secrets] ArgoCD will recreate the job to sync database role passwords")
 	}
 
-	return nil
+	return true, nil
 }
 
 // generateSecurePassword generates a cryptographically secure random password
@@ -874,4 +902,40 @@ func generateSecurePassword(length int) (string, error) {
 	// Always return hex encoding truncated to exact length
 	// For 32-byte keys: hex.EncodeToString produces 64 chars, truncate to 32
 	return hex.EncodeToString(bytes)[:length], nil
+}
+
+// RestartPlatformWorkloads performs a rolling restart of StatefulSets/Deployments
+// This is called ONLY when secrets are actually modified to sync workloads with new credentials.
+func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := "zero-ops-system"
+	patchData := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, time.Now().Format(time.RFC3339)))
+
+	fmt.Println("[bootstrap-secrets] Changes detected. Triggering workload rollouts to sync...")
+
+	// Restart Redis StatefulSet
+	if _, err = clientset.AppsV1().StatefulSets(namespace).Patch(ctx, "redis-master", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to restart redis-master: %w", err)
+		}
+	}
+
+	// Restart Infisical Deployment
+	if _, err = clientset.AppsV1().Deployments(namespace).Patch(ctx, "platform-infisical-infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to restart infisical deployment: %w", err)
+		}
+	}
+
+	fmt.Println("[bootstrap-secrets] ✓ Workloads restarted successfully.")
+	return nil
 }

@@ -292,6 +292,75 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 
 ---
 
+## Infisical Deployment Progress (2026-03-30T10:35:00Z)
+
+### Issue: Database Environment Variables Not Injected
+
+**Symptoms:**
+- Infisical pods crashing with `TypeError: Invalid URL`
+- Error: `postgresql://undefined:undefined@undefined:undefined/undefined`
+- Database parameters not being passed to application
+
+**Root Cause:**
+- Helm chart hardcodes `envFrom` to only use `kubeSecretRef` (infisical-secrets)
+- Cannot add additional secrets via `envFrom` in values.yaml
+- Template line 81: `envFrom: - secretRef: name: {{ $infisicalValues.kubeSecretRef }}`
+- Our attempt to add `infisical-postgres-connection` via `envFrom` was ignored
+
+**Solution Applied (commit 8148bc5):**
+- Changed from `envFrom` to `extraEnv` for database parameters
+- Added individual environment variables with `valueFrom.secretKeyRef`:
+  - DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+- Each variable references `infisical-postgres-connection` secret
+- Updated pod restart annotation to force recreation
+
+**File:** `manifests/platform-infisical/values.yaml`
+
+### Current Issue: Redis Authentication Failure
+
+**Symptoms:**
+- Infisical pod now starts (database config working!)
+- Error: `WRONGPASS invalid username-password pair or user is disabled`
+- Redis password: `b5b59a45f16fa98f9aea03aaf177c554`
+
+**Root Cause Identified (2026-03-30T11:15:00Z):**
+- **Secret Drift from Non-Idempotent CLI Execution**
+- Redis StatefulSet created with password A
+- `hub init-secrets` regenerated secrets with password B
+- Redis still using password A, Infisical trying password B
+- Split-brain state caused by repeated CLI executions overwriting secrets
+
+**Solution Implemented (commit pending):**
+- Refactored all secret installation methods to be idempotent
+- Changed return type from `error` to `(bool, error)` to indicate state changes
+- Methods now check if secrets exist before creating:
+  - `InstallInfisicalSecrets()` - checks ENCRYPTION_KEY, REDIS_URL, redis password
+  - `InstallPostgresConnectionSecret()` - checks DB_PASSWORD
+  - `InstallPlatformDatabaseCredentials()` - checks all 3 DB credential secrets
+- Added `RestartPlatformWorkloads()` - only called when secrets actually change
+- Updated CLI command to respect state changes and skip unnecessary pod restarts
+- Secrets treated as immutable after first creation (Layer 1 bootstrap pattern)
+
+**Files Modified:**
+- `internal/hub/components/installer.go` - Idempotent secret methods + workload restart
+- `cmd/hub/init_secrets.go` - Updated to use boolean returns and conditional restart
+
+**Expected Behavior After Fix:**
+- First run: Creates secrets, restarts workloads
+- Subsequent runs: Detects existing secrets, skips creation, no pod restarts
+- No more secret drift or split-brain Redis authentication
+- Zero unnecessary pod churn from repeated CLI executions
+
+**Next Actions:**
+1. Commit changes to Git
+2. Delete existing secrets to start fresh: `kubectl delete secret infisical-secrets infisical-redis-credentials infisical-postgres-connection -n zero-ops-system`
+3. Run `hub init-secrets` to generate immutable secrets
+4. Wait for ArgoCD sync to complete
+5. Verify Infisical pods start successfully
+6. Validate at `https://infisical.nutgraf.in`
+
+---
+
 ## Files Modified (Historical)
 
 ### GitOps Manifests
