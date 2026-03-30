@@ -11,13 +11,18 @@ infisical:
     repository: infisical/infisical
     tag: "v0.158.0"
 
-  # All dynamic secrets (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT)
-  # are injected via envFrom.secretRef.name=infisical-secrets by the Helm chart
-  # This bypasses the Helm chart's buggy extraEnv indentation issues
+  # All dynamic secrets are injected via envFrom
+  # - infisical-secrets: ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT
+  # - infisical-postgres-connection: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_ROOT_CERT
+  envFrom:
+  - secretRef:
+      name: infisical-secrets
+  - secretRef:
+      name: infisical-postgres-connection
 
   podAnnotations:
     # Force pod restart to pick up updated secrets
-    kubectl.kubernetes.io/restartedAt: "2025-01-27T18:00:00Z"
+    kubectl.kubernetes.io/restartedAt: "2026-03-30T09:00:00Z"
 
   service:
     type: ClusterIP
@@ -31,16 +36,15 @@ infisical:
       memory: 1000Mi
 
 postgresql:
+  # Disable built-in PostgreSQL - we use external CNPG cluster
   enabled: false
+  # Disable connection string injection - we provide individual params via envFrom
   useExistingPostgresSecret:
-    enabled: true
-    existingConnectionStringSecret:
-      name: infisical-postgres-connection
-      key: connection-string
+    enabled: false
 
 redis:
-  # CRITICAL: Set to false to prevent Helm chart from generating hardcoded REDIS_URL
-  # We deploy Redis separately and provide REDIS_URL via extraEnv
+  # Disable built-in Redis - we deploy standalone Redis separately
+  # REDIS_URL is provided via infisical-secrets envFrom
   enabled: false
 
 ingress:

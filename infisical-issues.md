@@ -60,56 +60,174 @@
 
 ---
 
-### 5. ❌ CURRENT BLOCKER: setup-platform-roles Job Cannot Connect to PostgreSQL
+### 5. ❌ BLOCKER A: PostgreSQL Superuser Password Authentication Failure
 
-**Symptoms:**
-```
-Waiting for PostgreSQL to be ready...
-Waiting for database...
-Waiting for database...
-(infinite loop)
-```
+**Symptoms:** `setup-platform-roles` job stuck in "Waiting for database..." loop
 
-**Investigation:**
-- Init container (`wait-for-db`) succeeds: `pg_isready` confirms database accepting connections
-- Main container (`setup-roles`) fails: `psql -c "SELECT 1"` cannot connect
-- Database pods are healthy (platform-db-1, platform-db-2, platform-db-3 all Running)
-- Direct connection from database pod works: `psql -U postgres -c "SELECT 1"` succeeds
+**Root Cause:** CNPG superuser secret out of sync
+- Password from `platform-db-superuser` works ONLY inside database pods (local peer auth)
+- External connections fail: "password authentication failed for user postgres"
+- CNPG superuserSecretVersion: 12406960 (password rotated, secret not synced)
 
-**Root Cause:** SSL connection issue
-- Job uses `PGSSLMODE=require` but doesn't mount CA certificate
-- PostgreSQL cluster uses self-signed certificates (CNPG generates `platform-db-ca` secret)
-- Job cannot verify SSL certificate → connection fails
-
-**Fix Applied:**
-Changed `PGSSLMODE` from `require` to `disable` in `manifests/platform-database/setup-platform-roles-job.yaml`
-
-**Next Steps:**
-1. Commit SSL fix to Git
-2. Delete current job pod
-3. Force ArgoCD sync to recreate job with new SSL setting
-4. Verify job completes and updates database role passwords
-5. Delete crashing Infisical pods to restart with correct passwords
-6. Verify Infisical starts successfully
+**Fix:** Use `platform-db-app` user instead of postgres superuser in job
 
 ---
 
-## Files Modified
+### 6. ❌ BLOCKER B: Infisical SSL Configuration Mismatch
+
+**Source References:**
+- `archived/references/identity-auth/infisical/backend/src/db/knexfile.ts:18-29` (Knex config)
+- `archived/references/identity-auth/infisical/helm-charts/infisical-standalone-postgres/templates/infisical.yaml:66-73` (Helm template)
+- `archived/references/identity-auth/infisical/helm-charts/infisical-standalone-postgres/values.yaml:73` (kubeSecretRef)
+
+**Root Cause:** Contradictory SSL configuration between connection string and environment variable
+
+**Current Configuration Analysis:**
+
+1. **Helm Chart Behavior** (from `infisical.yaml:66-73`):
+```yaml
+env:
+- name: DB_CONNECTION_URI
+  valueFrom:
+    secretKeyRef:
+      name: infisical-postgres-connection
+      key: connection-string
+envFrom:
+- secretRef:
+    name: infisical-secrets  # Contains DB_ROOT_CERT
+```
+
+2. **Infisical's Knex Priority** (from `knexfile.ts:18-29`):
+```typescript
+connection: {
+  connectionString: process.env.DB_CONNECTION_URI,  // Takes precedence
+  host: process.env.DB_HOST,
+  // ...
+  ssl: process.env.DB_ROOT_CERT
+    ? { rejectUnauthorized: true, ca: Buffer.from(process.env.DB_ROOT_CERT, "base64").toString("ascii") }
+    : false
+}
+```
+
+**The Conflict:**
+- `DB_CONNECTION_URI=postgresql://infisical:...@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=disable`
+- `DB_ROOT_CERT=<base64-cert>` (from `infisical-secrets`)
+- **Problem:** Connection string explicitly disables SSL, but `DB_ROOT_CERT` is provided for strict SSL
+- **Result:** Infisical uses connection string (no SSL) → CNPG rejects (requires SSL from external clients)
+
+**Current Secrets in Cluster:**
+- `infisical-secrets`: Contains `ENCRYPTION_KEY`, `AUTH_SECRET`, `REDIS_URL`, `DB_ROOT_CERT`
+- `infisical-postgres-connection`: Contains `connection-string` (with `sslmode=disable`), `ca-cert`
+
+**Why This Happens:**
+1. `internal/hub/components/installer.go:721` creates connection string with `sslmode=disable`
+2. `internal/hub/components/installer.go:619` provides `DB_ROOT_CERT` in `infisical-secrets`
+3. Helm chart injects BOTH as env vars
+4. Knex prioritizes `DB_CONNECTION_URI`, ignores `DB_ROOT_CERT` SSL config
+5. Connection fails because CNPG requires SSL from external clients
+
+**Recommended Fix:**
+Change connection string to use `sslmode=require` instead of `sslmode=disable`:
+```go
+// internal/hub/components/installer.go:721
+connectionString := fmt.Sprintf(
+  "postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=require",
+  url.QueryEscape(password),
+)
+```
+
+This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for certificate validation.
+
+---
+
+## Fix Implementation (2026-03-30T09:15:00Z)
+
+### Changes Made
+
+**Blocker A: PostgreSQL Superuser mTLS Authentication**
+
+1. **File:** `manifests/platform-database/setup-platform-roles-job.yaml`
+   - Changed authentication from password to mTLS using CNPG client certificates
+   - Added environment variables:
+     - `PGSSLMODE=verify-ca` (was `require`)
+     - `PGSSLCERT=/etc/postgresql/client/tls.crt` (new)
+     - `PGSSLKEY=/etc/postgresql/client/tls.key` (new)
+     - `PGSSLROOTCERT=/etc/postgresql/ca/ca.crt` (path changed)
+   - Removed `PGUSER` and `PGPASSWORD` from secret references
+   - Added `PGUSER=postgres` as static value
+   - Added volume mount for client certificates:
+     - `client-cert` volume from `platform-db-superuser` secret
+     - Mounted at `/etc/postgresql/client` with mode `0600`
+   - Updated `ca-cert` mount path from `/etc/postgresql` to `/etc/postgresql/ca`
+   - Updated annotation timestamp to `2026-03-30T09:00:00Z`
+
+**Blocker B: Infisical SSL Configuration**
+
+2. **File:** `internal/hub/components/installer.go`
+   - Function: `InstallPostgresConnectionSecret()`
+   - Removed connection string generation (line ~721)
+   - Changed secret data from:
+     - `connection-string` (with `sslmode=disable`)
+     - `ca-cert`
+   - To individual parameters:
+     - `DB_HOST=platform-db-rw.zero-ops-system.svc.cluster.local`
+     - `DB_PORT=5432`
+     - `DB_USER=infisical`
+     - `DB_PASSWORD=<from infisical-db-credentials>`
+     - `DB_NAME=infisical`
+     - `DB_ROOT_CERT=<base64-encoded CA cert>`
+   - Updated success message to indicate "individual DB params"
+
+3. **File:** `manifests/platform-infisical/values.yaml`
+   - Disabled `postgresql.useExistingPostgresSecret.enabled` (was `true`)
+   - Added `envFrom` section to inject both secrets:
+     - `infisical-secrets` (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT)
+     - `infisical-postgres-connection` (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_ROOT_CERT)
+   - Updated pod annotation timestamp to `2026-03-30T09:00:00Z`
+   - Updated comments to reflect new architecture
+
+### Expected Behavior After Fix
+
+**Blocker A:**
+- Job connects to PostgreSQL using X.509 client certificates
+- Bypasses password authentication entirely
+- No dependency on `platform-db-superuser` password sync
+- Uses CNPG-managed certificates for authentication
+
+**Blocker B:**
+- Infisical receives individual DB parameters via environment variables
+- Knex detects `DB_ROOT_CERT` and enables SSL with `rejectUnauthorized: true`
+- No connection string to override SSL configuration
+- CNPG accepts connection with proper SSL/TLS
+
+### Testing Steps
+
+1. Commit changes to Git
+2. Run `hub init-secrets` to regenerate `infisical-postgres-connection` with new format
+3. Force ArgoCD sync: `kubectl patch application platform-database -n argocd --type merge -p '{"operation":{"sync":{"syncStrategy":{"apply":{"force":true}}}}}'`
+4. Verify job completes: `kubectl logs -n zero-ops-system -l job-name=setup-platform-roles --tail=50`
+5. Force Infisical sync: `kubectl patch application platform-infisical -n argocd --type merge -p '{"operation":{"sync":{"syncStrategy":{"apply":{"force":true}}}}}'`
+6. Verify Infisical pods start: `kubectl get pods -n zero-ops-system -l app.kubernetes.io/name=infisical`
+7. Check Infisical logs: `kubectl logs -n zero-ops-system -l app.kubernetes.io/name=infisical --tail=100`
+
+---
+
+## Files Modified (Historical)
 
 ### GitOps Manifests
 - `manifests/argocd/apps/platform-victoriametrics.yaml` - Reduced memory requests
-- `manifests/platform-infisical/values.yaml` - Updated pod restart annotation
+- `manifests/platform-infisical/values.yaml` - Updated pod restart annotation, changed to envFrom pattern
 - `manifests/platform-infisical/redis.yaml` - Standalone Redis deployment
 - `manifests/platform-database/migrations/infisical-migrations.yaml` - Database wipe logic
-- `manifests/platform-database/setup-platform-roles-job.yaml` - SSL mode fix (pending commit)
+- `manifests/platform-database/setup-platform-roles-job.yaml` - Changed to mTLS authentication
 
 ### Hub CLI
-- `internal/hub/components/installer.go` - Auto-delete job after password rotation
+- `internal/hub/components/installer.go` - Auto-delete job after password rotation, changed to individual DB params
 
 ### Secrets (Hub CLI Managed)
 - `infisical-secrets` - ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT
 - `infisical-redis-credentials` - Redis password
-- `infisical-postgres-connection` - PostgreSQL connection string
+- `infisical-postgres-connection` - Individual DB parameters (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_ROOT_CERT)
 - `control-plane-db-credentials` - mcp_server password
 - `hub-db-credentials` - spoke_controller password
 - `infisical-db-credentials` - infisical user password
@@ -137,3 +255,45 @@ Changed `PGSSLMODE` from `require` to `disable` in `manifests/platform-database/
    - cx23 nodes (2 vCPU, 3.8GB RAM) too small for full platform stack
    - VictoriaMetrics default requests too high for dev clusters
    - Production needs cx33+ (4 vCPU, 8GB RAM) worker nodes
+
+
+---
+
+## CRITICAL FINDING: Two Separate Blockers
+
+**Date:** 2026-03-30T08:15:00Z
+
+### Blocker A: PostgreSQL Superuser Password Mismatch
+
+**Evidence:**
+- ✅ Password works from inside database pod
+- ❌ Same password fails from external clients
+- CNPG superuserSecretVersion: 12406960 (rotated)
+
+**Solution:** Use `platform-db-app` user in `setup-platform-roles` job
+
+---
+
+### Blocker B: Infisical SSL Configuration Contradiction
+
+**Source:** `archived/references/identity-auth/infisical/backend/src/db/knexfile.ts`
+
+**Evidence:**
+```typescript
+// Infisical's Knex config (lines 18-29)
+connection: {
+  connectionString: process.env.DB_CONNECTION_URI,  // Takes precedence
+  host: process.env.DB_HOST,
+  // ...
+  ssl: process.env.DB_ROOT_CERT
+    ? { rejectUnauthorized: true, ca: Buffer.from(process.env.DB_ROOT_CERT, "base64").toString("ascii") }
+    : false
+}
+```
+
+**Our Config:**
+- `DB_CONNECTION_URI=postgresql://...?sslmode=disable` (no SSL)
+- `DB_ROOT_CERT=<base64-cert>` (strict SSL)
+- **Conflict:** Connection string disables SSL, but we provide cert for SSL
+
+**Solution:** Remove `DB_CONNECTION_URI`, use individual params (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_ROOT_CERT`)

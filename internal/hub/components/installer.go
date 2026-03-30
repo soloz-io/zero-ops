@@ -623,17 +623,17 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) error {
 // This is called during bootstrap BEFORE ArgoCD syncs Infisical.
 // CRITICAL: This secret enables Infisical to connect to CNPG, NEVER store in Git.
 //
-// NOTE: This method reads the password from the infisical-db-credentials secret
-// and extracts the CA certificate from CNPG's cluster certificate secret.
+// NOTE: This method provides individual DB parameters (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
+// instead of a connection string. This allows Infisical's Knex to properly use DB_ROOT_CERT for SSL.
 //
 // Production Workflow:
 // 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
 // 2. Developer runs: hub init-secrets
 // 3. This method reads the password from infisical-db-credentials
 // 4. Extracts CNPG CA certificate from platform-db-ca secret
-// 5. Creates infisical-postgres-connection with connection string + CA cert
+// 5. Creates infisical-postgres-connection with individual DB params + CA cert
 // 6. ArgoCD syncs Infisical Helm chart (wave 3)
-// 7. Infisical pods connect to CNPG using sslmode=require with trusted CA
+// 7. Infisical pods connect to CNPG using SSL with DB_ROOT_CERT validation
 func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	fmt.Println("[bootstrap] Creating PostgreSQL connection secret for Infisical...")
 
@@ -675,17 +675,8 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
 	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
 
-	// Build connection string using the password from the credentials secret
-	// NOTE: Using sslmode=disable temporarily because Infisical's pg-boss library
-	// doesn't properly handle DB_ROOT_CERT for self-signed certificates
-	// TODO: Fix SSL after Infisical boots (use sslmode=verify-ca with proper cert injection)
-	// IMPORTANT: URL-encode the password to handle special characters like / and =
-	connectionString := fmt.Sprintf(
-		"postgresql://infisical:%s@platform-db-rw.zero-ops-system.svc:5432/infisical?sslmode=disable",
-		url.QueryEscape(password),
-	)
-
-	// Create the secret with both connection string and CA certificate
+	// Create the secret with individual DB parameters
+	// Knex will use these parameters and DB_ROOT_CERT from infisical-secrets for SSL
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
@@ -697,8 +688,12 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"connection-string": connectionString,
-			"ca-cert":           caCertBase64,
+			"DB_HOST":      "platform-db-rw.zero-ops-system.svc.cluster.local",
+			"DB_PORT":      "5432",
+			"DB_USER":      "infisical",
+			"DB_PASSWORD":  password,
+			"DB_NAME":      "infisical",
+			"DB_ROOT_CERT": caCertBase64,
 		},
 	}
 
@@ -710,9 +705,9 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
 		}
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated (with CA cert)")
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection updated (individual DB params)")
 	} else {
-		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created (with CA cert)")
+		fmt.Println("[bootstrap] ✓ infisical-postgres-connection created (individual DB params)")
 	}
 
 	return nil

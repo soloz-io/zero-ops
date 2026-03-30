@@ -9,8 +9,10 @@ metadata:
     # Pattern: Uses sync-wave with Replace=true instead of Sync hooks to avoid ArgoCD deadlocks
     # Replace=true: Deletes and recreates the job when spec changes (handles immutable pod templates)
     # Idempotency: Script checks if roles exist before creating (safe to re-run)
+    # Authentication: Uses mTLS with CNPG client certificates (bypasses password auth issues)
     argocd.argoproj.io/sync-wave: "3"
-    updated-at: "2026-03-29T21:35:00Z"
+    argocd.argoproj.io/sync-options: Replace=true
+    updated-at: "2026-03-30T09:00:00Z"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3
@@ -38,20 +40,16 @@ spec:
           value: "5432"
         - name: PGDATABASE
           value: "postgres"
-        - name: PGSSLMODE
-          value: "require"
-        - name: PGSSLROOTCERT
-          value: "/etc/postgresql/ca.crt"
         - name: PGUSER
-          valueFrom:
-            secretKeyRef:
-              name: platform-db-superuser
-              key: username
-        - name: PGPASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: platform-db-superuser
-              key: password
+          value: "postgres"
+        - name: PGSSLMODE
+          value: "verify-ca"
+        - name: PGSSLROOTCERT
+          value: "/etc/postgresql/ca/ca.crt"
+        - name: PGSSLCERT
+          value: "/etc/postgresql/client/tls.crt"
+        - name: PGSSLKEY
+          value: "/etc/postgresql/client/tls.key"
         - name: MCP_SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -74,7 +72,10 @@ spec:
               key: password
         volumeMounts:
         - name: ca-cert
-          mountPath: /etc/postgresql
+          mountPath: /etc/postgresql/ca
+          readOnly: true
+        - name: client-cert
+          mountPath: /etc/postgresql/client
           readOnly: true
         command:
         - /bin/sh
@@ -123,7 +124,7 @@ spec:
           psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;"
           psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
 
-          echo "✓ Platform roles created successfully"
+          echo "✓ Platform roles created successfully via mTLS"
       volumes:
       - name: ca-cert
         secret:
@@ -131,3 +132,12 @@ spec:
           items:
           - key: ca.crt
             path: ca.crt
+      - name: client-cert
+        secret:
+          secretName: platform-db-superuser
+          defaultMode: 0600
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
