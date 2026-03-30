@@ -217,6 +217,39 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 6. Verify Infisical pods start: `kubectl get pods -n zero-ops-system -l app.kubernetes.io/name=infisical`
 7. Check Infisical logs: `kubectl logs -n zero-ops-system -l app.kubernetes.io/name=infisical --tail=100`
 
+### Deployment Status (2026-03-30T09:30:00Z)
+
+**Git Commit:** c4f6288 (mTLS + individual DB params)
+
+**ArgoCD Sync Status:**
+- Forced sync initiated via kubectl patch
+- ArgoCD detected revision c4f6288
+- Operation phase: "Running"
+- Waiting for `setup-platform-roles` job to become healthy
+
+**Issue Found (2026-03-30T09:45:00Z):**
+- Job pod failed to start: `MountVolume.SetUp failed for volume "client-cert" : references non-existent secret key: tls.crt`
+- Root cause: Volume spec used `items` array with `defaultMode` which caused key reference issues
+- The secret `platform-db-server` exists and has `tls.crt` and `tls.key`, but the volume mount configuration was incorrect
+
+**Why This Was Missed:**
+- Changes were committed and pushed without waiting for ArgoCD sync to complete
+- Did not check pod events immediately after job creation
+- ArgoCD reported "job.batch/setup-platform-roles created" but pod never started
+- Violated GitOps workflow: should have validated sync completion before proceeding
+
+**Fix Applied:**
+- Removed `items` array from `client-cert` volume spec
+- Kept `defaultMode: 0600` for security (psql requires restrictive permissions on private keys)
+- Secret will mount all keys (tls.crt, tls.key) at `/etc/postgresql/client/`
+
+**Next Actions:**
+1. Commit and push the volume mount fix
+2. Wait for ArgoCD sync to complete (do not proceed until verified)
+3. Check pod events: `kubectl get events -n zero-ops-system --sort-by='.lastTimestamp'`
+4. Verify job completes: `kubectl logs -n zero-ops-system -l job-name=setup-platform-roles`
+5. Only then proceed to Infisical deployment
+
 ---
 
 ## Files Modified (Historical)
