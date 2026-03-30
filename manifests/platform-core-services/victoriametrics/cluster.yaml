@@ -14,10 +14,10 @@ metadata:
     argocd.argoproj.io/sync-wave: "5"
 spec:
   retentionPeriod: "30d"
-  replicationFactor: 2
+  replicationFactor: 1
   
   vmstorage:
-    replicaCount: 2
+    replicaCount: 1
     storageDataPath: /vm-data
     storage:
       volumeClaimTemplate:
@@ -36,7 +36,7 @@ spec:
         memory: 4Gi
   
   vmselect:
-    replicaCount: 2
+    replicaCount: 1
     cacheMountPath: /cache
     storage:
       volumeClaimTemplate:
@@ -55,7 +55,7 @@ spec:
         memory: 2Gi
   
   vminsert:
-    replicaCount: 2
+    replicaCount: 1
     resources:
       requests:
         cpu: 250m
