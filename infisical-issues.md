@@ -39,15 +39,18 @@
 
 ---
 
-### 4. ❌ CURRENT ISSUE: Database Password Synchronization
+### 4. ✅ RESOLVED: Database Password Synchronization
 
 **Problem:** Password authentication failed for user "infisical"
 
 **Root Cause:** Lifecycle disconnect between imperative secret rotation (hub CLI) and declarative job execution (ArgoCD)
 
-**The Flow:**
-1. `hub init-secrets` generates NEW passwords → updates K8s secrets via client-go
-2. Git manifests unchanged → ArgoCD sees no diff → doesn't re-run `setup-platform-roles` job
+**Solution:** Changed from `Replace=true` to ArgoCD Sync Hooks
+- `argocd.argoproj.io/hook: Sync` - Runs on every sync operation
+- `argocd.argoproj.io/hook-delete-policy: BeforeHookCreation` - Deletes old job before creating new one
+- Jobs now run on every ArgoCD sync, not just when manifest changes
+
+**Result:** Database roles always synced with latest passwords from secrets
 3. PostgreSQL database still has OLD passwords
 4. Infisical tries to connect with NEW password → authentication fails
 
@@ -397,12 +400,204 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 3. **Visibility:** Hook failures appear in ArgoCD UI immediately
 4. **Idempotent:** Safe to sync repeatedly, job always runs with latest secrets
 
-**Next Actions:**
-1. Commit Sync Hook changes to Git
-2. Force ArgoCD sync on platform-database application
-3. Verify setup-platform-roles job executes successfully
-4. Verify Infisical pods start with correct database authentication
-5. Validate at `https://infisical.nutgraf.in`
+**Resolution (2026-03-30T12:45:00Z):**
+
+**Root Cause:** ArgoCD stuck in infinite self-heal loop on old revision (4ebe7d4), ignoring new commits with Sync Hooks.
+
+**Recovery Sequence (Production-Grade):**
+
+1. **Disable Auto-Sync** (prevent override of manual operations):
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+```
+
+2. **Hard Refresh** (bust Git cache):
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+```
+
+3. **Clear Zombie Jobs** (prevent BeforeHookCreation conflicts):
+```bash
+kubectl delete job setup-platform-roles infisical-migrations-v1 -n zero-ops-system --ignore-not-found --force --grace-period=0
+```
+
+4. **Terminate Stuck Operation**:
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"operation":null}'
+```
+
+5. **Force Sync to Correct Revision** (with Sync Hooks):
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"revision":"274cb154092f1994a8680c16ecbc4db8a60483c3","syncStrategy":{"hook":{},"apply":{"force":true}}}}}'
+```
+
+6. **Verify Jobs Executed**:
+```bash
+kubectl get jobs -n zero-ops-system
+kubectl logs -n zero-ops-system -l job-name=setup-platform-roles --tail=30
+```
+
+7. **Restart Dependent Workloads** (only needed for already-running pods):
+```bash
+kubectl rollout restart deployment platform-infisical-infisical-standalone-infisical -n zero-ops-system
+```
+
+8. **Re-enable Auto-Sync** (restore GitOps automation):
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+```
+
+**Results:**
+- ✅ All 4 database jobs completed successfully via Sync Hooks (6-7s each)
+- ✅ Database roles created with correct passwords
+- ✅ Infisical connected to database successfully
+- ✅ Migrations completed: "No migrations pending"
+- ✅ ArgoCD operation status: Succeeded
+
+**New Issue Discovered:**
+- Infisical KMS encryption error: "Unsupported state or unable to authenticate data"
+- Database authentication works, but ENCRYPTION_KEY doesn't match existing encrypted data
+- This is a separate issue from database authentication
+
+---
+
+## Issue 7: ❌ CURRENT BLOCKER - Infisical ENCRYPTION_KEY Mismatch (2026-03-30T13:00:00Z)
+
+**Problem:** Infisical fails to start with "Unsupported state or unable to authenticate data"
+
+**Root Cause Analysis:**
+
+From `archived/references/identity-auth/infisical/backend/src/services/kms/kms-service.ts`:
+
+```typescript
+const $decryptRootKey = async (kmsRootConfig: TKmsRootConfig) => {
+  if (kmsRootConfig.encryptionStrategy === RootKeyEncryptionStrategy.Software) {
+    const cipher = symmetricCipherService(SymmetricKeyAlgorithm.AES_GCM_256);
+    const encryptionKeyBuffer = $getBasicEncryptionKey();  // Uses ENCRYPTION_KEY env var
+    
+    return cipher.decrypt(kmsRootConfig.encryptedRootKey, encryptionKeyBuffer);  // FAILS HERE
+  }
+}
+```
+
+**The Problem:**
+1. Infisical first boot: Creates `kms_root_config` table with `encryptedRootKey` encrypted using ENCRYPTION_KEY A
+2. `hub init-secrets` regenerated: ENCRYPTION_KEY changed to B (idempotent fix)
+3. Infisical restart: Tries to decrypt `encryptedRootKey` (encrypted with A) using ENCRYPTION_KEY B
+4. AES-GCM authentication fails: "Unsupported state or unable to authenticate data"
+
+**Why This Happened:**
+- The idempotent secret bootstrap (commit 4ebe7d4) checks if secrets exist before creating
+- But Infisical had already written encrypted data to the database using the OLD key
+- Changing ENCRYPTION_KEY after first boot breaks all existing encrypted data
+
+**Solution: Database Wipe Required**
+
+The `infisical-migrations` job already has database wipe logic:
+
+```yaml
+# manifests/platform-database/migrations/infisical-migrations.yaml
+command:
+- /bin/sh
+- -c
+- |
+  # Drop and recreate database for clean slate
+  psql -c "DROP DATABASE IF EXISTS infisical;"
+  psql -c "CREATE DATABASE infisical;"
+  
+  # Run migrations
+  migrate -path /migrations -database "$DB_URL" up
+```
+
+**Recovery Steps:**
+
+1. **Trigger Infisical Migration Job** (via ArgoCD Sync Hook):
+```bash
+kubectl patch application platform-database -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"syncStrategy":{"hook":{},"apply":{"force":true}}}}}'
+```
+
+2. **Verify Database Wiped and Recreated**:
+```bash
+kubectl logs -n zero-ops-system -l job-name=infisical-migrations-v1 --tail=50
+```
+
+3. **Restart Infisical Deployment**:
+```bash
+kubectl rollout restart deployment platform-infisical-infisical-standalone-infisical -n zero-ops-system
+```
+
+4. **Verify Infisical Starts Successfully**:
+```bash
+kubectl logs -n zero-ops-system -l app.kubernetes.io/name=infisical --tail=100 | grep -E "(listening|ERROR|FATAL)"
+```
+
+**Expected Result:**
+- Fresh database with no encrypted data
+- Infisical creates new `kms_root_config` with current ENCRYPTION_KEY
+- Application starts successfully
+
+**Prevention for Future:**
+- ENCRYPTION_KEY must be immutable after first Infisical boot
+- Idempotent secret bootstrap already implements this (checks existence before creating)
+- Database wipe is ONLY needed for recovery from key rotation
+
+---
+
+## Standard Operating Procedure: Job Updates and Workload Restarts
+
+### When Jobs Update Database State
+
+**Scenario:** A Sync Hook job updates database roles/passwords (like `setup-platform-roles`)
+
+**What Happens Automatically:**
+1. ArgoCD detects Git commit
+2. Sync Hook executes job (BeforeHookCreation deletes old job first)
+3. Job updates database with new passwords from secrets
+4. Job completes, ArgoCD continues sync
+
+**What Requires Manual Action:**
+- **Restart workloads that were ALREADY RUNNING** with old credentials
+- Fresh deployments automatically pick up new credentials from secrets
+
+**Example:**
+```bash
+# After setup-platform-roles job completes:
+kubectl rollout restart deployment platform-infisical-infisical-standalone-infisical -n zero-ops-system
+kubectl rollout restart statefulset redis-master -n zero-ops-system  # if Redis password changed
+```
+
+**Why Restart is Needed:**
+- Running pods have credentials loaded in memory from secrets
+- Kubernetes doesn't automatically restart pods when secret data changes
+- Restart forces pods to re-read secrets and reconnect with new credentials
+
+**When Restart is NOT Needed:**
+- Fresh deployments (no existing pods)
+- Pods that haven't started yet
+- Jobs (they run once and exit)
+
+### GitOps-Compliant Restart Pattern
+
+**Option 1: Manual Rollout Restart** (immediate, for urgent fixes):
+```bash
+kubectl rollout restart deployment <name> -n <namespace>
+```
+
+**Option 2: Annotation-Based Restart** (GitOps-compliant, for planned changes):
+```yaml
+# In deployment manifest
+spec:
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-03-30T12:00:00Z"
+```
+Commit to Git → ArgoCD syncs → Pods restart automatically
+
+**Option 3: Automated via Hub CLI** (implemented in `RestartPlatformWorkloads()`):
+- CLI detects secret changes
+- Automatically restarts affected deployments
+- Only runs when secrets actually change (idempotent)
 
 ---
 
@@ -430,22 +625,38 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 
 ## Lessons Learned
 
-1. **GitOps + Imperative CLI = Lifecycle Gap**
-   - When CLI updates secrets imperatively, GitOps doesn't detect changes
-   - Jobs with `Replace=true` only recreate when Git manifest changes
-   - Solution: CLI must delete jobs to force recreation
+1. **ArgoCD Sync Hooks are Production-Grade for Jobs**
+   - `Replace=true` causes deadlocks when CLI deletes jobs out-of-band
+   - Sync Hooks (`argocd.argoproj.io/hook: Sync`) elevate jobs out of standard resource tree
+   - `BeforeHookCreation` policy ensures clean job lifecycle (delete → create)
+   - Jobs execute ephemerally during sync waves, no continuous reconciliation
+   - No more "Synced but OutOfSync" phantom job states
 
-2. **SSL Configuration Matters**
+2. **ArgoCD Git Cache Can Get Stuck**
+   - Tight auto-sync loops on failing manifests prevent cache invalidation
+   - Hard refresh (`argocd.argoproj.io/refresh: hard`) forces immediate Git fetch
+   - Stuck operations must be terminated (`operation: null`) before new sync
+   - Always verify `status.operationState.syncResult.revision` matches expected commit
+
+3. **Workload Restarts After Job Updates**
+   - Jobs update database state (roles, passwords, schemas)
+   - Already-running pods have old credentials in memory
+   - Kubernetes doesn't auto-restart pods when secret data changes
+   - Manual restart required: `kubectl rollout restart deployment <name>`
+   - Fresh deployments automatically pick up new credentials
+
+4. **Secret Zero Pattern Works**
+   - Hub CLI owns secret data (never in Git)
+   - Git owns secret metadata (namespace, name, labels, annotations)
+   - ArgoCD `Replace=false` prevents overwrites
+   - Idempotent secret methods prevent split-brain state
+
+5. **SSL Configuration Matters**
    - CNPG generates self-signed certificates
    - Jobs need CA certificate mounted or use `sslmode=disable`
    - Production should use `sslmode=verify-ca` with proper cert injection
 
-3. **Secret Zero Pattern Works**
-   - Hub CLI owns secret data (never in Git)
-   - Git owns secret metadata (namespace, name, labels, annotations)
-   - ArgoCD `Replace=false` prevents overwrites
-
-4. **Capacity Planning Critical**
+6. **Capacity Planning Critical**
    - cx23 nodes (2 vCPU, 3.8GB RAM) too small for full platform stack
    - VictoriaMetrics default requests too high for dev clusters
    - Production needs cx33+ (4 vCPU, 8GB RAM) worker nodes
@@ -491,3 +702,80 @@ connection: {
 - **Conflict:** Connection string disables SSL, but we provide cert for SSL
 
 **Solution:** Remove `DB_CONNECTION_URI`, use individual params (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_ROOT_CERT`)
+
+
+---
+
+### 5. ✅ RESOLVED: Infisical Migration State Corruption
+
+**Problem:** Infisical logs showed "No migrations pending: Skipping migration process" but `kms_root_config` table was missing, causing "relation does not exist" errors
+
+**Root Cause Analysis:**
+1. **Migration Detection Logic:** Infisical checks `schema_migrations` table to determine if migrations should run
+2. **Actual State:** `schema_migrations` table was completely empty (0 rows)
+3. **Paradox:** Empty migration table + 704 existing tables = Infisical thinks migrations already ran
+4. **Result:** Migration process skipped, `kms_root_config` table never recreated after manual drop
+
+**Why This Happened:**
+- ENCRYPTION_KEY was regenerated via `hub init-secrets` (idempotent fix)
+- Manually dropped `kms_root_config` table to force recreation with new key
+- But Infisical's migration logic saw empty `schema_migrations` and skipped all migrations
+- `Boolean([])` evaluates to `false` in JavaScript, causing migration skip
+
+**Data Integrity Issue:**
+- Original ENCRYPTION_KEY encrypted data in `kms_root_config.encryptedRootKey`
+- New ENCRYPTION_KEY cannot decrypt old data
+- This is irrecoverable without original key
+
+**Solution (Option 3 - Fresh Database via GitOps):**
+1. Created `manifests/platform-database/reset-infisical-db-job.yaml`
+   - ArgoCD Sync Hook with sync-wave: "2" (runs before setup-platform-roles)
+   - Terminates active connections to infisical database
+   - Drops and recreates infisical database
+   - Ensures clean slate for migrations
+2. Updated sync-wave order:
+   - Wave 2: reset-infisical-db (new)
+   - Wave 3: setup-platform-roles (creates role and grants privileges)
+   - Wave 4: infisical-migrations-v1 (runs Infisical migrations)
+3. Restart Infisical deployment to trigger fresh migration run
+
+**Why This Approach:**
+- Production-grade, GitOps-compliant solution
+- Ensures reproducibility across environments
+- Clean state with correct ENCRYPTION_KEY from start
+- No manual intervention required
+
+**Next Steps:**
+1. Commit and push changes to Git
+2. ArgoCD will sync and run jobs in order (wave 2 → 3 → 4)
+3. Restart Infisical deployment
+4. Validate migrations ran successfully
+5. Verify Infisical UI accessible at https://infisical.nutgraf.in
+
+---
+
+## Key Learnings
+
+### ArgoCD Sync Hooks Pattern
+- Use `argocd.argoproj.io/hook: Sync` for jobs that must run on every sync
+- Use `argocd.argoproj.io/hook-delete-policy: BeforeHookCreation` to handle immutable Job specs
+- Sync-waves control execution order (lower numbers run first)
+- This pattern is production-grade for database initialization jobs
+
+### Secret Zero Pattern
+- Hub CLI owns secret data (generates and injects via client-go)
+- Git owns secret metadata only (no stringData in manifests)
+- Use `Replace=false` to prevent ArgoCD from overwriting hub-managed secrets
+- Idempotent secret generation prevents split-brain scenarios
+
+### Database Migration State
+- Always verify migration tracking tables are populated correctly
+- Empty migration table + existing tables = corrupted state
+- Fresh database reset is safer than manual migration state repair
+- ENCRYPTION_KEY changes require fresh database (encrypted data cannot be migrated)
+
+### GitOps-First Principles
+- All infrastructure changes via Git commits → ArgoCD sync
+- No manual `kubectl apply` for platform services
+- Bash scripts only for read-only validation/testing
+- Manual forced sync acceptable for faster iteration during development
