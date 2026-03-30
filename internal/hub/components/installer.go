@@ -850,6 +850,23 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) erro
 	}
 	fmt.Println("[bootstrap] ✓ infisical-db-credentials updated")
 
+	// CRITICAL: Force database role updates by deleting the setup job
+	// This triggers ArgoCD/Kubernetes to recreate the job with fresh passwords
+	// The job uses ALTER ROLE to sync PostgreSQL passwords with the updated secrets
+	fmt.Println("[bootstrap] Triggering database role updates...")
+	
+	propagationPolicy := metav1.DeletePropagationBackground
+	err = clientset.BatchV1().Jobs(namespace).Delete(ctx, "setup-platform-roles", metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	})
+	if err != nil {
+		// It's okay if it doesn't exist yet (e.g., brand new cluster)
+		fmt.Println("[bootstrap] Note: setup-platform-roles job not found or already deleted")
+	} else {
+		fmt.Println("[bootstrap] ✓ Queued setup-platform-roles job for recreation")
+		fmt.Println("[bootstrap] ArgoCD will recreate the job to sync database role passwords")
+	}
+
 	return nil
 }
 
