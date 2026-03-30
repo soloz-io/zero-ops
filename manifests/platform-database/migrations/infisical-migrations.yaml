@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: infisical-migrations
   namespace: zero-ops-system
+  annotations:
+    # Last updated: 2025-01-27T18:00:00Z - Wipe database for new ENCRYPTION_KEY
+    migration-run: "v2"
 data:
   1_init_schema.up.sql: |
     -- Infisical database initialization
