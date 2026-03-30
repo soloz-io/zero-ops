@@ -673,12 +673,12 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	}
 
 	// Extract CNPG CA certificate from cluster certificate secret
-	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
+	cnpgCASecret2, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
 	if err != nil {
 		return false, fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
 	}
 
-	caCert := cnpgCASecret.Data["ca.crt"]
+	caCert := cnpgCASecret2.Data["ca.crt"]
 	if len(caCert) == 0 {
 		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
 	}
@@ -756,14 +756,14 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	namespace := "zero-ops-system"
 
 	// Check if all secrets already exist and are populated
-	cpSecret, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "control-plane-db-credentials", metav1.GetOptions{})
-	hubSecret, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "hub-db-credentials", metav1.GetOptions{})
-	infSecret, err3 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	cpSecretCheck, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "control-plane-db-credentials", metav1.GetOptions{})
+	hubSecretCheck, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "hub-db-credentials", metav1.GetOptions{})
+	infSecretCheck, err3 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 
 	if err1 == nil && err2 == nil && err3 == nil &&
-		len(cpSecret.Data["password"]) > 0 &&
-		len(hubSecret.Data["password"]) > 0 &&
-		len(infSecret.Data["password"]) > 0 {
+		len(cpSecretCheck.Data["password"]) > 0 &&
+		len(hubSecretCheck.Data["password"]) > 0 &&
+		len(infSecretCheck.Data["password"]) > 0 {
 		fmt.Println("[bootstrap-secrets] ✓ Platform DB credentials already exist. Immutable lock applied; skipping.")
 		return false, nil
 	}
