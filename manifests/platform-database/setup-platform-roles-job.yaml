@@ -4,15 +4,12 @@ metadata:
   name: setup-platform-roles
   namespace: zero-ops-system
   annotations:
-    # CRITICAL: This job creates database roles (mcp_server, agentregistry, spoke_controller, infisical)
-    #           that are required by migration jobs in sync-wave 4
-    # Pattern: Uses sync-wave with Replace=true instead of Sync hooks to avoid ArgoCD deadlocks
-    # Replace=true: Deletes and recreates the job when spec changes (handles immutable pod templates)
-    # Idempotency: Script checks if roles exist before creating (safe to re-run)
-    # Authentication: Uses mTLS with CNPG client certificates (bypasses password auth issues)
+    # ArgoCD Sync Hook: Runs on every sync operation
+    # BeforeHookCreation: Deletes old job before creating new one (handles immutable Job specs)
+    # This ensures database roles are always synced with latest passwords from secrets
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "3"
-    argocd.argoproj.io/sync-options: Replace=true
-    updated-at: "2026-03-30T09:00:00Z"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3

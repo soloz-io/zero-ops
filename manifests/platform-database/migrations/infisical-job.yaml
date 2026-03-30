@@ -4,12 +4,12 @@ metadata:
   name: infisical-migrations-v1
   namespace: zero-ops-system
   annotations:
-    # CRITICAL: Runs Infisical database schema migrations after roles are created
-    # Pattern: Uses sync-wave with Replace=true instead of Sync hooks to avoid ArgoCD deadlocks
-    # Replace=true: Deletes and recreates the job when spec changes (handles immutable pod templates)
-    # Depends on: setup-platform-roles (sync-wave 3) creating the infisical role
+    # ArgoCD Sync Hook: Runs on every sync operation
+    # BeforeHookCreation: Deletes old job before creating new one (handles immutable Job specs)
+    # Runs after setup-platform-roles (sync-wave 3) creates the infisical role
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "4"
-    argocd.argoproj.io/sync-options: Replace=true
 spec:
   ttlSecondsAfterFinished: 60
   backoffLimit: 3

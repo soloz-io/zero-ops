@@ -360,32 +360,49 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 6. Infisical pods failing with "password authentication failed for user infisical"
 7. Database roles not created because setup-platform-roles job doesn't exist
 
-**Current Status (2026-03-30T11:30:00Z):**
+**Current Status (2026-03-30T12:00:00Z):**
 - ✅ Idempotent secret bootstrap implemented and tested
 - ✅ Secrets created successfully with matching passwords
 - ✅ Redis restarted with new password
 - ✅ Infisical deployment restarted
-- ❌ setup-platform-roles job not created by ArgoCD (known issue)
-- ❌ Database roles still have old passwords
-- ❌ Infisical pods crash: "password authentication failed for user infisical"
+- ✅ **ArgoCD Sync Hooks implemented** (production-grade solution)
+- ⏳ Waiting for ArgoCD sync to execute hooks and create jobs
 
-**Root Cause Analysis:**
-The idempotent implementation works correctly. The issue is ArgoCD's job creation bug:
-- ArgoCD sync shows: `status: Synced, syncPhase: Sync` for setup-platform-roles
-- ArgoCD resources show: `status: OutOfSync` for setup-platform-roles  
-- Job never actually created in cluster
-- This is the same issue documented earlier in this file
+**ArgoCD Sync Hook Solution (2026-03-30T12:00:00Z):**
 
-**Workaround Options:**
-1. Manual kubectl apply (validates manifest works, violates GitOps)
-2. Wait for ArgoCD to eventually create job (unknown timeline)
-3. Investigate ArgoCD job sync behavior (separate issue)
+**Problem with `Replace=true`:**
+- Jobs are immutable in Kubernetes
+- CLI deleted job with `DeletePropagationBackground` (async)
+- ArgoCD tried to apply while job was in `Terminating` state
+- API returned success but job was garbage collected
+- Result: "Synced" in operation but "OutOfSync" in resources, job never appeared
 
-**Validation of Idempotent Implementation:**
-- First run: Created all secrets, restarted workloads ✅
-- Subsequent runs would: Skip creation, no restarts ✅
-- No more secret drift or split-brain ✅
-- Production-ready Layer 1 bootstrap pattern ✅
+**Solution: ArgoCD Sync Hooks**
+- Changed `argocd.argoproj.io/sync-options: Replace=true` to:
+  - `argocd.argoproj.io/hook: Sync`
+  - `argocd.argoproj.io/hook-delete-policy: BeforeHookCreation`
+- ArgoCD now owns the complete job lifecycle
+- Deletes old job BEFORE creating new one (avoids Terminating state conflict)
+- Runs on every sync operation (not just when manifest changes)
+- Removed imperative job deletion from CLI
+
+**Files Modified:**
+- `manifests/platform-database/setup-platform-roles-job.yaml` - Added Sync Hook annotations
+- `manifests/platform-database/migrations/infisical-job.yaml` - Added Sync Hook annotations
+- `internal/hub/components/installer.go` - Removed job deletion logic
+
+**Why This is Production-Grade:**
+1. **Clean Separation:** CLI manages secrets, ArgoCD manages execution
+2. **No Deadlocks:** BeforeHookCreation waits for full deletion before creating
+3. **Visibility:** Hook failures appear in ArgoCD UI immediately
+4. **Idempotent:** Safe to sync repeatedly, job always runs with latest secrets
+
+**Next Actions:**
+1. Commit Sync Hook changes to Git
+2. Force ArgoCD sync on platform-database application
+3. Verify setup-platform-roles job executes successfully
+4. Verify Infisical pods start with correct database authentication
+5. Validate at `https://infisical.nutgraf.in`
 
 ---
 
