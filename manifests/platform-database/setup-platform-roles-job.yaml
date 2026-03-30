@@ -134,7 +134,7 @@ spec:
             path: ca.crt
       - name: client-cert
         secret:
-          secretName: platform-db-superuser
+          secretName: platform-db-server
           defaultMode: 0600
           items:
           - key: tls.crt

@@ -156,10 +156,16 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
    - Removed `PGUSER` and `PGPASSWORD` from secret references
    - Added `PGUSER=postgres` as static value
    - Added volume mount for client certificates:
-     - `client-cert` volume from `platform-db-superuser` secret
+     - `client-cert` volume from `platform-db-server` secret (CORRECTED: was platform-db-superuser)
      - Mounted at `/etc/postgresql/client` with mode `0600`
    - Updated `ca-cert` mount path from `/etc/postgresql` to `/etc/postgresql/ca`
    - Updated annotation timestamp to `2026-03-30T09:00:00Z`
+
+**Issue Found During Deployment:**
+- Initial implementation used `platform-db-superuser` secret for client certificates
+- CNPG stores server certificates in `platform-db-server` secret (type: kubernetes.io/tls)
+- `platform-db-superuser` only contains basic-auth credentials (username, password, uri, etc.)
+- Fixed by changing volume source from `platform-db-superuser` to `platform-db-server`
 
 **Blocker B: Infisical SSL Configuration**
 
@@ -177,6 +183,7 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
      - `DB_NAME=infisical`
      - `DB_ROOT_CERT=<base64-encoded CA cert>`
    - Updated success message to indicate "individual DB params"
+   - Removed unused `net/url` import
 
 3. **File:** `manifests/platform-infisical/values.yaml`
    - Disabled `postgresql.useExistingPostgresSecret.enabled` (was `true`)
