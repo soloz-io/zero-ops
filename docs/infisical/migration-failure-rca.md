@@ -267,12 +267,31 @@ spec:
 - **16:35 UTC:** Database reset job completed
 - **16:36 UTC:** Infisical pods start crashing with migration errors
 - **16:45 UTC:** RCA completed, identified transaction mode as root cause
-- **16:50 UTC:** Fix deployed (session mode)
-- **16:55 UTC:** Service restored
+- **16:50 UTC:** Fix committed to Git (session mode in YAML)
+- **16:55 UTC:** Attempted fix by deleting Infisical pod - FAILED
+- **20:30 UTC:** Discovered pooler pods never restarted after config change
+- **20:40 UTC:** Manually restarted pooler deployment with `kubectl rollout restart`
+- **20:42 UTC:** New pooler pods running with session mode
+- **20:43 UTC:** Deleted Infisical pod to trigger migrations
+- **20:45 UTC:** Migrations completed successfully
+- **20:46 UTC:** Service restored - API returns HTTP 200
 
 ## Lessons Learned
 
 1. **PgBouncer transaction mode is incompatible with advisory locks** - Always use session mode for applications that use PostgreSQL advisory locks or prepared statements
-2. **Test infrastructure changes with empty databases** - Migration logic only runs when database is empty or has pending migrations
-3. **Read application source code** - Don't assume connection pooling is transparent; check for session-scoped features
-4. **Document pooling mode requirements** - Add to application deployment documentation
+2. **CNPG Pooler doesn't auto-restart on spec changes** - After changing Pooler CRD configuration, manually trigger `kubectl rollout restart deployment <pooler-name>` to apply changes
+3. **Verify running configuration, not just YAML** - Check actual pod configuration with `kubectl exec` to confirm changes were applied
+4. **Test infrastructure changes with empty databases** - Migration logic only runs when database is empty or has pending migrations
+5. **Read application source code** - Don't assume connection pooling is transparent; check for session-scoped features
+6. **Document pooling mode requirements** - Add to application deployment documentation
+
+## Critical Fix Procedure
+
+When changing CNPG Pooler configuration:
+
+1. Update Pooler YAML in Git and commit
+2. Wait for ArgoCD to sync (or force sync)
+3. **Manually restart pooler deployment**: `kubectl rollout restart deployment -n <namespace> <pooler-name>`
+4. Verify new pods are running: `kubectl get pods -l cnpg.io/poolerName=<pooler-name>`
+5. Verify configuration applied: `kubectl exec <pooler-pod> -- cat /etc/pgbouncer/pgbouncer.ini | grep pool_mode`
+6. Restart application pods if needed to pick up new pooler configuration
