@@ -699,12 +699,12 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"DB_HOST":      "platform-db-pooler.zero-ops-system.svc",  // PgBouncer service
-			"DB_PORT":      "5432",
-			"DB_USER":      "infisical",
-			"DB_PASSWORD":  password,
-			"DB_NAME":      "infisical",
-			"DB_ROOT_CERT": caCertBase64,
+			"DB_HOST":     "platform-db-pooler.zero-ops-system.svc",  // PgBouncer service
+			"DB_PORT":     "5432",
+			"DB_USER":     "infisical",
+			"DB_PASSWORD": password,
+			"DB_NAME":     "infisical",
+			"DB_SSL_MODE": "disable",  // Pooler->PG uses TLS, client->pooler doesn't need it
 		},
 	}
 
