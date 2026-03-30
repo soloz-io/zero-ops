@@ -13,7 +13,7 @@ INFISICAL_API="https://infisical.zero-ops-system.svc"
 
 # Step 1: Verify Infisical API is accessible
 echo "1. Verifying Infisical API is accessible..."
-if kubectl get service infisical -n zero-ops-system &>/dev/null; then
+if kubectl get service platform-infisical-infisical-standalone-infisical -n zero-ops-system &>/dev/null; then
   echo "   ✓ Infisical service exists"
 else
   echo "   ✗ Infisical service not found"
