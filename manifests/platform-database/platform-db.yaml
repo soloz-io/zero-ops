@@ -11,6 +11,19 @@ spec:
 
   enableSuperuserAccess: true
 
+  # Enable PgBouncer connection pooler
+  pooler:
+    enabled: true
+    type: rw
+    instances: 1
+    pgbouncer:
+      poolMode: transaction  # Most efficient for stateless apps
+      parameters:
+        max_client_conn: "100"      # Max clients per PgBouncer instance
+        default_pool_size: "25"     # Max connections to PostgreSQL
+        reserve_pool_size: "5"      # Reserved connections for emergencies
+        reserve_pool_timeout: "5"   # Seconds to wait for reserved connection
+
   bootstrap:
     initdb:
       database: postgres
