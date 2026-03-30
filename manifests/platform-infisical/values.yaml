@@ -56,6 +56,17 @@ infisical:
       cpu: 350m
       memory: 1000Mi
 
+  # Increase readiness probe timeout to handle event loop latency
+  readinessProbe:
+    httpGet:
+      path: /api/status
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
 postgresql:
   # Disable built-in PostgreSQL - we use external CNPG cluster
   enabled: false
