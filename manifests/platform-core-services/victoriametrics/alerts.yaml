@@ -1,0 +1,133 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: platform-core-alerts
+  namespace: victoriametrics
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  labels:
+    app: victoriametrics
+    component: alerting
+spec:
+  groups:
+  - name: platform.pod.health
+    interval: 30s
+    rules:
+    - alert: PodCrashLooping
+      expr: |
+        rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+    
+    - alert: PodNotReady
+      expr: |
+        kube_pod_status_phase{phase!="Running",phase!="Succeeded"} == 1
+      for: 10m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} phase for more than 10 minutes"
+
+  - name: platform.memory.usage
+    interval: 30s
+    rules:
+    - alert: HighMemoryUsage
+      expr: |
+        (container_memory_working_set_bytes / container_spec_memory_limit_bytes) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "High memory usage in {{ $labels.namespace }}/{{ $labels.pod }}"
+        description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanize }}% of memory limit"
+    
+    - alert: CriticalMemoryUsage
+      expr: |
+        (container_memory_working_set_bytes / container_spec_memory_limit_bytes) * 100 > 95
+      for: 2m
+      labels:
+        severity: critical
+        component: kubernetes
+      annotations:
+        summary: "Critical memory usage in {{ $labels.namespace }}/{{ $labels.pod }}"
+        description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanize }}% of memory limit"
+
+  - name: platform.disk.usage
+    interval: 60s
+    rules:
+    - alert: HighDiskUsage
+      expr: |
+        (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+        component: storage
+      annotations:
+        summary: "High disk usage on PVC {{ $labels.persistentvolumeclaim }}"
+        description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full"
+    
+    - alert: CriticalDiskUsage
+      expr: |
+        (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 90
+      for: 5m
+      labels:
+        severity: critical
+        component: storage
+      annotations:
+        summary: "Critical disk usage on PVC {{ $labels.persistentvolumeclaim }}"
+        description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full"
+
+  - name: platform.database.health
+    interval: 30s
+    rules:
+    - alert: PostgreSQLDown
+      expr: |
+        pg_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: database
+      annotations:
+        summary: "PostgreSQL instance {{ $labels.instance }} is down"
+        description: "PostgreSQL instance {{ $labels.instance }} in namespace {{ $labels.namespace }} has been down for more than 1 minute"
+    
+    - alert: PostgreSQLHighConnections
+      expr: |
+        (pg_stat_database_numbackends / pg_settings_max_connections) * 100 > 80
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "High connection count on PostgreSQL {{ $labels.instance }}"
+        description: "PostgreSQL instance {{ $labels.instance }} is using {{ $value | humanize }}% of max connections"
+    
+    - alert: PostgreSQLConnectionFailures
+      expr: |
+        rate(pg_stat_database_xact_rollback[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "High transaction rollback rate on {{ $labels.datname }}"
+        description: "Database {{ $labels.datname }} on {{ $labels.instance }} has {{ $value | humanize }} rollbacks per second"
+    
+    - alert: CNPGClusterNotHealthy
+      expr: |
+        cnpg_pg_cluster_status{status!="Cluster in healthy state"} == 1
+      for: 5m
+      labels:
+        severity: critical
+        component: database
+      annotations:
+        summary: "CNPG cluster {{ $labels.cluster }} is not healthy"
+        description: "CNPG cluster {{ $labels.cluster }} in namespace {{ $labels.namespace }} status: {{ $labels.status }}"
