@@ -114,7 +114,7 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 3.2.1 Install Prometheus Operator for ServiceMonitor CRDs
   - [x] 3.2.2 Configure ServiceMonitor discovery rules
   - [x] 3.2.3 Set up metric scraping configuration
-  - [ ] 3.2.4 Configure alerting rules (basic platform alerts)
+  - [x] 3.2.4 Configure alerting rules (basic platform alerts)
 
 - [ ] 3.3 Deploy Grafana Alloy
   - [x] 3.3.1 Create `manifests/platform-core-services/grafana-alloy/deployment.yaml`

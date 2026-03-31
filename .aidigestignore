@@ -1,9 +1,8 @@
+.kiro
+.vscode
+archived
+bin
 docs
 memory
 secrets
-archived
-chat-logs
-bin
 test
-.kiro
-.vscode
