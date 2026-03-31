@@ -104,26 +104,26 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 ### Tasks
 
-- [-] 3.1 Deploy VictoriaMetrics cluster
+- [x] 3.1 Deploy VictoriaMetrics cluster
   - [x] 3.1.1 Create `manifests/platform-core-services/victoriametrics/cluster.yaml`
   - [x] 3.1.2 Configure persistent storage for metrics data
-  - [ ] 3.1.3 Set up PromQL-compatible query API
-  - [ ] 3.1.4 Configure retention policies and storage limits
+  - [x] 3.1.3 Set up PromQL-compatible query API
+  - [x] 3.1.4 Configure retention policies and storage limits
 
-- [ ] 3.2 Deploy Prometheus Operator
-  - [ ] 3.2.1 Install Prometheus Operator for ServiceMonitor CRDs
-  - [ ] 3.2.2 Configure ServiceMonitor discovery rules
-  - [ ] 3.2.3 Set up metric scraping configuration
+- [x] 3.2 Deploy Prometheus Operator
+  - [x] 3.2.1 Install Prometheus Operator for ServiceMonitor CRDs
+  - [x] 3.2.2 Configure ServiceMonitor discovery rules
+  - [x] 3.2.3 Set up metric scraping configuration
   - [ ] 3.2.4 Configure alerting rules (basic platform alerts)
 
 - [ ] 3.3 Deploy Grafana Alloy
-  - [ ] 3.3.1 Create `manifests/platform-core-services/grafana-alloy/deployment.yaml`
-  - [ ] 3.3.2 Configure metrics collection from all namespaces
-  - [ ] 3.3.3 Set up remote_write to VictoriaMetrics
-  - [ ] 3.3.4 Configure service discovery for dynamic targets
+  - [x] 3.3.1 Create `manifests/platform-core-services/grafana-alloy/deployment.yaml`
+  - [x] 3.3.2 Configure metrics collection from all namespaces
+  - [x] 3.3.3 Set up remote_write to VictoriaMetrics
+  - [x] 3.3.4 Configure service discovery for dynamic targets
 
 - [ ] 3.4 Cross-cluster metrics access (CRITICAL for KEDA)
-  - [ ] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgrat.in`
+  - [x] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgrat.in`
   - [ ] 3.4.2 Configure TLS and authentication for spoke cluster access
   - [ ] 3.4.3 Create service accounts for cross-cluster queries
   - [ ] 3.4.4 Test KEDA integration with Hub metrics endpoint

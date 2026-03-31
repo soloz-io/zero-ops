@@ -16,6 +16,11 @@ spec:
   retentionPeriod: "30d"
   replicationFactor: 1
   
+  # Storage limits and retention policies
+  # Total storage: 50Gi (vmstorage) + 10Gi (vmselect cache) = 60Gi
+  # Retention: 30 days for cost management
+  # Replication: 1 (single replica for MVP, increase for HA)
+  
   vmstorage:
     replicaCount: 1
     storageDataPath: /vm-data
@@ -71,6 +76,9 @@ metadata:
   namespace: victoriametrics
   annotations:
     argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app: victoriametrics
+    component: vmselect
 spec:
   selector:
     app.kubernetes.io/name: vmselect
@@ -78,6 +86,10 @@ spec:
   ports:
   - name: http
     port: 8428
+    targetPort: 8481
+    protocol: TCP
+  - name: metrics
+    port: 8481
     targetPort: 8481
     protocol: TCP
   type: ClusterIP
@@ -120,3 +132,49 @@ metadata:
 type: Opaque
 data:
   auth: YWRtaW46JGFwcjEkSDY1dnNhRGkkLlNNZXhOWWkuZzlGTTI4QVBiNzRtLwo=  # admin:changeme (TODO: Infisical)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: victoriametrics-config
+  namespace: victoriametrics
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+data:
+  promql-config.yaml: |
+    # PromQL-compatible query API configuration
+    # VictoriaMetrics provides full PromQL compatibility via vmselect
+    # Query endpoint: http://victoriametrics.victoriametrics.svc.cluster.local:8428
+    # External endpoint: https://victoriametrics.hub.nutgrat.in
+    
+    # Supported PromQL endpoints:
+    # - /api/v1/query - Instant queries
+    # - /api/v1/query_range - Range queries
+    # - /api/v1/series - Series metadata
+    # - /api/v1/labels - Label names
+    # - /api/v1/label/<label_name>/values - Label values
+    
+    # KEDA integration example:
+    # serverAddress: https://victoriametrics.hub.nutgrat.in
+    # query: sum(rate(http_requests_total[5m]))
+    
+    # Storage limits:
+    # - Retention: 30 days
+    # - Storage: 50Gi (vmstorage) + 10Gi (vmselect cache)
+    # - Replication: 1 (increase for HA)
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: victoriametrics-cluster
+  namespace: victoriametrics
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  selector:
+    matchLabels:
+      app: victoriametrics
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
