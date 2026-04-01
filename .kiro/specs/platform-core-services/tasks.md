@@ -112,41 +112,46 @@ spec:
 
 ### Tasks
 
-- [ ] 1.5.1 Deploy SPIRE Server (Hub Cluster)
-  - [ ] 1.5.1.1 Create `manifests/platform-core-services/spire/server-deployment.yaml`
-  - [ ] 1.5.1.2 Configure SPIRE Server with persistent storage for trust bundle
+- [-] 1.5.1 Deploy SPIRE Server (Hub Cluster - Highly Available)
+  - [ ] 1.5.1.1 Create `manifests/platform-core-services/spire/server-deployment.yaml` with 3 replicas
+  - [ ] 1.5.1.2 Configure SPIRE Server to use Kubernetes Datastore (CRDs) or Hub PostgreSQL for HA storage (NOT local SQLite)
   - [ ] 1.5.1.3 Set up SPIRE Server at `spire-server.zero-ops-system.svc.cluster.local:8081`
-  - [ ] 1.5.1.4 Configure node attestation (Kubernetes PSAT)
+  - [ ] 1.5.1.4 Configure node attestation (Kubernetes PSAT) allowing spoke nodes to attest
+  - [ ] 1.5.1.5 Expose Prometheus `/metrics` endpoint for SPIRE Server observability
 
-- [ ] 1.5.2 Deploy SPIRE Agent (Hub Cluster)
-  - [ ] 1.5.2.1 Create `manifests/platform-core-services/spire/agent-daemonset.yaml`
-  - [ ] 1.5.2.2 Configure SPIRE Agent DaemonSet on all Hub nodes
-  - [ ] 1.5.2.3 Mount SPIRE Agent socket to workload pods
-  - [ ] 1.5.2.4 Configure workload attestation (Kubernetes)
+- [ ] 1.5.2 Deploy SPIRE Kubernetes Workload Registrar (CRITICAL for Automation)
+  - [ ] 1.5.2.1 Deploy SPIRE K8s Workload Registrar to Hub cluster
+  - [ ] 1.5.2.2 Configure annotation-based identity mapping (`spiffe.io/spiffe-id: "true"`)
+  - [ ] 1.5.2.3 Set up identity templates for dynamic tenant-based SPIFFE IDs
+  - [ ] 1.5.2.4 **FORBIDDEN:** Manual `spire-server entry create` commands are strictly prohibited
 
-- [ ] 1.5.3 Configure SPIFFE Identities
-  - [ ] 1.5.3.1 Create registration entry for Spoke Controller: `spiffe://zero-ops.nutgraf.in/spoke-controller/{tenant-id}`
-  - [ ] 1.5.3.2 Create registration entry for Grafana Alloy: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
-  - [ ] 1.5.3.3 Create registration entry for Hub AgentGateway: `spiffe://zero-ops.nutgraf.in/hub-agentgateway` (terminates Spoke Controller mTLS)
-  - [ ] 1.5.3.4 Create registration entry for Hub VictoriaMetrics: `spiffe://zero-ops.nutgraf.in/victoriametrics`
+- [ ] 1.5.3 Deploy SPIRE Agent & Metrics (Hub Cluster)
+  - [ ] 1.5.3.1 Create `manifests/platform-core-services/spire/agent-daemonset.yaml`
+  - [ ] 1.5.3.2 Mount SPIRE Agent socket to workload pods (`/run/spire/sockets/agent.sock`)
+  - [ ] 1.5.3.3 Configure ServiceMonitor CRDs to scrape SPIRE Server/Agent `/metrics` endpoints
+  - [ ] 1.5.3.4 Set up alerts for certificate issuance failures and rotation issues
 
 - [ ] 1.5.4 Deploy SPIRE Agent (Spoke Clusters - via edge-catalog)
   - [ ] 1.5.4.1 Add SPIRE Agent to `edge-catalog/spire-agent.yaml`
-  - [ ] 1.5.4.2 Configure federation with Hub SPIRE Server
-  - [ ] 1.5.4.3 Configure spoke workload attestation
-  - [ ] 1.5.4.4 Test cross-cluster trust bundle propagation
+  - [ ] 1.5.4.2 Configure upstream connection to Hub SPIRE Server (nested topology, single trust domain)
+  - [ ] 1.5.4.3 Configure spoke workload attestation (Kubernetes)
+  - [ ] 1.5.4.4 Ensure spoke pods auto-register via GitOps annotations when deployed
 
 - [ ] 1.5.5 Integration validation
-  - [ ] 1.5.5.1 Verify SPIRE Server issues SVIDs (X.509 certificates)
+  - [ ] 1.5.5.1 Verify SPIRE Server issues SVIDs (X.509 certificates) automatically via K8s Registrar
   - [ ] 1.5.5.2 Test automatic certificate rotation (default: 1 hour TTL)
-  - [ ] 1.5.5.3 Verify spoke agents can federate with Hub SPIRE Server
-  - [ ] 1.5.5.4 Test workload identity attestation for sample service
+  - [ ] 1.5.5.3 Verify spoke agents connect upstream to Hub SPIRE Server (nested topology)
+  - [ ] 1.5.5.4 Test workload identity attestation for annotated pods
+  - [ ] 1.5.5.5 Verify SPIRE metrics are scraped by VictoriaMetrics
+  - [ ] 1.5.5.6 Test SPIRE Server HA failover (kill one replica, verify SVIDs still issued)
 
 **Manual Testing Checkpoint:**
-- Verify SPIRE Server is healthy and issuing certificates
+- Verify SPIRE Server is healthy and issuing certificates automatically
 - Test SPIRE Agent on Hub nodes can retrieve SVIDs
-- Verify spoke SPIRE Agents can federate with Hub
-- Confirm workload identities are correctly attested
+- Verify spoke SPIRE Agents connect upstream to Hub (nested topology, single trust domain)
+- Confirm workload identities are auto-registered via K8s Registrar annotations
+- Verify SPIRE metrics are exposed and scraped
+- Test HA failover (kill SPIRE Server replica, verify no disruption)
 
 **PAUSE: User must approve Phase 1.5 before proceeding to Phase 2**
 

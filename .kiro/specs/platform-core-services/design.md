@@ -773,23 +773,31 @@ prometheus.remote_write "hub" {
 
 **mTLS Authentication Flow:**
 1. Spoke bootstrap provisions SPIRE Agent on all nodes
-2. SPIRE Agent federates with Hub SPIRE Server
+2. SPIRE Agent connects upstream to Hub SPIRE Server (nested topology, single trust domain)
 3. Grafana Alloy pod attests to SPIRE Agent via Kubernetes workload attestation
-4. SPIRE Agent issues SVID: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
-5. Alloy uses SVID for mTLS connection to Hub VictoriaMetrics
-6. Hub VictoriaMetrics validates SVID against SPIRE trust bundle
-7. Certificates automatically rotate (default: 1-hour TTL)
+4. SPIRE K8s Workload Registrar automatically creates SPIFFE ID based on pod annotations
+5. SPIRE Agent issues SVID: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
+6. Alloy uses SVID for mTLS connection to Hub VictoriaMetrics
+7. Hub VictoriaMetrics validates SVID against SPIRE trust bundle
+8. Certificates automatically rotate (default: 1-hour TTL)
+9. SPIRE metrics scraped by VictoriaMetrics for observability
 
-**SPIFFE Identity Registration:**
-```bash
-# Hub SPIRE Server registration (per spoke)
-spire-server entry create \
-  -spiffeID spiffe://zero-ops.nutgraf.in/grafana-alloy/acme-corp \
-  -parentID spiffe://zero-ops.nutgraf.in/spoke-agent/acme-prod \
-  -selector k8s:ns:observability \
-  -selector k8s:sa:grafana-alloy \
-  -dns victoriametrics.hub.nutgraf.in
+**Dynamic Workload Registration (SPIRE K8s Registrar):**
+
+Workloads are NEVER registered manually. The Hub cluster runs the SPIRE Kubernetes Workload Registrar. When a pod is deployed with specific annotations, the registrar automatically creates the SPIFFE ID entry.
+
+```yaml
+# Example Grafana Alloy deployment annotation
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-alloy
+  annotations:
+    spiffe.io/spiffe-id: "true"
+    spiffe.io/spiffe-id-template: "spiffe://zero-ops.nutgraf.in/grafana-alloy/{{ .PodMeta.Namespace }}"
 ```
+
+Benefits: 100% automated recovery. If a spoke is rebuilt via GitOps, identities are instantly and automatically provisioned with zero human intervention.
 
 **Why mTLS (SPIFFE) instead of Basic Auth:**
 - **Zero credential management:** No passwords to generate, store, or rotate
@@ -797,6 +805,8 @@ spire-server entry create \
 - **Workload identity:** Cryptographically verifiable service identity
 - **Zero-trust architecture:** Mutual authentication (both sides verify)
 - **Industry standard:** SPIFFE is CNCF graduated project for service identity
+- **GitOps compatible:** Workload identities auto-register via K8s annotations, no manual CLI commands
+- **High availability:** SPIRE Server uses K8s Datastore or PostgreSQL for HA, not local SQLite
 
 **NOT used for:**
 - KEDA autoscaling (KEDA queries local spoke metrics)
