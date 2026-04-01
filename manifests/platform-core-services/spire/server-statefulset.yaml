@@ -1,3 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server
+  namespace: spire-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "zero-ops.nutgraf.in"
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      default_x509_svid_ttl = "1h"
+      ca_ttl = "168h"
+      ca_subject {
+        country = ["US"]
+        organization = ["Zero-Ops"]
+        common_name = ""
+      }
+    }
+
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "postgres"
+          connection_string = "host=platform-db-rw.zero-ops-system.svc.cluster.local port=5432 dbname=hub user=spire_server password=${SPIRE_DB_PASSWORD} sslmode=require"
+        }
+      }
+
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "zero-ops-hub" = {
+              service_account_allow_list = ["spire-system:spire-agent"]
+            }
+          }
+        }
+      }
+
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+
+      Notifier "k8sbundle" {
+        plugin_data {
+          namespace = "spire-system"
+          config_map = "spire-bundle"
+        }
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -8,8 +73,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:
-  serviceName: spire-server
   replicas: 1
+  serviceName: spire-server
   selector:
     matchLabels:
       app: spire-server
@@ -28,28 +93,34 @@ spec:
         ports:
         - containerPort: 8081
           name: grpc
-          protocol: TCP
         - containerPort: 8080
           name: healthz
-          protocol: TCP
-        livenessProbe:
-          httpGet:
-            path: /live
-            port: 8080
-          initialDelaySeconds: 15
-          periodSeconds: 60
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
+        - containerPort: 9988
+          name: metrics
+        env:
+        - name: SPIRE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: spire-server-db-credentials
+              key: password
         volumeMounts:
         - name: spire-config
           mountPath: /run/spire/config
           readOnly: true
         - name: spire-data
           mountPath: /run/spire/data
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
       volumes:
       - name: spire-config
         configMap:
@@ -58,8 +129,7 @@ spec:
   - metadata:
       name: spire-data
     spec:
-      accessModes:
-      - ReadWriteOnce
+      accessModes: ["ReadWriteOnce"]
       resources:
         requests:
           storage: 1Gi

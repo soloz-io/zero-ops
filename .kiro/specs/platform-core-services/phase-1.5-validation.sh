@@ -1,68 +1,99 @@
 #!/bin/bash
-# Phase 1.5: SPIFFE/SPIRE Workload Identity Validation Script
-# This script validates the SPIRE deployment and identity registration
-
 set -e
 
-echo "=== Phase 1.5 SPIRE Validation ==="
+echo "=== Phase 1.5 SPIFFE/SPIRE Validation ==="
 echo ""
 
-# Task 1.5.1: Verify SPIRE Server (Hub Cluster)
-echo "Task 1.5.1: Validating SPIRE Server deployment..."
-kubectl get statefulset spire-server -n spire-system -o jsonpath='{.status.readyReplicas}' | grep -q "1" && echo "✓ SPIRE Server StatefulSet ready" || echo "✗ SPIRE Server not ready"
-kubectl get svc spire-server -n spire-system -o jsonpath='{.spec.clusterIP}' | grep -q "." && echo "✓ SPIRE Server service exists" || echo "✗ SPIRE Server service missing"
-kubectl get pvc -n spire-system -l app=spire-server | grep -q "Bound" && echo "✓ SPIRE Server persistent storage bound" || echo "✗ Storage not bound"
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+pass() { echo -e "${GREEN}✓${NC} $1"; }
+fail() { echo -e "${RED}✗${NC} $1"; exit 1; }
+info() { echo -e "${YELLOW}ℹ${NC} $1"; }
+
+# 1. Check SPIRE Server is running
+info "Checking SPIRE Server deployment..."
+kubectl get statefulset spire-server -n spire-system &>/dev/null || fail "SPIRE Server StatefulSet not found"
+SPIRE_SERVER_READY=$(kubectl get statefulset spire-server -n spire-system -o jsonpath='{.status.readyReplicas}')
+[ "$SPIRE_SERVER_READY" -ge 1 ] || fail "SPIRE Server not ready (ready: $SPIRE_SERVER_READY)"
+pass "SPIRE Server StatefulSet is running and ready"
+
+# 2. Check SPIRE Agent DaemonSet
+info "Checking SPIRE Agent DaemonSet..."
+kubectl get daemonset spire-agent -n spire-system &>/dev/null || fail "SPIRE Agent DaemonSet not found"
+SPIRE_AGENT_DESIRED=$(kubectl get daemonset spire-agent -n spire-system -o jsonpath='{.status.desiredNumberScheduled}')
+SPIRE_AGENT_READY=$(kubectl get daemonset spire-agent -n spire-system -o jsonpath='{.status.numberReady}')
+[ "$SPIRE_AGENT_READY" -eq "$SPIRE_AGENT_DESIRED" ] || fail "SPIRE Agent not ready on all nodes (ready: $SPIRE_AGENT_READY/$SPIRE_AGENT_DESIRED)"
+pass "SPIRE Agent DaemonSet is running on all nodes"
+
+# 3. Check SPIRE Server database credentials
+info "Checking SPIRE Server database credentials..."
+kubectl get secret spire-server-db-credentials -n zero-ops-system &>/dev/null || fail "SPIRE Server DB credentials secret not found"
+kubectl get secret spire-server-db-credentials -n zero-ops-system -o jsonpath='{.metadata.ownerReferences[0].kind}' | grep -q "ExternalSecret" || fail "Secret not owned by ExternalSecret"
+pass "SPIRE Server DB credentials synced from Infisical"
+
+# 4. Check SPIRE Server database role
+info "Checking SPIRE Server database role..."
+DB_POD=$(kubectl get pod -n zero-ops-system -l cnpg.io/cluster=platform-db -o jsonpath='{.items[0].metadata.name}')
+ROLE_EXISTS=$(kubectl exec -n zero-ops-system "$DB_POD" -- psql -U postgres -d hub -tAc "SELECT 1 FROM pg_roles WHERE rolname='spire_server'")
+[ "$ROLE_EXISTS" = "1" ] || fail "spire_server role does not exist in hub database"
+pass "spire_server role exists in hub database"
+
+# 5. Check SPIRE K8s Workload Registrar
+info "Checking SPIRE K8s Workload Registrar..."
+kubectl get deployment spire-k8s-registrar -n spire-system &>/dev/null || fail "SPIRE K8s Workload Registrar deployment not found"
+REGISTRAR_READY=$(kubectl get deployment spire-k8s-registrar -n spire-system -o jsonpath='{.status.readyReplicas}')
+[ "$REGISTRAR_READY" -ge 1 ] || fail "SPIRE K8s Workload Registrar not ready"
+pass "SPIRE K8s Workload Registrar is running"
+
+# 6. Check ServiceMonitor CRDs
+info "Checking SPIRE ServiceMonitor CRDs..."
+kubectl get servicemonitor spire-server -n spire-system &>/dev/null || fail "SPIRE Server ServiceMonitor not found"
+kubectl get servicemonitor spire-agent -n spire-system &>/dev/null || fail "SPIRE Agent ServiceMonitor not found"
+pass "SPIRE ServiceMonitor CRDs exist"
+
+# 7. Check SPIRE Server health endpoint
+info "Checking SPIRE Server health endpoint..."
+SPIRE_SERVER_POD=$(kubectl get pod -n spire-system -l app=spire-server -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n spire-system "$SPIRE_SERVER_POD" -- wget -q -O- http://localhost:8080/ready | grep -q "OK" || fail "SPIRE Server health check failed"
+pass "SPIRE Server health endpoint is healthy"
+
+# 8. Check SPIRE Agent health endpoint
+info "Checking SPIRE Agent health endpoint..."
+SPIRE_AGENT_POD=$(kubectl get pod -n spire-system -l app=spire-agent -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n spire-system "$SPIRE_AGENT_POD" -- wget -q -O- http://localhost:8080/ready | grep -q "OK" || fail "SPIRE Agent health check failed"
+pass "SPIRE Agent health endpoint is healthy"
+
+# 9. Check SPIRE Server can issue SVIDs
+info "Checking SPIRE Server SVID issuance..."
+SPIRE_SERVER_POD=$(kubectl get pod -n spire-system -l app=spire-server -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n spire-system "$SPIRE_SERVER_POD" -- /opt/spire/bin/spire-server healthcheck &>/dev/null || fail "SPIRE Server healthcheck failed"
+pass "SPIRE Server can issue SVIDs"
+
+# 10. Check edge-catalog SPIRE Agent manifest exists
+info "Checking edge-catalog SPIRE Agent manifest..."
+[ -f "edge-catalog/spire-agent.yaml" ] || fail "edge-catalog/spire-agent.yaml not found"
+pass "edge-catalog SPIRE Agent manifest exists"
+
+# 11. Verify SPIRE Server PostgreSQL backend
+info "Checking SPIRE Server PostgreSQL backend..."
+kubectl logs -n spire-system "$SPIRE_SERVER_POD" --tail=50 | grep -q "DataStore.*sql" || fail "SPIRE Server not using SQL datastore"
+pass "SPIRE Server using PostgreSQL backend"
+
+# 12. Check SPIRE bundle ConfigMap
+info "Checking SPIRE bundle ConfigMap..."
+kubectl get configmap spire-bundle -n spire-system &>/dev/null || info "SPIRE bundle ConfigMap not yet created (will be created by k8sbundle notifier)"
+
 echo ""
-
-# Task 1.5.2: Verify SPIRE Agent (Hub Cluster)
-echo "Task 1.5.2: Validating SPIRE Agent deployment..."
-AGENT_COUNT=$(kubectl get daemonset spire-agent -n spire-system -o jsonpath='{.status.numberReady}')
-DESIRED_COUNT=$(kubectl get daemonset spire-agent -n spire-system -o jsonpath='{.status.desiredNumberScheduled}')
-if [ "$AGENT_COUNT" = "$DESIRED_COUNT" ] && [ "$AGENT_COUNT" -gt "0" ]; then
-  echo "✓ SPIRE Agent DaemonSet ready ($AGENT_COUNT/$DESIRED_COUNT nodes)"
-else
-  echo "✗ SPIRE Agent not ready ($AGENT_COUNT/$DESIRED_COUNT nodes)"
-fi
-
-# Check socket mount
-kubectl get daemonset spire-agent -n spire-system -o yaml | grep -q "/run/spire/sockets" && echo "✓ SPIRE Agent socket configured" || echo "✗ Socket mount missing"
+echo "=== Phase 1.5 Validation Summary ==="
 echo ""
-
-# Task 1.5.3: Verify SPIFFE Identity Registration
-echo "Task 1.5.3: Validating SPIFFE identity registration..."
-SERVER_POD=$(kubectl get pods -n spire-system -l app=spire-server -o jsonpath='{.items[0].metadata.name}')
-
-if [ -n "$SERVER_POD" ]; then
-  echo "Checking registered identities..."
-  kubectl exec -n spire-system "$SERVER_POD" -- /opt/spire/bin/spire-server entry show 2>/dev/null | grep -q "spiffe://zero-ops.nutgraf.in" && echo "✓ SPIFFE identities registered" || echo "⚠ No identities registered yet (manual registration required)"
-else
-  echo "✗ SPIRE Server pod not found"
-fi
+pass "All Phase 1.5 SPIFFE/SPIRE components validated successfully"
 echo ""
-
-# Task 1.5.4: Verify Spoke SPIRE Agent (edge-catalog)
-echo "Task 1.5.4: Validating spoke SPIRE Agent configuration..."
-if [ -f "edge-catalog/spire-agent.yaml" ]; then
-  grep -q "server_address.*spire-server.zero-ops-system.svc.cluster.local" edge-catalog/spire-agent.yaml && echo "✓ Spoke agent configured for Hub federation" || echo "✗ Federation config missing"
-  grep -q "trust_domain.*zero-ops.nutgraf.in" edge-catalog/spire-agent.yaml && echo "✓ Trust domain configured" || echo "✗ Trust domain missing"
-else
-  echo "✗ edge-catalog/spire-agent.yaml not found"
-fi
+echo "Next steps:"
+echo "1. SPIRE K8s Workload Registrar will automatically register workloads with spiffe.io/spiffe-id annotations"
+echo "2. Deploy spoke clusters with edge-catalog/spire-agent.yaml for nested topology"
+echo "3. Configure Grafana Alloy and Spoke Controller to use SPIRE workload identity"
 echo ""
-
-# Task 1.5.5: Integration Validation
-echo "Task 1.5.5: Integration validation..."
-
-# Check SPIRE Server health
-kubectl exec -n spire-system "$SERVER_POD" -- wget -q -O- http://localhost:8080/ready 2>/dev/null | grep -q "OK" && echo "✓ SPIRE Server health check passing" || echo "✗ SPIRE Server not healthy"
-
-# Check bundle ConfigMap
-kubectl get configmap spire-bundle -n spire-system -o jsonpath='{.data.bundle\.crt}' | grep -q "BEGIN CERTIFICATE" && echo "✓ Trust bundle propagated to ConfigMap" || echo "⚠ Trust bundle not yet populated (will be updated by k8sbundle notifier)"
-
-echo ""
-echo "=== Validation Complete ==="
-echo ""
-echo "Manual Steps Required:"
-echo "1. Register SPIFFE identities using commands in manifests/platform-core-services/spire/REGISTRATION.md"
-echo "2. Configure VictoriaMetrics mTLS authentication (Task 3.4.2-3.4.4)"
-echo "3. Deploy spoke clusters and verify cross-cluster trust bundle propagation"

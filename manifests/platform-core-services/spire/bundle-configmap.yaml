@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-bundle
+  namespace: spire-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  bundle.crt: |
+    # This file will be populated by SPIRE Server k8sbundle notifier

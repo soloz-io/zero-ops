@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server-metrics
+  namespace: spire-system
+  labels:
+    app: spire-server
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9988
+    targetPort: 9988
+    protocol: TCP
+  selector:
+    app: spire-server
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: spire-server
+  namespace: spire-system
+  labels:
+    app: spire-server
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  selector:
+    matchLabels:
+      app: spire-server
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-agent-metrics
+  namespace: spire-system
+  labels:
+    app: spire-agent
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: metrics
+    port: 9988
+    targetPort: 9988
+    protocol: TCP
+  selector:
+    app: spire-agent
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: spire-agent
+  namespace: spire-system
+  labels:
+    app: spire-agent
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  selector:
+    matchLabels:
+      app: spire-agent
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
