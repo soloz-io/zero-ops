@@ -142,6 +142,29 @@ subjects:
   - hub.platform.agent.infra_status  # CRITICAL: Status sync subject
 ```
 
+**NATS Leaf Node Authentication (CRITICAL CLARIFICATION):**
+
+Spoke clusters connect to Hub NATS via **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. This is intentional:
+
+- **Why not SPIFFE for NATS?** NATS has its own mature, purpose-built authentication system (Operator/Account/User JWTs with Nkeys) that provides multi-tenant account isolation within the NATS payload. SPIFFE/mTLS is used for HTTP-based services (Spoke Controller → AgentGateway, Grafana Alloy → VictoriaMetrics).
+
+- **NATS JWT Flow:**
+  1. Hub NATS Operator generates Account JWT for each spoke
+  2. Each spoke gets User JWT + Nkey pair
+  3. Spoke Leaf Node presents JWT during connection
+  4. Hub NATS validates JWT signature and enforces subject permissions
+  5. Multi-tenant isolation enforced at NATS protocol level
+
+- **Credential Storage:**
+  - Hub: NATS Operator keys stored in Infisical
+  - Spoke: User JWT + Nkey synced from Infisical via ExternalSecret
+  - Leaf Node mounts secret, uses for authentication
+
+**NOT using SPIFFE for NATS because:**
+- NATS JWT provides superior multi-tenant subject isolation
+- NATS Operator model is industry standard for NATS deployments
+- SPIFFE adds unnecessary complexity for NATS-native auth
+
 **Status Sync Flow (CORRECTED):**
 1. Spoke Controller writes to Hub PostgREST
 2. Hub DB pg_notify trigger publishes to NATS `hub.platform.agent.infra_status`
@@ -447,7 +470,38 @@ spec:
 
 1. **No K8s Import Rule:** No Go file in `internal/opensbt/` may import `k8s.io/client-go`
 2. **Crossplane Border Rule:** Helm charts emit ONLY Namespaces, RBAC, and Crossplane Claims
-3. **Invisible Secrets Rule:** Go code uses `ISecretManager` (Infisical), never K8s secrets
+3. **Invisible Secrets Rule:** Custom Go code (internal/opensbt/, tenant applications) uses `ISecretManager` (Infisical SDK), never K8s secrets
+
+**Secret Access Boundary Clarification (CRITICAL):**
+
+The "Invisible Secrets Rule" applies to **custom application code only**. Platform infrastructure has different patterns:
+
+| Layer | Secret Access Pattern | Rationale |
+|---|---|---|
+| **Day 0 Platform Infrastructure** (AgentRegistry, PostgREST, VictoriaMetrics, NATS, Ory Stack) | K8s Secrets synced from Infisical via ESO `ExternalSecret` | We don't control OSS tool source code to inject Infisical SDK. Secrets are `secretKeyRef` in deployment manifests. |
+| **Day 1 Custom Go Services** (internal/opensbt/, mcp-server, hub-event-router) | Infisical SDK via `ISecretManager` interface | Custom code we control. Direct SDK access enforces zero K8s secret dependency. |
+| **Tenant Applications** (Application Plane) | Infisical SDK via `ISecretManager` interface | Tenant code uses opensbt library patterns. No K8s secret access. |
+| **Crossplane-Managed Resources** (CNPG, tenant databases) | ESO `PushSecret` → Infisical (origin: Crossplane) | Dynamically generated credentials pushed to Infisical, then read via SDK. |
+
+**Bidirectional Secret Flow Patterns (CRITICAL CLARIFICATION):**
+
+The spec uses TWO distinct secret flow patterns depending on the origin of the credential:
+
+1. **Static Infrastructure Secrets (Pull Pattern):**
+   - **Origin:** Infisical (manually created by Platform Admin)
+   - **Flow:** Infisical → ESO ExternalSecret → K8s Secret → Platform service mounts
+   - **Examples:** `control-plane-db-credentials`, `hub-db-credentials`, `victoriametrics-spoke-writer`, `agentgateway-hydra-credentials`
+   - **Use Case:** Day 0 platform infrastructure that requires pre-provisioned credentials
+   - **Why Pull?** Platform Admin creates credentials in Infisical first, then ESO syncs them to K8s for OSS services to consume
+
+2. **Dynamic Tenant Secrets (Push Pattern):**
+   - **Origin:** Crossplane/CNPG (auto-generated passwords)
+   - **Flow:** Crossplane → K8s Secret → ESO PushSecret → Infisical → Tenant app reads via SDK
+   - **Examples:** Tenant database passwords, S3 bucket credentials
+   - **Use Case:** Tenant resources where credentials are generated dynamically by Kubernetes operators
+   - **Why Push?** Crossplane/CNPG generates passwords automatically, ESO pushes them to Infisical, tenant apps read via SDK
+
+**CRITICAL:** Platform infrastructure (Day 0) uses K8s secrets because we cannot modify OSS binaries. Custom code (Day 1+) uses Infisical SDK to enforce the abstraction layer.
 
 ## 3. Database Architecture (CORRECTED)
 

@@ -10,3 +10,5 @@ inclusion: manual
 - dont report partial complemetion. report me after completing tasks fully. 
 - you should move only task by task so that easy to get my approval once each task is completed.
 - No unit or integration test cases be written. Only write e2e test cases. Code reviewer will reject if they find unit test cases written.
+- you must never create a summary or temoprary document unless staed in the tasks.
+- Always make sure a README is included or updated per folder.

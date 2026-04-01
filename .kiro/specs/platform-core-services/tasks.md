@@ -22,35 +22,70 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 ### Tasks
 
-- [ ] 1.1 Extend Control Plane Shared DB
-  - [ ] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
-  - [ ] 1.1.2 Create agent definitions and deployments tables
-  - [ ] 1.1.3 Configure RLS policies for tenant isolation
-  - [ ] 1.1.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
-  - [ ] 1.1.5 **SECURITY:** Create Kubernetes Job to create `agentregistry_user` role using `secretKeyRef` pattern
-  - [ ] 1.1.6 Create `control-plane-db-credentials` secret with proper routing
+- [x] 1.1 Extend Control Plane Shared DB
+  - [x] 1.1.1 Add `agentregistry` schema to existing `control_plane` database
+  - [x] 1.1.2 Create agent definitions and deployments tables
+  - [x] 1.1.3 Configure RLS policies for tenant isolation
+  - [x] 1.1.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
+  - [x] 1.1.5 **SECURITY:** Create Kubernetes Job to create `agentregistry_user` role using `secretKeyRef` pattern
+  - [x] 1.1.6 Create `ExternalSecret` manifest to sync `control-plane-db-credentials` from Infisical ClusterSecretStore
 
-- [ ] 1.2 Extend Hub Centralised DB
-  - [ ] 1.2.1 Add `agent_infra_status` table to existing `hub` database
-  - [ ] 1.2.2 Create pg_notify trigger for NATS integration
-  - [ ] 1.2.3 Configure RLS policies for cross-cluster access
-  - [ ] 1.2.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
-  - [ ] 1.2.5 **SECURITY:** Create Kubernetes Job to create `hub_postgrest_user` role using `secretKeyRef` pattern
-  - [ ] 1.2.6 Create `hub-db-credentials` secret with proper routing
+- [x] 1.2 Extend Hub Centralised DB
+  - [x] 1.2.1 Add `agent_infra_status` table to existing `hub` database
+  - [x] 1.2.2 Create pg_notify trigger for NATS integration
+  - [x] 1.2.3 Configure RLS policies for cross-cluster access
+  - [x] 1.2.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
+  - [x] 1.2.5 **SECURITY:** Create Kubernetes Job to create `hub_postgrest_user` role using `secretKeyRef` pattern
+  - [x] 1.2.6 Create `ExternalSecret` manifest to sync `hub-db-credentials` from Infisical ClusterSecretStore
 
-- [ ] 1.3 Database connection validation
-  - [ ] 1.3.1 Verify `control-plane-db-credentials` routes to `control_plane` database
-  - [ ] 1.3.2 Verify `hub-db-credentials` routes to `hub` database
-  - [ ] 1.3.3 Test RLS policies with sample tenant data
-  - [ ] 1.3.4 Validate pg_notify trigger functionality
-  - [ ] 1.3.5 **SECURITY:** Verify NO hardcoded passwords exist in any manifests or CNPG postInitSQL
+- [x] 1.3 Database connection validation
+  - [x] 1.3.1 Verify `control-plane-db-credentials` routes to `control_plane` database
+  - [x] 1.3.2 Verify `hub-db-credentials` routes to `hub` database
+  - [x] 1.3.3 Test RLS policies with sample tenant data
+  - [x] 1.3.4 Validate pg_notify trigger functionality
+  - [x] 1.3.5 **SECURITY:** Verify NO hardcoded passwords exist in any manifests or CNPG postInitSQL
 
 **Security Enforcement Checklist:**
-- [ ] All passwords generated via Infisical or secure bootstrap script
-- [ ] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
-- [ ] NO hardcoded passwords in CNPG `postInitSQL` blocks
-- [ ] NO plaintext passwords committed to Git
-- [ ] Pattern matches `manifests/platform-identity/databases/setup-roles-job.yaml`
+- [x] All passwords generated via Infisical or secure bootstrap script
+- [x] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
+- [x] NO hardcoded passwords in CNPG `postInitSQL` blocks
+- [x] NO plaintext passwords committed to Git
+- [x] Pattern matches `manifests/platform-identity/databases/setup-roles-job.yaml`
+- [x] All K8s secrets for platform infrastructure created via ESO `ExternalSecret` manifests (NOT manual kubectl create secret)
+
+**ExternalSecret Pattern (CRITICAL):**
+All platform infrastructure secrets MUST be synced from Infisical via External Secrets Operator:
+1. Create secret in Infisical UI/API (e.g., `control-plane-db-credentials` with `username` and `password` properties)
+2. Create `ExternalSecret` manifest referencing `infisical-backend` ClusterSecretStore
+3. Commit manifest to Git, ArgoCD syncs
+4. ESO creates K8s secret automatically
+5. Platform service mounts secret via `secretKeyRef`
+
+**Example ExternalSecret:**
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: control-plane-db-credentials
+  namespace: zero-ops-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: control-plane-db-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: control-plane-db-credentials
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: control-plane-db-credentials
+        property: password
+```
 
 **Manual Testing Checkpoint:**
 - Connect to both databases using respective credentials
@@ -136,7 +171,40 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 2.3.3 Generate User credentials (JWT + nkey) for each spoke Leaf Node
   - [ ] 2.3.4 Configure Hub NATS to validate spoke JWTs
   - [ ] 2.3.5 Store spoke NATS credentials in Infisical (per-spoke secrets)
-  - [ ] 2.3.6 Configure Leaf Node authentication in edge-catalog
+  - [ ] 2.3.6 **PREREQUISITE:** Verify ESO is deployed to spoke clusters via edge-catalog with Infisical ClusterSecretStore configured
+  - [ ] 2.3.7 Create `ExternalSecret` manifests to sync NATS credentials to spoke clusters
+  - [ ] 2.3.8 Configure Leaf Node authentication in edge-catalog
+
+**CRITICAL PREREQUISITE - Spoke Cluster ESO:**
+
+Before executing task 2.3.7 (syncing NATS credentials to spoke clusters), verify that:
+- External Secrets Operator is deployed to ALL spoke clusters
+- Each spoke has a `ClusterSecretStore` configured pointing to central Infisical API
+- This is typically handled by edge-catalog bootstrapping
+- Without ESO on spoke, `ExternalSecret` manifests will fail to sync
+
+**NATS Authentication Architecture Clarification:**
+
+NATS Leaf Nodes use **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. This is intentional:
+
+- **Why not SPIFFE for NATS?** NATS has its own mature, purpose-built authentication system (Operator/Account/User JWTs with Nkeys) that provides multi-tenant account isolation within the NATS payload. SPIFFE/mTLS is used for HTTP-based services (Spoke Controller → AgentGateway, Grafana Alloy → VictoriaMetrics).
+
+- **NATS JWT Flow:**
+  1. Hub NATS Operator generates Account JWT for each spoke
+  2. Each spoke gets User JWT + Nkey pair
+  3. Spoke Leaf Node presents JWT during connection
+  4. Hub NATS validates JWT signature and enforces subject permissions
+  5. Multi-tenant isolation enforced at NATS protocol level
+
+- **Credential Storage:**
+  - Hub: NATS Operator keys stored in Infisical
+  - Spoke: User JWT + Nkey synced from Infisical via ExternalSecret
+  - Leaf Node mounts secret, uses for authentication
+
+**NOT using SPIFFE for NATS because:**
+- NATS JWT provides superior multi-tenant subject isolation
+- NATS Operator model is industry standard for NATS deployments
+- SPIFFE adds unnecessary complexity for NATS-native auth
 
 - [x] 2.4 Service configuration
   - [x] 2.4.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
@@ -258,8 +326,61 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 5.3.2 Configure JWT validation with Hydra public keys (JWKS endpoint)
   - [ ] 5.3.3 Set up RLS context from JWT claims (tenant_id extraction)
   - [ ] 5.3.4 Configure internal-only endpoint (PostgREST not exposed externally, only to AgentGateway)
-  - [ ] 5.3.5 Add AgentGateway configuration for mTLS termination and JWT issuance
-  - [ ] 5.3.6 Configure AgentGateway to route Spoke Controller requests to PostgREST
+  - [ ] 5.3.5 **NEW:** Store AgentGateway Hydra OAuth2 client credentials in Infisical
+  - [ ] 5.3.6 **NEW:** Create `ExternalSecret` to sync AgentGateway Hydra credentials to Hub cluster
+  - [ ] 5.3.7 Add AgentGateway configuration for mTLS termination and JWT issuance
+  - [ ] 5.3.8 Configure AgentGateway to route Spoke Controller requests to PostgREST
+
+**AgentGateway Hydra Integration (CRITICAL):**
+
+For AgentGateway to issue short-lived JWTs that PostgREST will accept, it needs Hydra OAuth2 client credentials:
+
+1. **Create Hydra OAuth2 Client:**
+   ```bash
+   # Via Hydra Admin API
+   hydra create client \
+     --endpoint http://hydra-admin.zero-ops-system.svc:4445 \
+     --id agentgateway-jwt-issuer \
+     --secret <generated-secret> \
+     --grant-types client_credentials \
+     --scope spoke.controller.write
+   ```
+
+2. **Store in Infisical:**
+   - Key: `agentgateway-hydra-credentials`
+   - Properties: `client_id`, `client_secret`, `token_url`
+
+3. **Sync via ExternalSecret:**
+   ```yaml
+   apiVersion: external-secrets.io/v1
+   kind: ExternalSecret
+   metadata:
+     name: agentgateway-hydra-credentials
+     namespace: zero-ops-system
+   spec:
+     secretStoreRef:
+       name: infisical-backend
+       kind: ClusterSecretStore
+     target:
+       name: agentgateway-hydra-credentials
+       creationPolicy: Owner
+     data:
+       - secretKey: client_id
+         remoteRef:
+           key: agentgateway-hydra-credentials
+           property: client_id
+       - secretKey: client_secret
+         remoteRef:
+           key: agentgateway-hydra-credentials
+           property: client_secret
+   ```
+
+4. **AgentGateway uses credentials:**
+   - On Spoke Controller mTLS connection
+   - Extract tenant_id from SPIFFE identity
+   - Call Hydra token endpoint with client_credentials grant
+   - Receive JWT with tenant_id claim
+   - Forward to PostgREST with JWT
 
 - [ ] 5.4 API security and monitoring
   - [ ] 5.4.1 Configure TLS termination at AgentGateway (not PostgREST)
