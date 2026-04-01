@@ -755,8 +755,6 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 
 	fmt.Println("[bootstrap-secrets] Generating platform database credentials and storing in Infisical...")
 
-	dbHost := "platform-db-rw.zero-ops-system.svc.cluster.local"
-	dbPort := "5432"
 	secretPath := "/"
 
 	// Generate and store control-plane-db credentials
@@ -769,35 +767,24 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		prefix   string
 		username string
 		password string
-		database string
 	}{
-		{"control-plane-db", "mcp_server", controlPlanePassword, "control_plane"},
-		{"hub-db", "spoke_controller", "", "hub"},
-		{"infisical-db", "infisical", "", "infisical"},
+		{"control-plane-db", "mcp_server", controlPlanePassword},
+		{"hub-db", "spoke_controller", ""},
 	}
 
-	// Generate remaining passwords
+	// Generate hub password
 	hubPassword, err := generateSecurePassword(32)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate hub password: %w", err)
 	}
 	credentials[1].password = hubPassword
 
-	infisicalPassword, err := generateSecurePassword(32)
-	if err != nil {
-		return false, fmt.Errorf("failed to generate infisical password: %w", err)
-	}
-	credentials[2].password = infisicalPassword
-
-	// Store all credentials in Infisical
+	// Store only username and password in Infisical (host/port/database are static in manifests)
 	for _, cred := range credentials {
 		fmt.Printf("[bootstrap-secrets] Storing %s credentials in Infisical...\n", cred.prefix)
 
-		// Store each component of the credentials
+		// Store only the secrets (username and password)
 		secrets := map[string]string{
-			cred.prefix + "-host":     dbHost,
-			cred.prefix + "-port":     dbPort,
-			cred.prefix + "-database": cred.database,
 			cred.prefix + "-username": cred.username,
 			cred.prefix + "-password": cred.password,
 		}

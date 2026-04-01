@@ -28,18 +28,12 @@ type Config struct {
 }
 
 // NewClient creates a new Infisical API client
-// It retrieves the Infisical URL from the cluster and authenticates using Universal Auth
+// It retrieves the Infisical URL and authenticates using Universal Auth
 // Reuses the same credentials that ESO uses (infisical-auth in external-secrets-system)
 func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, error) {
-	// Get Infisical service URL from cluster
-	infisicalNamespace := "zero-ops-system"
-	svc, err := clientset.CoreV1().Services(infisicalNamespace).Get(ctx, "platform-infisical-infisical-standalone-infisical", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Infisical service: %w (ensure Infisical is deployed)", err)
-	}
-
-	baseURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", svc.Name, svc.Namespace)
-
+	// Use the external Infisical URL (accessible from outside cluster)
+	baseURL := "https://infisical.nutgraf.in"
+	
 	// Get Universal Auth credentials from the same secret ESO uses
 	esoNamespace := "external-secrets-system"
 	secret, err := clientset.CoreV1().Secrets(esoNamespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
@@ -67,6 +61,47 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	}
 
 	return client, nil
+}
+
+// getWorkspaceIdFromSlug converts projectSlug to workspaceId by querying Infisical API
+func (c *Client) getWorkspaceIdFromSlug(ctx context.Context, projectSlug string) (string, error) {
+	// List all workspaces and find the one matching the slug
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/workspace", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to list workspaces with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var workspacesResp struct {
+		Workspaces []struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"workspaces"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&workspacesResp); err != nil {
+		return "", fmt.Errorf("failed to decode workspaces response: %w", err)
+	}
+
+	for _, ws := range workspacesResp.Workspaces {
+		if ws.Slug == projectSlug {
+			return ws.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("workspace with slug '%s' not found", projectSlug)
 }
 
 // authenticate performs Universal Auth login to get access token
@@ -113,23 +148,29 @@ func (c *Client) authenticate(ctx context.Context, clientID, clientSecret string
 
 // CreateOrUpdateSecret creates or updates a secret in Infisical
 func (c *Client) CreateOrUpdateSecret(ctx context.Context, projectSlug, environmentSlug, secretPath, key, value string) error {
+	// Convert projectSlug to workspaceId (required for v3 write operations)
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
 	// First, try to get the secret to see if it exists
-	exists, err := c.secretExists(ctx, projectSlug, environmentSlug, secretPath, key)
+	exists, err := c.secretExists(ctx, workspaceId, environmentSlug, secretPath, key)
 	if err != nil {
 		return fmt.Errorf("failed to check if secret exists: %w", err)
 	}
 
 	if exists {
-		return c.updateSecret(ctx, projectSlug, environmentSlug, secretPath, key, value)
+		return c.updateSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
 	}
 
-	return c.createSecret(ctx, projectSlug, environmentSlug, secretPath, key, value)
+	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
 }
 
 // secretExists checks if a secret already exists
-func (c *Client) secretExists(ctx context.Context, projectSlug, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?projectSlug=%s&environment=%s&secretPath=%s",
-		c.baseURL, key, projectSlug, environmentSlug, secretPath)
+func (c *Client) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
+	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, key, workspaceId, environmentSlug, secretPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -156,13 +197,13 @@ func (c *Client) secretExists(ctx context.Context, projectSlug, environmentSlug,
 	return false, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
-// createSecret creates a new secret in Infisical
-func (c *Client) createSecret(ctx context.Context, projectSlug, environmentSlug, secretPath, key, value string) error {
+// createSecret creates a new secret in Infisical using v3 API with workspaceId
+func (c *Client) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	createReq := map[string]interface{}{
-		"projectSlug": projectSlug,
+		"workspaceId": workspaceId,
 		"environment": environmentSlug,
 		"secretPath":  secretPath,
-		"secretKey":   key,
+		"secretName":  key,
 		"secretValue": value,
 		"type":        "shared",
 	}
@@ -194,10 +235,10 @@ func (c *Client) createSecret(ctx context.Context, projectSlug, environmentSlug,
 	return nil
 }
 
-// updateSecret updates an existing secret in Infisical
-func (c *Client) updateSecret(ctx context.Context, projectSlug, environmentSlug, secretPath, key, value string) error {
+// updateSecret updates an existing secret in Infisical using v3 API with workspaceId
+func (c *Client) updateSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	updateReq := map[string]interface{}{
-		"projectSlug": projectSlug,
+		"workspaceId": workspaceId,
 		"environment": environmentSlug,
 		"secretPath":  secretPath,
 		"secretValue": value,
