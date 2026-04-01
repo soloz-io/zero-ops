@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: hub-migrations-v2
+  name: hub-migrations-v3
   namespace: zero-ops-system
   annotations:
     argocd.argoproj.io/sync-wave: "4"
@@ -34,7 +34,9 @@ spec:
         command:
           - sh
           - -c
-          - migrate -path=/migrations -database="${DATABASE_URL}" up
+          - |
+            migrate -path=/migrations -database="${DATABASE_URL}" force 1 || true
+            migrate -path=/migrations -database="${DATABASE_URL}" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations
