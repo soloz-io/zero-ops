@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: hub-migrations-v1
+  name: hub-migrations-v2
   namespace: zero-ops-system
   annotations:
     argocd.argoproj.io/sync-wave: "4"
