@@ -3,6 +3,8 @@ kind: Cluster
 metadata:
   name: platform-db
   namespace: zero-ops-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   instances: 3
   storage:
@@ -21,7 +23,9 @@ spec:
   bootstrap:
     initdb:
       database: postgres
-      owner: postgres
+      owner: app
+      secret:
+        name: platform-db-app
       postInitSQL:
         # Databases only - users created via setup-platform-roles-job
         - CREATE DATABASE control_plane;

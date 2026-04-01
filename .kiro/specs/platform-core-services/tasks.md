@@ -45,6 +45,14 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 1.3.4 Validate pg_notify trigger functionality
   - [x] 1.3.5 **SECURITY:** Verify NO hardcoded passwords exist in any manifests or CNPG postInitSQL
 
+- [x] 1.4 CNPG Disaster Recovery Credential Management
+  - [x] 1.4.1 Create Infisical keys for `platform-db-app-username` and `platform-db-app-password`
+  - [x] 1.4.2 Create `ExternalSecret` manifest for `platform-db-app` credentials (sync-wave 1)
+  - [x] 1.4.3 Create placeholder secret with ArgoCD prune protection (sync-wave 0)
+  - [x] 1.4.4 Update CNPG Cluster spec to use `bootstrap.initdb.secret` referencing pre-created secret
+  - [x] 1.4.5 Create password rotation Job (PostSync hook, sync-wave 5)
+  - [x] 1.4.6 Update sync-wave annotations: ExternalSecrets (1) → CNPG (2) → Roles (4) → Rotation (5)
+
 **Security Enforcement Checklist:**
 - [x] All passwords generated via Infisical or secure bootstrap script
 - [x] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
@@ -52,6 +60,8 @@ This implementation provides Day 0 core platform services required for agent-cor
 - [x] NO plaintext passwords committed to Git
 - [x] Pattern matches `manifests/platform-identity/databases/setup-roles-job.yaml`
 - [x] All K8s secrets for platform infrastructure created via ESO `ExternalSecret` manifests (NOT manual kubectl create secret)
+- [x] CNPG `platform-db-app` credentials pre-created from Infisical for disaster recovery
+- [x] Password rotation mechanism implemented for Infisical-managed credentials
 
 **ExternalSecret Pattern (CRITICAL):**
 All platform infrastructure secrets MUST be synced from Infisical via External Secrets Operator:

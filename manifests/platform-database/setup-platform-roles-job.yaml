@@ -4,9 +4,9 @@ metadata:
   name: setup-platform-roles
   namespace: zero-ops-system
   annotations:
-    # Runs after reset-infisical-db (sync-wave 3 > 2)
-    # This ensures database roles are created with latest passwords from secrets
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3
