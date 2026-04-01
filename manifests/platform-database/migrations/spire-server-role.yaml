@@ -37,12 +37,12 @@ spec:
         - name: PGUSER
           valueFrom:
             secretKeyRef:
-              name: platform-db-superuser
+              name: platform-db-app
               key: username
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: platform-db-superuser
+              name: platform-db-app
               key: password
         - name: PGSSLMODE
           value: "require"
