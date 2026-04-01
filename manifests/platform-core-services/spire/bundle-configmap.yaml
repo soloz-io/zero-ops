@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-bundle
+  namespace: spire-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+data:
+  bundle.crt: ""
