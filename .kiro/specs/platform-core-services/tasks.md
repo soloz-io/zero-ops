@@ -122,17 +122,17 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 3.3.3 Set up remote_write to VictoriaMetrics
   - [x] 3.3.4 Configure service discovery for dynamic targets
 
-- [ ] 3.4 Cross-cluster metrics access (CRITICAL for KEDA)
-  - [x] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgrat.in`
-  - [ ] 3.4.2 Configure TLS and authentication for spoke cluster access
-  - [ ] 3.4.3 Create service accounts for cross-cluster queries
-  - [ ] 3.4.4 Test KEDA integration with Hub metrics endpoint
+- [ ] 3.4 Cross-cluster metrics ingestion (CRITICAL for spoke observability)
+  - [x] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgraf.in`
+  - [ ] 3.4.2 Configure TLS and per-spoke basic authentication
+  - [ ] 3.4.3 Provision unique credentials per spoke during bootstrap
+  - [ ] 3.4.4 Test Grafana Alloy remote_write from spoke to Hub
 
 **Manual Testing Checkpoint:**
 - Query metrics via PromQL API
 - Verify ServiceMonitor discovery works
-- Test cross-cluster metrics access from spoke
-- Confirm KEDA can query Hub VictoriaMetrics
+- Test Grafana Alloy remote_write from test spoke cluster
+- Confirm metrics appear in Hub VictoriaMetrics with correct labels
 
 **PAUSE: User must approve Phase 3 before proceeding to Phase 4**
 
@@ -399,7 +399,7 @@ This implementation provides Day 0 core platform services required for agent-cor
 - [ ] 10.3 Cross-cluster integration
   - [ ] 10.3.1 Test spoke cluster provisioning via GitOps
   - [ ] 10.3.2 Verify CAPI kubeconfig secret generation
-  - [ ] 10.3.3 Test cross-cluster metrics access for KEDA
+  - [ ] 10.3.3 Test Grafana Alloy metrics ingestion from spoke to Hub
   - [ ] 10.3.4 Validate Spoke Controller → Hub PostgREST communication
 
 - [ ] 10.4 Observability validation

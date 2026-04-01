@@ -86,19 +86,37 @@ DELETE /v0/deployments/{id}                    # Delete deployment
 
 ### 2.2 VictoriaMetrics Observability Stack
 
-**Location:** `zero-ops-system` namespace  
-**Purpose:** Metrics storage and collection for platform and spoke clusters
+**Location:** `observability` namespace  
+**Purpose:** Centralized metrics storage for Hub and all spoke clusters
 
 **Components:**
 - VictoriaMetrics cluster (vmcluster) for metrics storage
 - Prometheus Operator for ServiceMonitor CRD support
 - Grafana Alloy for metrics collection and forwarding
-- Basic Grafana dashboards for platform monitoring
+- Grafana dashboards for platform monitoring
 
-**KEDA Integration (CORRECTED):**
-- Spoke clusters configured to query Hub VictoriaMetrics for scaling decisions
-- Secure cross-cluster metrics access via service accounts
-- KEDA ScaledObjects reference Hub metrics endpoint
+**Cross-Cluster Metrics Ingestion:**
+
+Spoke clusters push metrics to Hub VictoriaMetrics via Grafana Alloy `remote_write`:
+
+```
+Spoke Cluster (KSM + Grafana Alloy)
+  → remote_write (HTTPS POST with basic auth)
+  → Hub VictoriaMetrics (victoriametrics.hub.nutgraf.in)
+  → Centralized metrics storage
+  → Platform Admin dashboards
+```
+
+**Authentication Model:**
+- **Current Design**: Per-spoke basic auth credentials
+- Each spoke gets unique credentials during bootstrap: `spoke-{tenant-id}-metrics`
+- Credentials stored in spoke's Infisical
+- VictoriaMetrics ingress validates credentials via nginx basic auth
+
+**Why NOT JWT:**
+- VictoriaMetrics does not natively support JWT validation
+- Would require auth proxy (Envoy/NGINX) adding complexity
+- Basic auth is standard for Prometheus `remote_write` protocol
 
 **Service Endpoints:**
 ```
@@ -591,29 +609,53 @@ func (s *NATSStatusSubscriber) handleStatusUpdate(msg *nats.Msg) {
 
 ## 5. Observability Integration
 
-### 5.1 Cross-Cluster Metrics (CORRECTED)
+### 5.1 Cross-Cluster Metrics Ingestion
 
 **Hub VictoriaMetrics Configuration:**
-- Expose metrics endpoint externally for spoke cluster access
-- Configure service accounts for cross-cluster authentication
-- KEDA in spoke clusters queries Hub VictoriaMetrics for scaling decisions
+- External ingress at `victoriametrics.hub.nutgraf.in` for spoke metrics ingestion
+- Basic auth per spoke: `spoke-{tenant-id}-metrics` / `<password>`
+- Credentials provisioned during spoke bootstrap, stored in spoke's Infisical
 
-**Spoke Cluster KEDA Configuration:**
+**Spoke Cluster Grafana Alloy Configuration:**
 ```yaml
-# KEDA ScaledObject in spoke cluster
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: agent-scaler
-spec:
-  triggers:
-  - type: prometheus
-    metadata:
-      serverAddress: https://victoriametrics.hub.nutgrat.in  # Hub metrics
-      metricName: agent_queue_depth
-      threshold: '1'
-      query: sum(agent_queue_depth{tenant_id="{{.tenant_id}}"})
+# Grafana Alloy remote_write config (spoke cluster)
+prometheus.remote_write "hub" {
+  endpoint {
+    url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
+    
+    basic_auth {
+      username = "spoke-tenant-acme-metrics"
+      password_file = "/etc/secrets/victoriametrics-password"
+    }
+  }
+  
+  external_labels = {
+    cluster_id = "spoke-acme-prod"
+    tenant_id  = "acme-corp"
+    tier       = "enterprise"
+    region     = "eu-central-1"
+  }
+}
 ```
+
+**Authentication Flow:**
+1. Spoke bootstrap generates unique credentials
+2. Stored in Infisical: `spoke-{tenant-id}-metrics`
+3. ExternalSecret syncs to spoke cluster
+4. Alloy mounts secret, uses for `remote_write`
+5. Hub nginx ingress validates basic auth
+6. Metrics written to VictoriaMetrics
+
+**NOT used for:**
+- KEDA autoscaling (KEDA queries local spoke metrics)
+- Real-time operational decisions (uses local metrics)
+- Spoke-to-spoke communication (no cross-spoke queries)
+
+**Used for:**
+- Platform Admin fleet-wide dashboards
+- Centralized alerting (vmalert on Hub)
+- Historical analysis and capacity planning
+- Cross-tenant correlation (Platform Admin only)
 
 ### 5.2 Telemetry Stack
 

@@ -27,9 +27,9 @@ spec:
   data:
     - secretKey: username
       remoteRef:
-        key: victoriametrics
+        key: victoriametrics-spoke-writer
         property: username
     - secretKey: password
       remoteRef:
-        key: victoriametrics
+        key: victoriametrics-spoke-writer
         property: password
