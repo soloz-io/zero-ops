@@ -97,26 +97,28 @@ DELETE /v0/deployments/{id}                    # Delete deployment
 
 **Cross-Cluster Metrics Ingestion:**
 
-Spoke clusters push metrics to Hub VictoriaMetrics via Grafana Alloy `remote_write`:
+Spoke clusters push metrics to Hub VictoriaMetrics via Grafana Alloy `remote_write` with **mTLS (SPIFFE/SPIRE)**:
 
 ```
-Spoke Cluster (KSM + Grafana Alloy)
-  → remote_write (HTTPS POST with basic auth)
-  → Hub VictoriaMetrics (victoriametrics.hub.nutgraf.in)
+Spoke Cluster (Grafana Alloy with SPIRE Agent)
+  → Obtains SVID: spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}
+  → remote_write (HTTPS + mTLS)
+  → Hub VictoriaMetrics (validates SPIFFE SVID)
   → Centralized metrics storage
   → Platform Admin dashboards
 ```
 
 **Authentication Model:**
-- **Current Design**: Per-spoke basic auth credentials
-- Each spoke gets unique credentials during bootstrap: `spoke-{tenant-id}-metrics`
-- Credentials stored in spoke's Infisical
-- VictoriaMetrics ingress validates credentials via nginx basic auth
+- **Protocol**: mTLS with SPIFFE/SPIRE workload identity
+- **Identity**: Each Alloy instance gets unique SPIFFE ID
+- **Certificate Rotation**: Automatic (default 1-hour TTL)
+- **Trust**: Hub SPIRE Server issues and validates SVIDs
 
-**Why NOT JWT:**
-- VictoriaMetrics does not natively support JWT validation
-- Would require auth proxy (Envoy/NGINX) adding complexity
-- Basic auth is standard for Prometheus `remote_write` protocol
+**Why mTLS (SPIFFE) instead of Basic Auth:**
+- Zero credential management (automatic certificate issuance/rotation)
+- Workload identity (cryptographically verifiable)
+- Zero-trust architecture (mutual authentication)
+- Industry standard for service-to-service auth
 
 **Service Endpoints:**
 ```
@@ -562,9 +564,11 @@ env:
 
 ```
 Spoke Controller (Spoke Cluster)
-    ↓ HTTP POST with JWT
+    ↓ HTTPS POST with mTLS (SPIFFE)
+Hub AgentGateway (Hub Cluster)
+    ↓ Terminates mTLS, issues short-lived JWT
 Hub PostgREST (Hub Cluster)
-    ↓ INSERT/UPDATE agent_infra_status
+    ↓ INSERT/UPDATE agent_infra_status (JWT auth)
 Hub Centralised DB
     ↓ pg_notify trigger
 NATS hub.platform.agent.infra_status subject
@@ -613,8 +617,9 @@ func (s *NATSStatusSubscriber) handleStatusUpdate(msg *nats.Msg) {
 
 **Hub VictoriaMetrics Configuration:**
 - External ingress at `victoriametrics.hub.nutgraf.in` for spoke metrics ingestion
-- Basic auth per spoke: `spoke-{tenant-id}-metrics` / `<password>`
-- Credentials provisioned during spoke bootstrap, stored in spoke's Infisical
+- **mTLS authentication via SPIFFE/SPIRE** (replaces basic auth)
+- Each spoke Grafana Alloy instance obtains unique SPIFFE identity
+- Hub VictoriaMetrics validates SPIFFE SVIDs (X.509 certificates)
 
 **Spoke Cluster Grafana Alloy Configuration:**
 ```yaml
@@ -623,9 +628,15 @@ prometheus.remote_write "hub" {
   endpoint {
     url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
     
-    basic_auth {
-      username = "spoke-tenant-acme-metrics"
-      password_file = "/etc/secrets/victoriametrics-password"
+    tls_config {
+      # SPIFFE Workload API provides automatic certificate rotation
+      cert_file = "/run/spire/sockets/agent.sock"  # SPIRE Agent socket
+      key_file  = "/run/spire/sockets/agent.sock"
+      ca_file   = "/run/spire/bundle.crt"          # Trust bundle
+      
+      # SPIFFE identity for this Alloy instance
+      # Format: spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}
+      server_name = "victoriametrics.hub.nutgraf.in"
     }
   }
   
@@ -638,13 +649,32 @@ prometheus.remote_write "hub" {
 }
 ```
 
-**Authentication Flow:**
-1. Spoke bootstrap generates unique credentials
-2. Stored in Infisical: `spoke-{tenant-id}-metrics`
-3. ExternalSecret syncs to spoke cluster
-4. Alloy mounts secret, uses for `remote_write`
-5. Hub nginx ingress validates basic auth
-6. Metrics written to VictoriaMetrics
+**mTLS Authentication Flow:**
+1. Spoke bootstrap provisions SPIRE Agent on all nodes
+2. SPIRE Agent federates with Hub SPIRE Server
+3. Grafana Alloy pod attests to SPIRE Agent via Kubernetes workload attestation
+4. SPIRE Agent issues SVID: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
+5. Alloy uses SVID for mTLS connection to Hub VictoriaMetrics
+6. Hub VictoriaMetrics validates SVID against SPIRE trust bundle
+7. Certificates automatically rotate (default: 1-hour TTL)
+
+**SPIFFE Identity Registration:**
+```bash
+# Hub SPIRE Server registration (per spoke)
+spire-server entry create \
+  -spiffeID spiffe://zero-ops.nutgraf.in/grafana-alloy/acme-corp \
+  -parentID spiffe://zero-ops.nutgraf.in/spoke-agent/acme-prod \
+  -selector k8s:ns:observability \
+  -selector k8s:sa:grafana-alloy \
+  -dns victoriametrics.hub.nutgraf.in
+```
+
+**Why mTLS (SPIFFE) instead of Basic Auth:**
+- **Zero credential management:** No passwords to generate, store, or rotate
+- **Automatic rotation:** Certificates rotate every hour by default
+- **Workload identity:** Cryptographically verifiable service identity
+- **Zero-trust architecture:** Mutual authentication (both sides verify)
+- **Industry standard:** SPIFFE is CNCF graduated project for service identity
 
 **NOT used for:**
 - KEDA autoscaling (KEDA queries local spoke metrics)

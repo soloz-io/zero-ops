@@ -4,24 +4,37 @@
 - Infisical deployed and accessible at `platform-infisical-infisical-standalone-infisical.zero-ops-system.svc:8080`
 - ClusterSecretStore `infisical-backend` configured and Ready
 - Project: "platform" (slug: "platform"), Environment: "Production" (slug: "prod")
+- **SPIFFE/SPIRE deployed** (Phase 1.5 of platform-core-services spec)
 
 ## Purpose
 
-This secret provides **per-spoke basic authentication for Grafana Alloy remote_write** from spoke clusters to Hub VictoriaMetrics.
+**DEPRECATED - This secret is for Phase 1 testing only.**
 
-**Cross-Cluster Data Flow:**
+Production deployment uses **mTLS authentication via SPIFFE/SPIRE** for cross-cluster service-to-service authentication. This Infisical-based basic auth secret is retained only for initial deployment and testing before SPIFFE/SPIRE is fully operational.
+
+**Cross-Cluster Data Flow (Production):**
 ```
-Spoke Cluster (Grafana Alloy)
-  → remote_write (HTTPS POST with basic auth)
-  → Hub VictoriaMetrics (victoriametrics.hub.nutgraf.in)
+Spoke Cluster (Grafana Alloy with SPIRE Agent)
+  → Obtains SVID: spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}
+  → remote_write (HTTPS + mTLS)
+  → Hub VictoriaMetrics (validates SPIFFE SVID)
   → Centralized metrics storage
+  → Platform Admin dashboards
 ```
 
-**Authentication Model:**
-- Each spoke cluster gets unique credentials: `spoke-{tenant-id}-metrics`
-- Credentials generated during spoke bootstrap
-- Stored in spoke's Infisical
-- VictoriaMetrics ingress validates via nginx basic auth
+**Authentication Model (Production):**
+- **Protocol**: mTLS with SPIFFE/SPIRE workload identity
+- **Identity**: Each Alloy instance gets unique SPIFFE ID
+- **Certificate Rotation**: Automatic (default 1-hour TTL)
+- **Trust**: Hub SPIRE Server issues and validates SVIDs
+- **Zero credential management**: No passwords, automatic rotation
+
+**Why mTLS (SPIFFE) instead of Basic Auth:**
+- Zero credential management (automatic certificate issuance/rotation)
+- Workload identity (cryptographically verifiable)
+- Zero-trust architecture (mutual authentication)
+- Industry standard for service-to-service auth
+- No secrets to store in Infisical or sync via ESO
 
 **NOT used by:**
 - KEDA (queries local spoke metrics, not Hub)
@@ -30,14 +43,17 @@ Spoke Cluster (Grafana Alloy)
 
 ## Current Implementation Status
 
-**Phase 1 (Current)**: Shared credential for initial deployment
+**Phase 1 (Current - Testing Only)**: Shared basic auth credential
+- Temporary solution for initial deployment before SPIFFE/SPIRE is operational
 - All spokes temporarily share `spoke-metrics-writer` credential
-- Simplifies initial deployment and testing
+- **Will be replaced by mTLS in Phase 2**
 
-**Phase 2 (Next)**: Per-spoke credentials (production-ready)
-- Each spoke gets unique `spoke-{tenant-id}-metrics` credential
-- Provisioned automatically during spoke bootstrap
-- Better security, auditability, and access control
+**Phase 2 (Production)**: mTLS via SPIFFE/SPIRE
+- Zero credential management (automatic certificate provisioning)
+- Each Grafana Alloy instance obtains unique SPIFFE identity
+- Automatic certificate rotation (default: 1-hour TTL)
+- Hub VictoriaMetrics validates SPIFFE SVIDs
+- No Infisical secrets required for authentication
 
 ## Current Status
 
@@ -142,30 +158,70 @@ curl -u spoke-metrics-writer:<password> "https://victoriametrics.hub.nutgraf.in/
 #       password: <from-secret>
 ```
 
-## Production Deployment: Per-Spoke Credentials
+## Production Deployment: mTLS via SPIFFE/SPIRE
 
-**Target Architecture** (Phase 2):
+**Target Architecture** (Phase 2 - Production):
 
-Each spoke gets unique credentials during bootstrap:
+Each spoke Grafana Alloy instance authenticates via SPIFFE workload identity:
 
 **Spoke Bootstrap Flow:**
-1. Crossplane Composition provisions spoke cluster
-2. Generate unique credentials: `spoke-{tenant-id}-metrics` / `<random-password>`
-3. Store in spoke's Infisical: `spoke-{tenant-id}-metrics-password`
-4. ExternalSecret syncs to spoke cluster
-5. Grafana Alloy mounts secret for `remote_write`
+1. SPIRE Agent deployed to spoke cluster (via edge-catalog)
+2. SPIRE Agent federates with Hub SPIRE Server
+3. Grafana Alloy pod attests to SPIRE Agent via Kubernetes workload attestation
+4. SPIRE Agent issues SVID: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
+5. Alloy uses SVID for mTLS connection to Hub VictoriaMetrics
+6. Hub VictoriaMetrics validates SVID against SPIRE trust bundle
+7. Certificates automatically rotate (default: 1-hour TTL)
+
+**SPIFFE Identity Registration (Hub SPIRE Server):**
+```bash
+# Per-spoke registration
+spire-server entry create \
+  -spiffeID spiffe://zero-ops.nutgraf.in/grafana-alloy/acme-corp \
+  -parentID spiffe://zero-ops.nutgraf.in/spoke-agent/acme-prod \
+  -selector k8s:ns:observability \
+  -selector k8s:sa:grafana-alloy \
+  -dns victoriametrics.hub.nutgraf.in
+```
+
+**Grafana Alloy Configuration (Production):**
+```yaml
+prometheus.remote_write "hub" {
+  endpoint {
+    url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
+    
+    tls_config {
+      # SPIFFE Workload API provides automatic certificate rotation
+      cert_file = "/run/spire/sockets/agent.sock"  # SPIRE Agent socket
+      key_file  = "/run/spire/sockets/agent.sock"
+      ca_file   = "/run/spire/bundle.crt"          # Trust bundle
+      
+      server_name = "victoriametrics.hub.nutgraf.in"
+    }
+  }
+  
+  external_labels = {
+    cluster_id = "spoke-acme-prod"
+    tenant_id  = "acme-corp"
+    tier       = "enterprise"
+    region     = "eu-central-1"
+  }
+}
+```
 
 **Benefits:**
-- Security: Credential compromise affects only one spoke
-- Auditability: Can track which spoke sent metrics
-- Access Control: Can revoke individual spoke access
-- Compliance: Meets security audit requirements
+- **Zero credential management**: No passwords to generate, store, or rotate
+- **Automatic rotation**: Certificates rotate every hour by default
+- **Workload identity**: Cryptographically verifiable service identity
+- **Zero-trust architecture**: Mutual authentication (both sides verify)
+- **Auditability**: SPIFFE identity in VictoriaMetrics logs
+- **Compliance**: Industry standard (CNCF graduated project)
 
 **Implementation:**
-- Credentials provisioned by Crossplane Composition
-- Stored in spoke's Infisical project
-- VictoriaMetrics ingress accepts multiple valid credentials
-- Metrics tagged with `cluster_id` and `tenant_id` labels
+- SPIFFE/SPIRE deployed in Phase 1.5 of platform-core-services spec
+- VictoriaMetrics ingress configured to validate SPIFFE SVIDs
+- No Infisical secrets required for production authentication
+- Basic auth ExternalSecret retained only for Phase 1 testing
 
 ## Security Notes
 

@@ -496,14 +496,14 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 
 | Component | Implementation | Responsibility |
 |---|---|---|
-| **NATS JetStream** | NATS Server | Core messaging backbone. Hub runs a full JetStream cluster. Handles asynchronous events via Hub Event Router with specific consumer routing:<br>• `spoke.*.billing.usage` → writes to Hub Centralised DB (usage metering records)<br>• `spoke.*.notifications.>` → triggers notification service (email, Slack)<br>• `spoke.*.lifecycle.>` → triggers Hub workflows (onboarding, cleanup)<br>• Spoke Silo state sync: local Tenant Control Plane DB → NATS → Control Plane Shared DB<br>**The Hub Event Router never writes to the analytics layer (VictoriaMetrics/ClickHouse). Analytics receives data exclusively from Grafana Alloy remote_write pipeline.** |
+| **NATS JetStream** | NATS Server | Core messaging backbone. Hub runs a full JetStream cluster. Handles asynchronous events via Hub Event Router with specific consumer routing:<br>• `spoke.*.billing.usage` → writes to Hub Centralised DB (usage metering records)<br>• `spoke.*.notifications.>` → triggers notification service (email, Slack)<br>• `spoke.*.lifecycle.>` → triggers Hub workflows (onboarding, cleanup)<br>• Spoke Silo state sync: local Tenant Control Plane DB → NATS → Control Plane Shared DB<br>**NATS Leaf Node Authentication:** Spoke NATS Leaf Nodes connect to Hub JetStream using **NATS Decentralized JWT Authentication** (Operator/Account/User JWTs with Nkeys). Each spoke gets unique credentials provisioned during bootstrap.<br>**The Hub Event Router never writes to the analytics layer (VictoriaMetrics/ClickHouse). Analytics receives data exclusively from Grafana Alloy remote_write pipeline.** |
 | **Hub Event Router** | Go service (Hub) | Consumes NATS JetStream subjects on the Hub. Routes events to downstream handlers:<br>• `spoke.*.billing.usage` → Hub Centralised DB (billing records)<br>• `spoke.*.notifications.>` → notification service<br>• `spoke.*.lifecycle.>` → Hub workflows<br>• Spoke Silo sync events → Control Plane Shared DB<br>**Never writes to the analytics layer (VictoriaMetrics/ClickHouse).** Analytics receives data from Grafana Alloy remote_write pipeline only. |
 | **NATS Leaf Node** | NATS Server (Leaf mode) | Runs in spokes to bridge local events securely back to the Hub JetStream cluster. |
 | **ClickHouse** | ClickHouse OSS *(deferred)* | Columnar OLAP database for billing aggregation at scale. **Deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows).** Until then, billing records are stored in Hub Centralised DB (PostgreSQL). When introduced, it will receive usage metering data. It will never receive data from the Hub Event Router — the analytics layer receives data from Grafana Alloy remote_write pipeline only. |
 | **Loki** | Grafana Loki | Centralized log aggregation in the Hub. |
-| **PostgREST** | PostgREST OSS | Two distinct instances with separate responsibilities:<br>**Hub-side PostgREST:** Exposes Hub Centralised DB. Receives inbound HTTPS writes from Spoke Controllers (`POST /resource-status`). Auth: per-spoke JWT (Hydra client_credentials grant, provisioned at spoke bootstrap). RLS enforces strict per-spoke write scoping — a spoke can only write its own tenant rows. URL: `https://postgrest.hub.nutgrat.in/resource-status`<br>**Spoke-side PostgREST (Pool):** Deployed in Spoke Pool clusters. Exposes the Hub's Control Plane Shared DB for operational business data. Receives synchronous direct writes from Spoke Pool Control Plane applications (user sessions, tenant config, provisioning state).<br>**Spoke-side PostgREST (Silo):** Deployed in Spoke Silo clusters. Exposes the local Tenant Control Plane DB — NOT the Hub's Control Plane Shared DB. The Silo is the source of truth for its own control plane data. Silo state syncs upstream to the Hub via NATS Leaf Node, not via direct DB connection. These instances are never merged and serve different databases. |
+| **PostgREST** | PostgREST OSS | Two distinct instances with separate responsibilities:<br>**Hub-side PostgREST:** Exposes Hub Centralised DB. Receives inbound HTTPS writes from AgentGateway (`POST /resource-status`). **Auth: JWT only** — AgentGateway terminates Spoke Controller mTLS connections, issues short-lived JWTs, and forwards to PostgREST. RLS enforces strict per-spoke write scoping using tenant_id from JWT claims — a spoke can only write its own tenant rows. URL: `https://postgrest.hub.nutgrat.in/resource-status` (internal, behind AgentGateway).<br>**Spoke-side PostgREST (Pool):** Deployed in Spoke Pool clusters. Exposes the Hub's Control Plane Shared DB for operational business data. Receives synchronous direct writes from Spoke Pool Control Plane applications (user sessions, tenant config, provisioning state).<br>**Spoke-side PostgREST (Silo):** Deployed in Spoke Silo clusters. Exposes the local Tenant Control Plane DB — NOT the Hub's Control Plane Shared DB. The Silo is the source of truth for its own control plane data. Silo state syncs upstream to the Hub via NATS Leaf Node, not via direct DB connection. These instances are never merged and serve different databases. |
 | **IControlPlaneStore** | Go Interface Pattern | Abstract storage interface injected at deployment time. The same interface, two implementations, injected at spoke bootstrap — not two different code paths.<br>• **HubStore (Spoke Pool):** Direct PgSQL connection to Control Plane Shared DB on Hub. Synchronous writes.<br>• **LocalStore (Spoke Silo):** Writes to local Tenant Control Plane DB on the Silo (source of truth). NATS Leaf Node carries state upstream to Hub Event Router → Hub Control Plane Shared DB (eventual consistency). If Hub is unreachable, Silo operates fully independently — NATS buffers events until Hub reconnects. |
-| **Spoke Controller** | Go service, controller-runtime (Spoke) | Watches Crossplane `AINativeSaaS` claim conditions on the spoke. On condition change, derives platform status (provisioning/ready/failed/deleting) and writes directly to Hub Centralised DB via Hub-side PostgREST (`POST /resource-status`, Bearer JWT auth). Handles retry with exponential backoff natively via controller-runtime reconcile loop. Runs in both Spoke Pool and Spoke Silo clusters. Does NOT use NATS for status writes. Does NOT write to Control Plane Shared DB. |
+| **Spoke Controller** | Go service, controller-runtime (Spoke) | Watches Crossplane `AINativeSaaS` claim conditions on the spoke. On condition change, derives platform status (provisioning/ready/failed/deleting) and writes to Hub Centralised DB via **AgentGateway → Hub-side PostgREST** (`POST /resource-status`). Authentication flow: Spoke Controller connects to AgentGateway with **mTLS (SPIFFE/SPIRE)**, AgentGateway terminates mTLS, issues short-lived JWT representing the Spoke Controller, forwards request to PostgREST with JWT. Each Spoke Controller obtains unique SPIFFE identity (`spiffe://zero-ops.nutgraf.in/spoke-controller/{tenant-id}`). Handles retry with exponential backoff natively via controller-runtime reconcile loop. Runs in both Spoke Pool and Spoke Silo clusters. Does NOT use NATS for status writes. Does NOT write to Control Plane Shared DB. |
 | **Hub Centralised DB** | PostgreSQL | **Shape: normalized relational, OLTP workload.** Stores fleet state, cluster health, and resource status across all tenants. Written by: Spoke Controller (via Hub-side PostgREST) and Hub Event Router (NATS consumer). Read by: Platform Admin dashboards (fleet view) and Tenant Admin dashboards (resource status). Exposed via Hub-side PostgREST. |
 | **Control Plane Shared DB**| PostgreSQL | **Shape: normalized relational, OLTP workload.** Stores tenant config, provisioning state, user sessions. Written by: Spoke Pool applications (direct connection) and Spoke Silo applications (local writes synced via NATS). Read by: Tenant Admin dashboards and Spoke APIs. Exposed via Spoke-side PostgREST. |
 | **Ory Stack (Hub)** | Keto + Kratos + Hydra | Central identity management in the Hub. Keto handles relationship-based authorization. Kratos manages identity. Hydra issues OAuth2/OIDC tokens. Issues tokens for all tenants in the Spoke Pool. Accessed via auth-proxy only — never directly. |
@@ -514,7 +514,7 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 | **Composition B — Enterprise** | Crossplane `Composition` | Expands `AINativeSaaS` (`spec.tier: enterprise`) into full dedicated Spoke Silo cluster stack with localized Ory stack. Provisions in 10–15 minutes. |
 | **Platform Console** | Web UI (to be defined in UI spec) | Single RBAC-scoped console for all users. Read-only interface for: environment dashboard, cost estimates, agent conversation history, destructive op alerts, team roster, runbook library, Grafana links. All write actions via "Resolve in IDE" button generating deep links to MCP clients. |
 | **auth-proxy** | Go service layer | Interfaces with Ory stack (Hydra, Kratos, Keto) on behalf of AgentGateway. Exposes simplified API for JWT validation, user authentication, and permission checks. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local auth). AgentGateway never calls Ory directly — always via auth-proxy. |
-| **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Single JWT validation enforcement point via auth-proxy. Routes authenticated MCP calls to tool servers. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local routing). No per-tool-server auth logic needed. |
+| **AgentGateway** | CNCF open source (Rust) | A2A and MCP communications gateway. Handles two authentication flows:<br>**1. MCP calls (user-initiated):** Validates JWTs via auth-proxy, routes to mcp-server.<br>**2. Service-to-service (Spoke Controller):** Terminates mTLS (SPIFFE/SPIRE), issues short-lived JWT representing the service, forwards to PostgREST. Acts as mTLS-to-JWT translation layer for machine-to-machine communication. Deployed in Hub (for Spoke Pool) and in each Spoke Silo (for local routing). No per-tool-server auth logic needed. |
 | **mcp-server** | Go service (Hub) | Single backend MCP server exposing ALL platform tools (tenant_create, environment_create, environment_status, etc.). Uses internal/opensbt toolkit for business logic. Receives pre-authenticated requests from AgentGateway with X-Auth-* headers. NOT split into multiple services — one process handles all tools. |
 | **opensbt** | Go library (internal/) | SaaS Builder Toolkit providing reusable SaaS patterns (like @cdklabs/sbt-aws). Lives in internal/opensbt/ and is used by mcp-server. NOT a service itself — it's a library. Provides Control Plane and Application Plane constructs, interfaces (IAuth, IEventBus, IProvisioner), and provider implementations. |
 | **Crossplane** | Crossplane OSS, Hub cluster | Composition engine. Watches `AINativeSaaS` CRs and reconciles constituent resources. |
@@ -523,6 +523,7 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 | **AgentSandbox** | gVisor (`runsc`) persistent deployment, per-tenant | Sandboxed execution environment for agent workloads. CSI snapshot downloaded at pod startup for consistent state across executions. |
 | **Infisical + ESO** | Infisical server + External Secrets Operator | Secret management. Infisical stores encrypted secrets (AES-256-GCM). External Secrets Operator syncs secrets from Infisical to Kubernetes namespaces. Credentials never stored in Git. |
 | **Teleport** | Teleport cluster + agents | Privileged access management (PAM). Zero-trust access to clusters with session recording, just-in-time access, and audit logging. Integrates with Ory Kratos for SSO. |
+| **SPIFFE/SPIRE** | SPIRE Server (Hub) + SPIRE Agent (all clusters) | Zero-trust workload identity infrastructure. Issues short-lived X.509 certificates (SVIDs) for service-to-service mTLS authentication. Replaces static credentials with automatic certificate provisioning and rotation. Used by: Spoke Controller → Hub PostgREST, Grafana Alloy → Hub VictoriaMetrics. Default certificate TTL: 1 hour. |
 | **PgBouncer** | Bundled with CNPG via `spec.pooler` | Connection pooling for PostgreSQL. Prevents connection exhaustion under high concurrency. |
 | **pgvector** | CNPG `shared_preload_libraries: vector` | Vector similarity search extension. Enables agent memory storage and retrieval. Powers tenant AI features. |
 | **cnpg2monitor (v8.0)** | Promoted to `ClusterRole` (fleet-wide) | Monitors CNPG clusters in ALL tenant namespaces. Patches PodMonitors with topology labels. Emits lifecycle events to NATS. Prerequisite for AINativeSaaS template. |
@@ -600,19 +601,30 @@ Used for continuous, synchronous updates of resource provisioning status directl
    DeletionTimestamp set    → "deleting"
    No conditions yet        → "provisioning"
         │
-3. Spoke Controller executes HTTPS POST directly to Hub-side PostgREST:
-   `https://postgrest.hub.nutgrat.in/resource-status`
-   Header: `Authorization: Bearer <spoke-service-jwt>`
-   (JWT is a Hydra client_credentials token, scoped to this spoke's tenant_id,
-    provisioned during spoke bootstrap by Crossplane Composition)
+3. Spoke Controller executes HTTPS POST to Hub AgentGateway:
+   `https://agentgateway.hub.nutgraf.in/resource-status`
+   **Authentication: mTLS via SPIFFE/SPIRE**
+   - Spoke Controller obtains SVID from local SPIRE Agent
+   - SPIFFE identity: spiffe://zero-ops.nutgraf.in/spoke-controller/{tenant-id}
+   - Certificate automatically rotates (default: 1-hour TTL)
         │
-4. PostgREST enforces Row-Level Security:
-   spoke can only write rows where tenant_id = its own tenant_id.
+4. AgentGateway terminates mTLS connection:
+   - Validates SVID against SPIRE trust bundle
+   - Extracts tenant_id from SPIFFE identity path
+   - Issues short-lived JWT representing the Spoke Controller
+   - JWT claims include: tenant_id, service_identity, expiry (5 minutes)
         │
-5. Hub Centralised DB updated.
+5. AgentGateway forwards request to Hub-side PostgREST:
+   `POST https://postgrest.hub.nutgrat.in/resource-status`
+   Header: `Authorization: Bearer <short-lived-jwt>`
+        │
+6. PostgREST enforces Row-Level Security:
+   spoke can only write rows where tenant_id = JWT.tenant_id
+        │
+7. Hub Centralised DB updated.
    Tenant Admin dashboard and Platform Admin dashboard read from here.
         │
-6. On failure: controller-runtime requeues with exponential backoff.
+8. On failure: controller-runtime requeues with exponential backoff.
    No data loss — next successful reconcile writes the current state.
 ```
 

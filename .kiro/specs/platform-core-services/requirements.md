@@ -100,20 +100,24 @@ hub.platform.agent.infra_status
 
 ### FR-4: Hub PostgREST Configuration
 
-**Description:** Configure PostgREST for Hub Centralised DB access
+**Description:** Configure PostgREST for Hub Centralised DB access (internal service behind AgentGateway)
 
 **Requirements:**
 - Deploy PostgREST against Hub Centralised DB
-- Configure JWT authentication with Ory Hydra
-- Expose service at `postgrest.hub.nutgrat.in` (external) and internal cluster DNS
-- Enable RLS policies for tenant isolation
-- Support agent infrastructure status queries
+- Configure JWT-only authentication (receives JWTs from AgentGateway)
+- Expose internal service at `postgrest.zero-ops-system.svc.cluster.local:3000` (external access handled via AgentGateway at `agentgateway.hub.nutgraf.in`)
+- Enable RLS policies for tenant isolation (tenant_id from JWT claims)
+- Support agent infrastructure status writes from Spoke Controllers (via AgentGateway)
 - Configure proper CORS and security headers
 
 **Required Tables Exposed:**
 ```sql
-agent_infra_status  -- Read/Write for Spoke Controllers
+agent_infra_status  -- Write for Spoke Controllers (via AgentGateway), Read for dashboards
 ```
+
+**Authentication Flow:**
+- Spoke Controller → AgentGateway (mTLS/SPIFFE) → PostgREST (JWT)
+- AgentGateway terminates mTLS, issues short-lived JWT, forwards to PostgREST
 
 ### FR-5: OpenSearch Log Aggregation
 

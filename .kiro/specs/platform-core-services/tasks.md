@@ -59,7 +59,55 @@ This implementation provides Day 0 core platform services required for agent-cor
 - Confirm pg_notify trigger fires on status updates
 - Audit all manifests for hardcoded credentials
 
-**PAUSE: User must approve Phase 1 before proceeding to Phase 2**
+**PAUSE: User must approve Phase 1 before proceeding to Phase 1.5**
+
+---
+
+## Phase 1.5: SPIFFE/SPIRE Workload Identity (NEW)
+
+**Goal:** Deploy zero-trust workload identity infrastructure for service-to-service mTLS
+
+**Purpose:** SPIFFE/SPIRE provides automatic mTLS certificate provisioning for cross-cluster service-to-service authentication, replacing static credentials with short-lived, automatically-rotated certificates.
+
+### Tasks
+
+- [ ] 1.5.1 Deploy SPIRE Server (Hub Cluster)
+  - [ ] 1.5.1.1 Create `manifests/platform-core-services/spire/server-deployment.yaml`
+  - [ ] 1.5.1.2 Configure SPIRE Server with persistent storage for trust bundle
+  - [ ] 1.5.1.3 Set up SPIRE Server at `spire-server.zero-ops-system.svc.cluster.local:8081`
+  - [ ] 1.5.1.4 Configure node attestation (Kubernetes PSAT)
+
+- [ ] 1.5.2 Deploy SPIRE Agent (Hub Cluster)
+  - [ ] 1.5.2.1 Create `manifests/platform-core-services/spire/agent-daemonset.yaml`
+  - [ ] 1.5.2.2 Configure SPIRE Agent DaemonSet on all Hub nodes
+  - [ ] 1.5.2.3 Mount SPIRE Agent socket to workload pods
+  - [ ] 1.5.2.4 Configure workload attestation (Kubernetes)
+
+- [ ] 1.5.3 Configure SPIFFE Identities
+  - [ ] 1.5.3.1 Create registration entry for Spoke Controller: `spiffe://zero-ops.nutgraf.in/spoke-controller/{tenant-id}`
+  - [ ] 1.5.3.2 Create registration entry for Grafana Alloy: `spiffe://zero-ops.nutgraf.in/grafana-alloy/{tenant-id}`
+  - [ ] 1.5.3.3 Create registration entry for Hub AgentGateway: `spiffe://zero-ops.nutgraf.in/hub-agentgateway` (terminates Spoke Controller mTLS)
+  - [ ] 1.5.3.4 Create registration entry for Hub VictoriaMetrics: `spiffe://zero-ops.nutgraf.in/victoriametrics`
+
+- [ ] 1.5.4 Deploy SPIRE Agent (Spoke Clusters - via edge-catalog)
+  - [ ] 1.5.4.1 Add SPIRE Agent to `edge-catalog/spire-agent.yaml`
+  - [ ] 1.5.4.2 Configure federation with Hub SPIRE Server
+  - [ ] 1.5.4.3 Configure spoke workload attestation
+  - [ ] 1.5.4.4 Test cross-cluster trust bundle propagation
+
+- [ ] 1.5.5 Integration validation
+  - [ ] 1.5.5.1 Verify SPIRE Server issues SVIDs (X.509 certificates)
+  - [ ] 1.5.5.2 Test automatic certificate rotation (default: 1 hour TTL)
+  - [ ] 1.5.5.3 Verify spoke agents can federate with Hub SPIRE Server
+  - [ ] 1.5.5.4 Test workload identity attestation for sample service
+
+**Manual Testing Checkpoint:**
+- Verify SPIRE Server is healthy and issuing certificates
+- Test SPIRE Agent on Hub nodes can retrieve SVIDs
+- Verify spoke SPIRE Agents can federate with Hub
+- Confirm workload identities are correctly attested
+
+**PAUSE: User must approve Phase 1.5 before proceeding to Phase 2**
 
 ---
 
@@ -82,17 +130,26 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 2.2.4 Create `hub.platform.agent.deleted` subject
   - [x] 2.2.5 Create `hub.platform.agent.infra_status` subject (CRITICAL for status sync)
 
-- [x] 2.3 Service configuration
-  - [x] 2.3.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
-  - [x] 2.3.2 Configure health checks and monitoring
-  - [x] 2.3.3 Set up service accounts for client authentication
-  - [x] 2.3.4 Configure network policies for secure access
+- [ ] 2.3 Configure NATS Decentralized JWT Authentication (CRITICAL for Leaf Node security)
+  - [ ] 2.3.1 Generate NATS Operator key pair (nkey) for Hub JetStream cluster
+  - [ ] 2.3.2 Create NATS Account for each spoke (per-tenant isolation)
+  - [ ] 2.3.3 Generate User credentials (JWT + nkey) for each spoke Leaf Node
+  - [ ] 2.3.4 Configure Hub NATS to validate spoke JWTs
+  - [ ] 2.3.5 Store spoke NATS credentials in Infisical (per-spoke secrets)
+  - [ ] 2.3.6 Configure Leaf Node authentication in edge-catalog
+
+- [x] 2.4 Service configuration
+  - [x] 2.4.1 Expose NATS at `nats.zero-ops-system.svc.cluster.local:4222`
+  - [x] 2.4.2 Configure health checks and monitoring
+  - [x] 2.4.3 Set up service accounts for client authentication
+  - [x] 2.4.4 Configure network policies for secure access
 
 **Manual Testing Checkpoint:**
 - Test NATS connectivity from within cluster
 - Publish and subscribe to test subjects
 - Verify JetStream persistence across pod restarts
 - Test subject permissions and ACLs
+- Verify NATS JWT authentication for Leaf Nodes
 
 **PAUSE: User must approve Phase 2 before proceeding to Phase 3**
 
@@ -124,9 +181,9 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 - [ ] 3.4 Cross-cluster metrics ingestion (CRITICAL for spoke observability)
   - [x] 3.4.1 Expose VictoriaMetrics externally at `victoriametrics.hub.nutgraf.in`
-  - [ ] 3.4.2 Configure TLS and per-spoke basic authentication
-  - [ ] 3.4.3 Provision unique credentials per spoke during bootstrap
-  - [ ] 3.4.4 Test Grafana Alloy remote_write from spoke to Hub
+  - [ ] 3.4.2 Configure TLS and mTLS (SPIFFE) authentication for Grafana Alloy
+  - [ ] 3.4.3 Configure VictoriaMetrics to validate SPIFFE SVIDs
+  - [ ] 3.4.4 Test Grafana Alloy remote_write with mTLS from spoke to Hub
 
 **Manual Testing Checkpoint:**
 - Query metrics via PromQL API
@@ -196,23 +253,26 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [ ] 5.2.3 Configure JWT authentication with Ory Hydra
   - [ ] 5.2.4 Set up CORS and security headers
 
-- [ ] 5.3 Authentication integration
-  - [ ] 5.3.1 Configure JWT validation with Hydra public keys
-  - [ ] 5.3.2 Extract tenant context from JWT claims
-  - [ ] 5.3.3 Set up RLS context from JWT tenant_id
-  - [ ] 5.3.4 Configure OAuth2 client_credentials flow for spoke controllers
+- [ ] 5.3 Authentication integration (CORRECTED - Routes through AgentGateway)
+  - [ ] 5.3.1 Configure JWT-only authentication (PostgREST accepts ONLY JWTs from AgentGateway)
+  - [ ] 5.3.2 Configure JWT validation with Hydra public keys (JWKS endpoint)
+  - [ ] 5.3.3 Set up RLS context from JWT claims (tenant_id extraction)
+  - [ ] 5.3.4 Configure internal-only endpoint (PostgREST not exposed externally, only to AgentGateway)
+  - [ ] 5.3.5 Add AgentGateway configuration for mTLS termination and JWT issuance
+  - [ ] 5.3.6 Configure AgentGateway to route Spoke Controller requests to PostgREST
 
 - [ ] 5.4 API security and monitoring
-  - [ ] 5.4.1 Configure TLS termination and certificates
-  - [ ] 5.4.2 Set up rate limiting and request validation
+  - [ ] 5.4.1 Configure TLS termination at AgentGateway (not PostgREST)
+  - [ ] 5.4.2 Set up rate limiting and request validation at AgentGateway
   - [ ] 5.4.3 Add metrics and health endpoints
   - [ ] 5.4.4 Configure audit logging for API access
 
 **Manual Testing Checkpoint:**
-- Test authenticated API access with JWT tokens
-- Verify RLS policies filter data by tenant
-- Test spoke controller authentication flow
-- Confirm external ingress works with TLS
+- Test Spoke Controller → AgentGateway → PostgREST flow with mTLS
+- Verify AgentGateway issues short-lived JWTs correctly
+- Verify RLS policies filter data by tenant_id from JWT
+- Test AgentGateway mTLS termination and JWT translation
+- Confirm PostgREST only accepts requests from AgentGateway (internal routing)
 
 **PAUSE: User must approve Phase 5 before proceeding to Phase 6**
 
