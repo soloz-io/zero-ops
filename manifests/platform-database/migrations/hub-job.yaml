@@ -1,12 +1,14 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: hub-migrations-v3
+  name: hub-migrations
   namespace: zero-ops-system
   annotations:
     argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  ttlSecondsAfterFinished: 60
+  ttlSecondsAfterFinished: 300
   backoffLimit: 3
   template:
     spec:
@@ -34,9 +36,7 @@ spec:
         command:
           - sh
           - -c
-          - |
-            migrate -path=/migrations -database="${DATABASE_URL}" force 1 || true
-            migrate -path=/migrations -database="${DATABASE_URL}" up
+          - migrate -path=/migrations -database="${DATABASE_URL}" up
         volumeMounts:
         - name: migrations
           mountPath: /migrations
