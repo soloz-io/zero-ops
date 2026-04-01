@@ -4,5 +4,9 @@ archived
 bin
 docs
 memory
+operators
 secrets
 test
+manifests/crds/
+scripts
+internal/assets/
