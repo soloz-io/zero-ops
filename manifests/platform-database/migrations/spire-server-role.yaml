@@ -33,7 +33,7 @@ spec:
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE
-          value: "hub"
+          value: "postgres"
         - name: PGUSER
           valueFrom:
             secretKeyRef:
@@ -63,12 +63,12 @@ spec:
             psql -c "CREATE ROLE spire_server WITH LOGIN PASSWORD '${SPIRE_SERVER_PASSWORD}';"
 
           echo "Granting privileges on hub database..."
-          psql -c "GRANT CONNECT ON DATABASE hub TO spire_server;"
-          psql -c "GRANT USAGE ON SCHEMA public TO spire_server;"
-          psql -c "GRANT CREATE ON SCHEMA public TO spire_server;"
-          psql -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO spire_server;"
-          psql -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO spire_server;"
-          psql -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO spire_server;"
-          psql -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO spire_server;"
+          psql -d hub -c "GRANT CONNECT ON DATABASE hub TO spire_server;"
+          psql -d hub -c "GRANT USAGE ON SCHEMA public TO spire_server;"
+          psql -d hub -c "GRANT CREATE ON SCHEMA public TO spire_server;"
+          psql -d hub -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO spire_server;"
+          psql -d hub -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO spire_server;"
+          psql -d hub -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO spire_server;"
+          psql -d hub -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO spire_server;"
 
           echo "✓ SPIRE Server role setup complete"
