@@ -45,20 +45,26 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to install platform database credentials: %w", err)
 	}
 
-	// Step 2: Generate Infisical base cryptographic secrets
-	changed2, err := installer.InstallInfisicalSecrets(ctx)
+	// Step 2: Generate SPIRE Server database credentials
+	changed2, err := installer.InstallSPIREServerCredentials(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to install SPIRE Server credentials: %w", err)
+	}
+
+	// Step 3: Generate Infisical base cryptographic secrets
+	changed3, err := installer.InstallInfisicalSecrets(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to install infisical secrets: %w", err)
 	}
 
-	// Step 3: Create Infisical PostgreSQL connection secret
-	changed3, err := installer.InstallPostgresConnectionSecret(ctx)
+	// Step 4: Create Infisical PostgreSQL connection secret
+	changed4, err := installer.InstallPostgresConnectionSecret(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to install postgres connection secret: %w", err)
 	}
 
 	// Only trigger pod churn if a secret was actually created or modified
-	if changed1 || changed2 || changed3 {
+	if changed1 || changed2 || changed3 || changed4 {
 		if err := installer.RestartPlatformWorkloads(ctx); err != nil {
 			return fmt.Errorf("failed to restart workloads: %w", err)
 		}

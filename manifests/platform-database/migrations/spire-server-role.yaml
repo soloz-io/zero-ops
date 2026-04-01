@@ -8,10 +8,14 @@ metadata:
 data:
   1_spire_server_role.up.sql: |
     -- Create spire_server role for SPIRE Server database access
+    -- This migration is idempotent and safe to re-run
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'spire_server') THEN
         CREATE ROLE spire_server WITH LOGIN;
+        RAISE NOTICE 'Created role spire_server';
+      ELSE
+        RAISE NOTICE 'Role spire_server already exists';
       END IF;
     END
     $$;
@@ -75,11 +79,11 @@ spec:
           set -e
           echo "Setting up SPIRE Server database role..."
           
-          # Set password for spire_server role
-          psql -c "ALTER ROLE spire_server WITH PASSWORD '${SPIRE_SERVER_PASSWORD}';"
-          
-          # Run migration
+          # Run migration to create role (idempotent)
           migrate -path=/migrations -database "postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=${PGSSLMODE}" up
+          
+          # Set/update password for spire_server role (handles both create and rotation)
+          psql -c "ALTER ROLE spire_server WITH PASSWORD '${SPIRE_SERVER_PASSWORD}';"
           
           echo "SPIRE Server role setup complete"
         volumeMounts:

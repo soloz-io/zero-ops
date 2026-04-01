@@ -850,3 +850,68 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 	fmt.Println("[bootstrap-secrets] ✓ Workloads restarted successfully.")
 	return nil
 }
+
+// InstallSPIREServerCredentials generates secure credentials for SPIRE Server database access
+// and stores them in Infisical.
+//
+// This function:
+// 1. Generates cryptographically secure random password for spire_server role
+// 2. Stores username and password in Infisical via API
+// 3. ExternalSecrets Operator syncs them to K8s secret
+//
+// Updated Infisical secrets:
+// - spire-server-db-username
+// - spire-server-db-password
+//
+// IDEMPOTENCY: Checks if secrets exist in Infisical before creating.
+func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, error) {
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create Infisical API client
+	infisicalClient, err := infisical.NewClient(ctx, clientset)
+	if err != nil {
+		return false, fmt.Errorf("failed to create Infisical client: %w", err)
+	}
+
+	// Get Infisical configuration
+	infisicalConfig, err := infisical.GetInfisicalConfig(ctx, clientset)
+	if err != nil {
+		return false, fmt.Errorf("failed to get Infisical config: %w", err)
+	}
+
+	fmt.Println("[bootstrap-secrets] Generating SPIRE Server database credentials...")
+
+	secretPath := "/"
+	username := "spire_server"
+
+	// Generate secure password
+	password, err := generateSecurePassword(32)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate SPIRE Server password: %w", err)
+	}
+
+	// Store username and password in Infisical
+	secrets := map[string]string{
+		"spire-server-db-username": username,
+		"spire-server-db-password": password,
+	}
+
+	for key, value := range secrets {
+		if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, key, value); err != nil {
+			return false, fmt.Errorf("failed to store %s in Infisical: %w", key, err)
+		}
+	}
+
+	fmt.Println("[bootstrap-secrets] ✓ SPIRE Server credentials stored in Infisical")
+
+	return true, nil
+}
