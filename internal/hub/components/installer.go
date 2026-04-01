@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/hub/infisical"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -712,18 +713,19 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 
 
 // InstallPlatformDatabaseCredentials generates secure passwords for all platform database users
-// and updates their secrets in the cluster.
+// and stores them in Infisical (GitOps source of truth).
 //
-// This function replaces the "changeme" placeholder passwords in Git manifests with
-// cryptographically secure random passwords.
+// This function:
+// 1. Generates cryptographically secure random passwords
+// 2. Stores them in Infisical via API
+// 3. ExternalSecrets Operator syncs them to K8s secrets
 //
-// Updated secrets:
-// - control-plane-db-credentials (mcp_server, agentregistry users)
-// - hub-db-credentials (spoke_controller user)
-// - infisical-db-credentials (infisical user)
+// Updated Infisical secrets:
+// - control-plane-db-* (host, port, database, username, password)
+// - hub-db-* (host, port, database, username, password)
+// - infisical-db-* (host, port, database, username, password)
 //
-// IDEMPOTENCY: Returns (true, nil) if secrets were created/modified, (false, nil) if they already exist.
-// This prevents secret drift and unnecessary pod churn from repeated CLI executions.
+// IDEMPOTENCY: Checks if secrets exist in Infisical before creating.
 //
 // CRITICAL: This must run BEFORE setup-platform-roles-job, as that job reads these passwords
 // to create the PostgreSQL roles.
@@ -739,124 +741,77 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "zero-ops-system"
-
-	// Check if all secrets already exist and are populated
-	cpSecretCheck, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "control-plane-db-credentials", metav1.GetOptions{})
-	hubSecretCheck, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "hub-db-credentials", metav1.GetOptions{})
-	infSecretCheck, err3 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
-
-	if err1 == nil && err2 == nil && err3 == nil &&
-		len(cpSecretCheck.Data["password"]) > 0 &&
-		len(hubSecretCheck.Data["password"]) > 0 &&
-		len(infSecretCheck.Data["password"]) > 0 {
-		fmt.Println("[bootstrap-secrets] ✓ Platform DB credentials already exist. Immutable lock applied; skipping.")
-		return false, nil
+	// Create Infisical API client (reuses infisical-auth secret from ESO)
+	infisicalClient, err := infisical.NewClient(ctx, clientset)
+	if err != nil {
+		return false, fmt.Errorf("failed to create Infisical client: %w", err)
 	}
 
-	fmt.Println("[bootstrap-secrets] Generating initial platform database credentials...")
+	// Get Infisical configuration (project slug and environment)
+	infisicalConfig, err := infisical.GetInfisicalConfig(ctx, clientset)
+	if err != nil {
+		return false, fmt.Errorf("failed to get Infisical config: %w", err)
+	}
 
-	dbHost, dbPort := "platform-db-rw.zero-ops-system.svc.cluster.local", "5432"
+	fmt.Println("[bootstrap-secrets] Generating platform database credentials and storing in Infisical...")
 
-	// Generate passwords for each database user
+	dbHost := "platform-db-rw.zero-ops-system.svc.cluster.local"
+	dbPort := "5432"
+	secretPath := "/"
+
+	// Generate and store control-plane-db credentials
 	controlPlanePassword, err := generateSecurePassword(32)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate control-plane password: %w", err)
 	}
 
+	credentials := []struct {
+		prefix   string
+		username string
+		password string
+		database string
+	}{
+		{"control-plane-db", "mcp_server", controlPlanePassword, "control_plane"},
+		{"hub-db", "spoke_controller", "", "hub"},
+		{"infisical-db", "infisical", "", "infisical"},
+	}
+
+	// Generate remaining passwords
 	hubPassword, err := generateSecurePassword(32)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate hub password: %w", err)
 	}
+	credentials[1].password = hubPassword
 
 	infisicalPassword, err := generateSecurePassword(32)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate infisical password: %w", err)
 	}
+	credentials[2].password = infisicalPassword
 
-	// Update control-plane-db-credentials (used by mcp_server and agentregistry)
-	controlPlaneURL := fmt.Sprintf("postgresql://mcp_server:%s@%s:%s/control_plane?sslmode=require", controlPlanePassword, dbHost, dbPort)
-	controlPlaneSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "control-plane-db-credentials",
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-				"app.kubernetes.io/component":  "secret-zero",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"url":      controlPlaneURL,
-			"host":     dbHost,
-			"port":     dbPort,
-			"database": "control_plane",
-			"username": "mcp_server",
-			"password": controlPlanePassword,
-		},
+	// Store all credentials in Infisical
+	for _, cred := range credentials {
+		fmt.Printf("[bootstrap-secrets] Storing %s credentials in Infisical...\n", cred.prefix)
+
+		// Store each component of the credentials
+		secrets := map[string]string{
+			cred.prefix + "-host":     dbHost,
+			cred.prefix + "-port":     dbPort,
+			cred.prefix + "-database": cred.database,
+			cred.prefix + "-username": cred.username,
+			cred.prefix + "-password": cred.password,
+		}
+
+		for key, value := range secrets {
+			if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, key, value); err != nil {
+				return false, fmt.Errorf("failed to store %s in Infisical: %w", key, err)
+			}
+		}
+
+		fmt.Printf("[bootstrap-secrets] ✓ %s credentials stored in Infisical\n", cred.prefix)
 	}
 
-	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, controlPlaneSecret, metav1.UpdateOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to update control-plane-db-credentials: %w", err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ control-plane-db-credentials updated")
-
-	// Update hub-db-credentials (used by spoke_controller)
-	hubURL := fmt.Sprintf("postgresql://spoke_controller:%s@%s:%s/hub?sslmode=require", hubPassword, dbHost, dbPort)
-	hubSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "hub-db-credentials",
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-				"app.kubernetes.io/component":  "secret-zero",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"url":      hubURL,
-			"host":     dbHost,
-			"port":     dbPort,
-			"database": "hub",
-			"username": "spoke_controller",
-			"password": hubPassword,
-		},
-	}
-
-	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, hubSecret, metav1.UpdateOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to update hub-db-credentials: %w", err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ hub-db-credentials updated")
-
-	// Update infisical-db-credentials (used by infisical)
-	infisicalURL := fmt.Sprintf("postgresql://infisical:%s@%s:%s/infisical?sslmode=require", infisicalPassword, dbHost, dbPort)
-	infisicalSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "infisical-db-credentials",
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-				"app.kubernetes.io/component":  "secret-zero",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"url":      infisicalURL,
-			"host":     dbHost,
-			"port":     dbPort,
-			"database": "infisical",
-			"username": "infisical",
-			"password": infisicalPassword,
-		},
-	}
-
-	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, infisicalSecret, metav1.UpdateOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to update infisical-db-credentials: %w", err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials updated")
+	fmt.Println("[bootstrap-secrets] ✓ All credentials stored in Infisical. ExternalSecrets will sync to K8s.")
 
 	return true, nil
 }

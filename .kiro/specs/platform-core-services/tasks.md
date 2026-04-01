@@ -28,7 +28,7 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 1.1.3 Configure RLS policies for tenant isolation
   - [x] 1.1.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
   - [x] 1.1.5 **SECURITY:** Create Kubernetes Job to create `agentregistry_user` role using `secretKeyRef` pattern
-  - [x] 1.1.6 Create `ExternalSecret` manifest to sync `control-plane-db-credentials` from Infisical ClusterSecretStore
+  - [x] 1.1.6 Create `ExternalSecret` manifest to sync ONLY `username` and `password` for `agentregistry-db-credentials` from Infisical. Construct connection strings in deployment ENV vars using K8s DNS.
 
 - [x] 1.2 Extend Hub Centralised DB
   - [x] 1.2.1 Add `agent_infra_status` table to existing `hub` database
@@ -36,7 +36,7 @@ This implementation provides Day 0 core platform services required for agent-cor
   - [x] 1.2.3 Configure RLS policies for cross-cluster access
   - [x] 1.2.4 **SECURITY:** Generate secure credentials via Infisical (NO hardcoded passwords)
   - [x] 1.2.5 **SECURITY:** Create Kubernetes Job to create `hub_postgrest_user` role using `secretKeyRef` pattern
-  - [x] 1.2.6 Create `ExternalSecret` manifest to sync `hub-db-credentials` from Infisical ClusterSecretStore
+  - [x] 1.2.6 Create `ExternalSecret` manifest to sync ONLY `username` and `password` for `hub-db-credentials` from Infisical. Construct connection strings in deployment ENV vars using K8s DNS.
 
 - [x] 1.3 Database connection validation
   - [x] 1.3.1 Verify `control-plane-db-credentials` routes to `control_plane` database
@@ -61,20 +61,20 @@ All platform infrastructure secrets MUST be synced from Infisical via External S
 4. ESO creates K8s secret automatically
 5. Platform service mounts secret via `secretKeyRef`
 
-**Example ExternalSecret:**
+**Example ExternalSecret (CORRECTED - Secrets Only, No Config):**
 ```yaml
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: control-plane-db-credentials
-  namespace: zero-ops-system
+  namespace: platform-agentregistry
 spec:
   refreshInterval: 1h
   secretStoreRef:
     name: infisical-backend
     kind: ClusterSecretStore
   target:
-    name: control-plane-db-credentials
+    name: agentregistry-db-credentials
     creationPolicy: Owner
   data:
     - secretKey: username
@@ -86,6 +86,12 @@ spec:
         key: control-plane-db-credentials
         property: password
 ```
+
+**CRITICAL: Decouple Secrets from Configuration**
+- Infisical stores ONLY `username` and `password` (sensitive material)
+- Host, port, database name are plain-text ENV vars using K8s DNS
+- Connection strings constructed in deployment manifests, NOT stored in Infisical
+- NEVER store full connection URIs (`postgres://user:pass@host:port/db`) in secrets
 
 **Manual Testing Checkpoint:**
 - Connect to both databases using respective credentials
@@ -182,6 +188,12 @@ Before executing task 2.3.7 (syncing NATS credentials to spoke clusters), verify
 - Each spoke has a `ClusterSecretStore` configured pointing to central Infisical API
 - This is typically handled by edge-catalog bootstrapping
 - Without ESO on spoke, `ExternalSecret` manifests will fail to sync
+
+**CRITICAL ARCHITECTURE RULE: No Direct Spoke-to-DB Connections**
+
+Spoke clusters DO NOT receive database credentials. A Spoke cluster must NEVER attempt a direct TCP connection to Hub PostgreSQL. All Spoke-to-Hub operational state updates MUST route through:
+
+`Spoke Controller` → `mTLS` → `AgentGateway` → `JWT` → `PostgREST API` → `Hub DB`
 
 **NATS Authentication Architecture Clarification:**
 

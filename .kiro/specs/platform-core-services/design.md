@@ -59,11 +59,24 @@ This design implements the Day 0 core platform services required for agent-core 
 ```yaml
 # manifests/platform-agentregistry/deployment.yaml
 env:
-- name: DATABASE_URL
+# --- K8s Native Service Discovery (Config) ---
+- name: DB_HOST
+  value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+- name: DB_PORT
+  value: "5432"
+- name: DB_NAME
+  value: "control_plane"
+# --- Actual Secrets (from Infisical via ESO) ---
+- name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: control-plane-db-credentials  # CRITICAL: Control Plane DB
-      key: url
+      name: agentregistry-db-credentials
+      key: username
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: agentregistry-db-credentials
+      key: password
 ```
 
 **Key Requirements:**
@@ -179,11 +192,27 @@ Spoke clusters connect to Hub NATS via **NATS Decentralized JWT Authentication**
 ```yaml
 # manifests/hub-postgrest/deployment.yaml
 env:
-- name: PGRST_DB_URI
+# --- K8s Native Service Discovery (Config) ---
+- name: DB_HOST
+  value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+- name: DB_PORT
+  value: "5432"
+- name: DB_NAME
+  value: "hub"
+# --- Actual Secrets (from Infisical via ESO) ---
+- name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: hub-db-credentials  # CRITICAL: Hub Centralised DB
-      key: url
+      name: hub-db-credentials
+      key: username
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: hub-db-credentials
+      key: password
+# --- Constructed Connection URI ---
+- name: PGRST_DB_URI
+  value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
 ```
 
 **Key Requirements:**
@@ -490,9 +519,10 @@ The spec uses TWO distinct secret flow patterns depending on the origin of the c
 1. **Static Infrastructure Secrets (Pull Pattern):**
    - **Origin:** Infisical (manually created by Platform Admin)
    - **Flow:** Infisical → ESO ExternalSecret → K8s Secret → Platform service mounts
-   - **Examples:** `control-plane-db-credentials`, `hub-db-credentials`, `victoriametrics-spoke-writer`, `agentgateway-hydra-credentials`
+   - **Examples:** `agentregistry-db-credentials` (username/password only), `hub-db-credentials` (username/password only), `agentgateway-hydra-credentials`
    - **Use Case:** Day 0 platform infrastructure that requires pre-provisioned credentials
    - **Why Pull?** Platform Admin creates credentials in Infisical first, then ESO syncs them to K8s for OSS services to consume
+   - **CRITICAL:** Secrets contain ONLY sensitive material (username, password). Configuration (host, port, database) uses K8s DNS and plain-text ENV vars.
 
 2. **Dynamic Tenant Secrets (Push Pattern):**
    - **Origin:** Crossplane/CNPG (auto-generated passwords)
@@ -511,13 +541,15 @@ The spec uses TWO distinct secret flow patterns depending on the origin of the c
 - AgentRegistry schema and tables
 - Identity services (Ory stack) data
 - Tenant management data
-- Connection: `control-plane-db-credentials` secret
+- Connection: `agentregistry-db-credentials` secret (username/password only)
+- Host: `platform-db-rw.zero-ops-system.svc.cluster.local` (K8s DNS)
 
 **Hub Centralised DB (`hub` database):**
 - `agent_infra_status` table for status synchronization
 - Cross-cluster status aggregation
 - PostgREST API exposure
-- Connection: `hub-db-credentials` secret
+- Connection: `hub-db-credentials` secret (username/password only)
+- Host: `platform-db-rw.zero-ops-system.svc.cluster.local` (K8s DNS)
 
 ### 3.2 Secure Credential Management (CRITICAL)
 
@@ -529,6 +561,10 @@ All database credentials MUST follow the secure pattern established in `manifest
 2. **Role Creation Job:** Kubernetes Job reads secrets via `secretKeyRef` and creates database roles
 3. **No Hardcoded Passwords:** NEVER use hardcoded passwords in CNPG `postInitSQL` or manifests
 
+**RULE: Decouple Secrets from Configuration**
+
+Infisical and K8s Secrets MUST ONLY contain sensitive material (`username`, `password`). Non-sensitive topology data (`host`, `port`, `database`) MUST be handled via K8s ConfigMaps, native DNS (`.svc.cluster.local`), or plain-text environment variables. NEVER store full connection URIs in Infisical.
+
 **Example (Correct Pattern):**
 ```yaml
 # Step 1: Generate secure credentials (via Infisical or bootstrap)
@@ -539,8 +575,8 @@ metadata:
   namespace: platform-agentregistry
 type: Opaque
 data:
+  username: <base64-encoded-username>
   password: <base64-encoded-secure-password>  # Generated, NOT hardcoded
-  url: <base64-encoded-connection-string>
 
 ---
 # Step 2: Create database roles via Job (NOT postInitSQL)
@@ -596,20 +632,44 @@ bootstrap:
 ```yaml
 # AgentRegistry deployment
 env:
-- name: DATABASE_URL
+- name: DB_HOST
+  value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+- name: DB_PORT
+  value: "5432"
+- name: DB_NAME
+  value: "control_plane"
+- name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: control-plane-db-credentials  # → control_plane database
-      key: url
+      name: agentregistry-db-credentials
+      key: username
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: agentregistry-db-credentials
+      key: password
 
 ---
 # Hub PostgREST deployment  
 env:
-- name: PGRST_DB_URI
+- name: DB_HOST
+  value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+- name: DB_PORT
+  value: "5432"
+- name: DB_NAME
+  value: "hub"
+- name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: hub-db-credentials  # → hub database
-      key: url
+      name: hub-db-credentials
+      key: username
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: hub-db-credentials
+      key: password
+- name: PGRST_DB_URI
+  value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
 ```
 
 ## 4. Status Synchronization Architecture (CORRECTED)
@@ -633,6 +693,14 @@ AgentRegistry API
     ↓ UPDATE deployments table
 Control Plane Shared DB
 ```
+
+**CRITICAL ARCHITECTURE RULE: No Direct Spoke-to-DB Connections**
+
+Spoke clusters DO NOT receive database credentials. A Spoke cluster must NEVER attempt a direct TCP connection to Hub PostgreSQL. All Spoke-to-Hub operational state updates MUST route through:
+
+`Spoke Controller` → `mTLS` → `AgentGateway` → `JWT` → `PostgREST API` → `Hub DB`
+
+This enforces the API-driven abstraction layer and prevents spoke clusters from bypassing the security boundary.
 
 ### 4.2 NATS Status Subscriber (CORRECTED)
 
