@@ -43,8 +43,11 @@ data:
       Notifier "k8sbundle" {
         plugin_data {
           namespace = "spire-system"
+          config_map = "spire-bundle"
+          config_map_key = "bundle.crt"
         }
       }
+
     }
 
     health_checks {
