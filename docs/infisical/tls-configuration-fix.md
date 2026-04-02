@@ -47,13 +47,20 @@ This implements end-to-end encryption across all hops, following zero-trust netw
 - Points to pooler endpoint: `platform-db-pooler.zero-ops-system.svc`
 - Enforces consistent TLS configuration across all connection parameters
 
-### 3. Helm Chart Configuration
+### 3. PgBouncer Authentication Configuration
+**File:** `manifests/platform-database/platform-db-pooler.yaml`
+- Added `authQuery: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"`
+- Enables PgBouncer to authenticate users via PostgreSQL's pg_shadow
+- CNPG automatically creates `user_search` function when pooler with authQuery is deployed
+- Fixes "bouncer config error" by enabling proper authentication mechanism
+
+### 4. Helm Chart Configuration
 **File:** `manifests/platform-infisical/values.yaml`
 - Uses `envFrom` to inject `infisical-secrets`
 - Uses `extraEnv` for individual DB connection params from `infisical-postgres-connection`
 - Added comments explaining TLS configuration strategy
 
-### 4. CLI Command Reordering
+### 5. CLI Command Reordering
 **File:** `cmd/hub/init_secrets.go`
 - Reordered to fix circular dependency:
   1. Generate Infisical's own secrets first (no Infisical API needed)
@@ -83,6 +90,7 @@ Enforces TLS everywhere with consistent configuration:
 
 ## Related Issues
 - Missing `cnpg_pooler_pgbouncer` role (fixed)
+- Missing PgBouncer authQuery configuration (fixed)
 - TLS configuration drift from March 30 pooler migration
 - Previous workarounds with `NODE_TLS_REJECT_UNAUTHORIZED` (reverted)
 
