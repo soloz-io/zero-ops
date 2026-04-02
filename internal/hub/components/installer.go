@@ -544,22 +544,22 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 	redisPassword := hex.EncodeToString(redisBytes)[:32]
 	redisURL := fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword)
 
-	// Extract CNPG CA certificate for DB_ROOT_CERT
-	cnpgCASecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to read platform-db-ca secret (ensure CNPG cluster is ready): %w", err)
-	}
-
-	caCert := cnpgCASecret.Data["ca.crt"]
-	if len(caCert) == 0 {
-		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
-	}
-
-	// Base64 encode the CA certificate for Infisical's DB_ROOT_CERT env var
-	caCertBase64 := base64.StdEncoding.EncodeToString(caCert)
+	// TLS Configuration Strategy:
+	// When using PgBouncer pooler, client→pooler connections do NOT use TLS.
+	// This is explicit and intentional per docs/infisical/database-connection-pooling.md
+	//
+	// CRITICAL: DB_ROOT_CERT presence in Infisical implicitly enables SSL regardless of DB_SSL_MODE.
+	// To maintain configuration consistency, we MUST NOT include DB_ROOT_CERT when TLS is disabled.
+	//
+	// Architecture: Client→Pooler (no TLS) → Pooler→PostgreSQL (TLS handled by CNPG)
+	//
+	// For direct PostgreSQL connections (future), this would change to:
+	//   - Include DB_ROOT_CERT
+	//   - Set DB_SSL_MODE=verify-full or require
+	//   - Enable end-to-end TLS
 
 	// Create the master infisical-secrets secret with ALL dynamic values
-	// This secret is consumed via envFrom in the Helm chart, bypassing extraEnv bugs
+	// This secret is consumed via envFrom in the Helm chart
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-secrets",
@@ -574,7 +574,8 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 			"ENCRYPTION_KEY": encryptionKey,
 			"AUTH_SECRET":    authSecret,
 			"REDIS_URL":      redisURL,
-			"DB_ROOT_CERT":   caCertBase64,
+			// DB_ROOT_CERT intentionally excluded - TLS disabled for pooler architecture
+			// If enabling TLS: add DB_ROOT_CERT here AND change DB_SSL_MODE to "verify-full"
 		},
 	}
 
@@ -586,9 +587,9 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to create or update infisical-secrets: %w", err)
 		}
-		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets updated (with REDIS_URL and DB_ROOT_CERT)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets updated (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL)")
 	} else {
-		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets created (with REDIS_URL and DB_ROOT_CERT)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets created (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL)")
 	}
 
 	// Create Redis credentials secret (for standalone Redis pod only)
@@ -625,20 +626,26 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 // This is called during bootstrap BEFORE ArgoCD syncs Infisical.
 // CRITICAL: This secret enables Infisical to connect to CNPG, NEVER store in Git.
 //
-// NOTE: This method provides individual DB parameters (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
-// instead of a connection string. This allows Infisical's Knex to properly use DB_ROOT_CERT for SSL.
+// TLS Configuration:
+// - DB_SSL_MODE=disable: Explicit TLS disable for pooler architecture
+// - DB_ROOT_CERT: MUST NOT be present when TLS is disabled (its presence forces SSL in Infisical)
+//
+// This enforces mutually exclusive TLS configuration:
+//   TLS Disabled: DB_SSL_MODE=disable, no DB_ROOT_CERT
+//   TLS Enabled:  DB_SSL_MODE=verify-full, DB_ROOT_CERT present
+//
+// Current Architecture: Client→Pooler (no TLS) → Pooler→PostgreSQL (TLS via CNPG)
+// See: docs/infisical/database-connection-pooling.md
 //
 // IDEMPOTENCY: Returns (true, nil) if secret was created/modified, (false, nil) if it already exists.
-// This prevents secret drift and unnecessary pod churn from repeated CLI executions.
 //
 // Production Workflow:
 // 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
 // 2. Developer runs: hub init-secrets
 // 3. This method reads the password from infisical-db-credentials
-// 4. Extracts CNPG CA certificate from platform-db-ca secret
-// 5. Creates infisical-postgres-connection with individual DB params + CA cert
-// 6. ArgoCD syncs Infisical Helm chart (wave 3)
-// 7. Infisical pods connect to CNPG using SSL with DB_ROOT_CERT validation
+// 4. Creates infisical-postgres-connection with individual DB params
+// 5. ArgoCD syncs Infisical Helm chart (wave 3)
+// 6. Infisical pods connect to pooler without TLS
 func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)

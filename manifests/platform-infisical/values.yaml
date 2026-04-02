@@ -11,9 +11,13 @@ infisical:
     repository: infisical/infisical
     tag: "v0.158.0"
 
-  # All dynamic secrets are injected via envFrom and extraEnv
-  # - infisical-secrets: ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT (via kubeSecretRef)
-  # - infisical-postgres-connection: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (via extraEnv)
+  # TLS Configuration: Mutually exclusive and explicit
+  # - When TLS disabled (pooler): DB_SSL_MODE=disable, no DB_ROOT_CERT
+  # - When TLS enabled (direct): DB_SSL_MODE=verify-full, DB_ROOT_CERT present
+  #
+  # Secrets injected:
+  # - infisical-secrets (envFrom): ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL
+  # - infisical-postgres-connection (extraEnv): DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_MODE
   extraEnv:
   - name: DB_HOST
     valueFrom:
@@ -45,8 +49,10 @@ infisical:
       secretKeyRef:
         name: infisical-postgres-connection
         key: DB_SSL_MODE
-  - name: NODE_TLS_REJECT_UNAUTHORIZED
-    value: "0"
+
+  envFrom:
+  - secretRef:
+      name: infisical-secrets
 
   podAnnotations:
     # Force pod restart to pick up updated secrets
