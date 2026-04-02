@@ -25,41 +25,216 @@ import (
 
 // HubEnvironmentSpec defines the desired state of HubEnvironment
 type HubEnvironmentSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// Domain is the base domain for the Hub cluster (e.g., nutgraf.in)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Domain string `json:"domain"`
 
-	// foo is an example field of HubEnvironment. Edit hubenvironment_types.go to remove/update
+	// TLS configuration for the Hub cluster
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	TLS *TLSConfig `json:"tls,omitempty"`
+
+	// Observability configuration for metrics and monitoring
+	// +optional
+	Observability *ObservabilityConfig `json:"observability,omitempty"`
+
+	// Database configuration for CNPG cluster and roles
+	// +kubebuilder:validation:Required
+	Database DatabaseConfig `json:"database"`
+
+	// NATS configuration for JetStream streams
+	// +optional
+	NATS *NATSConfig `json:"nats,omitempty"`
+
+	// OAuth configuration for Hydra clients
+	// +optional
+	OAuth *OAuthConfig `json:"oauth,omitempty"`
+
+	// Secrets configuration for Infisical backup
+	// +optional
+	Secrets *SecretsConfig `json:"secrets,omitempty"`
+}
+
+// TLSConfig defines TLS certificate configuration
+type TLSConfig struct {
+	// Issuer is the cert-manager ClusterIssuer name
+	// +kubebuilder:validation:Required
+	Issuer string `json:"issuer"`
+
+	// Email for Let's Encrypt notifications
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Format=email
+	Email string `json:"email"`
+}
+
+// ObservabilityConfig defines observability settings
+type ObservabilityConfig struct {
+	// VictoriaMetrics configuration
+	// +optional
+	VictoriaMetrics *VictoriaMetricsConfig `json:"victoriaMetrics,omitempty"`
+
+	// GrafanaAlloy configuration
+	// +optional
+	GrafanaAlloy *GrafanaAlloyConfig `json:"grafanaAlloy,omitempty"`
+}
+
+// VictoriaMetricsConfig defines VictoriaMetrics settings
+type VictoriaMetricsConfig struct {
+	// RetentionPeriod for metrics storage (e.g., "30d", "90d")
+	// +kubebuilder:default="30d"
+	// +optional
+	RetentionPeriod string `json:"retentionPeriod,omitempty"`
+}
+
+// GrafanaAlloyConfig defines Grafana Alloy settings
+type GrafanaAlloyConfig struct {
+	// ScrapeInterval for metrics collection (e.g., "30s", "15s")
+	// +kubebuilder:default="30s"
+	// +optional
+	ScrapeInterval string `json:"scrapeInterval,omitempty"`
+}
+
+// DatabaseConfig defines CNPG cluster and role configuration
+type DatabaseConfig struct {
+	// ClusterRef is the name of the CNPG Cluster (e.g., platform-db)
+	// +kubebuilder:validation:Required
+	ClusterRef string `json:"clusterRef"`
+
+	// Namespace of the CNPG Cluster
+	// +kubebuilder:validation:Required
+	Namespace string `json:"namespace"`
+
+	// Roles to be created in the database
+	// +optional
+	Roles []DatabaseRole `json:"roles,omitempty"`
+}
+
+// DatabaseRole defines a database role specification
+type DatabaseRole struct {
+	// Name of the database role
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z_][a-z0-9_]*$`
+	Name string `json:"name"`
+
+	// Database name where the role has permissions
+	// +kubebuilder:validation:Required
+	Database string `json:"database"`
+
+	// Permissions granted to the role (e.g., SELECT, INSERT, UPDATE, DELETE)
+	// +optional
+	Permissions []string `json:"permissions,omitempty"`
+}
+
+// NATSConfig defines NATS JetStream configuration
+type NATSConfig struct {
+	// Streams to be created in NATS JetStream
+	// +optional
+	Streams []NATSStream `json:"streams,omitempty"`
+}
+
+// NATSStream defines a NATS JetStream stream specification
+type NATSStream struct {
+	// Name of the stream
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Subjects that the stream listens to
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Subjects []string `json:"subjects"`
+
+	// Retention policy for the stream
+	// +kubebuilder:validation:Enum=limits;interest;workqueue
+	// +kubebuilder:default="limits"
+	// +optional
+	Retention string `json:"retention,omitempty"`
+
+	// Storage type for the stream
+	// +kubebuilder:validation:Enum=file;memory
+	// +kubebuilder:default="file"
+	// +optional
+	Storage string `json:"storage,omitempty"`
+}
+
+// OAuthConfig defines OAuth client configuration
+type OAuthConfig struct {
+	// Clients to be registered with Hydra
+	// +optional
+	Clients []OAuthClient `json:"clients,omitempty"`
+}
+
+// OAuthClient defines an OAuth client specification
+type OAuthClient struct {
+	// ClientID is the unique identifier for the OAuth client
+	// +kubebuilder:validation:Required
+	ClientID string `json:"clientId"`
+
+	// ClientName is the human-readable name for the OAuth client
+	// +kubebuilder:validation:Required
+	ClientName string `json:"clientName"`
+
+	// RedirectURIs are the allowed redirect URIs for the client
+	// +optional
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+
+	// GrantTypes are the allowed OAuth grant types
+	// +optional
+	GrantTypes []string `json:"grantTypes,omitempty"`
+
+	// ResponseTypes are the allowed OAuth response types
+	// +optional
+	ResponseTypes []string `json:"responseTypes,omitempty"`
+}
+
+// SecretsConfig defines secret management configuration
+type SecretsConfig struct {
+	// Infisical configuration for secret backup
+	// +optional
+	Infisical *InfisicalConfig `json:"infisical,omitempty"`
+}
+
+// InfisicalConfig defines Infisical project configuration
+type InfisicalConfig struct {
+	// ProjectSlug is the Infisical project identifier
+	// +kubebuilder:default="platform"
+	// +optional
+	ProjectSlug string `json:"projectSlug,omitempty"`
+
+	// EnvironmentSlug is the Infisical environment identifier
+	// +kubebuilder:default="prod"
+	// +optional
+	EnvironmentSlug string `json:"environmentSlug,omitempty"`
 }
 
 // HubEnvironmentStatus defines the observed state of HubEnvironment.
 type HubEnvironmentStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the HubEnvironment resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// Conditions represent the current state of the HubEnvironment resource.
+	// Standard condition types:
+	// - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
+	// - MigrationsComplete: Database migrations have been executed
+	// - DatabaseRolesConfigured: Database roles have been created
+	// - SecretsBackedUp: Secrets have been uploaded to Infisical
+	// - OAuthClientsRegistered: OAuth clients have been registered with Hydra
+	// - NATSStreamsConfigured: NATS JetStream streams have been created
+	// - Ready: All phases complete successfully
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration reflects the generation of the most recently observed HubEnvironment
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// UploadedSecrets tracks which secrets have been uploaded to Infisical
+	// This prevents re-uploading secrets that already exist
+	// +optional
+	UploadedSecrets []string `json:"uploadedSecrets,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 
 // HubEnvironment is the Schema for the hubenvironments API
 type HubEnvironment struct {

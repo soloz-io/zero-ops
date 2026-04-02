@@ -12,7 +12,7 @@ spec:
     listKind: HubEnvironmentList
     plural: hubenvironments
     singular: hubenvironment
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
@@ -39,25 +39,196 @@ spec:
           spec:
             description: spec defines the desired state of HubEnvironment
             properties:
-              foo:
-                description: foo is an example field of HubEnvironment. Edit hubenvironment_types.go
-                  to remove/update
+              database:
+                description: Database configuration for CNPG cluster and roles
+                properties:
+                  clusterRef:
+                    description: ClusterRef is the name of the CNPG Cluster (e.g.,
+                      platform-db)
+                    type: string
+                  namespace:
+                    description: Namespace of the CNPG Cluster
+                    type: string
+                  roles:
+                    description: Roles to be created in the database
+                    items:
+                      description: DatabaseRole defines a database role specification
+                      properties:
+                        database:
+                          description: Database name where the role has permissions
+                          type: string
+                        name:
+                          description: Name of the database role
+                          pattern: ^[a-z_][a-z0-9_]*$
+                          type: string
+                        permissions:
+                          description: Permissions granted to the role (e.g., SELECT,
+                            INSERT, UPDATE, DELETE)
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - database
+                      - name
+                      type: object
+                    type: array
+                required:
+                - clusterRef
+                - namespace
+                type: object
+              domain:
+                description: Domain is the base domain for the Hub cluster (e.g.,
+                  nutgraf.in)
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              nats:
+                description: NATS configuration for JetStream streams
+                properties:
+                  streams:
+                    description: Streams to be created in NATS JetStream
+                    items:
+                      description: NATSStream defines a NATS JetStream stream specification
+                      properties:
+                        name:
+                          description: Name of the stream
+                          type: string
+                        retention:
+                          default: limits
+                          description: Retention policy for the stream
+                          enum:
+                          - limits
+                          - interest
+                          - workqueue
+                          type: string
+                        storage:
+                          default: file
+                          description: Storage type for the stream
+                          enum:
+                          - file
+                          - memory
+                          type: string
+                        subjects:
+                          description: Subjects that the stream listens to
+                          items:
+                            type: string
+                          minItems: 1
+                          type: array
+                      required:
+                      - name
+                      - subjects
+                      type: object
+                    type: array
+                type: object
+              oauth:
+                description: OAuth configuration for Hydra clients
+                properties:
+                  clients:
+                    description: Clients to be registered with Hydra
+                    items:
+                      description: OAuthClient defines an OAuth client specification
+                      properties:
+                        clientId:
+                          description: ClientID is the unique identifier for the OAuth
+                            client
+                          type: string
+                        clientName:
+                          description: ClientName is the human-readable name for the
+                            OAuth client
+                          type: string
+                        grantTypes:
+                          description: GrantTypes are the allowed OAuth grant types
+                          items:
+                            type: string
+                          type: array
+                        redirectUris:
+                          description: RedirectURIs are the allowed redirect URIs
+                            for the client
+                          items:
+                            type: string
+                          type: array
+                        responseTypes:
+                          description: ResponseTypes are the allowed OAuth response
+                            types
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - clientId
+                      - clientName
+                      type: object
+                    type: array
+                type: object
+              observability:
+                description: Observability configuration for metrics and monitoring
+                properties:
+                  grafanaAlloy:
+                    description: GrafanaAlloy configuration
+                    properties:
+                      scrapeInterval:
+                        default: 30s
+                        description: ScrapeInterval for metrics collection (e.g.,
+                          "30s", "15s")
+                        type: string
+                    type: object
+                  victoriaMetrics:
+                    description: VictoriaMetrics configuration
+                    properties:
+                      retentionPeriod:
+                        default: 30d
+                        description: RetentionPeriod for metrics storage (e.g., "30d",
+                          "90d")
+                        type: string
+                    type: object
+                type: object
+              secrets:
+                description: Secrets configuration for Infisical backup
+                properties:
+                  infisical:
+                    description: Infisical configuration for secret backup
+                    properties:
+                      environmentSlug:
+                        default: prod
+                        description: EnvironmentSlug is the Infisical environment
+                          identifier
+                        type: string
+                      projectSlug:
+                        default: platform
+                        description: ProjectSlug is the Infisical project identifier
+                        type: string
+                    type: object
+                type: object
+              tls:
+                description: TLS configuration for the Hub cluster
+                properties:
+                  email:
+                    description: Email for Let's Encrypt notifications
+                    format: email
+                    type: string
+                  issuer:
+                    description: Issuer is the cert-manager ClusterIssuer name
+                    type: string
+                required:
+                - email
+                - issuer
+                type: object
+            required:
+            - database
+            - domain
             type: object
           status:
             description: status defines the observed state of HubEnvironment
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the HubEnvironment resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  Conditions represent the current state of the HubEnvironment resource.
+                  Standard condition types:
+                  - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
+                  - MigrationsComplete: Database migrations have been executed
+                  - DatabaseRolesConfigured: Database roles have been created
+                  - SecretsBackedUp: Secrets have been uploaded to Infisical
+                  - OAuthClientsRegistered: OAuth clients have been registered with Hydra
+                  - NATSStreamsConfigured: NATS JetStream streams have been created
+                  - Ready: All phases complete successfully
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +287,18 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration reflects the generation of the most
+                  recently observed HubEnvironment
+                format: int64
+                type: integer
+              uploadedSecrets:
+                description: |-
+                  UploadedSecrets tracks which secrets have been uploaded to Infisical
+                  This prevents re-uploading secrets that already exist
+                items:
+                  type: string
+                type: array
             type: object
         required:
         - spec

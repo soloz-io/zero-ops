@@ -1,9 +1,101 @@
 apiVersion: ops.zero-ops.io/v1alpha1
 kind: HubEnvironment
 metadata:
-  labels:
-    app.kubernetes.io/name: hub-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: hubenvironment-sample
+  name: hub-production
 spec:
-  # TODO(user): Add fields here
+  domain: nutgraf.in
+  tls:
+    issuer: letsencrypt-prod
+    email: ops@nutgraf.in
+  observability:
+    victoriaMetrics:
+      retentionPeriod: 90d
+    grafanaAlloy:
+      scrapeInterval: 15s
+  database:
+    clusterRef: platform-db
+    namespace: hub-platform-data
+    roles:
+    - name: mcp_server
+      database: control_plane
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: infisical
+      database: infisical
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: spoke_controller
+      database: hub
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+    - name: spire_server
+      database: spire
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: hydra
+      database: hydra
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: kratos
+      database: kratos
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: keto
+      database: keto
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+  nats:
+    streams:
+    - name: spoke-events
+      subjects:
+      - "spoke.*.lifecycle.>"
+      - "spoke.*.billing.>"
+      retention: limits
+      storage: file
+    - name: hub-events
+      subjects:
+      - "hub.notifications.>"
+      retention: interest
+      storage: file
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: "MCP Server"
+      redirectUris:
+      - "https://mcp.nutgraf.in/callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code
+    - clientId: spoke-controller
+      clientName: "Spoke Controller"
+      redirectUris: []
+      grantTypes:
+      - client_credentials
+      responseTypes:
+      - token
+  secrets:
+    infisical:
+      projectSlug: platform
+      environmentSlug: prod

@@ -28,19 +28,19 @@
 
 ### Subtasks:
 
-- [ ] 2.1 Define spec.domain field for networking configuration
-- [ ] 2.2 Define spec.tls fields (issuer, email)
-- [ ] 2.3 Define spec.observability fields (VictoriaMetrics, Grafana Alloy)
-- [ ] 2.4 Define spec.database fields (clusterRef, namespace, roles array)
-- [ ] 2.5 Define spec.nats.streams array (name, subjects, retention, storage)
-- [ ] 2.6 Define spec.oauth.clients array (clientId, clientName, redirectUris, grantTypes, responseTypes)
-- [ ] 2.7 Define spec.secrets.infisical fields (projectSlug, environmentSlug)
-- [ ] 2.8 Define status.conditions array with standard condition types
-- [ ] 2.9 Define status.uploadedSecrets array for tracking Infisical uploads
-- [ ] 2.10 Define status.observedGeneration field
-- [ ] 2.11 Add validation rules (required fields, enum values, format constraints)
-- [ ] 2.12 Generate CRD manifests: `make manifests`
-- [ ] 2.13 Add example HubEnvironment CR in config/samples/
+- [x] 2.1 Define spec.domain field for networking configuration
+- [x] 2.2 Define spec.tls fields (issuer, email)
+- [x] 2.3 Define spec.observability fields (VictoriaMetrics, Grafana Alloy)
+- [x] 2.4 Define spec.database fields (clusterRef, namespace, roles array)
+- [x] 2.5 Define spec.nats.streams array (name, subjects, retention, storage)
+- [x] 2.6 Define spec.oauth.clients array (clientId, clientName, redirectUris, grantTypes, responseTypes)
+- [x] 2.7 Define spec.secrets.infisical fields (projectSlug, environmentSlug)
+- [x] 2.8 Define status.conditions array with standard condition types
+- [x] 2.9 Define status.uploadedSecrets array for tracking Infisical uploads
+- [x] 2.10 Define status.observedGeneration field
+- [x] 2.11 Add validation rules (required fields, enum values, format constraints)
+- [x] 2.12 Generate CRD manifests: `make manifests`
+- [x] 2.13 Add example HubEnvironment CR in config/samples/
 
 **Acceptance Criteria:**
 - CRD YAML generated in config/crd/bases/
