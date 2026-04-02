@@ -3,6 +3,8 @@ kind: Pooler
 metadata:
   name: platform-db-pooler
   namespace: zero-ops-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   cluster:
     name: platform-db
@@ -12,6 +14,7 @@ spec:
   
   pgbouncer:
     poolMode: session
+    authQuery: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
     parameters:
       max_client_conn: "100"
       default_pool_size: "25"

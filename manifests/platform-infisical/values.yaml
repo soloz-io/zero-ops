@@ -11,12 +11,12 @@ infisical:
     repository: infisical/infisical
     tag: "v0.158.0"
 
-  # TLS Configuration: Mutually exclusive and explicit
-  # - When TLS disabled (pooler): DB_SSL_MODE=disable, no DB_ROOT_CERT
-  # - When TLS enabled (direct): DB_SSL_MODE=verify-full, DB_ROOT_CERT present
+  # TLS Configuration: End-to-end encryption (production-grade)
+  # - Infisical → PgBouncer: TLS enabled (DB_SSL_MODE=require, DB_ROOT_CERT from CNPG CA)
+  # - PgBouncer → PostgreSQL: TLS enabled (handled by CNPG)
   #
   # Secrets injected:
-  # - infisical-secrets (envFrom): ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL
+  # - infisical-secrets (envFrom): ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT
   # - infisical-postgres-connection (extraEnv): DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_MODE
   extraEnv:
   - name: DB_HOST

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
@@ -511,52 +512,93 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 
 	namespace := "zero-ops-system"
 
-	// Check if both secrets already exist and are populated
+	// Check if secrets exist - but always update to ensure correct TLS configuration
+	// This is necessary because TLS configuration may change (e.g., adding DB_ROOT_CERT)
 	infSecret, err1 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-secrets", metav1.GetOptions{})
 	redisSecret, err2 := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-redis-credentials", metav1.GetOptions{})
 
-	if err1 == nil && err2 == nil && 
+	secretsExist := err1 == nil && err2 == nil && 
 		len(infSecret.Data["ENCRYPTION_KEY"]) > 0 && 
 		len(infSecret.Data["REDIS_URL"]) > 0 &&
-		len(redisSecret.Data["password"]) > 0 {
-		fmt.Println("[bootstrap-secrets] ✓ Infisical & Redis secrets already exist. Immutable lock applied; skipping.")
-		return false, nil
-	}
+		len(redisSecret.Data["password"]) > 0
 
-	fmt.Println("[bootstrap-secrets] Generating initial Infisical & Redis secrets...")
+	if secretsExist {
+		fmt.Println("[bootstrap-secrets] Infisical & Redis secrets exist. Updating TLS configuration...")
+	} else {
+		fmt.Println("[bootstrap-secrets] Generating initial Infisical & Redis secrets...")
+	}
 
 	// Generate secure random keys - MUST be exactly 32 characters for AES-256
-	encryptionKey, err := generateSecurePassword(32)
-	if err != nil {
-		return false, fmt.Errorf("failed to generate encryption key: %w", err)
-	}
+	// If secrets exist, reuse existing keys to avoid breaking encryption
+	var encryptionKey, authSecret, redisPassword string
+	
+	if secretsExist {
+		// Reuse existing keys to maintain data integrity
+		encryptionKey = string(infSecret.Data["ENCRYPTION_KEY"])
+		authSecret = string(infSecret.Data["AUTH_SECRET"])
+		
+		// Extract Redis password from URL
+		redisURL := string(infSecret.Data["REDIS_URL"])
+		// Parse: redis://:PASSWORD@redis-master.zero-ops-system.svc:6379
+		if idx := strings.Index(redisURL, "redis://:"); idx >= 0 {
+			start := idx + len("redis://:")
+			if end := strings.Index(redisURL[start:], "@"); end >= 0 {
+				redisPassword = redisURL[start : start+end]
+			}
+		}
+		
+		if redisPassword == "" {
+			redisPassword = string(redisSecret.Data["password"])
+		}
+		
+		fmt.Println("[bootstrap-secrets] Reusing existing ENCRYPTION_KEY and AUTH_SECRET")
+	} else {
+		// Generate new keys
+		var err error
+		encryptionKey, err = generateSecurePassword(32)
+		if err != nil {
+			return false, fmt.Errorf("failed to generate encryption key: %w", err)
+		}
 
-	authSecret, err := generateSecurePassword(32)
-	if err != nil {
-		return false, fmt.Errorf("failed to generate auth secret: %w", err)
-	}
+		authSecret, err = generateSecurePassword(32)
+		if err != nil {
+			return false, fmt.Errorf("failed to generate auth secret: %w", err)
+		}
 
-	// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
-	redisBytes := make([]byte, 32)
-	if _, err := rand.Read(redisBytes); err != nil {
-		return false, fmt.Errorf("failed to generate redis password: %w", err)
+		// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
+		redisBytes := make([]byte, 32)
+		if _, err := rand.Read(redisBytes); err != nil {
+			return false, fmt.Errorf("failed to generate redis password: %w", err)
+		}
+		redisPassword = hex.EncodeToString(redisBytes)[:32]
+		
+		fmt.Println("[bootstrap-secrets] Generated new ENCRYPTION_KEY and AUTH_SECRET")
 	}
-	redisPassword := hex.EncodeToString(redisBytes)[:32]
 	redisURL := fmt.Sprintf("redis://:%s@redis-master.zero-ops-system.svc:6379", redisPassword)
 
-	// TLS Configuration Strategy:
-	// When using PgBouncer pooler, client→pooler connections do NOT use TLS.
-	// This is explicit and intentional per docs/infisical/database-connection-pooling.md
+	// TLS Configuration Strategy: TLS Everywhere (Production-Grade)
+	// Architecture: Infisical → PgBouncer (TLS) → PostgreSQL (TLS)
 	//
-	// CRITICAL: DB_ROOT_CERT presence in Infisical implicitly enables SSL regardless of DB_SSL_MODE.
-	// To maintain configuration consistency, we MUST NOT include DB_ROOT_CERT when TLS is disabled.
+	// CNPG's PgBouncer pooler provides TLS certificates automatically via:
+	// - Server certificate: platform-db-server secret
+	// - CA certificate: platform-db-ca secret
 	//
-	// Architecture: Client→Pooler (no TLS) → Pooler→PostgreSQL (TLS handled by CNPG)
-	//
-	// For direct PostgreSQL connections (future), this would change to:
-	//   - Include DB_ROOT_CERT
-	//   - Set DB_SSL_MODE=verify-full or require
-	//   - Enable end-to-end TLS
+	// We extract the CA cert and inject it as DB_ROOT_CERT for Infisical to verify the pooler's certificate.
+	// This enables end-to-end encryption across all hops.
+
+	// Read CA certificate from CNPG-managed secret
+	caSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to read platform-db-ca secret: %w", err)
+	}
+
+	caCert, ok := caSecret.Data["ca.crt"]
+	if !ok {
+		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
+	}
+
+	// Base64 encode the CA certificate for Infisical
+	dbRootCert := base64.StdEncoding.EncodeToString(caCert)
 
 	// Create the master infisical-secrets secret with ALL dynamic values
 	// This secret is consumed via envFrom in the Helm chart
@@ -574,8 +616,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 			"ENCRYPTION_KEY": encryptionKey,
 			"AUTH_SECRET":    authSecret,
 			"REDIS_URL":      redisURL,
-			// DB_ROOT_CERT intentionally excluded - TLS disabled for pooler architecture
-			// If enabling TLS: add DB_ROOT_CERT here AND change DB_SSL_MODE to "verify-full"
+			"DB_ROOT_CERT":   dbRootCert, // Enable TLS for Infisical → PgBouncer
 		},
 	}
 
@@ -660,14 +701,13 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 
 	namespace := "zero-ops-system"
 
-	// Check if secret already exists and is populated
+	// Check if secret exists - but always update to ensure correct TLS configuration
 	connSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-postgres-connection", metav1.GetOptions{})
 	if err == nil && len(connSecret.Data["DB_PASSWORD"]) > 0 {
-		fmt.Println("[bootstrap-secrets] ✓ Infisical DB connection parameters already exist. Skipping.")
-		return false, nil
+		fmt.Println("[bootstrap-secrets] Infisical DB connection parameters exist. Updating TLS configuration...")
+	} else {
+		fmt.Println("[bootstrap-secrets] Generating initial Infisical DB connection secret...")
 	}
-
-	fmt.Println("[bootstrap-secrets] Generating initial Infisical DB connection secret...")
 
 	// Read password from infisical-db-credentials secret
 	credentialsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
@@ -681,7 +721,10 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	}
 
 	// Create the secret with individual DB parameters
-	// Pooler->PostgreSQL uses TLS, but client->pooler doesn't need SSL verification
+	// TLS Configuration: End-to-end encryption (production-grade)
+	// - Infisical → PgBouncer: TLS (using CNPG-provided certificates)
+	// - PgBouncer → PostgreSQL: TLS (handled by CNPG)
+	// DB_ROOT_CERT is provided separately via infisical-secrets (injected via envFrom)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
@@ -698,7 +741,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 			"DB_USER":     "infisical",
 			"DB_PASSWORD": password,
 			"DB_NAME":     "infisical",
-			"DB_SSL_MODE": "disable",  // Pooler->PG uses TLS, client->pooler doesn't need it
+			"DB_SSL_MODE": "require",  // Enable TLS for client->pooler connection
 		},
 	}
 
@@ -921,4 +964,48 @@ func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, er
 	fmt.Println("[bootstrap-secrets] ✓ SPIRE Server credentials stored in Infisical")
 
 	return true, nil
+}
+
+// WaitForInfisicalHealth waits for Infisical pods to become ready
+// Returns error if timeout exceeded or pods not found
+func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := "zero-ops-system"
+	timeout := 5 * time.Minute
+	checkInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		// Check if deployment exists and has ready replicas
+		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-infisical-standalone-infisical", metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				fmt.Println("   Infisical deployment not found yet, waiting...")
+				time.Sleep(checkInterval)
+				continue
+			}
+			return fmt.Errorf("failed to get infisical deployment: %w", err)
+		}
+
+		// Check if at least one replica is ready
+		if deployment.Status.ReadyReplicas > 0 {
+			fmt.Println("✓ Infisical is healthy")
+			return nil
+		}
+
+		fmt.Printf("   Infisical not ready yet (%d/%d replicas ready), waiting...\n", 
+			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+		time.Sleep(checkInterval)
+	}
+
+	return fmt.Errorf("timeout waiting for Infisical to become healthy after %v", timeout)
 }
