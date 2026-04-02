@@ -4,7 +4,7 @@ metadata:
   name: setup-platform-roles
   namespace: zero-ops-system
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "5"
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 3
@@ -59,11 +59,6 @@ spec:
             secretKeyRef:
               name: hub-db-credentials
               key: password
-        - name: INFISICAL_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: infisical-db-credentials
-              key: password
         command:
         - /bin/sh
         - -c
@@ -91,28 +86,11 @@ spec:
             psql -c "ALTER ROLE spoke_controller WITH PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';" || \
             psql -c "CREATE ROLE spoke_controller WITH LOGIN PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';"
 
-          echo "Creating/updating infisical role..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 && \
-            psql -c "ALTER ROLE infisical WITH PASSWORD '${INFISICAL_PASSWORD}';" || \
-            psql -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
-
-          echo "Creating cnpg_pooler_pgbouncer role for PgBouncer pooler..."
-          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'cnpg_pooler_pgbouncer'" | grep -q 1 || \
-            psql -c "CREATE ROLE cnpg_pooler_pgbouncer WITH LOGIN;"
-
           echo "Granting privileges on control_plane database..."
           psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;"
           psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO agentregistry;"
 
           echo "Granting privileges on hub database..."
           psql -d hub -c "GRANT ALL PRIVILEGES ON DATABASE hub TO spoke_controller;"
-
-          echo "Granting privileges on infisical database..."
-          psql -d infisical -c "GRANT ALL PRIVILEGES ON DATABASE infisical TO infisical;"
-          psql -d infisical -c "GRANT ALL ON SCHEMA public TO infisical;"
-          psql -d infisical -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO infisical;"
-          psql -d infisical -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO infisical;"
-          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;"
-          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
 
           echo "✓ Platform roles created successfully"

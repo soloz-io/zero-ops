@@ -664,29 +664,18 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 }
 
 // InstallPostgresConnectionSecret creates the PostgreSQL connection secret for Infisical
-// This is called during bootstrap BEFORE ArgoCD syncs Infisical.
-// CRITICAL: This secret enables Infisical to connect to CNPG, NEVER store in Git.
+// This is Layer 1 Bootstrap (Secret Zero) - called during bootstrap BEFORE ArgoCD syncs Infisical.
+// 
+// Bootstrap Pattern:
+// 1. CLI generates passwords for CNPG bootstrap (platform-db-app) and Infisical bootstrap (infisical-db-credentials)
+// 2. CLI injects these secrets directly into K8s (Secret Zero)
+// 3. CNPG and Infisical boot using these secrets
+// 4. CLI uploads these secrets to Infisical (making Infisical the Source of Truth)
+// 5. ESO adopts these secrets (creationPolicy: Owner) and keeps them in sync
 //
-// TLS Configuration:
-// - DB_SSL_MODE=disable: Explicit TLS disable for pooler architecture
-// - DB_ROOT_CERT: MUST NOT be present when TLS is disabled (its presence forces SSL in Infisical)
+// This solves the circular dependency: Infisical needs DB → DB needs secrets → Secrets need Infisical
 //
-// This enforces mutually exclusive TLS configuration:
-//   TLS Disabled: DB_SSL_MODE=disable, no DB_ROOT_CERT
-//   TLS Enabled:  DB_SSL_MODE=verify-full, DB_ROOT_CERT present
-//
-// Current Architecture: Client→Pooler (no TLS) → Pooler→PostgreSQL (TLS via CNPG)
-// See: docs/infisical/database-connection-pooling.md
-//
-// IDEMPOTENCY: Returns (true, nil) if secret was created/modified, (false, nil) if it already exists.
-//
-// Production Workflow:
-// 1. ArgoCD syncs platform-database (wave 2) which creates infisical-db-credentials
-// 2. Developer runs: hub init-secrets
-// 3. This method reads the password from infisical-db-credentials
-// 4. Creates infisical-postgres-connection with individual DB params
-// 5. ArgoCD syncs Infisical Helm chart (wave 3)
-// 6. Infisical pods connect to pooler without TLS
+// IDEMPOTENCY: Returns (true, nil) if secrets were created/modified, (false, nil) if they already exist.
 func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
@@ -701,31 +690,92 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 
 	namespace := "zero-ops-system"
 
-	// Check if secret exists - but always update to ensure correct TLS configuration
-	connSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-postgres-connection", metav1.GetOptions{})
-	if err == nil && len(connSecret.Data["DB_PASSWORD"]) > 0 {
-		fmt.Println("[bootstrap-secrets] Infisical DB connection parameters exist. Updating TLS configuration...")
-	} else {
-		fmt.Println("[bootstrap-secrets] Generating initial Infisical DB connection secret...")
-	}
-
-	// Read password from infisical-db-credentials secret
-	credentialsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	// Step 1: Generate and inject platform-db-app (CNPG Secret Zero)
+	appSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
+	var appPassword string
 	if err != nil {
-		return false, fmt.Errorf("failed to read infisical-db-credentials secret (ensure platform-database is deployed): %w", err)
+		if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("failed to check platform-db-app secret: %w", err)
+		}
+		
+		fmt.Println("[bootstrap-secrets] Generating platform-db-app (CNPG Secret Zero)...")
+		appPassword, err = generateSecurePassword(32)
+		if err != nil {
+			return false, fmt.Errorf("failed to generate app password: %w", err)
+		}
+		
+		appSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "platform-db-app",
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+					"app.kubernetes.io/component":  "secret-zero",
+				},
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			StringData: map[string]string{
+				"username": "app",
+				"password": appPassword,
+			},
+		}
+		
+		_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, appSecret, metav1.CreateOptions{})
+		if err != nil {
+			return false, fmt.Errorf("failed to create platform-db-app secret: %w", err)
+		}
+		fmt.Println("[bootstrap-secrets] ✓ platform-db-app created")
+	} else {
+		appPassword = string(appSecret.Data["password"])
+		fmt.Println("[bootstrap-secrets] ✓ platform-db-app already exists")
 	}
 
-	password := string(credentialsSecret.Data["password"])
-	if password == "" {
-		return false, fmt.Errorf("password not found in infisical-db-credentials secret")
+	// Step 2: Generate and inject infisical-db-credentials (Infisical Secret Zero)
+	infDbSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	var infPassword string
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return false, fmt.Errorf("failed to check infisical-db-credentials secret: %w", err)
+		}
+		
+		fmt.Println("[bootstrap-secrets] Generating infisical-db-credentials (Infisical Secret Zero)...")
+		infPassword, err = generateSecurePassword(32)
+		if err != nil {
+			return false, fmt.Errorf("failed to generate infisical password: %w", err)
+		}
+		
+		infDbSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "infisical-db-credentials",
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+					"app.kubernetes.io/component":  "secret-zero",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+			StringData: map[string]string{
+				"username": "infisical",
+				"password": infPassword,
+			},
+		}
+		
+		_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, infDbSecret, metav1.CreateOptions{})
+		if err != nil {
+			return false, fmt.Errorf("failed to create infisical-db-credentials secret: %w", err)
+		}
+		fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials created")
+	} else {
+		infPassword = string(infDbSecret.Data["password"])
+		fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials already exists")
 	}
 
-	// Create the secret with individual DB parameters
+	// Step 3: Create the connection string secret for Infisical to use
 	// TLS Configuration: End-to-end encryption (production-grade)
 	// - Infisical → PgBouncer: TLS (using CNPG-provided certificates)
 	// - PgBouncer → PostgreSQL: TLS (handled by CNPG)
 	// DB_ROOT_CERT is provided separately via infisical-secrets (injected via envFrom)
-	secret := &corev1.Secret{
+	connSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
 			Namespace: namespace,
@@ -739,23 +789,26 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 			"DB_HOST":     "platform-db-pooler.zero-ops-system.svc",  // PgBouncer service
 			"DB_PORT":     "5432",
 			"DB_USER":     "infisical",
-			"DB_PASSWORD": password,
+			"DB_PASSWORD": infPassword,
 			"DB_NAME":     "infisical",
 			"DB_SSL_MODE": "require",  // Enable TLS for client->pooler connection
 		},
 	}
 
-	// Try to create, if exists then update
-	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	// Create or Update connSecret
+	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, connSecret, metav1.UpdateOptions{})
 	if err != nil {
-		// Secret might already exist, try to update
-		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
-		if err != nil {
-			return false, fmt.Errorf("failed to create or update infisical-postgres-connection: %w", err)
+		if k8serrors.IsNotFound(err) {
+			_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, connSecret, metav1.CreateOptions{})
+			if err != nil {
+				return false, fmt.Errorf("failed to create infisical-postgres-connection: %w", err)
+			}
+			fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection created")
+		} else {
+			return false, fmt.Errorf("failed to update infisical-postgres-connection: %w", err)
 		}
-		fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection updated (individual DB params)")
 	} else {
-		fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection created (individual DB params)")
+		fmt.Println("[bootstrap-secrets] ✓ infisical-postgres-connection updated")
 	}
 
 	return true, nil
@@ -765,20 +818,19 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 // InstallPlatformDatabaseCredentials generates secure passwords for all platform database users
 // and stores them in Infisical (GitOps source of truth).
 //
-// This function:
-// 1. Generates cryptographically secure random passwords
-// 2. Stores them in Infisical via API
-// 3. ExternalSecrets Operator syncs them to K8s secrets
+// Layer 1 + Layer 2 Bootstrap Pattern:
+// 1. Uploads Layer 1 (Secret Zero) credentials to Infisical:
+//    - infisical-db-credentials (already in K8s, now uploaded to Infisical as SOT)
+//    - platform-db-app (already in K8s, now uploaded to Infisical as SOT)
+// 2. Generates Layer 2 (Application) credentials and stores in Infisical:
+//    - control-plane-db-* (mcp_server, agentregistry)
+//    - hub-db-* (spoke_controller)
+// 3. ExternalSecrets Operator syncs all credentials from Infisical to K8s
 //
-// Updated Infisical secrets:
-// - control-plane-db-* (host, port, database, username, password)
-// - hub-db-* (host, port, database, username, password)
-// - infisical-db-* (host, port, database, username, password)
+// This ensures Infisical is the definitive Source of Truth for ALL credentials,
+// while solving the bootstrap paradox by having CLI inject Secret Zero first.
 //
 // IDEMPOTENCY: Checks if secrets exist in Infisical before creating.
-//
-// CRITICAL: This must run BEFORE setup-platform-roles-job, as that job reads these passwords
-// to create the PostgreSQL roles.
 func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
@@ -791,7 +843,9 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	// Create Infisical API client (reuses infisical-auth secret from ESO)
+	namespace := "zero-ops-system"
+
+	// Create Infisical API client
 	infisicalClient, err := infisical.NewClient(ctx, clientset)
 	if err != nil {
 		return false, fmt.Errorf("failed to create Infisical client: %w", err)
@@ -803,9 +857,41 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to get Infisical config: %w", err)
 	}
 
-	fmt.Println("[bootstrap-secrets] Generating platform database credentials and storing in Infisical...")
-
 	secretPath := "/"
+
+	// Step 1: Upload Layer 1 Bootstrap Credentials to Infisical (making Infisical the SOT)
+	fmt.Println("[bootstrap-secrets] Uploading Layer 1 (Secret Zero) credentials to Infisical...")
+	
+	// Upload infisical-db-credentials
+	infDbSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to read infisical-db-credentials: %w", err)
+	}
+	
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "infisical-db-username", string(infDbSecret.Data["username"])); err != nil {
+		return false, fmt.Errorf("failed to upload infisical-db-username: %w", err)
+	}
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "infisical-db-password", string(infDbSecret.Data["password"])); err != nil {
+		return false, fmt.Errorf("failed to upload infisical-db-password: %w", err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ infisical-db credentials uploaded to Infisical")
+
+	// Upload platform-db-app credentials
+	appSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to read platform-db-app: %w", err)
+	}
+	
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "platform-db-app-username", string(appSecret.Data["username"])); err != nil {
+		return false, fmt.Errorf("failed to upload platform-db-app-username: %w", err)
+	}
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "platform-db-app-password", string(appSecret.Data["password"])); err != nil {
+		return false, fmt.Errorf("failed to upload platform-db-app-password: %w", err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ platform-db-app credentials uploaded to Infisical")
+
+	// Step 2: Generate and store Layer 2 Application Credentials in Infisical
+	fmt.Println("[bootstrap-secrets] Generating Layer 2 (Application) credentials and storing in Infisical...")
 
 	// Generate and store control-plane-db credentials
 	controlPlanePassword, err := generateSecurePassword(32)
