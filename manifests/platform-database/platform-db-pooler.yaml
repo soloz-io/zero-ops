@@ -14,9 +14,9 @@ spec:
   
   pgbouncer:
     poolMode: session
-    authQuery: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
     parameters:
       max_client_conn: "100"
       default_pool_size: "25"
       reserve_pool_size: "5"
       reserve_pool_timeout: "5"
+      auth_dbname: "postgres"
