@@ -712,7 +712,7 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 
 	for time.Now().Before(deadline) {
 		// Check if deployment exists and has ready replicas
-		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-infisical-standalone-infisical", metav1.GetOptions{})
+		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-standalone", metav1.GetOptions{})
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				fmt.Println("   Infisical deployment not found yet, waiting...")
@@ -762,7 +762,7 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 	}
 
 	// Restart Infisical Deployment
-	if _, err = clientset.AppsV1().Deployments(namespace).Patch(ctx, "platform-infisical-infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+	if _, err = clientset.AppsV1().Deployments(namespace).Patch(ctx, "platform-infisical-standalone", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to restart infisical deployment: %w", err)
 		}

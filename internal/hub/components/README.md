@@ -92,7 +92,7 @@ Generates and injects Secret Zero for database bootstrap:
 
 If any secrets were created or modified:
 - Patches `redis-master` StatefulSet with restart annotation
-- Patches `platform-infisical-infisical-standalone-infisical` Deployment with restart annotation
+- Patches `platform-infisical-standalone` Deployment with restart annotation
 - Triggers rolling restart to sync new credentials
 
 **Idempotency:** Only runs if `changed1 || changed2 || changed3 || changed4` is true.
