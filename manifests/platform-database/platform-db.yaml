@@ -16,9 +16,9 @@ spec:
   certificates:
     serverAltDNSNames:
       - platform-db-pooler
-      - platform-db-pooler.platform-db
-      - platform-db-pooler.platform-db.svc
-      - platform-db-pooler.platform-db.svc.cluster.local
+      - platform-db-pooler.platform-core-db
+      - platform-db-pooler.platform-core-db.svc
+      - platform-db-pooler.platform-core-db.svc.cluster.local
 
   bootstrap:
     initdb:

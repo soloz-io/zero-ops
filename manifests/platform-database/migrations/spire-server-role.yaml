@@ -27,7 +27,7 @@ spec:
         image: postgres:15-alpine
         env:
         - name: PGHOST
-          value: "platform-db-rw.platform-db.svc.cluster.local"
+          value: "platform-db-rw.platform-core-db.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE
