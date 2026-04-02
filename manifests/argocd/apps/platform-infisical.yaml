@@ -16,7 +16,7 @@ spec:
       exclude: "*.md"
   destination:
     server: https://kubernetes.default.svc
-    namespace: zero-ops-system
+    namespace: platform-core-db
   syncPolicy:
     automated:
       prune: true
@@ -51,7 +51,7 @@ spec:
     ref: values
   destination:
     server: https://kubernetes.default.svc
-    namespace: zero-ops-system
+    namespace: platform-core-db
   syncPolicy:
     automated:
       prune: true
