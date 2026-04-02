@@ -19,4 +19,3 @@ spec:
       default_pool_size: "25"
       reserve_pool_size: "5"
       reserve_pool_timeout: "5"
-      auth_dbname: "postgres"
