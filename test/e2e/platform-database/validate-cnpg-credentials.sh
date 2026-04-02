@@ -26,7 +26,7 @@ fi
 # Check 3: Verify CNPG Cluster uses the pre-created secret
 echo ""
 echo "3. Checking CNPG Cluster bootstrap configuration..."
-BOOTSTRAP_SECRET=$(kubectl get cluster platform-db -n zero-ops-system -o jsonpath='{.spec.bootstrap.initdb.secret.name}')
+BOOTSTRAP_SECRET=$(kubectl get cluster.postgresql.cnpg.io platform-db -n zero-ops-system -o jsonpath='{.spec.bootstrap.initdb.secret.name}')
 if [ "$BOOTSTRAP_SECRET" = "platform-db-app" ]; then
   echo "✓ CNPG Cluster configured to use pre-created secret: $BOOTSTRAP_SECRET"
 else
@@ -36,7 +36,7 @@ fi
 # Check 4: Verify CNPG Cluster owner is 'app' (not 'postgres')
 echo ""
 echo "4. Checking CNPG Cluster owner..."
-OWNER=$(kubectl get cluster platform-db -n zero-ops-system -o jsonpath='{.spec.bootstrap.initdb.owner}')
+OWNER=$(kubectl get cluster.postgresql.cnpg.io platform-db -n zero-ops-system -o jsonpath='{.spec.bootstrap.initdb.owner}')
 if [ "$OWNER" = "app" ]; then
   echo "✓ CNPG Cluster owner is 'app'"
 else
