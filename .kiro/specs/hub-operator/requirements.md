@@ -91,22 +91,24 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 2. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character AUTH_SECRET for Infisical
 3. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a Redis password
 4. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL construct a REDIS_URL connection string
-5. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL extract the CA certificate from platform-db-ca secret
-6. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL base64-encode the CA certificate as DB_ROOT_CERT
-7. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-secrets Kubernetes secret
-8. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for platform-db-app
-9. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the platform-db-app Kubernetes secret with type BasicAuth
-10. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for infisical-db-credentials
-11. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-db-credentials Kubernetes secret
-12. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-postgres-connection secret with DB_SSL_MODE set to require
-13. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for hydra-db-credentials
-14. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the hydra-db-credentials Kubernetes secret
-15. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for kratos-db-credentials
-16. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the kratos-db-credentials Kubernetes secret
-17. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for keto-db-credentials
-18. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the keto-db-credentials Kubernetes secret
-19. IF a secret already exists, THE Hub_Operator SHALL reuse existing passwords to maintain data integrity
-20. THE Hub_Operator SHALL set ownerReferences on all created secrets pointing to the HubEnvironment_CR
+5. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a self-signed CA Certificate for the database using Go's crypto/x509 package
+6. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL store the generated CA in platform-db-ca secret so Infisical can boot with TLS in Wave 1
+7. THE CNPG Cluster SHALL be configured to import the pre-generated platform-db-ca secret rather than generating its own CA in Wave 2
+8. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL base64-encode the CA certificate as DB_ROOT_CERT
+9. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-secrets Kubernetes secret
+10. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for platform-db-app
+11. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the platform-db-app Kubernetes secret with type BasicAuth
+12. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for infisical-db-credentials
+13. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-db-credentials Kubernetes secret
+14. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the infisical-postgres-connection secret with DB_SSL_MODE set to require
+15. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for hydra-db-credentials
+16. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the hydra-db-credentials Kubernetes secret
+17. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for kratos-db-credentials
+18. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the kratos-db-credentials Kubernetes secret
+19. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL generate a 32-character password for keto-db-credentials
+20. WHEN the HubEnvironment_CR is created, THE Hub_Operator SHALL create the keto-db-credentials Kubernetes secret
+21. IF a secret already exists, THE Hub_Operator SHALL reuse existing passwords to maintain data integrity
+22. THE Hub_Operator SHALL set ownerReferences on all created secrets pointing to the HubEnvironment_CR
 
 ### Requirement 5: Database Migration Execution
 
@@ -142,6 +144,7 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 12. IF role creation fails, THE Hub_Operator SHALL update the HubEnvironment_CR status with the error message
 13. IF role creation fails, THE Hub_Operator SHALL requeue with exponential backoff
 14. WHEN all roles are created, THE Hub_Operator SHALL update the HubEnvironment_CR status condition DatabaseRolesConfigured to True
+15. THE Hub_Operator SHALL DELETE database roles from PostgreSQL that exist in the database (with the zero-ops managed prefix/comment) but are no longer defined in the HubEnvironment_CR spec
 
 ### Requirement 7: OAuth Client Registration
 
@@ -156,6 +159,7 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 5. IF Hydra API returns 404, THE Hub_Operator SHALL requeue after 10 seconds
 6. IF Hydra API returns 5xx, THE Hub_Operator SHALL requeue with exponential backoff
 7. WHEN all OAuth clients are registered, THE Hub_Operator SHALL update the HubEnvironment_CR status condition OAuthClientsRegistered to True
+8. THE Hub_Operator SHALL DELETE OAuth clients from Hydra that exist in Hydra but are no longer defined in the HubEnvironment_CR spec
 
 ### Requirement 8: NATS Stream Creation
 
@@ -172,6 +176,7 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 7. IF NATS API is unreachable, THE Hub_Operator SHALL requeue after 10 seconds
 8. IF NATS API returns an error, THE Hub_Operator SHALL requeue with exponential backoff
 9. WHEN all streams are created and synchronized, THE Hub_Operator SHALL update the HubEnvironment_CR status condition NATSStreamsConfigured to True
+10. THE Hub_Operator SHALL DELETE NATS streams that exist in NATS but are no longer defined in the HubEnvironment_CR spec
 
 ### Requirement 9: Infisical Secret Backup
 
@@ -195,12 +200,16 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 14. WHEN Infisical becomes ready AND SecretsBackedUp condition is False, THE Hub_Operator SHALL upload kratos-db-password to Infisical API
 15. WHEN Infisical becomes ready AND SecretsBackedUp condition is False, THE Hub_Operator SHALL upload keto-db-username to Infisical API
 16. WHEN Infisical becomes ready AND SecretsBackedUp condition is False, THE Hub_Operator SHALL upload keto-db-password to Infisical API
-17. THE Hub_Operator SHALL perform secret upload as a one-time bootstrap operation only
-18. AFTER SecretsBackedUp condition is True, THE Hub_Operator SHALL NOT overwrite secrets in Infisical on subsequent reconciliations
-19. THE External Secrets Operator SHALL own the lifecycle of syncing secrets from Infisical to Kubernetes after bootstrap
-20. IF Infisical API returns 404, THE Hub_Operator SHALL requeue after 10 seconds
-21. IF Infisical API returns 5xx, THE Hub_Operator SHALL requeue with exponential backoff
-22. WHEN all secrets are uploaded, THE Hub_Operator SHALL update the HubEnvironment_CR status condition SecretsBackedUp to True
+17. THE Hub_Operator SHALL track uploaded secrets individually in the HubEnvironment_CR Status via an UploadedSecrets array
+18. WHEN a new database role or secret requirement is added to the CR spec, THE Hub_Operator SHALL upload the new secret to Infisical and append its name to the UploadedSecrets array
+19. THE Hub_Operator SHALL NOT overwrite secrets whose names already exist in the UploadedSecrets array
+20. THE External Secrets Operator SHALL own the lifecycle of syncing secrets from Infisical to Kubernetes after bootstrap
+21. IF Infisical API returns 404, THE Hub_Operator SHALL requeue after 10 seconds
+22. IF Infisical API returns 5xx, THE Hub_Operator SHALL requeue with exponential backoff
+23. THE Hub_Operator SHALL NOT upload configuration data (hostnames, ports, URLs, database names, or TLS certificates) to Infisical
+24. THE Hub_Operator SHALL strictly limit Infisical payloads to cryptographic keys, passwords, and highly sensitive tokens
+25. THE External Secrets Operator SHALL use template fields to combine Infisical passwords with Kubernetes service discovery (DNS names, ports)
+26. WHEN all secrets are uploaded, THE Hub_Operator SHALL update the HubEnvironment_CR status condition SecretsBackedUp to True
 
 ### Requirement 10: Idempotent Reconciliation
 
@@ -417,6 +426,8 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 12. WHEN the platform-db-ca secret changes, THE Hub_Operator SHALL patch the SPIRE Server StatefulSet with a restartedAt annotation
 13. WHEN the platform-db-ca secret changes, THE Hub_Operator SHALL patch the MCP Server Deployment with a restartedAt annotation
 14. THE Hub_Operator SHALL ensure all database-connected services reload the CA certificate to prevent x509 certificate errors
+15. WHEN a watched database credential secret is updated by ESO, THE Hub_Operator SHALL execute ALTER ROLE to update the PostgreSQL password
+16. WHEN a watched database credential secret is updated by ESO, THE Hub_Operator SHALL patch the consuming Deployment/StatefulSet with a restartedAt annotation to force a rolling restart
 
 **User Story:** As a platform developer, I want robust parsing and serialization of HubEnvironment CRs, so that configuration is validated and formatted correctly.
 

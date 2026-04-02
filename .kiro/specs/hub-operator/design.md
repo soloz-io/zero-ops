@@ -119,6 +119,20 @@ ArgoCD Sync Wave 4+: AgentGateway, MCP Server, Console
                     └──────────────────┘
 ```
 
+### Concurrency & Execution Model
+
+To ensure the Hub cluster's state remains consistent and free of race conditions, the `hub-operator` relies on the `controller-runtime` concurrency guarantees:
+
+#### Single-Flight Reconciliation
+- **Per-Resource Mutex:** The controller workqueue ensures that only one reconciliation loop runs for a specific `HubEnvironment` Custom Resource at any given time.
+- **Parallel Independence:** Concurrent reconciles for *different* CRs are safe as they do not share in-memory state.
+- **Leader Election:** In HA mode (2 replicas), `coordination.k8s.io/Leases` ensures an Active-Passive architecture. Only the elected leader watches resources and executes the reconcile loop. Failover occurs within 15 seconds of leader pod termination.
+
+#### Mid-Reconcile Spec Changes (Optimistic Concurrency)
+- If a Platform Admin updates the `HubEnvironment` YAML in Git while the operator is actively reconciling Phase 2 (Database Setup), the Kubernetes API increments the CR's `ResourceVersion`.
+- When the current reconcile loop attempts to call `r.Status().Update()`, it will receive a `409 Conflict` from the API server.
+- **Resolution:** The operator safely aborts the stale update. The workqueue immediately triggers a fresh reconciliation loop with the new `ResourceVersion` and updated desired state.
+
 ## Components and Interfaces
 
 ### Operator Directory Structure
@@ -129,6 +143,11 @@ Following the `operators/spoke-controller/` pattern:
 operators/hub-operator/
 ├── cmd/
 │   └── main.go                          # Operator entry point
+├── api/
+│   └── v1alpha1/
+│       ├── hubenvironment_types.go      # CRD type definitions
+│       ├── groupversion_info.go         # API group metadata
+│       └── zz_generated.deepcopy.go     # Generated deepcopy methods
 ├── internal/
 │   ├── controller/
 │   │   └── hubenvironment_controller.go # Main reconciler
@@ -268,21 +287,19 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
         if err := r.createDatabaseRoles(ctx, hubEnv); err != nil {
             meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
                 Type:    "DatabaseRolesConfigured",
-                Status:  metav1.ConditionFalse,
-                Reason:  "RoleCreationFailed",
-                Message: err.Error(),
-            })
-            return ctrl.Result{RequeueAfter: 30 * time.Second}, r.Status().Update(ctx, hubEnv)
-        }
-        meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-            Type:   "DatabaseRolesConfigured",
-            Status: metav1.ConditionTrue,
-            Reason: "Configured",
-        })
-        return ctrl.Result{Requeue: true}, r.Status().Update(ctx, hubEnv)
-    }
-
     // 5. Phase 3: External Services Configuration
+    // ------------------------------------------------------------------------
+    // CRITICAL OWNERSHIP BOUNDARY: INFISICAL UPLOAD
+    // ------------------------------------------------------------------------
+    // The Hub Operator is responsible for bootstrapping Secret Zero ONLY.
+    // Once SecretsBackedUp=True, Infisical becomes the absolute Source of Truth.
+    // The External Secrets Operator (ESO) takes over the lifecycle of syncing
+    // secrets from Infisical down to Kubernetes.
+    // 
+    // The Hub Operator MUST NOT upload to Infisical again after this phase
+    // completes, to prevent split-brain and overwriting human-initiated 
+    // password rotations in the Infisical UI.
+    // ------------------------------------------------------------------------
     if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "SecretsBackedUp") {
         infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
         if err != nil || !infisicalReady {
@@ -308,6 +325,19 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
                 return ctrl.Result{RequeueAfter: 30 * time.Second}, r.Status().Update(ctx, hubEnv)
             }
             return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+        }
+        
+        // ONE-TIME OPERATION: Upload generated passwords
+        if err := r.uploadSecretsToInfisical(ctx, hubEnv); err != nil {
+            return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+        }
+        meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+            Type:   "SecretsBackedUp",
+            Status: metav1.ConditionTrue,
+            Reason: "Uploaded",
+        })
+        return ctrl.Result{Requeue: true}, r.Status().Update(ctx, hubEnv)
+    }
         }
         
         // ONE-TIME OPERATION: Only upload if SecretsBackedUp is False
@@ -1046,8 +1076,34 @@ SELECT version, dirty FROM schema_migrations;
 \q
 
 # Use migrate CLI to force version
-kubectl exec -n hub-platform-data platform-db-1 -- migrate -path /migrations -database "postgres://..." force <version>
-```
+### Retry and Backoff Policy
+
+To prevent the operator from causing API server exhaustion (hot-looping) or silently hanging forever, the operator enforces a strict, multi-tiered backoff policy using `controller-runtime` rate limiters and explicit time bounds.
+
+#### 1. Transient Errors (Network, 5xx API errors)
+Recoverable errors caused by temporary network partitions or upstream API instability (e.g., Hydra returns 503).
+
+- **Initial Delay:** 10 seconds
+- **Backoff Multiplier:** 2x
+- **Max Delay:** 5 minutes (300s)
+- **Max Retries:** Infinite (The operator will back off to polling every 5 minutes until the API recovers, keeping the status condition as `False / APIError`).
+
+#### 2. Dependency Checks (Waiting for Pods to be Ready)
+When waiting for external resources (CNPG, NATS, Infisical) to report `Ready` status during bootstrapping.
+
+- **Check Interval:** Fixed 10 seconds (`return ctrl.Result{RequeueAfter: 10 * time.Second}, nil`)
+- **Max Wait Time:** 30 minutes
+- **Timeout Action:** If a dependency fails to become ready after 30 minutes, the operator transitions the corresponding condition (e.g., `DatabaseRolesConfigured`) to `False` with reason `DependencyTimeout`. This surfaces the blocked state to the Platform Console for human investigation.
+
+#### 3. Permanent Errors (Dirty Database, Invalid Config)
+Unrecoverable errors that require human intervention (e.g., `golang-migrate` panics leaving a dirty database schema).
+
+- **Retry Policy:** NO automatic retry. (`return ctrl.Result{}, err` with error swallowed to prevent requeue).
+- **Action:** Sets condition to `False` with reason `PermanentError` or `DirtyDatabase`.
+- **Resolution:** Requires a human to fix the underlying state, then apply the `ops.zero-ops.io/reconcile-trigger: <timestamp>` annotation to the CR to wake the operator up and resume the loop.
+
+### Retry Strategy Implementation
+
 
 **Step 2: Trigger Operator Reconciliation**
 ```bash
@@ -2617,6 +2673,599 @@ This design addresses all critical edge cases identified in the final engineerin
 
 **GAP #5: Incomplete CA Certificate Rotation Scope**
 - Extended certificate rotation to ALL database-connected services
+- Restarts Hydra, Kratos, Keto, SPIRE Server, MCP Server on CA rotation
+- Prevents x509 certificate errors across the platform
+
+**GAP #6: Missing Universal Auth Secret Dependency**
+- Phase 3 (Infisical upload) suspended if infisical-auth missing
+- Phases 1 & 2 proceed to allow Infisical bootstrap
+- Operator resumes Phase 3 when infisical-auth becomes available
+
+**GAP #7: "Secrets Only" Rule**
+- Infisical stores ONLY passwords, keys, tokens
+- NO URLs, hostnames, ports, database names, TLS certificates
+- ESO templates combine Infisical secrets with Kubernetes service discovery
+
+**GAP #8: Self-Signed CA Generation**
+- Operator generates self-signed CA in Wave 1 using crypto/x509
+- CNPG imports pre-generated CA in Wave 2
+- Enables Infisical TLS bootstrap before CNPG starts
+
+**GAP #9: Day-2 Additive Sync**
+- UploadedSecrets array tracks individual secret uploads
+- New secrets added to Infisical without overwriting existing
+- Supports incremental role additions to HubEnvironment CR
+
+**GAP #10: Resource Pruning**
+- Database roles: Delete orphaned roles not in CR spec
+- OAuth clients: Delete orphaned clients not in CR spec
+- NATS streams: Delete orphaned streams not in CR spec
+
+**GAP #11: Password Rotation Restart Scope**
+- Password changes trigger ALTER ROLE in PostgreSQL
+- Consuming Deployments/StatefulSets restarted via annotation
+- Ensures services pick up new credentials
+
+**GAP #12: NATS JetStream Transient Errors**
+- Distinguish transient errors (connection timeout) from permanent errors
+- Requeue with exponential backoff for transient failures
+- Update status condition for permanent configuration errors
+
+## Additional Implementation Details
+
+### Self-Signed CA Generation (GAP #8)
+
+The operator generates a self-signed CA certificate in Wave 1 before CNPG starts. This allows Infisical to boot with TLS enabled.
+
+**Implementation in `internal/secrets/generator.go`:**
+
+```go
+import (
+    "crypto/rand"
+    "crypto/rsa"
+    "crypto/x509"
+    "crypto/x509/pkix"
+    "encoding/pem"
+    "math/big"
+    "time"
+)
+
+// generateSelfSignedCA creates a self-signed CA certificate for database TLS
+// GAP #8: Self-Signed CA Generation in Wave 1
+func (g *Generator) generateSelfSignedCA(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment, namespace string) error {
+    secretName := "platform-db-ca"
+    
+    // Check if CA already exists (idempotent)
+    existing := &corev1.Secret{}
+    err := g.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, existing)
+    if err == nil {
+        // CA already exists, reuse it
+        return nil
+    }
+    
+    // Generate RSA private key
+    privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+    if err != nil {
+        return fmt.Errorf("failed to generate private key: %w", err)
+    }
+    
+    // Create CA certificate template
+    serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+    if err != nil {
+        return fmt.Errorf("failed to generate serial number: %w", err)
+    }
+    
+    template := x509.Certificate{
+        SerialNumber: serialNumber,
+        Subject: pkix.Name{
+            Organization: []string{"Zero-Ops Platform"},
+            CommonName:   "platform-db-ca",
+        },
+        NotBefore:             time.Now(),
+        NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 years
+        KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+        BasicConstraintsValid: true,
+        IsCA:                  true,
+    }
+    
+    // Self-sign the certificate
+    certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+    if err != nil {
+        return fmt.Errorf("failed to create certificate: %w", err)
+    }
+    
+    // Encode certificate to PEM
+    certPEM := pem.EncodeToMemory(&pem.Block{
+        Type:  "CERTIFICATE",
+        Bytes: certDER,
+    })
+    
+    // Encode private key to PEM
+    keyPEM := pem.EncodeToMemory(&pem.Block{
+        Type:  "RSA PRIVATE KEY",
+        Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+    })
+    
+    // Create secret with CA certificate and key
+    secret := &corev1.Secret{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      secretName,
+            Namespace: namespace,
+            Labels: map[string]string{
+                "app.kubernetes.io/component": "database-ca",
+                "ops.zero-ops.io/managed-by":  "hub-operator",
+            },
+        },
+        Type: corev1.SecretTypeTLS,
+        Data: map[string][]byte{
+            "ca.crt": certPEM,
+            "ca.key": keyPEM,
+        },
+    }
+    
+    // Set owner reference
+    if err := controllerutil.SetControllerReference(hubEnv, secret, g.Scheme); err != nil {
+        return err
+    }
+    
+    // Create secret
+    if err := g.Create(ctx, secret); err != nil {
+        return fmt.Errorf("failed to create platform-db-ca secret: %w", err)
+    }
+    
+    return nil
+}
+```
+
+**Update `GenerateSecretZero` to call CA generation first:**
+
+```go
+func (g *Generator) GenerateSecretZero(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+    namespace := hubEnv.Spec.Database.Namespace
+    
+    // 0. Generate self-signed CA FIRST (GAP #8)
+    if err := g.generateSelfSignedCA(ctx, hubEnv, namespace); err != nil {
+        return fmt.Errorf("failed to generate self-signed CA: %w", err)
+    }
+    
+    // 1. Generate infisical-secrets (now can read platform-db-ca)
+    if err := g.generateInfisicalSecrets(ctx, hubEnv, namespace); err != nil {
+        return fmt.Errorf("failed to generate infisical-secrets: %w", err)
+    }
+    
+    // ... rest of secret generation
+}
+```
+
+### UploadedSecrets Array Tracking (GAP #9)
+
+The operator tracks which secrets have been uploaded to Infisical to support Day-2 additive sync.
+
+**Update HubEnvironment Status in CRD:**
+
+```yaml
+status:
+  type: object
+  properties:
+    uploadedSecrets:
+      type: array
+      description: "List of secret names already uploaded to Infisical"
+      items:
+        type: string
+    conditions:
+      type: array
+      items:
+        type: object
+        properties:
+          type:
+            type: string
+          status:
+            type: string
+          reason:
+            type: string
+          message:
+            type: string
+          lastTransitionTime:
+            type: string
+            format: date-time
+```
+
+**Implementation in `uploadSecretsToInfisical`:**
+
+```go
+// uploadSecretsToInfisical uploads secrets to Infisical with additive sync
+// GAP #9: Day-2 Additive Sync with UploadedSecrets tracking
+func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+    projectSlug := hubEnv.Spec.Secrets.Infisical.ProjectSlug
+    envSlug := hubEnv.Spec.Secrets.Infisical.EnvironmentSlug
+    
+    // Initialize UploadedSecrets array if nil
+    if hubEnv.Status.UploadedSecrets == nil {
+        hubEnv.Status.UploadedSecrets = []string{}
+    }
+    
+    // Define all secrets to upload based on CR spec
+    secretsToUpload := map[string]struct {
+        secretName string
+        key        string
+    }{
+        "infisical-db-username":       {"infisical-db-credentials", "username"},
+        "infisical-db-password":       {"infisical-db-credentials", "password"},
+        "platform-db-app-username":    {"platform-db-app", "username"},
+        "platform-db-app-password":    {"platform-db-app", "password"},
+        "control-plane-db-username":   {"control-plane-db-credentials", "username"},
+        "control-plane-db-password":   {"control-plane-db-credentials", "password"},
+        "hub-db-username":             {"hub-db-credentials", "username"},
+        "hub-db-password":             {"hub-db-credentials", "password"},
+        "spire-server-db-username":    {"spire-server-db-credentials", "username"},
+        "spire-server-db-password":    {"spire-server-db-credentials", "password"},
+        "hydra-db-username":           {"hydra-db-credentials", "username"},
+        "hydra-db-password":           {"hydra-db-credentials", "password"},
+        "kratos-db-username":          {"kratos-db-credentials", "username"},
+        "kratos-db-password":          {"kratos-db-credentials", "password"},
+        "keto-db-username":            {"keto-db-credentials", "username"},
+        "keto-db-password":            {"keto-db-credentials", "password"},
+    }
+    
+    // Upload only secrets NOT in UploadedSecrets array
+    for infisicalKey, secretInfo := range secretsToUpload {
+        // Check if already uploaded
+        if contains(hubEnv.Status.UploadedSecrets, infisicalKey) {
+            continue // Skip already uploaded secrets
+        }
+        
+        // Read secret from Kubernetes
+        secret := &corev1.Secret{}
+        if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+            Name:      secretInfo.secretName,
+            Namespace: hubEnv.Spec.Database.Namespace,
+        }, secret); err != nil {
+            return fmt.Errorf("failed to read secret %s: %w", secretInfo.secretName, err)
+        }
+        
+        value := string(secret.Data[secretInfo.key])
+        
+        // Upload to Infisical (PASSWORDS ONLY, no URLs/hostnames)
+        if err := r.InfisicalClient.CreateOrUpdateSecret(ctx, projectSlug, envSlug, "/", infisicalKey, value); err != nil {
+            return fmt.Errorf("failed to upload %s: %w", infisicalKey, err)
+        }
+        
+        // Add to UploadedSecrets array
+        hubEnv.Status.UploadedSecrets = append(hubEnv.Status.UploadedSecrets, infisicalKey)
+    }
+    
+    // Update status with new UploadedSecrets array
+    if err := r.Status().Update(ctx, hubEnv); err != nil {
+        return fmt.Errorf("failed to update UploadedSecrets status: %w", err)
+    }
+    
+    return nil
+}
+
+// contains checks if a string slice contains a value
+func contains(slice []string, value string) bool {
+    for _, item := range slice {
+        if item == value {
+            return true
+        }
+    }
+    return false
+}
+```
+
+### Resource Pruning (GAP #10)
+
+The operator deletes orphaned resources that exist in the cluster but are no longer defined in the HubEnvironment CR spec.
+
+**Database Role Pruning:**
+
+```go
+// pruneOrphanedRoles deletes database roles not in CR spec
+// GAP #10: Database Role Pruning
+func (rm *RoleManager) pruneOrphanedRoles(ctx context.Context, desiredRoles []string) error {
+    // Query all roles managed by hub-operator (with specific comment or prefix)
+    query := `
+        SELECT rolname 
+        FROM pg_roles 
+        WHERE rolname LIKE 'zero-ops-%' 
+           OR rolcomment LIKE '%managed-by:hub-operator%'
+    `
+    
+    rows, err := rm.db.QueryContext(ctx, query)
+    if err != nil {
+        return fmt.Errorf("failed to query existing roles: %w", err)
+    }
+    defer rows.Close()
+    
+    var existingRoles []string
+    for rows.Next() {
+        var roleName string
+        if err := rows.Scan(&roleName); err != nil {
+            return err
+        }
+        existingRoles = append(existingRoles, roleName)
+    }
+    
+    // Find orphaned roles (exist in DB but not in desired list)
+    for _, existingRole := range existingRoles {
+        if !contains(desiredRoles, existingRole) {
+            // Orphaned role - delete it
+            dropQuery := fmt.Sprintf("DROP ROLE IF EXISTS %s", existingRole)
+            if _, err := rm.db.ExecContext(ctx, dropQuery); err != nil {
+                return fmt.Errorf("failed to drop orphaned role %s: %w", existingRole, err)
+            }
+            log.Printf("Pruned orphaned database role: %s", existingRole)
+        }
+    }
+    
+    return nil
+}
+```
+
+**OAuth Client Pruning (Req 7.8):**
+
+```go
+// pruneOrphanedOAuthClients deletes OAuth clients not in CR spec
+// GAP #10: OAuth Client Pruning (Req 7.8)
+func (hc *HydraClient) pruneOrphanedOAuthClients(ctx context.Context, desiredClientIDs []string) error {
+    // List all OAuth clients
+    clients, _, err := hc.client.OAuth2API.ListOAuth2Clients(ctx).Execute()
+    if err != nil {
+        return fmt.Errorf("failed to list OAuth clients: %w", err)
+    }
+    
+    // Find orphaned clients (exist in Hydra but not in desired list)
+    for _, client := range clients {
+        clientID := client.GetClientId()
+        if !contains(desiredClientIDs, clientID) {
+            // Orphaned client - delete it
+            _, err := hc.client.OAuth2API.DeleteOAuth2Client(ctx, clientID).Execute()
+            if err != nil {
+                return fmt.Errorf("failed to delete orphaned OAuth client %s: %w", clientID, err)
+            }
+            log.Printf("Pruned orphaned OAuth client: %s", clientID)
+        }
+    }
+    
+    return nil
+}
+```
+
+**NATS Stream Pruning (Req 8.10):**
+
+```go
+// pruneOrphanedStreams deletes NATS streams not in CR spec
+// GAP #10: NATS Stream Pruning (Req 8.10)
+func (nc *NATSClient) pruneOrphanedStreams(ctx context.Context, desiredStreamNames []string) error {
+    // List all streams
+    streamNames := nc.js.StreamNames()
+    
+    var existingStreams []string
+    for name := range streamNames {
+        existingStreams = append(existingStreams, name)
+    }
+    
+    // Find orphaned streams (exist in NATS but not in desired list)
+    for _, existingStream := range existingStreams {
+        if !contains(desiredStreamNames, existingStream) {
+            // Orphaned stream - delete it
+            if err := nc.js.DeleteStream(existingStream); err != nil {
+                return fmt.Errorf("failed to delete orphaned stream %s: %w", existingStream, err)
+            }
+            log.Printf("Pruned orphaned NATS stream: %s", existingStream)
+        }
+    }
+    
+    return nil
+}
+```
+
+### Password Rotation Restart Scope (GAP #11)
+
+When passwords change, the operator executes ALTER ROLE and restarts consuming services.
+
+**Implementation in reconciler:**
+
+```go
+// handlePasswordRotation detects password changes and updates database + restarts services
+// GAP #11: Password Rotation Restart Scope (Req 23.15-23.16)
+func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment, secret *corev1.Secret) error {
+    // Determine which service this secret belongs to
+    serviceName := secret.Labels["app.kubernetes.io/component"]
+    if serviceName == "" {
+        return nil // Not a service credential
+    }
+    
+    // Extract new password
+    newPassword := string(secret.Data["password"])
+    roleName := string(secret.Data["username"])
+    
+    // Execute ALTER ROLE in PostgreSQL
+    connStr := r.buildConnectionString(hubEnv)
+    roleManager, err := database.NewRoleManager(connStr)
+    if err != nil {
+        return fmt.Errorf("failed to create role manager: %w", err)
+    }
+    defer roleManager.Close()
+    
+    alterQuery := fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s'", roleName, newPassword)
+    if _, err := roleManager.db.ExecContext(ctx, alterQuery); err != nil {
+        return fmt.Errorf("failed to alter role password: %w", err)
+    }
+    
+    // Restart consuming Deployment/StatefulSet
+    switch serviceName {
+    case "hydra":
+        if err := r.restartDeployment(ctx, "ory-hydra", "ory-system"); err != nil {
+            return err
+        }
+    case "kratos":
+        if err := r.restartDeployment(ctx, "ory-kratos", "ory-system"); err != nil {
+            return err
+        }
+    case "keto":
+        if err := r.restartDeployment(ctx, "ory-keto", "ory-system"); err != nil {
+            return err
+        }
+    case "mcp-server":
+        if err := r.restartDeployment(ctx, "mcp-server", "hub-platform-core"); err != nil {
+            return err
+        }
+    case "spire-server":
+        if err := r.restartStatefulSet(ctx, "spire-server", "hub-platform-identity"); err != nil {
+            return err
+        }
+    }
+    
+    r.Log.Info("Password rotation complete", "service", serviceName, "role", roleName)
+    return nil
+}
+```
+
+### NATS JetStream Transient Error Handling (GAP #12)
+
+Distinguish transient NATS errors from permanent configuration errors.
+
+**Implementation in `createNATSStreams`:**
+
+```go
+// createNATSStreams creates NATS JetStream streams with transient error handling
+// GAP #12: NATS JetStream Transient Errors (Req 20.13)
+func (r *HubEnvironmentReconciler) createNATSStreams(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+    for _, streamSpec := range hubEnv.Spec.NATS.Streams {
+        err := r.NATSClient.CreateStream(ctx, streamSpec.Name, streamSpec.Subjects, 
+            parseRetention(streamSpec.Retention), parseStorage(streamSpec.Storage))
+        
+        if err != nil {
+            // Check if error is transient (connection timeout, network failure)
+            if isNATSTransientError(err) {
+                // Transient error - requeue with backoff
+                return fmt.Errorf("transient NATS error: %w", err)
+            }
+            
+            // Permanent error (invalid configuration) - update status, no requeue
+            meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+                Type:    "NATSStreamsConfigured",
+                Status:  metav1.ConditionFalse,
+                Reason:  "ConfigurationError",
+                Message: fmt.Sprintf("Invalid stream configuration for %s: %v", streamSpec.Name, err),
+            })
+            return r.Status().Update(ctx, hubEnv)
+        }
+    }
+    
+    // Prune orphaned streams (GAP #10)
+    desiredStreamNames := make([]string, len(hubEnv.Spec.NATS.Streams))
+    for i, stream := range hubEnv.Spec.NATS.Streams {
+        desiredStreamNames[i] = stream.Name
+    }
+    if err := r.NATSClient.pruneOrphanedStreams(ctx, desiredStreamNames); err != nil {
+        return fmt.Errorf("failed to prune orphaned streams: %w", err)
+    }
+    
+    return nil
+}
+
+// isNATSTransientError checks if a NATS error is transient
+func isNATSTransientError(err error) bool {
+    if err == nil {
+        return false
+    }
+    errStr := err.Error()
+    // Connection errors
+    if strings.Contains(errStr, "connection refused") ||
+       strings.Contains(errStr, "connection reset") ||
+       strings.Contains(errStr, "timeout") ||
+       strings.Contains(errStr, "no servers available") {
+        return true
+    }
+    return false
+}
+```
+
+### ESO Template Pattern Examples (GAP #7)
+
+External Secrets Operator templates combine Infisical passwords with Kubernetes service discovery.
+
+**Example ESO ExternalSecret with Template:**
+
+```yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: mcp-server-db-connection
+  namespace: hub-platform-core
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-secret-store
+    kind: SecretStore
+  target:
+    name: mcp-server-db-connection
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        # GAP #7: "Secrets Only" Rule - Combine Infisical password with K8s service discovery
+        DB_HOST: "platform-db-pooler.hub-platform-data.svc.cluster.local"
+        DB_PORT: "5432"
+        DB_NAME: "control_plane"
+        DB_USER: "{{ .mcp_server_username }}"
+        DB_PASSWORD: "{{ .mcp_server_password }}"
+        DB_SSL_MODE: "require"
+        # Connection string assembled from template
+        DATABASE_URL: "postgres://{{ .mcp_server_username }}:{{ .mcp_server_password }}@platform-db-pooler.hub-platform-data.svc.cluster.local:5432/control_plane?sslmode=require"
+  dataFrom:
+  - extract:
+      key: mcp-server-db-username
+      property: value
+      decodingStrategy: None
+  - extract:
+      key: mcp-server-db-password
+      property: value
+      decodingStrategy: None
+```
+
+**Key Points:**
+- Infisical stores ONLY `mcp-server-db-username` and `mcp-server-db-password` (passwords/keys)
+- ESO template adds `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_SSL_MODE` (configuration)
+- Final secret contains complete connection information
+- No URLs, hostnames, or ports stored in Infisical
+
+**Another Example for Hydra:**
+
+```yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: hydra-db-connection
+  namespace: ory-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-secret-store
+    kind: SecretStore
+  target:
+    name: hydra-db-connection
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        DSN: "postgres://{{ .hydra_username }}:{{ .hydra_password }}@platform-db-pooler.hub-platform-data.svc.cluster.local:5432/hydra?sslmode=require"
+  dataFrom:
+  - extract:
+      key: hydra-db-username
+      property: value
+  - extract:
+      key: hydra-db-password
+      property: value
+```
+
+This pattern ensures:
+1. Infisical remains a pure secret store (passwords only)
+2. Service discovery uses Kubernetes DNS (no hardcoded IPs)
+3. Configuration changes don't require Infisical updates
+4. Secrets rotation works independently of infrastructure changestabase-connected services
 - Restarts: Infisical, Redis, Hydra, Kratos, Keto, SPIRE Server, MCP Server
 - Prevents x509 certificate errors across entire platform
 
