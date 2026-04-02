@@ -40,11 +40,6 @@ infisical:
       secretKeyRef:
         name: infisical-postgres-connection
         key: DB_NAME
-  - name: DB_SSL_MODE
-    valueFrom:
-      secretKeyRef:
-        name: infisical-postgres-connection
-        key: DB_SSL_MODE
 
   podAnnotations:
     # Force pod restart to pick up updated secrets
