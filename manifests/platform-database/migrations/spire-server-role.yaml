@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: setup-spire-server-role
-  namespace: zero-ops-system
+  namespace: platform-core-db
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 spec:
@@ -27,7 +27,7 @@ spec:
         image: postgres:15-alpine
         env:
         - name: PGHOST
-          value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+          value: "platform-db-rw.platform-db.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE

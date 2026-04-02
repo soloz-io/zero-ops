@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agentregistry-rls-migration
-  namespace: zero-ops-system
+  namespace: platform-core-db
 data:
   004_enable_rls.sql: |
     -- Enable Row Level Security on agents table

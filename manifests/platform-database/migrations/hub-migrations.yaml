@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: hub-migrations
-  namespace: zero-ops-system
+  namespace: platform-core-db
 data:
   0_grants.up.sql: |
     GRANT CREATE ON SCHEMA public TO spoke_controller;

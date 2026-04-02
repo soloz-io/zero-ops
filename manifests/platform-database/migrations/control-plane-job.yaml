@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: control-plane-migrations-v1
-  namespace: zero-ops-system
+  namespace: platform-core-db
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 spec:

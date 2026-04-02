@@ -2,7 +2,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: platform-db
-  namespace: zero-ops-system
+  namespace: platform-core-db
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
@@ -16,9 +16,9 @@ spec:
   certificates:
     serverAltDNSNames:
       - platform-db-pooler
-      - platform-db-pooler.zero-ops-system
-      - platform-db-pooler.zero-ops-system.svc
-      - platform-db-pooler.zero-ops-system.svc.cluster.local
+      - platform-db-pooler.platform-db
+      - platform-db-pooler.platform-db.svc
+      - platform-db-pooler.platform-db.svc.cluster.local
 
   bootstrap:
     initdb:
