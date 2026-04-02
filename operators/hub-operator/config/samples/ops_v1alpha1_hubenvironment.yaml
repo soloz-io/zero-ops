@@ -1,0 +1,9 @@
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: HubEnvironment
+metadata:
+  labels:
+    app.kubernetes.io/name: hub-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: hubenvironment-sample
+spec:
+  # TODO(user): Add fields here

@@ -6,13 +6,13 @@
 
 ### Subtasks:
 
-- [ ] 1.1 Scaffold operator using Kubebuilder: `kubebuilder init --domain zero-ops.io --repo github.com/soloz-io/zero-ops/operators/hub-operator`
-- [ ] 1.2 Create HubEnvironment CRD: `kubebuilder create api --group ops --version v1alpha1 --kind HubEnvironment`
-- [ ] 1.3 Configure Go module dependencies (golang-migrate, NATS SDK, Hydra SDK, CNPG API)
-- [ ] 1.4 Set up project directory structure following operators/spoke-controller pattern
-- [ ] 1.5 Create internal package structure (controller/, client/, secrets/, database/, embed/)
-- [ ] 1.6 Configure Makefile for build, test, and deployment targets
-- [ ] 1.7 Set up .gitignore for operator-specific artifacts
+- [x] 1.1 Scaffold operator using Kubebuilder: `kubebuilder init --domain zero-ops.io --repo github.com/soloz-io/zero-ops/operators/hub-operator`
+- [x] 1.2 Create HubEnvironment CRD: `kubebuilder create api --group ops --version v1alpha1 --kind HubEnvironment`
+- [x] 1.3 Configure Go module dependencies (golang-migrate, NATS SDK, Hydra SDK, CNPG API)
+- [x] 1.4 Set up project directory structure following operators/spoke-controller pattern
+- [x] 1.5 Create internal package structure (controller/, client/, secrets/, database/, embed/)
+- [x] 1.6 Configure Makefile for build, test, and deployment targets
+- [x] 1.7 Set up .gitignore for operator-specific artifacts
 
 **Acceptance Criteria:**
 - Kubebuilder project structure exists in operators/hub-operator/
