@@ -96,6 +96,10 @@ spec:
             psql -c "ALTER ROLE infisical WITH PASSWORD '${INFISICAL_PASSWORD}';" || \
             psql -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
 
+          echo "Creating cnpg_pooler_pgbouncer role for PgBouncer pooler..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'cnpg_pooler_pgbouncer'" | grep -q 1 || \
+            psql -c "CREATE ROLE cnpg_pooler_pgbouncer WITH LOGIN;"
+
           echo "Granting privileges on control_plane database..."
           psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;"
           psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO agentregistry;"
