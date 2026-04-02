@@ -21,6 +21,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: platform-infisical-infisical-standalone-infisical
+                name: platform-infisical-standalone
                 port:
                   number: 8080
