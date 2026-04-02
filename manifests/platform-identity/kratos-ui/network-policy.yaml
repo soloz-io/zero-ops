@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: kratos-ui-netpol
-  namespace: ory-system
+  namespace: hub-platform-identity
 spec:
   podSelector:
     matchLabels:

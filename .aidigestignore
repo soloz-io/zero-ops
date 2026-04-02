@@ -1,4 +1,7 @@
-.kiro
+.kiro/specs
+.kiro/steering/coding
+.kiro/steering/rules
+.kiro/steering/specs
 .vscode
 archived
 bin

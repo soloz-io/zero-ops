@@ -2,7 +2,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: victoriametrics-basic-auth
-  namespace: observability
+  namespace: hub-platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:

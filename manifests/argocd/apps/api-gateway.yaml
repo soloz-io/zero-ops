@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: api-gateway
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -13,7 +13,7 @@ spec:
     path: manifests/api-gateway
   destination:
     server: https://kubernetes.default.svc
-    namespace: api-gateway
+    namespace: hub-platform-apps
   syncPolicy:
     automated:
       prune: true

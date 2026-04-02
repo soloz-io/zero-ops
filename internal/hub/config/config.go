@@ -13,7 +13,7 @@ type Config struct {
 
 func LoadConfigFromEnv() Config {
 	return Config{
-		MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "zero-ops-system"),
+		MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "hub-capi-system"),
 		EnableEventEmission: parseBoolEnv("ENABLE_EVENT_EMISSION", true),
 		TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "nutgraf.in/"),
 	}

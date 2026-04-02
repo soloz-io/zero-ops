@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-database
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
@@ -15,7 +15,7 @@ spec:
       recurse: true
   destination:
     server: https://kubernetes.default.svc
-    namespace: platform-core-db
+    namespace: hub-platform-data
   syncPolicy:
     automated:
       prune: true

@@ -2,7 +2,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
   name: platform-db-pooler
-  namespace: platform-core-db
+  namespace: hub-platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:

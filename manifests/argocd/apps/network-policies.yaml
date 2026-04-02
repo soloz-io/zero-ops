@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: network-policies
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:

@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: setup-infisical-role
-  namespace: platform-core-db
+  namespace: hub-platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -18,7 +18,7 @@ spec:
           - sh
           - -c
           - |
-            until pg_isready -h platform-db-rw.platform-core-db.svc.cluster.local -p 5432; do
+            until pg_isready -h platform-db-rw.hub-platform-data.svc.cluster.local -p 5432; do
               echo "Waiting for database..."
               sleep 2
             done
@@ -27,7 +27,7 @@ spec:
         image: postgres:15-alpine
         env:
         - name: PGHOST
-          value: "platform-db-rw.platform-core-db.svc.cluster.local"
+          value: "platform-db-rw.hub-platform-data.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE

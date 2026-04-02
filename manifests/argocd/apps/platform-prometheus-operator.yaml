@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: prometheus-operator
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -27,7 +27,7 @@ spec:
           enabled: false
   destination:
     server: https://kubernetes.default.svc
-    namespace: observability
+    namespace: hub-platform-observability
   syncPolicy:
     automated:
       prune: true

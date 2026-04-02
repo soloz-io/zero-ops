@@ -45,7 +45,7 @@ func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSe
 	}
 
 	// Create namespace if it doesn't exist
-	namespace := "external-secrets-system"
+	namespace := "hub-platform-ops"
 	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		// Namespace doesn't exist, create it
@@ -134,7 +134,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "repo-soloz-io-zero-ops",
-			Namespace: "argocd",
+			Namespace: "hub-platform-ops",
 			Labels: map[string]string{
 				"argocd.argoproj.io/secret-type": "repository",
 				"app.kubernetes.io/managed-by":   "zero-ops-hub-cli",
@@ -151,10 +151,10 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	}
 
 	// Try to create, if exists then update
-	_, err = clientset.CoreV1().Secrets("argocd").Create(ctx, secret, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Secrets("hub-platform-ops").Create(ctx, secret, metav1.CreateOptions{})
 	if err != nil {
 		// Secret might already exist, try to update
-		_, err = clientset.CoreV1().Secrets("argocd").Update(ctx, secret, metav1.UpdateOptions{})
+		_, err = clientset.CoreV1().Secrets("hub-platform-ops").Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create or update ArgoCD GitHub secret: %w", err)
 		}
@@ -199,7 +199,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "platform-core-db"
+	namespace := "hub-platform-data"
 
 	// Check if secrets exist - but always update to ensure correct TLS configuration
 	// This is necessary because TLS configuration may change (e.g., adding DB_ROOT_CERT)
@@ -228,7 +228,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		
 		// Extract Redis password from URL
 		redisURL := string(infSecret.Data["REDIS_URL"])
-		// Parse: redis://:PASSWORD@redis-master.platform-core-db.svc:6379
+		// Parse: redis://:PASSWORD@redis-master.hub-platform-data.svc:6379
 		if idx := strings.Index(redisURL, "redis://:"); idx >= 0 {
 			start := idx + len("redis://:")
 			if end := strings.Index(redisURL[start:], "@"); end >= 0 {
@@ -263,7 +263,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		
 		fmt.Println("[bootstrap-secrets] Generated new ENCRYPTION_KEY and AUTH_SECRET")
 	}
-	redisURL := fmt.Sprintf("redis://:%s@redis-master.platform-core-db.svc:6379", redisPassword)
+	redisURL := fmt.Sprintf("redis://:%s@redis-master.hub-platform-data.svc:6379", redisPassword)
 
 	// TLS Configuration Strategy: TLS Everywhere (Production-Grade)
 	// Architecture: Infisical → PgBouncer (TLS) → PostgreSQL (TLS)
@@ -377,7 +377,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "platform-core-db"
+	namespace := "hub-platform-data"
 
 	// Step 1: Generate and inject platform-db-app (CNPG Secret Zero)
 	appSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
@@ -475,7 +475,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"DB_HOST":     "platform-db-pooler.platform-core-db.svc",  // PgBouncer service
+			"DB_HOST":     "platform-db-pooler.hub-platform-data.svc",  // PgBouncer service
 			"DB_PORT":     "5432",
 			"DB_USER":     "infisical",
 			"DB_PASSWORD": infPassword,
@@ -531,7 +531,7 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "platform-core-db"
+	namespace := "hub-platform-data"
 
 	// Create Infisical API client
 	infisicalClient, err := infisical.NewClient(ctx, clientset)
@@ -705,7 +705,7 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "platform-core-db"
+	namespace := "hub-platform-security"
 	timeout := 5 * time.Minute
 	checkInterval := 5 * time.Second
 	deadline := time.Now().Add(timeout)
@@ -749,7 +749,7 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "platform-core-db"
+	namespace := "hub-platform-data"
 	patchData := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, time.Now().Format(time.RFC3339)))
 
 	fmt.Println("[bootstrap-secrets] Changes detected. Triggering workload rollouts to sync...")

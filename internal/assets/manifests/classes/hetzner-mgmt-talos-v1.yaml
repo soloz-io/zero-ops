@@ -2,7 +2,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
   name: hetzner-mgmt-talos-v1
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   controlPlane:
     ref:
@@ -161,7 +161,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
 metadata:
   name: hetzner-mgmt-cluster
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   template:
     spec:
@@ -188,7 +188,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
 kind: TalosControlPlane
 metadata:
   name: hetzner-mgmt-control-plane
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   infrastructureTemplate:
     apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -202,7 +202,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-mgmt-control-plane-machine
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   template:
     spec:
@@ -213,7 +213,7 @@ apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
 kind: TalosConfigTemplate
 metadata:
   name: hetzner-mgmt-worker-bootstrap
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   template:
     spec:
@@ -223,7 +223,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-mgmt-worker-machine
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   template:
     spec:

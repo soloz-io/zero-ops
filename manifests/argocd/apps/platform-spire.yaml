@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-spire
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:
@@ -13,7 +13,7 @@ spec:
     path: manifests/platform-core-services/spire
   destination:
     server: https://kubernetes.default.svc
-    namespace: spire-system
+    namespace: hub-platform-security
   syncPolicy:
     automated:
       prune: true

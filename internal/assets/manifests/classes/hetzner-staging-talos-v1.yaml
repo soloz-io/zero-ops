@@ -2,7 +2,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
   name: hetzner-staging-talos-v1
-  namespace: zero-ops-system
+  namespace: hub-capi-system
 spec:
   controlPlane:
     ref:

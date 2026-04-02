@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spire-agent
-  namespace: spire-system
+  namespace: hub-platform-security
 data:
   agent.conf: |
     agent {
       data_dir = "/run/spire"
       log_level = "INFO"
-      server_address = "spire-server.spire-system.svc.cluster.local"
+      server_address = "spire-server.hub-platform-security.svc.cluster.local"
       server_port = "8081"
       socket_path = "/run/spire/sockets/agent.sock"
       trust_bundle_path = "/run/spire/bundle/bundle.crt"

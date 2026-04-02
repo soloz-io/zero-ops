@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis-master
-  namespace: platform-core-db
+  namespace: hub-platform-data
   labels:
     app.kubernetes.io/name: redis
     app.kubernetes.io/component: master
@@ -47,7 +47,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redis-master
-  namespace: platform-core-db
+  namespace: hub-platform-data
   labels:
     app.kubernetes.io/name: redis
     app.kubernetes.io/component: master

@@ -69,7 +69,7 @@ func (i *OperatorInstaller) Install(ctx context.Context) error {
 }
 
 func (i *OperatorInstaller) ensureCertManager(ctx context.Context) error {
-	// Check if cert-manager namespace exists
+	// Check if cert-manager namespace exists (upstream uses cert-manager namespace)
 	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", "namespace", "cert-manager")...)
 	
 	if err := cmd.Run(); err == nil {
@@ -93,7 +93,7 @@ func (i *OperatorInstaller) ensureCertManager(ctx context.Context) error {
 func (i *OperatorInstaller) waitForCertManagerAPI(ctx context.Context) error {
 	fmt.Println("[capi-init] Waiting for cert-manager API...")
 	
-	// Wait for webhook deployment
+	// Wait for webhook deployment (upstream installs to cert-manager namespace)
 	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
 		"-n", "cert-manager",
 		"cert-manager-webhook",

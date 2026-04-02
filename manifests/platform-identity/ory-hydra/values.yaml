@@ -58,7 +58,7 @@ deployment:
           name: identity-postgres-passwords
           key: hydra-password
     - name: DSN
-      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
+      value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/hydra_db
     - name: SECRETS_SYSTEM
       valueFrom:
         secretKeyRef:
@@ -81,9 +81,9 @@ deployment:
             name: identity-postgres-passwords
             key: hydra-password
       - name: DSN
-        value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/hydra_db
+        value: postgres://hydra:$(HYDRA_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/hydra_db
 
   extraInitContainers: |
     - name: wait-for-postgres
       image: postgres:15-alpine
-      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']
+      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local -p 5432; do sleep 2; done']

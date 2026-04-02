@@ -88,14 +88,14 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		ns     string
 		secret *corev1.Secret
 	}{
-		{"cert-manager", hetznerDNSSecret("cert-manager", dnsToken)},
-		{"kube-system", hetznerDNSSecret("kube-system", dnsToken)},
-		{"kube-system", hcloudSecret(hcloudToken)},
-		{"zero-ops-system", postgresPasswordsSecret(ctx, client, hydraPwd, kratosPwd, ketoPwd)},
-		{"ory-system", kratosUISecret()},
-		{"identity-services", ghcrPullSecret(ghcrUsername, ghcrToken)},
-		{"api-gateway", ghcrPullSecret(ghcrUsername, ghcrToken)},
-		{"argocd", argoCDRepoSecret(githubToken)},
+		{"hub-platform-edge", hetznerDNSSecret("hub-platform-edge", dnsToken)},
+		{"hub-cloud-system", hetznerDNSSecret("hub-cloud-system", dnsToken)},
+		{"hub-cloud-system", hcloudSecret(hcloudToken)},
+		{"hub-capi-system", postgresPasswordsSecret(ctx, client, hydraPwd, kratosPwd, ketoPwd)},
+		{"hub-platform-identity", kratosUISecret()},
+		{"hub-platform-identity", ghcrPullSecret(ghcrUsername, ghcrToken)},
+		{"hub-platform-apps", ghcrPullSecret(ghcrUsername, ghcrToken)},
+		{"hub-platform-ops", argoCDRepoSecret(githubToken)},
 	}
 
 	for _, s := range secrets {
@@ -179,7 +179,7 @@ func applySecret(ctx context.Context, client kubernetes.Interface, ns string, s 
 
 func kratosUISecret() *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "kratos-ui-secrets", Namespace: "ory-system"},
+		ObjectMeta: metav1.ObjectMeta{Name: "kratos-ui-secrets", Namespace: "hub-platform-identity"},
 		StringData: map[string]string{
 			"cookie-secret":      randomHex(),
 			"csrf-cookie-secret": randomHex(),
@@ -203,7 +203,7 @@ func hetznerDNSSecret(ns, token string) *corev1.Secret {
 
 func postgresPasswordsSecret(ctx context.Context, client kubernetes.Interface, hydra, kratos, keto string) *corev1.Secret {
 	// Preserve existing hydra-system-secret if already set
-	existing, _ := client.CoreV1().Secrets("zero-ops-system").Get(ctx, "identity-postgres-passwords", metav1.GetOptions{})
+	existing, _ := client.CoreV1().Secrets("hub-capi-system").Get(ctx, "identity-postgres-passwords", metav1.GetOptions{})
 	hydraSystemSecret := ""
 	if existing != nil {
 		hydraSystemSecret = string(existing.Data["hydra-system-secret"])
@@ -221,7 +221,7 @@ func postgresPasswordsSecret(ctx context.Context, client kubernetes.Interface, h
 		keto = randomHex()
 	}
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "identity-postgres-passwords", Namespace: "zero-ops-system"},
+		ObjectMeta: metav1.ObjectMeta{Name: "identity-postgres-passwords", Namespace: "hub-capi-system"},
 		StringData: map[string]string{
 			"hydra-password":      hydra,
 			"kratos-password":     kratos,
@@ -244,7 +244,7 @@ func argoCDRepoSecret(token string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "repo-soloz-io-zero-ops",
-			Namespace: "argocd",
+			Namespace: "hub-platform-ops",
 			Labels:    map[string]string{"argocd.argoproj.io/secret-type": "repository"},
 		},
 		StringData: map[string]string{
@@ -258,7 +258,7 @@ func argoCDRepoSecret(token string) *corev1.Secret {
 
 func seedDemoUser(ctx context.Context, client kubernetes.Interface, cfg *rest.Config) error {
 	// Find kratos pod
-	pods, err := client.CoreV1().Pods("ory-system").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/name=kratos,app.kubernetes.io/instance=ory-kratos"})
+	pods, err := client.CoreV1().Pods("hub-platform-identity").List(ctx, metav1.ListOptions{LabelSelector: "app.kubernetes.io/name=kratos,app.kubernetes.io/instance=ory-kratos"})
 	if err != nil || len(pods.Items) == 0 {
 		return fmt.Errorf("kratos pod not found: %w", err)
 	}
@@ -270,7 +270,7 @@ func seedDemoUser(ctx context.Context, client kubernetes.Interface, cfg *rest.Co
 		return err
 	}
 	url := client.CoreV1().RESTClient().Post().
-		Resource("pods").Name(podName).Namespace("ory-system").
+		Resource("pods").Name(podName).Namespace("hub-platform-identity").
 		SubResource("portforward").URL()
 
 	stopCh := make(chan struct{})
@@ -332,7 +332,7 @@ var skipApps = map[string]bool{"cert-manager-webhook-hetzner": true}
 func waitForArgoCD(ctx context.Context, dyn dynamic.Interface) error {
 	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {
-		list, err := dyn.Resource(appGVR).Namespace("argocd").List(ctx, metav1.ListOptions{})
+		list, err := dyn.Resource(appGVR).Namespace("hub-platform-ops").List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
@@ -360,9 +360,9 @@ func waitForArgoCD(ctx context.Context, dyn dynamic.Interface) error {
 
 func waitForCerts(ctx context.Context, dyn dynamic.Interface) error {
 	targets := []struct{ ns, name string }{
-		{"api-gateway", "api-zero-ops-tls"},
-		{"identity-services", "auth-zero-ops-tls"},
-		{"ory-system", "console-zero-ops-tls"},
+		{"hub-platform-apps", "api-zero-ops-tls"},
+		{"hub-platform-identity", "auth-zero-ops-tls"},
+		{"hub-platform-identity", "console-zero-ops-tls"},
 	}
 	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {

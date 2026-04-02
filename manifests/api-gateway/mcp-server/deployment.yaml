@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mcp-server
-  namespace: api-gateway
+  namespace: hub-platform-apps
 spec:
   replicas: 1
   selector:

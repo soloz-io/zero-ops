@@ -25,7 +25,7 @@ check_sql() {
     
     echo -n "Checking: $description... "
     
-    result=$(kubectl exec -n zero-ops-system platform-db-1 -- \
+    result=$(kubectl exec -n hub-platform-data platform-db-1 -- \
         psql -U postgres -d "$db" -tAc "$query" 2>/dev/null || echo "ERROR")
     
     if [ "$result" = "$expected" ]; then
@@ -94,7 +94,7 @@ check_sql "postgres" \
 
 # 1.1.6 - Verify control-plane-db-credentials secret exists
 echo -n "Checking: control-plane-db-credentials secret exists... "
-if kubectl get secret control-plane-db-credentials -n zero-ops-system &>/dev/null; then
+if kubectl get secret control-plane-db-credentials -n hub-platform-data &>/dev/null; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"
@@ -103,7 +103,7 @@ fi
 
 # 1.1.6 - Verify control-plane-db-credentials has required keys
 echo -n "Checking: control-plane-db-credentials has 'url' key... "
-if kubectl get secret control-plane-db-credentials -n zero-ops-system -o jsonpath='{.data.url}' | base64 -d | grep -q "control_plane"; then
+if kubectl get secret control-plane-db-credentials -n hub-platform-data -o jsonpath='{.data.url}' | base64 -d | grep -q "control_plane"; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"
@@ -152,7 +152,7 @@ check_sql "postgres" \
 
 # 1.2.6 - Verify hub-db-credentials secret exists
 echo -n "Checking: hub-db-credentials secret exists... "
-if kubectl get secret hub-db-credentials -n zero-ops-system &>/dev/null; then
+if kubectl get secret hub-db-credentials -n hub-platform-data &>/dev/null; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"
@@ -161,7 +161,7 @@ fi
 
 # 1.2.6 - Verify hub-db-credentials has required keys
 echo -n "Checking: hub-db-credentials has 'url' key... "
-if kubectl get secret hub-db-credentials -n zero-ops-system -o jsonpath='{.data.url}' | base64 -d | grep -q "hub"; then
+if kubectl get secret hub-db-credentials -n hub-platform-data -o jsonpath='{.data.url}' | base64 -d | grep -q "hub"; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"
@@ -204,8 +204,8 @@ else
     echo ""
     echo "Troubleshooting:"
     echo "1. Ensure ArgoCD has synced platform-database application (sync-wave 2)"
-    echo "2. Run: kubectl get applications -n argocd | grep platform-database"
-    echo "3. Check migration jobs: kubectl get jobs -n zero-ops-system | grep migrations"
+    echo "2. Run: kubectl get applications -n hub-platform-ops | grep platform-database"
+    echo "3. Check migration jobs: kubectl get jobs -n hub-platform-data | grep migrations"
     echo "4. Run: hub init-secrets (to generate secure credentials)"
     exit 1
 fi

@@ -17,7 +17,7 @@ kratos:
         - id: default
           url: file:///etc/config/schemas/identity.schema.json
     oauth2_provider:
-      url: http://ory-hydra-admin.ory-system.svc.cluster.local:4445
+      url: http://ory-hydra-admin.hub-platform-identity.svc.cluster.local:4445
       override_return_to: true
     selfservice:
       default_browser_return_url: https://console.nutgraf.in/
@@ -48,7 +48,7 @@ deployment:
           name: identity-postgres-passwords
           key: kratos-password
     - name: DSN
-      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/kratos_db
+      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos_db
 
   automigration:
     extraEnv:
@@ -58,7 +58,7 @@ deployment:
             name: identity-postgres-passwords
             key: kratos-password
       - name: DSN
-        value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local:5432/kratos_db
+        value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos_db
 
   extraVolumes:
     - name: identity-schema
@@ -73,4 +73,4 @@ deployment:
   extraInitContainers: |
     - name: wait-for-postgres
       image: postgres:15-alpine
-      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.zero-ops-system.svc.cluster.local -p 5432; do sleep 2; done']
+      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local -p 5432; do sleep 2; done']

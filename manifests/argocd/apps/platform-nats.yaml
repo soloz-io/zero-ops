@@ -2,14 +2,14 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-nats
-  namespace: argocd
+  namespace: hub-platform-ops
   labels:
     argocd.argoproj.io/instance: platform-core
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:
   destination:
-    namespace: zero-ops-system
+    namespace: hub-platform-messaging
     server: https://kubernetes.default.svc
   project: default
   source:

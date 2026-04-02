@@ -23,7 +23,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	secretCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,
 		"create", "secret", "generic", "hcloud",
-		"-n", "kube-system",
+		"-n", "hub-cloud-system",
 		"--from-literal=token="+hcloudToken,
 		"--dry-run=client", "-o", "yaml",
 	)
@@ -54,7 +54,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 		return fmt.Errorf("failed to install CSI: %w\n%s", err, output)
 	}
 	
-	if err := i.verify(ctx, "kube-system", "hcloud-csi-controller"); err != nil {
+	if err := i.verify(ctx, "hub-cloud-system", "hcloud-csi-controller"); err != nil {
 		return fmt.Errorf("failed to verify CSI: %w", err)
 	}
 	fmt.Println("[postboot] ✓ hetzner-csi ready")
@@ -77,7 +77,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 		return fmt.Errorf("failed to install capi2argo: %w\n%s", err, output)
 	}
 	
-	if err := i.verify(ctx, "capi2argo-system", "capi2argo-controller-manager"); err != nil {
+	if err := i.verify(ctx, "hub-platform-ops", "capi2argo-controller-manager"); err != nil {
 		return fmt.Errorf("failed to verify capi2argo: %w", err)
 	}
 	fmt.Println("[postboot] ✓ capi2argo ready")
@@ -187,7 +187,7 @@ func (i *Installer) GetArgoCDPassword(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,
 		"get", "secret", "argocd-initial-admin-secret",
-		"-n", "argocd",
+		"-n", "hub-platform-ops",
 		"-o", "jsonpath={.data.password}",
 	)
 	
@@ -227,7 +227,7 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 	// Install ArgoCD
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "argocd", "argo/argo-cd",
 		"--version", "7.7.12",
-		"--namespace", "argocd",
+		"--namespace", "hub-platform-ops",
 		"--create-namespace",
 		"--kubeconfig", i.Kubeconfig,
 		"--wait",
@@ -264,7 +264,7 @@ func (i *Installer) InstallCilium(ctx context.Context) error {
 	// Install Cilium
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "cilium", "cilium/cilium",
 		"--version", "1.15.6",
-		"--namespace", "kube-system",
+		"--namespace", "hub-platform-ops",
 		"--kubeconfig", i.Kubeconfig,
 		"--set", "ipam.mode=kubernetes",
 		"--set", "kubeProxyReplacement=true",
@@ -305,7 +305,7 @@ func (i *Installer) InstallCCM(ctx context.Context, hcloudToken string) error {
 	// Install CCM
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "ccm", "syself/ccm-hetzner",
 		"--version", "1.1.10",
-		"--namespace", "kube-system",
+		"--namespace", "hub-cloud-system",
 		"--kubeconfig", i.Kubeconfig,
 		"--set", fmt.Sprintf("secret.hcloudApiToken=%s", hcloudToken),
 		"--wait",

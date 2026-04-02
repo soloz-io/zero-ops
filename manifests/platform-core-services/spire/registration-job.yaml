@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: spire-registration
-  namespace: spire-system
+  namespace: hub-platform-security
   annotations:
     argocd.argoproj.io/sync-wave: "9"
     argocd.argoproj.io/hook: PostSync
@@ -21,7 +21,7 @@ spec:
           set -e
           
           # Wait for SPIRE Server service to be ready
-          until wget --spider -q http://spire-server.spire-system.svc.cluster.local:8080/ready; do
+          until wget --spider -q http://spire-server.hub-platform-security.svc.cluster.local:8080/ready; do
             echo "Waiting for SPIRE Server..."
             sleep 2
           done

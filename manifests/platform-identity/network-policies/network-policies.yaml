@@ -2,7 +2,7 @@
 # kind: NetworkPolicy
 # metadata:
 #   name: auth-proxy-netpol
-#   namespace: identity-services
+#   namespace: hub-platform-identity
 # spec:
 #   podSelector:
 #     matchLabels:
@@ -134,7 +134,7 @@
 # kind: NetworkPolicy
 # metadata:
 #   name: ory-stack-netpol
-#   namespace: ory-system
+#   namespace: hub-platform-identity
 # spec:
 #   podSelector:
 #     matchExpressions:

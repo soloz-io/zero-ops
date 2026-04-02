@@ -185,7 +185,7 @@ func runPreflight(ctx context.Context, hcloudToken string) error {
 	runner.Add(&preflight.SSHKeyValidator{Token: hcloudToken, KeyName: sshKey})
 	runner.Add(&preflight.IdempotencyValidator{
 		ClusterName:      clusterName,
-		Namespace:        "zero-ops-system",
+		Namespace:        "hub-capi-system",
 		BootstrapContext: bootstrapContext,
 		Upgrade:          upgrade,
 	})

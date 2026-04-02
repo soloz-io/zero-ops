@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kratos-identity-schema
-  namespace: ory-system
+  namespace: hub-platform-identity
 data:
   identity.schema.json: |
     {

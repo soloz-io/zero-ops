@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kratos-selfservice-ui
-  namespace: ory-system
+  namespace: hub-platform-identity
 spec:
   selector:
     app: kratos-selfservice-ui

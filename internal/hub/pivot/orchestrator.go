@@ -228,7 +228,7 @@ func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig
 	cmd = exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", mgmtKubeconfig,
 		"wait", "deployment",
-		"-n", "cert-manager",
+		"-n", "hub-platform-edge",
 		"cert-manager-webhook",
 		"--for=condition=Available",
 		"--timeout=3m",

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kratos-selfservice-ui-node
-  namespace: ory-system
+  namespace: hub-platform-identity
 spec:
   replicas: 2
   selector:
@@ -21,7 +21,7 @@ spec:
           name: http
         env:
         - name: KRATOS_PUBLIC_URL
-          value: "http://ory-kratos-public.ory-system.svc.cluster.local:80"
+          value: "http://ory-kratos-public.hub-platform-identity.svc.cluster.local:80"
         - name: KRATOS_BROWSER_URL
           value: "https://console.nutgraf.in"
         - name: COOKIE_SECRET
@@ -48,7 +48,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kratos-selfservice-ui-node
-  namespace: ory-system
+  namespace: hub-platform-identity
 spec:
   selector:
     app: kratos-selfservice-ui-node

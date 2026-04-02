@@ -9,11 +9,11 @@ echo "=== Infisical External Secrets Health Check ==="
 echo ""
 
 # Configuration
-INFISICAL_API="https://infisical.zero-ops-system.svc"
+INFISICAL_API="https://infisical.hub-platform-data.svc"
 
 # Step 1: Verify Infisical API is accessible
 echo "1. Verifying Infisical API is accessible..."
-if kubectl get service platform-infisical-standalone -n zero-ops-system &>/dev/null; then
+if kubectl get service platform-infisical-standalone -n hub-platform-data &>/dev/null; then
   echo "   ✓ Infisical service exists"
 else
   echo "   ✗ Infisical service not found"

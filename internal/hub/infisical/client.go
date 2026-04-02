@@ -35,7 +35,7 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	baseURL := "https://infisical.nutgraf.in"
 	
 	// Get Universal Auth credentials from the same secret ESO uses
-	esoNamespace := "external-secrets-system"
+	esoNamespace := "hub-platform-ops"
 	secret, err := clientset.CoreV1().Secrets(esoNamespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get infisical-auth secret: %w (run 'hub configure-eso' first)", err)
@@ -276,7 +276,7 @@ func (c *Client) updateSecret(ctx context.Context, workspaceId, environmentSlug,
 func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*Config, error) {
 	// Read the ClusterSecretStore to get projectSlug and environmentSlug
 	// Since we can't directly read CRDs without the CRD client, we'll use a ConfigMap fallback
-	cm, err := clientset.CoreV1().ConfigMaps("zero-ops-system").Get(ctx, "infisical-bootstrap-config", metav1.GetOptions{})
+	cm, err := clientset.CoreV1().ConfigMaps("hub-capi-system").Get(ctx, "infisical-bootstrap-config", metav1.GetOptions{})
 	if err != nil {
 		// Fallback to hardcoded values from cluster-secret-store.yaml
 		return &Config{
