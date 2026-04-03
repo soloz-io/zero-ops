@@ -304,12 +304,24 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 	result.InfisicalDBCredentials = infisicalDBCreds
 
 	// Generate infisical-postgres-connection using infisical-db-credentials
+	// If infisicalDBCreds is nil (already exists), use existing secret data
+	var username, password string
+	if infisicalDBCreds != nil {
+		username = string(infisicalDBCreds.Data["username"])
+		password = string(infisicalDBCreds.Data["password"])
+	} else if existing, ok := existingSecrets["infisical-db-credentials"]; ok {
+		username = string(existing.Data["username"])
+		password = string(existing.Data["password"])
+	} else {
+		return nil, fmt.Errorf("infisical-db-credentials not found")
+	}
+
 	infisicalPostgresConn, err := GenerateInfisicalPostgresConnection(
 		namespace,
 		dbHost,
 		"infisical",
-		string(infisicalDBCreds.Data["username"]),
-		string(infisicalDBCreds.Data["password"]),
+		username,
+		password,
 		owner,
 	)
 	if err != nil {
