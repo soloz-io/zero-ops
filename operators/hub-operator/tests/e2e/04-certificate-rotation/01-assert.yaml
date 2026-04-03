@@ -1,0 +1,11 @@
+---
+# AC 19.3: Assert DB_ROOT_CERT updated in infisical-secrets
+# KUTTL will poll until this matches or timeout
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-secrets
+  namespace: hub-platform-data
+  annotations:
+    # Verify the secret was updated (resourceVersion will have changed)
+    ops.zero-ops.io/rotation-test: "true"

@@ -1,0 +1,11 @@
+---
+# AC 17.4: Assert DatabaseRolesConfigured condition is True
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-production
+  namespace: hub-platform-ops
+status:
+  conditions:
+  - type: DatabaseRolesConfigured
+    status: "True"

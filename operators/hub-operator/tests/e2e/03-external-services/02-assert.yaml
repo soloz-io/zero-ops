@@ -1,0 +1,11 @@
+---
+# AC 18.6: Assert OAuthClientsRegistered condition is True
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-production
+  namespace: hub-platform-ops
+status:
+  conditions:
+  - type: OAuthClientsRegistered
+    status: "True"

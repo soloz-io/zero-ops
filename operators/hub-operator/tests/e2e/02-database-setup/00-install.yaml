@@ -1,0 +1,24 @@
+---
+# Deploy CNPG Cluster via ArgoCD Application (GitOps-first, no kubectl apply)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops.git
+    targetRevision: HEAD
+    path: manifests/platform-database
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hub-platform-data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

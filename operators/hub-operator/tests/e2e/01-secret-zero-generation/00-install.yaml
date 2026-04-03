@@ -1,0 +1,46 @@
+---
+# Deploy hub-operator via ArgoCD Application (GitOps-first, no kubectl apply)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hub-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops.git
+    targetRevision: HEAD
+    path: operators/hub-operator/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hub-platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+---
+# Deploy HubEnvironment CR via ArgoCD Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hub-environment
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops.git
+    targetRevision: HEAD
+    path: operators/hub-operator/config/samples
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hub-platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

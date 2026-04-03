@@ -1,0 +1,11 @@
+---
+# AC 17.3: Assert MigrationsComplete condition is True
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-production
+  namespace: hub-platform-ops
+status:
+  conditions:
+  - type: MigrationsComplete
+    status: "True"

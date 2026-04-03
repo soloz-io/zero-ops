@@ -1,0 +1,11 @@
+---
+# AC 18.7: Assert NATSStreamsConfigured condition is True
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-production
+  namespace: hub-platform-ops
+status:
+  conditions:
+  - type: NATSStreamsConfigured
+    status: "True"
