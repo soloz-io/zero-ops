@@ -1,0 +1,231 @@
+# apiVersion: cluster.x-k8s.io/v1beta1
+# kind: ClusterClass
+# metadata:
+#   name: hetzner-mgmt-talos-v1
+#   namespace: hub-capi-system
+# spec:
+#   controlPlane:
+#     ref:
+#       apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+#       kind: TalosControlPlane
+#       name: hetzner-mgmt-control-plane
+#     machineInfrastructure:
+#       ref:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HCloudMachineTemplate
+#         name: hetzner-mgmt-control-plane-machine
+#   infrastructure:
+#     ref:
+#       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#       kind: HetznerClusterTemplate
+#       name: hetzner-mgmt-cluster
+#   workers:
+#     machineDeployments:
+#     - class: default-worker
+#       template:
+#         bootstrap:
+#           ref:
+#             apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+#             kind: TalosConfigTemplate
+#             name: hetzner-mgmt-worker-bootstrap
+#         infrastructure:
+#           ref:
+#             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#             kind: HCloudMachineTemplate
+#             name: hetzner-mgmt-worker-machine
+#   variables:
+#   - name: region
+#     required: true
+#     schema:
+#       openAPIV3Schema:
+#         type: string
+#         default: fsn1
+#   - name: talosImageId
+#     required: true
+#     schema:
+#       openAPIV3Schema:
+#         type: string
+#   - name: networkCidr
+#     required: false
+#     schema:
+#       openAPIV3Schema:
+#         type: string
+#         default: "10.0.0.0/16"
+#   - name: hcloudSSHKeyName
+#     required: true
+#     schema:
+#       openAPIV3Schema:
+#         type: array
+#         items:
+#           type: object
+#           properties:
+#             name:
+#               type: string
+#   - name: hcloudPlacementGroups
+#     required: false
+#     schema:
+#       openAPIV3Schema:
+#         type: array
+#         default:
+#         - name: control-plane
+#           type: spread
+#         - name: workers
+#           type: spread
+#         items:
+#           type: object
+#           properties:
+#             name:
+#               type: string
+#             type:
+#               type: string
+#   patches:
+#   - name: region
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HetznerClusterTemplate
+#         matchResources:
+#           infrastructureCluster: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/controlPlaneRegions
+#         valueFrom:
+#           template: "[{{ .region | quote }}]"
+#       - op: add
+#         path: /spec/template/spec/controlPlaneLoadBalancer/region
+#         valueFrom:
+#           variable: region
+#   - name: talosImageControlPlane
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HCloudMachineTemplate
+#         matchResources:
+#           controlPlane: true
+#       jsonPatches:
+#       - op: replace
+#         path: /spec/template/spec/imageName
+#         valueFrom:
+#           variable: talosImageId
+#   - name: talosImageWorker
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HCloudMachineTemplate
+#         matchResources:
+#           machineDeploymentClass:
+#             names: ["default-worker"]
+#       jsonPatches:
+#       - op: replace
+#         path: /spec/template/spec/imageName
+#         valueFrom:
+#           variable: talosImageId
+#   - name: networkCidr
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HetznerClusterTemplate
+#         matchResources:
+#           infrastructureCluster: true
+#       jsonPatches:
+#       - op: replace
+#         path: /spec/template/spec/hcloudNetwork/cidrBlock
+#         valueFrom:
+#           variable: networkCidr
+#   - name: sshKeys
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HetznerClusterTemplate
+#         matchResources:
+#           infrastructureCluster: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/sshKeys/hcloud
+#         valueFrom:
+#           variable: hcloudSSHKeyName
+#   - name: placementGroups
+#     definitions:
+#     - selector:
+#         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#         kind: HetznerClusterTemplate
+#         matchResources:
+#           infrastructureCluster: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/hcloudPlacementGroups
+#         valueFrom:
+#           variable: hcloudPlacementGroups
+# ---
+# apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+# kind: HetznerClusterTemplate
+# metadata:
+#   name: hetzner-mgmt-cluster
+#   namespace: hub-capi-system
+# spec:
+#   template:
+#     spec:
+#       controlPlaneEndpoint:
+#         host: ""
+#         port: 443
+#       controlPlaneLoadBalancer:
+#         enabled: true
+#         type: lb11
+#         region: fsn1
+#       controlPlaneRegions: []
+#       hcloudNetwork:
+#         enabled: true
+#         cidrBlock: "10.0.0.0/16"
+#         networkZone: eu-central
+#       hetznerSecretRef:
+#         name: hetzner-credentials
+#         key:
+#           hcloudToken: hcloud
+#       sshKeys:
+#         hcloud: []
+# ---
+# apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+# kind: TalosControlPlane
+# metadata:
+#   name: hetzner-mgmt-control-plane
+#   namespace: hub-capi-system
+# spec:
+#   infrastructureTemplate:
+#     apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+#     kind: HCloudMachineTemplate
+#     name: hetzner-mgmt-control-plane-machine
+#   controlPlaneConfig:
+#     controlplane:
+#       generateType: controlplane
+# ---
+# apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+# kind: HCloudMachineTemplate
+# metadata:
+#   name: hetzner-mgmt-control-plane-machine
+#   namespace: hub-capi-system
+# spec:
+#   template:
+#     spec:
+#       type: cpx31
+#       imageName: talos-placeholder
+# ---
+# apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+# kind: TalosConfigTemplate
+# metadata:
+#   name: hetzner-mgmt-worker-bootstrap
+#   namespace: hub-capi-system
+# spec:
+#   template:
+#     spec:
+#       generateType: worker
+# ---
+# apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+# kind: HCloudMachineTemplate
+# metadata:
+#   name: hetzner-mgmt-worker-machine
+#   namespace: hub-capi-system
+# spec:
+#   template:
+#     spec:
+#       type: cpx31
+#       imageName: talos-placeholder

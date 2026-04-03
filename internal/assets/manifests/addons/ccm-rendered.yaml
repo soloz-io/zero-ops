@@ -1,4 +1,10 @@
 ---
+# Namespace must be created first for ClusterResourceSet to work
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hub-cloud-system
+---
 # Source: ccm-hetzner/templates/pdb.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget

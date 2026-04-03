@@ -72,8 +72,7 @@ code Bash
 
 ## Command
 export HCLOUD_TOKEN="<your-hetzner-api-token>" && ./
-cmd/hub/hub bootstrap --name=hub-cp --region=
-fsn1 --debug 2>&1 | tee /tmp/bootstrap-hub-cp
-.log
+cmd/hub/hub bootstrap --name=hub-cp --region=fsn1 --debug 2>&1 | tee /tmp/bootstrap-hub-cp.log
+
 
 Note: Once complete, the CLI will output the path to your new task21-test.kubeconfig.
