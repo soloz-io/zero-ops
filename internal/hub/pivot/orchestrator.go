@@ -192,13 +192,18 @@ func (o *Orchestrator) getKubeconfig(ctx context.Context) (string, error) {
 		return "", decodeErr
 	}
 	
-	// Save to temp file
-	tmpDir := os.TempDir()
-	path := filepath.Join(tmpDir, fmt.Sprintf("%s.kubeconfig", o.ClusterName))
+	// Save to secrets/kubeconfig directory
+	kubeconfigDir := "secrets/kubeconfig"
+	if err := os.MkdirAll(kubeconfigDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create kubeconfig directory: %w", err)
+	}
+	
+	path := filepath.Join(kubeconfigDir, fmt.Sprintf("%s.kubeconfig", o.ClusterName))
 	if err = os.WriteFile(path, decoded, 0600); err != nil {
 		return "", err
 	}
 	
+	fmt.Printf("[pivot] ✓ Kubeconfig saved to %s\n", path)
 	return path, nil
 }
 
