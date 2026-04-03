@@ -3,11 +3,6 @@ name: hub-operator
 on:
   push:
     branches: [main]
-    paths:
-      - operators/hub-operator/**
-      - go.mod
-      - go.sum
-      - .github/workflows/hub-operator.yml
 
 permissions:
   contents: read
