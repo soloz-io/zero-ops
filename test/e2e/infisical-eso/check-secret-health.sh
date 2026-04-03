@@ -42,7 +42,7 @@ fi
 
 # Step 4: Verify ArgoCD GitHub secret exists and is synced
 echo "4. Verifying ArgoCD GitHub authentication..."
-if kubectl get secret repo-soloz-io-zero-ops -n argocd &>/dev/null; then
+if kubectl get secret hub-platform-git-secret -n argocd &>/dev/null; then
   echo "   ✓ ArgoCD GitHub secret exists"
 else
   echo "   ✗ ArgoCD GitHub secret not found"

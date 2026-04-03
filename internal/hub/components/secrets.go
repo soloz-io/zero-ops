@@ -134,7 +134,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	// Create the secret with ArgoCD auto-discovery label
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "repo-soloz-io-zero-ops",
+			Name:      "hub-platform-git-secret",
 			Namespace: constants.NamespaceOps,
 			Labels: map[string]string{
 				"argocd.argoproj.io/secret-type": "repository",
