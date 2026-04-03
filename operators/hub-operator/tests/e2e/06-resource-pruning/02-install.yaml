@@ -1,0 +1,18 @@
+---
+# GitOps-compliant resource pruning trigger
+# Patches ArgoCD Application to sync updated CR with 2 roles (removed spoke_controller)
+# and 2 NATS streams (removed audit_events), 2 OAuth clients (removed web-ui)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hub-environment
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops.git
+    targetRevision: main
+    path: operators/hub-operator/tests/e2e/06-resource-pruning/fixtures/updated
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

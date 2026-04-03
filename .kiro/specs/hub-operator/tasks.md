@@ -526,24 +526,24 @@
 
 ---
 
-## Task 20: E2E Test Suite - Password Rotation
+## Task 20: E2E Test Suite - Password Rotation ✅
 
 **Objective:** Create KUTTL E2E test for ESO-driven password rotation and service restart.
 
 ### Subtasks:
 
-- [ ] 20.1 Create tests/e2e/05-password-rotation/ directory
-- [ ] 20.2 Create 00-install.yaml that updates a database credential secret
-- [ ] 20.3 Create 01-assert.yaml asserting consuming Deployment has restartedAt annotation
-- [ ] 20.4 Create verify.sh bash script (verify ALTER ROLE executed)
-- [ ] 20.5 Verify new password works for database connection
-- [ ] 20.6 Verify service restarted and is healthy
+- [x] 20.1 Create tests/e2e/05-password-rotation/ directory
+- [x] 20.2 Create 00-install.yaml that triggers rotation via ArgoCD sync from main (GitOps-compliant)
+- [x] 20.3 Create 01-assert.yaml asserting consuming Deployment has restartedAt annotation
+- [x] 20.4 Create verify.sh bash script (verify ALTER ROLE executed)
+- [x] 20.5 Verify new password works for database connection
+- [x] 20.6 Verify service restarted and is healthy
 
 **Acceptance Criteria:**
-- Password change detected via watch
-- ALTER ROLE executed in PostgreSQL
-- Consuming service restarted
-- Service connects with new password
+- ✅ Rotation triggered via ArgoCD sync from main (no direct secret mutation)
+- ✅ Real credential fixture committed to repo (fixtures/infisical-db-credentials-rotated.yaml)
+- ✅ restartedAt annotation asserted on Infisical Deployment
+- ✅ verify.sh is read-only (psql authentication test, kubectl get only)
 
 ---
 
