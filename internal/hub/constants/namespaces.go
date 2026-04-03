@@ -38,4 +38,5 @@ const (
 	// Upstream namespaces
 	NamespaceCertManager = "cert-manager"
 	NamespaceCNPG        = "cnpg-system"
+	NamespaceKubeSystem  = "kube-system" // Kubernetes system namespace (used by CSI, CCM via CAPI)
 )

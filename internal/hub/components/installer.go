@@ -20,11 +20,12 @@ type Installer struct {
 // InstallAll installs all required components sequentially (CNI/CCM handled by CRS)
 func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	// Create hcloud secret for CSI driver
+	// NOTE: CSI manifest expects secret in kube-system (upstream default), not hub-cloud-system
 	fmt.Println("[postboot] Creating hcloud secret for CSI...")
 	secretCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,
 		"create", "secret", "generic", "hcloud",
-		"-n", constants.NamespaceCloud,
+		"-n", constants.NamespaceKubeSystem,
 		"--from-literal=token="+hcloudToken,
 		"--dry-run=client", "-o", "yaml",
 	)
@@ -55,7 +56,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 		return fmt.Errorf("failed to install CSI: %w\n%s", err, output)
 	}
 	
-	if err := i.verify(ctx, "kube-system", "hcloud-csi-controller"); err != nil {
+	if err := i.verify(ctx, constants.NamespaceKubeSystem, "hcloud-csi-controller"); err != nil {
 		return fmt.Errorf("failed to verify CSI: %w", err)
 	}
 	fmt.Println("[postboot] ✓ hetzner-csi ready")
@@ -153,7 +154,7 @@ func (i *Installer) verify(ctx context.Context, namespace, deployment string) er
 		cmd = exec.CommandContext(ctx, "kubectl",
 			"--kubeconfig", i.Kubeconfig,
 			"wait", "deployment", "cilium-operator",
-			"-n", "kube-system",
+			"-n", constants.NamespaceKubeSystem,
 			"--for=condition=Available",
 			"--timeout=5m",
 		)
