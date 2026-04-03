@@ -1,12 +1,12 @@
 # Adds namespace to all resources.
-namespace: hub-operator-system
+namespace: hub-platform-ops
 
 # Value of this field is prepended to the
 # names of all resources, e.g. a deployment named
 # "wordpress" becomes "alices-wordpress".
 # Note that it should also match with the prefix (text before '-') of the namespace
 # field above.
-namePrefix: hub-operator-
+# namePrefix: hub-operator-
 
 # Labels to add to all resources and selectors.
 #labels:
@@ -35,6 +35,22 @@ resources:
 
 # Uncomment the patches line if you enable Metrics
 patches:
+# [ARGOCD] Add sync-wave annotation to CRD for proper sequencing
+- patch: |-
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+      value: "0"
+  target:
+    kind: CustomResourceDefinition
+    name: hubenvironments.ops.zero-ops.io
+# [ARGOCD] Add sync-wave annotation to Deployment for proper sequencing
+- patch: |-
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+      value: "1"
+  target:
+    kind: Deployment
+    name: controller-manager
 # [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
 # More info: https://book.kubebuilder.io/reference/metrics
 - path: manager_metrics_patch.yaml

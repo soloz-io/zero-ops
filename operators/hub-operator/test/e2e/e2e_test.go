@@ -34,7 +34,7 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "hub-operator-system"
+const namespace = "hub-platform-ops"
 
 // serviceAccountName created for the project
 const serviceAccountName = "hub-operator-controller-manager"
