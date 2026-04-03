@@ -1,0 +1,56 @@
+# Dockerignore for monorepo builds
+# Exclude development and build artifacts
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+test/
+tests/
+*.test
+
+# Documentation
+*.md
+!go.mod
+!go.sum
+
+# CI/CD (not needed in container)
+.github/
+
+# Kiro
+.kiro/
+
+# Archives
+archived/
+
+# Memory
+memory/
+
+# Scripts
+*.sh
+
+# Misc
+.aidigestignore
+*.kubeconfig
+plan.md
