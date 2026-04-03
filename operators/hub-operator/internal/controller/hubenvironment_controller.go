@@ -5,14 +5,20 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
@@ -32,6 +38,8 @@ type HubEnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop
 // Requirement 9.3: Implement Reconcile() main entry point
@@ -419,6 +427,15 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("HubEnvironment reconciliation complete")
 	}
 
+	// Requirement 23: Handle certificate rotation (runs continuously after Ready)
+	if meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "Ready") {
+		if err := r.handleCertificateRotation(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to handle certificate rotation")
+			// Don't fail reconciliation, just log and requeue
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -529,10 +546,318 @@ func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context,
 	return nil
 }
 
+// handleCertificateRotation detects platform-db-ca changes and restarts services
+// Requirement 23.1-23.14: Implement certificate rotation handling
+func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+	namespace := hubEnv.Spec.Database.Namespace
+
+	// Requirement 23.2: Read platform-db-ca secret
+	// TODO: Use UncachedClient when Task 13 (Memory Optimization) is complete
+	platformDBCA := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "platform-db-ca",
+		Namespace: namespace,
+	}, platformDBCA); err != nil {
+		if errors.IsNotFound(err) {
+			// CA not yet generated, skip rotation
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.2: Read infisical-secrets to compare DB_ROOT_CERT
+	infisicalSecrets := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "infisical-secrets",
+		Namespace: namespace,
+	}, infisicalSecrets); err != nil {
+		if errors.IsNotFound(err) {
+			// Infisical secrets not yet generated, skip rotation
+			return nil
+		}
+		return err
+	}
+
+	// Extract CA certificate from platform-db-ca
+	caCert, ok := platformDBCA.Data["ca.crt"]
+	if !ok {
+		logger.Info("platform-db-ca missing ca.crt, skipping rotation")
+		return nil
+	}
+
+	// Extract current DB_ROOT_CERT from infisical-secrets
+	currentDBRootCert, ok := infisicalSecrets.Data["DB_ROOT_CERT"]
+	if !ok {
+		logger.Info("infisical-secrets missing DB_ROOT_CERT, skipping rotation")
+		return nil
+	}
+
+	// Requirement 23.3: Compare CA certificate with DB_ROOT_CERT
+	// DB_ROOT_CERT is base64-encoded, ca.crt is already base64-encoded
+	if string(caCert) == string(currentDBRootCert) {
+		// No rotation needed
+		return nil
+	}
+
+	logger.Info("Certificate rotation detected, updating DB_ROOT_CERT and restarting services")
+
+	// Requirement 23.4: Update DB_ROOT_CERT in infisical-secrets
+	infisicalSecrets.Data["DB_ROOT_CERT"] = caCert
+	if err := r.Update(ctx, infisicalSecrets); err != nil {
+		return fmt.Errorf("failed to update DB_ROOT_CERT: %w", err)
+	}
+
+	logger.Info("Updated DB_ROOT_CERT in infisical-secrets")
+
+	// Requirement 23.5-23.13: Restart all database-connected services
+	services := []struct {
+		kind      string
+		name      string
+		namespace string
+	}{
+		{"Deployment", "infisical", "hub-platform-ops"},
+		{"StatefulSet", "redis", namespace},
+		{"Deployment", "hydra", "ory-system"},
+		{"Deployment", "kratos", "ory-system"},
+		{"Deployment", "keto", "ory-system"},
+		{"StatefulSet", "spire-server", "spire-system"},
+		{"Deployment", "mcp-server", "hub-platform-ops"},
+	}
+
+	for _, svc := range services {
+		if svc.kind == "Deployment" {
+			if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
+				logger.Error(err, "Failed to restart deployment", "name", svc.name, "namespace", svc.namespace)
+				// Continue with other services
+			} else {
+				logger.Info("Restarted deployment", "name", svc.name, "namespace", svc.namespace)
+			}
+		} else if svc.kind == "StatefulSet" {
+			if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
+				logger.Error(err, "Failed to restart statefulset", "name", svc.name, "namespace", svc.namespace)
+				// Continue with other services
+			} else {
+				logger.Info("Restarted statefulset", "name", svc.name, "namespace", svc.namespace)
+			}
+		}
+	}
+
+	return nil
+}
+
+// restartDeployment patches a Deployment with restartedAt annotation
+// Requirement 23.5: Implement restartDeployment() helper
+func (r *HubEnvironmentReconciler) restartDeployment(ctx context.Context, name, namespace string) error {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			// Deployment doesn't exist yet, skip restart
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.4: Use kubectl.kubernetes.io/restartedAt annotation pattern
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	return r.Update(ctx, deployment)
+}
+
+// restartStatefulSet patches a StatefulSet with restartedAt annotation
+// Requirement 23.6: Implement restartStatefulSet() helper
+func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name, namespace string) error {
+	statefulSet := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, statefulSet); err != nil {
+		if errors.IsNotFound(err) {
+			// StatefulSet doesn't exist yet, skip restart
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.4: Use kubectl.kubernetes.io/restartedAt annotation pattern
+	if statefulSet.Spec.Template.Annotations == nil {
+		statefulSet.Spec.Template.Annotations = make(map[string]string)
+	}
+	statefulSet.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	return r.Update(ctx, statefulSet)
+}
+
 // SetupWithManager sets up the controller with the Manager.
+// Requirement 12: Configure controller watches for all external dependencies and secrets
 func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		// Requirement 12.2: Primary resource
 		For(&opsv1alpha1.HubEnvironment{}).
+		// Requirement 12.3: Owned secrets (operator-created)
 		Owns(&corev1.Secret{}).
+		// Requirement 12.4: Watch CNPG Cluster for readiness
+		Watches(
+			&cnpgv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForCNPG),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		// Requirement 12.5: Watch platform-db-ca secret for certificate rotation
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				secret := obj.(*corev1.Secret)
+				return secret.Name == "platform-db-ca"
+			})),
+		).
+		// Requirement 12.6: Watch secrets with label ops.zero-ops.io/db-credentials=true for password rotation
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				secret := obj.(*corev1.Secret)
+				if labels := secret.GetLabels(); labels != nil {
+					return labels["ops.zero-ops.io/db-credentials"] == "true"
+				}
+				return false
+			})),
+		).
+		// Requirement 12.7: Watch Hydra Deployment
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForDeployment),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "hydra" && obj.GetNamespace() == "ory-system"
+				}),
+			),
+		).
+		// Requirement 12.8: Watch Infisical Deployment
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForDeployment),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "infisical" && obj.GetNamespace() == "hub-platform-ops"
+				}),
+			),
+		).
+		// Requirement 12.9: Watch NATS StatefulSet
+		Watches(
+			&appsv1.StatefulSet{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForStatefulSet),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "nats" && obj.GetNamespace() == "hub-platform-core"
+				}),
+			),
+		).
 		Complete(r)
+}
+
+// findHubEnvironmentForCNPG maps CNPG Cluster to HubEnvironment CR
+// Requirement 12.10: Implement mapper function for CNPG
+func (r *HubEnvironmentReconciler) findHubEnvironmentForCNPG(ctx context.Context, obj client.Object) []reconcile.Request {
+	cluster := obj.(*cnpgv1.Cluster)
+
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Find HubEnvironment that references this cluster
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		if hubEnv.Spec.Database.ClusterRef == cluster.Name &&
+			hubEnv.Spec.Database.Namespace == cluster.Namespace {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      hubEnv.Name,
+					Namespace: hubEnv.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForSecret maps Secret to HubEnvironment CR
+// Requirement 12.11: Implement mapper function for Secret
+func (r *HubEnvironmentReconciler) findHubEnvironmentForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret := obj.(*corev1.Secret)
+
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Find HubEnvironment in the same namespace as the secret
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		if hubEnv.Spec.Database.Namespace == secret.Namespace {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      hubEnv.Name,
+					Namespace: hubEnv.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForDeployment maps Deployment to HubEnvironment CR
+// Requirement 12.12: Implement mapper function for Deployment
+func (r *HubEnvironmentReconciler) findHubEnvironmentForDeployment(ctx context.Context, obj client.Object) []reconcile.Request {
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Trigger reconciliation for all HubEnvironments
+	// The reconciler will check if the deployment is ready
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      hubEnv.Name,
+				Namespace: hubEnv.Namespace,
+			},
+		})
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForStatefulSet maps StatefulSet to HubEnvironment CR
+// Requirement 12.13: Implement mapper function for StatefulSet
+func (r *HubEnvironmentReconciler) findHubEnvironmentForStatefulSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Trigger reconciliation for all HubEnvironments
+	// The reconciler will check if the statefulset is ready
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      hubEnv.Name,
+				Namespace: hubEnv.Namespace,
+			},
+		})
+	}
+
+	return requests
 }
