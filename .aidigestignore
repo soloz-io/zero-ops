@@ -10,7 +10,7 @@ bin
 docs
 memory
 operators/spoke-controller
-secrets
+k8-secrets
 test
 manifests/crds/
 scripts
