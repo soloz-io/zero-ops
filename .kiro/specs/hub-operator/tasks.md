@@ -130,53 +130,53 @@
 
 ---
 
-## Task 6: Infisical Client Implementation
+## Task 6: Infisical Client Implementation ✅
 
 **Objective:** Implement Infisical API client with Universal Auth and additive sync.
 
 ### Subtasks:
 
-- [ ] 6.1 Create internal/client/infisical.go package
-- [ ] 6.2 Migrate Client struct from internal/hub/infisical/client.go
-- [ ] 6.3 Implement NewInfisicalClient() with controller-runtime client
-- [ ] 6.4 Implement authenticate() using Universal Auth (client credentials grant)
-- [ ] 6.5 Implement token caching and refresh logic
-- [ ] 6.6 Implement CreateOrUpdateSecret() for Infisical API
-- [ ] 6.7 Add retry logic for 5xx errors
-- [ ] 6.8 Add timeout configuration (30 seconds)
-- [ ] 6.9 Read infisical-auth secret from hub-platform-ops namespace
-- [ ] 6.10 Add structured logging for API operations
+- [x] 6.1 Create internal/client/infisical.go package
+- [x] 6.2 Migrate Client struct from internal/hub/infisical/client.go
+- [x] 6.3 Implement NewInfisicalClient() with controller-runtime client
+- [x] 6.4 Implement authenticate() using Universal Auth (client credentials grant)
+- [x] 6.5 Implement token caching and refresh logic
+- [x] 6.6 Implement CreateOrUpdateSecret() for Infisical API
+- [x] 6.7 Add retry logic for 5xx errors
+- [x] 6.8 Add timeout configuration (30 seconds)
+- [x] 6.9 Read infisical-auth secret from hub-platform-ops namespace
+- [x] 6.10 Add structured logging for API operations
 
 **Acceptance Criteria:**
-- Authenticates successfully with Universal Auth
-- Uploads secrets to correct project/environment
-- Retries on transient failures
-- Token refreshes before expiration
-- Only uploads passwords/keys (no URLs/hostnames)
+- ✅ Authenticates successfully with Universal Auth
+- ✅ Uploads secrets to correct project/environment
+- ✅ Retries on transient failures
+- ✅ Token refreshes before expiration
+- ✅ Only uploads passwords/keys (no URLs/hostnames)
 
 ---
 
-## Task 7: Hydra Client Implementation
+## Task 7: Hydra Client Implementation ✅
 
 **Objective:** Implement Ory Hydra client for OAuth client registration and pruning.
 
 ### Subtasks:
 
-- [ ] 7.1 Create internal/client/hydra.go package
-- [ ] 7.2 Implement NewHydraClient() using Ory Hydra Go SDK
-- [ ] 7.3 Configure client for https://hydra-admin.ory-system.svc
-- [ ] 7.4 Implement RegisterOAuthClient() with idempotent client_id check
-- [ ] 7.5 Implement client update logic for existing clients
-- [ ] 7.6 Implement pruneOrphanedOAuthClients() to delete clients not in CR spec
-- [ ] 7.7 Add retry logic for 404 and 5xx errors
-- [ ] 7.8 Add structured logging for OAuth operations
+- [x] 7.1 Create internal/client/hydra.go package
+- [x] 7.2 Implement NewHydraClient() using Ory Hydra Go SDK
+- [x] 7.3 Configure client for https://hydra-admin.ory-system.svc
+- [x] 7.4 Implement RegisterOAuthClient() with idempotent client_id check
+- [x] 7.5 Implement client update logic for existing clients
+- [x] 7.6 Implement pruneOrphanedOAuthClients() to delete clients not in CR spec
+- [x] 7.7 Add retry logic for 404 and 5xx errors
+- [x] 7.8 Add structured logging for OAuth operations
 
 **Acceptance Criteria:**
-- OAuth clients registered successfully
-- Idempotent: running twice produces same state
-- Orphaned clients are deleted
-- Retries on transient failures
-- No authentication required (internal service)
+- ✅ OAuth clients registered successfully
+- ✅ Idempotent: running twice produces same state
+- ✅ Orphaned clients are deleted
+- ✅ Retries on transient failures
+- ✅ No authentication required (internal service)
 
 ---
 
@@ -186,16 +186,16 @@
 
 ### Subtasks:
 
-- [ ] 8.1 Create internal/client/nats.go package
-- [ ] 8.2 Implement NewNATSClient() using NATS Go SDK
-- [ ] 8.3 Configure connection to nats://nats.hub-platform-core.svc:4222
-- [ ] 8.4 Implement CreateStream() with idempotent stream name check
-- [ ] 8.5 Implement configuration drift detection (subjects, retention, storage)
-- [ ] 8.6 Implement UpdateStream() for drift correction
-- [ ] 8.7 Implement pruneOrphanedStreams() to delete streams not in CR spec
-- [ ] 8.8 Implement isNATSTransientError() for error classification
-- [ ] 8.9 Add retry logic for transient errors
-- [ ] 8.10 Implement Close() for connection cleanup
+- [x] 8.1 Create internal/client/nats.go package
+- [x] 8.2 Implement NewNATSClient() using NATS Go SDK
+- [x] 8.3 Configure connection to nats://nats.hub-platform-core.svc:4222
+- [x] 8.4 Implement CreateStream() with idempotent stream name check
+- [x] 8.5 Implement configuration drift detection (subjects, retention, storage)
+- [x] 8.6 Implement UpdateStream() for drift correction
+- [x] 8.7 Implement pruneOrphanedStreams() to delete streams not in CR spec
+- [x] 8.8 Implement isNATSTransientError() for error classification
+- [x] 8.9 Add retry logic for transient errors
+- [x] 8.10 Implement Close() for connection cleanup
 
 **Acceptance Criteria:**
 - Streams created successfully
