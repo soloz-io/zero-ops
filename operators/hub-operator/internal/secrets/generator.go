@@ -342,15 +342,8 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 // generateOrReuseInfisicalSecrets implements idempotency for infisical-secrets
 func generateOrReuseInfisicalSecrets(namespace string, caCert []byte, owner metav1.OwnerReference, existing *corev1.Secret) (*corev1.Secret, error) {
 	if existing != nil {
-		// Reuse existing passwords but update CA certificate
-		dbRootCert := base64.StdEncoding.EncodeToString(caCert)
-		existing.StringData = map[string]string{
-			"ENCRYPTION_KEY": string(existing.Data["ENCRYPTION_KEY"]),
-			"AUTH_SECRET":    string(existing.Data["AUTH_SECRET"]),
-			"REDIS_URL":      string(existing.Data["REDIS_URL"]),
-			"DB_ROOT_CERT":   dbRootCert,
-		}
-		return existing, nil
+		// Return nil to indicate secret already exists (don't try to create)
+		return nil, nil
 	}
 	return GenerateInfisicalSecrets(namespace, caCert, owner)
 }
@@ -358,7 +351,8 @@ func generateOrReuseInfisicalSecrets(namespace string, caCert []byte, owner meta
 // generateOrReusePlatformDBApp implements idempotency for platform-db-app
 func generateOrReusePlatformDBApp(namespace string, owner metav1.OwnerReference, existing *corev1.Secret) (*corev1.Secret, error) {
 	if existing != nil {
-		return existing, nil
+		// Return nil to indicate secret already exists (don't try to create)
+		return nil, nil
 	}
 	return GeneratePlatformDBApp(namespace, owner)
 }
@@ -366,7 +360,8 @@ func generateOrReusePlatformDBApp(namespace string, owner metav1.OwnerReference,
 // generateOrReuseInfisicalDBCredentials implements idempotency for infisical-db-credentials
 func generateOrReuseInfisicalDBCredentials(namespace string, owner metav1.OwnerReference, existing *corev1.Secret) (*corev1.Secret, error) {
 	if existing != nil {
-		return existing, nil
+		// Return nil to indicate secret already exists (don't try to create)
+		return nil, nil
 	}
 	return GenerateInfisicalDBCredentials(namespace, owner)
 }
@@ -374,7 +369,8 @@ func generateOrReuseInfisicalDBCredentials(namespace string, owner metav1.OwnerR
 // generateOrReuseOryDBCredentials implements idempotency for Ory database credentials
 func generateOrReuseOryDBCredentials(service, namespace string, owner metav1.OwnerReference, existing *corev1.Secret) (*corev1.Secret, error) {
 	if existing != nil {
-		return existing, nil
+		// Return nil to indicate secret already exists (don't try to create)
+		return nil, nil
 	}
 	return GenerateOryDBCredentials(service, namespace, owner)
 }
