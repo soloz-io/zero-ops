@@ -113,12 +113,6 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, password string, roleSpec opsv1alpha1.DatabaseRole) error {
 	logger := log.FromContext(ctx)
 
-	// Requirement 6.9: Use idempotent CREATE ROLE IF NOT EXISTS
-	createSQL := fmt.Sprintf(
-		"CREATE ROLE %s WITH LOGIN PASSWORD $1 COMMENT 'Managed by hub-operator'",
-		username,
-	)
-
 	// Check if role exists
 	var exists bool
 	checkSQL := "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)"
@@ -127,12 +121,27 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 	}
 
 	if !exists {
-		// Create new role
+		// Requirement 6.9: Use idempotent CREATE ROLE IF NOT EXISTS
+		// Create new role (PostgreSQL does not support inline COMMENT in CREATE ROLE)
+		createSQL := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD $1", username)
 		if _, err := rm.db.ExecContext(ctx, createSQL, password); err != nil {
 			return fmt.Errorf("failed to create role: %w", err)
 		}
+
+		// Add comment to identify managed roles (separate statement required)
+		commentSQL := fmt.Sprintf("COMMENT ON ROLE %s IS 'Managed by hub-operator'", username)
+		if _, err := rm.db.ExecContext(ctx, commentSQL); err != nil {
+			return fmt.Errorf("failed to add role comment: %w", err)
+		}
+
 		logger.Info("Created database role", "username", username)
 		return nil
+	}
+
+	// Role exists - ensure comment is set (idempotency)
+	commentSQL := fmt.Sprintf("COMMENT ON ROLE %s IS 'Managed by hub-operator'", username)
+	if _, err := rm.db.ExecContext(ctx, commentSQL); err != nil {
+		return fmt.Errorf("failed to update role comment: %w", err)
 	}
 
 	// Role exists - check if password needs update

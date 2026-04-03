@@ -104,7 +104,7 @@
 
 ---
 
-## Task 5: Database Role Provisioning
+## Task 5: Database Role Provisioning ✅
 
 **Objective:** Implement database role creation, password rotation, and pruning.
 
@@ -122,11 +122,11 @@
 - [x] 5.10 Implement Close() for connection cleanup
 
 **Acceptance Criteria:**
-- Roles created with correct permissions
-- Password rotation updates PostgreSQL via ALTER ROLE
-- Orphaned roles are deleted
-- Idempotent: running twice produces same state
-- All operations use parameterized queries
+- ✅ Roles created with correct permissions
+- ✅ Password rotation updates PostgreSQL via ALTER ROLE
+- ✅ Orphaned roles are deleted
+- ✅ Idempotent: running twice produces same state
+- ✅ All operations use parameterized queries
 
 ---
 
