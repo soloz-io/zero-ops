@@ -11,7 +11,8 @@ import (
 var (
 	infisicalClientID     string
 	infisicalClientSecret string
-	githubToken           string
+	ghcrPAT               string
+	ghcrUsername          string
 	kubeconfig            string
 )
 
@@ -43,13 +44,15 @@ After running this command:
 	// Required flags
 	cmd.Flags().StringVar(&infisicalClientID, "infisical-client-id", "", "Infisical Machine Identity Client ID")
 	cmd.Flags().StringVar(&infisicalClientSecret, "infisical-client-secret", "", "Infisical Machine Identity Client Secret")
-	cmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub Personal Access Token")
+	cmd.Flags().StringVar(&ghcrPAT, "ghcr-pat", "", "GitHub Personal Access Token (used for both Git and GHCR access)")
+	cmd.Flags().StringVar(&ghcrUsername, "ghcr-username", "", "GHCR username")
 	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file (default: ~/.kube/config)")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("infisical-client-id")
 	cmd.MarkFlagRequired("infisical-client-secret")
-	cmd.MarkFlagRequired("github-token")
+	cmd.MarkFlagRequired("ghcr-pat")
+	cmd.MarkFlagRequired("ghcr-username")
 
 	return cmd
 }
@@ -63,8 +66,12 @@ func validateConfigureESOFlags(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--infisical-client-secret is required")
 	}
 
-	if githubToken == "" {
-		return fmt.Errorf("--github-token is required")
+	if ghcrPAT == "" {
+		return fmt.Errorf("--ghcr-pat is required")
+	}
+
+	if ghcrUsername == "" {
+		return fmt.Errorf("--ghcr-username is required")
 	}
 
 	// Set default kubeconfig if not provided
@@ -95,15 +102,21 @@ func runConfigureESO(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 1: Create Infisical auth secret for ESO
-	fmt.Println("\n[1/2] Creating Infisical authentication secret...")
+	fmt.Println("\n[1/3] Creating Infisical authentication secret...")
 	if err := installer.InstallInfisicalAuth(ctx, infisicalClientID, infisicalClientSecret); err != nil {
 		return fmt.Errorf("failed to create Infisical auth secret: %w", err)
 	}
 
 	// Step 2: Create ArgoCD GitHub auth secret
-	fmt.Println("\n[2/2] Creating ArgoCD GitHub authentication secret...")
-	if err := installer.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
+	fmt.Println("\n[2/3] Creating ArgoCD GitHub authentication secret...")
+	if err := installer.FixArgoCDGitHubAuth(ctx, ghcrPAT); err != nil {
 		return fmt.Errorf("failed to create ArgoCD GitHub secret: %w", err)
+	}
+
+	// Step 3: Create GHCR pull secret
+	fmt.Println("\n[3/3] Creating GHCR pull secret...")
+	if err := installer.InstallGHCRPullSecret(ctx, ghcrUsername, ghcrPAT); err != nil {
+		return fmt.Errorf("failed to create GHCR pull secret: %w", err)
 	}
 
 	fmt.Println("\n✅ Configuration complete!")

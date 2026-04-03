@@ -784,3 +784,63 @@ func generateSecurePassword(length int) (string, error) {
 	// For 32-byte keys: hex.EncodeToString produces 64 chars, truncate to 32
 	return hex.EncodeToString(bytes)[:length], nil
 }
+
+// InstallGHCRPullSecret creates the GHCR pull secret for pulling private container images
+// This is Secret Zero - it enables Kubernetes to pull images from ghcr.io.
+// CRITICAL: This secret MUST be injected via client-go, NEVER stored in Git.
+//
+// Production Workflow:
+// 1. Developer runs: hub configure-eso --ghcr-username=<username> --github-token=<pat>
+// 2. This method uses client-go to inject the Docker config JSON secret
+// 3. Deployments reference this secret via imagePullSecrets
+// 4. Future: Secret replication operator will propagate to other namespaces
+func (i *Installer) InstallGHCRPullSecret(ctx context.Context, username, token string) error {
+	fmt.Println("[bootstrap] Creating GHCR pull secret...")
+
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := constants.NamespaceOps
+
+	// Create Docker config JSON for GHCR authentication
+	dockerConfigJSON := fmt.Sprintf(`{"auths":{"ghcr.io":{"username":%q,"password":%q}}}`, username, token)
+
+	// Create the secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ghcr-pull-secret",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		StringData: map[string]string{
+			".dockerconfigjson": dockerConfigJSON,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update ghcr-pull-secret: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ ghcr-pull-secret updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ ghcr-pull-secret created")
+	}
+
+	return nil
+}
