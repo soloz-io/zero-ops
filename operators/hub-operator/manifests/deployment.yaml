@@ -25,6 +25,9 @@ spec:
     spec:
       serviceAccountName: hub-operator
       terminationGracePeriodSeconds: 10
+      # Image pull secret for private GHCR images
+      imagePullSecrets:
+      - name: ghcr-pull-secret
       # Task 15.9: Security context - runAsNonRoot, drop ALL capabilities
       securityContext:
         runAsNonRoot: true
