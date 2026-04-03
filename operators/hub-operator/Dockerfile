@@ -9,7 +9,8 @@ WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN echo "=== Go module info ===" && \
     head -5 go.mod && \
-    echo "=== Downloading dependencies ===" && \
+    echo "=== Verifying and downloading dependencies ===" && \
+    go mod verify || true && \
     go mod download
 
 # Copy entire source tree to preserve module structure

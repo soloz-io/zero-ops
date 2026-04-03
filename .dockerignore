@@ -1,14 +1,14 @@
 # Dockerignore for monorepo builds
-# Exclude development and build artifacts
+# Only exclude what's not needed for build
 
 # Git
-.git
+.git/
 .gitignore
 .gitmodules
 
 # IDE
-.vscode
-.idea
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
@@ -17,25 +17,13 @@
 .DS_Store
 Thumbs.db
 
-# Build artifacts
-bin/
-*.exe
-*.dll
-*.so
-*.dylib
-
-# Test files
+# Test files (but keep source)
 *_test.go
 test/
 tests/
 *.test
 
-# Documentation
-*.md
-!go.mod
-!go.sum
-
-# CI/CD (not needed in container)
+# CI/CD
 .github/
 
 # Kiro
@@ -47,10 +35,16 @@ archived/
 # Memory
 memory/
 
-# Scripts
-*.sh
+# Documentation
+docs/
 
 # Misc
 .aidigestignore
 *.kubeconfig
 plan.md
+deploy-*.sh
+verify-*.sh
+
+# Keep operators directory and all its contents
+!operators/
+
