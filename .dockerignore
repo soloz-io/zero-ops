@@ -38,6 +38,9 @@ memory/
 # Documentation
 docs/
 
+# Secrets at root level only (not operator internal packages)
+/secrets/
+
 # Misc
 .aidigestignore
 *.kubeconfig
