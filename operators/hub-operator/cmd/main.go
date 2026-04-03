@@ -25,6 +25,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -52,6 +53,9 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(opsv1alpha1.AddToScheme(scheme))
+	
+	// Register CNPG API for watching Cluster resources
+	utilruntime.Must(cnpgv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
