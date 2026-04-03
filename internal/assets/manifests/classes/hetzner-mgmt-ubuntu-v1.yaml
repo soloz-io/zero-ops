@@ -439,5 +439,5 @@ metadata:
 spec:
   template:
     spec:
-      type: cx23
+      type: c33
       imageName: ubuntu-24.04

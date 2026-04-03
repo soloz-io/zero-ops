@@ -1,4 +1,5 @@
-.kiro/specs
+.kiro/specs/
+!.kiro/specs/hub-operator
 .kiro/steering/coding
 .kiro/steering/rules
 .kiro/steering/specs
@@ -7,7 +8,7 @@ archived
 bin
 docs
 memory
-operators
+operators/spoke-controller
 secrets
 test
 manifests/crds/

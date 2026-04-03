@@ -238,7 +238,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				NetworkCIDR:             o.NetworkCIDR,
 				SubnetCIDR:              subnetCIDR,
 				ControlPlaneMachineType: "cx23",
-				WorkerMachineType:       "cx23",
+				WorkerMachineType:       "cx33",
 				ControlPlaneReplicas:    3,
 				WorkerReplicas:          2,
 				HCloudToken:             o.HCloudToken,
