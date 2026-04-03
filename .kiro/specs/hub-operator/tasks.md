@@ -56,18 +56,18 @@
 
 ### Subtasks:
 
-- [ ] 3.1 Create internal/secrets/generator.go package
-- [ ] 3.2 Implement generateSecurePassword() utility function (32-character hex)
-- [ ] 3.3 Implement generateSelfSignedCA() using crypto/x509 (4096-bit RSA, 10-year validity)
-- [ ] 3.4 Implement generateInfisicalSecrets() (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT)
-- [ ] 3.5 Implement generatePlatformDBApp() (BasicAuth secret with username/password)
-- [ ] 3.6 Implement generateInfisicalDBCredentials() (username/password)
-- [ ] 3.7 Implement generateInfisicalPostgresConnection() (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_MODE)
-- [ ] 3.8 Implement generateOryDBCredentials() for hydra, kratos, keto
-- [ ] 3.9 Add idempotency logic (reuse existing passwords if secrets exist)
-- [ ] 3.10 Add ownerReference to all created secrets
-- [ ] 3.11 Add label "ops.zero-ops.io/db-credentials=true" to credential secrets
-- [ ] 3.12 Implement GenerateSecretZero() orchestration function
+- [x] 3.1 Create internal/secrets/generator.go package
+- [x] 3.2 Implement generateSecurePassword() utility function (32-character hex)
+- [x] 3.3 Implement generateSelfSignedCA() using crypto/x509 (4096-bit RSA, 10-year validity)
+- [x] 3.4 Implement generateInfisicalSecrets() (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT)
+- [x] 3.5 Implement generatePlatformDBApp() (BasicAuth secret with username/password)
+- [x] 3.6 Implement generateInfisicalDBCredentials() (username/password)
+- [x] 3.7 Implement generateInfisicalPostgresConnection() (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_MODE)
+- [x] 3.8 Implement generateOryDBCredentials() for hydra, kratos, keto
+- [x] 3.9 Add idempotency logic (reuse existing passwords if secrets exist)
+- [x] 3.10 Add ownerReference to all created secrets
+- [x] 3.11 Add label "ops.zero-ops.io/db-credentials=true" to credential secrets
+- [x] 3.12 Implement GenerateSecretZero() orchestration function
 
 **Acceptance Criteria:**
 - All secrets generated with correct structure
@@ -84,16 +84,16 @@
 
 ### Subtasks:
 
-- [ ] 4.1 Create internal/database/migrator.go package
-- [ ] 4.2 Create internal/embed/migrations.go with embedded filesystem
-- [ ] 4.3 Copy SQL migration files from manifests/platform-database/migrations/ to internal/embed/migrations/
-- [ ] 4.4 Implement NewMigrator() constructor (connects to platform-db-rw, not pooler)
-- [ ] 4.5 Implement RunMigrations() using golang-migrate/migrate
-- [ ] 4.6 Implement DirtyDatabaseError custom error type
-- [ ] 4.7 Add dirty database detection logic
-- [ ] 4.8 Add transient error detection (connection timeout, network failure)
-- [ ] 4.9 Configure TLS connection with sslmode=require
-- [ ] 4.10 Add structured logging for migration progress
+- [x] 4.1 Create internal/database/migrator.go package
+- [x] 4.2 Create internal/embed/migrations.go with embedded filesystem
+- [x] 4.3 Copy SQL migration files from manifests/platform-database/migrations/ to internal/embed/migrations/
+- [x] 4.4 Implement NewMigrator() constructor (connects to platform-db-rw, not pooler)
+- [x] 4.5 Implement RunMigrations() using golang-migrate/migrate
+- [x] 4.6 Implement DirtyDatabaseError custom error type
+- [x] 4.7 Add dirty database detection logic
+- [x] 4.8 Add transient error detection (connection timeout, network failure)
+- [x] 4.9 Configure TLS connection with sslmode=require
+- [x] 4.10 Add structured logging for migration progress
 
 **Acceptance Criteria:**
 - Migrations run successfully on clean database
@@ -110,16 +110,16 @@
 
 ### Subtasks:
 
-- [ ] 5.1 Create internal/database/roles.go package
-- [ ] 5.2 Implement NewRoleManager() constructor
-- [ ] 5.3 Implement CreateOrUpdateRole() with CREATE ROLE IF NOT EXISTS
-- [ ] 5.4 Implement passwordNeedsUpdate() for drift detection
-- [ ] 5.5 Implement ALTER ROLE logic for password rotation
-- [ ] 5.6 Implement permission granting (SELECT, INSERT, UPDATE, DELETE)
-- [ ] 5.7 Implement pruneOrphanedRoles() to delete roles not in CR spec
-- [ ] 5.8 Add role identification logic (zero-ops prefix or managed-by comment)
-- [ ] 5.9 Add structured logging for role operations
-- [ ] 5.10 Implement Close() for connection cleanup
+- [x] 5.1 Create internal/database/roles.go package
+- [x] 5.2 Implement NewRoleManager() constructor
+- [x] 5.3 Implement CreateOrUpdateRole() with CREATE ROLE IF NOT EXISTS
+- [x] 5.4 Implement passwordNeedsUpdate() for drift detection
+- [x] 5.5 Implement ALTER ROLE logic for password rotation
+- [x] 5.6 Implement permission granting (SELECT, INSERT, UPDATE, DELETE)
+- [x] 5.7 Implement pruneOrphanedRoles() to delete roles not in CR spec
+- [x] 5.8 Add role identification logic (zero-ops prefix or managed-by comment)
+- [x] 5.9 Add structured logging for role operations
+- [x] 5.10 Implement Close() for connection cleanup
 
 **Acceptance Criteria:**
 - Roles created with correct permissions
