@@ -11,8 +11,8 @@ spec:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
     path: operators/hub-operator/manifests
-    directory:
-      recurse: true
+    kustomize:
+      buildOptions: "--load-restrictor LoadRestrictionsNone"
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops

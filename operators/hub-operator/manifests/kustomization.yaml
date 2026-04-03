@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # 1. Reference the auto-generated CRD directly
+  - ../config/crd/bases/ops.zero-ops.io_hubenvironments.yaml
+  - service_account.yaml
+  - rbac.yaml
+  - deployment.yaml
+
+# 2. Dynamically inject the ArgoCD sync-wave annotation into the CRD
+patches:
+  - patch: |-
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: hubenvironments.ops.zero-ops.io
+        annotations:
+          argocd.argoproj.io/sync-wave: "0"
