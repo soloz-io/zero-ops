@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strconv"
+	
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 )
 
 type Config struct {
@@ -13,7 +15,7 @@ type Config struct {
 
 func LoadConfigFromEnv() Config {
 	return Config{
-		MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", "hub-capi-system"),
+		MonitoringNamespace: getEnvOrDefault("MONITORING_NAMESPACE", constants.NamespaceCAPI),
 		EnableEventEmission: parseBoolEnv("ENABLE_EVENT_EMISSION", true),
 		TopologyLabelPrefix: getEnvOrDefault("TOPOLOGY_LABEL_PREFIX", "nutgraf.in/"),
 	}

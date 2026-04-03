@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 	"github.com/soloz-io/zero-ops/internal/hub/infisical"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -45,7 +46,7 @@ func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSe
 	}
 
 	// Create namespace if it doesn't exist
-	namespace := "hub-platform-ops"
+	namespace := constants.NamespaceOps
 	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		// Namespace doesn't exist, create it
@@ -134,7 +135,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "repo-soloz-io-zero-ops",
-			Namespace: "hub-platform-ops",
+			Namespace: constants.NamespaceOps,
 			Labels: map[string]string{
 				"argocd.argoproj.io/secret-type": "repository",
 				"app.kubernetes.io/managed-by":   "zero-ops-hub-cli",
@@ -151,10 +152,10 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	}
 
 	// Try to create, if exists then update
-	_, err = clientset.CoreV1().Secrets("hub-platform-ops").Create(ctx, secret, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Secrets(constants.NamespaceOps).Create(ctx, secret, metav1.CreateOptions{})
 	if err != nil {
 		// Secret might already exist, try to update
-		_, err = clientset.CoreV1().Secrets("hub-platform-ops").Update(ctx, secret, metav1.UpdateOptions{})
+		_, err = clientset.CoreV1().Secrets(constants.NamespaceOps).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create or update ArgoCD GitHub secret: %w", err)
 		}
@@ -199,7 +200,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "hub-platform-data"
+	namespace := constants.NamespaceData
 
 	// Check if secrets exist - but always update to ensure correct TLS configuration
 	// This is necessary because TLS configuration may change (e.g., adding DB_ROOT_CERT)
@@ -377,7 +378,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "hub-platform-data"
+	namespace := constants.NamespaceData
 
 	// Step 1: Generate and inject platform-db-app (CNPG Secret Zero)
 	appSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
@@ -531,7 +532,7 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "hub-platform-data"
+	namespace := constants.NamespaceData
 
 	// Create Infisical API client
 	infisicalClient, err := infisical.NewClient(ctx, clientset)
@@ -749,7 +750,7 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "hub-platform-data"
+	namespace := constants.NamespaceData
 	patchData := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, time.Now().Format(time.RFC3339)))
 
 	fmt.Println("[bootstrap-secrets] Changes detected. Triggering workload rollouts to sync...")

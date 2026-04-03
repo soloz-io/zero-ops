@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 	"github.com/soloz-io/zero-ops/internal/hub/versions"
 )
 
@@ -70,7 +71,7 @@ func (i *OperatorInstaller) Install(ctx context.Context) error {
 
 func (i *OperatorInstaller) ensureCertManager(ctx context.Context) error {
 	// Check if cert-manager namespace exists (upstream uses cert-manager namespace)
-	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", "namespace", "cert-manager")...)
+	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", "namespace", constants.NamespaceCertManager)...)
 	
 	if err := cmd.Run(); err == nil {
 		fmt.Println("[capi-init] ✓ cert-manager already installed")
@@ -95,7 +96,7 @@ func (i *OperatorInstaller) waitForCertManagerAPI(ctx context.Context) error {
 	
 	// Wait for webhook deployment (upstream installs to cert-manager namespace)
 	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
-		"-n", "cert-manager",
+		"-n", constants.NamespaceCertManager,
 		"cert-manager-webhook",
 		"--for=condition=Available",
 		"--timeout=2m")...)

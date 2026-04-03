@@ -12,6 +12,7 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub/binaries"
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 )
 
 // Orchestrator manages CAPI pivot from bootstrap to management cluster
@@ -228,7 +229,7 @@ func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig
 	cmd = exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", mgmtKubeconfig,
 		"wait", "deployment",
-		"-n", "hub-platform-edge",
+		"-n", constants.NamespaceCertManager,
 		"cert-manager-webhook",
 		"--for=condition=Available",
 		"--timeout=3m",

@@ -16,6 +16,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub/clusterclass"
 	"github.com/soloz-io/zero-ops/internal/hub/components"
 	"github.com/soloz-io/zero-ops/internal/hub/config"
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 	"github.com/soloz-io/zero-ops/internal/hub/pivot"
 	"github.com/soloz-io/zero-ops/internal/hub/state"
 	"github.com/soloz-io/zero-ops/internal/hub/versions"
@@ -137,13 +138,13 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		nsMgr := &NamespaceManager{
 			Kubeconfig: kubeconfig,
 			Context:    bootstrapState.BootstrapContext,
-			Namespace:  "hub-capi-system",
+			Namespace:  constants.NamespaceCAPI,
 		}
 		
 		if err := nsMgr.Create(ctx); err != nil {
 			return fmt.Errorf("failed to create namespace: %w", err)
 		}
-		fmt.Println("[bootstrap-create] ✓ Namespace created: hub-capi-system")
+		fmt.Println("[bootstrap-create] ✓ Namespace created: hub-platform-capi")
 		
 		// Update state
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate)
@@ -168,7 +169,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		capiInstaller := &capi.OperatorInstaller{
 			Kubeconfig: kubeconfig,
 			Context:    bootstrapState.BootstrapContext,
-			Namespace:  "hub-capi-system",
+			Namespace:  constants.NamespaceCAPI,
 			OSType:     o.OSType,
 			Debug:      o.Debug,
 		}
@@ -182,7 +183,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	secretMgr := &capi.SecretManager{
 		Kubeconfig: kubeconfig,
 		Context:    bootstrapState.BootstrapContext,
-		Namespace:  "hub-capi-system",
+		Namespace:  constants.NamespaceCAPI,
 	}
 	
 	if err := secretMgr.CreateHetznerSecret(ctx, o.HCloudToken); err != nil {
@@ -230,7 +231,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			Debug:      o.Debug,
 			Config: &cluster.Config{
 				ClusterName:             o.ClusterName,
-				Namespace:               "hub-capi-system",
+				Namespace:               constants.NamespaceCAPI,
 				Region:                  o.Region,
 				OSType:                  o.OSType,
 				ImageID:                 imageID,
@@ -252,7 +253,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			"--kubeconfig", kubeconfig,
 			"--context", bootstrapState.BootstrapContext,
 			"get", "cluster", o.ClusterName,
-			"-n", "hub-capi-system",
+			"-n", constants.NamespaceCAPI,
 			"-o", "jsonpath={.status.phase}",
 		)
 		if output, err := checkCmd.Output(); err == nil && string(output) == "Provisioned" {
@@ -288,7 +289,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		pivotOrch := &pivot.Orchestrator{
 			BootstrapKubeconfig: kubeconfig,
 			ClusterName:         o.ClusterName,
-			Namespace:           "hub-capi-system",
+			Namespace:           constants.NamespaceCAPI,
 			OSType:              o.OSType,
 		}
 		
@@ -322,7 +323,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		pivotOrch := &pivot.Orchestrator{
 			BootstrapKubeconfig: kubeconfig,
 			ClusterName:         o.ClusterName,
-			Namespace:           "hub-capi-system",
+			Namespace:           constants.NamespaceCAPI,
 			OSType:              o.OSType,
 		}
 		
@@ -358,7 +359,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		
 		ccDeployer := &clusterclass.Deployer{
 		Kubeconfig: mgmtKubeconfig,
-		Namespace:  "hub-capi-system",
+		Namespace:  constants.NamespaceCAPI,
 	}
 	
 	if err := ccDeployer.Deploy(ctx); err != nil {
@@ -416,7 +417,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	configMgr := &config.Manager{
 		BootstrapKubeconfig: mgmtKubeconfig, // Use management cluster kubeconfig
 		ClusterName:         o.ClusterName,
-		Namespace:           "hub-capi-system",
+		Namespace:           constants.NamespaceCAPI,
 	}
 	
 	kubeconfigPath, err := configMgr.SaveKubeconfig(ctx)
@@ -481,7 +482,7 @@ func (o *Orchestrator) getMgmtKubeconfig(ctx context.Context, bootstrapKubeconfi
 		"--kubeconfig", bootstrapKubeconfig,
 		"--context", bootstrapContext,
 		"get", "secret", secretName,
-		"-n", "hub-capi-system",
+		"-n", constants.NamespaceCAPI,
 		"-o", "jsonpath={.data.value}",
 	)
 	
@@ -515,7 +516,7 @@ func (o *Orchestrator) waitAndGetKubeconfig(ctx context.Context, bootstrapKubeco
 			"--kubeconfig", bootstrapKubeconfig,
 			"--context", bootstrapContext,
 			"get", "secret", secretName,
-			"-n", "hub-capi-system",
+			"-n", constants.NamespaceCAPI,
 			"-o", "jsonpath={.data.value}",
 		)
 		
@@ -587,7 +588,7 @@ func (o *Orchestrator) runUpgrade(ctx context.Context, bootstrapState *state.Boo
 	fmt.Println("\n[upgrade] Updating ClusterClass definitions...")
 	ccDeployer := &clusterclass.Deployer{
 		Kubeconfig: kubeconfig,
-		Namespace:  "hub-capi-system",
+		Namespace:  constants.NamespaceCAPI,
 	}
 	
 	if err := ccDeployer.Deploy(ctx); err != nil {

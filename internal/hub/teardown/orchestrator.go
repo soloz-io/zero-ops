@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hetznercloud/hcloud-go/hcloud"
+	"github.com/soloz-io/zero-ops/internal/hub/constants"
 	"github.com/soloz-io/zero-ops/internal/hub/state"
 )
 
@@ -64,7 +65,7 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 	// Delete Cluster resource
 	fmt.Printf("[teardown] Deleting Cluster resource '%s'...\n", o.ClusterName)
 	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"delete", "cluster", o.ClusterName, "-n", "hub-capi-system", "--wait=false")
+		"delete", "cluster", o.ClusterName, "-n", constants.NamespaceCAPI, "--wait=false")
 	
 	if o.Debug {
 		fmt.Printf("[DEBUG] kubectl %v\n", cmd.Args)
@@ -107,7 +108,7 @@ func (o *Orchestrator) waitForDeletion(ctx context.Context, kubeconfig string, t
 			return fmt.Errorf("timeout waiting for deletion")
 		case <-ticker.C:
 			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-				"get", "cluster", o.ClusterName, "-n", "hub-capi-system", "--ignore-not-found")
+				"get", "cluster", o.ClusterName, "-n", constants.NamespaceCAPI, "--ignore-not-found")
 			
 			output, err := cmd.CombinedOutput()
 			if err != nil || len(output) == 0 || strings.Contains(string(output), "No resources found") {
