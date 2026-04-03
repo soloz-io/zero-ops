@@ -4,7 +4,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-infisical
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -28,7 +28,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-hydra
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -52,7 +52,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-nats
-  namespace: argocd
+  namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:

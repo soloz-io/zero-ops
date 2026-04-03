@@ -48,12 +48,8 @@ type StateManager struct {
 
 // NewStateManager creates a new StateManager for the given cluster
 func NewStateManager(clusterName string) *StateManager {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "."
-	}
-	
-	statePath := filepath.Join(homeDir, ".zero-ops", "state", fmt.Sprintf("%s.json", clusterName))
+	// Use .zero-ops/state directory in workspace root
+	statePath := filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", clusterName))
 	return &StateManager{
 		statePath: statePath,
 	}

@@ -4,6 +4,7 @@
 .kiro/steering/rules
 .kiro/steering/specs
 .vscode
+.zero-ops
 archived
 bin
 docs

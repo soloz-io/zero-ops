@@ -9,7 +9,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-database
-  namespace: argocd
+  namespace: hub-platform-ops
 spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git

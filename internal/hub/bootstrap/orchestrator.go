@@ -114,13 +114,13 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			kubeconfig = filepath.Join(homeDir, ".kube", "config")
 			bootstrapState.BootstrapContext = bootstrapContext
 		} else {
-			kindMgr := &KindManager{ClusterName: fmt.Sprintf("kind-%s", o.ClusterName)}
+			kindMgr := &KindManager{ClusterName: o.ClusterName}
 			
 			if kindMgr.Exists(ctx) {
 				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
 			} else {
 				if o.Debug {
-					fmt.Printf("[DEBUG] Creating Kind cluster: kind-%s\n", o.ClusterName)
+					fmt.Printf("[DEBUG] Creating Kind cluster: %s\n", o.ClusterName)
 				}
 				if err := kindMgr.Create(ctx); err != nil {
 					return fmt.Errorf("failed to create Kind cluster: %w", err)
@@ -345,7 +345,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Cleanup bootstrap cluster if not keeping
 	if !o.KeepBootstrap {
 		fmt.Println("\n[cleanup] Deleting bootstrap cluster...")
-		kindMgr := &KindManager{ClusterName: fmt.Sprintf("kind-%s", o.ClusterName)}
+		kindMgr := &KindManager{ClusterName: o.ClusterName}
 		if err := kindMgr.Delete(ctx); err != nil {
 			fmt.Printf("[cleanup] Warning: failed to delete bootstrap cluster: %v\n", err)
 		} else {
