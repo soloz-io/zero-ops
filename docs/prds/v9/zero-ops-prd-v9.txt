@@ -49,7 +49,7 @@ This approach ensures the platform is optimized for agentic workflows from day o
 | MCP/A2A gateway | LLM Gateway (proxy only) | **AgentGateway** (CNCF open source, Rust) — A2A + MCP communications, JWT validation via Hydra. Single auth enforcement point for all MCP tool calls. |
 | Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Hetzner S3, Infisical secret management, External Secrets Operator, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM), Teleport PAM |
 | Autopilot | Not defined | **Autopilot mode** — platform raises PRs to tenant control plane repo for all proposed changes. Tenant approves or rejects. No silent mutations to tenant infrastructure under any mode. |
-| PR environments | Not defined | **Ephemeral PR environments** — Argo Workflow creates per-branch namespace with single-node CNPG bootstrapped from staging CSI snapshot. Torn down on PR close. |
+| PR environments | Not defined | **Ephemeral PR environments** — `PREnvironment` Custom Resource managed by hub-operator with finalizer-driven teardown. Operator creates per-branch namespace with single-node CNPG bootstrapped from staging CSI snapshot. Finalizer ensures systematic teardown (S3 purge, billing close, resource cleanup) with guaranteed eventual consistency. Replaces imperative Argo Workflow pattern. |
 | Provider switching | Single provider (Hetzner) | **Blue-green provider migration** — `spec.cloud` field change triggers new cluster provisioning + CNPG PITR restore + DNS cutover. Old cluster retained for rollback window. |
 | cnpg2monitor scope | Management cluster only | **Fleet-wide operator** — promoted to ClusterRole, all-namespace watch. Prerequisite for AINativeSaaS template. Every tenant environment monitored from day one. |
 | Monorepo structure | No `xrds/` directory | **`xrds/` added** — Crossplane XRD definitions and Compositions as first-class platform artifacts |
@@ -243,19 +243,47 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 
 **Trigger:** Tenant Developer opens a PR on branch `feature/new-ai-pipeline` in their application repository.
 
-1. Argo Workflow fires on branch creation event (GitHub/GitLab webhook).
-2. Workflow creates namespace `pr-feature-new-ai-pipeline` within the tenant's cluster (or shared cluster namespace for Starter).
-3. Within the namespace, Workflow provisions:
-    - Single-node CNPG cluster bootstrapped from latest staging CSI snapshot (restore time: ~60s for typical database).
-    - Tenant application deployment built from the PR branch image.
-    - Ephemeral Hetzner S3 prefix scoped to this PR.
-    - AgentSandbox ephemeral volume (restored from tenant's sandbox snapshot).
-4. PR environment URL injected as a GitHub status check comment on the PR.
+1. GitHub/GitLab webhook fires on branch creation event.
+2. `zero-ops-api` commits a `PREnvironment` Custom Resource to the tenant's control plane repository:
+    ```yaml
+    apiVersion: ops.zero-ops.io/v1alpha1
+    kind: PREnvironment
+    metadata:
+      name: pr-feature-new-ai-pipeline
+      namespace: acme-corp-production
+      finalizers:
+        - ops.zero-ops.io/pr-environment-cleanup
+    spec:
+      branch: feature/new-ai-pipeline
+      tenantId: acme-corp
+      database:
+        restoreFrom: staging-snapshot  # CSI VolumeSnapshot
+      s3:
+        prefix: pr/feature-new-ai-pipeline/
+    ```
+3. ArgoCD syncs the CR. The `hub-operator` reconciles the `PREnvironment` CR:
+    - Creates namespace `pr-feature-new-ai-pipeline` within the tenant's cluster.
+    - Provisions single-node CNPG cluster bootstrapped from latest staging CSI snapshot (restore time: ~60s).
+    - Deploys tenant application built from the PR branch image.
+    - Creates ephemeral Hetzner S3 prefix scoped to this PR.
+    - Restores AgentSandbox ephemeral volume from tenant's sandbox snapshot.
+    - Sets status condition `Ready=True` when all resources are healthy.
+4. PR environment URL injected as a GitHub status check comment on the PR (read from `PREnvironment.status.url`).
 5. Developer merges or closes PR.
-6. Argo Workflow teardown fires: namespace deleted, CNPG cluster deleted, S3 prefix purged, cost billing record closed.
+6. **Finalizer-Driven Teardown:** `zero-ops-api` deletes the `PREnvironment` CR from Git. ArgoCD syncs the deletion. Kubernetes marks the CR for deletion but blocks due to the finalizer.
+7. The `hub-operator` reconcile loop detects the deletion timestamp and executes the teardown sequence:
+    - Purges Hetzner S3 prefix (confirms all objects deleted via S3 API).
+    - Closes billing record in Hub Centralised DB (confirms write via PostgREST).
+    - Deletes CNPG cluster (waits for `Cluster` resource to be fully removed).
+    - Deletes namespace (cascades all remaining resources).
+    - Only after all cleanup confirms successful: removes the finalizer from the `PREnvironment` CR.
+8. Kubernetes completes the CR deletion. The PR environment is fully torn down with guaranteed eventual consistency.
 
 **Failure — CSI snapshot unavailable:**
-Workflow detects no staging snapshot exists. Falls back to empty CNPG cluster with schema-only bootstrap from latest migration. Emits warning to PR comment: `"PR environment using empty database — no staging data available."`
+Operator detects no staging snapshot exists. Falls back to empty CNPG cluster with schema-only bootstrap from latest migration. Sets status condition `DatabaseRestoreFailed=True` with message. Emits warning to PR comment: `"PR environment using empty database — no staging data available."`
+
+**Failure — S3 purge fails during teardown:**
+Operator retries S3 deletion with exponential backoff. If S3 API returns persistent errors (e.g., bucket access denied), operator sets status condition `TeardownFailed=True` and emits alert to Platform Console. The finalizer remains in place, preventing orphaned cloud resources. On-call engineer can manually resolve S3 issue or force-remove finalizer after confirming manual cleanup.
 
 ---
 
@@ -881,37 +909,75 @@ The Platform Console is a web application deployed in the management cluster. It
 ### 5.8 PR Environment Specification
 
 ```yaml
-# PR environment composition (simplified)
-namespace: pr-{branch-slug}
-resources:
-  - kind: Namespace
-    name: pr-{branch-slug}
-  - kind: ResourceQuota
-    spec:
-      hard:
-        cpu: "4"
-        memory: "8Gi"
-  - kind: Cluster  # CNPG — single node
-    spec:
-      instances: 1
-      bootstrap:
-        recovery:
-          source: staging-snapshot  # CSI VolumeSnapshot from staging CNPG
-      storage:
-        size: 10Gi
-  - kind: Deployment  # Tenant application
-    spec:
-      image: {branch-image}
-  - kind: S3Prefix   # Ephemeral Hetzner S3 prefix
+# PREnvironment Custom Resource (managed by hub-operator)
+apiVersion: ops.zero-ops.io/v1alpha1
+kind: PREnvironment
+metadata:
+  name: pr-{branch-slug}
+  namespace: {tenant-namespace}
+  finalizers:
+    - ops.zero-ops.io/pr-environment-cleanup
+spec:
+  branch: {branch-name}
+  tenantId: {tenant-id}
+  database:
+    restoreFrom: staging-snapshot  # CSI VolumeSnapshot reference
+    instances: 1
+    storage: 10Gi
+  application:
+    image: {branch-image}
+  s3:
     prefix: pr/{branch-slug}/
-
-teardown_trigger: PR merged or closed
-teardown_actions:
-  - delete namespace (cascades all resources)
-  - delete CNPG cluster
-  - purge S3 prefix
-  - close billing record
+  resourceQuota:
+    cpu: "4"
+    memory: "8Gi"
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: AllResourcesHealthy
+    - type: DatabaseRestored
+      status: "True"
+      reason: SnapshotRestoreComplete
+    - type: TeardownComplete
+      status: "False"
+      reason: ResourcesStillExist
+  url: https://pr-{branch-slug}.acme-corp.nutgraf.in
+  createdAt: "2026-04-03T10:00:00Z"
+  resources:
+    namespace: pr-{branch-slug}
+    cnpgCluster: pr-{branch-slug}-db
+    s3Prefix: pr/{branch-slug}/
 ```
+
+**Operator Reconciliation Logic:**
+
+**Creation Phase:**
+1. Operator watches `PREnvironment` CRs in all tenant namespaces.
+2. On CR creation, operator adds finalizer `ops.zero-ops.io/pr-environment-cleanup` if not present.
+3. Operator creates namespace, CNPG cluster (with CSI snapshot restore), application deployment, S3 prefix.
+4. Operator polls resource health and sets status conditions (`Ready`, `DatabaseRestored`).
+5. Operator writes PR environment URL to `status.url` for GitHub status check integration.
+
+**Deletion Phase (Finalizer-Driven Teardown):**
+1. When PR is closed, `zero-ops-api` deletes the `PREnvironment` CR from Git.
+2. ArgoCD syncs the deletion. Kubernetes marks CR for deletion but blocks due to finalizer.
+3. Operator reconcile loop detects `metadata.deletionTimestamp` is set.
+4. Operator executes teardown sequence in order:
+   a. Purge S3 prefix via Hetzner S3 API (retry with exponential backoff on failure).
+   b. Close billing record in Hub Centralised DB via PostgREST API.
+   c. Delete CNPG cluster (wait for `Cluster` resource to be fully removed from API server).
+   d. Delete namespace (cascades all remaining resources).
+5. Operator verifies all cleanup operations completed successfully.
+6. Operator removes finalizer `ops.zero-ops.io/pr-environment-cleanup` from CR.
+7. Kubernetes completes CR deletion. PR environment fully torn down.
+
+**Failure Handling:**
+- If S3 purge fails (e.g., API error, access denied), operator retries indefinitely with backoff.
+- If billing record close fails, operator retries but does not block teardown (billing reconciliation can happen async).
+- If CNPG cluster deletion hangs, operator waits up to 5 minutes, then emits alert to Platform Console.
+- Finalizer remains in place until ALL cleanup operations succeed, preventing orphaned cloud resources.
+- On-call engineer can force-remove finalizer after manual verification if operator is stuck.
 
 **Database isolation:** Each PR environment has its own single-node CNPG cluster restored from the latest staging CSI snapshot. Schema migrations in one PR branch do not affect other PR branches. If no staging snapshot is available, CNPG bootstraps from an empty cluster with schema-only migration.
 

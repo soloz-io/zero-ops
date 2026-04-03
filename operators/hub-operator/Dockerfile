@@ -11,8 +11,8 @@ RUN go mod download
 # Copy the hub-operator source
 COPY operators/hub-operator/ ./operators/hub-operator/
 
-# Build using full module path
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager github.com/soloz-io/zero-ops/operators/hub-operator/cmd
+# Build using relative path from workspace
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager ./operators/hub-operator/cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
