@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hub-operator
+  namespace: hub-platform-ops
+  annotations:
+    # Task 15.3: ArgoCD sync-wave 1 (after CRDs, before infrastructure)
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    control-plane: hub-operator
+    app.kubernetes.io/name: hub-operator
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Task 15.1: 2 replicas for HA
+  replicas: 2
+  selector:
+    matchLabels:
+      control-plane: hub-operator
+      app.kubernetes.io/name: hub-operator
+  template:
+    metadata:
+      labels:
+        control-plane: hub-operator
+        app.kubernetes.io/name: hub-operator
+    spec:
+      serviceAccountName: hub-operator
+      terminationGracePeriodSeconds: 10
+      # Task 15.9: Security context - runAsNonRoot, drop ALL capabilities
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: manager
+        image: ghcr.io/soloz-io/zero-ops/hub-operator:latest
+        command:
+        - /manager
+        args:
+        # Task 15.2: Leader election for HA
+        - --leader-elect=true
+        - --health-probe-bind-address=:8081
+        # Task 15.8: Environment variables
+        env:
+        - name: INFISICAL_BASE_URL
+          value: "https://infisical.hub-platform-ops.svc"
+        - name: HYDRA_BASE_URL
+          value: "https://hydra-admin.ory-system.svc"
+        - name: NATS_URL
+          value: "nats://nats.hub-platform-core.svc:4222"
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        # Task 15.6: Liveness probe
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        # Task 15.7: Readiness probe
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        # Task 15.4-15.5: Resource requests and limits
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

@@ -25,10 +25,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -161,26 +164,51 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "6b46dbfb.zero-ops.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		// Task 13 / Requirement 19: Strip Secret .data payloads from cache to reduce memory ~90%
+		// Secrets managed by zero-ops-hub-cli (label: app.kubernetes.io/managed-by=zero-ops-hub-cli)
+		// are bypassed via UncachedClient. Operational secrets also use UncachedClient.
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Secret{}: {
+					// AC 19.4: StripDataFromSecretOrConfigMapTransform - strips .data payload
+					// preserving metadata for watch/list operations
+					Transform: func(obj interface{}) (interface{}, error) {
+						secret, ok := obj.(*corev1.Secret)
+						if !ok {
+							return obj, nil
+						}
+						// AC 19.3: Bypass strip for secrets managed by zero-ops-hub-cli
+						if labels := secret.GetLabels(); labels != nil {
+							if labels["app.kubernetes.io/managed-by"] == "zero-ops-hub-cli" {
+								return obj, nil
+							}
+						}
+						// Strip .data payload to reduce memory usage
+						secret.Data = nil
+						secret.StringData = nil
+						return secret, nil
+					},
+				},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
 
+	// Task 13: Create uncached client for operational secrets
+	// Reads directly from API server, bypassing the cache transformer
+	uncachedClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		setupLog.Error(err, "Failed to create uncached client")
+		os.Exit(1)
+	}
+
 	if err := (&controller.HubEnvironmentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		UncachedClient: uncachedClient,
+		Scheme:         mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "HubEnvironment")
 		os.Exit(1)

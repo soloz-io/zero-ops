@@ -31,13 +31,19 @@ import (
 // HubEnvironmentReconciler reconciles a HubEnvironment object
 type HubEnvironmentReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	// UncachedClient reads secrets directly from API server (bypasses cache)
+	// Use for operational secrets: platform-db-superuser, platform-db-ca, infisical-auth
+	// These must not have their data stripped by the cache transformer
+	UncachedClient client.Client
+	Scheme         *runtime.Scheme
 }
 
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
@@ -169,7 +175,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "MigrationsComplete") {
 		logger.Info("Phase 2: Running database migrations")
 
-		migrator, err := database.NewMigrator(ctx, r.Client, hubEnv.Spec.Database.Namespace)
+		migrator, err := database.NewMigrator(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
 		if err != nil {
 			logger.Error(err, "Failed to create migrator")
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
@@ -227,7 +233,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "DatabaseRolesConfigured") {
 		logger.Info("Phase 2: Creating database roles")
 
-		roleManager, err := database.NewRoleManager(ctx, r.Client, hubEnv.Spec.Database.Namespace)
+		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
 		if err != nil {
 			logger.Error(err, "Failed to create role manager")
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
@@ -500,7 +506,7 @@ func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv
 func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
 	logger := log.FromContext(ctx)
 
-	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.Client, "")
+	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
 	if err != nil {
 		return err
 	}
@@ -561,9 +567,9 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 	namespace := hubEnv.Spec.Database.Namespace
 
 	// Requirement 23.2: Read platform-db-ca secret
-	// TODO: Use UncachedClient when Task 13 (Memory Optimization) is complete
+	// Task 13: Use UncachedClient - operational secret, must not have data stripped
 	platformDBCA := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 		Name:      "platform-db-ca",
 		Namespace: namespace,
 	}, platformDBCA); err != nil {
@@ -575,8 +581,9 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 	}
 
 	// Requirement 23.2: Read infisical-secrets to compare DB_ROOT_CERT
+	// Task 13: Use UncachedClient - operational secret, must not have data stripped
 	infisicalSecrets := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 		Name:      "infisical-secrets",
 		Namespace: namespace,
 	}, infisicalSecrets); err != nil {
@@ -758,8 +765,9 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 		secretName := roleSpec.Name + "-db-credentials"
 
 		// Read the secret
+		// Task 13: Use UncachedClient - credential secret, must not have data stripped
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{
+		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 			Name:      secretName,
 			Namespace: namespace,
 		}, secret); err != nil {
@@ -790,7 +798,7 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 		}
 
 		// Requirement 23.15: Execute ALTER ROLE to update PostgreSQL password
-		roleManager, err := database.NewRoleManager(ctx, r.Client, namespace)
+		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, namespace)
 		if err != nil {
 			logger.Error(err, "Failed to create role manager for password rotation")
 			continue
