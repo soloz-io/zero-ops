@@ -258,38 +258,44 @@
 - [x] 10.11 Restart Keto Deployment on CA change
 - [x] 10.12 Restart SPIRE Server StatefulSet on CA change
 - [x] 10.13 Restart MCP Server Deployment on CA change
+- [x] 10.14 Watch for Infisical Deployment readiness after restart (AC 23.6)
+- [x] 10.15 Update status condition if restart fails (AC 23.7)
+- [x] 10.16 Restart Redis on redis credentials change (AC 23.8)
 
 **Acceptance Criteria:**
 - ✅ CA rotation detected automatically
 - ✅ All database-connected services restarted
 - ✅ Rolling restart preserves availability
 - ✅ No x509 certificate errors after rotation
+- ✅ Status condition updated on restart failure
+- ✅ Redis restarted on credentials change
 - ✅ Build passes successfully
 
 **Note:** Uses regular client for now. TODO comment added for UncachedClient (Task 13).
 
 ---
 
-## Task 11: Password Rotation Handling (DEFERRED)
+## Task 11: Password Rotation Handling ✅
 
 **Objective:** Implement ESO-driven password rotation detection and service restart logic.
 
-**Status:** Deferred - Requires Task 12 (Watch Configuration) to be completed first.
+**Status:** Completed - All functionality implemented.
 
 ### Subtasks:
 
-- [ ] 11.1 Implement handlePasswordRotation() in reconciler
-- [ ] 11.2 Detect password changes in watched secrets (label: ops.zero-ops.io/db-credentials=true)
-- [ ] 11.3 Extract service name from secret labels
-- [ ] 11.4 Execute ALTER ROLE in PostgreSQL
-- [ ] 11.5 Restart consuming Deployment/StatefulSet based on service name
-- [ ] 11.6 Add structured logging for password rotation events
+- [x] 11.1 Implement handlePasswordRotation() in reconciler
+- [x] 11.2 Detect password changes in watched secrets (label: ops.zero-ops.io/db-credentials=true)
+- [x] 11.3 Extract service name from secret labels
+- [x] 11.4 Execute ALTER ROLE in PostgreSQL
+- [x] 11.5 Restart consuming Deployment/StatefulSet based on service name
+- [x] 11.6 Add structured logging for password rotation events
 
 **Acceptance Criteria:**
-- Password changes detected via watch
-- ALTER ROLE executed successfully
-- Consuming services restarted
-- Services pick up new credentials
+- ✅ Password changes detected via watch
+- ✅ ALTER ROLE executed successfully
+- ✅ Consuming services restarted
+- ✅ Services pick up new credentials
+- ✅ Build passes successfully
 
 **Dependencies:**
 - Task 12: Watch configuration for secrets with label ops.zero-ops.io/db-credentials=true

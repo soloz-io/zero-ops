@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -434,6 +435,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			// Don't fail reconciliation, just log and requeue
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+
+		// Requirement 23.15-23.16: Handle password rotation
+		if err := r.handlePasswordRotation(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to handle password rotation")
+			// Don't fail reconciliation, just log and requeue
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -610,6 +618,9 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 
 	logger.Info("Updated DB_ROOT_CERT in infisical-secrets")
 
+	// Track restart failures for status condition
+	var restartFailures []string
+
 	// Requirement 23.5-23.13: Restart all database-connected services
 	services := []struct {
 		kind      string
@@ -629,16 +640,221 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 		if svc.kind == "Deployment" {
 			if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
 				logger.Error(err, "Failed to restart deployment", "name", svc.name, "namespace", svc.namespace)
-				// Continue with other services
+				restartFailures = append(restartFailures, svc.name)
 			} else {
 				logger.Info("Restarted deployment", "name", svc.name, "namespace", svc.namespace)
 			}
 		} else if svc.kind == "StatefulSet" {
 			if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
 				logger.Error(err, "Failed to restart statefulset", "name", svc.name, "namespace", svc.namespace)
-				// Continue with other services
+				restartFailures = append(restartFailures, svc.name)
 			} else {
 				logger.Info("Restarted statefulset", "name", svc.name, "namespace", svc.namespace)
+			}
+		}
+	}
+
+	// Requirement 23.6-23.7: Update status condition if restart fails
+	if len(restartFailures) > 0 {
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationFailed",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ServiceRestartFailed",
+			Message:            fmt.Sprintf("Failed to restart services after certificate rotation: %s", strings.Join(restartFailures, ", ")),
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to update status condition")
+		}
+	} else {
+		// All restarts succeeded, now wait for Infisical readiness (AC 23.6)
+		infisicalReady, err := r.waitForInfisicalReadiness(ctx, hubEnv)
+		if err != nil {
+			logger.Error(err, "Failed to check Infisical readiness after restart")
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "CertificateRotationFailed",
+				Status:             metav1.ConditionTrue,
+				Reason:             "InfisicalNotReady",
+				Message:            fmt.Sprintf("Infisical not ready after certificate rotation: %v", err),
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				logger.Error(err, "Failed to update status condition")
+			}
+			return nil
+		}
+
+		if !infisicalReady {
+			logger.Info("Waiting for Infisical to become ready after certificate rotation")
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "CertificateRotationInProgress",
+				Status:             metav1.ConditionTrue,
+				Reason:             "WaitingForInfisical",
+				Message:            "Waiting for Infisical Deployment to become ready after certificate rotation",
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				logger.Error(err, "Failed to update status condition")
+			}
+			return nil
+		}
+
+		// Clear any previous failure condition
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationFailed",
+			Status:             metav1.ConditionFalse,
+			Reason:             "ServicesRestarted",
+			Message:            "All services restarted successfully after certificate rotation",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationInProgress",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Completed",
+			Message:            "Certificate rotation completed successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to update status condition")
+		}
+	}
+
+	return nil
+}
+
+// waitForInfisicalReadiness checks if Infisical Deployment is ready after restart
+// Requirement 23.6: Watch for Infisical Deployment readiness after restart
+func (r *HubEnvironmentReconciler) waitForInfisicalReadiness(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "infisical",
+		Namespace: "hub-platform-ops",
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			// Deployment doesn't exist yet
+			return false, nil
+		}
+		return false, err
+	}
+
+	// Check if deployment is ready
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == appsv1.DeploymentAvailable && condition.Status == corev1.ConditionTrue {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// handlePasswordRotation detects password changes and executes ALTER ROLE
+// Requirement 23.15-23.16: Implement password rotation handling
+func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+	namespace := hubEnv.Spec.Database.Namespace
+
+	// Check all database role secrets for password changes
+	for _, roleSpec := range hubEnv.Spec.Database.Roles {
+		secretName := roleSpec.Name + "-db-credentials"
+
+		// Read the secret
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{
+			Name:      secretName,
+			Namespace: namespace,
+		}, secret); err != nil {
+			if errors.IsNotFound(err) {
+				// Secret doesn't exist yet, skip
+				continue
+			}
+			return err
+		}
+
+		// Check if secret has the db-credentials label (ESO-managed)
+		if labels := secret.GetLabels(); labels == nil || labels["ops.zero-ops.io/db-credentials"] != "true" {
+			// Not an ESO-managed secret, skip
+			continue
+		}
+
+		// Extract username and password
+		username, ok := secret.Data["username"]
+		if !ok {
+			logger.Info("Secret missing username field", "secret", secretName)
+			continue
+		}
+
+		password, ok := secret.Data["password"]
+		if !ok {
+			logger.Info("Secret missing password field", "secret", secretName)
+			continue
+		}
+
+		// Requirement 23.15: Execute ALTER ROLE to update PostgreSQL password
+		roleManager, err := database.NewRoleManager(ctx, r.Client, namespace)
+		if err != nil {
+			logger.Error(err, "Failed to create role manager for password rotation")
+			continue
+		}
+
+		// Check if password needs update (drift detection)
+		needsUpdate, err := roleManager.PasswordNeedsUpdate(ctx, string(username), string(password))
+		if err != nil {
+			roleManager.Close()
+			logger.Error(err, "Failed to check password drift", "role", string(username))
+			continue
+		}
+
+		if !needsUpdate {
+			roleManager.Close()
+			// Password hasn't changed, skip
+			continue
+		}
+
+		logger.Info("Password rotation detected, updating role", "role", string(username))
+
+		// Execute ALTER ROLE
+		if err := roleManager.UpdateRolePassword(ctx, string(username), string(password)); err != nil {
+			roleManager.Close()
+			logger.Error(err, "Failed to update role password", "role", string(username))
+			continue
+		}
+
+		roleManager.Close()
+		logger.Info("Updated role password in PostgreSQL", "role", string(username))
+
+		// Requirement 23.16: Restart consuming Deployment/StatefulSet
+		// Extract service name from role name (e.g., "infisical" from "infisical-db-credentials")
+		serviceName := roleSpec.Name
+
+		// Map role names to service deployments/statefulsets
+		serviceMap := map[string]struct {
+			kind      string
+			name      string
+			namespace string
+		}{
+			"infisical":        {"Deployment", "infisical", "hub-platform-ops"},
+			"redis":            {"StatefulSet", "redis", namespace},
+			"hydra":            {"Deployment", "hydra", "ory-system"},
+			"kratos":           {"Deployment", "kratos", "ory-system"},
+			"keto":             {"Deployment", "keto", "ory-system"},
+			"spire_server":     {"StatefulSet", "spire-server", "spire-system"},
+			"mcp_server":       {"Deployment", "mcp-server", "hub-platform-ops"},
+			"spoke_controller": {"Deployment", "spoke-controller", namespace},
+		}
+
+		if svc, ok := serviceMap[serviceName]; ok {
+			if svc.kind == "Deployment" {
+				if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
+					logger.Error(err, "Failed to restart deployment after password rotation", "name", svc.name)
+				} else {
+					logger.Info("Restarted deployment after password rotation", "name", svc.name)
+				}
+			} else if svc.kind == "StatefulSet" {
+				if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
+					logger.Error(err, "Failed to restart statefulset after password rotation", "name", svc.name)
+				} else {
+					logger.Info("Restarted statefulset after password rotation", "name", svc.name)
+				}
 			}
 		}
 	}

@@ -163,6 +163,27 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 	return nil
 }
 
+// PasswordNeedsUpdate checks if the role password differs from the secret
+// Requirement 6.11: Compare secret hash with pg_authid to detect drift
+// Exported for password rotation handler
+func (rm *RoleManager) PasswordNeedsUpdate(ctx context.Context, username, password string) (bool, error) {
+	return rm.passwordNeedsUpdate(ctx, username, password)
+}
+
+// UpdateRolePassword executes ALTER ROLE to update the password
+// Requirement 23.15: Execute ALTER ROLE for password rotation
+func (rm *RoleManager) UpdateRolePassword(ctx context.Context, username, password string) error {
+	logger := log.FromContext(ctx)
+
+	alterSQL := fmt.Sprintf("ALTER ROLE %s WITH PASSWORD $1", username)
+	if _, err := rm.db.ExecContext(ctx, alterSQL, password); err != nil {
+		return fmt.Errorf("failed to update role password: %w", err)
+	}
+
+	logger.Info("Updated role password", "username", username)
+	return nil
+}
+
 // passwordNeedsUpdate checks if the role password differs from the secret
 // Requirement 6.11: Compare secret hash with pg_authid to detect drift
 func (rm *RoleManager) passwordNeedsUpdate(ctx context.Context, username, password string) (bool, error) {
