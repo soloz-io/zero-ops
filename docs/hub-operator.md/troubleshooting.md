@@ -131,6 +131,111 @@ if existing, ok := existingSecrets["platform-db-ca"]; ok {
 }
 ```
 
-**Commit:** [pending]
+**Commit:** ef55738
+
+---
+
+## Issue 5: Database Connection with CNPG Wildcard
+
+**Date:** 2026-04-04  
+**Status:** Fixed
+
+### Problem
+Operator failing to connect to database for migrations:
+```
+failed to ping database: pq: database "*" does not exist (3D000)
+```
+
+### Root Cause
+CNPG creates `platform-db-superuser` secret with `dbname: *` (wildcard meaning "all databases"). The migrator and role manager read this value and try to connect to a database literally named `*`, which doesn't exist.
+
+### Fix
+Added fallback logic in both database connection functions to use `postgres` database when encountering the wildcard:
+
+**File:** `operators/hub-operator/internal/database/migrator.go`
+```go
+dbname := string(secret.Data["dbname"])
+
+// Handle CNPG wildcard database name
+// CNPG uses "*" to denote superuser access to all databases
+if dbname == "*" || dbname == "" {
+    dbname = "postgres"
+}
+```
+
+**File:** `operators/hub-operator/internal/database/roles.go`
+```go
+dbname := string(secret.Data["dbname"])
+
+// Handle CNPG wildcard database name
+// CNPG uses "*" to denote superuser access to all databases
+if dbname == "*" || dbname == "" {
+    dbname = "postgres"
+}
+```
+
+**Commit:** b7ca8f3
+
+---
+
+## Issue 6: Missing ArgoCD Sync-Wave Annotations
+
+**Date:** 2026-04-04  
+**Status:** Fixed
+
+### Problem
+Several ArgoCD applications missing `sync-wave` annotations, causing them to deploy in wave 0 before dependencies are ready:
+- `mcp-server` (no annotation)
+- `kratos-selfservice-ui` (no annotation)
+
+### Fix
+Added sync-wave annotations to ensure proper deployment order:
+
+**File:** `manifests/platform-identity/argocd/mcp-server.yaml`
+```yaml
+metadata:
+  name: mcp-server
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+```
+
+**File:** `manifests/platform-identity/argocd/kratos-ui.yaml`
+```yaml
+metadata:
+  name: kratos-selfservice-ui
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+```
+
+**Commit:** b7ca8f3
+
+---
+
+## Issue 7: ArgoCD OutOfSync Applications
+
+**Date:** 2026-04-04  
+**Status:** Fixed
+
+### Problem
+Applications stuck OutOfSync/Degraded due to field ownership conflicts with CRDs and ESO-managed secrets.
+
+### Fix
+Added `ServerSideApply=true` and `RespectIgnoreDifferences=true` to sync options:
+
+**File:** `manifests/argocd/apps/platform-external-secrets.yaml`
+```yaml
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+  syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    - RespectIgnoreDifferences=true
+```
+
+**Commit:** b7ca8f3
 
 ---
