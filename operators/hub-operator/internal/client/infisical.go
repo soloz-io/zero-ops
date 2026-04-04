@@ -32,7 +32,8 @@ func NewInfisicalClient(ctx context.Context, k8sClient client.Client, baseURL st
 	if baseURL == "" {
 		// Use internal service URL instead of external HTTPS
 		// This avoids TLS certificate verification issues during bootstrap
-		baseURL = "http://platform-infisical-standalone.hub-platform-security.svc:8080"
+		// Service name follows Helm pattern: {release}-{chart}-{component}
+		baseURL = "http://platform-infisical-infisical-standalone-infisical.hub-platform-security.svc:8080"
 	}
 
 	return &InfisicalClient{
