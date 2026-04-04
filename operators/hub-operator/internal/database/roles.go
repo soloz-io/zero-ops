@@ -285,12 +285,19 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 		return fmt.Errorf("failed to grant CONNECT: %w", err)
 	}
 
-	// Grant USAGE on public schema
+	// Grant USAGE and CREATE on public schema (migrations need CREATE to make tables)
 	usageSQL := fmt.Sprintf("GRANT USAGE ON SCHEMA public TO \"%s\"", username)
 	logger.Info("Granting USAGE on public schema", "sql", usageSQL)
 	if _, err := targetDB.ExecContext(ctx, usageSQL); err != nil {
 		logger.Error(err, "GRANT USAGE failed", "sql", usageSQL, "error_detail", err.Error())
 		return fmt.Errorf("failed to grant USAGE: %w", err)
+	}
+
+	createSQL := fmt.Sprintf("GRANT CREATE ON SCHEMA public TO \"%s\"", username)
+	logger.Info("Granting CREATE on public schema", "sql", createSQL)
+	if _, err := targetDB.ExecContext(ctx, createSQL); err != nil {
+		logger.Error(err, "GRANT CREATE failed", "sql", createSQL, "error_detail", err.Error())
+		return fmt.Errorf("failed to grant CREATE: %w", err)
 	}
 
 	// Grant permissions on existing tables in public schema
@@ -308,6 +315,20 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 			grantSQL = fmt.Sprintf("GRANT DELETE ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		case "ALL":
 			grantSQL = fmt.Sprintf("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
+			// Also grant on sequences for ALL permission
+			seqSQL := fmt.Sprintf("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"%s\"", username)
+			logger.Info("Granting sequence permission", "sql", seqSQL)
+			if _, err := targetDB.ExecContext(ctx, seqSQL); err != nil {
+				logger.Error(err, "GRANT sequences failed", "sql", seqSQL, "error_detail", err.Error())
+				return fmt.Errorf("failed to grant sequences: %w", err)
+			}
+			// Grant default privileges on sequences
+			defaultSeqSQL := fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO \"%s\"", username)
+			logger.Info("Granting default sequence privilege", "sql", defaultSeqSQL)
+			if _, err := targetDB.ExecContext(ctx, defaultSeqSQL); err != nil {
+				logger.Error(err, "ALTER DEFAULT PRIVILEGES sequences failed", "sql", defaultSeqSQL, "error_detail", err.Error())
+				return fmt.Errorf("failed to grant default sequences: %w", err)
+			}
 		default:
 			logger.Info("Unknown permission type, skipping", "permission", perm)
 			continue
