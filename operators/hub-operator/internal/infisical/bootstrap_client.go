@@ -55,6 +55,12 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to bootstrap Infisical: %w", err)
 	}
 
+	// If bootstrapResp is nil, Infisical is already bootstrapped
+	if bootstrapResp == nil {
+		logger.Info("Infisical is already bootstrapped, skipping Phase 0")
+		return false, nil
+	}
+
 	adminToken := bootstrapResp.Identity.Credentials.Token
 	orgID := bootstrapResp.Organization.ID
 
