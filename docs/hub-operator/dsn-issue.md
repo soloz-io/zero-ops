@@ -263,3 +263,27 @@ Admin Credentials: The bootstrap creates an admin user. Stored in a K8s secret f
 
 
 
+
+-----------
+
+**Phase 0: Infisical Bootstrap (Hub Operator Day 0)**
+1. Check if `infisical-auth` exists → skip if yes
+2. Bootstrap Infisical → get ADMIN_TOKEN
+3. Create project "hub-platform"
+4. Create Machine Identity "eso-operator"
+5. Attach Universal Auth
+6. Generate CLIENT_ID/CLIENT_SECRET
+7. Grant identity "admin" role to project
+8. Store admin credentials in `infisical-admin` secret
+9. Store client credentials in `infisical-auth` secret
+10. Upload ALL CLI-injected secrets to Infisical:
+    - `hetzner-dns` (from `hub-cloud-system`)
+    - Any other secrets from CLI bootstrap
+
+**Phase 1-3: Existing flow**
+- ESO syncs from Infisical
+- external-dns works
+- DNS updates
+- TLS cert issues
+
+Let me implement this in the hub-operator.

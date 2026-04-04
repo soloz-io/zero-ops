@@ -99,7 +99,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Phase 0: Bootstrap Infisical (Day 0 initialization)
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "InfisicalBootstrapped") {
+	// Check if condition exists and matches current generation
+	bootstrapCondition := meta.FindStatusCondition(hubEnv.Status.Conditions, "InfisicalBootstrapped")
+	needsBootstrap := bootstrapCondition == nil || 
+		bootstrapCondition.Status != metav1.ConditionTrue || 
+		bootstrapCondition.ObservedGeneration != hubEnv.Generation
+	
+	if needsBootstrap {
 		logger.Info("Phase 0: Bootstrapping Infisical")
 
 		// Check if Infisical is ready
