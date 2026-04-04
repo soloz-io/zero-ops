@@ -145,13 +145,17 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 		// Create new role (PostgreSQL does not support inline COMMENT in CREATE ROLE)
 		// Note: Role names cannot be parameterized, but password must be
 		createSQL := fmt.Sprintf("CREATE ROLE \"%s\" WITH LOGIN PASSWORD $1", username)
+		logger.Info("Executing CREATE ROLE statement", "sql", createSQL, "username", username)
 		if _, err := rm.db.ExecContext(ctx, createSQL, password); err != nil {
+			logger.Error(err, "CREATE ROLE failed", "sql", createSQL, "username", username, "error_detail", err.Error())
 			return fmt.Errorf("failed to create role: %w", err)
 		}
 
 		// Add comment to identify managed roles (separate statement required)
 		commentSQL := fmt.Sprintf("COMMENT ON ROLE \"%s\" IS 'Managed by hub-operator'", username)
+		logger.Info("Adding role comment", "sql", commentSQL, "username", username)
 		if _, err := rm.db.ExecContext(ctx, commentSQL); err != nil {
+			logger.Error(err, "COMMENT ON ROLE failed", "sql", commentSQL, "username", username)
 			return fmt.Errorf("failed to add role comment: %w", err)
 		}
 
@@ -174,8 +178,9 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 
 	if needsUpdate {
 		// Update password
-		alterSQL := fmt.Sprintf("ALTER ROLE \"%s\" WITH PASSWORD $1", username)
-		if _, err := rm.db.ExecContext(ctx, alterSQL, password); err != nil {
+		escapedPassword := strings.ReplaceAll(password, "'", "''")
+		alterSQL := fmt.Sprintf("ALTER ROLE \"%s\" WITH PASSWORD '%s'", username, escapedPassword)
+		if _, err := rm.db.ExecContext(ctx, alterSQL); err != nil {
 			return fmt.Errorf("failed to update role password: %w", err)
 		}
 		logger.Info("Updated role password", "username", username)
@@ -196,8 +201,9 @@ func (rm *RoleManager) PasswordNeedsUpdate(ctx context.Context, username, passwo
 func (rm *RoleManager) UpdateRolePassword(ctx context.Context, username, password string) error {
 	logger := log.FromContext(ctx)
 
-	alterSQL := fmt.Sprintf("ALTER ROLE \"%s\" WITH PASSWORD $1", username)
-	if _, err := rm.db.ExecContext(ctx, alterSQL, password); err != nil {
+	escapedPassword := strings.ReplaceAll(password, "'", "''")
+	alterSQL := fmt.Sprintf("ALTER ROLE \"%s\" WITH PASSWORD '%s'", username, escapedPassword)
+	if _, err := rm.db.ExecContext(ctx, alterSQL); err != nil {
 		return fmt.Errorf("failed to update role password: %w", err)
 	}
 
