@@ -161,6 +161,37 @@ func (c *InfisicalClient) CreateOrUpdateSecret(ctx context.Context, hubEnv *opsv
 	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
 }
 
+// CreateOrUpdateSecretRaw creates or updates a secret using raw project/environment parameters
+// Used by bootstrap to upload CLI secrets before HubEnvironment CR exists
+func (c *InfisicalClient) CreateOrUpdateSecretRaw(ctx context.Context, projectSlug, environmentSlug, secretPath, key, value string) error {
+	logger := log.FromContext(ctx)
+
+	// Ensure we have a valid token
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	// Convert projectSlug to workspaceId
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	// Check if secret exists
+	exists, err := c.secretExists(ctx, workspaceId, environmentSlug, secretPath, key)
+	if err != nil {
+		return fmt.Errorf("failed to check if secret exists: %w", err)
+	}
+
+	if exists {
+		logger.Info("Updating existing secret in Infisical", "key", key)
+		return c.updateSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+	}
+
+	logger.Info("Creating new secret in Infisical", "key", key)
+	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+}
+
 // getWorkspaceIdFromSlug converts projectSlug to workspaceId
 func (c *InfisicalClient) getWorkspaceIdFromSlug(ctx context.Context, projectSlug string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/workspace", nil)
