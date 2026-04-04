@@ -3,6 +3,8 @@ kind: Application
 metadata:
   name: mcp-server
   namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   project: default
   source:

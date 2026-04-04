@@ -53,6 +53,12 @@ func NewMigrator(ctx context.Context, k8sClient client.Client, namespace string)
 	password := string(secret.Data["password"])
 	dbname := string(secret.Data["dbname"])
 
+	// Handle CNPG wildcard database name
+	// CNPG uses "*" to denote superuser access to all databases
+	if dbname == "*" || dbname == "" {
+		dbname = "postgres"
+	}
+
 	// Read platform-db-ca secret for TLS
 	caSecret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, client.ObjectKey{

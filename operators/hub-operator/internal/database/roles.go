@@ -37,6 +37,12 @@ func NewRoleManager(ctx context.Context, k8sClient client.Client, namespace stri
 	password := string(secret.Data["password"])
 	dbname := string(secret.Data["dbname"])
 
+	// Handle CNPG wildcard database name
+	// CNPG uses "*" to denote superuser access to all databases
+	if dbname == "*" || dbname == "" {
+		dbname = "postgres"
+	}
+
 	// Connect to primary service with TLS
 	connStr := fmt.Sprintf(
 		"host=platform-db-rw.%s.svc port=5432 user=%s password=%s dbname=%s sslmode=require",
