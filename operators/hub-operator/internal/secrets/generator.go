@@ -264,20 +264,6 @@ func GenerateOryDBCredentials(service, namespace string, owner metav1.OwnerRefer
 	return secret, nil
 }
 
-// mapRoleToSecretName converts CR role names to valid K8s secret names
-// Handles special mappings from old CLI behavior for backward compatibility
-func mapRoleToSecretName(roleName string) string {
-	switch roleName {
-	case "mcp_server":
-		return "control-plane-db-credentials"
-	case "spoke_controller":
-		return "hub-db-credentials"
-	default:
-		// Replace underscores with hyphens for valid K8s names
-		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
-	}
-}
-
 // GenerateRoleDBCredentials creates database credentials for any role defined in HubEnvironment CR
 // This handles roles like mcp_server, spoke_controller, spire_server, etc.
 // Requirement 2.5-2.8: Create credentials for all database roles
