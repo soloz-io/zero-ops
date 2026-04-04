@@ -48,85 +48,113 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 	logger.Info("Starting Infisical bootstrap")
 
-	// Step 1: Bootstrap Infisical (create admin user)
-	logger.Info("Step 1: Bootstrapping Infisical admin user")
-	bootstrapResp, err := bc.api.Bootstrap(ctx, AdminEmail, AdminPassword, OrganizationName)
+	// Step 1: Login to get initial token
+	logger.Info("Step 1: Logging in to Infisical")
+	loginResp, err := bc.api.Login(ctx, AdminEmail, AdminPassword)
 	if err != nil {
-		return false, fmt.Errorf("failed to bootstrap Infisical: %w", err)
+		return false, fmt.Errorf("failed to login to Infisical: %w", err)
 	}
 
-	// If bootstrapResp is nil, Infisical is already bootstrapped
-	if bootstrapResp == nil {
-		logger.Info("Infisical is already bootstrapped, skipping Phase 0")
-		return false, nil
+	initialToken := loginResp.AccessToken
+	logger.Info("Login successful")
+
+	// Step 2: List organizations to get orgID
+	logger.Info("Step 2: Fetching organization list")
+	orgs, err := bc.api.ListOrganizations(ctx, initialToken)
+	if err != nil {
+		return false, fmt.Errorf("failed to list organizations: %w", err)
 	}
 
-	adminToken := bootstrapResp.Identity.Credentials.Token
-	orgID := bootstrapResp.Organization.ID
+	if len(orgs) == 0 {
+		return false, fmt.Errorf("no organizations found for user")
+	}
 
-	logger.Info("Infisical admin user created", "orgID", orgID)
+	// Use first organization (super admin should have access to the org)
+	orgID := orgs[0].ID
+	logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name)
 
-	// Step 2: Create project "hub-platform"
-	logger.Info("Step 2: Creating project", "projectName", ProjectName)
+	// Step 3: Select organization to get org-scoped token
+	logger.Info("Step 3: Selecting organization", "orgID", orgID)
+	selectOrgResp, err := bc.api.SelectOrganization(ctx, initialToken, orgID)
+	if err != nil {
+		return false, fmt.Errorf("failed to select organization: %w", err)
+	}
+
+	adminToken := selectOrgResp.Token
+	logger.Info("Organization selected successfully")
+
+	// Step 4: Create project "hub-platform"
+	logger.Info("Step 4: Creating project", "projectName", ProjectName)
 	projectResp, err := bc.api.CreateProject(ctx, adminToken, ProjectName, orgID)
 	if err != nil {
 		return false, fmt.Errorf("failed to create project: %w", err)
 	}
 
-	projectID := projectResp.ID
-	projectSlug := projectResp.Slug
+	projectID := projectResp.Project.ID
+	projectSlug := projectResp.Project.Slug
 
 	logger.Info("Project created", "projectID", projectID, "projectSlug", projectSlug)
 
-	// Step 3: Create machine identity "eso-operator"
-	logger.Info("Step 3: Creating machine identity", "identityName", IdentityName)
+	// Step 5: Create machine identity "eso-operator"
+	logger.Info("Step 5: Creating machine identity", "identityName", IdentityName)
 	identityResp, err := bc.api.CreateIdentity(ctx, adminToken, IdentityName, orgID)
 	if err != nil {
 		return false, fmt.Errorf("failed to create machine identity: %w", err)
 	}
 
-	identityID := identityResp.ID
+	identityID := identityResp.Identity.ID
 
 	logger.Info("Machine identity created", "identityID", identityID)
 
-	// Step 4: Attach Universal Auth to identity
-	logger.Info("Step 4: Attaching Universal Auth to identity")
+	// Step 6: Attach Universal Auth to identity
+	logger.Info("Step 6: Attaching Universal Auth to identity")
 	if err := bc.api.AttachUniversalAuth(ctx, adminToken, identityID); err != nil {
 		return false, fmt.Errorf("failed to attach universal auth: %w", err)
 	}
 
 	logger.Info("Universal Auth attached")
 
-	// Step 5: Generate client credentials
-	logger.Info("Step 5: Generating client credentials")
+	// Step 7: Generate client credentials
+	logger.Info("Step 7: Generating client credentials")
 	credsResp, err := bc.api.GenerateClientCredentials(ctx, adminToken, identityID)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate client credentials: %w", err)
 	}
 
-	clientID := credsResp.ClientID
 	clientSecret := credsResp.ClientSecret
 
 	logger.Info("Client credentials generated")
 
-	// Step 6: Grant identity access to project
-	logger.Info("Step 6: Granting identity access to project", "role", IdentityRole)
-	if err := bc.api.GrantProjectAccess(ctx, adminToken, projectID, identityID, IdentityRole); err != nil {
-		return false, fmt.Errorf("failed to grant project access: %w", err)
+	// Step 8: Get clientId from universal auth configuration
+	logger.Info("Step 8: Retrieving clientId from universal auth configuration")
+	uaResp, err := bc.api.GetUniversalAuth(ctx, adminToken, identityID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get universal auth configuration: %w", err)
 	}
 
-	logger.Info("Identity granted project access")
+	clientID := uaResp.IdentityUniversalAuth.ClientID
 
-	// Step 7: Create infisical-auth secret in hub-platform-ops
-	logger.Info("Step 7: Creating infisical-auth secret")
+	logger.Info("ClientId retrieved", "clientId", clientID)
+
+	// Step 9: Grant identity access to project
+	logger.Info("Step 9: Granting identity access to project", "role", IdentityRole)
+	if err := bc.api.GrantProjectAccess(ctx, adminToken, projectID, identityID, IdentityRole); err != nil {
+		// Log warning but don't fail - user might not have project membership permissions
+		logger.Info("Warning: Failed to grant project access (may require manual setup)", "error", err.Error())
+	} else {
+		logger.Info("Identity granted project access")
+	}
+
+	// Step 10: Create infisical-auth secret in hub-platform-ops
+	logger.Info("Step 10: Creating infisical-auth secret")
 	if err := bc.createInfisicalAuthSecret(ctx, clientID, clientSecret); err != nil {
 		return false, fmt.Errorf("failed to create infisical-auth secret: %w", err)
 	}
 
 	logger.Info("infisical-auth secret created")
 
-	// Step 8: Create infisical-admin secret (for future admin operations)
-	logger.Info("Step 8: Creating infisical-admin secret")
+	// Step 11: Create infisical-admin secret (for future admin operations)
+	logger.Info("Step 11: Creating infisical-admin secret")
 	if err := bc.createInfisicalAdminSecret(ctx, adminToken, orgID, projectID, projectSlug); err != nil {
 		return false, fmt.Errorf("failed to create infisical-admin secret: %w", err)
 	}

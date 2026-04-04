@@ -38,6 +38,92 @@ type BootstrapResponse struct {
 	} `json:"organization"`
 }
 
+// LoginResponse represents the response from /api/v3/auth/login
+type LoginResponse struct {
+	AccessToken string `json:"accessToken"`
+}
+
+// SelectOrganizationResponse represents the response from /api/v3/auth/select-organization
+type SelectOrganizationResponse struct {
+	Token string `json:"token"`
+}
+
+// Login calls /api/v3/auth/login to get initial token
+func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*LoginResponse, error) {
+	payload := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v3/auth/login", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create login request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var loginResp LoginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
+		return nil, fmt.Errorf("failed to decode login response: %w", err)
+	}
+
+	return &loginResp, nil
+}
+
+// SelectOrganization calls /api/v3/auth/select-organization to get org-scoped token
+func (api *BootstrapAPI) SelectOrganization(ctx context.Context, token, orgID string) (*SelectOrganizationResponse, error) {
+	payload := map[string]string{
+		"organizationId": orgID,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal select organization request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v3/auth/select-organization", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create select organization request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute select organization request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("select organization failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var selectOrgResp SelectOrganizationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&selectOrgResp); err != nil {
+		return nil, fmt.Errorf("failed to decode select organization response: %w", err)
+	}
+
+	return &selectOrgResp, nil
+}
+
 // Bootstrap calls /api/v1/admin/bootstrap to create admin user
 // If instance is already bootstrapped (400 error), returns error indicating manual intervention needed
 func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName string) (*BootstrapResponse, error) {
@@ -124,10 +210,13 @@ func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken strin
 }
 
 // ProjectResponse represents project creation response
+// API returns the project wrapped in a "project" field
 type ProjectResponse struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	Project struct {
+		ID   string `json:"id"`
+		Slug string `json:"slug"`
+		Name string `json:"name"`
+	} `json:"project"`
 }
 
 // CreateProject creates a new project
@@ -170,9 +259,12 @@ func (api *BootstrapAPI) CreateProject(ctx context.Context, adminToken, projectN
 }
 
 // IdentityResponse represents machine identity creation response
+// API returns the identity wrapped in an "identity" field
 type IdentityResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	Identity struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"identity"`
 }
 
 // CreateIdentity creates a machine identity
@@ -216,11 +308,37 @@ func (api *BootstrapAPI) CreateIdentity(ctx context.Context, adminToken, identit
 
 // AttachUniversalAuth attaches Universal Auth to machine identity
 func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, identityID string) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/universal-auth/identities/"+identityID, nil)
+	// Use default values for Universal Auth configuration
+	payload := map[string]interface{}{
+		"clientSecretTrustedIps": []map[string]string{
+			{"ipAddress": "0.0.0.0/0"},
+			{"ipAddress": "::/0"},
+		},
+		"accessTokenTrustedIps": []map[string]string{
+			{"ipAddress": "0.0.0.0/0"},
+			{"ipAddress": "::/0"},
+		},
+		"accessTokenTTL":       2592000, // 30 days
+		"accessTokenMaxTTL":    2592000, // 30 days
+		"accessTokenNumUsesLimit": 0,
+		"accessTokenPeriod":    0,
+		"lockoutEnabled":       true,
+		"lockoutThreshold":     3,
+		"lockoutDurationSeconds": 300,
+		"lockoutCounterResetSeconds": 30,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attach auth request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/universal-auth/identities/"+identityID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create attach auth request: %w", err)
 	}
 
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	resp, err := api.httpClient.Do(req)
@@ -229,8 +347,14 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	// Handle idempotency: if already configured, treat as success
+	if resp.StatusCode == http.StatusBadRequest && bytes.Contains(bodyBytes, []byte("already configured")) {
+		return nil
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("attach universal auth failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -239,17 +363,67 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 
 // ClientCredentialsResponse represents client credentials generation response
 type ClientCredentialsResponse struct {
-	ClientID     string `json:"clientId"`
 	ClientSecret string `json:"clientSecret"`
+	ClientSecretData struct {
+		ID string `json:"id"`
+	} `json:"clientSecretData"`
+}
+
+// UniversalAuthResponse represents the universal auth configuration
+type UniversalAuthResponse struct {
+	IdentityUniversalAuth struct {
+		ClientID string `json:"clientId"`
+	} `json:"identityUniversalAuth"`
+}
+
+// GetUniversalAuth retrieves the universal auth configuration to get clientId
+func (api *BootstrapAPI) GetUniversalAuth(ctx context.Context, adminToken, identityID string) (*UniversalAuthResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+"/api/v1/auth/universal-auth/identities/"+identityID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get universal auth request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute get universal auth request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get universal auth failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var uaResp UniversalAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&uaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode universal auth response: %w", err)
+	}
+
+	return &uaResp, nil
 }
 
 // GenerateClientCredentials generates client credentials for machine identity
 func (api *BootstrapAPI) GenerateClientCredentials(ctx context.Context, adminToken, identityID string) (*ClientCredentialsResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/universal-auth/identities/"+identityID+"/client-secrets", nil)
+	// Use default values for client secret configuration
+	payload := map[string]interface{}{
+		"description":   "",
+		"numUsesLimit": 0,
+		"ttl":          0,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal client credentials request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/universal-auth/identities/"+identityID+"/client-secrets", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client credentials request: %w", err)
 	}
 
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	resp, err := api.httpClient.Do(req)
