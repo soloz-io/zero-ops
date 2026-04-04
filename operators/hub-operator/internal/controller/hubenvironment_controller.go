@@ -38,6 +38,20 @@ type HubEnvironmentReconciler struct {
 	Scheme         *runtime.Scheme
 }
 
+// mapRoleToSecretName converts CR role names to valid K8s secret names
+// Handles special mappings from old CLI behavior for backward compatibility
+func mapRoleToSecretName(roleName string) string {
+	switch roleName {
+	case "mcp_server":
+		return "control-plane-db-credentials"
+	case "spoke_controller":
+		return "hub-db-credentials"
+	default:
+		// Replace underscores with hyphens for valid K8s names
+		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
+	}
+}
+
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/finalizers,verbs=update
@@ -93,8 +107,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			Controller: func() *bool { b := true; return &b }(),
 		}
 
-		// Read existing secrets for idempotency
-		existingSecrets := make(map[string]*corev1.Secret)
+		// Build list of all secret names (base secrets + role credentials)
 		secretNames := []string{
 			"infisical-secrets",
 			"platform-db-app",
@@ -106,6 +119,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			"platform-db-ca",
 		}
 
+		// Add role credential secrets from CR spec
+		for _, role := range hubEnv.Spec.Database.Roles {
+			secretNames = append(secretNames, fmt.Sprintf("%s-db-credentials", role.Name))
+		}
+
+		// Read existing secrets for idempotency
+		existingSecrets := make(map[string]*corev1.Secret)
 		for _, name := range secretNames {
 			secret := &corev1.Secret{}
 			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, secret); err == nil {
@@ -113,16 +133,17 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		// Generate Secret Zero
+		// Generate Secret Zero (base secrets)
 		result, err := secrets.GenerateSecretZero(namespace, dbHost, owner, existingSecrets)
 		if err != nil {
 			logger.Error(err, "Failed to generate Secret Zero")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		// Create all secrets
+		// Create base secrets
 		secretsToCreate := []*corev1.Secret{
 			result.InfisicalSecrets,
+			result.InfisicalRedisCredentials,
 			result.PlatformDBApp,
 			result.InfisicalDBCredentials,
 			result.InfisicalPostgresConnection,
@@ -142,6 +163,31 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 				}
 			}
+		}
+
+		// Generate and create role credential secrets for all roles in CR
+		for _, role := range hubEnv.Spec.Database.Roles {
+			// Generate new role credential secret (uses mapRoleToSecretName internally)
+			roleSecret, err := secrets.GenerateRoleDBCredentials(role.Name, namespace, owner)
+			if err != nil {
+				logger.Error(err, "Failed to generate role credentials", "role", role.Name)
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+			}
+
+			// Skip if secret already exists (check using the mapped secret name)
+			if _, exists := existingSecrets[roleSecret.Name]; exists {
+				logger.Info("Role credential secret already exists", "secret", roleSecret.Name, "role", role.Name)
+				continue
+			}
+
+			// Create the secret
+			if err := r.Create(ctx, roleSecret); err != nil {
+				if !errors.IsAlreadyExists(err) {
+					logger.Error(err, "Failed to create role credential secret", "secret", roleSecret.Name)
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+				}
+			}
+			logger.Info("Created role credential secret", "secret", roleSecret.Name, "role", role.Name)
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -521,9 +567,37 @@ func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context,
 		}
 	}
 
+	// GAP 3 FIX: Upload platform-db-app (Layer 1 bootstrap secret)
+	// This secret is not in the roles list but must be uploaded to Infisical
+	// for ExternalSecrets to sync it
+	if !uploadedSecrets["platform-db-app"] {
+		appSecret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{
+			Name:      "platform-db-app",
+			Namespace: namespace,
+		}, appSecret); err == nil {
+			username := string(appSecret.Data["username"])
+			password := string(appSecret.Data["password"])
+
+			if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, "platform-db-app-username", username); err != nil {
+				return fmt.Errorf("failed to upload platform-db-app-username: %w", err)
+			}
+
+			if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, "platform-db-app-password", password); err != nil {
+				return fmt.Errorf("failed to upload platform-db-app-password: %w", err)
+			}
+
+			hubEnv.Status.UploadedSecrets = append(hubEnv.Status.UploadedSecrets, "platform-db-app")
+			logger.Info("Uploaded platform-db-app to Infisical")
+		} else if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to get platform-db-app secret: %w", err)
+		}
+	}
+
 	// Upload credentials for each database role
 	for _, roleSpec := range hubEnv.Spec.Database.Roles {
-		secretName := roleSpec.Name + "-db-credentials"
+		// Map role name to actual K8s secret name (handles mcp_server → control-plane-db-credentials)
+		secretName := mapRoleToSecretName(roleSpec.Name)
 
 		// Skip if already uploaded
 		if uploadedSecrets[secretName] {
@@ -543,18 +617,23 @@ func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context,
 		username := string(secret.Data["username"])
 		password := string(secret.Data["password"])
 
+		// Determine Infisical key prefix based on secret name
+		// control-plane-db-credentials → control-plane-db-username/password
+		// hub-db-credentials → hub-db-username/password
+		infisicalPrefix := strings.TrimSuffix(secretName, "-credentials")
+
 		// Upload username and password
-		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, roleSpec.Name+"-db-username", username); err != nil {
+		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, infisicalPrefix+"-username", username); err != nil {
 			return err
 		}
 
-		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, roleSpec.Name+"-db-password", password); err != nil {
+		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, infisicalPrefix+"-password", password); err != nil {
 			return err
 		}
 
 		// Mark as uploaded
 		hubEnv.Status.UploadedSecrets = append(hubEnv.Status.UploadedSecrets, secretName)
-		logger.Info("Uploaded secret to Infisical", "secret", secretName)
+		logger.Info("Uploaded secret to Infisical", "secret", secretName, "role", roleSpec.Name)
 	}
 
 	return nil

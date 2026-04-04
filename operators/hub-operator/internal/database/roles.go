@@ -14,6 +14,20 @@ import (
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 )
 
+// mapRoleToSecretName converts CR role names to valid K8s secret names
+// Handles special mappings from old CLI behavior for backward compatibility
+func mapRoleToSecretName(roleName string) string {
+	switch roleName {
+	case "mcp_server":
+		return "control-plane-db-credentials"
+	case "spoke_controller":
+		return "hub-db-credentials"
+	default:
+		// Replace underscores with hyphens for valid K8s names
+		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
+	}
+}
+
 // RoleManager handles database role creation and management
 type RoleManager struct {
 	db     *sql.DB
@@ -79,8 +93,8 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 	for _, roleSpec := range hubEnv.Spec.Database.Roles {
 		logger.Info("Processing database role", "role", roleSpec.Name)
 
-		// Read credentials from secret
-		secretName := fmt.Sprintf("%s-db-credentials", roleSpec.Name)
+		// Map role name to valid K8s secret name (handles mcp_server → control-plane-db-credentials)
+		secretName := mapRoleToSecretName(roleSpec.Name)
 		secret := &corev1.Secret{}
 		if err := rm.client.Get(ctx, client.ObjectKey{
 			Name:      secretName,

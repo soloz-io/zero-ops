@@ -10,11 +10,26 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// mapRoleToSecretName converts CR role names to valid K8s secret names
+// Handles special mappings from old CLI behavior for backward compatibility
+func mapRoleToSecretName(roleName string) string {
+	switch roleName {
+	case "mcp_server":
+		return "control-plane-db-credentials"
+	case "spoke_controller":
+		return "hub-db-credentials"
+	default:
+		// Replace underscores with hyphens for valid K8s names
+		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
+	}
+}
 
 // GenerateSecurePassword generates a cryptographically secure 32-character hex password
 func GenerateSecurePassword() (string, error) {
@@ -74,9 +89,16 @@ func GenerateSelfSignedCA() (certPEM, keyPEM []byte, err error) {
 	return certPEM, keyPEM, nil
 }
 
+// GenerateInfisicalSecretsResult contains both infisical-secrets and the extracted Redis password
+type GenerateInfisicalSecretsResult struct {
+	InfisicalSecrets *corev1.Secret
+	RedisPassword    string
+}
+
 // GenerateInfisicalSecrets creates the infisical-secrets Kubernetes secret
 // Requirement 4.1, 4.2, 4.3, 4.4, 4.8, 4.9
-func GenerateInfisicalSecrets(namespace string, caCert []byte, owner metav1.OwnerReference) (*corev1.Secret, error) {
+// Returns both the secret and the Redis password for creating infisical-redis-credentials
+func GenerateInfisicalSecrets(namespace string, caCert []byte, owner metav1.OwnerReference) (*GenerateInfisicalSecretsResult, error) {
 	encryptionKey, err := GenerateSecurePassword()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ENCRYPTION_KEY: %w", err)
@@ -113,7 +135,10 @@ func GenerateInfisicalSecrets(namespace string, caCert []byte, owner metav1.Owne
 		},
 	}
 
-	return secret, nil
+	return &GenerateInfisicalSecretsResult{
+		InfisicalSecrets: secret,
+		RedisPassword:    redisPassword,
+	}, nil
 }
 
 // GeneratePlatformDBApp creates the platform-db-app BasicAuth secret
@@ -161,6 +186,28 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 		StringData: map[string]string{
 			"username": "infisical",
 			"password": password,
+		},
+	}
+
+	return secret, nil
+}
+
+// GenerateInfisicalRedisCredentials creates the infisical-redis-credentials secret
+// This secret is consumed by the Redis StatefulSet
+func GenerateInfisicalRedisCredentials(namespace, redisPassword string, owner metav1.OwnerReference) (*corev1.Secret, error) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "infisical-redis-credentials",
+			Namespace:       namespace,
+			OwnerReferences: []metav1.OwnerReference{owner},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-operator",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"password": redisPassword,
 		},
 	}
 
@@ -217,6 +264,52 @@ func GenerateOryDBCredentials(service, namespace string, owner metav1.OwnerRefer
 	return secret, nil
 }
 
+// mapRoleToSecretName converts CR role names to valid K8s secret names
+// Handles special mappings from old CLI behavior for backward compatibility
+func mapRoleToSecretName(roleName string) string {
+	switch roleName {
+	case "mcp_server":
+		return "control-plane-db-credentials"
+	case "spoke_controller":
+		return "hub-db-credentials"
+	default:
+		// Replace underscores with hyphens for valid K8s names
+		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
+	}
+}
+
+// GenerateRoleDBCredentials creates database credentials for any role defined in HubEnvironment CR
+// This handles roles like mcp_server, spoke_controller, spire_server, etc.
+// Requirement 2.5-2.8: Create credentials for all database roles
+func GenerateRoleDBCredentials(roleName, namespace string, owner metav1.OwnerReference) (*corev1.Secret, error) {
+	password, err := GenerateSecurePassword()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate %s-db-credentials password: %w", roleName, err)
+	}
+
+	// Map role name to valid K8s secret name
+	secretName := mapRoleToSecretName(roleName)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            secretName,
+			Namespace:       namespace,
+			OwnerReferences: []metav1.OwnerReference{owner},
+			Labels: map[string]string{
+				"ops.zero-ops.io/db-credentials": "true",
+				"app.kubernetes.io/component":    roleName,
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"username": roleName,
+			"password": password,
+		},
+	}
+
+	return secret, nil
+}
+
 // GeneratePlatformDBCA creates the platform-db-ca secret with self-signed CA
 // Requirement 4.5, 4.6
 func GeneratePlatformDBCA(namespace string, owner metav1.OwnerReference) (*corev1.Secret, []byte, error) {
@@ -246,6 +339,7 @@ func GeneratePlatformDBCA(namespace string, owner metav1.OwnerReference) (*corev
 // SecretZeroResult contains all generated Secret Zero resources
 type SecretZeroResult struct {
 	InfisicalSecrets            *corev1.Secret
+	InfisicalRedisCredentials   *corev1.Secret
 	PlatformDBApp               *corev1.Secret
 	InfisicalDBCredentials      *corev1.Secret
 	InfisicalPostgresConnection *corev1.Secret
@@ -268,11 +362,23 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 		caCert := existing.Data["ca.crt"]
 
 		// Generate infisical-secrets with existing CA
-		infisicalSecrets, err := generateOrReuseInfisicalSecrets(namespace, caCert, owner, existingSecrets["infisical-secrets"])
+		infisicalResult, err := generateOrReuseInfisicalSecrets(namespace, caCert, owner, existingSecrets["infisical-secrets"])
 		if err != nil {
 			return nil, err
 		}
-		result.InfisicalSecrets = infisicalSecrets
+		result.InfisicalSecrets = infisicalResult.InfisicalSecrets
+
+		// Generate infisical-redis-credentials using the Redis password
+		if infisicalResult.RedisPassword != "" {
+			redisSecret, err := GenerateInfisicalRedisCredentials(namespace, infisicalResult.RedisPassword, owner)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate infisical-redis-credentials: %w", err)
+			}
+			result.InfisicalRedisCredentials = redisSecret
+		} else {
+			// Reuse existing redis credentials
+			result.InfisicalRedisCredentials = nil
+		}
 	} else {
 		// Generate new CA certificate
 		platformDBCA, caCert, err := GeneratePlatformDBCA(namespace, owner)
@@ -282,11 +388,18 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 		result.PlatformDBCA = platformDBCA
 
 		// Generate infisical-secrets with new CA
-		infisicalSecrets, err := GenerateInfisicalSecrets(namespace, caCert, owner)
+		infisicalResult, err := GenerateInfisicalSecrets(namespace, caCert, owner)
 		if err != nil {
 			return nil, err
 		}
-		result.InfisicalSecrets = infisicalSecrets
+		result.InfisicalSecrets = infisicalResult.InfisicalSecrets
+
+		// Generate infisical-redis-credentials using the Redis password
+		redisSecret, err := GenerateInfisicalRedisCredentials(namespace, infisicalResult.RedisPassword, owner)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate infisical-redis-credentials: %w", err)
+		}
+		result.InfisicalRedisCredentials = redisSecret
 	}
 
 	// Generate or reuse platform-db-app
@@ -352,10 +465,13 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 }
 
 // generateOrReuseInfisicalSecrets implements idempotency for infisical-secrets
-func generateOrReuseInfisicalSecrets(namespace string, caCert []byte, owner metav1.OwnerReference, existing *corev1.Secret) (*corev1.Secret, error) {
+func generateOrReuseInfisicalSecrets(namespace string, caCert []byte, owner metav1.OwnerReference, existing *corev1.Secret) (*GenerateInfisicalSecretsResult, error) {
 	if existing != nil {
 		// Return nil to indicate secret already exists (don't try to create)
-		return nil, nil
+		return &GenerateInfisicalSecretsResult{
+			InfisicalSecrets: nil,
+			RedisPassword:    "", // Empty means reuse existing
+		}, nil
 	}
 	return GenerateInfisicalSecrets(namespace, caCert, owner)
 }
