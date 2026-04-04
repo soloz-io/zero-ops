@@ -242,30 +242,89 @@ func (rm *RoleManager) passwordNeedsUpdate(ctx context.Context, username, passwo
 
 // grantPermissions grants database permissions to a role
 // Requirement 6.8: Grant permissions based on CR specifications
+// Connects to target database and grants on public schema (migrations create tables there)
 func (rm *RoleManager) grantPermissions(ctx context.Context, username string, roleSpec opsv1alpha1.DatabaseRole) error {
 	logger := log.FromContext(ctx)
 
+	// Get connection details from platform-db-superuser secret
+	secret := &corev1.Secret{}
+	namespace := "hub-platform-data" // TODO: make configurable
+	if err := rm.client.Get(ctx, client.ObjectKey{
+		Name:      "platform-db-superuser",
+		Namespace: namespace,
+	}, secret); err != nil {
+		return fmt.Errorf("failed to get platform-db-superuser secret: %w", err)
+	}
+
+	superUsername := string(secret.Data["username"])
+	superPassword := string(secret.Data["password"])
+
+	// Connect to target database (not postgres)
+	connStr := fmt.Sprintf(
+		"host=platform-db-rw.%s.svc port=5432 user=%s password=%s dbname=%s sslmode=require",
+		namespace, superUsername, superPassword, roleSpec.Database,
+	)
+
+	targetDB, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database %s: %w", roleSpec.Database, err)
+	}
+	defer targetDB.Close()
+
+	if err := targetDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("failed to ping database %s: %w", roleSpec.Database, err)
+	}
+
+	logger.Info("Connected to target database for permission grants", "database", roleSpec.Database, "role", username)
+
+	// Grant CONNECT privilege on database
+	connectSQL := fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO \"%s\"", roleSpec.Database, username)
+	logger.Info("Granting CONNECT privilege", "sql", connectSQL)
+	if _, err := targetDB.ExecContext(ctx, connectSQL); err != nil {
+		logger.Error(err, "GRANT CONNECT failed", "sql", connectSQL, "error_detail", err.Error())
+		return fmt.Errorf("failed to grant CONNECT: %w", err)
+	}
+
+	// Grant USAGE on public schema
+	usageSQL := fmt.Sprintf("GRANT USAGE ON SCHEMA public TO \"%s\"", username)
+	logger.Info("Granting USAGE on public schema", "sql", usageSQL)
+	if _, err := targetDB.ExecContext(ctx, usageSQL); err != nil {
+		logger.Error(err, "GRANT USAGE failed", "sql", usageSQL, "error_detail", err.Error())
+		return fmt.Errorf("failed to grant USAGE: %w", err)
+	}
+
+	// Grant permissions on existing tables in public schema
 	for _, perm := range roleSpec.Permissions {
 		var grantSQL string
 
 		switch strings.ToUpper(perm) {
 		case "SELECT":
-			grantSQL = fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA %s TO %s", roleSpec.Database, username)
+			grantSQL = fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		case "INSERT":
-			grantSQL = fmt.Sprintf("GRANT INSERT ON ALL TABLES IN SCHEMA %s TO %s", roleSpec.Database, username)
+			grantSQL = fmt.Sprintf("GRANT INSERT ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		case "UPDATE":
-			grantSQL = fmt.Sprintf("GRANT UPDATE ON ALL TABLES IN SCHEMA %s TO %s", roleSpec.Database, username)
+			grantSQL = fmt.Sprintf("GRANT UPDATE ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		case "DELETE":
-			grantSQL = fmt.Sprintf("GRANT DELETE ON ALL TABLES IN SCHEMA %s TO %s", roleSpec.Database, username)
+			grantSQL = fmt.Sprintf("GRANT DELETE ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		case "ALL":
-			grantSQL = fmt.Sprintf("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %s TO %s", roleSpec.Database, username)
+			grantSQL = fmt.Sprintf("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"%s\"", username)
 		default:
 			logger.Info("Unknown permission type, skipping", "permission", perm)
 			continue
 		}
 
-		if _, err := rm.db.ExecContext(ctx, grantSQL); err != nil {
+		logger.Info("Granting table permission", "sql", grantSQL, "permission", perm)
+		if _, err := targetDB.ExecContext(ctx, grantSQL); err != nil {
+			logger.Error(err, "GRANT permission failed", "sql", grantSQL, "permission", perm, "error_detail", err.Error())
 			return fmt.Errorf("failed to grant %s permission: %w", perm, err)
+		}
+
+		// Grant default privileges for future tables
+		defaultSQL := fmt.Sprintf("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT %s ON TABLES TO \"%s\"", perm, username)
+		logger.Info("Granting default privilege", "sql", defaultSQL, "permission", perm)
+		if _, err := targetDB.ExecContext(ctx, defaultSQL); err != nil {
+			logger.Error(err, "ALTER DEFAULT PRIVILEGES failed", "sql", defaultSQL, "permission", perm, "error_detail", err.Error())
+			return fmt.Errorf("failed to grant default %s privilege: %w", perm, err)
 		}
 
 		logger.Info("Granted permission", "username", username, "permission", perm, "database", roleSpec.Database)

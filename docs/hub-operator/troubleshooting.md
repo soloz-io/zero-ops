@@ -644,3 +644,166 @@ kubectl rollout restart deployment hub-operator -n hub-platform-ops
 kubectl annotate hubenvironment hub-production -n hub-platform-ops \
   ops.zero-ops.io/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 ```
+
+# Hub Operator Troubleshooting Guide
+
+## Issue 8: Missing `infisical-redis-credentials` Secret
+
+**Symptom:** Redis StatefulSet stuck in `CreateContainerConfigError` with event:
+```
+Error: secret "infisical-redis-credentials" not found
+```
+
+**Root Cause:** Operator's `GenerateSecretZero()` only created `infisical-secrets` but not `infisical-redis-credentials` that Redis StatefulSet expects.
+
+**Fix:** Added `GenerateInfisicalRedisCredentials()` function to create the missing secret.
+
+**Files Changed:**
+- `operators/hub-operator/internal/secrets/generator.go`
+- `operators/hub-operator/internal/controller/hubenvironment_controller.go`
+
+**Commit:** a94a00dea72c03860c175125e8997a31450ecb84
+
+---
+
+## Issue 9: Secret Naming Convention Mismatch (Phase 2b Blocker)
+
+**Symptom:** Phase 2b fails with:
+```
+failed to get secret control-plane-db-mcp_server: secrets "control-plane-db-mcp_server" not found
+```
+
+**Root Cause:** HubEnvironment CR uses underscores in role names (`mcp_server`, `spoke_controller`) but K8s secrets need hyphens. Operator was directly using role names without mapping.
+
+**Fix:** Added `mapRoleToSecretName()` function to map:
+- `mcp_server` → `control-plane-db-credentials`
+- `spoke_controller` → `hub-db-credentials`
+- Other roles → `{role}-db-credentials` (with underscores replaced by hyphens)
+
+**Files Changed:**
+- `operators/hub-operator/internal/database/roles.go`
+
+**Commit:** a94a00dea72c03860c175125e8997a31450ecb84
+
+---
+
+## Issue 10: `platform-db-app` Not Uploaded to Infisical
+
+**Symptom:** ExternalSecret `platform-db-app-credentials` stuck in `SecretSyncedError`:
+```
+could not find secret platform-db-app-username
+```
+
+**Root Cause:** Operator only uploaded role-specific secrets (mcp_server, spoke_controller) but not the base `platform-db-app` credentials that CNPG bootstrap created.
+
+**Fix:** Modified `uploadSecretsToInfisical()` to explicitly upload `platform-db-app-username` and `platform-db-app-password` from the `platform-db-app` K8s secret.
+
+**Files Changed:**
+- `operators/hub-operator/internal/secrets/uploader.go`
+
+**Commit:** a94a00dea72c03860c175125e8997a31450ecb84
+
+---
+
+## Issue 11: SQL Syntax Error in CREATE ROLE
+
+**Symptom:** Phase 2b fails with:
+```
+pq: syntax error at or near "$1"
+```
+
+**Root Cause:** Operator was using parameterized query `PASSWORD $1` but PostgreSQL CREATE ROLE doesn't support parameterized passwords (only bind parameters in WHERE clauses work).
+
+**Fix:** Changed to string escaping: `PASSWORD '%s'` with proper escaping of single quotes using `strings.ReplaceAll(password, "'", "''")`.
+
+**Files Changed:**
+- `operators/hub-operator/internal/database/roles.go`
+
+**Commit:** a94a00dea72c03860c175125e8997a31450ecb84
+
+---
+
+## Issue 12: Schema Does Not Exist Error
+
+**Symptom:** Phase 2b fails with:
+```
+pq: schema "control_plane" does not exist
+```
+
+**Root Cause:** Operator was using `roleSpec.Database` as schema name in GRANT statements (`GRANT SELECT ON ALL TABLES IN SCHEMA control_plane`), but migrations create tables in the `public` schema, not in schemas named after databases.
+
+**Analysis:**
+- Migrations create tables in `public` schema within each database
+- `control_plane` is a database name, not a schema name
+- Operator needs to connect to target database and grant on `public` schema
+
+**Fix:** Updated `grantPermissions()` to:
+1. Connect to target database (not just postgres)
+2. Grant CONNECT on database
+3. Grant USAGE on public schema
+4. Grant permissions on existing tables in public schema
+5. Grant default privileges for future tables
+
+**Files Changed:**
+- `operators/hub-operator/internal/database/roles.go`
+
+**Commit:** [pending]
+
+---
+
+## Migration Summary: CLI vs Operator Behavior
+
+### CLI Approach (installer-bkp.md)
+1. Generated passwords using `crypto/rand`
+2. Injected secrets directly via client-go (Secret Zero)
+3. Uploaded secrets to Infisical via API
+4. Did NOT create database roles (relied on CNPG bootstrap)
+
+### Operator Approach (Current)
+1. Reads passwords from existing K8s secrets
+2. Creates database roles with CREATE ROLE
+3. Grants permissions on tables
+4. Uploads secrets to Infisical
+5. Manages role lifecycle (create/update/delete)
+
+### Key Differences
+- **CLI:** Bootstrap-only, one-time execution
+- **Operator:** Continuous reconciliation, Day-2 operations
+- **Role Management:** Operator adds full role lifecycle management
+- **Schema Handling:** Fixed to use `public` schema instead of database names
+
+---
+
+## Validation Commands
+
+### Check Role Creation
+```bash
+kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\du mcp_server"
+```
+
+### Check Permission Grants
+```bash
+kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\dp"
+```
+
+### Check Infisical Secrets
+```bash
+kubectl exec -n zero-ops-system deployment/platform-infisical-infisical-standalone-infisical -- \
+  curl -s http://localhost:8080/api/v1/secrets -H "Authorization: Bearer <token>"
+```
+
+### Check ExternalSecret Status
+```bash
+kubectl get externalsecrets -n hub-platform-data -o wide
+```
+
+---
+
+## Next Steps
+
+1. Build and deploy operator with schema fix
+2. Verify role creation succeeds
+3. Verify permission grants succeed
+4. Verify `infisical-secrets` gets created (Phase 2b completion)
+5. Verify Infisical pods become healthy
+6. Test https://infisical.nutgraf.in/ accessibility
