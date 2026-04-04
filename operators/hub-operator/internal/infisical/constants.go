@@ -7,6 +7,17 @@ const (
 	InfisicalServicePort      = 8080
 	InfisicalBaseURL          = "http://platform-infisical-infisical-standalone-infisical.hub-platform-security.svc:8080"
 
+	// API Endpoints
+	APIEndpointLogin              = "/api/v3/auth/login"
+	APIEndpointSelectOrg          = "/api/v3/auth/select-organization"
+	APIEndpointBootstrap          = "/api/v1/admin/bootstrap"
+	APIEndpointUserOrganizations  = "/api/v2/users/me/organizations"
+	APIEndpointProjects           = "/api/v1/projects"
+	APIEndpointIdentities         = "/api/v1/identities"
+	APIEndpointUniversalAuth      = "/api/v1/auth/universal-auth/identities"
+	APIEndpointClientSecrets      = "/client-secrets"
+	APIEndpointProjectMemberships = "/api/v1/projects/%s/memberships/identities/%s"
+
 	// Bootstrap Configuration
 	ProjectName      = "Hub-Platform"
 	ProjectSlug      = "hub-platform"
