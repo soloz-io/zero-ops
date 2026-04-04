@@ -407,12 +407,14 @@ func GenerateSecretZero(dataNamespace, securityNamespace, dbHost string, owner m
 	result.InfisicalDBCredentials = infisicalDBCreds
 
 	// Generate infisical-postgres-connection using infisical-db-credentials (in security namespace)
-	// If infisicalDBCreds is nil (already exists), use existing secret data
+	// Extract credentials from the secret we just created OR from existing secret
 	var username, password string
 	if infisicalDBCreds != nil {
-		username = string(infisicalDBCreds.Data["username"])
-		password = string(infisicalDBCreds.Data["password"])
+		// We just created the secret, use its data directly
+		username = infisicalDBCreds.StringData["username"]
+		password = infisicalDBCreds.StringData["password"]
 	} else if existing, ok := existingSecrets["infisical-db-credentials"]; ok {
+		// Secret already existed, read from Data (base64 decoded)
 		username = string(existing.Data["username"])
 		password = string(existing.Data["password"])
 	} else {
