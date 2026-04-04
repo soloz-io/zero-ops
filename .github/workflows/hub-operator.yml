@@ -3,6 +3,8 @@ name: hub-operator
 on:
   push:
     branches: [main]
+    paths:
+      - operators/hub-operator/**
 
 permissions:
   contents: read
