@@ -7,7 +7,7 @@ on:
       - operators/hub-operator/**
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -25,11 +25,27 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - uses: docker/build-push-action@v5
+        id: build
         with:
           context: .
           file: operators/hub-operator/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/soloz-io/zero-ops/hub-operator:latest
+          tags: |
+            ghcr.io/soloz-io/zero-ops/hub-operator:${{ github.sha }}
+            ghcr.io/soloz-io/zero-ops/hub-operator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update Kustomization with new image
+        run: |
+          cd operators/hub-operator/config/manager
+          kustomize edit set image controller=ghcr.io/soloz-io/zero-ops/hub-operator@${{ steps.build.outputs.digest }}
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/hub-operator/config/manager/kustomization.yaml
+          git commit -m "chore(hub-operator): update image to ${{ github.sha }}" || exit 0
+          git push
