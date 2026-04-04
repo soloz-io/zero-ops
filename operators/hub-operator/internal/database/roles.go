@@ -143,10 +143,11 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 	if !exists {
 		// Requirement 6.9: Use idempotent CREATE ROLE IF NOT EXISTS
 		// Create new role (PostgreSQL does not support inline COMMENT in CREATE ROLE)
-		// Note: Role names cannot be parameterized, but password must be
-		createSQL := fmt.Sprintf("CREATE ROLE \"%s\" WITH LOGIN PASSWORD $1", username)
+		// Note: CREATE ROLE doesn't support parameterized passwords, must use string escaping
+		escapedPassword := strings.ReplaceAll(password, "'", "''")
+		createSQL := fmt.Sprintf("CREATE ROLE \"%s\" WITH LOGIN PASSWORD '%s'", username, escapedPassword)
 		logger.Info("Executing CREATE ROLE statement", "sql", createSQL, "username", username)
-		if _, err := rm.db.ExecContext(ctx, createSQL, password); err != nil {
+		if _, err := rm.db.ExecContext(ctx, createSQL); err != nil {
 			logger.Error(err, "CREATE ROLE failed", "sql", createSQL, "username", username, "error_detail", err.Error())
 			return fmt.Errorf("failed to create role: %w", err)
 		}
