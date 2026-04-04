@@ -259,6 +259,22 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 	superUsername := string(secret.Data["username"])
 	superPassword := string(secret.Data["password"])
 
+	// Check if database exists, create if it doesn't
+	var dbExists bool
+	checkDBSQL := "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)"
+	if err := rm.db.QueryRowContext(ctx, checkDBSQL, roleSpec.Database).Scan(&dbExists); err != nil {
+		return fmt.Errorf("failed to check database existence: %w", err)
+	}
+
+	if !dbExists {
+		logger.Info("Database does not exist, creating it automatically", "database", roleSpec.Database)
+		createDBSQL := fmt.Sprintf("CREATE DATABASE \"%s\"", roleSpec.Database)
+		if _, err := rm.db.ExecContext(ctx, createDBSQL); err != nil {
+			return fmt.Errorf("failed to create database %s: %w", roleSpec.Database, err)
+		}
+		logger.Info("Created database", "database", roleSpec.Database)
+	}
+
 	// Connect to target database (not postgres)
 	connStr := fmt.Sprintf(
 		"host=platform-db-rw.%s.svc port=5432 user=%s password=%s dbname=%s sslmode=require",
