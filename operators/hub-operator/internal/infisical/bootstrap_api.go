@@ -39,6 +39,7 @@ type BootstrapResponse struct {
 }
 
 // Bootstrap calls /api/v1/admin/bootstrap to create admin user
+// If instance is already bootstrapped (400 error), attempts to login instead
 func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName string) (*BootstrapResponse, error) {
 	payload := map[string]string{
 		"email":        email,
@@ -64,6 +65,16 @@ func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName
 	}
 	defer resp.Body.Close()
 
+	// Handle "already bootstrapped" case
+	if resp.StatusCode == http.StatusBadRequest {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if bytes.Contains(bodyBytes, []byte("already been set up")) {
+			// Instance already bootstrapped, try to login
+			return api.Login(ctx, email, password)
+		}
+		return nil, fmt.Errorf("bootstrap failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("bootstrap failed with status %d: %s", resp.StatusCode, string(bodyBytes))
@@ -75,6 +86,45 @@ func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName
 	}
 
 	return &bootstrapResp, nil
+}
+
+// Login authenticates with existing admin credentials
+// Used when instance is already bootstrapped
+func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*BootstrapResponse, error) {
+	payload := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/login", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create login request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var loginResp BootstrapResponse
+	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
+		return nil, fmt.Errorf("failed to decode login response: %w", err)
+	}
+
+	return &loginResp, nil
 }
 
 // OrganizationResponse represents organization list response
