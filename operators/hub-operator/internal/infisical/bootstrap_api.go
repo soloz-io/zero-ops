@@ -101,7 +101,7 @@ func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*Bo
 		return nil, fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v3/login", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -119,12 +119,19 @@ func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*Bo
 		return nil, fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var loginResp BootstrapResponse
-	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
+	// v3 login returns accessToken, map to BootstrapResponse format
+	var v3LoginResp struct {
+		AccessToken string `json:"accessToken"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&v3LoginResp); err != nil {
 		return nil, fmt.Errorf("failed to decode login response: %w", err)
 	}
 
-	return &loginResp, nil
+	// Map v3 response to BootstrapResponse format
+	loginResp := &BootstrapResponse{}
+	loginResp.Identity.Credentials.Token = v3LoginResp.AccessToken
+
+	return loginResp, nil
 }
 
 // OrganizationResponse represents organization list response
