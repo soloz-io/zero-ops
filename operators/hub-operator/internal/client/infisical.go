@@ -30,7 +30,9 @@ type InfisicalClient struct {
 // Requirement 6.9: Read infisical-auth secret from hub-platform-ops namespace
 func NewInfisicalClient(ctx context.Context, k8sClient client.Client, baseURL string) (*InfisicalClient, error) {
 	if baseURL == "" {
-		baseURL = "https://infisical.nutgraf.in"
+		// Use internal service URL instead of external HTTPS
+		// This avoids TLS certificate verification issues during bootstrap
+		baseURL = "http://platform-infisical-standalone.hub-platform-security.svc:8080"
 	}
 
 	return &InfisicalClient{

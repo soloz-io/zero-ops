@@ -77,26 +77,33 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if triggerTime, ok := hubEnv.Annotations["ops.zero-ops.io/reconcile-trigger"]; ok {
 		logger.Info("Manual reconciliation triggered", "timestamp", triggerTime)
 
-		// Clear any permanent error conditions to allow retry
-		for i := range hubEnv.Status.Conditions {
-			if hubEnv.Status.Conditions[i].Reason == "DirtyDatabase" {
-				meta.RemoveStatusCondition(&hubEnv.Status.Conditions, hubEnv.Status.Conditions[i].Type)
-			}
-		}
+		// Clear ALL conditions and uploaded secrets to force full Phase 1 re-run
+		// This ensures infisical-secrets gets recreated in the correct namespace
+		hubEnv.Status.Conditions = []metav1.Condition{}
+		hubEnv.Status.UploadedSecrets = []string{}
 
 		// Remove the annotation after processing
 		delete(hubEnv.Annotations, "ops.zero-ops.io/reconcile-trigger")
 		if err := r.Update(ctx, hubEnv); err != nil {
 			return ctrl.Result{}, err
 		}
+		
+		// Update status to clear conditions
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+		
+		logger.Info("Cleared all conditions and uploaded secrets, forcing full reconciliation")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Requirement 9.5: Phase 1 - Generate Secret Zero
 	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "SecretZeroGenerated") {
 		logger.Info("Phase 1: Generating Secret Zero")
 
-		namespace := hubEnv.Spec.Database.Namespace
-		dbHost := fmt.Sprintf("platform-db-rw.%s.svc", namespace)
+		dataNamespace := hubEnv.Spec.Database.Namespace
+		securityNamespace := "hub-platform-security" // Infisical pods run here
+		dbHost := fmt.Sprintf("platform-db-rw.%s.svc", dataNamespace)
 
 		// Create owner reference
 		owner := metav1.OwnerReference{
@@ -108,33 +115,48 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		// Build list of all secret names (base secrets + role credentials)
-		secretNames := []string{
-			"infisical-secrets",
+		// Check secrets in their respective namespaces
+		secretNamesInData := []string{
 			"platform-db-app",
 			"infisical-db-credentials",
-			"infisical-postgres-connection",
 			"hydra-db-credentials",
 			"kratos-db-credentials",
 			"keto-db-credentials",
 			"platform-db-ca",
+			"infisical-redis-credentials",
 		}
 
-		// Add role credential secrets from CR spec
+		secretNamesInSecurity := []string{
+			"infisical-secrets",
+			"infisical-postgres-connection",
+		}
+
+		// Add role credential secrets from CR spec (all in data namespace)
 		for _, role := range hubEnv.Spec.Database.Roles {
-			secretNames = append(secretNames, fmt.Sprintf("%s-db-credentials", role.Name))
+			secretNamesInData = append(secretNamesInData, fmt.Sprintf("%s-db-credentials", role.Name))
 		}
 
 		// Read existing secrets for idempotency
 		existingSecrets := make(map[string]*corev1.Secret)
-		for _, name := range secretNames {
+		
+		// Read secrets from data namespace
+		for _, name := range secretNamesInData {
 			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, secret); err == nil {
+			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: dataNamespace}, secret); err == nil {
+				existingSecrets[name] = secret
+			}
+		}
+		
+		// Read secrets from security namespace
+		for _, name := range secretNamesInSecurity {
+			secret := &corev1.Secret{}
+			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: securityNamespace}, secret); err == nil {
 				existingSecrets[name] = secret
 			}
 		}
 
-		// Generate Secret Zero (base secrets)
-		result, err := secrets.GenerateSecretZero(namespace, dbHost, owner, existingSecrets)
+		// Generate Secret Zero (base secrets) with both namespaces
+		result, err := secrets.GenerateSecretZero(dataNamespace, securityNamespace, dbHost, owner, existingSecrets)
 		if err != nil {
 			logger.Error(err, "Failed to generate Secret Zero")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
@@ -159,16 +181,17 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			if err := r.Create(ctx, secret); err != nil {
 				if !errors.IsAlreadyExists(err) {
-					logger.Error(err, "Failed to create secret", "secret", secret.Name)
+					logger.Error(err, "Failed to create secret", "secret", secret.Name, "namespace", secret.Namespace)
 					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 				}
 			}
+			logger.Info("Created secret", "secret", secret.Name, "namespace", secret.Namespace)
 		}
 
-		// Generate and create role credential secrets for all roles in CR
+		// Generate and create role credential secrets for all roles in CR (in data namespace)
 		for _, role := range hubEnv.Spec.Database.Roles {
 			// Generate new role credential secret (uses mapRoleToSecretName internally)
-			roleSecret, err := secrets.GenerateRoleDBCredentials(role.Name, namespace, owner)
+			roleSecret, err := secrets.GenerateRoleDBCredentials(role.Name, dataNamespace, owner)
 			if err != nil {
 				logger.Error(err, "Failed to generate role credentials", "role", role.Name)
 				return ctrl.Result{RequeueAfter: 10 * time.Second}, err
