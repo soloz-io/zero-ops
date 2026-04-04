@@ -263,8 +263,8 @@ func GenerateSecretZero(namespace, dbHost string, owner metav1.OwnerReference, e
 
 	// Generate or reuse platform-db-ca
 	if existing, ok := existingSecrets["platform-db-ca"]; ok {
-		// Reuse existing CA certificate
-		result.PlatformDBCA = existing
+		// Reuse existing CA certificate - return nil to skip creation
+		result.PlatformDBCA = nil
 		caCert := existing.Data["ca.crt"]
 
 		// Generate infisical-secrets with existing CA
