@@ -28,10 +28,14 @@ stringData:
     apiVersion: v1
     kind: Secret
     metadata:
-      name: hcloud
-      namespace: hub-cloud-system
+      name: hetzner
+      namespace: kube-system
     stringData:
-      token: "{{.HCloudToken}}"
+      hcloud: "{{.HCloudToken}}"
+      robot-user: ""
+      robot-password: ""
+      robot-user: ""
+      robot-password: ""
 ---
 apiVersion: v1
 kind: Secret

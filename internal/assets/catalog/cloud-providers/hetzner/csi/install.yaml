@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: hcloud-csi-controller
-  namespace: kube-system
+  namespace: hub-cloud-system
 automountServiceAccountToken: true
 ---
 kind: StorageClass
@@ -76,13 +76,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: hcloud-csi-controller
-    namespace: kube-system
+    namespace: hub-cloud-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: hcloud-csi-controller-metrics
-  namespace: kube-system
+  namespace: hub-cloud-system
 spec:
   ports:
     - name: metrics
@@ -94,7 +94,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hcloud-csi-node-metrics
-  namespace: kube-system
+  namespace: hub-cloud-system
 spec:
   ports:
     - name: metrics
@@ -106,7 +106,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: hcloud-csi-node
-  namespace: kube-system
+  namespace: hub-cloud-system
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -215,7 +215,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hcloud-csi-controller
-  namespace: kube-system
+  namespace: hub-cloud-system
 spec:
   replicas: 1
   strategy:
