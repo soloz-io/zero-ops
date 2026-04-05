@@ -131,7 +131,8 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Upload CLI-injected secrets to Infisical (Wave 3 requirement)
 	// This runs regardless of whether bootstrap just occurred or was already done
 	// Makes Infisical the Source of Truth for all secrets
-	if err := bootstrapClient.UploadCLISecrets(ctx); err != nil {
+	secretUploader := infisical.NewSecretUploader(r.Client, r.UncachedClient)
+	if err := secretUploader.UploadCLISecrets(ctx); err != nil {
 		logger.Error(err, "Failed to upload CLI secrets, continuing...")
 	} else {
 		logger.Info("CLI secrets uploaded to Infisical")
