@@ -181,18 +181,18 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Read existing secrets for idempotency
 		existingSecrets := make(map[string]*corev1.Secret)
 		
-		// Read secrets from data namespace
+		// Read secrets from data namespace using UncachedClient (need secret data, not just metadata)
 		for _, name := range secretNamesInData {
 			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: dataNamespace}, secret); err == nil {
+			if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: name, Namespace: dataNamespace}, secret); err == nil {
 				existingSecrets[name] = secret
 			}
 		}
 		
-		// Read secrets from security namespace
+		// Read secrets from security namespace using UncachedClient (need secret data, not just metadata)
 		for _, name := range secretNamesInSecurity {
 			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: securityNamespace}, secret); err == nil {
+			if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: name, Namespace: securityNamespace}, secret); err == nil {
 				existingSecrets[name] = secret
 			}
 		}
@@ -637,7 +637,7 @@ func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context,
 	// for ExternalSecrets to sync it
 	if !uploadedSecrets["platform-db-app"] {
 		appSecret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{
+		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 			Name:      "platform-db-app",
 			Namespace: namespace,
 		}, appSecret); err == nil {
@@ -670,9 +670,9 @@ func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context,
 			continue
 		}
 
-		// Read secret
+		// Read secret using UncachedClient (need secret data)
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{
+		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 			Name:      secretName,
 			Namespace: namespace,
 		}, secret); err != nil {
