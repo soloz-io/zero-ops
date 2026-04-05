@@ -274,6 +274,8 @@ func (c *InfisicalClient) secretExists(ctx context.Context, workspaceId, environ
 
 // createSecret creates a new secret in Infisical using v3 API
 func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
+	logger := log.FromContext(ctx)
+	
 	createReq := map[string]interface{}{
 		"workspaceId": workspaceId,
 		"environment": environmentSlug,
@@ -282,6 +284,13 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		"secretValue": value,
 		"type":        "shared",
 	}
+	
+	logger.Info("Creating secret in Infisical", 
+		"workspaceId", workspaceId, 
+		"environment", environmentSlug, 
+		"secretPath", secretPath, 
+		"key", key,
+		"valueLength", len(value))
 
 	body, err := json.Marshal(createReq)
 	if err != nil {
@@ -311,6 +320,8 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create secret with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+	
+	logger.Info("Secret created successfully in Infisical", "key", key, "status", resp.StatusCode)
 
 	return nil
 }

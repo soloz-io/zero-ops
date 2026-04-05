@@ -62,8 +62,9 @@ func (bc *BootstrapClient) uploadHetznerDNS(ctx context.Context, infisicalClient
 	logger := log.FromContext(ctx)
 
 	// Read hetzner-dns secret from hub-cloud-system
+	// Use uncached client to read secret data (cached client strips data)
 	hetznerDNS := &corev1.Secret{}
-	if err := bc.k8sClient.Get(ctx, client.ObjectKey{
+	if err := bc.uncachedK8sClient.Get(ctx, client.ObjectKey{
 		Name:      SecretHetznerDNS,
 		Namespace: NamespaceCloudSystem,
 	}, hetznerDNS); err != nil {
@@ -94,8 +95,9 @@ func (bc *BootstrapClient) uploadHCloud(ctx context.Context, infisicalClient *in
 	logger := log.FromContext(ctx)
 
 	// Read hcloud secret from hub-cloud-system
+	// Use uncached client to read secret data (cached client strips data)
 	hcloud := &corev1.Secret{}
-	if err := bc.k8sClient.Get(ctx, client.ObjectKey{
+	if err := bc.uncachedK8sClient.Get(ctx, client.ObjectKey{
 		Name:      SecretHCloud,
 		Namespace: NamespaceCloudSystem,
 	}, hcloud); err != nil {
@@ -107,9 +109,21 @@ func (bc *BootstrapClient) uploadHCloud(ctx context.Context, infisicalClient *in
 	}
 
 	// Extract token
+	logger.Info("hcloud secret data keys", "keys", func() []string {
+		keys := make([]string, 0, len(hcloud.Data))
+		for k := range hcloud.Data {
+			keys = append(keys, k)
+		}
+		return keys
+	}())
+	
 	token, ok := hcloud.Data[KeyToken]
 	if !ok {
-		return fmt.Errorf("hcloud secret missing token field")
+		return fmt.Errorf("hcloud secret missing token field (expected key: %s)", KeyToken)
+	}
+	
+	if len(token) == 0 {
+		return fmt.Errorf("hcloud token is empty")
 	}
 
 	// Upload to Infisical
