@@ -176,63 +176,6 @@ func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName
 	return &bootstrapResp, nil
 }
 
-// OrganizationResponse represents organization in user's organization list
-type OrganizationResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// UserResponse represents the response from /api/v1/user
-type UserResponse struct {
-	User struct {
-		ID            string `json:"_id"`
-		Email         string `json:"email"`
-		Username      string `json:"username"`
-		Organizations []struct {
-			ID   string `json:"_id"`
-			Name string `json:"name"`
-		} `json:"organizations"`
-	} `json:"user"`
-}
-
-// ListOrganizations lists all organizations for the authenticated user using /api/v1/user
-// Returns organizations and the username
-func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken string) ([]OrganizationResponse, string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUser, nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+adminToken)
-
-	resp, err := api.httpClient.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, "", fmt.Errorf("get user info failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var userResp UserResponse
-	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
-		return nil, "", fmt.Errorf("failed to decode user info response: %w", err)
-	}
-
-	// Convert to OrganizationResponse slice
-	orgs := make([]OrganizationResponse, len(userResp.User.Organizations))
-	for i, org := range userResp.User.Organizations {
-		orgs[i] = OrganizationResponse{
-			ID:   org.ID,
-			Name: org.Name,
-		}
-	}
-
-	return orgs, userResp.User.Username, nil
-}
-
 // ProjectResponse represents project creation response
 // API returns the project wrapped in a "project" field
 type ProjectResponse struct {
@@ -574,6 +517,41 @@ func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, proje
 	payload := map[string]interface{}{
 		"usernames": []string{username},
 		"emails":    []string{},
+		"roleSlugs": roles,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal add user request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v2/projects/"+projectID+"/memberships", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create add user request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute add user request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("add user to project failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// AddUserToProjectByEmail adds a user to a project by email with specified roles
+func (api *BootstrapAPI) AddUserToProjectByEmail(ctx context.Context, adminToken, projectID, email string, roles []string) error {
+	payload := map[string]interface{}{
+		"usernames": []string{},
+		"emails":    []string{email},
 		"roleSlugs": roles,
 	}
 

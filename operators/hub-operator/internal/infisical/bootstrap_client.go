@@ -50,60 +50,22 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 	var adminToken string
 	var orgID string
-	var adminUsername string
 
 	// Step 0: Try bootstrap API first (for fresh Infisical instances)
 	logger.Info("Step 0: Attempting Infisical bootstrap (creates first admin user)")
 	bootstrapResp, err := bc.api.Bootstrap(ctx, AdminEmail, AdminPassword, OrganizationName)
-	if err == nil && bootstrapResp != nil {
-		// Bootstrap succeeded - extract token and orgID
-		adminToken = bootstrapResp.Identity.Credentials.Token
-		orgID = bootstrapResp.Organization.ID
-		adminUsername = bootstrapResp.Identity.Username
-		logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID, "username", adminUsername)
-	} else {
-		// Bootstrap failed or already bootstrapped - use login flow
-		if err != nil {
-			logger.Info("Bootstrap API returned error, attempting login flow", "error", err.Error())
-		} else {
-			logger.Info("Infisical already bootstrapped, attempting login flow")
-		}
-
-		// Step 1: Login to get initial token
-		logger.Info("Step 1: Logging in to Infisical")
-		loginResp, err := bc.api.Login(ctx, AdminEmail, AdminPassword)
-		if err != nil {
-			return false, fmt.Errorf("failed to login to Infisical: %w", err)
-		}
-
-		initialToken := loginResp.AccessToken
-		logger.Info("Login successful")
-
-		// Step 2: List organizations to get orgID
-		logger.Info("Step 2: Fetching organization list")
-		orgs, adminUsername, err := bc.api.ListOrganizations(ctx, initialToken)
-		if err != nil {
-			return false, fmt.Errorf("failed to list organizations: %w", err)
-		}
-
-		if len(orgs) == 0 {
-			return false, fmt.Errorf("no organizations found for user")
-		}
-
-		// Use first organization (super admin should have access to the org)
-		orgID = orgs[0].ID
-		logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name, "username", adminUsername)
-
-		// Step 3: Select organization to get org-scoped token
-		logger.Info("Step 3: Selecting organization", "orgID", orgID)
-		selectOrgResp, err := bc.api.SelectOrganization(ctx, initialToken, orgID)
-		if err != nil {
-			return false, fmt.Errorf("failed to select organization: %w", err)
-		}
-
-		adminToken = selectOrgResp.Token
-		logger.Info("Organization selected successfully")
+	if err != nil {
+		return false, fmt.Errorf("bootstrap API failed: %w", err)
 	}
+	
+	if bootstrapResp == nil {
+		return false, fmt.Errorf("infisical instance already bootstrapped - manual intervention required. Please delete infisical-auth secret to retry or manually configure the instance")
+	}
+
+	// Bootstrap succeeded - extract token and orgID
+	adminToken = bootstrapResp.Identity.Credentials.Token
+	orgID = bootstrapResp.Organization.ID
+	logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID)
 
 	// Step 4: Create project "hub-platform"
 	logger.Info("Step 4: Creating project", "projectName", ProjectName)
@@ -127,16 +89,13 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 	logger.Info("Project slug updated", "projectSlug", projectSlug)
 
 	// Step 4.2: Add admin user to project as admin member
-	logger.Info("Step 4.2: Adding admin user to project", "username", adminUsername)
-	// adminUsername, err := bc.api.GetUserByEmail(ctx, adminToken, AdminEmail)
-	// if err != nil {
-	// 	return false, fmt.Errorf("failed to get admin username: %w", err)
-	// }
-	if err := bc.api.AddUserToProject(ctx, adminToken, projectID, adminUsername, []string{"admin"}); err != nil {
+	// Use email directly since the API accepts both usernames and emails
+	logger.Info("Step 4.2: Adding admin user to project", "email", AdminEmail)
+	if err := bc.api.AddUserToProjectByEmail(ctx, adminToken, projectID, AdminEmail, []string{"admin"}); err != nil {
 		return false, fmt.Errorf("failed to add admin user to project: %w", err)
 	}
 
-	logger.Info("Admin user added to project", "username", adminUsername)
+	logger.Info("Admin user added to project", "email", AdminEmail)
 
 	// Step 5: Create machine identity "eso-operator"
 	logger.Info("Step 5: Creating machine identity", "identityName", IdentityName)
