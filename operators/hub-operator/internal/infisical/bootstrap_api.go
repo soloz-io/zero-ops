@@ -528,3 +528,71 @@ func (api *BootstrapAPI) GrantProjectAccess(ctx context.Context, adminToken, pro
 
 	return nil
 }
+
+// GetUserByEmail retrieves user information by email
+func (api *BootstrapAPI) GetUserByEmail(ctx context.Context, adminToken, email string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+"/api/v3/users/me", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create get user request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute get user request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("get user failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var userResp struct {
+		User struct {
+			Username string `json:"username"`
+		} `json:"user"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
+		return "", fmt.Errorf("failed to decode user response: %w", err)
+	}
+
+	return userResp.User.Username, nil
+}
+
+// AddUserToProject adds a user to a project with specified roles
+func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, projectID, username string, roles []string) error {
+	payload := map[string]interface{}{
+		"usernames": []string{username},
+		"emails":    []string{},
+		"roleSlugs": roles,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal add user request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v3/workspaces/"+projectID+"/memberships", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create add user request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute add user request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("add user to project failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}

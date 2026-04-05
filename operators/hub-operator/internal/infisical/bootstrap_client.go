@@ -120,6 +120,19 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 	projectSlug := ProjectSlug
 	logger.Info("Project slug updated", "projectSlug", projectSlug)
 
+	// Step 4.2: Add admin user to project as admin member
+	logger.Info("Step 4.2: Adding admin user to project")
+	adminUsername, err := bc.api.GetUserByEmail(ctx, adminToken, AdminEmail)
+	if err != nil {
+		return false, fmt.Errorf("failed to get admin username: %w", err)
+	}
+
+	if err := bc.api.AddUserToProject(ctx, adminToken, projectID, adminUsername, []string{"admin"}); err != nil {
+		return false, fmt.Errorf("failed to add admin user to project: %w", err)
+	}
+
+	logger.Info("Admin user added to project", "username", adminUsername)
+
 	// Step 5: Create machine identity "eso-operator"
 	logger.Info("Step 5: Creating machine identity", "identityName", IdentityName)
 	identityResp, err := bc.api.CreateIdentity(ctx, adminToken, IdentityName, orgID)
