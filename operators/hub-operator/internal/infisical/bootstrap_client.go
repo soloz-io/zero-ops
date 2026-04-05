@@ -48,40 +48,56 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 	logger.Info("Starting Infisical bootstrap")
 
-	// Step 1: Login to get initial token
-	logger.Info("Step 1: Logging in to Infisical")
-	loginResp, err := bc.api.Login(ctx, AdminEmail, AdminPassword)
-	if err != nil {
-		return false, fmt.Errorf("failed to login to Infisical: %w", err)
+	var adminToken string
+	var orgID string
+
+	// Step 0: Try bootstrap API first (for fresh Infisical instances)
+	logger.Info("Step 0: Attempting Infisical bootstrap (creates first admin user)")
+	bootstrapResp, err := bc.api.Bootstrap(ctx, AdminEmail, AdminPassword, OrganizationName)
+	if err == nil {
+		// Bootstrap succeeded - extract token and orgID
+		adminToken = bootstrapResp.Identity.Credentials.Token
+		orgID = bootstrapResp.Organization.ID
+		logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID)
+	} else {
+		// Bootstrap failed - check if already bootstrapped
+		logger.Info("Bootstrap API returned error, attempting login flow", "error", err.Error())
+
+		// Step 1: Login to get initial token
+		logger.Info("Step 1: Logging in to Infisical")
+		loginResp, err := bc.api.Login(ctx, AdminEmail, AdminPassword)
+		if err != nil {
+			return false, fmt.Errorf("failed to login to Infisical: %w", err)
+		}
+
+		initialToken := loginResp.AccessToken
+		logger.Info("Login successful")
+
+		// Step 2: List organizations to get orgID
+		logger.Info("Step 2: Fetching organization list")
+		orgs, err := bc.api.ListOrganizations(ctx, initialToken)
+		if err != nil {
+			return false, fmt.Errorf("failed to list organizations: %w", err)
+		}
+
+		if len(orgs) == 0 {
+			return false, fmt.Errorf("no organizations found for user")
+		}
+
+		// Use first organization (super admin should have access to the org)
+		orgID = orgs[0].ID
+		logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name)
+
+		// Step 3: Select organization to get org-scoped token
+		logger.Info("Step 3: Selecting organization", "orgID", orgID)
+		selectOrgResp, err := bc.api.SelectOrganization(ctx, initialToken, orgID)
+		if err != nil {
+			return false, fmt.Errorf("failed to select organization: %w", err)
+		}
+
+		adminToken = selectOrgResp.Token
+		logger.Info("Organization selected successfully")
 	}
-
-	initialToken := loginResp.AccessToken
-	logger.Info("Login successful")
-
-	// Step 2: List organizations to get orgID
-	logger.Info("Step 2: Fetching organization list")
-	orgs, err := bc.api.ListOrganizations(ctx, initialToken)
-	if err != nil {
-		return false, fmt.Errorf("failed to list organizations: %w", err)
-	}
-
-	if len(orgs) == 0 {
-		return false, fmt.Errorf("no organizations found for user")
-	}
-
-	// Use first organization (super admin should have access to the org)
-	orgID := orgs[0].ID
-	logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name)
-
-	// Step 3: Select organization to get org-scoped token
-	logger.Info("Step 3: Selecting organization", "orgID", orgID)
-	selectOrgResp, err := bc.api.SelectOrganization(ctx, initialToken, orgID)
-	if err != nil {
-		return false, fmt.Errorf("failed to select organization: %w", err)
-	}
-
-	adminToken := selectOrgResp.Token
-	logger.Info("Organization selected successfully")
 
 	// Step 4: Create project "hub-platform"
 	logger.Info("Step 4: Creating project", "projectName", ProjectName)
