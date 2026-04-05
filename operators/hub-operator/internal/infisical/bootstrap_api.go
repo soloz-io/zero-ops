@@ -275,6 +275,39 @@ func (api *BootstrapAPI) CreateProject(ctx context.Context, adminToken, projectN
 	return &projectResp, nil
 }
 
+// UpdateProjectSlug updates the project slug to match the desired constant
+func (api *BootstrapAPI) UpdateProjectSlug(ctx context.Context, adminToken, projectID, newSlug string) error {
+	payload := map[string]string{
+		"slug": newSlug,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal update slug request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH", api.baseURL+"/api/v1/projects/"+projectID, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create update slug request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := api.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute update slug request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update slug failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
 // IdentityResponse represents machine identity creation response
 // API returns the identity wrapped in an "identity" field
 type IdentityResponse struct {

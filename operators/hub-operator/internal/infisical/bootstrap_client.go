@@ -107,9 +107,18 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 	}
 
 	projectID := projectResp.Project.ID
-	projectSlug := projectResp.Project.Slug
+	generatedSlug := projectResp.Project.Slug
 
-	logger.Info("Project created", "projectID", projectID, "projectSlug", projectSlug)
+	logger.Info("Project created", "projectID", projectID, "generatedSlug", generatedSlug)
+
+	// Step 4.1: Update project slug to match constant
+	logger.Info("Step 4.1: Updating project slug", "from", generatedSlug, "to", ProjectSlug)
+	if err := bc.api.UpdateProjectSlug(ctx, adminToken, projectID, ProjectSlug); err != nil {
+		return false, fmt.Errorf("failed to update project slug: %w", err)
+	}
+
+	projectSlug := ProjectSlug
+	logger.Info("Project slug updated", "projectSlug", projectSlug)
 
 	// Step 5: Create machine identity "eso-operator"
 	logger.Info("Step 5: Creating machine identity", "identityName", IdentityName)
