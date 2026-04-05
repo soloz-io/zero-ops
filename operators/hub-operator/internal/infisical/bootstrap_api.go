@@ -181,17 +181,22 @@ type OrganizationResponse struct {
 	Name string `json:"name"`
 }
 
-// UserOrganizationsResponse represents the response from /api/v3/users/me/organizations
-type UserOrganizationsResponse struct {
-	Organizations []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"organizations"`
+// UserMeResponse represents the response from /api/v3/users/me
+type UserMeResponse struct {
+	User struct {
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		Username      string `json:"username"`
+		Organizations []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"organizations"`
+	} `json:"user"`
 }
 
-// ListOrganizations lists all organizations for the authenticated user
+// ListOrganizations lists all organizations for the authenticated user using /api/v3/users/me
 func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken string) ([]OrganizationResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUserOrganizations, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUserMe, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -206,17 +211,17 @@ func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken strin
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("list organizations failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("get user info failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var userOrgsResp UserOrganizationsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&userOrgsResp); err != nil {
-		return nil, fmt.Errorf("failed to decode organizations response: %w", err)
+	var userMeResp UserMeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&userMeResp); err != nil {
+		return nil, fmt.Errorf("failed to decode user info response: %w", err)
 	}
 
 	// Convert to OrganizationResponse slice
-	orgs := make([]OrganizationResponse, len(userOrgsResp.Organizations))
-	for i, org := range userOrgsResp.Organizations {
+	orgs := make([]OrganizationResponse, len(userMeResp.User.Organizations))
+	for i, org := range userMeResp.User.Organizations {
 		orgs[i] = OrganizationResponse{
 			ID:   org.ID,
 			Name: org.Name,
