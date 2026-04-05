@@ -50,6 +50,7 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 	var adminToken string
 	var orgID string
+	var adminUsername string
 
 	// Step 0: Try bootstrap API first (for fresh Infisical instances)
 	logger.Info("Step 0: Attempting Infisical bootstrap (creates first admin user)")
@@ -58,7 +59,8 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 		// Bootstrap succeeded - extract token and orgID
 		adminToken = bootstrapResp.Identity.Credentials.Token
 		orgID = bootstrapResp.Organization.ID
-		logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID)
+		adminUsername = bootstrapResp.Identity.Username
+		logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID, "username", adminUsername)
 	} else {
 		// Bootstrap failed or already bootstrapped - use login flow
 		if err != nil {

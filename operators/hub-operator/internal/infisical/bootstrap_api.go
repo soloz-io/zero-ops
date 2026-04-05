@@ -29,6 +29,7 @@ func NewBootstrapAPI() *BootstrapAPI {
 // BootstrapResponse represents the response from /api/v1/admin/bootstrap
 type BootstrapResponse struct {
 	Identity struct {
+		Username string `json:"username"`
 		Credentials struct {
 			Token string `json:"token"`
 		} `json:"credentials"`
