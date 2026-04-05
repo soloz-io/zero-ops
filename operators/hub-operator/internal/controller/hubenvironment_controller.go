@@ -115,7 +115,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Bootstrap Infisical (creates admin user, project, machine identity)
 	// Returns (true, nil) if bootstrap was performed, (false, nil) if already bootstrapped
-	bootstrapClient := infisical.NewBootstrapClient(r.Client)
+	bootstrapClient := infisical.NewBootstrapClient(r.Client, r.UncachedClient)
 	bootstrapped, err := bootstrapClient.Bootstrap(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to bootstrap Infisical")

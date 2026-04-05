@@ -19,3 +19,5 @@ export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl get pods -n
 export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl get pods -n hub-platform-security | grep infisical
 
 Perfect! Database cleared and Infisical is running. Now the operator can start from Phase 0 with a fresh Infisical instance. The /api/v1/admin/bootstrap endpoint will work and return the orgID.
+
+export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl patch hubenvironment hub-production -n hub-platform-ops --type=merge -p '{"metadata":{"annotations":{"force-bootstrap":"'$(date +%s)'"}}}'

@@ -13,15 +13,17 @@ import (
 
 // BootstrapClient orchestrates Infisical Day 0 initialization
 type BootstrapClient struct {
-	k8sClient client.Client
-	api       *BootstrapAPI
+	k8sClient         client.Client
+	uncachedK8sClient client.Client
+	api               *BootstrapAPI
 }
 
 // NewBootstrapClient creates a new bootstrap client
-func NewBootstrapClient(k8sClient client.Client) *BootstrapClient {
+func NewBootstrapClient(k8sClient, uncachedK8sClient client.Client) *BootstrapClient {
 	return &BootstrapClient{
-		k8sClient: k8sClient,
-		api:       NewBootstrapAPI(),
+		k8sClient:         k8sClient,
+		uncachedK8sClient: uncachedK8sClient,
+		api:               NewBootstrapAPI(),
 	}
 }
 

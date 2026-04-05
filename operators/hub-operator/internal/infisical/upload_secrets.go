@@ -24,8 +24,9 @@ func (bc *BootstrapClient) UploadCLISecrets(ctx context.Context) error {
 	}
 
 	// Get project configuration from infisical-admin secret
+	// Use uncached client to avoid cache staleness after secret creation
 	adminSecret := &corev1.Secret{}
-	if err := bc.k8sClient.Get(ctx, client.ObjectKey{
+	if err := bc.uncachedK8sClient.Get(ctx, client.ObjectKey{
 		Name:      SecretInfisicalAdmin,
 		Namespace: NamespaceOps,
 	}, adminSecret); err != nil {
