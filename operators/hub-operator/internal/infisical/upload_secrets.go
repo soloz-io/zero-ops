@@ -18,7 +18,8 @@ func (bc *BootstrapClient) UploadCLISecrets(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 
 	// Create Infisical client using the newly created infisical-auth secret
-	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, bc.k8sClient, "")
+	// Use uncached client to read secret data (cached client strips data)
+	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, bc.uncachedK8sClient, "")
 	if err != nil {
 		return fmt.Errorf("failed to create Infisical client: %w", err)
 	}
