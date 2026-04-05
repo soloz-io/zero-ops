@@ -60,8 +60,12 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 		orgID = bootstrapResp.Organization.ID
 		logger.Info("Bootstrap successful (fresh instance)", "orgID", orgID)
 	} else {
-		// Bootstrap failed - check if already bootstrapped
-		logger.Info("Bootstrap API returned error, attempting login flow", "error", err.Error())
+		// Bootstrap failed or already bootstrapped - use login flow
+		if err != nil {
+			logger.Info("Bootstrap API returned error, attempting login flow", "error", err.Error())
+		} else {
+			logger.Info("Infisical already bootstrapped, attempting login flow")
+		}
 
 		// Step 1: Login to get initial token
 		logger.Info("Step 1: Logging in to Infisical")
