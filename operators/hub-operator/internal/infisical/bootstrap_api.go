@@ -525,7 +525,7 @@ func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, proje
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v2/projects/"+projectID+"/memberships", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/projects/"+projectID+"/memberships", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}
@@ -560,7 +560,7 @@ func (api *BootstrapAPI) AddUserToProjectByEmail(ctx context.Context, adminToken
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v2/projects/"+projectID+"/memberships", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/projects/"+projectID+"/memberships", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}
