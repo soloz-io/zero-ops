@@ -1,5 +1,7 @@
 export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -d infisical -c "\dt" | head -50
 
+export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl delete secret infisical-redis-credentials -n hub-platform-security --ignore-not-found
+
 export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -c "DROP DATABASE infisical;"
 
 export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl scale deployment -n hub-platform-security platform-infisical-infisical-standalone-infisical --replicas=0

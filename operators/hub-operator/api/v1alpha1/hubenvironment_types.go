@@ -196,7 +196,7 @@ type SecretsConfig struct {
 // InfisicalConfig defines Infisical project configuration
 type InfisicalConfig struct {
 	// ProjectSlug is the Infisical project identifier
-	// +kubebuilder:default="platform"
+	// +kubebuilder:default="hub-platform"
 	// +optional
 	ProjectSlug string `json:"projectSlug,omitempty"`
 

@@ -97,5 +97,5 @@ spec:
       - token
   secrets:
     infisical:
-      projectSlug: platform
+      projectSlug: hub-platform
       environmentSlug: prod
