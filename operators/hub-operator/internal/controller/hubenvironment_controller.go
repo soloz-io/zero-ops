@@ -99,70 +99,43 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Phase 0: Bootstrap Infisical (Day 0 initialization)
-	// Check if condition exists and matches current generation
-	bootstrapCondition := meta.FindStatusCondition(hubEnv.Status.Conditions, "InfisicalBootstrapped")
-	needsBootstrap := bootstrapCondition == nil || 
-		bootstrapCondition.Status != metav1.ConditionTrue || 
-		bootstrapCondition.ObservedGeneration != hubEnv.Generation
-	
-	if needsBootstrap {
-		logger.Info("Phase 0: Bootstrapping Infisical")
+	// Bootstrap is idempotent - it checks if infisical-auth secret exists
+	logger.Info("Phase 0: Bootstrapping Infisical")
 
-		// Check if Infisical is ready
-		infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
-		if err != nil {
-			logger.Error(err, "Failed to check Infisical readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-		}
-		if !infisicalReady {
-			logger.Info("Waiting for Infisical to be ready")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-
-		// Bootstrap Infisical (creates admin user, project, machine identity)
-		bootstrapClient := infisical.NewBootstrapClient(r.Client)
-		bootstrapped, err := bootstrapClient.Bootstrap(ctx)
-		if err != nil {
-			logger.Error(err, "Failed to bootstrap Infisical")
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:               "InfisicalBootstrapped",
-				Status:             metav1.ConditionFalse,
-				Reason:             "BootstrapFailed",
-				Message:            fmt.Sprintf("Failed to bootstrap Infisical: %v", err),
-				ObservedGeneration: hubEnv.Generation,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-		}
-
-		if bootstrapped {
-			logger.Info("Infisical bootstrapped successfully")
-			
-			// Upload CLI-injected secrets to Infisical
-			if err := bootstrapClient.UploadCLISecrets(ctx); err != nil {
-				logger.Error(err, "Failed to upload CLI secrets, continuing...")
-			} else {
-				logger.Info("CLI secrets uploaded to Infisical")
-			}
-		}
-
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "InfisicalBootstrapped",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Bootstrapped",
-			Message:            "Infisical bootstrapped and secrets uploaded",
-			ObservedGeneration: hubEnv.Generation,
-		})
-
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		logger.Info("Phase 0 complete: Infisical bootstrapped")
-		return ctrl.Result{Requeue: true}, nil
+	// Check if Infisical is ready
+	infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
+	if err != nil {
+		logger.Error(err, "Failed to check Infisical readiness")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
+	if !infisicalReady {
+		logger.Info("Waiting for Infisical to be ready")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Bootstrap Infisical (creates admin user, project, machine identity)
+	// Returns (true, nil) if bootstrap was performed, (false, nil) if already bootstrapped
+	bootstrapClient := infisical.NewBootstrapClient(r.Client)
+	bootstrapped, err := bootstrapClient.Bootstrap(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to bootstrap Infisical")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	if bootstrapped {
+		logger.Info("Infisical bootstrapped successfully")
+		
+		// Upload CLI-injected secrets to Infisical
+		if err := bootstrapClient.UploadCLISecrets(ctx); err != nil {
+			logger.Error(err, "Failed to upload CLI secrets, continuing...")
+		} else {
+			logger.Info("CLI secrets uploaded to Infisical")
+		}
+	} else {
+		logger.Info("Infisical already bootstrapped, skipping")
+	}
+
+	logger.Info("Phase 0 complete: Infisical ready")
 
 	// Requirement 9.5: Phase 1 - Generate Secret Zero
 	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "SecretZeroGenerated") {
