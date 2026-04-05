@@ -195,28 +195,29 @@ type UserResponse struct {
 }
 
 // ListOrganizations lists all organizations for the authenticated user using /api/v1/user
-func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken string) ([]OrganizationResponse, error) {
+// Returns organizations and the username
+func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken string) ([]OrganizationResponse, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUser, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	resp, err := api.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, "", fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get user info failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, "", fmt.Errorf("get user info failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var userResp UserResponse
 	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
-		return nil, fmt.Errorf("failed to decode user info response: %w", err)
+		return nil, "", fmt.Errorf("failed to decode user info response: %w", err)
 	}
 
 	// Convert to OrganizationResponse slice
@@ -228,7 +229,7 @@ func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken strin
 		}
 	}
 
-	return orgs, nil
+	return orgs, userResp.User.Username, nil
 }
 
 // ProjectResponse represents project creation response
@@ -534,38 +535,38 @@ func (api *BootstrapAPI) GrantProjectAccess(ctx context.Context, adminToken, pro
 	return nil
 }
 
-// GetUserByEmail retrieves user information by email
-func (api *BootstrapAPI) GetUserByEmail(ctx context.Context, adminToken, email string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+"/api/v3/users/me", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create get user request: %w", err)
-	}
+// // GetUserByEmail retrieves user information by email
+// func (api *BootstrapAPI) GetUserByEmail(ctx context.Context, adminToken, email string) (string, error) {
+// 	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+"/api/v3/users/me", nil)
+// 	if err != nil {
+// 		return "", fmt.Errorf("failed to create get user request: %w", err)
+// 	}
 
-	req.Header.Set("Authorization", "Bearer "+adminToken)
+// 	req.Header.Set("Authorization", "Bearer "+adminToken)
 
-	resp, err := api.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute get user request: %w", err)
-	}
-	defer resp.Body.Close()
+// 	resp, err := api.httpClient.Do(req)
+// 	if err != nil {
+// 		return "", fmt.Errorf("failed to execute get user request: %w", err)
+// 	}
+// 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get user failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
+// 	if resp.StatusCode != http.StatusOK {
+// 		bodyBytes, _ := io.ReadAll(resp.Body)
+// 		return "", fmt.Errorf("get user failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+// 	}
 
-	var userResp struct {
-		User struct {
-			Username string `json:"username"`
-		} `json:"user"`
-	}
+// 	var userResp struct {
+// 		User struct {
+// 			Username string `json:"username"`
+// 		} `json:"user"`
+// 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
-		return "", fmt.Errorf("failed to decode user response: %w", err)
-	}
+// 	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
+// 		return "", fmt.Errorf("failed to decode user response: %w", err)
+// 	}
 
-	return userResp.User.Username, nil
-}
+// 	return userResp.User.Username, nil
+// }
 
 // AddUserToProject adds a user to a project with specified roles
 func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, projectID, username string, roles []string) error {
@@ -580,7 +581,7 @@ func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, proje
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v3/workspaces/"+projectID+"/memberships", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v2/projects/"+projectID+"/memberships", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}

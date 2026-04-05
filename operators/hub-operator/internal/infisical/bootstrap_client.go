@@ -79,7 +79,7 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 		// Step 2: List organizations to get orgID
 		logger.Info("Step 2: Fetching organization list")
-		orgs, err := bc.api.ListOrganizations(ctx, initialToken)
+		orgs, adminUsername, err := bc.api.ListOrganizations(ctx, initialToken)
 		if err != nil {
 			return false, fmt.Errorf("failed to list organizations: %w", err)
 		}
@@ -90,7 +90,7 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 
 		// Use first organization (super admin should have access to the org)
 		orgID = orgs[0].ID
-		logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name)
+		logger.Info("Organization found", "orgID", orgID, "orgName", orgs[0].Name, "username", adminUsername)
 
 		// Step 3: Select organization to get org-scoped token
 		logger.Info("Step 3: Selecting organization", "orgID", orgID)
@@ -125,12 +125,11 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 	logger.Info("Project slug updated", "projectSlug", projectSlug)
 
 	// Step 4.2: Add admin user to project as admin member
-	logger.Info("Step 4.2: Adding admin user to project")
-	adminUsername, err := bc.api.GetUserByEmail(ctx, adminToken, AdminEmail)
-	if err != nil {
-		return false, fmt.Errorf("failed to get admin username: %w", err)
-	}
-
+	logger.Info("Step 4.2: Adding admin user to project", "username", adminUsername)
+	// adminUsername, err := bc.api.GetUserByEmail(ctx, adminToken, AdminEmail)
+	// if err != nil {
+	// 	return false, fmt.Errorf("failed to get admin username: %w", err)
+	// }
 	if err := bc.api.AddUserToProject(ctx, adminToken, projectID, adminUsername, []string{"admin"}); err != nil {
 		return false, fmt.Errorf("failed to add admin user to project: %w", err)
 	}
