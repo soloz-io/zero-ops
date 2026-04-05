@@ -54,7 +54,7 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 	// Step 0: Try bootstrap API first (for fresh Infisical instances)
 	logger.Info("Step 0: Attempting Infisical bootstrap (creates first admin user)")
 	bootstrapResp, err := bc.api.Bootstrap(ctx, AdminEmail, AdminPassword, OrganizationName)
-	if err == nil {
+	if err == nil && bootstrapResp != nil {
 		// Bootstrap succeeded - extract token and orgID
 		adminToken = bootstrapResp.Identity.Credentials.Token
 		orgID = bootstrapResp.Organization.ID
