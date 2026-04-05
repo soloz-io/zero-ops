@@ -181,22 +181,22 @@ type OrganizationResponse struct {
 	Name string `json:"name"`
 }
 
-// UserMeResponse represents the response from /api/v3/users/me
-type UserMeResponse struct {
+// UserResponse represents the response from /api/v1/user
+type UserResponse struct {
 	User struct {
-		ID            string `json:"id"`
+		ID            string `json:"_id"`
 		Email         string `json:"email"`
 		Username      string `json:"username"`
 		Organizations []struct {
-			ID   string `json:"id"`
+			ID   string `json:"_id"`
 			Name string `json:"name"`
 		} `json:"organizations"`
 	} `json:"user"`
 }
 
-// ListOrganizations lists all organizations for the authenticated user using /api/v3/users/me
+// ListOrganizations lists all organizations for the authenticated user using /api/v1/user
 func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken string) ([]OrganizationResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUserMe, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUser, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -214,14 +214,14 @@ func (api *BootstrapAPI) ListOrganizations(ctx context.Context, adminToken strin
 		return nil, fmt.Errorf("get user info failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var userMeResp UserMeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&userMeResp); err != nil {
+	var userResp UserResponse
+	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
 		return nil, fmt.Errorf("failed to decode user info response: %w", err)
 	}
 
 	// Convert to OrganizationResponse slice
-	orgs := make([]OrganizationResponse, len(userMeResp.User.Organizations))
-	for i, org := range userMeResp.User.Organizations {
+	orgs := make([]OrganizationResponse, len(userResp.User.Organizations))
+	for i, org := range userResp.User.Organizations {
 		orgs[i] = OrganizationResponse{
 			ID:   org.ID,
 			Name: org.Name,
