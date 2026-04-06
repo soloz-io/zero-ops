@@ -45,20 +45,20 @@ deployment:
     - name: KRATOS_DB_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: identity-postgres-passwords
-          key: kratos-password
+          name: kratos-db-credentials
+          key: password
     - name: DSN
-      value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos_db
+      value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos
 
   automigration:
     extraEnv:
       - name: KRATOS_DB_PASSWORD
         valueFrom:
           secretKeyRef:
-            name: identity-postgres-passwords
-            key: kratos-password
+            name: kratos-db-credentials
+            key: password
       - name: DSN
-        value: postgres://kratos:$(KRATOS_DB_PASSWORD)@zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos_db
+        value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/kratos
 
   extraVolumes:
     - name: identity-schema
@@ -73,4 +73,5 @@ deployment:
   extraInitContainers: |
     - name: wait-for-postgres
       image: postgres:15-alpine
-      command: ['sh', '-c', 'until pg_isready -h zero-ops-platform-db-rw.hub-platform-data.svc.cluster.local -p 5432; do sleep 2; done']
+      command: ['sh', '-c', 'until pg_isready -h platform-db-rw.hub-platform-data.svc.cluster.local -p 5432; do sleep 2; done']
+

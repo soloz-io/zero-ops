@@ -45,21 +45,21 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    - name: hydra
+    - name: hub_hydra
       database: hydra
       permissions:
       - SELECT
       - INSERT
       - UPDATE
       - DELETE
-    - name: kratos
+    - name: hub_kratos
       database: kratos
       permissions:
       - SELECT
       - INSERT
       - UPDATE
       - DELETE
-    - name: keto
+    - name: hub_keto
       database: keto
       permissions:
       - SELECT

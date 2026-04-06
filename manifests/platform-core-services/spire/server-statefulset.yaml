@@ -26,7 +26,7 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
-          connection_string = "host=platform-db-rw.zero-ops-system.svc.cluster.local port=5432 dbname=hub user=spire_server password=${SPIRE_DB_PASSWORD} sslmode=require"
+          connection_string = "host=platform-db-rw.hub-platform-data.svc.cluster.local port=5432 dbname=spire user=spire password=${SPIRE_DB_PASSWORD} sslmode=require"
         }
       }
 
@@ -87,13 +87,13 @@ spec:
               name: spire-server-db-credentials
               key: password
         - name: PGHOST
-          value: "platform-db-rw.zero-ops-system.svc.cluster.local"
+          value: "platform-db-rw.hub-platform-data.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE
-          value: "hub"
+          value: "spire"
         - name: PGUSER
-          value: "spire_server"
+          value: "spire"
         - name: PGSSLMODE
           value: "require"
         command:

@@ -55,22 +55,28 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 
 	logger.Info("Uploading application secrets to Infisical", "count", len(ApplicationSecretMappings))
 
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
+
 	for _, secretDef := range ApplicationSecretMappings {
 		logger.Info("Processing application secret", "description", secretDef.Description)
 
-		// Upload username (CreateOrUpdateSecretRaw is idempotent)
-		if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.UsernameKey, secretDef.Username); err != nil {
-			logger.Error(err, "Failed to upload username to Infisical", "key", secretDef.UsernameKey)
-			continue
+		// Upload username if this is a database credential (UsernameKey is not empty)
+		if secretDef.UsernameKey != "" {
+			if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.UsernameKey, secretDef.Username); err != nil {
+				logger.Error(err, "Failed to upload username to Infisical", "key", secretDef.UsernameKey)
+				continue
+			}
+			logger.Info("Uploaded username to Infisical", "key", secretDef.UsernameKey, "value", secretDef.Username)
 		}
-		logger.Info("Uploaded username to Infisical", "key", secretDef.UsernameKey, "value", secretDef.Username)
 
-		// Generate and upload password
-		// Note: CreateOrUpdateSecretRaw will update if exists, so we generate a new password each time
-		// To make this truly idempotent (preserve existing passwords), we would need a GetSecret method
-		// For now, we accept that passwords may be regenerated on operator restart
-		const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
-		password, err := secrets.GenerateSecurePasswordWithCharset(32, charset)
+		// Generate and upload password/secret
+		// Use 64 chars for system secrets (no username), 32 chars for database passwords
+		length := 32
+		if secretDef.UsernameKey == "" {
+			length = 64
+		}
+
+		password, err := secrets.GenerateSecurePasswordWithCharset(length, charset)
 		if err != nil {
 			logger.Error(err, "Failed to generate password", "key", secretDef.PasswordKey)
 			continue

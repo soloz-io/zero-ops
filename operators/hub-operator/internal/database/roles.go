@@ -22,6 +22,12 @@ func mapRoleToSecretName(roleName string) string {
 		return "control-plane-db-credentials"
 	case "spoke_controller":
 		return "hub-db-credentials"
+	case "hub_hydra":
+		return "hydra-db-credentials"
+	case "hub_kratos":
+		return "kratos-db-credentials"
+	case "hub_keto":
+		return "keto-db-credentials"
 	default:
 		// Replace underscores with hyphens for valid K8s names
 		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"

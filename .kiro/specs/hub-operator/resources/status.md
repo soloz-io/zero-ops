@@ -78,3 +78,18 @@
 2. Missing ConfigMap: `kratos-identity-schema`
 3. Missing image pull secret: `ghcr-pull-secret` for mcp-server
 4. Hydra main deployment not found (only maester running)
+
+**Phase 2 Status (2026-04-06):**
+✅ Databases exist: control_plane, hub, spire, hydra, kratos, keto, infisical
+✅ Roles exist: mcp_server, spoke_controller, spire_server, hydra, kratos, keto, infisical
+❌ Application secrets have wrong usernames (mcp_server/spoke_controller instead of control_plane/hub) - FIXED in commit
+❌ ESO cannot sync application secrets: "failed to take ownership" - old secrets exist with wrong usernames, need deletion
+⚠️ Applications blocked: Cannot start until ESO syncs correct credentials
+
+**RCA: Hydra Main Deployment Missing**
+- **Root Cause:** Hydra ArgoCD Application exists but main deployment never created
+- **Issue 1:** Wrong database service name in values.yaml: `zero-ops-platform-db-rw` (should be `platform-db-rw`)
+- **Issue 2:** Missing secret `identity-postgres-passwords` in namespace `hub-platform-identity`
+- **Issue 3:** Hydra expects secret with keys: `hydra-password`, `hydra-system-secret`
+- **Current State:** Only hydra-maester running (CRD controller), main Hydra pods never deployed
+- **Impact:** OAuth2/OIDC functionality completely unavailable, blocking auth-proxy and MCP authentication

@@ -209,9 +209,9 @@ var CLISecretMappings = []SecretMapping{
 
 // ApplicationSecretDefinition defines an application secret to create in Infisical
 type ApplicationSecretDefinition struct {
-	UsernameKey string // Infisical key for username (e.g., "control-plane-db-username")
-	PasswordKey string // Infisical key for password (e.g., "control-plane-db-password")
-	Username    string // Username value (e.g., "mcp_server")
+	UsernameKey string // Infisical key for username (e.g., "control-plane-db-username") - empty for non-DB secrets
+	PasswordKey string // Infisical key for password/secret (e.g., "control-plane-db-password")
+	Username    string // Username value (e.g., "mcp_server") - empty for non-DB secrets
 	Description string // Human-readable description
 }
 
@@ -231,8 +231,8 @@ type ApplicationSecretDefinition struct {
 // └─────────────────────────────────────────────────────────────────────────┘
 var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	{
-		UsernameKey: "hub_control-plane-db-username",
-		PasswordKey: "hub_control-plane-db-password",
+		UsernameKey: "hub-control-plane-db-username",
+		PasswordKey: "hub-control-plane-db-password",
 		Username:    "hub_control_plane",
 		Description: "Control Plane DB credentials (mcp-server)",
 	},
@@ -249,22 +249,28 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Spire Server DB credentials",
 	},
 	{
-		UsernameKey: "hub_hydra-db-username",
-		PasswordKey: "hub_hydra-db-password",
+		UsernameKey: "hub-hydra-db-username",
+		PasswordKey: "hub-hydra-db-password",
 		Username:    "hub_hydra",
 		Description: "Hydra DB credentials",
 	},
 	{
-		UsernameKey: "hub_kratos-db-username",
-		PasswordKey: "hub_kratos-db-password",
+		UsernameKey: "hub-kratos-db-username",
+		PasswordKey: "hub-kratos-db-password",
 		Username:    "hub_kratos",
 		Description: "Kratos DB credentials",
 	},
 	{
-		UsernameKey: "hub_keto-db-username",
-		PasswordKey: "hub_keto-db-password",
+		UsernameKey: "hub-keto-db-username",
+		PasswordKey: "hub-keto-db-password",
 		Username:    "hub_keto",
 		Description: "Keto DB credentials",
+	},
+	{
+		UsernameKey: "",
+		PasswordKey: "hub-hydra-system-secret",
+		Username:    "",
+		Description: "Hydra system secret for cookie/session encryption",
 	},
 }
 
