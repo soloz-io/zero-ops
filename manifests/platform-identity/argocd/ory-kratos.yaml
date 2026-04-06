@@ -20,8 +20,6 @@ spec:
     - repoURL: https://github.com/soloz-io/zero-ops
       targetRevision: HEAD
       path: manifests/platform-identity/ory-kratos
-      directory:
-        include: '{*-externalsecret.yaml,identity-schema-configmap.yaml,network-policy.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-identity
