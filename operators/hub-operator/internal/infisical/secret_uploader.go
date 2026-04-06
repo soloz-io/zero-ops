@@ -55,52 +55,62 @@ func (su *SecretUploader) UploadCLISecrets(ctx context.Context) error {
 
 	logger.Info("Uploading CLI secrets to Infisical", "project", projectSlug, "environment", environmentSlug)
 
-	// Upload hetzner-dns token (derived from hcloud token)
-	if err := su.uploadHetznerDNS(ctx, infisicalClient, projectSlug, environmentSlug, secretPath); err != nil {
-		logger.Error(err, "Failed to upload hetzner-dns, continuing...")
-	} else {
-		logger.Info("Uploaded hetzner-dns to Infisical")
+	// Upload all configured secrets from the registry
+	// See secret_mappings.go for the complete list
+	mappings := CLISecretMappings
+	successCount := 0
+	
+	for _, mapping := range mappings {
+		if err := su.uploadSecret(ctx, infisicalClient, projectSlug, environmentSlug, secretPath, mapping); err != nil {
+			logger.Error(err, "Failed to upload secret", 
+				"description", mapping.Description,
+				"source", fmt.Sprintf("%s/%s", mapping.SourceNamespace, mapping.SourceName),
+				"infisicalKey", mapping.InfisicalKey)
+		} else {
+			successCount++
+			logger.Info("Uploaded secret to Infisical", 
+				"description", mapping.Description,
+				"infisicalKey", mapping.InfisicalKey)
+		}
 	}
 
-	logger.Info("CLI secrets upload complete")
+	logger.Info("CLI secrets upload complete", "uploaded", successCount, "total", len(mappings))
 	return nil
 }
 
-// uploadHetznerDNS uploads hetzner-dns token to Infisical
-// Reads the hcloud secret token and uploads it as hetzner-dns key
-func (su *SecretUploader) uploadHetznerDNS(ctx context.Context, infisicalClient *infisicalclient.InfisicalClient, projectSlug, environmentSlug, secretPath string) error {
+// uploadSecret uploads a single secret to Infisical based on the mapping configuration
+func (su *SecretUploader) uploadSecret(ctx context.Context, infisicalClient *infisicalclient.InfisicalClient, projectSlug, environmentSlug, secretPath string, mapping SecretMapping) error {
 	logger := log.FromContext(ctx)
 
-	// Read hcloud secret from hub-cloud-system
+	// Read source secret from K8s
 	// Use uncached client to read secret data (cached client strips data)
-	hcloud := &corev1.Secret{}
+	secret := &corev1.Secret{}
 	if err := su.uncachedK8sClient.Get(ctx, client.ObjectKey{
-		Name:      SecretHCloud,
-		Namespace: NamespaceCloudSystem,
-	}, hcloud); err != nil {
+		Name:      mapping.SourceName,
+		Namespace: mapping.SourceNamespace,
+	}, secret); err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info("hcloud secret not found in hub-cloud-system, skipping hetzner-dns upload")
+			logger.Info("Source secret not found, skipping", 
+				"secret", fmt.Sprintf("%s/%s", mapping.SourceNamespace, mapping.SourceName))
 			return nil
 		}
-		return fmt.Errorf("failed to get hcloud secret: %w", err)
+		return fmt.Errorf("failed to get source secret: %w", err)
 	}
 
-	// Extract token
-	token, ok := hcloud.Data[KeyToken]
+	// Extract the specified key
+	value, ok := secret.Data[mapping.SourceKey]
 	if !ok {
-		return fmt.Errorf("hcloud secret missing token field")
+		return fmt.Errorf("source secret missing key %s", mapping.SourceKey)
 	}
 	
-	if len(token) == 0 {
-		return fmt.Errorf("hcloud token is empty")
+	if len(value) == 0 {
+		return fmt.Errorf("source secret key %s is empty", mapping.SourceKey)
 	}
 
-	// Upload to Infisical with key name "hetzner-dns"
-	// ExternalSecret will sync this to K8s secret with field "api-key"
-	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, "hetzner-dns", string(token)); err != nil {
-		return fmt.Errorf("failed to upload hetzner-dns: %w", err)
+	// Upload to Infisical
+	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, mapping.InfisicalKey, string(value)); err != nil {
+		return fmt.Errorf("failed to upload to Infisical: %w", err)
 	}
 
-	logger.Info("Uploaded hetzner-dns to Infisical")
 	return nil
 }
