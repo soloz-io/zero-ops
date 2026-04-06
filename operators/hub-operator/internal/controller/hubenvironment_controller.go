@@ -39,20 +39,6 @@ type HubEnvironmentReconciler struct {
 	Scheme         *runtime.Scheme
 }
 
-// mapRoleToSecretName converts CR role names to valid K8s secret names
-// Handles special mappings from old CLI behavior for backward compatibility
-func mapRoleToSecretName(roleName string) string {
-	switch roleName {
-	case "mcp_server":
-		return "control-plane-db-credentials"
-	case "spoke_controller":
-		return "hub-db-credentials"
-	default:
-		// Replace underscores with hyphens for valid K8s names
-		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
-	}
-}
-
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/finalizers,verbs=update
@@ -128,7 +114,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("Infisical already bootstrapped, skipping")
 	}
 
-	// Upload CLI-injected secrets to Infisical (Wave 3 requirement)
+	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
 	// This runs regardless of whether bootstrap just occurred or was already done
 	// Makes Infisical the Source of Truth for all secrets
 	secretUploader := infisical.NewSecretUploader(r.Client, r.UncachedClient)
@@ -138,11 +124,22 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("CLI secrets uploaded to Infisical")
 	}
 
+	// Upload application secrets directly to Infisical (without creating K8s secrets)
+	// ESO will create K8s secrets by syncing from Infisical
+	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient)
+	if err := appSecretUploader.UploadApplicationSecrets(ctx); err != nil {
+		logger.Error(err, "Failed to upload application secrets, continuing...")
+	} else {
+		logger.Info("Application secrets uploaded to Infisical")
+	}
+
 	logger.Info("Phase 0 complete: Infisical ready")
 
-	// Requirement 9.5: Phase 1 - Generate Secret Zero
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "SecretZeroGenerated") {
-		logger.Info("Phase 1: Generating Secret Zero")
+	// Phase 1: Generate Bootstrap Secrets Only
+	// Bootstrap secrets are required for infrastructure to start (CNPG, Infisical)
+	// Application secrets are created by ESO from Infisical
+	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated") {
+		logger.Info("Phase 1: Generating Bootstrap Secrets")
 
 		dataNamespace := hubEnv.Spec.Database.Namespace
 		securityNamespace := "hub-platform-security" // Infisical pods run here
@@ -157,26 +154,18 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			Controller: func() *bool { b := true; return &b }(),
 		}
 
-		// Build list of all secret names (base secrets + role credentials)
-		// Check secrets in their respective namespaces
+		// Build list of bootstrap secret names only
+		// These are required for infrastructure bootstrap (CNPG, Infisical, Redis)
 		secretNamesInData := []string{
-			"platform-db-app",
-			"infisical-db-credentials",
-			"hydra-db-credentials",
-			"kratos-db-credentials",
-			"keto-db-credentials",
-			"platform-db-ca",
-			"infisical-redis-credentials",
+			"platform-db-app",           // CNPG bootstrap superuser
+			"infisical-db-credentials",  // Infisical database user
+			"platform-db-ca",            // TLS certificate authority
+			"infisical-redis-credentials", // Redis authentication
 		}
 
 		secretNamesInSecurity := []string{
-			"infisical-secrets",
-			"infisical-postgres-connection",
-		}
-
-		// Add role credential secrets from CR spec (all in data namespace)
-		for _, role := range hubEnv.Spec.Database.Roles {
-			secretNamesInData = append(secretNamesInData, fmt.Sprintf("%s-db-credentials", role.Name))
+			"infisical-secrets",            // Infisical encryption keys
+			"infisical-postgres-connection", // Infisical DB connection
 		}
 
 		// Read existing secrets for idempotency
@@ -198,24 +187,21 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		// Generate Secret Zero (base secrets) with both namespaces
-		result, err := secrets.GenerateSecretZero(dataNamespace, securityNamespace, dbHost, owner, existingSecrets)
+		// Generate Bootstrap Secrets only (no application secrets)
+		result, err := secrets.GenerateBootstrapSecrets(dataNamespace, securityNamespace, dbHost, owner, existingSecrets)
 		if err != nil {
-			logger.Error(err, "Failed to generate Secret Zero")
+			logger.Error(err, "Failed to generate Bootstrap Secrets")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		// Create base secrets
+		// Create bootstrap secrets only
 		secretsToCreate := []*corev1.Secret{
-			result.InfisicalSecrets,
-			result.InfisicalRedisCredentials,
+			result.PlatformDBCA,
 			result.PlatformDBApp,
 			result.InfisicalDBCredentials,
+			result.InfisicalSecrets,
+			result.InfisicalRedisCredentials,
 			result.InfisicalPostgresConnection,
-			result.HydraDBCredentials,
-			result.KratosDBCredentials,
-			result.KetoDBCredentials,
-			result.PlatformDBCA,
 		}
 
 		for _, secret := range secretsToCreate {
@@ -228,39 +214,14 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 				}
 			}
-			logger.Info("Created secret", "secret", secret.Name, "namespace", secret.Namespace)
-		}
-
-		// Generate and create role credential secrets for all roles in CR (in data namespace)
-		for _, role := range hubEnv.Spec.Database.Roles {
-			// Generate new role credential secret (uses mapRoleToSecretName internally)
-			roleSecret, err := secrets.GenerateRoleDBCredentials(role.Name, dataNamespace, owner)
-			if err != nil {
-				logger.Error(err, "Failed to generate role credentials", "role", role.Name)
-				return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-			}
-
-			// Skip if secret already exists (check using the mapped secret name)
-			if _, exists := existingSecrets[roleSecret.Name]; exists {
-				logger.Info("Role credential secret already exists", "secret", roleSecret.Name, "role", role.Name)
-				continue
-			}
-
-			// Create the secret
-			if err := r.Create(ctx, roleSecret); err != nil {
-				if !errors.IsAlreadyExists(err) {
-					logger.Error(err, "Failed to create role credential secret", "secret", roleSecret.Name)
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-				}
-			}
-			logger.Info("Created role credential secret", "secret", roleSecret.Name, "role", role.Name)
+			logger.Info("Created bootstrap secret", "secret", secret.Name, "namespace", secret.Namespace)
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "SecretZeroGenerated",
+			Type:               "BootstrapSecretsGenerated",
 			Status:             metav1.ConditionTrue,
 			Reason:             "Generated",
-			Message:            "Secret Zero generated successfully",
+			Message:            "Bootstrap secrets generated successfully",
 			ObservedGeneration: hubEnv.Generation,
 		})
 
@@ -268,7 +229,75 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 
-		logger.Info("Phase 1 complete: Secret Zero generated")
+		logger.Info("Phase 1 complete: Bootstrap secrets generated")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Phase 1b: Wait for ESO to create application secrets
+	// Application secrets are created by ESO from Infisical (creationPolicy: Owner)
+	// We must wait for them to exist before creating database roles
+	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "ApplicationSecretsReady") {
+		logger.Info("Phase 1b: Waiting for ESO to create application secrets")
+
+		dataNamespace := hubEnv.Spec.Database.Namespace
+
+		// List of application secrets that ESO must create from Infisical
+		// These correspond to database roles defined in HubEnvironment CR
+		requiredSecrets := []string{
+			"control-plane-db-credentials",  // mcp_server role
+			"hub-db-credentials",            // spoke_controller role
+			"spire-server-db-credentials",   // spire_server role
+			"hydra-db-credentials",          // hydra role
+			"kratos-db-credentials",         // kratos role
+			"keto-db-credentials",           // keto role
+		}
+
+		allSecretsExist := true
+		missingSecrets := []string{}
+
+		for _, secretName := range requiredSecrets {
+			secret := &corev1.Secret{}
+			if err := r.Get(ctx, client.ObjectKey{
+				Name:      secretName,
+				Namespace: dataNamespace,
+			}, secret); err != nil {
+				if errors.IsNotFound(err) {
+					logger.Info("Waiting for ESO to create secret", "secret", secretName)
+					allSecretsExist = false
+					missingSecrets = append(missingSecrets, secretName)
+				} else {
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+				}
+			}
+		}
+
+		if !allSecretsExist {
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "ApplicationSecretsReady",
+				Status:             metav1.ConditionFalse,
+				Reason:             "WaitingForESO",
+				Message:            fmt.Sprintf("Waiting for ESO to create secrets: %s", strings.Join(missingSecrets, ", ")),
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "ApplicationSecretsReady",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ESOSynced",
+			Message:            "ESO created all application secrets successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 1b complete: Application secrets ready")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -421,10 +450,8 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		if err := r.uploadSecretsToInfisical(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to upload secrets to Infisical")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-		}
+		// All secrets are now uploaded via SecretUploader in Phase 0
+		// No need for separate Phase 3 upload logic
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 			Type:               "SecretsBackedUp",
@@ -613,98 +640,7 @@ func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv
 	return true, nil
 }
 
-// uploadSecretsToInfisical uploads all database credentials to Infisical
-// Requirement 9.8: Implement uploadSecretsToInfisical() with UploadedSecrets tracking
-func (r *HubEnvironmentReconciler) uploadSecretsToInfisical(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
-	logger := log.FromContext(ctx)
-
-	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
-	if err != nil {
-		return err
-	}
-
-	namespace := hubEnv.Spec.Database.Namespace
-
-	// Track uploaded secrets
-	uploadedSecrets := make(map[string]bool)
-	if hubEnv.Status.UploadedSecrets != nil {
-		for _, secret := range hubEnv.Status.UploadedSecrets {
-			uploadedSecrets[secret] = true
-		}
-	}
-
-	// GAP 3 FIX: Upload platform-db-app (Layer 1 bootstrap secret)
-	// This secret is not in the roles list but must be uploaded to Infisical
-	// for ExternalSecrets to sync it
-	if !uploadedSecrets["platform-db-app"] {
-		appSecret := &corev1.Secret{}
-		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
-			Name:      "platform-db-app",
-			Namespace: namespace,
-		}, appSecret); err == nil {
-			username := string(appSecret.Data["username"])
-			password := string(appSecret.Data["password"])
-
-			if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, "platform-db-app-username", username); err != nil {
-				return fmt.Errorf("failed to upload platform-db-app-username: %w", err)
-			}
-
-			if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, "platform-db-app-password", password); err != nil {
-				return fmt.Errorf("failed to upload platform-db-app-password: %w", err)
-			}
-
-			hubEnv.Status.UploadedSecrets = append(hubEnv.Status.UploadedSecrets, "platform-db-app")
-			logger.Info("Uploaded platform-db-app to Infisical")
-		} else if !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to get platform-db-app secret: %w", err)
-		}
-	}
-
-	// Upload credentials for each database role
-	for _, roleSpec := range hubEnv.Spec.Database.Roles {
-		// Map role name to actual K8s secret name (handles mcp_server → control-plane-db-credentials)
-		secretName := mapRoleToSecretName(roleSpec.Name)
-
-		// Skip if already uploaded
-		if uploadedSecrets[secretName] {
-			logger.Info("Secret already uploaded, skipping", "secret", secretName)
-			continue
-		}
-
-		// Read secret using UncachedClient (need secret data)
-		secret := &corev1.Secret{}
-		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
-			Name:      secretName,
-			Namespace: namespace,
-		}, secret); err != nil {
-			return err
-		}
-
-		username := string(secret.Data["username"])
-		password := string(secret.Data["password"])
-
-		// Determine Infisical key prefix based on secret name
-		// control-plane-db-credentials → control-plane-db-username/password
-		// hub-db-credentials → hub-db-username/password
-		infisicalPrefix := strings.TrimSuffix(secretName, "-credentials")
-
-		// Upload username and password
-		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, infisicalPrefix+"-username", username); err != nil {
-			return err
-		}
-
-		if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, infisicalPrefix+"-password", password); err != nil {
-			return err
-		}
-
-		// Mark as uploaded
-		hubEnv.Status.UploadedSecrets = append(hubEnv.Status.UploadedSecrets, secretName)
-		logger.Info("Uploaded secret to Infisical", "secret", secretName, "role", roleSpec.Name)
-	}
-
-	return nil
-}
-
+// uploadSecretsToInfisical uploads all secrets to Infisical
 // handleCertificateRotation detects platform-db-ca changes and restarts services
 // Requirement 23.1-23.14: Implement certificate rotation handling
 func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {

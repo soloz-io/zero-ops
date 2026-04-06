@@ -3,18 +3,31 @@ package infisical
 // ============================================================================
 // SECRET MAPPINGS REGISTRY
 // ============================================================================
-// This file is the SINGLE SOURCE OF TRUTH for all CLI secrets uploaded to Infisical.
+// This file is the SINGLE SOURCE OF TRUTH for CLI and Bootstrap secrets uploaded to Infisical.
 //
-// ARCHITECTURE FLOW:
-// 1. CLI/Bootstrap creates secrets in K8s (via ClusterResourceSet or manual deployment)
+// ARCHITECTURE FLOW (HYBRID PATTERN):
+//
+// BOOTSTRAP SECRETS (Operator creates → uploads to Infisical → ESO syncs back):
+// 1. Operator generates bootstrap secrets in K8s (Phase 1)
 // 2. Operator uploads them to Infisical (making Infisical the Source of Truth)
-// 3. ExternalSecrets (ESO) syncs them back to target namespaces
-// 4. Applications consume ESO-managed secrets
+// 3. ExternalSecrets (ESO) syncs them back with creationPolicy: Merge
+// 4. Infrastructure components consume (CNPG, Infisical, Redis)
 //
-// HOW TO ADD A NEW SECRET:
+// APPLICATION SECRETS (Operator uploads to Infisical → ESO creates in K8s):
+// 1. Operator generates passwords and uploads directly to Infisical (Phase 0)
+// 2. ExternalSecrets (ESO) creates K8s secrets with creationPolicy: Owner
+// 3. Applications consume ESO-managed secrets
+// 4. See ApplicationSecretMappings below for application secret definitions
+//
+// HOW TO ADD A NEW BOOTSTRAP SECRET:
 // 1. Add entry to CLISecretMappings below
-// 2. Create corresponding ExternalSecret manifest in manifests/
+// 2. Create corresponding ExternalSecret manifest with creationPolicy: Merge
 // 3. Operator will automatically upload on next reconciliation
+//
+// HOW TO ADD A NEW APPLICATION SECRET:
+// 1. Add entry to ApplicationSecretMappings below
+// 2. Create ExternalSecret manifest with creationPolicy: Owner
+// 3. DO NOT add to CLISecretMappings (operator uploads directly to Infisical)
 // ============================================================================
 
 // SecretMapping defines how to map a K8s secret to Infisical
@@ -26,17 +39,97 @@ type SecretMapping struct {
 	Description     string // Human-readable description for logging
 }
 
-// CLISecretMappings is the registry of all CLI secrets to upload to Infisical
+// CLISecretMappings is the registry of CLI and Bootstrap secrets to upload to Infisical
 //
 // ┌─────────────────────────────────────────────────────────────────────────┐
-// │ CURRENT SECRETS BEING UPLOADED                                          │
+// │ BOOTSTRAP SECRETS (Operator creates, uploads to Infisical)             │
 // ├─────────────────────────────────────────────────────────────────────────┤
-// │ 1. hetzner-dns          → Used by external-dns, cert-manager           │
-// │ 2. ghcr-dockerconfigjson → Used by mcp-server (private image pulls)    │
+// │ 1. platform-db-app-username   → CNPG bootstrap superuser              │
+// │ 2. platform-db-app-password   → CNPG bootstrap superuser              │
+// │ 3. infisical-db-username      → Infisical database user               │
+// │ 4. infisical-db-password      → Infisical database user               │
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │ CLI-INJECTED SECRETS (CLI creates, operator uploads)                   │
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │ 5. hetzner-dns                → Used by external-dns, cert-manager     │
+// │ 6. ghcr-pull-secret           → Used by mcp-server (image pulls)       │
+// │ 7. github-username            → Used by ArgoCD (repo access)           │
+// │ 8. github-token               → Used by ArgoCD (repo access)           │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ APPLICATION SECRETS (see ApplicationSecretMappings below)               │
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │ • control-plane-db-credentials  → Uploaded directly to Infisical       │
+// │ • hub-db-credentials            → Uploaded directly to Infisical       │
+// │ • spire-server-db-credentials   → Uploaded directly to Infisical       │
+// │ • hydra-db-credentials          → Uploaded directly to Infisical       │
+// │ • kratos-db-credentials         → Uploaded directly to Infisical       │
+// │ • keto-db-credentials           → Uploaded directly to Infisical       │
 // └─────────────────────────────────────────────────────────────────────────┘
 var CLISecretMappings = []SecretMapping{
 	// ========================================================================
-	// 1. HETZNER DNS API TOKEN
+	// BOOTSTRAP SECRETS (Operator creates in Phase 1)
+	// ========================================================================
+
+	// ========================================================================
+	// 1. PLATFORM-DB-APP USERNAME (CNPG Bootstrap)
+	// ========================================================================
+	// Purpose: CNPG bootstrap superuser credentials
+	// Source: platform-db-app (generated by operator in Phase 1)
+	// Consumers: CNPG Cluster bootstrap
+	// ExternalSecret: manifests/platform-database/platform-db-app-credentials-externalsecret.yaml
+	// CreationPolicy: Merge (operator creates, ESO updates)
+	{
+		SourceNamespace: NamespaceData,             // hub-platform-data
+		SourceName:      "platform-db-app",         // platform-db-app
+		SourceKey:       "username",                // username
+		InfisicalKey:    "platform-db-app-username", // platform-db-app-username
+		Description:     "Platform DB app username (CNPG bootstrap)",
+	},
+
+	// ========================================================================
+	// 2. PLATFORM-DB-APP PASSWORD (CNPG Bootstrap)
+	// ========================================================================
+	{
+		SourceNamespace: NamespaceData,             // hub-platform-data
+		SourceName:      "platform-db-app",         // platform-db-app
+		SourceKey:       "password",                // password
+		InfisicalKey:    "platform-db-app-password", // platform-db-app-password
+		Description:     "Platform DB app password (CNPG bootstrap)",
+	},
+
+	// ========================================================================
+	// 3. INFISICAL-DB USERNAME (Infisical Bootstrap)
+	// ========================================================================
+	// Purpose: Infisical database user credentials
+	// Source: infisical-db-credentials (generated by operator in Phase 1)
+	// Consumers: Infisical deployment
+	{
+		SourceNamespace: NamespaceData,                // hub-platform-data
+		SourceName:      "infisical-db-credentials",   // infisical-db-credentials
+		SourceKey:       "username",                   // username
+		InfisicalKey:    "infisical-db-username",      // infisical-db-username
+		Description:     "Infisical DB username (Infisical bootstrap)",
+	},
+
+	// ========================================================================
+	// 4. INFISICAL-DB PASSWORD (Infisical Bootstrap)
+	// ========================================================================
+	{
+		SourceNamespace: NamespaceData,                // hub-platform-data
+		SourceName:      "infisical-db-credentials",   // infisical-db-credentials
+		SourceKey:       "password",                   // password
+		InfisicalKey:    "infisical-db-password",      // infisical-db-password
+		Description:     "Infisical DB password (Infisical bootstrap)",
+	},
+
+	// ========================================================================
+	// CLI-INJECTED SECRETS (Deployed by CLI/ClusterResourceSet)
+	// ========================================================================
+
+	// ========================================================================
+	// 5. HETZNER DNS API TOKEN
 	// ========================================================================
 	// Purpose: DNS management for external-dns and cert-manager ACME DNS-01
 	// Source: hcloud secret (deployed by CLI via ClusterResourceSet)
@@ -51,7 +144,7 @@ var CLISecretMappings = []SecretMapping{
 	},
 
 	// ========================================================================
-	// 2. GITHUB CONTAINER REGISTRY PULL SECRET
+	// 6. GITHUB CONTAINER REGISTRY PULL SECRET
 	// ========================================================================
 	// Purpose: Pull private images from ghcr.io
 	// Source: ghcr-pull-secret (deployed by CLI/manually in hub-platform-ops)
@@ -61,12 +154,42 @@ var CLISecretMappings = []SecretMapping{
 		SourceNamespace: NamespaceOps,              // hub-platform-ops
 		SourceName:      "ghcr-pull-secret",        // ghcr-pull-secret
 		SourceKey:       ".dockerconfigjson",       // .dockerconfigjson
-		InfisicalKey:    "ghcr-dockerconfigjson",   // ghcr-dockerconfigjson
+		InfisicalKey:    "ghcr-pull-secret",        // ghcr-pull-secret
 		Description:     "GitHub Container Registry pull secret",
 	},
 
 	// ========================================================================
-	// ADD NEW SECRETS BELOW THIS LINE
+	// 7. GITHUB USERNAME (for ArgoCD)
+	// ========================================================================
+	// Purpose: GitHub authentication for ArgoCD repository access
+	// Source: hub-platform-git-secret (deployed by CLI/bootstrap)
+	// Consumers: ArgoCD
+	// ExternalSecret: manifests/argocd/argocd-github-creds-externalsecret.yaml
+	{
+		SourceNamespace: NamespaceOps,              // hub-platform-ops
+		SourceName:      "hub-platform-git-secret", // hub-platform-git-secret
+		SourceKey:       "username",                // username
+		InfisicalKey:    "github-username",         // github-username
+		Description:     "GitHub username for ArgoCD",
+	},
+
+	// ========================================================================
+	// 8. GITHUB TOKEN (for ArgoCD)
+	// ========================================================================
+	// Purpose: GitHub authentication token for ArgoCD repository access
+	// Source: hub-platform-git-secret (deployed by CLI/bootstrap)
+	// Consumers: ArgoCD
+	// ExternalSecret: manifests/argocd/argocd-github-creds-externalsecret.yaml
+	{
+		SourceNamespace: NamespaceOps,              // hub-platform-ops
+		SourceName:      "hub-platform-git-secret", // hub-platform-git-secret
+		SourceKey:       "password",                // password
+		InfisicalKey:    "github-token",            // github-token
+		Description:     "GitHub token for ArgoCD",
+	},
+
+	// ========================================================================
+	// ADD NEW BOOTSTRAP/CLI SECRETS BELOW THIS LINE
 	// ========================================================================
 	// Template:
 	// {
@@ -77,3 +200,71 @@ var CLISecretMappings = []SecretMapping{
 	//     Description:     "Human readable description",
 	// },
 }
+
+// ============================================================================
+// APPLICATION SECRET DEFINITIONS
+// ============================================================================
+// Application secrets are generated by the operator and uploaded directly to Infisical
+// (never created in K8s by the operator). ESO creates them in K8s with creationPolicy: Owner.
+
+// ApplicationSecretDefinition defines an application secret to create in Infisical
+type ApplicationSecretDefinition struct {
+	UsernameKey string // Infisical key for username (e.g., "control-plane-db-username")
+	PasswordKey string // Infisical key for password (e.g., "control-plane-db-password")
+	Username    string // Username value (e.g., "mcp_server")
+	Description string // Human-readable description
+}
+
+// ApplicationSecretMappings defines all application secrets to create in Infisical
+// These secrets are created directly in Infisical (not in K8s first)
+// ESO will sync them to K8s with creationPolicy: Owner
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ APPLICATION SECRETS (Operator uploads to Infisical → ESO creates in K8s)│
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │ 1. control-plane-db-credentials  → mcp_server database user            │
+// │ 2. hub-db-credentials            → spoke_controller database user      │
+// │ 3. spire-server-db-credentials   → spire_server database user          │
+// │ 4. hydra-db-credentials          → hydra database user                 │
+// │ 5. kratos-db-credentials         → kratos database user                │
+// │ 6. keto-db-credentials           → keto database user                  │
+// └─────────────────────────────────────────────────────────────────────────┘
+var ApplicationSecretMappings = []ApplicationSecretDefinition{
+	{
+		UsernameKey: "control-plane-db-username",
+		PasswordKey: "control-plane-db-password",
+		Username:    "mcp_server",
+		Description: "Control Plane DB credentials (mcp-server)",
+	},
+	{
+		UsernameKey: "hub-db-username",
+		PasswordKey: "hub-db-password",
+		Username:    "spoke_controller",
+		Description: "Hub DB credentials (spoke-controller)",
+	},
+	{
+		UsernameKey: "spire-server-db-username",
+		PasswordKey: "spire-server-db-password",
+		Username:    "spire_server",
+		Description: "Spire Server DB credentials",
+	},
+	{
+		UsernameKey: "hydra-db-username",
+		PasswordKey: "hydra-db-password",
+		Username:    "hydra",
+		Description: "Hydra DB credentials",
+	},
+	{
+		UsernameKey: "kratos-db-username",
+		PasswordKey: "kratos-db-password",
+		Username:    "kratos",
+		Description: "Kratos DB credentials",
+	},
+	{
+		UsernameKey: "keto-db-username",
+		PasswordKey: "keto-db-password",
+		Username:    "keto",
+		Description: "Keto DB credentials",
+	},
+}
+

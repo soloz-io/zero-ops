@@ -39,6 +39,7 @@ const (
 	NamespaceOps         = "hub-platform-ops"
 	NamespaceCloudSystem = "hub-cloud-system"
 	NamespaceEdge        = "hub-platform-edge"
+	NamespaceData        = "hub-platform-data"
 
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey = "hetzner-dns-api-key"

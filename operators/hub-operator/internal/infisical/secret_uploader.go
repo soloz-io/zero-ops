@@ -27,7 +27,7 @@ func NewSecretUploader(k8sClient, uncachedK8sClient client.Client) *SecretUpload
 	}
 }
 
-// UploadCLISecrets uploads all CLI-injected secrets to Infisical
+// UploadCLISecrets uploads all CLI-injected and bootstrap secrets to Infisical
 // This makes Infisical the Source of Truth for all secrets
 func (su *SecretUploader) UploadCLISecrets(ctx context.Context) error {
 	logger := log.FromContext(ctx)

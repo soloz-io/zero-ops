@@ -50,7 +50,7 @@ patches:
       value: "1"
   target:
     kind: Deployment
-    name: controller-manager
+    name: hub-operator
 # [CUSTOM] Patch deployment with production settings
 - patch: |-
     - op: replace
@@ -80,7 +80,7 @@ patches:
       value: 512Mi
   target:
     kind: Deployment
-    name: controller-manager
+    name: hub-operator
 # [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
 # More info: https://book.kubebuilder.io/reference/metrics
 - path: manager_metrics_patch.yaml
