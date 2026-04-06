@@ -1,4 +1,5 @@
 hydra:
+  existingSecret: hydra-system-secret
   config:
     urls:
       self:
