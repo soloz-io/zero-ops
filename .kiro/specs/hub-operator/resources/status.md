@@ -20,21 +20,22 @@
 
 ## Phase 2: Database Setup
 - ✅ Database migrations execution (status: True)
-- ⚠️ Database roles created with old naming (mcp_server, spoke_controller, spire_server, infisical)
-- ❌ Missing roles with new naming: hub_control_plane, hub_hydra, hub_kratos, hub_keto, hub_centralized
-- ⚠️ Username inconsistency: hub-centralized (hyphen in secret) vs hub_centralized (underscore expected in DB role)
+- ✅ Database roles created with correct naming: hub_control_plane, hub_centralized, spire, hub_hydra, hub_kratos, hub_keto
+- ✅ Username consistency fixed: all usernames use underscores (hub_centralized, hub_hydra, etc.)
+- ✅ Operator namespace mapping: Ory secrets read from hub-platform-identity, others from hub-platform-data
+- ✅ Phase 1b fixed: checks Ory secrets in correct namespace (hub-platform-identity)
 - ⚠️ No tables found in control_plane/hub databases (migrations may not have actual schema changes yet)
 - ⚠️ Roles exist but have no permissions granted (may be expected if no tables exist)
 
 ## Phase 3: Upload Database Credentials to Infisical
-- ❌ infisical-db-username/password
-- ❌ platform-db-app-username/password
-- ❌ control-plane-db-username/password
-- ❌ hub-db-username/password
-- ❌ spire-server-db-username/password
-- ❌ hydra-db-username/password
-- ❌ kratos-db-username/password
-- ❌ keto-db-username/password
+- ✅ infisical-db-username/password
+- ✅ platform-db-app-username/password
+- ✅ control-plane-db-username/password (hub_control_plane)
+- ✅ hub-db-username/password (hub_centralized)
+- ✅ spire-server-db-username/password (spire)
+- ✅ hydra-db-username/password (hub_hydra)
+- ✅ kratos-db-username/password (hub_kratos)
+- ✅ keto-db-username/password (hub_keto)
 
 ## CLI Secrets Upload
 - ✅ SecretUploader class created
@@ -44,11 +45,14 @@
 
 ## ExternalSecret Sync Status
 - ✅ hetzner-dns (hub-platform-edge)
-- ❌ platform-db-app-credentials (hub-platform-data)
-- ❌ control-plane-db-credentials (hub-platform-data)
-- ❌ hub-db-credentials (hub-platform-data)
-- ❌ spire-server-db-credentials (hub-platform-data)
-- ❌ argocd-github-creds (hub-platform-ops)
+- ✅ platform-db-app-credentials (hub-platform-data)
+- ✅ control-plane-db-credentials (hub-platform-data)
+- ✅ hub-db-credentials (hub-platform-data)
+- ✅ spire-server-db-credentials (hub-platform-data)
+- ✅ hydra-db-credentials (hub-platform-identity)
+- ✅ kratos-db-credentials (hub-platform-identity)
+- ✅ keto-db-credentials (hub-platform-identity)
+- ✅ argocd-github-creds (hub-platform-ops)
 - ❌ victoriametrics-basic-auth (hub-platform-observability)
 
 ## Phase 4: Service Configuration (Blocked)
@@ -67,27 +71,25 @@
 
 **Database Status:**
 ✅ Databases exist: control_plane, hub, spire, hydra, kratos, keto, infisical
-⚠️ Roles mismatch: Old roles exist (mcp_server, spoke_controller, spire_server), but ExternalSecrets expect new names (hub_control_plane, hub_centralized, hub_hydra, hub_kratos, hub_keto)
-❌ Missing database roles: hub_control_plane, hub_hydra, hub_kratos, hub_keto, hub_centralized
-⚠️ Username inconsistency in hub-db-credentials: secret has "hub-centralized" (hyphen) but should be "hub_centralized" (underscore)
+✅ All roles created with correct naming: hub_control_plane, hub_centralized, spire, hub_hydra, hub_kratos, hub_keto
+✅ Username consistency: all usernames use underscores (hub_centralized, hub_hydra, etc.)
+✅ Namespace mapping: Ory secrets in hub-platform-identity, others in hub-platform-data
 
 **ExternalSecret Status:**
 ✅ hub-platform-data: control-plane-db-credentials, hub-db-credentials, spire-server-db-credentials (all SecretSynced)
 ✅ hub-platform-identity: hydra-db-credentials, hydra-system-secret, keto-db-credentials, kratos-db-credentials (all SecretSynced)
 
 **Application Status:**
-⚠️ **hydra**: Only hydra-maester running, main Hydra deployment pending (ExternalSecrets now working)
-⚠️ **kratos**: Init:0/2 (ExternalSecrets now working, waiting for init containers)
-⚠️ **keto**: Init:1/2 (ExternalSecrets now working, progressing through init)
+⚠️ **hydra**: Waiting for deployment (database ready)
+⚠️ **kratos**: Waiting for deployment (database ready)
+⚠️ **keto**: Waiting for deployment (database ready)
 
 **Issues Fixed:**
-✅ ExternalSecret apiVersion updated from v1beta1 to v1
-✅ ExternalSecret keys aligned with operator naming (hub-control-plane-db-username, hub-centralized-db-username, etc.)
-✅ Kustomization.yaml added for Ory services to deploy ExternalSecrets
-✅ Sync-wave set to -1 for ExternalSecrets to deploy before Helm charts
-✅ Duplicate SECRETS_SYSTEM removed from Hydra config
+✅ Database role naming convention updated (hub_control_plane, hub_centralized, etc.)
+✅ Operator namespace mapping added for Ory secrets (hub-platform-identity)
+✅ Phase 1b fixed to check Ory secrets in hub-platform-identity
+✅ ExternalSecret keys aligned with operator naming
+✅ All usernames use underscores for PostgreSQL compatibility
+✅ Role mappings updated in roles.go (mapRoleToSecretName, mapRoleToSecretNamespace)
 
-**Pending Issues:**
-❌ Database roles not created with new naming convention (hub_control_plane, hub_centralized, hub_hydra, hub_kratos, hub_keto)
-❌ Operator still creates old role names (mcp_server, spoke_controller) instead of new names
-❌ Username inconsistency: hub-centralized (hyphen) needs to be hub_centralized (underscore) for PostgreSQL compatibility
+**Phase 2 Complete:** All database roles created successfully with correct naming and namespace mapping.

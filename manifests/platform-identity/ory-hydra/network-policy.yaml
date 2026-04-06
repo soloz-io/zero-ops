@@ -34,10 +34,10 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: zero-ops-system
+          kubernetes.io/metadata.name: hub-platform-data
       podSelector:
         matchLabels:
-          cnpg.io/cluster: zero-ops-platform-db
+          cnpg.io/cluster: platform-db
     ports:
     - protocol: TCP
       port: 5432
