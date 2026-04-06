@@ -17,6 +17,11 @@ spec:
     - repoURL: https://github.com/soloz-io/zero-ops
       targetRevision: HEAD
       ref: values
+    - repoURL: https://github.com/soloz-io/zero-ops
+      targetRevision: HEAD
+      path: manifests/platform-identity/ory-keto
+      directory:
+        include: '{*-externalsecret.yaml,network-policy.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-identity
