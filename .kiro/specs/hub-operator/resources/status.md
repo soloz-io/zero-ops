@@ -85,27 +85,3 @@
 ❌ Application secrets have wrong usernames (mcp_server/spoke_controller instead of control_plane/hub) - FIXED in commit
 ❌ ESO cannot sync application secrets: "failed to take ownership" - old secrets exist with wrong usernames, need deletion
 ⚠️ Applications blocked: Cannot start until ESO syncs correct credentials
-
-**RCA: Hydra Main Deployment Missing**
-- **Root Cause:** Hydra ArgoCD Application exists but main deployment never created
-- **Issue 1:** Wrong database service name in values.yaml: `zero-ops-platform-db-rw` (should be `platform-db-rw`) - FIXED
-- **Issue 2:** Missing secret `identity-postgres-passwords` in namespace `hub-platform-identity` - FIXED (created ExternalSecrets)
-- **Issue 3:** Hydra expects secret with keys: `hydra-password`, `hydra-system-secret` - FIXED (created hydra-db-credentials, hydra-system-secret)
-- **Current State:** Only hydra-maester running (CRD controller), main Hydra pods never deployed
-- **Impact:** OAuth2/OIDC functionality completely unavailable, blocking auth-proxy and MCP authentication
-
-**Fixes Applied (Commit 511559e):**
-✅ Updated HubEnvironment CR: hub_hydra, hub_kratos, hub_keto roles
-✅ Fixed all Ory values.yaml: correct DB service name, usernames, database names
-✅ Fixed SPIRE server: correct DB service name, username (spire), database (spire)
-✅ Created ExternalSecrets: hydra-db-credentials, kratos-db-credentials, keto-db-credentials, hydra-system-secret
-✅ Updated secret_mappings.go: consistent hyphen naming for Infisical keys
-✅ Added hub_hydra/hub_kratos/hub_keto mappings to roles.go
-✅ Consolidated ApplicationSecretMappings: single array for DB and system secrets
-✅ Added Hydra system secret generation (64 chars)
-
-**Next Steps:**
-1. Delete old application secrets with wrong usernames (control-plane-db-credentials, hub-db-credentials)
-2. Wait for operator to create new roles (hub_hydra, hub_kratos, hub_keto)
-3. Wait for ESO to sync new secrets from Infisical
-4. Verify Ory services start successfully
