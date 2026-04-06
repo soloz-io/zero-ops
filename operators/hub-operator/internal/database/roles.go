@@ -15,13 +15,14 @@ import (
 )
 
 // mapRoleToSecretName converts CR role names to valid K8s secret names
-// Handles special mappings from old CLI behavior for backward compatibility
 func mapRoleToSecretName(roleName string) string {
 	switch roleName {
-	case "mcp_server":
+	case "hub_control_plane":
 		return "control-plane-db-credentials"
-	case "spoke_controller":
+	case "hub_centralized":
 		return "hub-db-credentials"
+	case "spire":
+		return "spire-server-db-credentials"
 	case "hub_hydra":
 		return "hydra-db-credentials"
 	case "hub_kratos":

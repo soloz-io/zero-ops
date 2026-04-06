@@ -239,7 +239,7 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	{
 		UsernameKey: "hub-centralized-db-username",
 		PasswordKey: "hub-centralized-db-password",
-		Username:    "hub-centralized",
+		Username:    "hub_centralized",
 		Description: "Hub DB credentials (spoke-controller)",
 	},
 	{

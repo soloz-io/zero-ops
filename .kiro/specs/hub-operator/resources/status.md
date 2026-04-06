@@ -20,7 +20,9 @@
 
 ## Phase 2: Database Setup
 - ✅ Database migrations execution (status: True)
-- ✅ Database roles created (mcp_server, infisical, spoke_controller, spire_server, hydra, kratos, keto)
+- ⚠️ Database roles created with old naming (mcp_server, spoke_controller, spire_server, infisical)
+- ❌ Missing roles with new naming: hub_control_plane, hub_hydra, hub_kratos, hub_keto, hub_centralized
+- ⚠️ Username inconsistency: hub-centralized (hyphen in secret) vs hub_centralized (underscore expected in DB role)
 - ⚠️ No tables found in control_plane/hub databases (migrations may not have actual schema changes yet)
 - ⚠️ Roles exist but have no permissions granted (may be expected if no tables exist)
 
@@ -61,27 +63,31 @@
 
 ----------
 1. Verify Phase 2: Findings:
-## Summary
+## Summary (2026-04-06 - RESOLVED)
+
+**Database Status:**
+✅ Databases exist: control_plane, hub, spire, hydra, kratos, keto, infisical
+⚠️ Roles mismatch: Old roles exist (mcp_server, spoke_controller, spire_server), but ExternalSecrets expect new names (hub_control_plane, hub_centralized, hub_hydra, hub_kratos, hub_keto)
+❌ Missing database roles: hub_control_plane, hub_hydra, hub_kratos, hub_keto, hub_centralized
+⚠️ Username inconsistency in hub-db-credentials: secret has "hub-centralized" (hyphen) but should be "hub_centralized" (underscore)
+
+**ExternalSecret Status:**
+✅ hub-platform-data: control-plane-db-credentials, hub-db-credentials, spire-server-db-credentials (all SecretSynced)
+✅ hub-platform-identity: hydra-db-credentials, hydra-system-secret, keto-db-credentials, kratos-db-credentials (all SecretSynced)
 
 **Application Status:**
+⚠️ **hydra**: Only hydra-maester running, main Hydra deployment pending (ExternalSecrets now working)
+⚠️ **kratos**: Init:0/2 (ExternalSecrets now working, waiting for init containers)
+⚠️ **keto**: Init:1/2 (ExternalSecrets now working, progressing through init)
 
-❌ **mcp-server**: ImagePullBackOff (missing ghcr-pull-secret)
-✅ **infisical**: Running (1/1)
-⚠️ **hydra**: Only hydra-maester running, main Hydra pods not deployed
-❌ **kratos**: Init:0/2 (missing kratos-identity-schema ConfigMap)
-❌ **keto**: Init:0/2 (waiting for database - wrong service name: `zero-ops-platform-db-rw` should be `platform-db-rw`)
-❌ **spire-server**: Init:0/1 (waiting for database - connection issue)
-❓ **spoke-controller**: Not found (not deployed yet)
+**Issues Fixed:**
+✅ ExternalSecret apiVersion updated from v1beta1 to v1
+✅ ExternalSecret keys aligned with operator naming (hub-control-plane-db-username, hub-centralized-db-username, etc.)
+✅ Kustomization.yaml added for Ory services to deploy ExternalSecrets
+✅ Sync-wave set to -1 for ExternalSecrets to deploy before Helm charts
+✅ Duplicate SECRETS_SYSTEM removed from Hydra config
 
-**Root Issues:**
-1. Wrong database service name in Keto/SPIRE config: `zero-ops-platform-db-rw` instead of `platform-db-rw`
-2. Missing ConfigMap: `kratos-identity-schema`
-3. Missing image pull secret: `ghcr-pull-secret` for mcp-server
-4. Hydra main deployment not found (only maester running)
-
-**Phase 2 Status (2026-04-06):**
-✅ Databases exist: control_plane, hub, spire, hydra, kratos, keto, infisical
-✅ Roles exist: mcp_server, spoke_controller, spire_server, hydra, kratos, keto, infisical
-❌ Application secrets have wrong usernames (mcp_server/spoke_controller instead of control_plane/hub) - FIXED in commit
-❌ ESO cannot sync application secrets: "failed to take ownership" - old secrets exist with wrong usernames, need deletion
-⚠️ Applications blocked: Cannot start until ESO syncs correct credentials
+**Pending Issues:**
+❌ Database roles not created with new naming convention (hub_control_plane, hub_centralized, hub_hydra, hub_kratos, hub_keto)
+❌ Operator still creates old role names (mcp_server, spoke_controller) instead of new names
+❌ Username inconsistency: hub-centralized (hyphen) needs to be hub_centralized (underscore) for PostgreSQL compatibility
