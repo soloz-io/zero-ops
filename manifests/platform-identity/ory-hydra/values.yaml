@@ -37,11 +37,6 @@ hydra:
       refresh_token: 720h
       auth_code: 10m
     dsn: env://DSN
-    secrets:
-      system:
-        - env://SECRETS_SYSTEM
-      cookie:
-        - env://SECRETS_SYSTEM
 
   automigration:
     enabled: true
