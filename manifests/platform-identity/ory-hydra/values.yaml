@@ -46,10 +46,7 @@ hydra:
     type: initContainer
 
 secret:
-  enabled: true
-  secretAnnotations:
-    "helm.sh/resource-policy": keep
-  nameOverride: hydra-system-secret
+  enabled: false
 
 deployment:
   extraEnv:
