@@ -46,7 +46,8 @@ hydra:
     type: initContainer
 
 secret:
-  enabled: false
+  enabled: true
+  nameOverride: "hydra-system-secret"
 
 deployment:
   extraEnv:

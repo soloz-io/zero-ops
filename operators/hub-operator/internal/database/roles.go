@@ -330,7 +330,7 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 		logger.Info("Created btree_gin extension", "database", roleSpec.Database)
 	}
 	
-	// Ory Hydra requires: pg_trgm (trigram text search)
+	// Ory Hydra requires: pg_trgm (trigram text search), uuid-ossp (UUID generation)
 	if roleSpec.Database == "hydra" {
 		// Connect to target database to create extensions
 		connStr := fmt.Sprintf(
@@ -354,6 +354,13 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 			return fmt.Errorf("failed to create pg_trgm extension in %s: %w", roleSpec.Database, err)
 		}
 		logger.Info("Created pg_trgm extension", "database", roleSpec.Database)
+		
+		// Create uuid-ossp extension
+		logger.Info("Creating uuid-ossp extension for Hydra", "database", roleSpec.Database)
+		if _, err := extDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""); err != nil {
+			return fmt.Errorf("failed to create uuid-ossp extension in %s: %w", roleSpec.Database, err)
+		}
+		logger.Info("Created uuid-ossp extension", "database", roleSpec.Database)
 	}
 
 	// Connect to target database (not postgres)
