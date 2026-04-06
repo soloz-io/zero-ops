@@ -241,28 +241,28 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		dataNamespace := hubEnv.Spec.Database.Namespace
 
-		// List of application secrets that ESO must create from Infisical
-		// These correspond to database roles defined in HubEnvironment CR
-		requiredSecrets := []string{
-			"control-plane-db-credentials",  // mcp_server role
-			"hub-db-credentials",            // spoke_controller role
-			"spire-server-db-credentials",   // spire_server role
-			"hydra-db-credentials",          // hydra role
-			"kratos-db-credentials",         // kratos role
-			"keto-db-credentials",           // keto role
+		// Map of application secrets to their namespaces
+		// Ory secrets are in hub-platform-identity, others in hub-platform-data
+		requiredSecrets := map[string]string{
+			"control-plane-db-credentials":  dataNamespace,           // hub-platform-data
+			"hub-db-credentials":            dataNamespace,           // hub-platform-data
+			"spire-server-db-credentials":   dataNamespace,           // hub-platform-data
+			"hydra-db-credentials":          "hub-platform-identity", // hub-platform-identity
+			"kratos-db-credentials":         "hub-platform-identity", // hub-platform-identity
+			"keto-db-credentials":           "hub-platform-identity", // hub-platform-identity
 		}
 
 		allSecretsExist := true
 		missingSecrets := []string{}
 
-		for _, secretName := range requiredSecrets {
+		for secretName, namespace := range requiredSecrets {
 			secret := &corev1.Secret{}
 			if err := r.Get(ctx, client.ObjectKey{
 				Name:      secretName,
-				Namespace: dataNamespace,
+				Namespace: namespace,
 			}, secret); err != nil {
 				if errors.IsNotFound(err) {
-					logger.Info("Waiting for ESO to create secret", "secret", secretName)
+					logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
 					allSecretsExist = false
 					missingSecrets = append(missingSecrets, secretName)
 				} else {
