@@ -35,6 +35,18 @@ func mapRoleToSecretName(roleName string) string {
 	}
 }
 
+// mapRoleToSecretNamespace returns the namespace where the secret is located
+// Ory services (Hydra, Kratos, Keto) have their secrets in hub-platform-identity
+// All other services have secrets in hub-platform-data
+func mapRoleToSecretNamespace(roleName, defaultNamespace string) string {
+	switch roleName {
+	case "hub_hydra", "hub_kratos", "hub_keto":
+		return "hub-platform-identity"
+	default:
+		return defaultNamespace
+	}
+}
+
 // RoleManager handles database role creation and management
 type RoleManager struct {
 	db     *sql.DB
@@ -100,14 +112,16 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 	for _, roleSpec := range hubEnv.Spec.Database.Roles {
 		logger.Info("Processing database role", "role", roleSpec.Name)
 
-		// Map role name to valid K8s secret name (handles mcp_server → control-plane-db-credentials)
+		// Map role name to valid K8s secret name and namespace
 		secretName := mapRoleToSecretName(roleSpec.Name)
+		secretNamespace := mapRoleToSecretNamespace(roleSpec.Name, namespace)
+		
 		secret := &corev1.Secret{}
 		if err := rm.client.Get(ctx, client.ObjectKey{
 			Name:      secretName,
-			Namespace: namespace,
+			Namespace: secretNamespace,
 		}, secret); err != nil {
-			return fmt.Errorf("failed to get secret %s: %w", secretName, err)
+			return fmt.Errorf("failed to get secret %s in namespace %s: %w", secretName, secretNamespace, err)
 		}
 
 		username := string(secret.Data["username"])
