@@ -53,7 +53,7 @@
 - ✅ kratos-db-credentials (hub-platform-identity)
 - ✅ keto-db-credentials (hub-platform-identity)
 - ✅ argocd-github-creds (hub-platform-ops)
-- ❌ victoriametrics-basic-auth (hub-platform-observability)
+- ❌ victoriametrics-basic-auth (hub-platform-observability) - Missing victoriametrics-spoke-writer secret in Infisical
 
 ## Phase 4: Service Configuration (Blocked)
 - ❌ OAuth client registration (Hydra not deployed)
@@ -80,9 +80,9 @@
 ✅ hub-platform-identity: hydra-db-credentials, hydra-system-secret, keto-db-credentials, kratos-db-credentials (all SecretSynced)
 
 **Application Status:**
-⚠️ **hydra**: Waiting for deployment (database ready)
-⚠️ **kratos**: Waiting for deployment (database ready)
-⚠️ **keto**: Waiting for deployment (database ready)
+❌ **hydra**: Init container failing - URL-unsafe password characters (fix in progress)
+❌ **kratos**: Init container failing - URL-unsafe password characters (fix in progress)
+❌ **keto**: Init container failing - URL-unsafe password characters (fix in progress)
 
 **Issues Fixed:**
 ✅ Database role naming convention updated (hub_control_plane, hub_centralized, etc.)
@@ -93,3 +93,38 @@
 ✅ Role mappings updated in roles.go (mapRoleToSecretName, mapRoleToSecretNamespace)
 
 **Phase 2 Complete:** All database roles created successfully with correct naming and namespace mapping.
+
+---
+
+## Current Issues (2026-04-06 14:15 UTC)
+
+### 1. Ory Services Failing - URL-Unsafe Passwords
+**Status:** Fix committed (cf0ad08), Docker build in progress
+
+**Root Cause:** Application secret passwords generated with URL-unsafe characters (`@`, `|`, `?`, `,`) break DSN parsing
+```
+Error: net/url: invalid userinfo
+Password example: 3p|@?O9V8.MgrXGardFUIbEGs,yuIFJQ
+```
+
+**Fix Applied:**
+- Updated charset to RFC 3986 unreserved characters: `A-Za-z0-9-._~`
+- File: `operators/hub-operator/internal/infisical/application_secret_uploader.go`
+
+**Next Steps:**
+1. Wait for Docker build to complete
+2. Delete old secrets from Infisical (hub_hydra, hub_kratos, hub_keto passwords)
+3. Patch operator to regenerate secrets with URL-safe passwords
+4. Verify Ory services start successfully
+
+### 2. VictoriaMetrics Basic Auth Secret Missing
+**Status:** Blocked - manual secret required
+
+**Root Cause:** ExternalSecret expects `victoriametrics-spoke-writer` secret in Infisical with `username` and `password` properties
+
+**Location:** `manifests/platform-core-services/victoriametrics/infisical-integration.yaml`
+
+**Next Steps:**
+1. Create `victoriametrics-spoke-writer` secret in Infisical manually or via CLI
+2. Secret structure: `{"username": "spoke-writer", "password": "<generated>"}`
+3. ExternalSecret will auto-sync once secret exists
