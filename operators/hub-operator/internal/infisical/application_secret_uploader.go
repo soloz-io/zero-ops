@@ -55,7 +55,8 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 
 	logger.Info("Uploading application secrets to Infisical", "count", len(ApplicationSecretMappings))
 
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
+	// RFC 3986 unreserved characters - safe for URLs without encoding
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
 
 	for _, secretDef := range ApplicationSecretMappings {
 		logger.Info("Processing application secret", "description", secretDef.Description)
