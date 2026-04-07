@@ -59,6 +59,99 @@
 - ❌ OAuth client registration (Hydra not deployed)
 - ❌ NATS stream creation (NATS not deployed)
 
+## Verification Status (2026-04-06 21:05 UTC)
+
+### 1. Certificate Rotation Handling (Requirement 23, Task 10)
+- [ ] Verify platform-db-ca rotation detection - Not implemented in watches
+- [ ] Verify DB_ROOT_CERT update in infisical-secrets - Not implemented
+- [ ] Verify service restarts (Infisical, Redis, Hydra, Kratos, Keto, SPIRE, MCP Server) - Not implemented
+- [ ] Verify restartedAt annotations on Deployments/StatefulSets - Not implemented
+
+### 2. Password Rotation Handling (Requirement 23.15-23.16, Task 11)
+- [ ] Verify ESO-driven password change detection - Not implemented in watches
+- [ ] Verify ALTER ROLE execution in PostgreSQL - Not implemented
+- [ ] Verify consuming service restarts - Not implemented
+
+### 3. Resource Pruning (Requirements 6.15, 7.8, 8.10, Task 21)
+- [ ] Verify orphaned database roles deletion - Not implemented
+- [ ] Verify orphaned OAuth clients deletion - Not implemented
+- [ ] Verify orphaned NATS streams deletion - Not implemented
+
+### 4. NATS Stream Configuration (Requirement 8, Task 8)
+- [ ] Verify NATS streams created - Cannot verify (nats CLI not accessible)
+- [ ] Verify stream configuration drift detection - Not implemented
+- [ ] Verify NATSStreamsConfigured condition - Condition not in status
+
+### 5. OAuth Client Registration (Requirement 7, Task 7)
+- [ ] Verify OAuth clients registered in Hydra - Can query but no clients found
+- [ ] Verify OAuthClientsRegistered condition - Condition not in status
+
+### 6. Operator Deployment (Task 15)
+- [x] Verify hub-operator deployment exists
+- [x] Verify 2 replicas running
+- [x] Verify leader election configured
+- [x] Verify health probes working
+
+### 7. HubEnvironment CR (Task 2)
+- [x] Verify HubEnvironment CR exists
+- [x] Verify status conditions (BootstrapSecretsGenerated, ApplicationSecretsReady, MigrationsComplete, DatabaseRolesConfigured)
+- [ ] Verify Ready condition when all phases complete - Ready condition not present
+
+### 8. Watch Configuration (Task 12)
+- [ ] Verify operator watches CNPG Cluster - Not verified in code
+- [ ] Verify operator watches platform-db-ca secret - Not in deployment config
+- [ ] Verify operator watches db-credentials labeled secrets - Not in deployment config
+- [ ] Verify operator watches Hydra/Infisical/NATS - Not verified
+
+### 9. Error Handling (Requirement 20)
+- [ ] Verify dirty database detection - Not tested
+- [ ] Verify reconcile-trigger annotation handling - Not tested
+- [ ] Verify transient error backoff - Not tested
+
+### 10. PostgreSQL Extensions (From context)
+- [x] pg_trgm for Kratos
+- [x] btree_gin for Kratos
+- [x] pg_trgm for Hydra
+- [x] uuid-ossp for Hydra
+
+### 11. Infisical Upload Tracking (Requirement 9.17-9.19)
+- [x] Verify UploadedSecrets array in status
+- [ ] Verify additive upload (no overwrites) - Not tested
+- [ ] Verify only passwords uploaded (not URLs/hostnames) - Not verified
+
+### 12. Memory Optimization (Task 13)
+- [x] Verify resource limits set
+- [ ] Verify cache transformer applied - Not verified in code
+- [ ] Verify UncachedClient used for operational secrets - Not verified in code
+
+### 13. Phase 1 Secrets Status
+- [ ] infisical-secrets (hub-platform-data) - Missing (should be in hub-platform-security per ADR)
+- [x] platform-db-app (hub-platform-data)
+- [x] infisical-db-credentials (hub-platform-data)
+- [x] hydra-db-credentials (hub-platform-identity)
+- [x] kratos-db-credentials (hub-platform-identity)
+- [x] keto-db-credentials (hub-platform-identity)
+- [x] platform-db-ca (hub-platform-data)
+- [ ] infisical-redis-credentials (hub-platform-data) - Missing
+- [x] control-plane-db-credentials (hub-platform-data)
+- [x] hub-db-credentials (hub-platform-data)
+- [x] spire-server-db-credentials (hub-platform-data)
+
+### 14. ExternalSecret Sync Status
+- [ ] platform-db-app-credentials - Not syncing
+- [x] control-plane-db-credentials (hub-platform-data)
+- [x] hub-db-credentials (hub-platform-data)
+- [x] spire-server-db-credentials (hub-platform-data)
+- [x] hydra-db-credentials (hub-platform-identity)
+- [x] kratos-db-credentials (hub-platform-identity)
+- [x] keto-db-credentials (hub-platform-identity)
+
+### 15. Service Status
+- [x] Ory Hydra running
+- [x] Ory Kratos running
+- [x] Ory Keto running
+- [x] NATS deployed
+
 ## Next Steps
 1. Verify Phase 2: Check if database migrations ran and roles were created
 2. Verify Phase 3: Check if database credentials are in Infisical
@@ -80,9 +173,9 @@
 ✅ hub-platform-identity: hydra-db-credentials, hydra-system-secret, keto-db-credentials, kratos-db-credentials (all SecretSynced)
 
 **Application Status:**
-❌ **hydra**: Init container failing - URL-unsafe password characters (fix in progress)
-❌ **kratos**: Init container failing - URL-unsafe password characters (fix in progress)
-❌ **keto**: Init container failing - URL-unsafe password characters (fix in progress)
+✅ **hydra**
+✅ **kratos**
+✅ **keto**
 
 **Issues Fixed:**
 ✅ Database role naming convention updated (hub_control_plane, hub_centralized, etc.)
@@ -95,36 +188,3 @@
 **Phase 2 Complete:** All database roles created successfully with correct naming and namespace mapping.
 
 ---
-
-## Current Issues (2026-04-06 14:15 UTC)
-
-### 1. Ory Services Failing - URL-Unsafe Passwords
-**Status:** Fix committed (cf0ad08), Docker build in progress
-
-**Root Cause:** Application secret passwords generated with URL-unsafe characters (`@`, `|`, `?`, `,`) break DSN parsing
-```
-Error: net/url: invalid userinfo
-Password example: 3p|@?O9V8.MgrXGardFUIbEGs,yuIFJQ
-```
-
-**Fix Applied:**
-- Updated charset to RFC 3986 unreserved characters: `A-Za-z0-9-._~`
-- File: `operators/hub-operator/internal/infisical/application_secret_uploader.go`
-
-**Next Steps:**
-1. Wait for Docker build to complete
-2. Delete old secrets from Infisical (hub_hydra, hub_kratos, hub_keto passwords)
-3. Patch operator to regenerate secrets with URL-safe passwords
-4. Verify Ory services start successfully
-
-### 2. VictoriaMetrics Basic Auth Secret Missing
-**Status:** Blocked - manual secret required
-
-**Root Cause:** ExternalSecret expects `victoriametrics-spoke-writer` secret in Infisical with `username` and `password` properties
-
-**Location:** `manifests/platform-core-services/victoriametrics/infisical-integration.yaml`
-
-**Next Steps:**
-1. Create `victoriametrics-spoke-writer` secret in Infisical manually or via CLI
-2. Secret structure: `{"username": "spoke-writer", "password": "<generated>"}`
-3. ExternalSecret will auto-sync once secret exists
