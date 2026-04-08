@@ -160,8 +160,6 @@ You should start with a Monorepo. You should **only** split (Polyrepo) if:
 
 **ClickHouse Deferral:** ClickHouse is deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows). Until then, billing records are stored in Hub Centralised DB.
 
-**Keto Deferral:** Keto permission checks (step 3 of JWT validation flow) are deferred to Demo 2. Demo 1 implements JWT signature validation and identity trait fetching only.
-
 **IControlPlaneStore Pattern:** The same interface, two implementations injected at spoke bootstrap:
 - HubStore (Spoke Pool): Direct synchronous writes to Hub
 - LocalStore (Spoke Silo): Local writes with eventual consistency via NATS

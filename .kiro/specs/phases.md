@@ -19,6 +19,7 @@ You should start with **Phase 1: The SaaS Template (Crossplane)**. Do not write 
     *   `spire-agent` (for mTLS identity)
     *   The Shared CNPG Cluster (the database engine for the 100 starter tenants).
 *   **Outcome:** You can spin up "Spoke Pool 02" with a single declarative file, and it automatically registers itself with the Hub's ArgoCD, ready to accept tenants.
+*   **Note:** Phase 1 implementation also includes tenant schema provisioning (Phase 3), control plane tenant management (Phase 3), and capacity tracking (Phase 3) to deliver end-to-end functionality.
 
 #### Phase 2: The HeadLamp Integration (Spoke Controller)
 **Goal:** Close the feedback loop. The Hub needs to know when a tenant is actually ready without querying the K8s API directly.

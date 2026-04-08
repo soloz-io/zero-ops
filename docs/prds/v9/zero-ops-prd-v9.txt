@@ -43,11 +43,11 @@ This approach ensures the platform is optimized for agentic workflows from day o
 | Tenant definition | A tenant is a Kubernetes cluster consumer | **Dual scope:** a tenant is either the Zero-Ops platform team itself OR an external SaaS company (e.g. Replit, Lovable) building AI-native products. Same provisioning procedure for both. |
 | Provisioning model | CAPI ClusterClass — one cluster per intent | **Crossplane XRD + Composition** — one `AINativeSaaS` CR expands into full stack: Kubernetes cluster + PostgreSQL HA + GitOps + observability + auth + secrets + storage + AI Gateway + AgentSandbox |
 | Node OS | Talos Linux — removed due to CACPPT/ClusterClass incompatibility | **Ubuntu (kubeadm)** via `KubeadmControlPlaneTemplate` — full ClusterClass topology support. Additional OS support deferred to future version. |
-| Tenant tier model | Single cluster tier | **Starter** (shared cluster, namespace isolation, logical DB separation) and **Enterprise** (dedicated cluster, physical isolation) — two Crossplane Compositions, one XRD |
+| Tenant tier model | Single cluster tier | **Starter** (shared cluster, namespace isolation, schema-per-tenant with deterministic naming `tenant_<id>`) and **Enterprise** (dedicated cluster, physical isolation) — two Crossplane Compositions, one XRD |
 | Platform console | Not defined | **New deliverable** — single RBAC-scoped console for platform team and all tenants. Read-only monitoring and observability. All write actions via "Resolve in IDE" button that generates deep links to IDE/MCP clients. |
 | Identity & auth | Not defined | **Ory Kratos + Hydra + Keto** (platform-level, shared, one instance) handles all identity: platform team, tenant admins, tenant end-users. Tenant-level identity isolated via `tenant_id` in Kratos traits. |
 | MCP/A2A gateway | LLM Gateway (proxy only) | **AgentGateway** (CNCF open source, Rust) — A2A + MCP communications, JWT validation via Hydra. Single auth enforcement point for all MCP tool calls. |
-| Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Hetzner S3, Infisical secret management, External Secrets Operator, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM), Teleport PAM |
+| Data services in XRD | PostgreSQL only | **Full AI-native data stack** in XRD baseline: CNPG HA, pgvector, PgBouncer, PostgREST, Atlas Operator (GitOps migrations), Hetzner S3, Infisical secret management, External Secrets Operator, CSI snapshots, AgentSandbox (gVisor), CNPG ScheduledBackup, AI Gateway (LiteLLM), Teleport PAM |
 | Autopilot | Not defined | **Autopilot mode** — platform raises PRs to tenant control plane repo for all proposed changes. Tenant approves or rejects. No silent mutations to tenant infrastructure under any mode. |
 | PR environments | Not defined | **Ephemeral PR environments** — `PREnvironment` Custom Resource managed by hub-operator with finalizer-driven teardown. Operator creates per-branch namespace with single-node CNPG bootstrapped from staging CSI snapshot. Finalizer ensures systematic teardown (S3 purge, billing close, resource cleanup) with guaranteed eventual consistency. Replaces imperative Argo Workflow pattern. |
 | Provider switching | Single provider (Hetzner) | **Blue-green provider migration** — `spec.cloud` field change triggers new cluster provisioning + CNPG PITR restore + DNS cutover. Old cluster retained for rollback window. |
@@ -70,7 +70,7 @@ The following terms appear throughout this document. Definitions are provided he
 | **NATS JetStream / Leaf Node** | The asynchronous event and messaging backbone. The Hub runs a JetStream cluster; Spoke Pool/Silo clusters run Leaf Nodes. Used exclusively for: billing telemetry (`spoke.*.billing.usage` → Hub Centralised DB), lifecycle triggers (`spoke.*.lifecycle.>` → Hub workflows), notifications (`spoke.*.notifications.>` → notification service), and Spoke Silo state sync (local Control Plane DB → upstream to Hub). NATS is NOT used for: resource status updates (Spoke Controller writes directly via Hub-side PostgREST), metrics (Alloy remote_write to VictoriaMetrics), or Spoke Pool operational data (direct synchronous connection to Control Plane Shared DB). |
 | **IControlPlaneStore** | A Go interface abstracting Control Plane database writes. Spoke Pools use `HubStore` implementation (direct PgSQL connection to Control Plane Shared DB in Hub). Spoke Silos use `LocalStore` implementation (writes to local Tenant Control Plane DB, NATS Leaf Node carries state upstream to Hub). The shared spoke code uses HubStore (remote) vs LocalStore (local DB) — not two different code paths. |
 | **BYOC** | Bring Your Own Cloud. Tenants supply their own cloud provider API credentials. All tenant compute runs in their cloud account. Zero-Ops has no billing relationship with the tenant's cloud provider. |
-| **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace, RLS-scoped databases, and baseline services within the Spoke Pool Cluster. _(Out of scope for v8.0 delivery.)_ |
+| **Composition A** | Crossplane Composition for `spec.tier: starter`. Provisions a namespace and deterministic schema `tenant_<id>` in shared CNPG cluster within the Spoke Pool Cluster. Schema isolation enforced via PostgREST routing and PgBouncer transaction pooling. _(Out of scope for v8.0 delivery.)_ |
 | **Composition B** | Crossplane Composition for `spec.tier: enterprise`. Provisions a full dedicated Spoke Silo cluster with localized Ory stack, local Control Plane DB, NATS Leaf Node, and all baseline services in the tenant's Hetzner account. |
 
 ---
@@ -128,7 +128,7 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 ### 2.6 Constraints & Non-Goals (v8.0 additions to v7.0)
 
 - **BYOC Model preserved:** Tenants provide their own Hetzner API credentials. Compute always runs in the tenant's cloud account. Zero-Ops never holds billing responsibility for tenant compute.
-- **GitOps-first, no imperative writes:** The `zero-ops-api` commits CRs to Git. ArgoCD applies them. No direct Kubernetes API writes from the API server except during bootstrap.
+- **GitOps-first, no imperative writes:** The `zero-ops-api` commits tenant values (values.yaml) to Git. Helm generates CRs. ArgoCD applies them. No direct Kubernetes API writes from the API server except during bootstrap.
 - **Autopilot-with-consent:** In autopilot mode the platform agent raises a PR to the tenant's control plane repository. The tenant approves or rejects. The platform never silently mutates tenant infrastructure.
 - **No vendor lock-in:** The `AINativeSaaS` XRD schema is cloud-provider agnostic. `spec.cloud: hetzner` is the v1 default. Provider switching is a blue-green migration with CNPG PITR restore. No proprietary data formats or cloud-specific dependencies in the control plane.
 - **Non-Goal:** Starter tier onboarding (Journey C) and Composition A in the v8.0 delivery milestone. Both are defined in this document for architectural completeness, but all current engineering effort targets the Enterprise tier (Journey A, Composition B). Starter is a follow-on milestone.
@@ -167,25 +167,20 @@ The v7.0 architecture has one implicit tenant class: a Kubernetes cluster consum
 6. Hydra issues a signed JWT to Goose. Goose retries the `tenant_create` MCP call automatically.
 7. `zero-ops-api` validates the JWT (via AgentGateway), creates PostgreSQL records for `tenant-acme-corp`, generates Hetzner API credential ingestion prompt.
 8. Tenant Admin provides Hetzner API token via the console (not via Goose — credentials never transit the agent).
-9. `zero-ops-api` commits an `AINativeSaaS` CR to the tenant's control plane repository:
+9. `zero-ops-api` commits tenant values to `fleet-registry/tenants/tenant-acme-corp/values.yaml`:
     ```yaml
-    apiVersion: nutgraf.in/v1
-    kind: AINativeSaaS
-    metadata:
-      name: acme-corp-production
-      namespace: zero-ops-tenants
-    spec:
-      tier: enterprise
-      cloud: hetzner
-      region: eu-central-1
-      database:
-        instances: 3
-        storage: 100Gi
-      autoscaling:
-        min: 3
-        max: 50
+    tenantId: acme-corp
+    tier: enterprise
+    cloud: hetzner
+    region: eu-central-1
+    database:
+      instances: 3
+      storage: 100Gi
+    autoscaling:
+      min: 3
+      max: 50
     ```
-10. ArgoCD (management cluster) detects the commit. Crossplane Composition B (Enterprise) begins expanding the CR.
+10. ArgoCD (management cluster) detects the commit. Helm renders Universal Tenant Chart with values → generates `AINativeSaaS` CR. Crossplane Composition B (Enterprise) begins expanding the CR.
 11. Within 10–15 minutes: Kubernetes cluster provisioned, CNPG HA online, all baseline services healthy. Platform console shows Acme Corp's environment as `Ready`.
 12. Goose displays success summary: cluster endpoint, PostgreSQL connection string reference (Secret name — not the value), ArgoCD dashboard URL, Grafana tenant URL, API token.
 
@@ -216,9 +211,19 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 1. Tenant Admin logs in to Platform Console via Ory Kratos. Views `New Environment` options (Starter/Enterprise).
 2. Platform console shows read-only cost estimate derived from Hetzner pricing API: e.g. `~$12/month`. "Resolve in IDE" button displayed.
 3. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=create_environment&tier=starter`. Cursor/Goose receives link and calls `environment_create` MCP tool.
-4. Crossplane Composition A (Starter) creates: Kubernetes namespace in Zero-Ops shared cluster, shared CNPG database with `tenant_id`-scoped RLS, shared Hetzner S3 prefix, shared AgentSandbox pool allocation, ResourceQuota + LimitRange for the namespace.
-5. Provisioning completes in seconds (no new VMs needed). Tenant Admin's console shows environment `Ready`.
-6. Tenant Admin accesses their environment: PostgREST endpoint, ArgoCD application, Grafana dashboard (tenant-scoped), and agent conversation interface.
+4. MCP server commits tenant values to `fleet-registry/tenants/tenant-<id>/values.yaml`
+5. ArgoCD ApplicationSet detects new tenant directory and creates Helm Application with Universal Tenant Chart
+6. Helm renders templates with values → generates `AINativeSaaS` XR, `AtlasMigration` CR, namespace, RBAC
+7. Crossplane Composition A (Starter) provisions:
+   - Kubernetes namespace in Spoke Pool cluster
+   - Atlas Operator creates deterministic schema: `tenant_<id>` in shared CNPG cluster
+   - Baseline migrations applied from Git via Atlas Operator
+   - PostgREST routes requests to `tenant_<id>` schema based on JWT `tenant_id` claim
+   - Shared Hetzner S3 prefix
+   - Shared AgentSandbox pool allocation
+   - ResourceQuota + LimitRange for the namespace
+7. Provisioning completes in seconds (no new VMs needed, schema creation < 5s). Tenant Admin's console shows environment `Ready`.
+8. Tenant Admin accesses their environment: PostgREST endpoint (with schema routing), ArgoCD application, Grafana dashboard (tenant-scoped), and agent conversation interface.
 
 ---
 
@@ -231,10 +236,10 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 3. Tenant Admin clicks "Resolve in IDE". Console generates deep link: `cursor://resolve?action=upgrade_tier&tier=enterprise`. Cursor/Goose calls `tenant_update` MCP tool.
 4. Crossplane detects spec drift. Triggers Composition B (Enterprise):
     - New dedicated CAPI cluster provisioned on tenant's Hetzner account.
-    - New dedicated CNPG cluster bootstrapped via `pg_dump` restore from shared CNPG instance (cross-instance migration).
+    - New dedicated CNPG cluster bootstrapped via `pg_dump` restore from shared CNPG `tenant_<id>` schema (cross-instance migration).
     - DNS updated to point to new cluster (blue-green cutover).
-    - Old namespace in shared cluster retained for rollback window (configurable, default: 2 hours).
-5. Console shows migration progress. Once new cluster confirms healthy, old namespace decommissioned.
+    - Old namespace and schema in shared cluster retained for rollback window (configurable, default: 2 hours).
+5. Console shows migration progress. Once new cluster confirms healthy, old namespace and schema decommissioned.
 6. Tenant Admin's environment is now physically isolated. No data loss. No downtime.
 
 ---
@@ -244,24 +249,17 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 **Trigger:** Tenant Developer opens a PR on branch `feature/new-ai-pipeline` in their application repository.
 
 1. GitHub/GitLab webhook fires on branch creation event.
-2. `zero-ops-api` commits a `PREnvironment` Custom Resource to the tenant's control plane repository:
+2. `zero-ops-api` commits a `PREnvironment` values file to the tenant's control plane repository:
     ```yaml
-    apiVersion: ops.zero-ops.io/v1alpha1
-    kind: PREnvironment
-    metadata:
-      name: pr-feature-new-ai-pipeline
-      namespace: acme-corp-production
-      finalizers:
-        - ops.zero-ops.io/pr-environment-cleanup
-    spec:
-      branch: feature/new-ai-pipeline
-      tenantId: acme-corp
-      database:
-        restoreFrom: staging-snapshot  # CSI VolumeSnapshot
-      s3:
-        prefix: pr/feature-new-ai-pipeline/
+    # fleet-registry/pr-environments/pr-feature-new-ai-pipeline/values.yaml
+    branch: feature/new-ai-pipeline
+    tenantId: acme-corp
+    database:
+      restoreFrom: staging-snapshot  # CSI VolumeSnapshot
+    s3:
+      prefix: pr/feature-new-ai-pipeline/
     ```
-3. ArgoCD syncs the CR. The `hub-operator` reconciles the `PREnvironment` CR:
+3. ArgoCD syncs the values. Helm generates `PREnvironment` CR. The `hub-operator` reconciles the CR:
     - Creates namespace `pr-feature-new-ai-pipeline` within the tenant's cluster.
     - Provisions single-node CNPG cluster bootstrapped from latest staging CSI snapshot (restore time: ~60s).
     - Deploys tenant application built from the PR branch image.
@@ -437,9 +435,10 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
   │  Platform Console (RBAC-scoped UI)                                    │
   │       │  REST / WebSocket                                             │
   │  mcp-server (Hub MCP Server)                                       │  │
-  │       │  1. Commits AINativeSaaS CR directly to Git                │  │
-  │       │  2. Reads status strictly from PostgreSQL                  │  │
-  │       │  3. Uses internal/opensbt toolkit for business logic      │  │
+  │       │  1. Commits tenant values (values.yaml) to Git             │  │
+  │       │  2. Helm generates CRs from templates + values             │  │
+  │       │  3. Reads status strictly from PostgreSQL                  │  │
+  │       │  4. Uses internal/opensbt toolkit for business logic      │  │
   │       ▼                                                            │  │
   │  Tenant Control Plane Repository (Zero-Ops managed Git)            │  │
   │                                                                    │  │
@@ -465,7 +464,7 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
   │  SAAS FACTORY LAYER (NEW v8.0)                                    │  │
   │                                                                   │  │
   │  Crossplane (management cluster)                                  │  │
-  │       │  Watches AINativeSaaS CRs                                 │  │
+  │       │  Watches AINativeSaaS CRs (generated by Helm)             │  │
   │       │                                                           │  │
   │       ├── Composition A (Starter)                                 │  │
   │       │   Namespace + ResourceQuota in shared cluster             │  │
@@ -501,6 +500,7 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
   │    - Enterprise Self-managed: Full ArgoCD (dedicated)          │  │
   │    Reference: https://codefresh.io/blog/better-kubernetes-at-the-edge-with-argo-cd-and-codefresh/ │  │
   │    CNPG (dedicated or shared) with pgvector + PgBouncer           │  │
+  │    Atlas Operator (GitOps-driven schema migrations + drift detection) │  │
   │    PostgREST (auto REST API from PostgreSQL schema)               │  │
   │    Grafana Alloy → VictoriaMetrics (topology labels)              │  │
   │    kube-events-exporter → OpenSearch                              │  │
@@ -529,7 +529,7 @@ ZERO-OPS v9.0 — HUB & SPOKE ARCHITECTURE
 | **NATS Leaf Node** | NATS Server (Leaf mode) | Runs in spokes to bridge local events securely back to the Hub JetStream cluster. |
 | **ClickHouse** | ClickHouse OSS *(deferred)* | Columnar OLAP database for billing aggregation at scale. **Deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows).** Until then, billing records are stored in Hub Centralised DB (PostgreSQL). When introduced, it will receive usage metering data. It will never receive data from the Hub Event Router — the analytics layer receives data from Grafana Alloy remote_write pipeline only. |
 | **Loki** | Grafana Loki | Centralized log aggregation in the Hub. |
-| **PostgREST** | PostgREST OSS | Two distinct instances with separate responsibilities:<br>**Hub-side PostgREST:** Exposes Hub Centralised DB. Receives inbound HTTPS writes from AgentGateway (`POST /resource-status`). **Auth: JWT only** — AgentGateway terminates Spoke Controller mTLS connections, issues short-lived JWTs, and forwards to PostgREST. RLS enforces strict per-spoke write scoping using tenant_id from JWT claims — a spoke can only write its own tenant rows. URL: `https://postgrest.hub.nutgrat.in/resource-status` (internal, behind AgentGateway).<br>**Spoke-side PostgREST (Pool):** Deployed in Spoke Pool clusters. Exposes the Hub's Control Plane Shared DB for operational business data. Receives synchronous direct writes from Spoke Pool Control Plane applications (user sessions, tenant config, provisioning state).<br>**Spoke-side PostgREST (Silo):** Deployed in Spoke Silo clusters. Exposes the local Tenant Control Plane DB — NOT the Hub's Control Plane Shared DB. The Silo is the source of truth for its own control plane data. Silo state syncs upstream to the Hub via NATS Leaf Node, not via direct DB connection. These instances are never merged and serve different databases. |
+| **PostgREST** | PostgREST OSS | Three distinct instances with separate responsibilities:<br>**Hub-side PostgREST:** Exposes Hub Centralised DB. Receives inbound HTTPS writes from AgentGateway (`POST /resource-status`). **Auth: JWT only** — AgentGateway terminates Spoke Controller mTLS connections, issues short-lived JWTs, and forwards to PostgREST. RLS enforces strict per-spoke write scoping using tenant_id from JWT claims — a spoke can only write its own tenant rows. URL: `https://postgrest.hub.nutgrat.in/resource-status` (internal, behind AgentGateway).<br>**Spoke-side PostgREST (Pool):** Deployed in Spoke Pool clusters. Two roles: (1) Exposes Hub's Control Plane Shared DB for operational business data (synchronous writes from Spoke Pool Control Plane applications). (2) Provides tenant data API with schema routing — validates JWTs from Hub Ory, extracts `tenant_id` claim, sets `search_path=tenant_<id>`, routes requests to correct tenant schema in shared CNPG cluster. In-memory JWT cache (10000 entries) for performance. PgBouncer transaction pooling ensures connection reuse without session state leakage.<br>**Spoke-side PostgREST (Silo):** Deployed in Spoke Silo clusters. Exposes the local Tenant Control Plane DB — NOT the Hub's Control Plane Shared DB. The Silo is the source of truth for its own control plane data. Silo state syncs upstream to the Hub via NATS Leaf Node, not via direct DB connection. These instances are never merged and serve different databases. |
 | **IControlPlaneStore** | Go Interface Pattern | Abstract storage interface injected at deployment time. The same interface, two implementations, injected at spoke bootstrap — not two different code paths.<br>• **HubStore (Spoke Pool):** Direct PgSQL connection to Control Plane Shared DB on Hub. Synchronous writes.<br>• **LocalStore (Spoke Silo):** Writes to local Tenant Control Plane DB on the Silo (source of truth). NATS Leaf Node carries state upstream to Hub Event Router → Hub Control Plane Shared DB (eventual consistency). If Hub is unreachable, Silo operates fully independently — NATS buffers events until Hub reconnects. |
 | **Spoke Controller** | Go service, controller-runtime (Spoke) | Watches Crossplane `AINativeSaaS` claim conditions on the spoke. On condition change, derives platform status (provisioning/ready/failed/deleting) and writes to Hub Centralised DB via **AgentGateway → Hub-side PostgREST** (`POST /resource-status`). Authentication flow: Spoke Controller connects to AgentGateway with **mTLS (SPIFFE/SPIRE)**, AgentGateway terminates mTLS, issues short-lived JWT representing the Spoke Controller, forwards request to PostgREST with JWT. Each Spoke Controller obtains unique SPIFFE identity (`spiffe://zero-ops.nutgraf.in/spoke-controller/{tenant-id}`). Handles retry with exponential backoff natively via controller-runtime reconcile loop. Runs in both Spoke Pool and Spoke Silo clusters. Does NOT use NATS for status writes. Does NOT write to Control Plane Shared DB. |
 | **Hub Centralised DB** | PostgreSQL | **Shape: normalized relational, OLTP workload.** Stores fleet state, cluster health, and resource status across all tenants. Written by: Spoke Controller (via Hub-side PostgREST) and Hub Event Router (NATS consumer). Read by: Platform Admin dashboards (fleet view) and Tenant Admin dashboards (resource status). Exposed via Hub-side PostgREST. |
@@ -599,9 +599,11 @@ Used for provisioning triggers, billing events, and cross-cluster coordination.
 ```
 1. Tenant Admin intent (Console/Goose) via AgentGateway.
         │
-2. zero-ops-api commits AINativeSaaS CR to Tenant Control Plane Repo.
+2. zero-ops-api commits tenant values to fleet-registry/tenants/<id>/values.yaml.
         │
-3. ArgoCD syncs manifests to target Spoke Cluster (Pool or Silo).
+3. Helm renders Universal Tenant Chart → generates AINativeSaaS CR.
+        │
+4. ArgoCD syncs manifests to target Spoke Cluster (Pool or Silo).
         │
 4. Crossplane reconciles infrastructure.
         │
@@ -1086,7 +1088,7 @@ When the management cluster reconnects, CAPI resumes reconciliation from last kn
 13. Cursor/Goose receives deep link, prompts Tenant Admin for Hetzner API token in IDE (secure input, never transits agent).
 14. Cursor/Goose calls `credentials_submit` MCP tool with encrypted token. `zero-ops-api` stores encrypted token in Infisical.
 15. Goose detects credential confirmation. Calls `environment_create` MCP tool with `{tier: enterprise, cloud: hetzner, region: eu-central-1}`.
-16. `zero-ops-api` commits `AINativeSaaS` CR to tenant control plane repository. Returns `202 Accepted` with provisioning status URL.
+16. `zero-ops-api` commits tenant values to `fleet-registry/tenants/acme-corp-production/values.yaml`. Helm renders Universal Tenant Chart → generates `AINativeSaaS` CR. Returns `202 Accepted` with provisioning status URL.
 17. Goose displays: `"Provisioning in progress. Track at https://console.nutgraf.in/environments/acme-corp-production"`.
 18. 12 minutes later: Crossplane Composition B completes. Spoke Controller detects Ready=True, writes status to Hub Centralised DB via PostgREST. Console shows `Ready`. Goose displays final summary.
 

@@ -10,7 +10,9 @@
 ## 1. Executive Summary
 
 ### 1.1 Purpose
-Automate the provisioning of Spoke Pool clusters (cells) that host multiple Starter tier tenants with namespace-level isolation. Each cell is a complete Kubernetes cluster containing shared infrastructure (CNPG database, NATS leaf node, ArgoCD agent) that serves all tenants within that cell.
+Automate the provisioning of Spoke Pool clusters (cells) that host multiple Starter tier tenants with schema-level isolation. Each cell is a complete Kubernetes cluster containing shared infrastructure (CNPG database, NATS leaf node, ArgoCD agent) that serves all tenants within that cell.
+
+**Note**: This specification covers Starter tier (Composition A) using schema-per-tenant in shared CNPG clusters. Enterprise tier (Composition B) uses dedicated clusters with separate databases per tenant and is documented in the main PRD v9.
 
 ### 1.2 Business Value
 - **Horizontal Scalability**: Support unlimited Starter tier tenants by provisioning additional cells on demand
@@ -23,8 +25,8 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - Cell provisioning completes within 15 minutes (CAPI cluster + edge catalog deployment)
 - Cells automatically register with Hub ArgoCD for tenant workload deployment
 - Shared CNPG cluster supports 100 tenant schemas per cell with proper isolation
-- Tenant schema provisioning completes within 5 seconds (schema creation + Supabase baseline migrations)
-- PostgREST validates JWTs from Hub Ory Kratos and routes requests to correct tenant schema
+- Tenant schema provisioning completes within 5 seconds (schema creation + baseline migrations)
+- AgentGateway validates JWTs from Hub Ory and forwards authenticated requests to PostgREST
 
 ---
 
@@ -69,11 +71,18 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 ### 3.2 Edge Catalog Deployment
 
 **FR-2.1: Automatic Edge Catalog Provisioning**
-- **Description**: ArgoCD ApplicationSet deploys edge catalog components to all Spoke Pool clusters
+- **Description**: ArgoCD ApplicationSet deploys edge catalog components to all Spoke Pool clusters with dependency ordering
 - **Acceptance Criteria**:
   - ApplicationSet uses Cluster Generator with selector: `spoke-type: pool`
   - Deploys App-of-Apps umbrella Application to each discovered cluster
   - Individual Applications created for: Shared CNPG, PostgREST, NATS Leaf Node, Spire Agent, Grafana Alloy, Atlas Operator
+  - ArgoCD sync waves enforce dependency ordering:
+    * Wave 0: Database extensions (if needed)
+    * Wave 1: CNPG Cluster + PgBouncer
+    * Wave 2: Atlas Operator + AtlasMigration CRs
+    * Wave 3: PostgREST (requires schemas to exist)
+    * Wave 4: Tenant workloads
+  - Health checks gate progression: CNPG `status.phase=Ready` before Wave 2
   - All edge catalog components reach Healthy status within 10 minutes
 
 **FR-2.2: Shared CNPG Cluster**
@@ -105,14 +114,17 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - Remote writes to Hub VictoriaMetrics using SPIRE SVID authentication (or static token for Phase 1)
   - Injects `cell_id` label into all metrics
 
-**FR-2.6: PostgREST API Gateway**
-- **Description**: PostgREST provides auto-generated REST API for tenant databases with JWT authentication and schema routing
+**FR-2.6: PostgREST API Gateway (Behind AgentGateway)**
+- **Description**: PostgREST provides auto-generated REST API for tenant databases, exposed only through AgentGateway
 - **Acceptance Criteria**:
-  - PostgREST deployed as shared service in each Spoke Pool cluster
-  - Configured with `db-schemas` listing all tenant schemas (dynamically updated)
-  - JWT validation using Hub Ory Kratos JWKS endpoint
-  - In-memory JWT cache enabled (`jwt-cache-max-entries: 10000`)
-  - Schema routing via `Accept-Profile` header (extracted from JWT `tenant_id` claim)
+  - PostgREST deployed as internal service in each Spoke Pool cluster (ArgoCD sync wave 3)
+  - PostgREST is NOT directly exposed - all traffic flows through AgentGateway
+  - AgentGateway validates JWTs using Hub Ory JWKS (RS256 signature verification)
+  - AgentGateway extracts `tenant_id` from validated JWT claims
+  - AgentGateway forwards authenticated requests to PostgREST with JWT + `X-Tenant-ID` header
+  - PostgREST maintains in-memory JWT cache (10000 entries) for performance
+  - PostgREST sets `search_path=tenant_<id>` based on `X-Tenant-ID` header
+  - PostgREST configured with `db-schemas` listing all tenant schemas (dynamically updated)
   - Connection pooling via PgBouncer (transaction mode)
   - PostgREST reaches Ready state within 2 minutes
 
@@ -125,17 +137,25 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - Registry is stored in control plane database (not Kubernetes API)
   - Registry is queryable for capacity planning and tenant placement
 
-**FR-5.2: Schema Provisioning Execution**
-- **Description**: Control plane executes SQL migrations from Git against CNPG cluster
+**FR-5.2: GitOps-Driven Schema Provisioning (Universal Tenant Helm Chart Pattern)**
+- **Description**: MCP API commits tenant intent (values.yaml), Helm generates CRs, ArgoCD syncs, Atlas Operator applies migrations
 - **Acceptance Criteria**:
-  - Uses migration engine (Atlas or Flyway)
-  - Reads migration files from Git repository
-  - Connects to shared CNPG cluster with admin credentials
-  - Executes migrations in transaction
-  - Ensures idempotent execution
-  - Logs all migration executions for audit
-  - Migration engine validates SQL syntax before execution
+  - MCP API receives `tenant_create` call with `tier=starter`
+  - MCP API commits tenant values to `fleet-registry/tenants/tenant-<id>/values.yaml`
+  - Values file contains tenant intent: `tenantId`, `tier`, `region`, `database.schemaName: tenant_<id>`, `database.migrations.gitRepo`
+  - ArgoCD ApplicationSet (Git Generator) detects new tenant directory
+  - ApplicationSet creates Helm-based Application pointing to Universal Tenant Chart
+  - Helm chart generates CRs from values: `AINativeSaaS` XR, `AtlasMigration` CR, namespace, RBAC
+  - Chart enforces platform policy (sync waves, resource limits, security contexts)
+  - Values provide tenant-specific input (schema name, capacity, features)
+  - Application deploys generated CRs to Spoke Pool cluster
+  - Atlas Operator reconciles: reads migrations from Git → applies to CNPG
+  - Schema name is deterministic: `tenant_<id>` (enables idempotent replay)
+  - Schema owner role created: `tenant_<id>_role`
+  - Migration history tracked in `atlas_schema_revisions` table per schema
+  - Atlas Operator validates migrations in dev database before production apply
   - Failed migrations are rolled back automatically
+  - All operations logged for audit trail
 
 **FR-5.3: Reconciliation Loop**
 - **Description**: Atlas Operator periodically verifies tenant schema state (handled by FR-4.4)
@@ -181,25 +201,32 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 ### 3.4 Tenant Schema Provisioning
 
 **FR-4.1: Tenant Schema Creation**
-- **Description**: Each tenant gets a dedicated PostgreSQL schema within the shared CNPG cluster database
+- **Description**: Each tenant gets a dedicated PostgreSQL schema within the shared CNPG cluster database via GitOps flow
 - **Acceptance Criteria**:
-  - Schema migrations are stored in Git repository (e.g., `migrations/supabase-baseline/`)
+  - Schema migrations are stored in Git repository: `migrations/tenant-baseline/YYYYMMDDHHMMSS_*.sql`
   - Migration files follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
-  - Schema name format: `tenant_<tenant-id>`
+  - Schema name is deterministic: `tenant_<tenant-id>` (e.g., `tenant_acme`, `tenant_xyz`)
   - Schema owner role created: `tenant_<tenant-id>_role`
-  - Supabase baseline migrations applied via Atlas (creates `auth`, `storage`, `public` tables within tenant schema)
+  - Deterministic naming enables safe migration replay (idempotent CREATE SCHEMA IF NOT EXISTS)
+  - Baseline migrations applied via Atlas Operator (creates tenant-specific tables)
   - Schema provisioning completes within 5 seconds (CREATE SCHEMA + baseline migrations)
   - All migrations are idempotent and replayable
   - Migration history tracked in `atlas_schema_revisions` table per schema
   - PostgREST `db-schemas` config updated to include new tenant schema
+  - PostgREST health check verifies schema exists before accepting requests
 
 **FR-4.2: Tenant Isolation and RLS Support**
 - **Description**: Tenant isolation is enforced by dedicated PostgreSQL schema; within each schema, RLS isolates end-users
 - **Acceptance Criteria**:
-  - Tenant isolation enforced by dedicated schema (PostgreSQL `search_path` prevents cross-schema access)
+  - Tenant isolation enforced by deterministic schema naming: `tenant_<id>`
+  - AgentGateway validates JWT and extracts `tenant_id` claim
+  - AgentGateway forwards request to PostgREST with `X-Tenant-ID: <id>` header
+  - PostgREST sets `search_path=tenant_<id>` per request (from `X-Tenant-ID` header)
+  - PgBouncer transaction pooling ensures connection reuse without session state leakage
+  - PostgreSQL schema isolation prevents cross-tenant access (no shared search_path)
   - Within tenant schema, Row-Level Security (RLS) enabled for end-user isolation
-  - RLS policies use Ory Kratos JWT claims (e.g., `user_id` from JWT) for end-user access control
-  - Supabase baseline creates `auth`, `storage`, `public` tables within tenant schema with RLS enabled
+  - RLS policies use JWT claims (e.g., `user_id` from JWT) for end-user access control
+  - Baseline migrations create tenant-specific tables within `tenant_<id>` schema with RLS enabled
   - All migrations must be idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`)
   - Migrations are forward-only (no destructive operations without approval)
 
@@ -215,26 +242,34 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 **FR-4.4: GitOps-Driven Drift Detection**
 - **Description**: Atlas Kubernetes Operator continuously reconciles Git (desired state) vs Schema (actual state)
 - **Acceptance Criteria**:
-  - Atlas Operator deployed to each Spoke Pool cluster
+  - Atlas Operator deployed to each Spoke Pool cluster (ArgoCD sync wave 2)
   - Operator watches `AtlasMigration` Custom Resources (one per tenant schema)
   - Reconciliation loop runs every 30-60 seconds (Atlas default)
-  - Compares Git migrations vs `atlas_schema_revisions` table per schema
+  - Compares Git migrations vs `atlas_schema_revisions` table for `tenant_<id>` schema
+  - Deterministic schema naming ensures safe drift detection (no ambiguity)
   - Detects drift: missing migrations, schema changes, manual alterations
   - Auto-applies missing migrations when drift detected
   - Validates migrations in temporary dev database first (safety check)
   - Updates CR status: `status.conditions[Ready=True/False]`
+  - ArgoCD health check uses CR status (blocks sync wave 3 if not Ready)
   - Drift events logged for audit trail
   - Metrics exposed: `atlas_drift_detected_total`, `atlas_migrations_applied_total`
 
-**FR-4.5: Centralized Identity Management**
-- **Description**: Hub Ory Kratos/Hydra manages authentication for all tenants across all cells
+**FR-4.5: Centralized Identity Management (via AgentGateway)**
+- **Description**: Hub Ory Kratos/Hydra manages authentication for all tenants across all cells; AgentGateway validates tokens
 - **Acceptance Criteria**:
   - Ory Kratos deployed in Hub cluster (single instance for all tenants)
   - Ory Hydra deployed in Hub cluster for OAuth2/OIDC token issuance
   - JWT tokens include claims: `user_id`, `tenant_id`, `role`, `tenant_tier`
   - JWKS endpoint exposed: `https://kratos.hub.example.com/.well-known/jwks.json`
-  - PostgREST in cells validates JWTs using Hub JWKS endpoint
-  - JWT cache in PostgREST reduces validation overhead (10000 entries)
+  - AgentGateway validates JWTs:
+    * Fetches JWKS from Hub on startup
+    * Validates JWT signatures using cached public keys
+    * Extracts `tenant_id` claim and forwards as `X-Tenant-ID` header
+    * Forwards JWT + headers to PostgREST
+  - PostgREST caches validated JWTs in-memory (10000 entries) for performance
+  - PostgREST receives pre-authenticated requests from AgentGateway only
+  - PostgREST is NOT directly exposed to external traffic
   - User login/signup happens via Hub Ory (cells are stateless)
   - Tenant users stored in Hub Ory database (not per-cell)
 
@@ -245,10 +280,11 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 ### 4.1 Performance
 - **NFR-1.1**: Cell provisioning completes within 15 minutes (CAPI cluster + edge catalog)
 - **NFR-1.2**: Tenant placement decision completes within 1 second
-- **NFR-1.3**: Tenant schema provisioning completes within 5 seconds (CREATE SCHEMA + Supabase baseline migrations)
+- **NFR-1.3**: Tenant schema provisioning completes within 5 seconds (GitOps commit → ArgoCD sync → Atlas apply)
 - **NFR-1.4**: ArgoCD cluster discovery completes within 30 seconds of CAPI cluster Ready
-- **NFR-1.5**: JWT validation completes within 10ms (P95) for cached tokens
-- **NFR-1.6**: PostgREST request latency < 50ms (P95) excluding database query time
+- **NFR-1.5**: JWT validation completes within 1ms (P95) for cached tokens (in-memory lookup in PostgREST)
+- **NFR-1.6**: JWT validation for uncached tokens completes within 50ms (P95) (AgentGateway validates, PostgREST caches)
+- **NFR-1.7**: PostgREST request latency < 50ms (P95) excluding database query time
 
 ### 4.2 Scalability
 - **NFR-2.1**: Support up to 100 tenant schemas per Spoke Pool cell
@@ -258,6 +294,7 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - **NFR-2.5**: Direct connections to PostgreSQL are prohibited for tenant workloads
 - **NFR-2.6**: PostgREST JWT cache handles 10000 cached tokens per cell
 - **NFR-2.7**: Hub Ory Kratos scales horizontally (stateless service)
+- **NFR-2.8**: PostgREST is NOT directly exposed - all traffic flows through AgentGateway
 
 ### 4.3 Reliability
 - **NFR-3.1**: Cell provisioning is idempotent (re-applying SpokePool XR has no side effects)
@@ -274,9 +311,11 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - **NFR-4.2**: mTLS certificates auto-rotate 7 days before expiration
 - **NFR-4.3**: Tenants are isolated via dedicated PostgreSQL schemas within the shared cluster
 - **NFR-4.4**: ArgoCD Agent has RBAC limited to its own cluster (no cross-cluster access)
-- **NFR-4.5**: JWT tokens validated using Hub Ory JWKS (RS256 signature)
-- **NFR-4.6**: PostgREST enforces schema isolation via `search_path` (no cross-tenant access)
-- **NFR-4.7**: Hub Ory identity database isolated from tenant data
+- **NFR-4.5**: JWT tokens validated in AgentGateway using Hub Ory JWKS (RS256 signature)
+- **NFR-4.6**: PostgREST JWT cache prevents token replay attacks (cache invalidation on token expiry)
+- **NFR-4.7**: PostgREST enforces schema isolation via `search_path` (no cross-tenant access)
+- **NFR-4.8**: PostgREST is NOT directly exposed - only accessible via AgentGateway
+- **NFR-4.9**: Hub Ory identity database isolated from tenant data
 
 ### 4.5 Observability
 - **NFR-5.1**: All Spoke Pool metrics are forwarded to Hub VictoriaMetrics
@@ -354,9 +393,11 @@ Acceptance Criteria:
 - I call tenant provisioning API with tier=starter
 - System queries control plane database for cell capacity
 - System selects cell with lowest tenant count
-- Tenant schema created in selected cell's CNPG cluster (CREATE SCHEMA tenant_<id>)
-- Supabase baseline migrations applied via Atlas Operator (< 5 seconds)
-- AtlasMigration CR created for tenant schema
+- MCP API commits tenant values to `fleet-registry/tenants/tenant-<id>/values.yaml`
+- ArgoCD ApplicationSet detects new tenant directory and creates Helm Application
+- Helm chart generates CRs: `AINativeSaaS` XR, `AtlasMigration` CR, namespace, RBAC
+- Atlas Operator creates deterministic schema: `tenant_<id>` (< 5 seconds)
+- Baseline migrations applied from Git via Atlas Operator
 - PostgREST db-schemas config updated to include new tenant schema
 - Tenant's AINativeSaaS XR is created with label cell-id=<selected-cell>
 - Tenant workload is deployed to the correct Spoke Pool cluster
@@ -431,7 +472,9 @@ Acceptance Criteria:
 - [ ] ApplicationSet with Cluster Generator deploys edge catalog to all pool clusters
 - [ ] App-of-Apps pattern creates individual Applications for each component
 - [ ] Shared CNPG cluster reaches Ready state within 5 minutes
-- [ ] PostgREST deployed and configured with Hub Ory JWKS endpoint
+- [ ] PostgREST deployed as internal service (NOT directly exposed)
+- [ ] AgentGateway deployed and configured with Hub Ory JWKS endpoint
+- [ ] AgentGateway routes to PostgREST after JWT validation
 - [ ] NATS Leaf Node connects to Hub JetStream
 - [ ] Spire Agent connects to Hub Spire Server using PSAT attestation
 - [ ] Grafana Alloy forwards metrics to Hub VictoriaMetrics
@@ -444,35 +487,61 @@ Acceptance Criteria:
 - [ ] Tenant XR includes cell-id label
 - [ ] Placement decision completes in < 1 second
 
-**AC-6: Tenant Schema Provisioning**
-- [ ] Schema migrations are stored in Git repository: `migrations/supabase-baseline/`
+**AC-6: Tenant Schema Provisioning (Universal Tenant Helm Chart Pattern)**
+- [ ] Schema migrations are stored in Git repository: `migrations/tenant-baseline/YYYYMMDDHHMMSS_*.sql`
 - [ ] Migration files follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
-- [ ] Control plane creates schema: `CREATE SCHEMA tenant_<tenant-id>`
-- [ ] Atlas Operator applies Supabase baseline migrations (creates `auth`, `storage`, `public` tables in schema)
-- [ ] AtlasMigration CR created per tenant schema
-- [ ] Schema name format: `tenant_<tenant-id>`
-- [ ] Schema owner role is created
+- [ ] Universal Tenant Helm Chart exists in `charts/universal-tenant/`
+- [ ] Chart templates generate: `AINativeSaaS` XR, `AtlasMigration` CR, namespace, RBAC, ResourceQuota
+- [ ] Chart enforces platform policy via templates (sync waves, security contexts, resource limits)
+- [ ] MCP API commits tenant values to `fleet-registry/tenants/tenant-<id>/values.yaml`
+- [ ] Values file contains: `tenantId: acme`, `tier: starter`, `database.schemaName: tenant_acme`, `database.migrations.gitRepo`
+- [ ] ArgoCD ApplicationSet (Git Generator) detects new tenant directory
+- [ ] ApplicationSet creates Helm Application: `source.chart: charts/universal-tenant`, `source.helm.valueFiles: [fleet-registry/tenants/tenant-<id>/values.yaml]`
+- [ ] Helm renders templates with tenant values and generates CRs
+- [ ] Application deploys generated CRs to Spoke Pool cluster with sync waves
+- [ ] Atlas Operator creates deterministic schema: `tenant_<tenant-id>` (e.g., `tenant_acme`)
+- [ ] Atlas Operator applies baseline migrations from Git
+- [ ] Schema owner role created: `tenant_<tenant-id>_role`
 - [ ] RLS policies are enabled for end-user isolation (via JWT `user_id`)
-- [ ] All migrations are idempotent and replayable
+- [ ] All migrations are idempotent and replayable (deterministic schema names enable safe replay)
 - [ ] Migration history tracked in `atlas_schema_revisions` table per schema
-- [ ] Schema provisioning completes in < 5 seconds
-- [ ] PostgREST db-schemas config updated with new tenant schema
-- [ ] Tenant applications can access their schema via PostgREST
-- [ ] Atlas Operator reconciles drift automatically
+- [ ] AtlasMigration CR status updates to `Ready=True`
+- [ ] ArgoCD health check verifies CR status before progressing to wave 3
+- [ ] PostgREST deployed in wave 3 with `db-schemas` including `tenant_<id>`
+- [ ] PostgREST health check verifies schema exists before accepting requests
+- [ ] Schema provisioning completes in < 5 seconds (end-to-end GitOps flow)
+- [ ] Tenant applications can access their schema via AgentGateway → PostgREST
+- [ ] AgentGateway validates JWT and extracts `tenant_id` claim
+- [ ] AgentGateway forwards request with `X-Tenant-ID` header to PostgREST
+- [ ] PostgREST sets `search_path=tenant_<id>` based on `X-Tenant-ID` header
+- [ ] Atlas Operator reconciles drift automatically (30-60s loop)
 
-**AC-7: End-to-End Integration Test**
+**AC-7: End-to-End Integration Test (GitOps Flow)**
 - [ ] Apply SpokePool XR: `kubectl apply -f spokepool-01.yaml`
 - [ ] Wait for cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
 - [ ] Verify ArgoCD cluster Secret: `kubectl get secret -n argocd -l cell-id=spokepool-01`
-- [ ] Verify edge catalog synced: `argocd app list | grep spokepool-01`
-- [ ] Verify CNPG Ready: `kubectl --context spokepool-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
-- [ ] Verify PostgREST Ready: `kubectl --context spokepool-01 get deployment postgrest -o jsonpath='{.status.readyReplicas}'`
-- [ ] Create test tenant via provisioning API
-- [ ] Verify tenant schema exists in CNPG cluster: `\dn tenant_*`
+- [ ] Verify edge catalog synced with correct sync waves: `argocd app list | grep spokepool-01`
+- [ ] Verify CNPG Ready (wave 1): `kubectl --context spokepool-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
+- [ ] Verify Atlas Operator Ready (wave 2): `kubectl --context spokepool-01 get deployment atlas-operator`
+- [ ] Verify PostgREST Ready (wave 3): `kubectl --context spokepool-01 get deployment postgrest -o jsonpath='{.status.readyReplicas}'`
+- [ ] Call MCP API: `tenant_create(tenant_id="acme", tier="starter")`
+- [ ] Verify MCP API commits values to Git: `fleet-registry/tenants/tenant-acme/values.yaml`
+- [ ] Verify values file contains: `tenantId: acme`, `database.schemaName: tenant_acme`
+- [ ] Verify ArgoCD detects new tenant directory and creates Helm Application
+- [ ] Verify Application uses Universal Tenant Chart: `argocd app get tenant-acme -o json | jq .spec.source.chart`
+- [ ] Verify Helm renders CRs: `helm template charts/universal-tenant -f fleet-registry/tenants/tenant-acme/values.yaml`
+- [ ] Verify AtlasMigration CR deployed: `kubectl --context spokepool-01 get atlasmigration tenant-acme`
+- [ ] Verify deterministic schema created: `\dn tenant_acme` in CNPG cluster
+- [ ] Verify schema owner role: `\du tenant_acme_role`
 - [ ] Verify tenant metadata in control plane database
-- [ ] Verify Supabase baseline tables (`auth.*`, `storage.*`, `public.*`) exist in tenant schema
-- [ ] Verify tenant can access their schema via PostgREST with JWT from Hub Ory
-- [ ] Verify PostgREST routes to correct schema based on JWT `tenant_id` claim
+- [ ] Verify baseline tables exist in `tenant_acme` schema
+- [ ] Verify AtlasMigration CR status: `Ready=True`
+- [ ] Verify PostgREST `db-schemas` includes `tenant_acme`
+- [ ] Verify tenant can access their schema via AgentGateway → PostgREST with JWT from Hub Ory
+- [ ] Verify AgentGateway validates JWT and forwards with `X-Tenant-ID` header
+- [ ] Verify PostgREST sets `search_path=tenant_acme` based on `X-Tenant-ID` header
+- [ ] Verify PgBouncer transaction pooling (no session state leakage between requests)
+- [ ] Verify Atlas Operator drift detection: manually alter schema, wait 60s, verify auto-repair
 
 ---
 
@@ -515,13 +584,16 @@ The following features are explicitly deferred to later phases:
 - **Grafana Alloy**: Metrics collection and forwarding (v1.0+)
 - **Atlas Kubernetes Operator**: GitOps-driven database migration engine with drift detection (v0.3+)
 - **Atlas Cloud**: Optional SaaS for migration visibility and schema visualization
-- **PostgREST**: Auto-generated REST API for PostgreSQL with JWT authentication (v12.0+)
+- **PostgREST**: Auto-generated REST API for PostgreSQL, exposed only through AgentGateway (v12.0+)
+- **AgentGateway**: Authentication gateway that validates JWTs and routes to PostgREST
 - **Ory Kratos**: Identity and user management system (v1.0+)
 - **Ory Hydra**: OAuth2 and OpenID Connect server (v2.2+)
 
 ### 8.2 Internal Dependencies
 - Hub cluster must be provisioned and operational
 - Hub Ory Kratos/Hydra must be deployed and configured
+- AgentGateway must be deployed to each Spoke Pool cluster
+- AgentGateway must be configured with Hub Ory JWKS endpoint
 - Hub ArgoCD must be configured with ApplicationSets
 - Hub NATS JetStream must be running
 - Hub Spire Server must be running
@@ -531,7 +603,9 @@ The following features are explicitly deferred to later phases:
 - Atlas Operator must be deployed to each Spoke Pool cluster
 - PostgREST must be deployed to each Spoke Pool cluster
 - SQL migration repository must be initialized in Git
-- Migration repository structure: `migrations/supabase-baseline/YYYYMMDDHHMMSS_*.sql`
+- Migration repository structure: `migrations/tenant-baseline/YYYYMMDDHHMMSS_*.sql`
+- Fleet registry repository: `fleet-registry/tenants/<tenant-id>/values.yaml` for tenant intent
+- Universal Tenant Helm Chart: `charts/universal-tenant/` with templates for all tenant resources
 - Atlas Cloud token (optional, for enhanced visibility)
 
 ### 8.3 Prerequisite Configuration
@@ -541,7 +615,8 @@ The following features are explicitly deferred to later phases:
 - Spire Server trust domain configured: `zero-ops.io`
 - VictoriaMetrics remote_write endpoint configured
 - Control plane database schema initialized
-- Supabase baseline migrations prepared in Git
+- Tenant baseline migrations prepared in Git (`migrations/tenant-baseline/`)
+- Fleet registry repository initialized (`fleet-registry/tenants/`)
 - Atlas Operator installed via Helm: `helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator`
 - AtlasMigration CRD registered in Spoke Pool clusters
 - Migration engine connection credentials configured
@@ -572,11 +647,12 @@ The following features are explicitly deferred to later phases:
 - **Cell Provisioning Time**: < 15 minutes (P95)
 - **Cell Provisioning Success Rate**: > 99%
 - **Tenant Placement Latency**: < 1 second (P99)
-- **Tenant Schema Provisioning Time**: < 5 seconds (P95) - CREATE SCHEMA + Supabase baseline migrations
+- **Tenant Schema Provisioning Time**: < 5 seconds (P95) - GitOps commit → ArgoCD sync → Atlas apply
 - **ArgoCD Cluster Discovery Time**: < 30 seconds (P95)
 - **Migration Execution Time**: < 3 seconds (P95)
-- **JWT Validation Time**: < 10ms (P95) - cached tokens
-- **PostgREST Request Latency**: < 50ms (P95) - excluding database query time
+- **JWT Validation Time (Cached)**: < 1ms (P95) - in-memory cache lookup in PostgREST
+- **JWT Validation Time (Uncached)**: < 50ms (P95) - AgentGateway validates, PostgREST caches
+- **PostgREST Request Latency**: < 50ms (P95) - excluding database query time (receives pre-authenticated requests)
 
 ### 10.2 Reliability Metrics
 - **Cell Uptime**: > 99.9%
@@ -615,13 +691,17 @@ The following features are explicitly deferred to later phases:
 | **AtlasMigration** | Custom Resource (CR) that defines database migrations in a declarative, GitOps-friendly manner |
 | **Control Plane Database** | PostgreSQL database storing tenant metadata, cell assignments, and provisioning state |
 | **Transaction Pooling** | PgBouncer mode that reuses connections between transactions (required for high tenant density) |
-| **Supabase Baseline** | Standard Supabase table structure (`auth.*`, `storage.*`, `public.*`) applied within each tenant schema |
+| **Tenant Baseline** | Standard tenant table structure applied within each `tenant_<id>` schema via Atlas migrations |
+| **Sync Waves** | ArgoCD annotation-based dependency ordering (wave 0-4) ensuring components deploy in correct sequence |
+| **Fleet Registry** | Git repository (`fleet-registry/tenants/<tenant-id>/values.yaml`) storing tenant intent as Helm values |
+| **Universal Tenant Chart** | Helm chart that generates all tenant CRs from values.yaml (platform policy in templates, tenant input in values) |
 | **Drift Detection** | Continuous reconciliation by Atlas Operator comparing Git (desired) vs Schema (actual) state |
-| **PostgREST** | Auto-generated REST API for PostgreSQL with JWT authentication and schema routing |
+| **PostgREST** | Auto-generated REST API for PostgreSQL with in-memory JWT cache, exposed only through AgentGateway |
+| **AgentGateway** | Authentication gateway that validates JWTs using Hub Ory JWKS and routes to PostgREST |
 | **Ory Kratos** | Identity and user management system deployed in Hub for centralized authentication |
 | **Ory Hydra** | OAuth2/OIDC server deployed in Hub for token issuance |
-| **JWKS** | JSON Web Key Set - public keys used to validate JWT signatures |
-| **Schema Routing** | PostgREST mechanism to route requests to correct tenant schema based on JWT claims |
+| **JWKS** | JSON Web Key Set - public keys used by AgentGateway to validate JWT signatures |
+| **Schema Routing** | AgentGateway extracts `tenant_id` from JWT, forwards as `X-Tenant-ID` header to PostgREST |
 
 ---
 
