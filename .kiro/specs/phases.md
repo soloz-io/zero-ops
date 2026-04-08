@@ -19,18 +19,30 @@ You should start with **Phase 1: The SaaS Template (Crossplane)**. Do not write 
     *   `spire-agent` (for mTLS identity)
     *   The Shared CNPG Cluster (the database engine for the 100 starter tenants).
 *   **Outcome:** You can spin up "Spoke Pool 02" with a single declarative file, and it automatically registers itself with the Hub's ArgoCD, ready to accept tenants.
-*   **Note:** Phase 1 implementation also includes tenant schema provisioning (Phase 3), control plane tenant management (Phase 3), and capacity tracking (Phase 3) to deliver end-to-end functionality.
+*   **Note:** Phase 1 implementation also includes tenant schema provisioning (Phase 3) to deliver end-to-end functionality. Tenant metadata management, capacity tracking, and placement logic are deferred to Phase 2.
 
 #### Phase 2: The HeadLamp Integration (Spoke Controller)
 **Goal:** Close the feedback loop. The Hub needs to know when a tenant is actually ready without querying the K8s API directly.
 Dynamic Kubeconfig Generation (Production, Scalable)
-*   **Deliverable 3:** Hub-Spoke Fleet management UI.
+*   **Deliverable 1:** Hub-Spoke Fleet management UI.
+*   **Deliverable 2:** Spoke Controller for status sync (Spoke → Hub).
+*   **Deliverable 3:** Hub Centralised DB for cell metadata storage.
+*   **Deliverable 4:** Cell capacity tracking and tenant placement logic.
+*   **Deliverable 5:** Tenant metadata management in Control Plane DB.
+
 Create a sidecar controller that:
 
 Watches AINativeSaaS XRs in Hub
 When Spoke Silo provisioned → generates kubeconfig with limited RBAC
 Writes kubeconfig to shared volume
 Headlamp auto-reloads (uses fsnotify watcher)
+
+**Additional Features:**
+- Cell health monitoring dashboard
+- Automatic cell provisioning on capacity exhaustion
+- Cell rebalancing (moving tenants between cells)
+- Cell decommissioning (draining and deleting cells)
+- Multi-region cell provisioning
 
 #### Phase 3: The Blueprint (`AINativeSaaS` XRD & Composition A)
 **Goal:** Define the exact Kubernetes footprint of a Starter Tenant (the "200 planes" model) so Crossplane knows how to stamp them out.

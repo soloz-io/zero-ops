@@ -35,8 +35,7 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 | Role | Responsibility | Success Metric |
 |------|---------------|----------------|
 | Platform Admin | Provision and monitor Spoke Pool cells | Cell provisioning time < 15 min |
-| SRE Team | Ensure cell health and capacity planning | Zero manual cluster configuration |
-| Tenant Onboarding System | Place new tenants into available cells | Tenant placement latency < 1 sec |
+| SRE Team | Ensure cell health | Zero manual cluster configuration |
 | Development Team | Implement Crossplane compositions and ArgoCD ApplicationSets | All acceptance tests pass |
 
 ---
@@ -130,13 +129,6 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 
 ### 3.5 Control Plane Responsibilities
 
-**FR-5.1: Tenant Metadata Management**
-- **Description**: Control plane maintains tenant registry with cell assignments
-- **Acceptance Criteria**:
-  - Tenant registry stores: tenant-id, assigned cell-id, schema name, provisioning status
-  - Registry is stored in control plane database (not Kubernetes API)
-  - Registry is queryable for capacity planning and tenant placement
-
 **FR-5.2: GitOps-Driven Schema Provisioning (Universal Tenant Helm Chart Pattern)**
 - **Description**: MCP API commits tenant intent (values.yaml), Helm generates CRs, ArgoCD syncs, Atlas Operator applies migrations
 - **Acceptance Criteria**:
@@ -173,30 +165,6 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - Partial failures are reconciled automatically
   - Provisioning status is tracked: pending, provisioning, ready, failed
   - Failed tenants are flagged for manual intervention after 5 retries
-
-### 3.6 Cell Capacity Management
-
-**FR-6.1: Capacity Tracking (Control Plane Driven)**
-- **Description**: Control plane maintains tenant-to-cell mapping for capacity tracking
-- **Acceptance Criteria**:
-  - Control plane database stores tenant-to-cell mapping
-  - Capacity is calculated using control plane data, not Kubernetes API
-  - Kubernetes labels (cell-id on AINativeSaaS XR) are treated as derived state only
-  - Capacity query completes in < 100ms (database query, not K8s API call)
-
-**FR-6.2: Tenant Placement**
-- **Description**: New tenants are placed into the least-loaded available cell
-- **Acceptance Criteria**:
-  - MCP `tenant_create` queries all cells and selects cell with lowest tenant count
-  - Tenant's AINativeSaaS XR includes label: `cell-id: <selected-cell>`
-  - Placement decision completes in < 1 second
-
-**FR-3.3: Capacity Exhaustion Handling**
-- **Description**: System returns error when all cells are at capacity
-- **Acceptance Criteria**:
-  - If all cells have `tenant_count >= maxTenantCapacity`, return error: "Capacity Exhausted"
-  - Error message includes guidance: "Contact Platform Admin to provision additional cells"
-  - No automatic cell provisioning in Phase 1 (deferred to Platform Admin)
 
 ### 3.4 Tenant Schema Provisioning
 
@@ -279,7 +247,6 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 
 ### 4.1 Performance
 - **NFR-1.1**: Cell provisioning completes within 15 minutes (CAPI cluster + edge catalog)
-- **NFR-1.2**: Tenant placement decision completes within 1 second
 - **NFR-1.3**: Tenant schema provisioning completes within 5 seconds (GitOps commit → ArgoCD sync → Atlas apply)
 - **NFR-1.4**: ArgoCD cluster discovery completes within 30 seconds of CAPI cluster Ready
 - **NFR-1.5**: JWT validation completes within 1ms (P95) for cached tokens (in-memory lookup in PostgREST)
@@ -480,14 +447,7 @@ Acceptance Criteria:
 - [ ] Grafana Alloy forwards metrics to Hub VictoriaMetrics
 - [ ] Atlas Operator deployed and ready
 
-**AC-5: Tenant Placement Logic**
-- [ ] Control plane queries tenant count per cell from control plane database
-- [ ] Placement algorithm selects least-loaded cell
-- [ ] Tenant metadata is written to control plane database with cell assignment
-- [ ] Tenant XR includes cell-id label
-- [ ] Placement decision completes in < 1 second
-
-**AC-6: Tenant Schema Provisioning (Universal Tenant Helm Chart Pattern)**
+**AC-5: Tenant Schema Provisioning (Universal Tenant Helm Chart Pattern)**
 - [ ] Schema migrations are stored in Git repository: `migrations/tenant-baseline/YYYYMMDDHHMMSS_*.sql`
 - [ ] Migration files follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
 - [ ] Universal Tenant Helm Chart exists in `charts/universal-tenant/`
@@ -516,7 +476,7 @@ Acceptance Criteria:
 - [ ] PostgREST sets `search_path=tenant_<id>` based on `X-Tenant-ID` header
 - [ ] Atlas Operator reconciles drift automatically (30-60s loop)
 
-**AC-7: End-to-End Integration Test (GitOps Flow)**
+**AC-6: End-to-End Integration Test (GitOps Flow)**
 - [ ] Apply SpokePool XR: `kubectl apply -f spokepool-01.yaml`
 - [ ] Wait for cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
 - [ ] Verify ArgoCD cluster Secret: `kubectl get secret -n argocd -l cell-id=spokepool-01`
@@ -550,7 +510,7 @@ Acceptance Criteria:
 The following features are explicitly deferred to later phases:
 
 **Deferred to Phase 2+**:
-- Hub Centralised DB for cell metadata storage (using control plane DB in Phase 1)
+- Hub Centralised DB for cell metadata storage
 - Spoke Controller for status sync (Spoke → Hub)
 - Cell rebalancing (moving tenants between cells)
 - Cell decommissioning (draining and deleting cells)
@@ -558,6 +518,9 @@ The following features are explicitly deferred to later phases:
 - Tenant workload deployment (AINativeSaaS Composition for tenant namespaces)
 - Automatic cell provisioning on capacity exhaustion
 - Multi-region cell provisioning
+- Tenant metadata management in Control Plane DB
+- Cell capacity tracking and tenant placement logic
+- Cell health monitoring dashboard
 - Cell health monitoring dashboard
 - MCP server implementation (tenant provisioning API exists, but MCP interface deferred)
 
@@ -634,7 +597,6 @@ The following features are explicitly deferred to later phases:
 | Kyverno policy fails to generate ArgoCD Secret | High | Low | Add Kyverno policy validation tests; implement fallback manual registration |
 | ArgoCD Agent fails to connect to Hub | High | Medium | Pre-validate mTLS certificates; implement connection retry with exponential backoff |
 | Shared CNPG cluster reaches connection limit | High | Medium | Monitor connection count; alert at 80% capacity; enforce PgBouncer transaction pooling |
-| Tenant placement selects wrong cell | Medium | Low | Add validation logic to verify cell capacity before placement; implement placement audit log |
 | Edge catalog deployment times out | Medium | Medium | Increase ArgoCD sync timeout; implement health checks for each component |
 | Schema migration fails | High | Low | Add SQL migration validation; implement rollback mechanism for failed migrations; use idempotent migrations |
 | Control plane database unavailable | High | Low | Implement retry logic with exponential backoff; cache cell capacity data; implement circuit breaker |
@@ -646,7 +608,6 @@ The following features are explicitly deferred to later phases:
 ### 10.1 Operational Metrics
 - **Cell Provisioning Time**: < 15 minutes (P95)
 - **Cell Provisioning Success Rate**: > 99%
-- **Tenant Placement Latency**: < 1 second (P99)
 - **Tenant Schema Provisioning Time**: < 5 seconds (P95) - GitOps commit → ArgoCD sync → Atlas apply
 - **ArgoCD Cluster Discovery Time**: < 30 seconds (P95)
 - **Migration Execution Time**: < 3 seconds (P95)
