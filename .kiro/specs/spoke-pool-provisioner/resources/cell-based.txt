@@ -1,0 +1,697 @@
+https://www.youtube.com/watch?v=wYm_PJc2U8c
+
+- Perfect. Thank you. (laughs) A little staggered start there. Welcome to re:Invent, everybody. Really appreciate you being here today. I'm happy to see such
+a nice crowd turn out for a SaaS topic here. As this slide says, my
+name's Todd Golding, Solutions Architect at AWS, and for the last eight or nine years, I've very much been
+focused in the SaaS domain, and I've been working with
+teams and with customers and partners and all kinds of domains, where we've been building and delivering and optimizing SaaS
+solutions on top of AWS. And during that eight or nine
+years, we spent a lot of time as engineers typically do, figuring out how can we describe the taxonomy of SaaS, because what we found is there's, like, no one-size-fits-all notion of SaaS. Everybody has these very
+interesting deployment models, they have very interesting sort of needs and requirements in their environments. But at the same time was, like, we could, we need to give more structure to that. We need to give people some
+idea of how to do this. So we set out and defined,
+and if you've seen across some of my other
+talks on patterns and so on, this idea of siloed
+models where tenants have dedicated resource, pooled models, where tenants share resources and all kinds of variations in between. And we also talked about different sort of technology stacks. What does it look like
+to realize these patterns on top of EKS, or realize
+them on top of serverless, and what are all the nuances
+that come with doing that? And I think we did a really
+good job and done a good job. And there's lots of good
+reference architectures, lots of good content here
+at re:Invent, in fact, across all these different
+topics that give you a good sense of how to implement these different tech strategies. But what I've seen more and more lately is a lot of people who are interested in cell-based architecture. And cell-based architecture's
+a concept that's been around a very long time. It's a really great strategy for just achieving scale and resilience. Lots of good papers
+written out on and so on. But what I've seen people saying is, great cell-based architecture is good at these specific things. It's great at scale,
+it's good at resilience. But what does it mean to take all these multi-tenant SaaS concepts? Deployment, tenant isolation, tiering, all these other layers of
+architecture considerations and put them on top of, or put multi, I should say put cell-based architecture on top of these concepts? And is there some way we can create an intersection between
+cell-based architecture and all of these different
+multi-tenant principles and arrive at some new strategy? Some new model for deployment. And this model to me is one I kind of honestly wish we'd been
+talking about more long ago. The idea was sitting there in front of us. Customers have been implementing
+it, some of 'em have. But we really haven't talked a lot about, well, what does it mean then to apply cell-based technologies
+to a SaaS environment? And so that's the goal of
+this talk today, right? I really wanna give you a sense of where's the intersection
+between multi-tenancy and all these principles
+and concepts we have and the cell-based strategy. And for me, the big takeaway here is I would like more people thinking about SaaS deployment
+models, not just silo pool and all the models we had before, but I'd like them to add
+cell-based architecture to that list and say, "Is a cell-based model a good fit for me?" And what you're gonna find
+is the strategies we've advocated before, they
+still weave very much into the cell-based model. But cells bring a new dimension to this. And I want more of
+people asking themselves, "Should I be using cell-based architecture for my SaaS environment?" This is a 300 level session. I'm not gonna crack open the
+ID, and we're not gonna go through a bunch of code in here today. We're gonna just essentially look at the logical constructs
+of cell-based architecture, 'cause we have to start there
+and just what does it mean? What is it, how does it fit? And then we'll work our way
+more into implementation and mechanics and what does that mean to actually land of the architecture. And I will confess to all
+of you from the start here, this to me, is a little bit
+of a wide open landscape. There are a lot of ways to think about how cell-based can be intersected. I find that very exciting honestly, that there's a lot of new
+ways to think about this. I feel like if I give this talk next year, I probably will have a whole lot of new things to add to this. But we have to start somewhere. And I think a lot of what
+I'll present here today might even be subject to
+some debate and discussion in terms of whether or not these are the right ways to approach it. But I think we've gotta start
+moving in this direction. Now before we can get
+into cell-based specifics, we kind of have to look at the
+landscape we have right now. If you look at how people are building multi-tenant SaaS architectures right now, it's honestly a pretty challenging space. It's a pretty hard place to
+get an architecture built that really realizes the
+full promise of SaaS, right? Yes, I can get a multi-tenant
+architecture spun up. Yes, I can get one that implements some of the patterns that we've talked about. But having it really get all
+the operational efficiency and all the economies of scale and all those things that it needs to achieve is really challenging. And one of the reason that's hard is just because the workload
+profile of our customers and our tenants is
+sometimes all over the map. Sometimes we have tenants
+that have specific workloads, only exercise part of our system. Some tenants consume a
+certain time of the day. We have new tenants that
+are coming into the system, tenants that are leaving the system. And so it's just in this space alone, it's very hard to say, "Well, what's the scaling strategy here? What's the resilience story?
+What's the isolation story?" Because, like, the landscape of your environment is
+changing all the time. Then on the other side of this
+equation, we have all these tech sort of considerations
+for multi-tenancy. If we look just at the compute
+stack, what do I do with EKS? I'm gonna use Karpenter and I'm gonna use namespace
+per tenant, and I'm gonna... Am I gonna use node groups
+and, like, there's 100 knobs and dials to figure out
+what scale and resilience and what strategy works
+there and dialing that in, and getting that just right, pretty hard. It works. We can all get it
+to work but it's challenging. Same thing happens with storage. We look at storage and we're like, "Well, how am I gonna isolate
+tenant storage potentially? How am I gonna partition, and then how am I even gonna size storage? Am I gonna use RDS and then I'm gonna have to pick a specific instance size, because I'm not using serverless, and is that instant size right today but then wrong tomorrow? Do I have to resize my (indistinct)?" We always talk about right sizing storage. It becomes a huge challenge to figure out, how do I right size the storage to fit the needs of my business? This is again, about
+chasing these economies of scale and efficiency, right? And then you have just the
+realities of your own business. Like, what is the domain doing? What is the compliance needs that we have? What are the regulatory
+needs we're facing? How are those things
+influencing our design? And then to sort of top all that off, we have all these other principles layered over the top of that right? Noisy neighbor. How am I gonna deal with
+making sure we don't have a noisy neighbor condition? How am I going to deal with isolation across all these different parameters? How am I gonna go after
+consumption optimization? How do I make sure the
+consumption of my resources and my infrastructure aligns
+to the actual activity of my tenants? I say all this and I say it, because this is why SaaS has been such a fun and interesting domain for me. But I also have to admit
+that a lot of people struggle to meet all of these requirements
+with their architecture, and so they end up making compromises. They over-provision a little bit, because they're worried
+about the impact of that. They choose certain technologies, because they're easier than others, but may not deliver the right
+result they exactly want. It's just a hard space, and
+we're doing the best we can to try to decompose it and make it easier, but it's still challenging. The other dimension of
+this that's challenging is just the deployment model. When I say deployment model, the footprint of our
+SaaS infrastructure isn't a one-size-fits-all story either. If you look at the classic
+sort of view of SaaS, what we call this pooled environment, and we say all tenants share all infrastructure, share all storage. And I just scale that, at least have one thing to scale there. It's a little, but even
+then figuring out how to scale that effectively,
+because the tenant loads are changing all the time is tough. But then the reality
+is we don't usually get just this environment. We don't get to all just go, "Hey, just put everybody pooled
+everything and we're done." We almost always get environments where either because of our own design or because the needs of our customers, we end up having to carve
+these environments up into different deployment models. So just one example might be,
+hey, this same environment, all these tenants are sharing everything, except the analytics service, 'cause because of SLA
+considerations or compliance or whatever reason we've said,
+we have to break this out. Maybe noisy neighbor analytics is this really chatty busy service. We get a lot of noisy neighbor issues and we've decided that
+this, for this to work, at least for our premium tier tenants, potentially we're gonna give them a standalone version of that one service. And then the one reality
+that always comes up that nobody likes to talk about is, we also offer some tenants an entirely standalone
+environment, fully dedicated. We call this full stack silo, which is say, you have been willing to write a big enough
+check to my organization, and I am therefore gonna give you a fully dedicated environment. So like, then if you look
+across the landscape of this, what is my scaling, and what's
+my sort of unified approach to resilience and all those things? I have to have very targeted
+strategies potentially here that are, like, target
+each one of these things. And it may be a moving
+target that I have to think about how and when am I
+adjusting these things based on new services that come
+in or new tenant comes in, or new tiers that come in. So if we look at this,
+like, what are sort of the sort of the broader set
+of needs across all of this that are also making this complicated. And one of 'em is just any pooled resource and any deployment model
+is a challenging model to implement from a resilience
+and from an isolation and from a blast radius
+sort of perspective, right? If I put all of my tenants
+into one environment and just say, like, just
+their compute is shared for everything they do, any kind of outage in there
+could potentially cascade across all of my tenants. And better yet, how do I size it if new tenants are
+showing up all the time, if the workloads are
+changing all day long? Well, yes we can have
+dynamic scaling policies, and we'll scale up and scale down, and we'll get all the goodness of auto-scaling sort of experiences here. But it's really hard
+to write those policies in a way that really give you super-efficient delivery. So what happens is people
+over-provision here. They have no choice. They just do that as a defensive tactic, 'cause the downside of that
+is if something goes wrong, there's an outage, which
+is kind of an anti-pattern for SaaS if we could
+avoid it, but a reality. The other thing is, and you'll
+see this across all kinds of talks, there's a workshop
+here on this as well, which is the deployment model
+of these environments is also getting more and more complicated. What does it mean when I
+have some siloed resources, some pooled resources, I have tiers. Like, my onboarding and my developer deployment lifecycle has all kinds of different
+ways that it has to think about how to provision this
+and set up the infrastructure for these environments. If you just go look at the
+Kubernetes example we have, it's got Argo, it's got F.lux,
+it's got helm charts in it. It's doing all these
+things to try to keep track of different tenant
+configurations and figure out how to map those configurations
+to the right experience. And it's pretty complicated. And then we still wanna
+do things like AB releases or targeted releases here. How do we introduce that when this stuff is more distributed? And then finally the one that's becoming even more and more prominent to me is teams are more and more wanting to have a distributed footprint
+for their solutions. They're wanting to say, "I'm not just gonna run in one region. I wanna expand my business
+into new regions," or, "I just wanna run more
+workloads in my region, but I want to have a good
+unit of deployment for that." This extending your reach
+and having a deployment model that goes beyond your current footprint. How do I do that effectively
+without suddenly saying we're gonna redo our
+whole DevOps life cycle, or we're gonna rethink how we manage and operate our environment, because now we have to run multi-region. So these are all the things
+that we have to think about as we think about what it means to go to a cell-based architecture, right? And for me, this is, a lot
+of the motive for this talk and a lot of the thought
+process behind all of this was, is cell-based architecture
+potentially a simpler way? Can it at least address
+some of these challenges, make some trade-offs? It absolutely will make
+some trade-offs here that aren't all positive. But for some organizations,
+does cell-based represent a good solution to some of these problems that reduces the complexity,
+shift some of the effort and the scaling and the
+policy strategies around, and give me a little more
+flexibility as a business for those trade-offs? And that's a bit I really kind
+of think is the part I want all of you thinking about
+when you leave here today is, I'm building a brand
+new SaaS architecture, or I have an existing
+cell-base SaaS architecture, should we think about
+whether sales will open up new opportunities for us, or reduce the complexity
+of our environment? Now if we think about
+what our cells, right, if we start with our traditional sort of environment we have
+today, today we sort of think of all of the tenants as
+being in one environment. Yes, some might be siloed,
+some might be pooled, but in general, we think
+of them as being sort of collectively grouped together and surrounded by a set
+of policies and strategies that deal with them collectively. But now when we move to a
+cell-based architecture, we start thinking more
+about how can we take groups of tenants and put them into this logical construct
+that puts them together and separates them as a unit of deployment and a unit of scale? So, and this is a logical construct. This isn't something you're
+gonna go to your customers and say, "Hey, you're gonna
+be placed in cell two, and you're gonna go into cell one." This is a mechanism you
+introduce as an architect into this environment to say, "I believe that if I put
+my tenants into these cells and into these groups, that
+I can get certain advantages out of doing that." Advantages that will address scale, will address availability,
+will address resilience in ways that might be simpler than some of the strategies that we use today, or in some places might
+add a layer of complexity. But the complexity maps to some better business
+value as part of this, right? So a whole lot of this
+cell-based strategy is really asking yourself, well, how do I decide what strategy I use for my cells? Which tenants should go in which cells, and how do cells come to life, and what does it mean to scale in a multi-cell kind of environment? And those are the bits I
+really wanna look at here. But I definitely want,
+before we move on to this, like, people will say, "Are cells VPCs, or are cells accounts per tenants?" The grouping construct
+is up to you, right? This can be a just a
+tagged sort of relationship to a set of resources, or
+we'll see situations where the cell itself actually
+has infrastructure that manages and runs the cell. So there's a broad spectrum
+of possibilities here, and there are a broad
+range of technologies that can be used to do this. So let's just look at this whole
+idea of picking a strategy. And I will say right now that I think this is a wide open space. I would love to leave you here today with, here's the three things you need to do to pick a sales strategy. I can't do that. I feel like that is, like,
+an hour long discussion with any one of you to say, well, what's the right sales
+strategy for your business? But I can give you some
+sense of some extremes, and then you could ask yourself, well, how that might influence
+what sales strategy we pick. And one approach here, and
+is one extreme of this is one where we'd say, "Hey, I'm actually
+gonna take silo tenants, and I'm gonna put each of my silo tenants into their own cell." Now putting a silo tenant in a cell isn't a scaling function really. It's a deployment, it's
+a grouping function, because that tenant's gonna have their own fully siloed resources already. So we're not suddenly
+making them scale better or more resilient or more isolated. But now I'm gonna use the
+cell as a way of managing 'em as a group and managing
+their placement and so on. And then I'm gonna take my pooled tenants, the ones that share infrastructure, and I'm gonna basically say, I'm gonna start at the left
+here where you see cell one, and I'm gonna put my
+pooled tenants in here, and I'm gonna start putting
+pooled tenants in there until we reach some kind of limit. What's the limit? It could be
+number of tenants in there. It could be the consumption of resources that's happening in that pool. There's any number of sort of parameters that might determine that,
+that cell is deemed full, and therefore now we
+will add another cell. So now we add cell two and we
+repeat this process, right? We add more tenants, we reach some limit, and the cell becomes
+this unit of expansion. But what you are also seeing here, and you will get into
+this in more detail is that my scaling for that pool
+cell for cell one here is limited to just those tenants
+that are in that cell. So now whatever the
+behavior of the tenants are in that cell, I'm only
+having to build scale for that particular cell,
+even noisy neighbor. I don't have to think about noisy neighbor across all my tenants now. I have to think only about noisy
+neighbor within the context of a given cell, which
+reduces the complexity of the noisy neighbor
+story by quite a bit. And then obviously, I can map this to a tiering strategy if I want. I could say these are
+my premium tier tenants, and these are my basic tier tenants. And what you'll see here
+is that there's often a strong correlation between tiering and groups of cells just because that sort of
+fits the natural profile. Now obviously another
+approach I could take here is to say I'm gonna put
+groups of siloed tenants into cells as an alternative to this. Even if I put groups of
+siloed tenants in here, the assumption is each
+one of those tenants have their own infrastructure. They have their own
+dedicated infrastructure. So again, not having to worry a ton about noisy neighbor scale here,
+and probably more practical to put more silo tenants
+into a cell together. Because the one thing we
+don't wanna find out is, hey, we moved to a
+cell-based architecture, and we have 10,000 cells. If the number of cells we
+end up out of this is so big, then the complexity of
+having cells becomes an issue all on its own. So whatever strategy you
+choose here, you wanna think about how this strategy will influence the creation of new cells. Now an alternate way to think about this, it might be the one that is
+the way most of you might think about it is, I just start with one cell. All my tenants go into that cell, and if I have silo, and I have pool, I'm gonna put silo and
+pool in that cell together. So in this case I have a
+VPC for silo tenant one, and a VPC that's siloing tenant two. I'm using the VPC construct
+as an isolation construct of say, hey, and the scaling construct, all the resources are in that
+VPC, they scale independently. And then I put my pool
+tenants also in a VPC here, and I will also add
+them to this experience. And now I can have any mix of pooled and siloed in this cell,
+but now I just have to have a policy that's a little more complicated, which says when does this cell
+reach a unit of saturation? And by the way, it doesn't have to be, this is where I think people
+get lost on this a lot, they'll think, "Well,
+we'll scale to cell based on some sort of performance criteria. Once we get to a certain area, there's too many in there and
+therefore we've gotta move." I could scale within that
+cell still pretty effectively. I could still add tons
+of tenants into there, and it wouldn't affect
+the cell necessarily. What I would see instead
+is in that pooled VPC, I'd start to see tenants
+potentially affecting one another with noisy neighbor problems and so on. And for a complexity reason, not just 'cause I've reached
+some scale limit problem, I am going to add another
+cell to my environment. So the reason and the rationale
+for adding another cell is driven more by your own
+policies and your own desire to say there's a point
+at which I only want so many tenants in this cell, because it affects the blast
+radius of that cell it affects. So if there's an outage for
+example, in cell one also, in that pooled environment of some kind of microservice goes down, and it takes the whole cell down, or it takes at least
+the pooled tenants down, that's still not a good thing. So it's often about just how
+big of a footprint do I want in that cell before I decide
+it's time for another cell. And again, I wish I could give you more absolutes about that,
+but I feel like this is about you finding the boundaries, and it's again, about how
+many cells do you want. Now one other thing here,
+and I think this one is, I almost removed this slide, 'cause I think it's a
+little bit controversial, but my thought was could I
+have different sizing policies for different cell types? So in other words, I might
+say I've got three tiers of my system, and there's a cell type one, cell type two, cell type three for each of those systems. And could I create a
+separate sizing policy for each one of those? And the key here is I
+could say I'm gonna define for cell type one this very
+specific sizing policy, but there isn't just one
+instance of cell type one. There could be many
+instances of cell type one, many instances of cell
+type two, et cetera. But for this scaling policies, I still only have three scaling policies. So I'm not chasing hundreds
+of scaling policies. I actually feel like that's
+part of the challenge of if you look at the stuff
+we started out at the top, I end up with crazy, like, microservice level scaling policies. I end up with all these
+crazy scaling policies, and I get this explosion
+of scaling policies. in this particular model,
+if I have just cell types and certain cell types and
+those have a scaling policy, I just have to keep those specific scaling policies dialed in. But you could argue you don't need separate sizing policies here as well. I just thought this is a luxury you have in a cell-based model
+that maybe you don't have in other environments. Now if we take this and we say well, what does this look like
+when we start connecting it to actual architectures? It turns out I was actually honestly a little surprised by this. Your actual, like, if I took our serverless SaaS
+reference architecture, and I said what does it look like? What actually happens inside the cell and how that gets built,
+it's still very much built the way you build a multi-tenant
+architecture today, right? I could almost lift and shift our existing reference
+architecture straight outta this and say essentially you see on the left full stack
+pool, I've gotta cell. I've put all my pooled tenants in here, I've got an API gateway here. They share all the microservices in here. So I have order, and what product, and catalog, et cetera in this experience. And the gateway's just directing
+traffic for this particular to the cell for this
+particular environment. Now on the siloed side, it's
+a little more interesting, which is I still have dedicated
+sets of microservices here, which are copies of Lambda functions, separate copies of Lambda
+functions for tenants. And this by the way, gives me efficiencies and scale efficiencies
+and latency efficiencies. But now when my API gateway comes in, it has to actually figure
+out which silo does that need to go in this environment. And we're gonna get into
+this as a bigger, deeper part of this topic, which is this
+whole notion of indirection within the cell becomes a
+really hot part of this topic. Like, how much knowledge
+do I put in the cell to figure out how to route here? Or does that knowledge live
+at the outer edge of the cell? Now if we take the same
+thing and we take EKS and put it here, again, just a lift from our EKS
+reference architecture, maybe a slightly different
+thing here than I've got this, and maybe in our normal version of this, this would be one cluster, and the pooled would be in one name space, and then the silos would be in separate. And this case, I created
+a separate cluster for the full stack pooled environment. And then on the right hand side, I've got separate name space for each of the siloed tenants
+on the right hand side. But it's still all just
+whatever ingress controller, NGINX or Istio or whatever
+it's you're using here to figure out how to get
+this stuff routed into here. So the good news of cells to
+me is, like, you don't have to suddenly go and say we are gonna build our architecture entirely differently. It's more about how do
+we land our architecture inside these cells and do
+whatever sort of retrofits we have to have to get that to work. Now one other concept here is this question of groups of cells. And I included this just 'cause
+I feel like this was going to come up, which is, is there
+another unit of grouping? And it feels like a layer of grouping on a layer of grouping
+on a layer of grouping. But the truth is, there
+may be instances that would drive you to say I need
+groups of cells as well. So on the left hand side for example, here you'll see I put
+accounts around sets of cells. And the idea here is that
+if I have account limits, or I'm facing account limits
+and I'm scaling out my cells, and I'm starting to hit account limits, I might then spin up another account and put the next set of
+cells in another account. Again, another level
+of indirection though, 'cause now I have to
+know which tenants are in which cells, which are in which group, which gets more interesting. I think VPC is also another way that you could approach this
+grouping concept as well. Now one of the really big areas
+where I feel like cells have a super compelling story, like, almost everybody I'm talking
+to about multi-region, one of the first things comes up is, should we be thinking about
+cell-based architecture? Because if you think about what
+a cell is, a cell is a unit of deployment beyond all
+the other things it is. And if we have a team and
+we've built an architecture and suddenly we say,
+"Hey, I wanna now deploy into Europe somewhere, I
+wanna deploy into Canada or wherever, somewhere where
+there's a different region, we're actually gonna host our solution or run part of our
+solution in that region." Well, I've already gone to the
+trouble of building this cell and this cell is this already
+this grouping of tenants. I have all the DevOps bits around that, I have all the moving parts
+around that to make that work. Now I just have to get that
+deployed into another region. And yes, there's work to
+do to support multi-region, and it will change your DevOps story, and it'll change your
+ops story to some degree. But it's a much simpler
+transition here, right? If now a cell is just
+another thing you deploy into another region, but it still rolls up into your operational experience same way, it still rolls up into your
+DevOps experience the same way. And to me this is one of
+the most compelling areas for cell-based architecture
+that you will find. Okay, so then the next thing
+is, like, what does it mean to actually bring these cells to life, and how do we scale them, and what does it mean
+at runtime to scale them and what strategies we might use? And again, this is an area
+where I think there's all kinds of permutations, but I tried
+to put two specific together that I thought represented a
+continuum of possibilities. One is what I call pre-provisioned cells. And the pre-provisioned cell
+model we're essentially saying we're gonna go create three cells in this example ahead of time. They're already created, they're empty, there's nothing there. As part of the setup of my environment, I pre-provision the cells,
+set them up, configured them. And then as tenants onboard
+into my environment, I ask questions about where
+that tenant should be placed. And my onboarding process looks
+at the profile, the tenant, the tier of the tenant, the
+current makeup of the cell, and says where's the best
+place to put this tenant? And it places it in cell one, and then this process continues. Oh, well, now based on the
+profile of this tenant, I'm gonna put them in cell three, and this one's gonna go into cell two. And you can just sort of imagine how this pattern repeats across here. And so this is very much
+about strategic placement of tenants across a
+pre-provisioned set of cells. The alternative to this is what I would call load-based
+cell provisioning. And this one is more like, hey, I'm dynamically,
+horizontally scaling my cell. So in this model I start with one cell. I fully load that cell
+up until I reach, again, whatever my notion of a
+limit for that cell is. And again, you have to
+define what that limit is. And then when I reach that limit, I will now provision
+on demand a next cell. I'll put the next set of
+tenants in that cell and so on. And we repeat this process, right? Now the reality is even
+on the left hand side with pre-provisioned, you're
+still gonna reach a point where you might fill all the
+cells you pre-provisioned. You're still gonna have to think about when do the next
+set of cells come along? Is that three more pre-provisioned cells to start loading the
+next tenants and so on. But the thing I most want
+you to think about here is, like, what is your
+scaling strategy gonna be? And do I have too many idle resources if I pre-provision and I don't like that, or what's running in the cell, is anything running in the cell? And so it doesn't cost me
+anything to pre-provision. So you have to decide
+how that's gonna work. The other piece of this cell
+story that doesn't get talked about though, is the fact that
+these cells aren't static. They have a life cycle. Like, tenants come and go. So yes, I put a bunch
+of tenants out there, and this is what a snapshot of
+what these tenants look like at a moment in time. Cells one and two have been sort of populated pretty heavily. Cell three, it was a provision
+and created a while ago, and I've added a few tenants to it. But now tenants might go away for example. So I might have a tenant go away, or a tenant's workload might change, and I have to think about
+whether or not I need to rebalance my cells. Imagine I just have a cell and over time, the cell, like, half the
+tenants in that cell have left and are no longer tenants in the system. Do I just leave that
+tenant, that cell there, and where's the point at
+which I decided I need to do something about that? And in this particular example I said, hey, I've got cell one
+has a lot of capacity, cell two is starting to fill up. I'm gonna move a tenant
+from cell two to cell one. The better example
+though is, like, imagine a noisy neighbor situation. Like, I populated cell one. This tenant started out
+as a really small tenant. They weren't doing a bunch, but now they're consuming
+a ton of resources. They're creating noisy neighbor conditions and my cell is overpopulated. Might I move that cell, that tenant out, and move them to another cell where that will cause less of a problem? Now the mechanics of
+implementing this won't be easy. Like, it depends on your architecture and how a cell, how a
+tenant is bound to a cell. But this was not, like, a
+for free kind of concept. There is some work here
+to get this to work. But I do believe that it's
+super important for you to think about what is your overall sort of lifecycle of these cells, and how are they going
+to evolve over time. So now I talked about sharding and so on, and, like, let's make this
+a little bit more concrete, and what would it really mean
+to onboard a tenant, right? And I'll start with this control plane. If you've seen a lot of our talks, we break SaaS into these two halves. We always talk about a control plane, which is the cross-cutting
+horizontal bits of everything managing the multi-tenant environment. And then you'll see we get into
+this notion of an app plane, which is where all the actual,
+like, scaling of the app and all the isolation
+of the app come to life. Well, onboarding happens
+inside the control plane and we always, you'll see
+in all of our examples, there's some notion of onboarding
+inside the control plane. And that onboarding gives us a way to automate and remove friction for all the moving parts
+of your SaaS architecture, and really make it a frictionless way for you to do everything you do to introduce a new tenant in the system. Well, now when we introduce
+a new tenant in the system, our onboarding has to think about cells, and what does that mean
+to do this with cells, and how will cells change the way we might onboard
+tenants into our environment? So now when a tenant comes in and they wanna onboard in the system, one of the things we're probably
+gonna do is ask ourselves where does this tenant need to land? And this is just one possible
+way to implement this. I might have a cell insights service inside of my control plane
+now that's a new service that essentially says, what's the current work
+profile of tenants? And it'll essentially say to
+you, "Hey, based on everything and the profile of this
+tenant and everything else, here is the best placement strategy for this particular tenant." And it might say, "Oh, just
+place them into cell one, perfectly good place to land them. All is good and we're done." Well, or it might come back and say, "Hey, we actually need
+to provision a new cell. We need to place that tenant in a new cell and we'll do that process." Now the piece of this
+that is really simple but could easily get overlooked here is once we place tenants in cells, we have to remember where we place them, because a lot of the
+downstream work we're gonna do with routing and a lot of
+other work we're gonna do here relies on remembering that. So when we come back, as part
+of our tenant management, we always talk about tenant
+management holding tenant state and all these tenant policies, and all this other data about our tenants. We have another bit of policy data we have to manage and store here. And the data is the tenants cell mapping, which tenants map to which cells. And potentially more data here,
+like, what URL entry points or what other data might
+I need to be able to, when I finally come through
+here and try to access a tenant or deploy to a tenant, I will know where that information is. So this onboarding story is where we start to wander into the area that I think is the more controversial and
+the more debatable part of this topic, which is okay, we've got a control plane. And now we have these cells, and this control plane provisions these cells and sets them up. But then typically if I just drew you a SaaS solution without cells, I'd say there's a control
+plane and there's an app plane, and then whatever lands in that app plane, name space per tenant or
+separate serverless functions or ECS, I've used different models, separate accounts per tenant. Whatever it is, there's
+usually one logical app plane on the other side of this story, and that app plane is
+integrated with a control plane, it gets telemetry back from the app plane. And that's the way we'd
+normally draw that. Well, now we have cells, and cells have to have their own app plane within each one of them. And so now we have to figure out, well, what does it mean in terms
+of the responsibility for the creation of that plane? 'Cause normally we'd say we'll
+create the app plane once. It's part of our baseline
+provisioning. We're done. Now we have to say something
+has to create that app plane. And if I'm creating cells on the fly, I'm gonna have to create
+potentially new app planes on the flow of my
+onboarding that distributed. The responsibility of this changes. In fact, if you look at
+our reference architectures out there that you'll see,
+you'll see we struggle with what's the roles and
+responsibilities of control plane? What's the role and
+responsibility of the app plane? If you go, I'm doing a
+talk on something called SaaS builder toolkit later this week, that's a newer thing we have. And it splits this down into very distinct control and app planes, and the control plane owns
+part of the onboarding, and the app plane owns
+part of that onboarding. And there's a lot of
+discussion goes outta that. Well, now cells, add a whole
+nother layer to that discussion in the life cycle of how
+these things come to be. So here's a couple of
+ways to think about it. One is you could say the
+cell is a logical construct. It's sure I know who belongs to what cell, and I use this as this
+unit of scale and so on. But from the control plane to
+the app planes perspective, it's just a native interaction, the same way it is today. It's just gonna talk to multiple app planes
+instead of just one. But in all respects, the cell
+is playing a minimal role in the control plane
+app plane integration. Now, if we take another approach to this, and this is where we start to
+get into the slippery slope is does the cell encapsulate the lifecycle of the resources it needs to bring the tenant to life? Can we push some of that
+responsibility into the cell? Which means now the cell isn't
+just a grouping construct. The cell actually has infrastructure. The cell has BITS in their services. It may have a gateway. We'll see all kinds of things
+that could land in there. And that's the bit where you
+have to make this decision as I go down this path, does the cell move from being just a destination and an organizational construct
+to actually encapsulating and owning some of the
+functionality within that cell? So in this case, I put an API on the cell. The cell gets an onboarding event, and then the services in the
+cell decide what it means to bring that to life. It also sends telemetry
+back through there. And how it gets back is up to whatever the cell has determined
+to capture about this. And if we do have cell-based
+telemetry, in fact, these services may be necessary to get the cell telemetry out in addition to the tenant
+telemetry out of this. So to me, there's no right
+or wrong in this choice. You might start on the
+left and eventually decide to do something on the right,
+but it is a big choice, I feel like in this cell-based model. The other area where
+this same problem becomes interesting is when we
+look at deployments. Now I have cells, and I have
+to deploy a new microservice. So my dev team is, somebody's
+written a new microservice, that microservice needs to get deployed, and it needs to get
+deployed to these services. And the simple view of this would be, yes, my pipeline knows something
+about the cells that I have. It's got that mapping and it knows how many cells
+are in my environment, and I'll just deploy to all
+three cells and I'm done. But the reality is inside those cells, depending on which deployment
+strategy you've taken, imagine an environment where I have a mix of siloed and pooled resources in there. And it's a dynamic relationship, right? There's no fixed. There
+are two siloed in one pool. Tomorrow there could be four silo and there could be a few more
+tenants in the pool, right? That makeup of that could be shifting all the time inside the cell. Well, now who owns the
+deployment of this, right? Does the cell say, like, I know who's siloed, who's pooled in here. 'Cause in a deployment
+model, when you're deploying, you have to know, oh, I gotta
+deliver to these two silos and I have to deliver to this pool when I'm deploying this
+new microservice, right? Is that responsibility
+owned inside the cell or does the pipeline know
+what that mapping is? The more I push that mapping outside, the more the implementation of the cell is more distributed to others. But maybe it's simple enough
+that it's not a problem. But now I've gotta think about that and figure out how that distributes across the entire deployment model. So again, who owns it? A
+key choice you have to make. Now, just to give you a sense of what that might look like, if something lived in the cell, and I kind of took the
+extreme example of this. Let's say that I've decided to put some implementation in the cell. So now the cell actually
+gets provision infrastructure and services and things of
+that nature inside of it that are separate than my app plane. And in this case, I've got a cell. Let's say that cell is filled up. I hit the onboarding process. I say I'm gonna go to cell
+provisioning and see what I have to do to figure out for
+placements of this new tenant. I will look at this insights
+and metrics to figure out where and how I should place this tenant. And let's say in this particular example, I've decided I need a new cell. Well, now when I provision this new cell, I'm not just creating, here's cell two, and here's the mapping
+of cell two, I'm done. I'm actually gonna go provision whatever else needs to be in that. What other cell-specific
+infrastructure needs to live. And this is before any tenant is in there. Do I have to provision an app plane? Do I have to set up a gateway
+that's gonna handle routing potentially within the cell? Do I have to set up specific
+deployment mechanisms that will deal with figuring out how to map to the placement of
+tenants within that cell? It's an extreme example. I would like there not to be a ton of... I wouldn't hate to think
+that we, like, end up with this massive cluster infrastructure to make all this work. But it's realistic to think
+that you might wanna push some of that knowledge into the cluster. So now when I onboard a tenant,
+the rest of the tenant here, I've got the cell and all
+those other bits done, then I can actually place the
+tenant inside that new cell. So two separate halves of this process. One provisioning of the cell and set up all of its instructure, part two, which is provision
+the tenant into that space. So again, I think me and
+my team will probably talk about this a ton as we
+go forward and figure out where's the boundary here,
+what's the best practices? But an area... Oh, by the way I left the last step here. Developer hits the
+deployment side of this, and that hits it all. So we have the onboarding half of this and the deployment half of this. Okay, so the next thing we
+have to look at is, like, how do cells affect routing? If you looked at any cell-based, sorry, any multi-tenant architecture, you'll know that routing is
+an area that we also have to spend a ton of time
+in discussion, right? How do we, if you just
+said no cells at all, and just said I have an EKS environment and I have name spaces and I have sub-domains
+coming in as my tenant, somehow I have to get from
+that tenant sub-domain to the specific name
+space for this tenant. That problem exists no matter what. So we always have to do this. But now we have another
+level of indirection here, which is now these tenants are in cells. So I don't just have to know which infrastructure to map them to. I have to know which cell to map them to. So whatever routing tool
+we use, API Gateway, Istio, Ingress, NGINX, whatever it is. Now we have to have
+something that knows how to map these tenants to their cells and potentially go from
+sub-domain or vanity domain or whatever to make that routing work and then land and send the JOT. In this case, we always talk
+about JOTs here as a way to pass through that tenant context. And when that tenant
+context flows into the cell, if these are pooled environments, I could just, fully pooled environments, I could just flow right into the cell and be done and everything works great. But what if there's siloed workflows inside these environments as well? Now this gets back to
+another level of indirection. Is there more routing, is
+the routing in the cell, or does the routing at
+the outer layer know what infrastructure is
+in, which tenants are inside those cells and
+successfully do the mapping there? Same exact problem we were
+talking about before, which is like, I obviously hate
+a routing to a routing and all these layers of routing going on, but this is a decision you have to make in the cell-based world, especially if you're
+doing siloed environments. Now, if we just took this and
+took the simple version of it and like I told you earlier, these new architectures
+end up looking very much like they do with or without cells. You'll see when we look
+at, if we look at our EKS, sorry, our serverless
+reference architecture, you'll see that we have these environments where we basically put an API gateway in front of the functions, and we just route to the
+appropriate functions within them. That model here is the same. We get the API gateway except now we have an API gateway sitting
+in front of the cell instead of directly in front of this. And then the question is, is there another API
+gateway inside the cell? It seems like I prefer not to do that. Again, pooled, it all works fine. Siloed is where it gets tricky. Now the other one here
+is, and another area, 'cause we talk about routing, is we see more and more companies that are saying, well, some are part of my system
+or some of my tenants need to run potential in another
+environment that I don't manage. It could just be in
+another account on AWS, could be on premises, could
+be all, and many are patterns. We refer to this as SaaS anywhere. And we see more and more people are, like, having to deal with this
+more distributed footprint of something running remote
+and something running local. Well, there are at least... The cell to architecture
+doesn't work perfectly for this, but you can see where
+there are opportunities with cell-based architecture
+to really, like, especially if it's like,
+hey, I have a group of tenants that have
+to run another account. The cell becomes a natural
+way to make that jump. Now the logical and the
+best case scenarios, I saved them for the last. Like, the advantages that
+are the obvious advantage is of cell-based architecture
+for multi-tenancy, one of them is clearly
+noisy neighbor, right? If you just think of a challenge
+of chasing noisy neighbor, and if you've had to do that
+in a multi-tenant environment, it can be really rough, 'cause
+who's noisy neighbor today, is it noisy neighbor tomorrow? And how do we just, how do
+we avoid over-provisioning all the time to deal with
+these noisy neighbors? Like, just the fact that we've limited, and I've already talked
+about a little bit, the fact that we've
+limited the blast radius of noisy neighbor to a cell means that the noisy neighbor
+problem is less of an issue. You can still get noisy
+neighbor within the cell, but the scope and the nature
+and the exposure you have for noisy neighbor is much smaller, and it's potential to
+impact, even if it happens, it happens in a cell. It doesn't affect every tenant. it affects only the tenants in that cell. And for many, sometimes
+this reason alone is a reason that people will
+choose a cell-based architecture for multi-tenancy just
+because their policies for dealing with noisy
+neighbor get much simpler. Tenant isolation is the other
+one where we see people talk a lot about cell-based architectures, and they'll use cells
+as a way to deal with, hey, I'll put a boundary
+between these tenants. I'll use cells as a way, another layer of isolation in our environment. And really the main
+advantage you get here is that you now, when you
+get a router, you come in, you're routing, and you now
+have both the tenant context and you have the cell context. And so when I provision a
+cell and I set up these cells, one of the things you'll
+see me do now is create a cell isolation policy. Something we haven't
+ever talked about before. You'll see, like, this is the
+traditionally the use of like, hey, I set up A VPC and
+when I set up the VPC, I set up the isolation
+policy for that VPC. Well, now you have to
+do this for the cell. So it depends on what grouping
+construct you've used. But when I set up the cell policy, I set it up when I provision the cell, and then I set it up
+in a way that I ensure that I don't have any ability
+to cross between the cells. So anytime we're building
+any isolation construct in a multi-tenant environment,
+we wanna be sure that at every layer we're
+preventing any boundary. And in this case, we can do a
+coarse-grained isolation model here by having isolation
+at the cell level. But then we also have our traditional tenant
+isolation policies that come in, where this is often IM, and
+if these are siloed resources, if it were serverless at
+the time of deployment, I could attach an IM policy
+to the individual functions that are part of this in Lambda. And this would prevent sort of within the cell crossover as well. But that is a traditional technique we've already used before, just
+realized inside the cell model. The last one, and this
+one is the one that a lot of the classic sort of purists that deal with cell-based boundaries, they think about the number
+one reason is resilience. Like, and what's cool about
+cell-based architecture is just naturally gives
+you a scope resilience, but there's nothing exotic
+to say about it really, other than to say, hey,
+if I put all these tenants into a cell together, no matter what, if something goes wrong inside that cell, the blast training of that
+issue is contained to that cell. This is the sort of
+bulkhead model of resilience that you'll see people
+talk about, which is, I've got a ship, the ship has bulkheads. If the ship hits something
+and one of the bulkheads fills with water, the ship still floats. Just that one, the sort
+of, the issue is contained to that one bulkhead. And to me, this is another area which is just bread and butter. Natural reason why
+people would choose this, just because they're
+saying for our business, we're always struggling,
+and if there is an outage, we wanna contain that outage. Or if we have a deployment and a deployment affects somebody, it will be limited to just that one cell. In fact, in general cells, kind of as we talked about deployment being a problem earlier, now when you think about wave deployments, and when you think about AB rollouts, the cell can now be a way to target your deployments more carefully. And then the resilience of
+any kind of issue that happens to deployment can be
+applied at the cell level. Now the other area you
+have to think about is how do cells affect operations
+for your organization, right? And cells have two dimensions here. First of all, just the
+telemetry we need from cells and aggregating data from cells. We're gonna need new data
+surfaced in our experience, right? And we're gonna have to have new ways that the cells send us data
+about their experience. And there's new things to aggregate here. So there's some added overhead
+here of just implementing all the work to get all
+that plumbing in place. But then the other thing is
+you have to add cells as a unit of sort of operational
+visibility inside your org. I wanna know now, how
+are cells performing? Is the cell unstable? Is there some noisy neighbor
+activity going on in cell? Does the cell need to be shut down and no longer allow any new tenants to go into that cell based on something
+that's going on in there? Fundamentally, we just
+want cells to surface in the dashboard of your
+multi-tenant environment in a way that I can ask
+questions about the behavior and anticipate issues that
+are coming up with cells, and just generally figure out, is my cell sharding strategy working? Is my cell scaling
+strategy really working? Because generally you're going to be evolving your approach here a ton. And without these insights, you have no sense of is it
+working, is it not working? What's wrong, what's broken,
+what's good, what's not good? Well, and then the hardest
+part of this is, like, so what is your cell strategy? And I would say to anybody, if you're gonna go into this space and you're gonna bite
+off the cell strategy, and you're deciding you're gonna
+use cell-based deployments, you have to start and work backwards from what are cells going
+to bring to my experience? Like, don't just like, cells are cool. I like the tech of cells,
+I like the resilience. Let's just go do cells. I'm all in. You really need to work
+backwards from, like, what is the scaling nature? How many tenants in your environment? What's the scaling nature
+of your organization? Are you trying to go
+multi-region with your footprint? Is there a noisy neighbor problem you already know that you're gonna face? Or is there some sort of tiering strategy in your organizations, and
+you wanna use different cells as a way to realize that tiering strategy? You have to, and this is something I say across all the talks that I do, you have to ask those
+business questions first and not just go after cells. Now you as an architect, the
+business isn't gonna know, hey, we want cell-based architecture. Like, let's go there. It's still gonna be your
+job to tell them why is cell-based architecture a good idea? You're gonna have to articulate, you know, why and how you should
+consider this and what factors and what value it's gonna
+bring to the business. But if you do a good job
+with that, I feel like for some organizations this
+is gonna be a really good fit. In fact, I almost feel like I'm guilty for not having talked about
+cell-based architecture more, just 'cause I'm in the room
+with some organizations, and they're not gonna have
+tens of thousands of tenants and they don't need to bite off all the complexity of
+all the crazy scaling and deployment and other
+techniques we have. And if I would've pointed them
+more at a cell-based model for their particular organization, it would've reduced the complexity. It would've simplified a lot of the things we're going after. So again, not for everybody. Some people, this cell
+is not a fit. It's okay. Part of this strategy is to
+also say, cell's not for us. That's totally fine. I mean, all the stuff
+we've advocated before, it all still applies, it all still works. We just wanna layer cell-based into this. We wanna add it to your list
+of things you're thinking about when you decide
+should I be doing this? So when we now, and you'll
+see us present environments, you'll see us say, am I
+doing silo, am I doing pool? Am I doing bridge? Am I doing cells? And which combination of those things are the right fit for us? And it's really, and by the
+way, I draw a scale here, but it implies that the
+scale tips a direction. That doesn't tip a direction. I just had to draw a scale with it here. And I just want you to, like, think about what the trade-offs are. There's clearly technical trade-offs, there's clearly business trade-offs. Cells certainly can be an over-provisioned model, for example. You could easily end up, like,
+with more over-provisioning. Whereas if I'm in a one
+fully unified environment, I get the policies absolutely nailed. I get more fine grain tuning.
+I get more targeted tuning. That might give me better efficiency. I just have to buy into the effort and the energy that comes
+with getting that to work. Do I need deployment flexibility? We need more deployment
+flexibility than I have today. I want to go multi-region, like I said. The indirection of multi, of the cell-based model
+doesn't work well for me. And the provisioning process would be too complex for our environment. These are all things you
+wanna sort of put on a scale and decide for yourself. So just a few takeaways here. I hope that you see that cells represent, I say a new model. It isn't new. I guess technically it's
+again, it's been around, but to me it feels like
+there's a lot of new things to think about here, that at least for me, maybe all of you have been
+thinking about it and I haven't. But for me there's a lot of
+new and interesting things to think about here that
+have me pretty excited about the possibilities. Oops, I was a click behind. We do have to be sure as
+we wander into this space that we acknowledge that
+cells are another level of indirection or experience. Like, we can't just say
+this all comes for free. But to be honest, even in a
+non-cell-based environment, you still have a lot of indirection. You have siloed and pooled environments. But there is another bit here like, okay, now I've gotta get through to the cell, and then how do I get from
+the cell to within the cell to the specific resource? Those are all things you
+need to be thinking about. I do think that cells just naturally, and that by their nature are often good at dealing with scale limits. Scale limits can, by the way,
+be noisy neighbor limits. That is a scale challenge
+that people are dealing with, or it can be a genuine
+scale, like, account limits and other things that they
+might be running into. And then I think I've
+beat this one to death, but regional and remote deployment. It's a new deployment unit. It's a self-contained deployment unit. It gives you new flexibility,
+it gives you new options, and it gives you, it can in
+the end, if you invest in it, give you new ways to think about how and where
+you place your tenants. And then I definitely wanna be sure, I intentionally wanna wanna say
+this is a logical construct. Your realization and your
+mileage will vary based on what it is you choose as
+a way to group your cells. I think there's more we can do here to give you more patterns around what those constructs ought to be. But don't just presume it's always a VPC or it's always an account. Like, you have to go away
+and decide what sort of unit of grouping you wanna really rely on. And then finally you have to,
+across this whole argument on both sides of this cell or non-cell, you should always be asking yourself, where's the balance of
+complexity and value? Like, I have another talk I'm doing in the architecture track here that is about right sizing microservices. And it's a lot of it is about
+how do we get this return on complexity, right? Like, if we have hundreds of microservices but they're all too, they
+have made this so complex that it's a hard environment
+to always manage, or maybe not getting good return on the complexity of our environment. They want that same sort
+of mindset applied here. Just real quickly here before we wrap, there are tons of other
+SaaS sessions going on here. Some great breakouts. I'll shamelessly plug SaaS
+Builder Toolkit is one I'm talking about on Wednesday, but I also have a couple
+of other breakouts. Some on the architecture
+track like I said as well. Great ChalkTalks workshop. There's a cell-based
+architecture workshop by the way, for those of you that are interested. And by the way, afterwards, if you want, I'll try to come back
+to these and put 'em up. And a couple Builder
+sessions and that's it. That is, by the way, I do have a multi-tenant SaaS book if
+any of you are interested. Not to shameless plug
+there, but... (laughs) Mostly 'cause it does have more details on this concept inside of it. And other than that, please,
+I know last year I didn't ask for people to fill out surveys. Please fill out your surveys. That really is super helpful data for me, especially on a new topic like this. Are we really saying the
+things that resonate with you or don't resonate with you? But really appreciate you being here, and enjoy the rest of your re:Invent. (audience clapping)

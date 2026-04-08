@@ -48,6 +48,7 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **cnpg2monitor**: Custom CNPG monitoring operator
 - **postgresai**: Custom CNPG monitoring operator
 - **K8sGPT**: AI-powered cluster diagnostics
+- **ClickHouse**: Log aggregation and search
 
 ## Development Tools
 - **sqlc**: Type-safe SQL code generation for Go APIs
@@ -73,6 +74,9 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 ### Backup
 - **velero**: Kubernetes backup and recovery tool
 - **S3 Backup**: CNPG Database backup
+
+### Policy Engine
+- **Kyverno**
 
 ## Technical Constraints
 - **No Talos Linux**: Ubuntu + kubeadm only (CACPPT compatibility)
