@@ -18,13 +18,13 @@ After completing each phase, you MUST:
 
 ### 1.1 SpokePool XRD and Composition
 
-- [ ] 1.1.1 Create SpokePool XRD definition
+- [x] 1.1.1 Create SpokePool XRD definition
   - Define API schema: `region`, `nodePool.count`, `nodePool.instanceType`, `maxTenantCapacity`
   - Create file: `xrds/definitions/spokepool-v1.yaml`
   - Add OpenAPI validation for required fields
   - _Requirements: FR-1.1, AC-1_
 
-- [ ] 1.1.2 Create SpokePool Composition for Hetzner
+- [x] 1.1.2 Create SpokePool Composition for Hetzner
   - Generate CAPI Cluster CR (Ubuntu + kubeadm, k8s v1.31.6)
   - Generate HetznerCluster CR (load balancer, network, Cilium CNI)
   - Generate KubeadmControlPlane CR (1 control plane node)
@@ -33,7 +33,7 @@ After completing each phase, you MUST:
   - _Requirements: FR-1.1, AC-1_
 
 
-- [ ] 1.1.3 Commit XRD and Composition to Git
+- [x] 1.1.3 Commit XRD and Composition to Git
   - Commit to feature branch: `feature/spoke-pool-xrd`
   - Push to GitOps repository
   - Verify ArgoCD detects and syncs XRD
@@ -41,63 +41,63 @@ After completing each phase, you MUST:
 
 ### 1.2 cert-manager Certificate Generation
 
-- [ ] 1.2.1 Create ArgoCD Agent mTLS Certificate manifest
+- [x] 1.2.1 Create ArgoCD Agent mTLS Certificate manifest
   - Define Certificate CR for ArgoCD Agent (90-day validity, auto-renew at 83 days)
   - Create self-signed CA for ArgoCD
   - Create file: `catalog/security/argocd-agent-cert.yaml`
   - _Requirements: FR-1.2, NFR-4.1, NFR-4.2, AC-3_
 
-- [ ] 1.2.2 Create NATS Leaf Node mTLS Certificate manifest
+- [x] 1.2.2 Create NATS Leaf Node mTLS Certificate manifest
   - Define Certificate CR for NATS Leaf Node (90-day validity, auto-renew at 83 days)
   - Create self-signed CA for NATS (separate from ArgoCD CA)
   - Create file: `catalog/messaging/nats-leaf-cert.yaml`
   - _Requirements: NFR-4.1, NFR-4.2_
 
-- [ ] 1.2.3 Commit certificate manifests to Git
+- [x] 1.2.3 Commit certificate manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs and cert-manager issues certificates
   - _Requirements: NFR-4.1, NFR-4.2_
 
 ### 1.3 ClusterResourceSet (Secret Zero)
 
-- [ ] 1.3.1 Create ArgoCD Agent Deployment ConfigMap
+- [x] 1.3.1 Create ArgoCD Agent Deployment ConfigMap
   - Define Deployment manifest for ArgoCD Agent
   - Configure agent mode: managed, Hub URL from environment
   - Create file: `edge-catalog/argocd-agent-deployment.yaml`
   - _Requirements: FR-1.2, AC-3_
 
 
-- [ ] 1.3.2 Create ArgoCD Agent ConfigMap
+- [x] 1.3.2 Create ArgoCD Agent ConfigMap
   - Define ConfigMap with Hub URL, cluster name placeholder, mode=managed
   - Create file: `edge-catalog/argocd-agent-config.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.3.3 Create ArgoCD Agent RBAC manifests
+- [x] 1.3.3 Create ArgoCD Agent RBAC manifests
   - Define ServiceAccount, ClusterRole, ClusterRoleBinding
   - Limit permissions to agent's own cluster (no cross-cluster access)
   - Create file: `edge-catalog/argocd-agent-rbac.yaml`
   - _Requirements: FR-1.2, NFR-4.4, AC-3_
 
-- [ ] 1.3.4 Create ClusterResourceSet CR
+- [x] 1.3.4 Create ClusterResourceSet CR
   - Reference 5 resources: Deployment ConfigMap, Agent ConfigMap, mTLS cert Secret, CA Secret, RBAC
   - Add selector to match SpokePool clusters: `spoke-type: pool`
   - Patch mTLS certificates from cert-manager into ClusterResourceSet
   - Create file: `xrds/compositions/spokepool-clusterresourceset.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.3.5 Update SpokePool Composition to generate ClusterResourceSet
+- [x] 1.3.5 Update SpokePool Composition to generate ClusterResourceSet
   - Add ClusterResourceSet generation to Composition
   - Ensure certificates are patched before ClusterResourceSet creation
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.3.6 Commit ClusterResourceSet manifests to Git
+- [x] 1.3.6 Commit ClusterResourceSet manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs ClusterResourceSet
   - _Requirements: FR-1.2, AC-3_
 
 ### 1.4 Kyverno Cluster Discovery Policy
 
-- [ ] 1.4.1 Create Kyverno ClusterPolicy for ArgoCD Secret generation
+- [x] 1.4.1 Create Kyverno ClusterPolicy for ArgoCD Secret generation
   - Watch CAPI Cluster resources with label `spoke-type: pool`
   - Trigger on `status.phase=Provisioned`
   - Extract kubeconfig from CAPI-generated Secret
@@ -106,7 +106,7 @@ After completing each phase, you MUST:
   - _Requirements: FR-1.3, NFR-1.4, AC-2_
 
 
-- [ ] 1.4.2 Commit Kyverno policy to Git
+- [x] 1.4.2 Commit Kyverno policy to Git
   - Commit to feature branch
   - Verify ArgoCD syncs policy
   - _Requirements: FR-1.3, AC-2_
@@ -138,7 +138,7 @@ After completing each phase, you MUST:
 
 ### 1.6 PHASE 1 REVIEW CHECKPOINT
 
-- [ ] 1.6.1 **MANDATORY STOP - Phase 1 Review**
+- [x] 1.6.1 **MANDATORY STOP - Phase 1 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 1 completion summary to user
   - Demonstrate: SpokePool XR → CAPI cluster → ArgoCD Agent → Kyverno discovery
