@@ -114,14 +114,14 @@ After completing each phase, you MUST:
 ### 1.5 Phase 1 Manual Validation
 
 - [ ] 1.5.1 Apply SpokePool XR for test cell
-  - Create test manifest: `spokepool-test-01.yaml`
+  - Create test manifest: `spokepool-01.yaml`
   - Apply via GitOps: commit to fleet registry
-  - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-test-01 --timeout=20m`
+  - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
   - _Requirements: NFR-1.1, AC-6_
 
 - [x] 1.5.2 Verify ArgoCD Agent bootstrap
   - Verify ClusterResourceSet injection: `kubectl get clusterresourceset`
-  - Verify ArgoCD Agent pod running: `kubectl --context spokepool-test-01 get pods -n argocd`
+  - Verify ArgoCD Agent pod running: `kubectl --context spokepool-01 get pods -n argocd`
   - Verify Agent connects to Hub: check ArgoCD UI for cluster registration
   - _Requirements: FR-1.2, AC-3_
 
@@ -303,49 +303,49 @@ After completing each phase, you MUST:
 ### 2.8 Phase 2 Manual Validation
 
 - [ ] 2.8.1 Verify edge catalog deployment with sync waves
-  - Verify ApplicationSet creates Applications for spokepool-test-01
+  - Verify ApplicationSet creates Applications for spokepool-01
   - Verify sync wave 1 (CNPG) completes before wave 2 (Atlas)
   - Verify sync wave 2 (Atlas) completes before wave 3 (PostgREST/AgentGateway)
   - Verify sync wave 3 completes before wave 4 (NATS/Alloy)
-  - Check: `argocd app list | grep spokepool-test-01`
+  - Check: `argocd app list | grep spokepool-01`
   - _Requirements: FR-2.1, AC-4_
 
 - [ ] 2.8.2 Verify CNPG cluster health
-  - Verify CNPG cluster reaches Ready: `kubectl --context spokepool-test-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
+  - Verify CNPG cluster reaches Ready: `kubectl --context spokepool-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
   - Verify 3 replicas running
   - Verify PgBouncer pooler running with transaction mode
   - Verify pgvector extension enabled
   - _Requirements: FR-2.2, NFR-2.3, NFR-2.4, AC-4_
 
 - [ ] 2.8.3 Verify Atlas Operator deployment
-  - Verify Atlas Operator pod running: `kubectl --context spokepool-test-01 get deployment atlas-operator`
+  - Verify Atlas Operator pod running: `kubectl --context spokepool-01 get deployment atlas-operator`
   - Verify AtlasMigration CRD registered
   - _Requirements: FR-4.4, AC-4_
 
 
 - [ ] 2.8.4 Verify PostgREST deployment
-  - Verify PostgREST pod running: `kubectl --context spokepool-test-01 get deployment postgrest`
+  - Verify PostgREST pod running: `kubectl --context spokepool-01 get deployment postgrest`
   - Verify PostgREST is internal service only (no external LoadBalancer)
   - Verify connection to PgBouncer
   - _Requirements: FR-2.6, NFR-2.8, AC-4_
 
 - [ ] 2.8.5 Verify AgentGateway deployment
-  - Verify AgentGateway pod running: `kubectl --context spokepool-test-01 get deployment agentgateway`
+  - Verify AgentGateway pod running: `kubectl --context spokepool-01 get deployment agentgateway`
   - Verify Hub Ory JWKS endpoint configured
   - Verify routing to PostgREST internal service
   - _Requirements: FR-2.6, AC-4_
 
 - [ ] 2.8.6 Verify NATS Leaf Node connection
-  - Verify NATS pod running: `kubectl --context spokepool-test-01 get statefulset nats`
+  - Verify NATS pod running: `kubectl --context spokepool-01 get statefulset nats`
   - Verify connection to Hub NATS: check logs for "leafnode connected"
-  - Publish test event: `kubectl --context spokepool-test-01 exec -n spoke-pool-system nats-0 -- nats pub spoke.test-01.billing.usage '{"test": "event"}'`
+  - Publish test event: `kubectl --context spokepool-01 exec -n spoke-pool-system nats-0 -- nats pub spoke.test-01.billing.usage '{"test": "event"}'`
   - Verify event received in Hub: `kubectl --context hub exec -n hub-platform-messaging nats-0 -- nats stream info`
   - _Requirements: FR-2.3, AC-4_
 
 - [ ] 2.8.7 Verify Grafana Alloy metrics forwarding
-  - Verify Alloy pods running: `kubectl --context spokepool-test-01 get daemonset grafana-alloy`
+  - Verify Alloy pods running: `kubectl --context spokepool-01 get daemonset grafana-alloy`
   - Verify metrics forwarded to Hub VictoriaMetrics
-  - Query VictoriaMetrics for cell_id label: `cell_id="spokepool-test-01"`
+  - Query VictoriaMetrics for cell_id label: `cell_id="spokepool-01"`
   - _Requirements: FR-2.4, NFR-5.1, AC-4_
 
 - [ ] 2.8.8 Verify edge catalog deployment time
@@ -546,25 +546,25 @@ After completing each phase, you MUST:
   - _Requirements: FR-5.2, AC-5, AC-6_
 
 - [ ] 3.6.4 Verify AtlasMigration CR deployed
-  - Verify CR deployed: `kubectl --context spokepool-test-01 get atlasmigration tenant-acme`
+  - Verify CR deployed: `kubectl --context spokepool-01 get atlasmigration tenant-acme`
   - Verify CR references correct schema: `tenant_acme`
   - Verify CR references migration directory
   - _Requirements: FR-4.1, AC-5, AC-6_
 
 - [ ] 3.6.5 Verify schema created in CNPG
-  - Verify schema exists: `kubectl --context spokepool-test-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dn tenant_acme"`
-  - Verify schema owner role: `kubectl --context spokepool-test-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\du tenant_acme_role"`
+  - Verify schema exists: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dn tenant_acme"`
+  - Verify schema owner role: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\du tenant_acme_role"`
   - _Requirements: FR-4.1, AC-5, AC-6_
 
 - [ ] 3.6.6 Verify baseline tables created
-  - Verify tables exist: `kubectl --context spokepool-test-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dt tenant_acme.*"`
+  - Verify tables exist: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dt tenant_acme.*"`
   - Verify RLS enabled on tables
   - Verify RLS policies exist
   - _Requirements: FR-4.1, FR-4.2, AC-5, AC-6_
 
 
 - [ ] 3.6.7 Verify AtlasMigration CR status
-  - Verify CR status: `kubectl --context spokepool-test-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
+  - Verify CR status: `kubectl --context spokepool-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
   - Verify status is True
   - _Requirements: FR-4.1, AC-5, AC-6_
 
@@ -580,7 +580,7 @@ After completing each phase, you MUST:
 
 - [ ] 3.6.10 Test authentication flow via AgentGateway
   - Obtain JWT from Hub Ory: `curl -X POST https://auth.hub.example.com/oauth2/token ...`
-  - Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.spokepool-test-01.example.com/documents`
+  - Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.spokepool-01.example.com/documents`
   - Verify AgentGateway logs show JWT validation
   - Verify AgentGateway extracts tenant_id from JWT
   - Verify AgentGateway forwards request with X-Tenant-ID header
@@ -589,7 +589,7 @@ After completing each phase, you MUST:
   - _Requirements: FR-4.5, FR-2.6, AC-6_
 
 - [ ] 3.6.11 Test drift detection and recovery
-  - Manually alter schema: `kubectl --context spokepool-test-01 exec -it cnpg-rw-0 -- psql -U postgres -c "ALTER TABLE tenant_acme.users ADD COLUMN test VARCHAR(20)"`
+  - Manually alter schema: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "ALTER TABLE tenant_acme.users ADD COLUMN test VARCHAR(20)"`
   - Wait 60 seconds (Atlas Operator reconciliation loop)
   - Verify Atlas Operator logs show drift detection
   - Create new migration: `migrations/tenant-baseline/20240101000007_add_test_column.sql`
@@ -727,7 +727,7 @@ After completing each phase, you MUST:
 
 - [ ] 4.4.1 Verify dashboards display metrics
   - Open cell health dashboard in Grafana
-  - Verify metrics for spokepool-test-01 displayed
+  - Verify metrics for spokepool-01 displayed
   - Verify cell_id label filtering works
   - _Requirements: NFR-5.1, NFR-5.2, NFR-5.3_
 
@@ -739,7 +739,7 @@ After completing each phase, you MUST:
 
 
 - [ ] 4.4.3 Verify logs forwarded to Loki
-  - Query Loki for logs from spokepool-test-01
+  - Query Loki for logs from spokepool-01
   - Verify structured JSON format
   - Verify cell_id label present
   - _Requirements: NFR-5.1, NFR-5.4_
