@@ -129,7 +129,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	}
 	
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "crossplane", "crossplane-stable/crossplane",
-		"--namespace", constants.NamespaceCrossplane,
+		"--namespace", constants.NamespaceOps,
 		"--create-namespace",
 		"--kubeconfig", i.Kubeconfig,
 		"--wait",

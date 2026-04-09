@@ -145,7 +145,7 @@ After completing each phase, you MUST:
   - Show validation results from tasks 1.5.1-1.5.4
   - **WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 2**
   - Document any issues or deviations from design
-  - **NOTE**: Tasks 1.5.2-1.5.4 blocked - Crossplane not installed in Hub cluster (prerequisite for XRD/Composition validation)
+  - **NOTE**: Tasks 1.5.2-1.5.4 require Crossplane installation (now added to hub bootstrap postboot phase - commit bf4a9b7)
   - **BUGS FIXED**: #1 Kyverno kubeconfig extraction, #2 ClusterResourceSet references, #3 per-cluster ConfigMap generation, #5 test manifest exists
   - _Requirements: All Phase 1 requirements_
 
