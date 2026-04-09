@@ -45,7 +45,7 @@ metadata:
 spec:
   secretName: nats-leaf-client-cert
   duration: 2160h  # 90 days
-  renewBefore: 168h  # 7 days (auto-renew 7 days before expiration)
+  renewBefore: 168h  # 7 days before expiration (NFR-4.2)
   usages:
     - client auth
     - server auth
