@@ -58,7 +58,7 @@ Do not allow developer to work via isolated manual commands. Nip this in the bud
 
 You are not allowed to violate GitOps principles by manually applying or creating directly for temporary fixes. Fix the issue permanantly. Do not create manually anything just to unblock progress. Everything must be via GitOps.
 
-**Pro tip**: Developers can use manual forced sync to test their changes faster in right way instead of waiting for argocd auto-sync.
+**Pro tip**: Developers can use manual forced sync kubectl patch to test their changes faster in right way instead of waiting for argocd auto-sync.
 
 Example:
 kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"source":{"targetRevision":"272a135"}}}'
