@@ -26,6 +26,7 @@ spec:
               apiVersion: cluster.x-k8s.io/v1beta1
               kind: Cluster
               metadata:
+                namespace: hub-platform-capi
                 labels:
                   spoke-type: pool
               spec:
@@ -70,6 +71,8 @@ spec:
             base:
               apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
               kind: HetznerCluster
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 controlPlaneLoadBalancer:
                   enabled: true
@@ -103,6 +106,8 @@ spec:
             base:
               apiVersion: controlplane.cluster.x-k8s.io/v1beta1
               kind: KubeadmControlPlane
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 replicas: 1
                 version: v1.31.6
@@ -155,6 +160,8 @@ spec:
             base:
               apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
               kind: HCloudMachineTemplate
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 template:
                   spec:
@@ -183,6 +190,8 @@ spec:
             base:
               apiVersion: cluster.x-k8s.io/v1beta1
               kind: MachineDeployment
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 clusterName: ""
                 selector:
@@ -244,6 +253,8 @@ spec:
             base:
               apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
               kind: KubeadmConfigTemplate
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 template:
                   spec:
@@ -269,6 +280,8 @@ spec:
             base:
               apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
               kind: HCloudMachineTemplate
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 template:
                   spec:
@@ -299,6 +312,8 @@ spec:
             base:
               apiVersion: addons.cluster.x-k8s.io/v1beta1
               kind: ClusterResourceSet
+              metadata:
+                namespace: hub-platform-capi
               spec:
                 clusterSelector:
                   matchLabels:
