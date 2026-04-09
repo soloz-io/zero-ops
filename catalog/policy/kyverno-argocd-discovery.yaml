@@ -1,0 +1,58 @@
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: capi-cluster-to-argocd-secret
+  annotations:
+    policies.kyverno.io/title: CAPI Cluster to ArgoCD Secret
+    policies.kyverno.io/category: ArgoCD Integration
+    policies.kyverno.io/subject: Cluster, Secret
+    policies.kyverno.io/description: >-
+      Automatically generates ArgoCD cluster Secret when a CAPI Cluster
+      with label spoke-type=pool reaches Provisioned state. This enables
+      automatic cluster discovery for GitOps deployment.
+spec:
+  generateExistingOnPolicyUpdate: false
+  rules:
+    - name: generate-argocd-cluster-secret
+      match:
+        any:
+          - resources:
+              kinds:
+                - Cluster
+              selector:
+                matchLabels:
+                  spoke-type: pool
+      preconditions:
+        all:
+          - key: "{{request.object.status.phase}}"
+            operator: Equals
+            value: "Provisioned"
+          - key: "{{request.object.spec.controlPlaneEndpoint.host}}"
+            operator: NotEquals
+            value: ""
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: "{{request.object.metadata.name}}-argocd-cluster"
+        namespace: argocd
+        synchronize: true
+        data:
+          metadata:
+            labels:
+              argocd.argoproj.io/secret-type: cluster
+              spoke-type: pool
+              cell-id: "{{request.object.metadata.name}}"
+          type: Opaque
+          stringData:
+            name: "{{request.object.metadata.name}}"
+            server: "https://{{request.object.spec.controlPlaneEndpoint.host}}:{{request.object.spec.controlPlaneEndpoint.port}}"
+            config: |
+              {
+                "tlsClientConfig": {
+                  "insecure": false,
+                  "caData": "{{request.object.status.controlPlaneReady}}",
+                  "certData": "",
+                  "keyData": ""
+                }
+              }
