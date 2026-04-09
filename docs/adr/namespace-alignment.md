@@ -8,7 +8,7 @@
 | `hub-platform-messaging` | NATS subscriber |
 | `hub-platform-identity` | Kratos, Keto, Hydra, kratos-ui |
 | `hub-platform-data` | PostgreSQL clusters, PgBouncer, Redis, CloudNativePG Operator |
-| `hub-platform-ops` | ArgoCD, Argo-repo-Server, ESO, Crossplane, KEDA, Capi2Argo, cnpg2monitor, External-DNS |
+| `hub-platform-ops` | ArgoCD, Argo-repo-Server, ESO, Crossplane, KEDA, cnpg2monitor, External-DNS |
 | `hub-platform-security` | Infisical, SPIFFE/SPIRE, spire-k8s-registrar |
 | `hub-platform-edge` | AgentGateway, auth-proxy, Ingress NGINX |
 | `hub-platform-network` | Cilium |

@@ -74,7 +74,7 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - **Acceptance Criteria**:
   - ApplicationSet uses Cluster Generator with selector: `spoke-type: pool`
   - Deploys App-of-Apps umbrella Application to each discovered cluster
-  - Individual Applications created for: Shared CNPG, PostgREST, NATS Leaf Node, Spire Agent, Grafana Alloy, Atlas Operator
+  - Individual Applications created for: Shared CNPG, PostgREST, NATS Leaf Node, Grafana Alloy, Atlas Operator
   - ArgoCD sync waves enforce dependency ordering:
     * Wave 0: Database extensions (if needed)
     * Wave 1: CNPG Cluster + PgBouncer
@@ -99,18 +99,11 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - Tenant workloads can publish to local NATS: `nats://nats.spoke-pool.svc:4222`
   - Events are forwarded to Hub with subject: `spoke.{cell-id}.billing.usage`
 
-**FR-2.4: Spire Agent**
-- **Description**: Spire Agent provides workload identity (SVIDs) for mTLS between services
-- **Acceptance Criteria**:
-  - Agent connects to Hub Spire Server using PSAT attestation (no join tokens)
-  - Agent can issue SVIDs to workloads in the cluster
-  - mTLS certificates auto-rotate before expiration
-
-**FR-2.5: Grafana Alloy**
+**FR-2.4: Grafana Alloy**
 - **Description**: Alloy scrapes metrics and forwards to Hub VictoriaMetrics
 - **Acceptance Criteria**:
   - Scrapes KSM (Kubernetes State Metrics) and CNPG metrics
-  - Remote writes to Hub VictoriaMetrics using SPIRE SVID authentication (or static token for Phase 1)
+  - Remote writes to Hub VictoriaMetrics using static bearer token authentication
   - Injects `cell_id` label into all metrics
 
 **FR-2.6: PostgREST API Gateway (Behind AgentGateway)**
@@ -317,7 +310,7 @@ Acceptance Criteria:
 - I apply a SpokePool XR manifest with region=fsn1, nodePool.count=3, maxTenantCapacity=100
 - CAPI provisions a 3-node Hetzner cluster in Falkenstein datacenter
 - ArgoCD Agent connects to Hub within 2 minutes
-- Edge catalog (CNPG, NATS, Spire, Alloy) deploys within 10 minutes
+- Edge catalog (CNPG, NATS, Alloy) deploys within 10 minutes
 - Shared CNPG cluster reaches Ready state
 - Cell appears in ArgoCD cluster list with label spoke-type=pool
 ```
@@ -406,7 +399,7 @@ So that I can ensure tenant workloads have required infrastructure
 
 Acceptance Criteria:
 - I check ArgoCD Applications for cell: argocd app list | grep spokepool-01
-- I see Applications: shared-cnpg, nats-leaf-node, spire-agent, grafana-alloy
+- I see Applications: shared-cnpg, nats-leaf-node, grafana-alloy
 - All Applications show Healthy and Synced status
 - I can drill down into each Application to see resource details
 ```
@@ -443,7 +436,6 @@ Acceptance Criteria:
 - [ ] AgentGateway deployed and configured with Hub Ory JWKS endpoint
 - [ ] AgentGateway routes to PostgREST after JWT validation
 - [ ] NATS Leaf Node connects to Hub JetStream
-- [ ] Spire Agent connects to Hub Spire Server using PSAT attestation
 - [ ] Grafana Alloy forwards metrics to Hub VictoriaMetrics
 - [ ] Atlas Operator deployed and ready
 
@@ -543,7 +535,7 @@ The following features are explicitly deferred to later phases:
 - **cert-manager**: mTLS certificate generation (v1.13+)
 - **CloudNativePG**: PostgreSQL operator (v1.22+)
 - **NATS**: Messaging system with JetStream (v2.10+)
-- **Spire**: Workload identity and mTLS (v1.8+)
+
 - **Grafana Alloy**: Metrics collection and forwarding (v1.0+)
 - **Atlas Kubernetes Operator**: GitOps-driven database migration engine with drift detection (v0.3+)
 - **Atlas Cloud**: Optional SaaS for migration visibility and schema visualization
@@ -559,7 +551,7 @@ The following features are explicitly deferred to later phases:
 - AgentGateway must be configured with Hub Ory JWKS endpoint
 - Hub ArgoCD must be configured with ApplicationSets
 - Hub NATS JetStream must be running
-- Hub Spire Server must be running
+
 - Hub VictoriaMetrics must be running
 - GitOps repository structure must be defined
 - Control plane database must be provisioned for tenant metadata
@@ -575,7 +567,7 @@ The following features are explicitly deferred to later phases:
 - Hetzner Cloud API token configured in Crossplane
 - ArgoCD mTLS CA certificate generated via cert-manager
 - NATS mTLS CA certificate generated
-- Spire Server trust domain configured: `zero-ops.io`
+
 - VictoriaMetrics remote_write endpoint configured
 - Control plane database schema initialized
 - Tenant baseline migrations prepared in Git (`migrations/tenant-baseline/`)
@@ -640,11 +632,11 @@ The following features are explicitly deferred to later phases:
 |------|------------|
 | **Cell** | A complete Kubernetes cluster that hosts multiple Starter tier tenants with namespace-level isolation |
 | **Spoke Pool** | A cell that uses shared infrastructure (pooled model) for cost efficiency |
-| **Edge Catalog** | Set of infrastructure components deployed to every Spoke Pool: CNPG, PostgREST, NATS, Spire, Alloy, Atlas Operator |
+| **Edge Catalog** | Set of infrastructure components deployed to every Spoke Pool: CNPG, PostgREST, NATS, Alloy, Atlas Operator |
 | **Secret Zero** | The minimal bootstrap secret (mTLS certificate) injected via ClusterResourceSet |
 | **ClusterResourceSet** | CAPI mechanism for injecting manifests into newly provisioned clusters |
 | **Kyverno** | Kubernetes policy engine used to bridge CAPI and ArgoCD |
-| **PSAT Attestation** | Projected Service Account Token attestation for Spire Agent authentication |
+
 | **Tenant Schema** | A dedicated PostgreSQL schema within the shared CNPG cluster database, isolating a single tenant's data |
 | **RLS** | Row-Level Security - PostgreSQL feature used within tenant schemas to isolate end-users (not for platform-level tenant isolation) |
 | **App-of-Apps** | ArgoCD pattern where one Application generates multiple child Applications |
