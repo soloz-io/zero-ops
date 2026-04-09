@@ -1,0 +1,56 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: edge-catalog
+  namespace: hub-platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+        values:
+          revision: HEAD
+  
+  template:
+    metadata:
+      name: '{{.name}}-edge-catalog'
+      labels:
+        spoke-type: pool
+        cell-id: '{{.name}}'
+    
+    spec:
+      project: default
+      
+      source:
+        repoURL: https://github.com/soloz-io/zero-ops
+        targetRevision: '{{.values.revision}}'
+        path: edge-catalog
+      
+      destination:
+        server: '{{.server}}'
+        namespace: spoke-pool-system
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+      
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
