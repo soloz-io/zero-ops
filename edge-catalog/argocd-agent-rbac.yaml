@@ -1,0 +1,53 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-agent-rbac
+  namespace: argocd
+data:
+  rbac.yaml: |
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: argocd-agent
+      namespace: argocd
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: argocd-agent
+    rules:
+      # Read access to all resources for syncing
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["get", "list", "watch"]
+      # Write access for applying manifests
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["create", "update", "patch", "delete"]
+      # Namespace management
+      - apiGroups: [""]
+        resources: ["namespaces"]
+        verbs: ["get", "list", "watch", "create", "update", "patch"]
+      # ConfigMap and Secret management
+      - apiGroups: [""]
+        resources: ["configmaps", "secrets"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      # Event recording
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["create", "patch"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: argocd-agent
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: argocd-agent
+    subjects:
+      - kind: ServiceAccount
+        name: argocd-agent
+        namespace: argocd

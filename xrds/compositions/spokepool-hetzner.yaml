@@ -284,3 +284,36 @@ spec:
                   - type: string
                     string:
                       fmt: "%s-workers-pg"
+          
+          # ClusterResourceSet for ArgoCD Agent Bootstrap
+          - name: cluster-resource-set
+            base:
+              apiVersion: addons.cluster.x-k8s.io/v1beta1
+              kind: ClusterResourceSet
+              spec:
+                clusterSelector:
+                  matchLabels:
+                    spoke-type: pool
+                resources:
+                  - name: argocd-agent-deployment
+                    kind: ConfigMap
+                  - name: argocd-agent-config
+                    kind: ConfigMap
+                  - name: argocd-agent-rbac
+                    kind: ConfigMap
+                  - name: argocd-agent-client-cert
+                    kind: Secret
+                  - name: argocd-agent-ca-secret
+                    kind: Secret
+                strategy: ApplyOnce
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "%s-bootstrap"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.clusterSelector.matchLabels.cell-id
