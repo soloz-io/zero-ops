@@ -119,7 +119,7 @@ After completing each phase, you MUST:
   - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
   - _Requirements: NFR-1.1, AC-6_
 
-- [x] 1.5.2 Verify ArgoCD Agent bootstrap
+- [ ] 1.5.2 Verify ArgoCD Agent bootstrap
   - Verify ClusterResourceSet injection: `kubectl get clusterresourceset`
   - Verify ArgoCD Agent pod running: `kubectl --context spokepool-01 get pods -n argocd`
   - Verify Agent connects to Hub: check ArgoCD UI for cluster registration
