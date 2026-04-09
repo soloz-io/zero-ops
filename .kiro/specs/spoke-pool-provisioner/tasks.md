@@ -113,20 +113,20 @@ After completing each phase, you MUST:
 
 ### 1.5 Phase 1 Manual Validation
 
-- [x] 1.5.1 Apply SpokePool XR for test cell
+- [ ] 1.5.1 Apply SpokePool XR for test cell
   - Create test manifest: `spokepool-test-01.yaml`
   - Apply via GitOps: commit to fleet registry
   - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-test-01 --timeout=20m`
   - _Requirements: NFR-1.1, AC-6_
 
-- [ ] 1.5.2 Verify ArgoCD Agent bootstrap
+- [x] 1.5.2 Verify ArgoCD Agent bootstrap
   - Verify ClusterResourceSet injection: `kubectl get clusterresourceset`
   - Verify ArgoCD Agent pod running: `kubectl --context spokepool-test-01 get pods -n argocd`
   - Verify Agent connects to Hub: check ArgoCD UI for cluster registration
   - _Requirements: FR-1.2, AC-3_
 
 - [ ] 1.5.3 Verify Kyverno cluster discovery
-  - Verify ArgoCD cluster Secret created: `kubectl get secret -n argocd -l cell-id=spokepool-test-01`
+  - Verify ArgoCD cluster Secret created: `kubectl get secret -n argocd -l cell-id=spokepool-01`
   - Verify Secret contains correct kubeconfig and labels
   - Verify ArgoCD discovers cluster within 30 seconds
   - _Requirements: FR-1.3, NFR-1.4, AC-2_
