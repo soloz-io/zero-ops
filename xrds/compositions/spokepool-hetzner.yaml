@@ -147,6 +147,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-control-plane"
           
           # HCloudMachineTemplate for Control Plane
@@ -166,6 +167,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-control-plane"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region
@@ -173,6 +175,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-control-plane-pg"
           
           # MachineDeployment for Worker Nodes
@@ -202,6 +205,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-workers"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -224,6 +228,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-worker-bootstrap"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -231,6 +236,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-worker-machine"
           
           # KubeadmConfigTemplate for Worker Nodes
@@ -255,6 +261,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-worker-bootstrap"
           
           # HCloudMachineTemplate for Worker Nodes
@@ -273,6 +280,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-worker-machine"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
@@ -283,6 +291,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-workers-pg"
           
           # ClusterResourceSet for ArgoCD Agent Bootstrap
@@ -315,6 +324,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-bootstrap"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -325,6 +335,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-argocd-agent-config"
           
           # Per-cluster ArgoCD Agent ConfigMap with actual cluster name
@@ -343,6 +354,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-argocd-agent-config"
               - type: CombineFromComposite
                 combine:
