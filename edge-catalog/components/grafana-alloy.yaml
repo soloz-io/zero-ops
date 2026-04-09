@@ -1,0 +1,165 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: spoke-pool-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  config.alloy: |
+    // Kubernetes State Metrics scraping
+    prometheus.scrape "kube_state_metrics" {
+      targets = [{
+        __address__ = "kube-state-metrics.kube-system.svc:8080",
+      }]
+      forward_to = [prometheus.relabel.add_cell_id.receiver]
+    }
+    
+    // CNPG metrics scraping
+    prometheus.scrape "cnpg" {
+      targets = [{
+        __address__ = "shared-cnpg-rw.spoke-pool-system.svc:9187",
+      }]
+      forward_to = [prometheus.relabel.add_cell_id.receiver]
+    }
+    
+    // NATS metrics scraping
+    prometheus.scrape "nats" {
+      targets = [{
+        __address__ = "nats.spoke-pool-system.svc:8222",
+      }]
+      forward_to = [prometheus.relabel.add_cell_id.receiver]
+    }
+    
+    // PostgREST metrics scraping
+    prometheus.scrape "postgrest" {
+      targets = [{
+        __address__ = "postgrest.spoke-pool-system.svc:3000",
+      }]
+      forward_to = [prometheus.relabel.add_cell_id.receiver]
+    }
+    
+    // Add cell_id label to all metrics
+    prometheus.relabel "add_cell_id" {
+      forward_to = [prometheus.remote_write.hub.receiver]
+      
+      rule {
+        target_label = "cell_id"
+        replacement  = env("CELL_ID")
+      }
+    }
+    
+    // Remote write to Hub VictoriaMetrics
+    prometheus.remote_write "hub" {
+      endpoint {
+        url = "https://victoria.hub.nutgraf.in/api/v1/write"
+        
+        basic_auth {
+          username = "metrics"
+          password = env("VICTORIA_PASSWORD")
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: grafana-alloy
+  namespace: spoke-pool-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  selector:
+    matchLabels:
+      app: grafana-alloy
+  template:
+    metadata:
+      labels:
+        app: grafana-alloy
+    spec:
+      serviceAccountName: grafana-alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.0.0
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy/data
+            - --server.http.listen-addr=0.0.0.0:12345
+          ports:
+            - containerPort: 12345
+              name: http
+          env:
+            - name: CELL_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['cell-id']
+            - name: VICTORIA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: victoria-credentials
+                  key: password
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: data
+              mountPath: /var/lib/alloy/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-alloy
+  namespace: spoke-pool-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana-alloy
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana-alloy
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grafana-alloy
+subjects:
+  - kind: ServiceAccount
+    name: grafana-alloy
+    namespace: spoke-pool-system
