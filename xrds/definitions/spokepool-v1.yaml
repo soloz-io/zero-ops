@@ -1,0 +1,100 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: spokepools.zero-ops.io
+spec:
+  group: zero-ops.io
+  names:
+    kind: SpokePool
+    plural: spokepools
+  claimNames:
+    kind: SpokePoolClaim
+    plural: spokepoolclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - region
+                - nodePool
+                - maxTenantCapacity
+              properties:
+                region:
+                  type: string
+                  description: "Hetzner datacenter region (e.g., fsn1, nbg1, hel1)"
+                  enum:
+                    - fsn1
+                    - nbg1
+                    - hel1
+                nodePool:
+                  type: object
+                  required:
+                    - count
+                    - instanceType
+                  properties:
+                    count:
+                      type: integer
+                      description: "Number of worker nodes in the pool"
+                      minimum: 1
+                      maximum: 10
+                    instanceType:
+                      type: string
+                      description: "Hetzner server type for worker nodes"
+                      enum:
+                        - cx31
+                        - cx41
+                        - cx51
+                      default: cx31
+                maxTenantCapacity:
+                  type: integer
+                  description: "Maximum number of tenant schemas this cell can host"
+                  minimum: 1
+                  maximum: 100
+                  default: 100
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Current provisioning phase"
+                  enum:
+                    - Pending
+                    - Provisioning
+                    - Ready
+                    - Failed
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                clusterEndpoint:
+                  type: string
+                  description: "Kubernetes API endpoint of the provisioned cluster"
+                cellId:
+                  type: string
+                  description: "Unique identifier for this cell (derived from metadata.name)"
+                tenantCount:
+                  type: integer
+                  description: "Current number of tenants in this cell"
+                  default: 0
