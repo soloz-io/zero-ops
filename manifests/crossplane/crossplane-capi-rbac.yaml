@@ -1,0 +1,160 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-capi-admin
+rules:
+  # CAPI Core resources
+  - apiGroups:
+      - cluster.x-k8s.io
+    resources:
+      - clusters
+      - machines
+      - machinesets
+      - machinedeployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - cluster.x-k8s.io
+    resources:
+      - clusters/status
+      - machines/status
+      - machinesets/status
+      - machinedeployments/status
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # CAPI Bootstrap resources
+  - apiGroups:
+      - bootstrap.cluster.x-k8s.io
+    resources:
+      - kubeadmconfigs
+      - kubeadmconfigtemplates
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - bootstrap.cluster.x-k8s.io
+    resources:
+      - kubeadmconfigs/status
+      - kubeadmconfigtemplates/status
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # CAPI ControlPlane resources
+  - apiGroups:
+      - controlplane.cluster.x-k8s.io
+    resources:
+      - kubeadmcontrolplanes
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - controlplane.cluster.x-k8s.io
+    resources:
+      - kubeadmcontrolplanes/status
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # CAPH Infrastructure resources
+  - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+    resources:
+      - hetznerclusters
+      - hcloudmachinetemplates
+      - hcloudmachines
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+    resources:
+      - hetznerclusters/status
+      - hcloudmachinetemplates/status
+      - hcloudmachines/status
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # ClusterResourceSet
+  - apiGroups:
+      - addons.cluster.x-k8s.io
+    resources:
+      - clusterresourcesets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - addons.cluster.x-k8s.io
+    resources:
+      - clusterresourcesets/status
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # ConfigMaps and Secrets (for ClusterResourceSet)
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crossplane-capi-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-capi-admin
+subjects:
+  - kind: ServiceAccount
+    name: crossplane
+    namespace: crossplane-system
