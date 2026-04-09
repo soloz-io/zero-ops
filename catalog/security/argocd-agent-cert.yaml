@@ -1,0 +1,56 @@
+---
+# Self-signed CA for ArgoCD Agent mTLS
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: argocd-agent-ca-issuer
+spec:
+  selfSigned: {}
+---
+# CA Certificate for ArgoCD Agent
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-ca
+  namespace: argocd
+spec:
+  isCA: true
+  commonName: argocd-agent-ca
+  secretName: argocd-agent-ca-secret
+  duration: 87600h  # 10 years
+  renewBefore: 720h  # 30 days
+  issuerRef:
+    name: argocd-agent-ca-issuer
+    kind: ClusterIssuer
+---
+# Issuer using the CA Certificate
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: argocd-agent-issuer
+  namespace: argocd
+spec:
+  ca:
+    secretName: argocd-agent-ca-secret
+---
+# ArgoCD Agent Client Certificate Template
+# This will be referenced by the Composition to generate per-cluster certificates
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-client-template
+  namespace: argocd
+  annotations:
+    description: "Template for ArgoCD Agent client certificates"
+spec:
+  secretName: argocd-agent-client-cert
+  duration: 2160h  # 90 days
+  renewBefore: 168h  # 7 days (auto-renew 7 days before expiration)
+  usages:
+    - client auth
+    - digital signature
+    - key encipherment
+  commonName: argocd-agent-client
+  issuerRef:
+    name: argocd-agent-issuer
+    kind: Issuer
