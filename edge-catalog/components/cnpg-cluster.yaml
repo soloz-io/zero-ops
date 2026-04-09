@@ -1,0 +1,106 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: shared-cnpg
+  namespace: spoke-pool-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  instances: 3
+  
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.2
+  
+  postgresql:
+    parameters:
+      max_connections: "500"
+      shared_buffers: "256MB"
+      effective_cache_size: "1GB"
+      maintenance_work_mem: "64MB"
+      checkpoint_completion_target: "0.9"
+      wal_buffers: "16MB"
+      default_statistics_target: "100"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+      work_mem: "2621kB"
+      min_wal_size: "1GB"
+      max_wal_size: "4GB"
+    
+    shared_preload_libraries:
+      - "pg_stat_statements"
+      - "vector"
+  
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      postInitSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  
+  storage:
+    size: 100Gi
+    storageClass: hcloud-volumes
+  
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://spoke-pool-backups/
+      s3Credentials:
+        accessKeyId:
+          name: s3-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: s3-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+        jobs: 2
+    retentionPolicy: "30d"
+  
+  monitoring:
+    enablePodMonitor: true
+  
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+  
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  
+  # PgBouncer pooler configuration
+  # CRITICAL: Must use transaction pooling mode (not session)
+  pooler:
+    enabled: true
+    type: rw
+    instances: 2
+    
+    poolMode: transaction
+    
+    parameters:
+      max_client_conn: "500"
+      default_pool_size: "20"
+      max_db_connections: "100"
+      pool_mode: "transaction"
+      server_reset_query: "DISCARD ALL"
+      server_check_delay: "30"
+      max_client_idle: "0"
+      server_idle_timeout: "600"
+    
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+    
+    monitoring:
+      enablePodMonitor: true
