@@ -1,16 +1,14 @@
 ---
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: spokepools.zero-ops.io
 spec:
+  scope: Namespaced
   group: zero-ops.io
   names:
     kind: SpokePool
     plural: spokepools
-  claimNames:
-    kind: SpokePoolClaim
-    plural: spokepoolclaims
   versions:
     - name: v1alpha1
       served: true
