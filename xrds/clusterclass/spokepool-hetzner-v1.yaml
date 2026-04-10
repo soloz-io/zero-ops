@@ -34,15 +34,62 @@ spec:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
             kind: HCloudMachineTemplate
             name: hetzner-spoke-pool-worker-machine-v1
+  patches:
+  - name: region
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/controlPlaneRegions
+        valueFrom:
+          template: '[{{ .region | quote }}]'
+      - op: add
+        path: /spec/template/spec/controlPlaneLoadBalancer/region
+        valueFrom:
+          variable: region
+      - op: add
+        path: /spec/template/spec/hcloudNetwork/networkZone
+        valueFrom:
+          template: '{{ if eq .region "fsn1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
+  - name: controlPlaneMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: controlPlaneMachineType
+  - name: workerMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          machineDeploymentClass:
+            names:
+            - default-worker
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: workerMachineType
   variables:
   - name: region
     required: true
     schema:
       openAPIV3Schema:
         type: string
-        enum: ["fsn1", "nbg1", "hel1"]
+        default: "fsn1"
   - name: workerMachineType
-    required: true
+    required: false
     schema:
       openAPIV3Schema:
         type: string
@@ -52,7 +99,7 @@ spec:
     schema:
       openAPIV3Schema:
         type: string
-        default: "cx21"
+        default: "cx23"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -76,8 +123,6 @@ spec:
         name: hetzner-credentials
         key:
           hcloudToken: hcloud
-      controlPlaneRegions:
-      - '{{ .region }}'
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
@@ -123,7 +168,7 @@ metadata:
 spec:
   template:
     spec:
-      type: '{{ .controlPlaneMachineType }}'
+      type: cx23
       imageName: ubuntu-24.04
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
@@ -150,5 +195,5 @@ metadata:
 spec:
   template:
     spec:
-      type: '{{ .workerMachineType }}'
+      type: cx33
       imageName: ubuntu-24.04
