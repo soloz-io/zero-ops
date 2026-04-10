@@ -22,3 +22,9 @@
 |-----------|------------|-------|
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
+
+## Notes
+
+Namespace: hub-platform-capi
+├── Cluster
+├── ClusterResourceSet
