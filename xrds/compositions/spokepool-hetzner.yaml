@@ -27,7 +27,6 @@ spec:
               apiVersion: cluster.x-k8s.io/v1beta1
               kind: Cluster
               metadata:
-                namespace: hub-platform-capi
                 labels:
                   spoke-type: pool
               spec:
@@ -60,6 +59,15 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: metadata.labels.cell-id
+              # Force namespace to hub-platform-capi
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name  # Dummy source
+                toFieldPath: metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "hub-platform-capi"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.topology.workers.machineDeployments[0].replicas
