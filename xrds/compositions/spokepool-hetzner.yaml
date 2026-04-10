@@ -20,7 +20,8 @@ spec:
         apiVersion: pt.fn.crossplane.io/v1beta1
         kind: Resources
         resources:
-          # CAPI Cluster
+          # CAPI Cluster - Root object only
+          # CAPI controllers will create HetznerCluster, KubeadmControlPlane, and all other resources
           - name: capi-cluster
             base:
               apiVersion: cluster.x-k8s.io/v1beta1
@@ -37,12 +38,17 @@ spec:
                   services:
                     cidrBlocks:
                       - 10.96.0.0/12
-                controlPlaneRef:
-                  apiVersion: controlplane.cluster.x-k8s.io/v1beta1
-                  kind: KubeadmControlPlane
+                # References to resources that CAPI will create
                 infrastructureRef:
                   apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
                   kind: HetznerCluster
+                  name: ""  # Patched
+                  namespace: hub-platform-capi
+                controlPlaneRef:
+                  apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+                  kind: KubeadmControlPlane
+                  name: ""  # Patched
+                  namespace: hub-platform-capi
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -52,10 +58,10 @@ spec:
                 toFieldPath: metadata.labels.cell-id
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.controlPlaneRef.name
+                toFieldPath: spec.infrastructureRef.name
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.infrastructureRef.name
+                toFieldPath: spec.controlPlaneRef.name
               - type: ToCompositeFieldPath
                 fromFieldPath: status.phase
                 toFieldPath: status.phase
@@ -66,255 +72,7 @@ spec:
                 fromFieldPath: spec.controlPlaneEndpoint.host
                 toFieldPath: status.clusterEndpoint
           
-          # HetznerCluster
-          - name: hetzner-cluster
-            base:
-              apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-              kind: HetznerCluster
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                controlPlaneLoadBalancer:
-                  enabled: true
-                  type: lb11
-                  algorithm: round_robin
-                hcloudNetwork:
-                  enabled: true
-                  cidrBlock: 10.0.0.0/16
-                sshKeys:
-                  hcloud:
-                    - name: default
-                hetznerSecretRef:
-                  name: hetzner-credentials
-                  key:
-                    hcloudToken: hcloud
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.region
-                toFieldPath: spec.controlPlaneRegions[0]
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.region
-                toFieldPath: spec.controlPlaneLoadBalancer.region
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.region
-                toFieldPath: spec.hcloudNetwork.networkZone
-                transforms:
-                  - type: map
-                    map:
-                      fsn1: eu-central
-                      nbg1: eu-central
-                      hel1: eu-central
-          
-          # KubeadmControlPlane
-          - name: kubeadm-control-plane
-            base:
-              apiVersion: controlplane.cluster.x-k8s.io/v1beta1
-              kind: KubeadmControlPlane
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                replicas: 1
-                version: v1.31.6
-                machineTemplate:
-                  infrastructureRef:
-                    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-                    kind: HCloudMachineTemplate
-                kubeadmConfigSpec:
-                  clusterConfiguration:
-                    networking:
-                      podSubnet: 10.244.0.0/16
-                      serviceSubnet: 10.96.0.0/12
-                    apiServer:
-                      extraArgs:
-                        cloud-provider: external
-                    controllerManager:
-                      extraArgs:
-                        cloud-provider: external
-                  initConfiguration:
-                    nodeRegistration:
-                      kubeletExtraArgs:
-                        cloud-provider: external
-                  joinConfiguration:
-                    nodeRegistration:
-                      kubeletExtraArgs:
-                        cloud-provider: external
-                  preKubeadmCommands:
-                    - apt-get update
-                    - apt-get install -y apt-transport-https ca-certificates curl
-                  postKubeadmCommands:
-                    # Install Cilium CNI
-                    - kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.14.5/install/kubernetes/quick-install.yaml
-                    # Install Hetzner CCM
-                    - kubectl apply -f https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/latest/download/ccm.yaml
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.machineTemplate.infrastructureRef.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-control-plane"
-          
-          # HCloudMachineTemplate for Control Plane
-          - name: control-plane-machine-template
-            base:
-              apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-              kind: HCloudMachineTemplate
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                template:
-                  spec:
-                    type: cx23
-                    imageName: ubuntu-24.04
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-control-plane"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.region
-                toFieldPath: spec.template.spec.placementGroupName
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-control-plane-pg"
-          
-          # MachineDeployment for Worker Nodes
-          - name: worker-machine-deployment
-            base:
-              apiVersion: cluster.x-k8s.io/v1beta1
-              kind: MachineDeployment
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                clusterName: ""
-                selector:
-                  matchLabels: {}
-                template:
-                  spec:
-                    clusterName: ""
-                    version: v1.31.6
-                    bootstrap:
-                      configRef:
-                        apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
-                        kind: KubeadmConfigTemplate
-                    infrastructureRef:
-                      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-                      kind: HCloudMachineTemplate
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-workers"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.clusterName
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.template.spec.clusterName
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.nodePool.count
-                toFieldPath: spec.replicas
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.selector.matchLabels.cluster-name
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.template.metadata.labels.cluster-name
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.template.spec.bootstrap.configRef.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-worker-bootstrap"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.template.spec.infrastructureRef.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-worker-machine"
-          
-          # KubeadmConfigTemplate for Worker Nodes
-          - name: worker-kubeadm-config
-            base:
-              apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
-              kind: KubeadmConfigTemplate
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                template:
-                  spec:
-                    joinConfiguration:
-                      nodeRegistration:
-                        kubeletExtraArgs:
-                          cloud-provider: external
-                    preKubeadmCommands:
-                      - apt-get update
-                      - apt-get install -y apt-transport-https ca-certificates curl
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-worker-bootstrap"
-          
-          # HCloudMachineTemplate for Worker Nodes
-          - name: worker-machine-template
-            base:
-              apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-              kind: HCloudMachineTemplate
-              metadata:
-                namespace: hub-platform-capi
-              spec:
-                template:
-                  spec:
-                    imageName: ubuntu-24.04
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-worker-machine"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.nodePool.instanceType
-                toFieldPath: spec.template.spec.type
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.region
-                toFieldPath: spec.template.spec.placementGroupName
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-workers-pg"
-          
-          # ClusterResourceSet for ArgoCD Agent Bootstrap
+          # ClusterResourceSet for ArgoCD Agent Bootstrap (Secret Zero)
           - name: cluster-resource-set
             base:
               apiVersion: addons.cluster.x-k8s.io/v1beta1
