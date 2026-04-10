@@ -193,6 +193,8 @@ spec:
                     name: argocd
           
           # Hetzner credentials secret for CCM (per-cluster)
+          # Bootstrap phase: hardcoded credentials pushed via ClusterResourceSet
+          # Runtime phase: ESO will manage credentials dynamically
           - name: hetzner-credentials-secret
             base:
               apiVersion: v1
@@ -207,6 +209,7 @@ spec:
                   metadata:
                     name: hetzner
                     namespace: kube-system
+                  type: Opaque
                   stringData:
                     hcloud: "lHc58bsakrr9csMJtcDOn8raxgjcJMiuhrl9JZKJiEK8ekNTryDYToDcOlZ3xN3z"
                     robot-user: ""
