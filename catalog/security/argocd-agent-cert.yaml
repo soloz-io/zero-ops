@@ -16,7 +16,7 @@ metadata:
 spec:
   isCA: true
   commonName: argocd-agent-ca
-  secretName: argocd-agent-ca-secret
+  secretName: argocd-agent-ca-secret-source
   duration: 87600h  # 10 years
   renewBefore: 720h  # 30 days
   issuerRef:
@@ -31,7 +31,7 @@ metadata:
   namespace: hub-platform-ops
 spec:
   ca:
-    secretName: argocd-agent-ca-secret
+    secretName: argocd-agent-ca-secret-source
 ---
 # ArgoCD Agent Client Certificate (shared across all spoke pools)
 # Phase 1: Single shared certificate for all spoke pool clusters
@@ -44,7 +44,7 @@ metadata:
   annotations:
     description: "Shared ArgoCD Agent client certificate for all spoke pools"
 spec:
-  secretName: argocd-agent-client-cert
+  secretName: argocd-agent-client-cert-source
   duration: 2160h  # 90 days
   renewBefore: 168h  # 7 days before expiration (NFR-4.2)
   usages:
@@ -55,3 +55,97 @@ spec:
   issuerRef:
     name: argocd-agent-issuer
     kind: Issuer
+---
+# Kyverno Policy: Transform cert-manager CA secret to ClusterResourceSet format
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: transform-argocd-agent-ca-secret
+  annotations:
+    policies.kyverno.io/title: Transform ArgoCD Agent CA Secret for ClusterResourceSet
+    policies.kyverno.io/description: |
+      Copies cert-manager CA certificate secret and transforms it to ClusterResourceSet format.
+      ClusterResourceSet requires type: addons.cluster.x-k8s.io/resource-set
+spec:
+  generateExisting: true
+  rules:
+    - name: generate-crs-ca-secret
+      match:
+        any:
+          - resources:
+              kinds:
+                - Secret
+              names:
+                - argocd-agent-ca-secret-source
+              namespaces:
+                - hub-platform-ops
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: argocd-agent-ca-secret
+        namespace: hub-platform-ops
+        synchronize: true
+        data:
+          type: addons.cluster.x-k8s.io/resource-set
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+              cert-type: argocd-agent-ca
+          stringData:
+            ca-secret.yaml: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: argocd-agent-ca
+                namespace: argocd
+              type: Opaque
+              data:
+                ca.crt: "{{request.object.data.\"ca.crt\"}}"
+---
+# Kyverno Policy: Transform cert-manager client cert secret to ClusterResourceSet format
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: transform-argocd-agent-client-cert
+  annotations:
+    policies.kyverno.io/title: Transform ArgoCD Agent Client Certificate for ClusterResourceSet
+    policies.kyverno.io/description: |
+      Copies cert-manager client certificate secret and transforms it to ClusterResourceSet format.
+      ClusterResourceSet requires type: addons.cluster.x-k8s.io/resource-set
+spec:
+  generateExisting: true
+  rules:
+    - name: generate-crs-client-cert
+      match:
+        any:
+          - resources:
+              kinds:
+                - Secret
+              names:
+                - argocd-agent-client-cert-source
+              namespaces:
+                - hub-platform-ops
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: argocd-agent-client-cert
+        namespace: hub-platform-ops
+        synchronize: true
+        data:
+          type: addons.cluster.x-k8s.io/resource-set
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+              cert-type: argocd-agent-client
+          stringData:
+            client-cert.yaml: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: argocd-agent-client-tls
+                namespace: argocd
+              type: kubernetes.io/tls
+              data:
+                tls.crt: "{{request.object.data.\"tls.crt\"}}"
+                tls.key: "{{request.object.data.\"tls.key\"}}"
+                ca.crt: "{{request.object.data.\"ca.crt\"}}"
