@@ -6,6 +6,8 @@ metadata:
   labels:
     provider: hetzner
     cluster-type: spoke-pool
+  annotations:
+    composition.crossplane.io/revision: "2"
 spec:
   compositeTypeRef:
     apiVersion: zero-ops.io/v1alpha1
