@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/spoke-pool
+    path: manifests/spoke-pools
   destination:
     server: https://kubernetes.default.svc
     namespace: default
