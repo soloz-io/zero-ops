@@ -84,6 +84,10 @@ spec:
                 - argocd-agent-ca-secret-source
               namespaces:
                 - hub-platform-ops
+      context:
+        - name: caCrt
+          variable:
+            jmesPath: 'request.object.data."ca.crt"'
       generate:
         apiVersion: v1
         kind: Secret
@@ -105,7 +109,7 @@ spec:
                 namespace: argocd
               type: Opaque
               data:
-                ca.crt: "{{request.object.data.\"ca.crt\"}}"
+                ca.crt: "{{caCrt}}"
 ---
 # Kyverno Policy: Transform cert-manager client cert secret to ClusterResourceSet format
 # Watches for cert-manager secret (type: kubernetes.io/tls)
@@ -133,6 +137,16 @@ spec:
                 - argocd-agent-client-cert-source
               namespaces:
                 - hub-platform-ops
+      context:
+        - name: tlsCrt
+          variable:
+            jmesPath: 'request.object.data."tls.crt"'
+        - name: tlsKey
+          variable:
+            jmesPath: 'request.object.data."tls.key"'
+        - name: caCrt
+          variable:
+            jmesPath: 'request.object.data."ca.crt"'
       generate:
         apiVersion: v1
         kind: Secret
@@ -154,6 +168,6 @@ spec:
                 namespace: argocd
               type: kubernetes.io/tls
               data:
-                tls.crt: "{{request.object.data.\"tls.crt\"}}"
-                tls.key: "{{request.object.data.\"tls.key\"}}"
-                ca.crt: "{{request.object.data.\"ca.crt\"}}"
+                tls.crt: "{{tlsCrt}}"
+                tls.key: "{{tlsKey}}"
+                ca.crt: "{{caCrt}}"
