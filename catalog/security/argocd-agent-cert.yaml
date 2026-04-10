@@ -105,7 +105,7 @@ spec:
                 namespace: argocd
               type: Opaque
               data:
-                ca.crt: "{{request.object.data.ca\.crt}}"
+                ca.crt: "{{request.object.data.\"ca.crt\"}}"
 ---
 # Kyverno Policy: Transform cert-manager client cert secret to ClusterResourceSet format
 # Watches for cert-manager secret (type: kubernetes.io/tls)
@@ -154,6 +154,6 @@ spec:
                 namespace: argocd
               type: kubernetes.io/tls
               data:
-                tls.crt: "{{request.object.data.tls\.crt}}"
-                tls.key: "{{request.object.data.tls\.key}}"
-                ca.crt: "{{request.object.data.ca\.crt}}"
+                tls.crt: "{{request.object.data.\"tls.crt\"}}"
+                tls.key: "{{request.object.data.\"tls.key\"}}"
+                ca.crt: "{{request.object.data.\"ca.crt\"}}"
