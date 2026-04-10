@@ -276,7 +276,7 @@ After completing each phase, you MUST:
   - Port 4222 for NATS protocol
   - _Requirements: FR-2.3, AC-4_
 
-- [ ] 2.6.3 Commit NATS Leaf Node manifests to Git
+- [x] 2.6.3 Commit NATS Leaf Node manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs NATS Leaf Node
   - _Requirements: FR-2.3, AC-4_
@@ -295,7 +295,7 @@ After completing each phase, you MUST:
   - Create file: `edge-catalog/grafana-alloy.yaml`
   - _Requirements: FR-2.4, NFR-5.1, NFR-5.3, AC-4_
 
-- [ ] 2.7.2 Commit Grafana Alloy manifests to Git
+- [x] 2.7.2 Commit Grafana Alloy manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs Grafana Alloy
   - _Requirements: FR-2.4, AC-4_
@@ -355,7 +355,7 @@ After completing each phase, you MUST:
 
 ### 2.9 PHASE 2 REVIEW CHECKPOINT
 
-- [ ] 2.9.1 **MANDATORY STOP - Phase 2 Review**
+- [x] 2.9.1 **MANDATORY STOP - Phase 2 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 2 completion summary to user
   - Demonstrate: ApplicationSet → Edge catalog deployment → All components Healthy

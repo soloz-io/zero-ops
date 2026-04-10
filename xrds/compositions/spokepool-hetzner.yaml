@@ -351,7 +351,7 @@ spec:
               apiVersion: v1
               kind: ConfigMap
               metadata:
-                namespace: spoke-pool-bootstrap
+                namespace: hub-platform-capi
               data:
                 argocd-agent-config.yaml: ""
             patches:

@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-agent-rbac
-  namespace: spoke-pool-bootstrap
+  namespace: hub-platform-capi
 data:
   rbac.yaml: |
     ---
