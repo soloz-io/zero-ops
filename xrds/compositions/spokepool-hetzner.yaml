@@ -84,7 +84,7 @@ spec:
                 sshKeys:
                   hcloud:
                     - name: default
-                hetznerSecret:
+                hetznerSecretRef:
                   name: hetzner-credentials
                   key:
                     hcloudToken: hcloud
