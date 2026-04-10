@@ -97,6 +97,9 @@ spec:
                     kind: Secret
                   - name: ccm-addon-template
                     kind: Secret
+                  # ArgoCD namespace (must exist before ArgoCD agent resources)
+                  - name: argocd-namespace
+                    kind: ConfigMap
                   # ArgoCD Agent (Secret Zero)
                   - name: argocd-agent-deployment
                     kind: ConfigMap
@@ -131,7 +134,7 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.resources[4].name
+                toFieldPath: spec.resources[5].name
                 transforms:
                   - type: string
                     string:
@@ -173,6 +176,21 @@ spec:
                         cluster-name: "%s"
                         mode: "managed"
                 toFieldPath: data["argocd-agent-config.yaml"]
+          
+          # ArgoCD namespace ConfigMap (must be applied before ArgoCD agent resources)
+          - name: argocd-namespace-configmap
+            base:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: argocd-namespace
+                namespace: hub-platform-ops
+              data:
+                namespace.yaml: |
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: argocd
           
           # Hetzner credentials secret for CCM (per-cluster)
           - name: hetzner-credentials-secret
