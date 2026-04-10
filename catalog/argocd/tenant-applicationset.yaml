@@ -1,0 +1,73 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-provisioning
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  
+  generators:
+    # Git Generator watches fleet-registry for tenant directories
+    - git:
+        repoURL: https://github.com/soloz-io/fleet-registry.git
+        revision: main
+        directories:
+          - path: tenants/*
+        values:
+          # Extract tenant ID from directory name (tenants/tenant-<id>)
+          tenantId: '{{index .path.segments 1}}'
+  
+  template:
+    metadata:
+      name: '{{.values.tenantId}}'
+      labels:
+        tenant-id: '{{.values.tenantId}}'
+        provisioning-type: gitops
+    
+    spec:
+      project: default
+      
+      sources:
+        # Source 1: Universal Tenant Helm Chart
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: main
+          path: charts/universal-tenant
+          helm:
+            valueFiles:
+              # Source 2: Tenant-specific values from fleet-registry
+              - $values/{{.path.path}}/values.yaml
+        
+        # Source 2: Fleet registry for tenant values
+        - repoURL: https://github.com/soloz-io/fleet-registry.git
+          targetRevision: main
+          ref: values
+      
+      destination:
+        # Deploy to the appropriate Spoke Pool cluster
+        # This will be determined by the cell-id label in tenant values
+        server: https://kubernetes.default.svc
+        namespace: '{{.values.tenantId}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+      
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
