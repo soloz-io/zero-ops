@@ -20,8 +20,8 @@ spec:
         apiVersion: pt.fn.crossplane.io/v1beta1
         kind: Resources
         resources:
-          # CAPI Cluster - Root object only
-          # CAPI controllers will create HetznerCluster, KubeadmControlPlane, and all other resources
+          # CAPI Cluster using ClusterClass (topology mode)
+          # CAPI controllers create all resources based on ClusterClass templates
           - name: capi-cluster
             base:
               apiVersion: cluster.x-k8s.io/v1beta1
@@ -38,15 +38,21 @@ spec:
                   services:
                     cidrBlocks:
                       - 10.96.0.0/12
-                # References to resources that CAPI will create
-                infrastructureRef:
-                  apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-                  kind: HetznerCluster
-                  name: ""  # Patched
-                controlPlaneRef:
-                  apiVersion: controlplane.cluster.x-k8s.io/v1beta1
-                  kind: KubeadmControlPlane
-                  name: ""  # Patched
+                topology:
+                  class: hetzner-spoke-pool-v1
+                  version: v1.31.6
+                  controlPlane:
+                    replicas: 1
+                  workers:
+                    machineDeployments:
+                    - class: default-worker
+                      name: md-0
+                      replicas: 2  # Patched from nodePool.count
+                  variables:
+                  - name: region
+                    value: ""  # Patched from spec.region
+                  - name: workerMachineType
+                    value: ""  # Patched from spec.nodePool.instanceType
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -55,11 +61,14 @@ spec:
                 fromFieldPath: metadata.name
                 toFieldPath: metadata.labels.cell-id
               - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.infrastructureRef.name
+                fromFieldPath: spec.nodePool.count
+                toFieldPath: spec.topology.workers.machineDeployments[0].replicas
               - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.controlPlaneRef.name
+                fromFieldPath: spec.region
+                toFieldPath: spec.topology.variables[0].value
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.nodePool.instanceType
+                toFieldPath: spec.topology.variables[1].value
               - type: ToCompositeFieldPath
                 fromFieldPath: status.phase
                 toFieldPath: status.phase

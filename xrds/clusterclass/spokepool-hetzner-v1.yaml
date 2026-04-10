@@ -1,0 +1,154 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: hetzner-spoke-pool-v1
+  namespace: hub-platform-capi
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
+      name: hetzner-spoke-pool-control-plane-v1
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        name: hetzner-spoke-pool-control-plane-machine-v1
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: HetznerClusterTemplate
+      name: hetzner-spoke-pool-cluster-v1
+  workers:
+    machineDeployments:
+    - class: default-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
+            name: hetzner-spoke-pool-worker-bootstrap-v1
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: hetzner-spoke-pool-worker-machine-v1
+  variables:
+  - name: region
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        enum: ["fsn1", "nbg1", "hel1"]
+  - name: workerMachineType
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx33"
+  - name: controlPlaneMachineType
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx21"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HetznerClusterTemplate
+metadata:
+  name: hetzner-spoke-pool-cluster-v1
+  namespace: hub-platform-capi
+spec:
+  template:
+    spec:
+      controlPlaneLoadBalancer:
+        enabled: true
+        type: lb11
+        algorithm: round_robin
+      hcloudNetwork:
+        enabled: true
+        cidrBlock: 10.0.0.0/16
+      sshKeys:
+        hcloud:
+        - name: default
+      hetznerSecretRef:
+        name: hetzner-credentials
+        key:
+          hcloudToken: hcloud
+      controlPlaneRegions:
+      - '{{ .region }}'
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: hetzner-spoke-pool-control-plane-v1
+  namespace: hub-platform-capi
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          networking:
+            podSubnet: 10.244.0.0/16
+            serviceSubnet: 10.96.0.0/12
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        preKubeadmCommands:
+        - apt-get update
+        - apt-get install -y apt-transport-https ca-certificates curl
+        postKubeadmCommands:
+        # Install Cilium CNI
+        - kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.14.5/install/kubernetes/quick-install.yaml
+        # Install Hetzner CCM
+        - kubectl apply -f https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/latest/download/ccm.yaml
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HCloudMachineTemplate
+metadata:
+  name: hetzner-spoke-pool-control-plane-machine-v1
+  namespace: hub-platform-capi
+spec:
+  template:
+    spec:
+      type: '{{ .controlPlaneMachineType }}'
+      imageName: ubuntu-24.04
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: hetzner-spoke-pool-worker-bootstrap-v1
+  namespace: hub-platform-capi
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+      preKubeadmCommands:
+      - apt-get update
+      - apt-get install -y apt-transport-https ca-certificates curl
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HCloudMachineTemplate
+metadata:
+  name: hetzner-spoke-pool-worker-machine-v1
+  namespace: hub-platform-capi
+spec:
+  template:
+    spec:
+      type: '{{ .workerMachineType }}'
+      imageName: ubuntu-24.04
