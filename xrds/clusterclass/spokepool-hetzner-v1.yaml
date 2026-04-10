@@ -119,6 +119,7 @@ spec:
       hcloudNetwork:
         enabled: true
         cidrBlock: 10.0.0.0/16
+        subnetCidrBlock: 10.0.0.0/24
         networkZone: eu-central  # Default, will be patched by ClusterClass
       sshKeys:
         hcloud:
