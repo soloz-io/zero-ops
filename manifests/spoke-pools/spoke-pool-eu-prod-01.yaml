@@ -1,0 +1,21 @@
+---
+apiVersion: zero-ops.io/v1alpha1
+kind: SpokePool
+metadata:
+  name: spoke-pool-eu-prod-01
+  namespace: hub-platform-ops
+  labels:
+    spoke-type: pool
+    environment: production
+    region: eu-central
+spec:
+  # Hetzner Falkenstein datacenter (best price/performance)
+  region: fsn1
+  
+  # Worker node pool configuration
+  nodePool:
+    count: 2
+    instanceType: cx31  # 2 vCPU, 8GB RAM (cx33 not in enum, using cx31)
+  
+  # Maximum tenant capacity for this cell
+  maxTenantCapacity: 100
