@@ -1,0 +1,163 @@
+---
+# Hetzner Cloud Controller Manager Addon Template for ClusterResourceSet
+# This Secret contains the complete Hetzner CCM manifest that will be applied to spoke pool clusters during bootstrap
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ccm-addon-template
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: hetzner-ccm
+    app.kubernetes.io/component: cloud-controller-manager
+    app.kubernetes.io/part-of: cluster-bios
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  ccm.yaml: |
+    ---
+    # Namespace must be created first for ClusterResourceSet to work
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: hub-cloud-system
+    ---
+    # Source: ccm-hetzner/templates/pdb.yaml
+    apiVersion: policy/v1
+    kind: PodDisruptionBudget
+    metadata:
+      name: ccm-ccm-hetzner
+      namespace: hub-cloud-system
+    spec:
+      minAvailable: 1
+      maxUnavailable: 
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: ccm-hetzner
+          app.kubernetes.io/instance: ccm
+    ---
+    # Source: ccm-hetzner/templates/serviceaccount.yaml
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: ccm-ccm-hetzner
+      namespace: hub-cloud-system
+      labels:
+        helm.sh/chart: ccm-hetzner-1.1.10
+        app: ccm
+        app.kubernetes.io/name: ccm-hetzner
+        app.kubernetes.io/instance: ccm
+        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/managed-by: Helm
+    ---
+    # Source: ccm-hetzner/templates/serviceaccount.yaml
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: ccm-ccm-hetzner
+      namespace: hub-cloud-system
+      labels:
+        helm.sh/chart: ccm-hetzner-1.1.10
+        app: ccm
+        app.kubernetes.io/name: ccm-hetzner
+        app.kubernetes.io/instance: ccm
+        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/managed-by: Helm
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+      - kind: ServiceAccount
+        name: ccm-ccm-hetzner
+        namespace: hub-cloud-system
+    ---
+    # Source: ccm-hetzner/templates/deployment.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: ccm-ccm-hetzner
+      namespace: hub-cloud-system
+      labels:
+        helm.sh/chart: ccm-hetzner-1.1.10
+        app: ccm
+        app.kubernetes.io/name: ccm-hetzner
+        app.kubernetes.io/instance: ccm
+        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      replicas: 1
+      revisionHistoryLimit: 5
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: ccm-hetzner
+          app.kubernetes.io/instance: ccm
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ccm-hetzner
+            app.kubernetes.io/instance: ccm
+        spec:
+          dnsPolicy: Default
+          serviceAccountName: ccm-ccm-hetzner
+          securityContext:
+            {}
+          tolerations:
+            # Introduced with CAPI v1.4, more info: https://cluster-api.sigs.k8s.io/developer/providers/bootstrap.html#taint-nodes-at-creation
+            - key: "node.cluster.x-k8s.io/uninitialized"
+              effect: "NoSchedule"
+            # Allow HCCM itself to schedule on nodes that have not yet been initialized by HCCM.
+            - key: "node.cloudprovider.kubernetes.io/uninitialized"
+              value: "true"
+              effect: "NoSchedule"
+            - key: "CriticalAddonsOnly"
+              operator: "Exists"
+            # cloud controller manages should be able to run on masters
+            - key: "node-role.kubernetes.io/master"
+              effect: NoSchedule
+              operator: Exists
+            - key: "node-role.kubernetes.io/control-plane"
+              effect: NoSchedule
+              operator: Exists
+            - key: "node.kubernetes.io/not-ready"
+              effect: "NoSchedule"
+          containers:
+            - name: ccm-hetzner
+              securityContext:
+                {}
+              image: "ghcr.io/syself/hetzner-cloud-controller-manager:v1.18.0-0.0.5"
+              imagePullPolicy: Always
+              command:
+                - "/bin/hetzner-cloud-controller-manager"
+                - "--cloud-provider=hcloud"
+                - "--leader-elect=true"
+                - "--allow-untagged-cloud"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 50Mi
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: HCLOUD_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: hetzner
+                      namespace: kube-system
+                      key: hcloud
+                - name: ROBOT_USER_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: hetzner
+                      namespace: kube-system
+                      key: robot-user
+                - name: ROBOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: hetzner
+                      namespace: kube-system
+                      key: robot-password
+                - name: HCLOUD_DEBUG
+                  value: "false"
+                - name: HCLOUD_LOAD_BALANCERS_ENABLED
+                  value: "true"

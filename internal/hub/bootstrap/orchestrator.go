@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub/capi"
 	"github.com/soloz-io/zero-ops/internal/hub/cluster"
@@ -214,13 +216,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			imageID = "ubuntu-24.04"
 		}
 		
-		// Load rendered manifests for CRS
-		ciliumRaw, err := assets.ReadManifest("addons/cilium-rendered.yaml")
+		// Load rendered manifests for CRS from Git directory (single source of truth)
+		// This reads from the same directory that ArgoCD syncs for spoke pool provisioning
+		ciliumRaw, err := o.readClusterBIOSManifest("cilium-addon-template.yaml", "cilium.yaml")
 		if err != nil {
 			return fmt.Errorf("failed to read cilium manifest: %w", err)
 		}
 		
-		ccmRaw, err := assets.ReadManifest("addons/ccm-rendered.yaml")
+		ccmRaw, err := o.readClusterBIOSManifest("ccm-addon-template.yaml", "ccm.yaml")
 		if err != nil {
 			return fmt.Errorf("failed to read ccm manifest: %w", err)
 		}
@@ -688,4 +691,41 @@ func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
 		}
 	}
 	return false
+}
+
+// readClusterBIOSManifest reads a manifest from the cluster-bios directory in Git
+// This ensures both hub and spoke clusters use the same CNI/CCM manifests (single source of truth)
+func (o *Orchestrator) readClusterBIOSManifest(templateFile, dataKey string) ([]byte, error) {
+	// Path to cluster-bios directory relative to project root
+	biosPath := "manifests/platform-ops/cluster-bios/" + templateFile
+	
+	// Read the template file
+	data, err := os.ReadFile(biosPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", biosPath, err)
+	}
+	
+	// Parse the YAML to extract the manifest from the Secret/ConfigMap
+	var template map[string]interface{}
+	if err := yaml.Unmarshal(data, &template); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", templateFile, err)
+	}
+	
+	// Extract the manifest content from stringData or data field
+	var manifestContent string
+	if stringData, ok := template["stringData"].(map[string]interface{}); ok {
+		if content, ok := stringData[dataKey].(string); ok {
+			manifestContent = content
+		}
+	} else if dataMap, ok := template["data"].(map[string]interface{}); ok {
+		if content, ok := dataMap[dataKey].(string); ok {
+			manifestContent = content
+		}
+	}
+	
+	if manifestContent == "" {
+		return nil, fmt.Errorf("manifest content not found in %s under key %s", templateFile, dataKey)
+	}
+	
+	return []byte(manifestContent), nil
 }

@@ -1,0 +1,140 @@
+---
+# ArgoCD Agent Deployment ConfigMap Template for ClusterResourceSet
+# This ConfigMap contains the ArgoCD Agent Deployment manifest
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-agent-deployment
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-agent
+    app.kubernetes.io/component: deployment
+    app.kubernetes.io/part-of: cluster-bios
+type: addons.cluster.x-k8s.io/resource-set
+data:
+  deployment.yaml: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: argocd-agent
+      namespace: argocd
+      labels:
+        app: argocd-agent
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: argocd-agent
+      template:
+        metadata:
+          labels:
+            app: argocd-agent
+        spec:
+          serviceAccountName: argocd-agent
+          containers:
+            - name: argocd-agent
+              image: quay.io/argoproj/argocd:v2.10.0
+              command:
+                - argocd-agent
+              args:
+                - --mode=managed
+                - --hub-url=$(HUB_URL)
+                - --cluster-name=$(CLUSTER_NAME)
+                - --tls-cert-file=/etc/argocd/tls/tls.crt
+                - --tls-key-file=/etc/argocd/tls/tls.key
+                - --tls-ca-file=/etc/argocd/tls/ca.crt
+              env:
+                - name: HUB_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: hub-url
+                - name: CLUSTER_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: cluster-name
+              volumeMounts:
+                - name: tls-certs
+                  mountPath: /etc/argocd/tls
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: tls-certs
+              secret:
+                secretName: argocd-agent-client-cert
+          securityContext:
+            fsGroup: 999
+---
+# ArgoCD Agent RBAC ConfigMap Template for ClusterResourceSet
+# This ConfigMap contains the ArgoCD Agent RBAC manifests (ServiceAccount, ClusterRole, ClusterRoleBinding)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-agent-rbac
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-agent
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: cluster-bios
+type: addons.cluster.x-k8s.io/resource-set
+data:
+  rbac.yaml: |
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: argocd-agent
+      namespace: argocd
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: argocd-agent
+    rules:
+      # Read access to all resources for syncing
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["get", "list", "watch"]
+      # Write access for applying manifests
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["create", "update", "patch", "delete"]
+      # Namespace management
+      - apiGroups: [""]
+        resources: ["namespaces"]
+        verbs: ["get", "list", "watch", "create", "update", "patch"]
+      # ConfigMap and Secret management
+      - apiGroups: [""]
+        resources: ["configmaps", "secrets"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      # Event recording
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["create", "patch"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: argocd-agent
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: argocd-agent
+    subjects:
+      - kind: ServiceAccount
+        name: argocd-agent
+        namespace: argocd

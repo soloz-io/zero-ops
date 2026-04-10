@@ -119,16 +119,25 @@ spec:
 
 **Provisioning Time**: < 15 minutes (NFR-1.1)
 
-### 3.3 ClusterResourceSet (Secret Zero)
+### 3.3 ClusterResourceSet (Cluster BIOS)
 
-**Purpose**: Inject ArgoCD Agent at cluster bootstrap
+**Purpose**: Inject CNI, CCM, and ArgoCD Agent at cluster bootstrap
 
-**5 Resources** (FR-1.2, AC-3):
-1. ArgoCD Agent Deployment (ConfigMap)
-2. Agent ConfigMap (Hub URL, cluster name, mode=managed)
-3. mTLS Client Certificate (Secret)
-4. CA Certificate (Secret)
-5. RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)
+**Resources** (FR-1.2, AC-3):
+1. Cilium CNI (Secret) - Network ready
+2. Hetzner CCM (Secret) - Cloud integration
+3. Hetzner credentials (Secret, per-cluster)
+4. ArgoCD namespace (ConfigMap)
+5. ArgoCD Agent Deployment (ConfigMap)
+6. ArgoCD Agent Config (ConfigMap, per-cluster)
+7. ArgoCD Agent RBAC (ConfigMap)
+8. ArgoCD Agent mTLS cert (Secret)
+9. ArgoCD Agent CA (Secret)
+
+**Template Source**: `manifests/platform-ops/cluster-bios/` (Git)
+- Hub bootstrap CLI reads from this directory
+- ArgoCD syncs to hub cluster for spoke pool provisioning
+- Single source of truth for both hub and spoke clusters
 
 **Injection Timing**: CAPI injects when Cluster.status.phase=Provisioned
 
@@ -245,16 +254,18 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 1. Platform Admin: kubectl apply -f spokepool-01.yaml
 2. Crossplane: Selects Composition, generates CAPI resources
 3. cert-manager: Issues mTLS certificates (ArgoCD Agent, NATS Leaf Node)
-4. CAPI: Provisions Hetzner VMs, injects ClusterResourceSet
-5. ArgoCD Agent: Starts, connects to Hub using mTLS
-6. Kyverno: Generates ArgoCD cluster Secret
-7. ArgoCD: Discovers cluster, ApplicationSet creates edge catalog Application
-8. ArgoCD Agent: Pulls edge catalog, applies with sync waves
-9. CNPG: Cluster reaches Ready (Wave 1)
-10. Atlas Operator: Deployed (Wave 2)
-11. PostgREST + AgentGateway: Deployed (Wave 3)
-12. NATS Leaf Node + Grafana Alloy: Deployed (Wave 4)
-13. Cell: Ready for tenant onboarding
+4. CAPI: Provisions Hetzner VMs, injects ClusterResourceSet (CNI + CCM + ArgoCD Agent)
+5. Cilium CNI: Applied, nodes become Ready
+6. Hetzner CCM: Applied, cloud integration enabled
+7. ArgoCD Agent: Starts, connects to Hub using mTLS
+8. Kyverno: Generates ArgoCD cluster Secret
+9. ArgoCD: Discovers cluster, ApplicationSet creates edge catalog Application
+10. ArgoCD Agent: Pulls edge catalog, applies with sync waves
+11. CNPG: Cluster reaches Ready (Wave 1)
+12. Atlas Operator: Deployed (Wave 2)
+13. PostgREST + AgentGateway: Deployed (Wave 3)
+14. NATS Leaf Node + Grafana Alloy: Deployed (Wave 4)
+15. Cell: Ready for tenant onboarding
 ```
 
 ### 5.2 Tenant Schema Provisioning Sequence
