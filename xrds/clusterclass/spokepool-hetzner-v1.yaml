@@ -186,6 +186,9 @@ spec:
         - mkdir -p /etc/containerd
         - containerd config default > /etc/containerd/config.toml
         - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+        - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+        - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+        - sysctl -p
         - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
         - mkdir -p /etc/apt/keyrings/
         - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
@@ -247,6 +250,9 @@ spec:
       - mkdir -p /etc/containerd
       - containerd config default > /etc/containerd/config.toml
       - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+      - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+      - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+      - sysctl -p
       - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
       - mkdir -p /etc/apt/keyrings/
       - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
