@@ -15,7 +15,7 @@ spec:
   # Worker node pool configuration
   nodePool:
     count: 2
-    instanceType: cx31  # 2 vCPU, 8GB RAM (cx33 not in enum, using cx31)
+    instanceType: cx33  # 4 vCPU, 16GB RAM
   
   # Maximum tenant capacity for this cell
   maxTenantCapacity: 100
