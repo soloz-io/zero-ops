@@ -8,55 +8,61 @@
 
 ## Critical Issues
 
-### 1. ❌ Kyverno Policy Syntax Errors
-**Status**: Blocking  
-**Impact**: Certificate transformation not working  
-**Description**: Kyverno policies in `catalog/security/argocd-agent-cert.yaml` have JMESPath syntax issues preventing automatic transformation of cert-manager secrets to ClusterResourceSet format.
+### 1. ✅ Kyverno Policy JMESPath Syntax Errors - RESOLVED
+**Status**: Resolved  
+**Impact**: Certificate transformation now working  
+**Description**: Kyverno policies had invalid JMESPath syntax for accessing keys with dots. Fixed by using context variables to extract values first.
 
-**Current State**:
-- Kyverno v3.2.6 installed in hub cluster
-- Policies created but not applying correctly
-- Manual workaround secrets created to unblock spoke cluster provisioning
+**Solution Applied**:
+- Used `context` section with `jmesPath: 'request.object.data."ca.crt"'` to extract values
+- Referenced context variables in stringData: `{{caCrt}}`
+- Deleted old policies and recreated with correct syntax
 
-**Target State**:
-- Kyverno policies automatically transform cert-manager secrets
-- No manual intervention required
-- Works per-environment, fully GitOps-compliant
+**Verification**:
+- ✅ Kyverno policies created successfully
+- ✅ `argocd-agent-ca-secret` generated (type: addons.cluster.x-k8s.io/resource-set)
+- ✅ `argocd-agent-client-cert` generated (type: addons.cluster.x-k8s.io/resource-set)
 
-**Related Files**:
+**Files Fixed**:
 - `zero-ops/catalog/security/argocd-agent-cert.yaml`
-- `zero-ops/manifests/argocd/apps/platform-security-certificates.yaml`
 
 ---
 
-### 2. ❌ Hetzner CCM Not Applied by ClusterResourceSet
+### 2. ❌ ClusterResourceSet ApplyOnce Strategy Limitation
 **Status**: Blocking  
-**Impact**: Spoke cluster nodes have taints, ArgoCD Agent pod cannot schedule  
-**Description**: ClusterResourceSet successfully applied Cilium CNI and ArgoCD Agent certificates, but Hetzner CCM was not applied to spoke cluster.
+**Impact**: ClusterResourceSet won't retry after initial failure, resources not applied to spoke cluster  
+**Description**: ClusterResourceSet uses `ApplyOnce` strategy which means it attempts to apply resources only once. If ANY resource is missing during the first attempt, it fails and never retries - even after the missing resources are created.
+
+**Root Cause**:
+- ClusterResourceSet was created before Kyverno-generated secrets existed
+- First attempt failed with "argocd-agent-client-cert not found"
+- With `ApplyOnce` strategy, it never retries even though secrets now exist
+- Deleting and recreating ClusterResourceSet causes new timing issues (resources created by Crossplane in sequence)
 
 **Current State**:
 - Spoke cluster `spoke-pool-eu-prod-01` has 3 Ready nodes
-- Cilium CNI working (pods running in kube-system)
-- ArgoCD Agent certificates exist in spoke cluster
-- ArgoCD Agent pod Pending (0/1 Ready)
+- Cilium CNI working (applied during initial bootstrap, before ClusterResourceSet)
+- ClusterResourceSet status: `ResourcesApplied: False`
+- Latest error: `configmaps "argocd-agent-rbac" not found` (timing issue during recreation)
+- Hetzner CCM pod exists but has `CreateContainerConfigError` (missing hetzner secret)
+- ArgoCD Agent pod Pending (nodes have taints)
 - Worker nodes have taints:
   - `node.cluster.x-k8s.io/uninitialized`
   - `node.cloudprovider.kubernetes.io/uninitialized`
 
 **Target State**:
-- Hetzner CCM applied by ClusterResourceSet
-- CCM removes node taints
+- Change ClusterResourceSet strategy from `ApplyOnce` to `Reconcile` (allows retries)
+- ClusterResourceSet successfully applies all 9 resources
+- Hetzner secret applied to spoke cluster kube-system namespace
+- CCM starts and removes node taints
 - ArgoCD Agent pod starts successfully
 
-**Investigation Needed**:
-- Compare `internal/assets/manifests/addons/ccm-rendered.yaml` with `manifests/platform-ops/cluster-bios/ccm-addon-template.yaml`
-- Verify ClusterResourceSet resource references in `xrds/compositions/spokepool-hetzner.yaml`
-- Check CAPI ClusterResourceSet controller logs for errors
+**Solution**:
+- Update Crossplane Composition to use `strategy: Reconcile` instead of `ApplyOnce`
+- This allows ClusterResourceSet to retry when resources become available
 
 **Related Files**:
-- `zero-ops/manifests/platform-ops/cluster-bios/ccm-addon-template.yaml`
-- `zero-ops/internal/assets/manifests/addons/ccm-rendered.yaml`
-- `zero-ops/xrds/compositions/spokepool-hetzner.yaml`
+- `zero-ops/xrds/compositions/spokepool-hetzner.yaml` (ClusterResourceSet strategy)
 
 ---
 
@@ -106,14 +112,19 @@
 
 Once all issues are resolved, verify:
 
-- [ ] Kyverno policies apply correctly (no syntax errors)
-- [ ] cert-manager secrets automatically transformed to ClusterResourceSet format
-- [ ] Manual workaround secrets deleted
-- [ ] Hetzner CCM applied by ClusterResourceSet
+- [x] Kyverno policies apply correctly (no syntax errors)
+- [x] cert-manager secrets automatically transformed to ClusterResourceSet format
+- [x] `argocd-agent-client-cert` secret exists in `hub-platform-ops` namespace
+- [x] `argocd-agent-ca-secret` secret exists in `hub-platform-ops` namespace
+- [ ] ClusterResourceSet strategy changed to `Reconcile`
+- [ ] ClusterResourceSet status: `ResourcesApplied: True`
+- [ ] All 9 resources applied to spoke cluster (verify in spoke cluster)
+- [ ] Hetzner secret exists in spoke cluster kube-system namespace
+- [ ] Hetzner CCM pod Running (1/1 Ready)
 - [ ] Node taints removed by CCM
 - [ ] ArgoCD Agent pod Running (1/1 Ready)
 - [ ] ArgoCD Agent connected to hub (visible in ArgoCD UI)
-- [ ] All ClusterResourceSet resources applied to spoke cluster
+- [ ] Manual workaround secrets deleted
 - [ ] Task 1.7.11 validation steps pass
 
 ---
@@ -129,4 +140,10 @@ Once all issues are resolved, verify:
 
 ---
 
-**Next Steps**: Focus on resolving Issue #1 (Kyverno policies) and Issue #2 (CCM application) to unblock Task 1.7.11 completion.
+**Next Steps**: 
+1. ✅ Issue #1 resolved - Kyverno policies fixed and secrets generated
+2. Change ClusterResourceSet strategy from `ApplyOnce` to `Reconcile` in Crossplane Composition
+3. Verify ClusterResourceSet applies all resources to spoke cluster
+4. Verify CCM starts and removes node taints
+5. Verify ArgoCD Agent starts and connects to hub
+6. Clean up manual workaround secrets (Issue #3)

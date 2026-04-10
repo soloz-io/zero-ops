@@ -111,7 +111,7 @@ spec:
                     kind: Secret
                   - name: argocd-agent-ca-secret
                     kind: Secret
-                strategy: ApplyOnce
+                strategy: Reconcile
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
