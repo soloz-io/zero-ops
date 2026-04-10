@@ -1,0 +1,13 @@
+apiVersion: v2
+name: universal-tenant
+description: Universal Helm chart for provisioning tenant resources in Spoke Pool clusters
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - tenant
+  - multi-tenancy
+  - spoke-pool
+  - zero-ops
+maintainers:
+  - name: Zero-Ops Platform Team

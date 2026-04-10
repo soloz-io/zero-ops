@@ -1,0 +1,39 @@
+{{- $schemaName := .Values.database.schemaName | default (printf "tenant_%s" .Values.tenantId) -}}
+---
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: tenant-{{ .Values.tenantId }}
+  namespace: tenant-{{ .Values.tenantId }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    tier: {{ .Values.tier }}
+spec:
+  # Connection to shared CNPG cluster via PgBouncer
+  url: postgresql://postgres:password@shared-cnpg-pooler-rw.spoke-pool-system.svc.cluster.local:5432/postgres?sslmode=disable
+  
+  # Schema to manage
+  schema: {{ $schemaName }}
+  
+  # Migration directory from ConfigMap
+  dir:
+    configMapRef:
+      name: tenant-{{ .Values.tenantId }}-migrations
+  
+  # Template variables for migration files
+  vars:
+    tenant_id: {{ .Values.tenantId }}
+  
+  # Baseline version (first migration)
+  baseline: "20240101000001"
+  
+  # Reconciliation policy
+  policy:
+    # Detect and report drift
+    drift:
+      enabled: true
+    # Auto-apply migrations
+    apply:
+      enabled: true

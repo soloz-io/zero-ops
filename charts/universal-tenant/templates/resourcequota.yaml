@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-{{ .Values.tenantId }}-quota
+  namespace: tenant-{{ .Values.tenantId }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    tier: {{ .Values.tier }}
+spec:
+  hard:
+    requests.cpu: {{ .Values.resourceQuota.cpu }}
+    requests.memory: {{ .Values.resourceQuota.memory }}
+    requests.storage: {{ .Values.resourceQuota.storage }}
+    persistentvolumeclaims: "10"
+    pods: {{ .Values.resourceQuota.pods | quote }}
+    services: "10"
+    configmaps: "20"
+    secrets: "20"

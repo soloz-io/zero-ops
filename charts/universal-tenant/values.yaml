@@ -1,0 +1,37 @@
+# Universal Tenant Helm Chart Values
+# This file defines the input schema for tenant provisioning
+
+# Tenant identifier (required)
+tenantId: ""
+
+# Tenant tier (required)
+# Valid values: starter, enterprise
+tier: starter
+
+# Region for tenant resources (required)
+region: fsn1
+
+# Database configuration
+database:
+  # Schema name (auto-generated from tenantId if not specified)
+  schemaName: ""
+  
+  # Migrations configuration
+  migrations:
+    # Git repository URL containing migrations
+    gitRepo: "https://github.com/soloz-io/zero-ops"
+    # Git branch or tag
+    gitRevision: "main"
+    # Path to migrations directory
+    gitPath: "migrations/tenant-baseline"
+
+# Resource quotas (tier-based defaults)
+resourceQuota:
+  # CPU limits (millicores)
+  cpu: "1000m"
+  # Memory limits
+  memory: "2Gi"
+  # Storage limits
+  storage: "10Gi"
+  # Max pods
+  pods: "10"

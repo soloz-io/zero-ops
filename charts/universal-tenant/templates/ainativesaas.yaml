@@ -1,0 +1,21 @@
+{{- $schemaName := .Values.database.schemaName | default (printf "tenant_%s" .Values.tenantId) -}}
+---
+apiVersion: zero-ops.io/v1alpha1
+kind: AINativeSaaS
+metadata:
+  name: {{ .Values.tenantId }}
+  namespace: tenant-{{ .Values.tenantId }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    tier: {{ .Values.tier }}
+spec:
+  tenantId: {{ .Values.tenantId }}
+  tier: {{ .Values.tier }}
+  region: {{ .Values.region }}
+  
+  database:
+    schemaName: {{ $schemaName }}
+    pooler: pgbouncer
+    poolerMode: transaction
