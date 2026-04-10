@@ -167,7 +167,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "6b46dbfb.zero-ops.io",
+		LeaderElectionID:       "6b46dbfb.nutgraf.in",
 		// Task 13 / Requirement 19: Strip Secret .data payloads from cache to reduce memory ~90%
 		// Secrets managed by zero-ops-hub-cli (label: app.kubernetes.io/managed-by=zero-ops-hub-cli)
 		// are bypassed via UncachedClient. Operational secrets also use UncachedClient.

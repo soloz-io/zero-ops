@@ -90,7 +90,7 @@ Cell Ready for tenant onboarding
 
 **Schema**:
 ```yaml
-apiVersion: zero-ops.io/v1alpha1
+apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool
 metadata:
   name: spokepool-01

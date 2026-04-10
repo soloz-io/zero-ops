@@ -24,7 +24,7 @@ Orchestrates the generation of all Secret Zero secrets. Idempotent - safe to cal
 
 **All secrets include:**
 - `ownerReferences` pointing to the HubEnvironment CR (Requirement 4.22)
-- Label `ops.zero-ops.io/db-credentials=true` on credential secrets
+- Label `ops.nutgraf.in/db-credentials=true` on credential secrets
 
 ### Helper Functions
 

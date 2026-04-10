@@ -8,4 +8,4 @@ metadata:
   namespace: hub-platform-data
   annotations:
     # Verify the secret was updated (resourceVersion will have changed)
-    ops.zero-ops.io/rotation-test: "true"
+    ops.nutgraf.in/rotation-test: "true"

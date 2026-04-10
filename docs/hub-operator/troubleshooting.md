@@ -642,7 +642,7 @@ kubectl rollout restart deployment hub-operator -n hub-platform-ops
 
 # 3. Trigger reconciliation
 kubectl annotate hubenvironment hub-production -n hub-platform-ops \
-  ops.zero-ops.io/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+  ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 ```
 
 # Hub Operator Troubleshooting Guide

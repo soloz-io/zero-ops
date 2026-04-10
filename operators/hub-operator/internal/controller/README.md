@@ -91,11 +91,11 @@ The controller distinguishes between transient and permanent errors:
 
 ### Manual Recovery
 
-For permanent errors (e.g., dirty database), add the `ops.zero-ops.io/reconcile-trigger` annotation:
+For permanent errors (e.g., dirty database), add the `ops.nutgraf.in/reconcile-trigger` annotation:
 
 ```bash
 kubectl annotate hubenvironment hub-env \
-  ops.zero-ops.io/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
 This clears permanent error conditions and resumes reconciliation.
@@ -120,7 +120,7 @@ The controller requires the following permissions:
 
 ```yaml
 # HubEnvironment CRD
-- apiGroups: ["ops.zero-ops.io"]
+- apiGroups: ["ops.nutgraf.in"]
   resources: ["hubenvironments", "hubenvironments/status", "hubenvironments/finalizers"]
   verbs: ["get", "list", "watch", "update", "patch"]
 
@@ -171,7 +171,7 @@ The controller watches:
 Future tasks will add watches for:
 - Hydra/Infisical/NATS Deployments (readiness)
 - platform-db-ca secret (certificate rotation)
-- Secrets with label `ops.zero-ops.io/db-credentials=true` (password rotation)
+- Secrets with label `ops.nutgraf.in/db-credentials=true` (password rotation)
 
 ## Testing
 
@@ -220,7 +220,7 @@ Manual recovery required:
 1. Connect to database: `kubectl exec -it platform-db-1 -- psql`
 2. Check migration version: `SELECT * FROM schema_migrations;`
 3. Fix dirty state: `UPDATE schema_migrations SET dirty = false WHERE version = X;`
-4. Trigger reconciliation: Add `ops.zero-ops.io/reconcile-trigger` annotation
+4. Trigger reconciliation: Add `ops.nutgraf.in/reconcile-trigger` annotation
 
 ### Infisical Upload Suspended
 

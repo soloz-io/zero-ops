@@ -6,7 +6,7 @@
 
 ### Subtasks:
 
-- [x] 1.1 Scaffold operator using Kubebuilder: `kubebuilder init --domain zero-ops.io --repo github.com/soloz-io/zero-ops/operators/hub-operator`
+- [x] 1.1 Scaffold operator using Kubebuilder: `kubebuilder init --domain nutgraf.in --repo github.com/soloz-io/zero-ops/operators/hub-operator`
 - [x] 1.2 Create HubEnvironment CRD: `kubebuilder create api --group ops --version v1alpha1 --kind HubEnvironment`
 - [x] 1.3 Configure Go module dependencies (golang-migrate, NATS SDK, Hydra SDK, CNPG API)
 - [x] 1.4 Set up project directory structure following operators/spoke-controller pattern
@@ -66,7 +66,7 @@
 - [x] 3.8 Implement generateOryDBCredentials() for hydra, kratos, keto
 - [x] 3.9 Add idempotency logic (reuse existing passwords if secrets exist)
 - [x] 3.10 Add ownerReference to all created secrets
-- [x] 3.11 Add label "ops.zero-ops.io/db-credentials=true" to credential secrets
+- [x] 3.11 Add label "ops.nutgraf.in/db-credentials=true" to credential secrets
 - [x] 3.12 Implement GenerateSecretZero() orchestration function
 
 **Acceptance Criteria:**
@@ -284,7 +284,7 @@
 ### Subtasks:
 
 - [x] 11.1 Implement handlePasswordRotation() in reconciler
-- [x] 11.2 Detect password changes in watched secrets (label: ops.zero-ops.io/db-credentials=true)
+- [x] 11.2 Detect password changes in watched secrets (label: ops.nutgraf.in/db-credentials=true)
 - [x] 11.3 Extract service name from secret labels
 - [x] 11.4 Execute ALTER ROLE in PostgreSQL
 - [x] 11.5 Restart consuming Deployment/StatefulSet based on service name
@@ -298,7 +298,7 @@
 - ✅ Build passes successfully
 
 **Dependencies:**
-- Task 12: Watch configuration for secrets with label ops.zero-ops.io/db-credentials=true
+- Task 12: Watch configuration for secrets with label ops.nutgraf.in/db-credentials=true
 
 ---
 
@@ -313,7 +313,7 @@
 - [x] 12.3 Configure Owns() for operator-created secrets
 - [x] 12.4 Configure watch for CNPG Cluster with ResourceVersionChangedPredicate
 - [x] 12.5 Configure watch for platform-db-ca secret (certificate rotation)
-- [x] 12.6 Configure watch for secrets with label ops.zero-ops.io/db-credentials=true (password rotation)
+- [x] 12.6 Configure watch for secrets with label ops.nutgraf.in/db-credentials=true (password rotation)
 - [x] 12.7 Configure watch for Hydra Deployment
 - [x] 12.8 Configure watch for Infisical Deployment
 - [x] 12.9 Configure watch for NATS StatefulSet

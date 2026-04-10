@@ -1,6 +1,6 @@
 {{- $schemaName := .Values.database.schemaName | default (printf "tenant_%s" .Values.tenantId) -}}
 ---
-apiVersion: zero-ops.io/v1alpha1
+apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
 metadata:
   name: {{ .Values.tenantId }}

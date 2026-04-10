@@ -14,7 +14,7 @@ metadata:
 ---
 # AC 21.5: Assert 2 OAuth clients exist (web-ui deleted)
 # AC 21.5: Assert 2 NATS streams exist (audit_events deleted)
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production

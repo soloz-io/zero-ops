@@ -42,7 +42,7 @@ patches:
       value: "0"
   target:
     kind: CustomResourceDefinition
-    name: hubenvironments.ops.zero-ops.io
+    name: hubenvironments.ops.nutgraf.in
 # [ARGOCD] Add sync-wave annotation to Deployment for proper sequencing
 - patch: |-
     - op: add

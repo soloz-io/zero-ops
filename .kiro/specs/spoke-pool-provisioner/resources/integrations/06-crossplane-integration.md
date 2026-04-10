@@ -65,9 +65,9 @@ Spoke Pool Cluster (Provisioned Infrastructure)
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: spokepools.zero-ops.io
+  name: spokepools.nutgraf.in
 spec:
-  group: zero-ops.io
+  group: nutgraf.in
   names:
     kind: SpokePool
     plural: spokepools
@@ -164,11 +164,11 @@ kind: Composition
 metadata:
   name: spokepool-hetzner
   labels:
-    crossplane.io/xrd: spokepools.zero-ops.io
+    crossplane.io/xrd: spokepools.nutgraf.in
     provider: hetzner
 spec:
   compositeTypeRef:
-    apiVersion: zero-ops.io/v1alpha1
+    apiVersion: nutgraf.in/v1alpha1
     kind: SpokePool
   
   mode: Pipeline
@@ -653,7 +653,7 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 
 | Criteria | Implementation | Validation |
 |----------|----------------|------------|
-| AC-1 | SpokePool XRD defined | kubectl get xrd spokepools.zero-ops.io |
+| AC-1 | SpokePool XRD defined | kubectl get xrd spokepools.nutgraf.in |
 | AC-1 | SpokePool Composition generates CAPI resources | kubectl get composition spokepool-hetzner |
 | AC-1 | Composition patches mTLS cert into ClusterResourceSet | kubectl get secret -n hub-platform-capi |
 | AC-1 | Applying SpokePool XR provisions functional cluster | kubectl get cluster -n hub-platform-capi |
@@ -674,7 +674,7 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 
 ### 9.2 XRD and Composition
 
-- [ ] SpokePool XRD created: `spokepools.zero-ops.io`
+- [ ] SpokePool XRD created: `spokepools.nutgraf.in`
 - [ ] XRD schema validated (region enum, nodePool constraints, maxTenantCapacity)
 - [ ] SpokePool Composition created: `spokepool-hetzner`
 - [ ] Composition uses Pipeline mode with function-go-templating

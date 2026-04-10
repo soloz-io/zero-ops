@@ -1,6 +1,6 @@
 ---
 # AC 18.6: Assert OAuthClientsRegistered condition is True
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production

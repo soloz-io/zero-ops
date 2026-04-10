@@ -165,7 +165,7 @@ operators/hub-operator/
 ├── config/                              # Kubebuilder generated
 │   ├── crd/
 │   │   └── bases/
-│   │       └── ops.zero-ops.io_hubenvironments.yaml
+│   │       └── ops.nutgraf.in_hubenvironments.yaml
 │   ├── rbac/
 │   │   ├── role.yaml
 │   │   └── role_binding.yaml
@@ -217,7 +217,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
     }
 
     // 1.5. Check for reconcile-trigger annotation to resume from permanent errors
-    if triggerTime, ok := hubEnv.Annotations["ops.zero-ops.io/reconcile-trigger"]; ok {
+    if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok {
         // Clear any permanent error conditions to allow retry
         for i := range hubEnv.Status.Conditions {
             if hubEnv.Status.Conditions[i].Reason == "DirtyDatabase" {
@@ -225,7 +225,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
             }
         }
         // Remove the annotation after processing
-        delete(hubEnv.Annotations, "ops.zero-ops.io/reconcile-trigger")
+        delete(hubEnv.Annotations, "ops.nutgraf.in/reconcile-trigger")
         if err := r.Update(ctx, hubEnv); err != nil {
             return ctrl.Result{}, err
         }
@@ -552,9 +552,9 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
             builder.WithPredicates(
                 predicate.ResourceVersionChangedPredicate{},
                 predicate.NewPredicateFuncs(func(obj client.Object) bool {
-                    // Watch secrets with label ops.zero-ops.io/db-credentials=true
+                    // Watch secrets with label ops.nutgraf.in/db-credentials=true
                     labels := obj.GetLabels()
-                    return labels != nil && labels["ops.zero-ops.io/db-credentials"] == "true"
+                    return labels != nil && labels["ops.nutgraf.in/db-credentials"] == "true"
                 }),
             ),
         ).
@@ -678,9 +678,9 @@ password := string(secret.Data["password"]) // Contains actual password
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: hubenvironments.ops.zero-ops.io
+  name: hubenvironments.ops.nutgraf.in
 spec:
-  group: ops.zero-ops.io
+  group: ops.nutgraf.in
   names:
     kind: HubEnvironment
     listKind: HubEnvironmentList
@@ -832,7 +832,7 @@ spec:
 ### Example HubEnvironment CR
 
 ```yaml
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production
@@ -1100,7 +1100,7 @@ Unrecoverable errors that require human intervention (e.g., `golang-migrate` pan
 
 - **Retry Policy:** NO automatic retry. (`return ctrl.Result{}, err` with error swallowed to prevent requeue).
 - **Action:** Sets condition to `False` with reason `PermanentError` or `DirtyDatabase`.
-- **Resolution:** Requires a human to fix the underlying state, then apply the `ops.zero-ops.io/reconcile-trigger: <timestamp>` annotation to the CR to wake the operator up and resume the loop.
+- **Resolution:** Requires a human to fix the underlying state, then apply the `ops.nutgraf.in/reconcile-trigger: <timestamp>` annotation to the CR to wake the operator up and resume the loop.
 
 ### Retry Strategy Implementation
 
@@ -1109,7 +1109,7 @@ Unrecoverable errors that require human intervention (e.g., `golang-migrate` pan
 ```bash
 # Add reconcile-trigger annotation with current timestamp
 kubectl annotate hubenvironment hub-production \
-  ops.zero-ops.io/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --overwrite
 ```
 
@@ -1274,7 +1274,7 @@ spec:
     syncOptions:
     - CreateNamespace=true
 ---
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: test-hub
@@ -1319,7 +1319,7 @@ metadata:
   namespace: hub-platform-data
 type: Opaque
 ---
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: test-hub
@@ -1451,7 +1451,7 @@ echo "=== Verification Complete ==="
 
 ### Migration Checklist
 
-- [ ] Scaffold operator using Kubebuilder: `kubebuilder init --domain zero-ops.io --repo github.com/soloz-io/zero-ops/operators/hub-operator`
+- [ ] Scaffold operator using Kubebuilder: `kubebuilder init --domain nutgraf.in --repo github.com/soloz-io/zero-ops/operators/hub-operator`
 - [ ] Create HubEnvironment CRD: `kubebuilder create api --group ops --version v1alpha1 --kind HubEnvironment`
 - [ ] Migrate `generateSecurePassword()` from `internal/hub/components/secrets.go`
 - [ ] Migrate `InstallInfisicalSecrets()` logic to `internal/secrets/generator.go`
@@ -1485,10 +1485,10 @@ metadata:
   name: hub-operator
 rules:
 # HubEnvironment CRD
-- apiGroups: ["ops.zero-ops.io"]
+- apiGroups: ["ops.nutgraf.in"]
   resources: ["hubenvironments"]
   verbs: ["get", "list", "watch", "update", "patch"]
-- apiGroups: ["ops.zero-ops.io"]
+- apiGroups: ["ops.nutgraf.in"]
   resources: ["hubenvironments/status"]
   verbs: ["get", "update", "patch"]
 
@@ -1748,7 +1748,7 @@ func (g *Generator) generateOryDBCredentials(ctx context.Context, hubEnv *opsv1a
             Name:      secretName,
             Namespace: namespace,
             Labels: map[string]string{
-                "ops.zero-ops.io/db-credentials": "true", // GAP #2: Label for ESO watch
+                "ops.nutgraf.in/db-credentials": "true", // GAP #2: Label for ESO watch
                 "app.kubernetes.io/component":    service,
             },
         },
@@ -2517,10 +2517,10 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 rules:
 # HubEnvironment CRD
-- apiGroups: ["ops.zero-ops.io"]
+- apiGroups: ["ops.nutgraf.in"]
   resources: ["hubenvironments"]
   verbs: ["get", "list", "watch", "update", "patch"]
-- apiGroups: ["ops.zero-ops.io"]
+- apiGroups: ["ops.nutgraf.in"]
   resources: ["hubenvironments/status"]
   verbs: ["get", "update", "patch"]
 # Secrets
@@ -2571,7 +2571,7 @@ subjects:
 ### Example HubEnvironment CR Deployment (`manifests/hub-environment.yaml`)
 
 ```yaml
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production
@@ -2651,12 +2651,12 @@ The operator eliminates bash jobs and CLI Day-2 logic, replacing them with decla
 This design addresses all critical edge cases identified in the final engineering review:
 
 **GAP #1: Dirty Database Recovery Deadlock**
-- Added `ops.zero-ops.io/reconcile-trigger` annotation watch
+- Added `ops.nutgraf.in/reconcile-trigger` annotation watch
 - Manual recovery procedure documented in Error Handling section
 - Operator resumes reconciliation after human fixes dirty database state
 
 **GAP #2: Unwatched ESO Secrets Blindspot**
-- Added watch for secrets with label `ops.zero-ops.io/db-credentials=true`
+- Added watch for secrets with label `ops.nutgraf.in/db-credentials=true`
 - Operator detects ESO-driven password rotations
 - Triggers ALTER ROLE reconciliation for password drift
 
@@ -2793,7 +2793,7 @@ func (g *Generator) generateSelfSignedCA(ctx context.Context, hubEnv *opsv1alpha
             Namespace: namespace,
             Labels: map[string]string{
                 "app.kubernetes.io/component": "database-ca",
-                "ops.zero-ops.io/managed-by":  "hub-operator",
+                "ops.nutgraf.in/managed-by":  "hub-operator",
             },
         },
         Type: corev1.SecretTypeTLS,

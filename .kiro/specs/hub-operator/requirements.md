@@ -255,7 +255,7 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 5. WHEN a watched resource status changes to Ready, THE Hub_Operator SHALL trigger reconciliation
 6. THE Hub_Operator SHALL own all Kubernetes secrets it creates
 7. WHEN an owned secret is deleted, THE Hub_Operator SHALL trigger reconciliation to recreate it
-8. THE Hub_Operator SHALL watch Secrets possessing the label "ops.zero-ops.io/db-credentials=true", regardless of ownership
+8. THE Hub_Operator SHALL watch Secrets possessing the label "ops.nutgraf.in/db-credentials=true", regardless of ownership
 9. WHEN a watched non-owned secret changes (ESO-driven password rotation), THE Hub_Operator SHALL trigger reconciliation to execute ALTER ROLE
 
 ### Requirement 13: Sync Wave Architecture
@@ -384,8 +384,8 @@ The hub-operator is a Kubernetes Operator that manages Day-2 operations for the 
 7. THE Hub_Operator SHALL return ctrl.Result with Requeue=false for permanent errors requiring manual intervention
 8. THE Hub_Operator SHALL NOT panic or crash on API failures
 9. THE Hub_Operator SHALL log errors with structured logging using controller-runtime logger
-10. THE Hub_Operator SHALL watch for an annotation "ops.zero-ops.io/reconcile-trigger" on the HubEnvironment_CR
-11. WHEN the "ops.zero-ops.io/reconcile-trigger" annotation is added or updated, THE Hub_Operator SHALL resume reconciliation from a Permanent Error state
+10. THE Hub_Operator SHALL watch for an annotation "ops.nutgraf.in/reconcile-trigger" on the HubEnvironment_CR
+11. WHEN the "ops.nutgraf.in/reconcile-trigger" annotation is added or updated, THE Hub_Operator SHALL resume reconciliation from a Permanent Error state
 12. THE annotation value SHALL be a timestamp in RFC3339 format to ensure uniqueness
 
 ### Requirement 22: Operator Authentication to External Services

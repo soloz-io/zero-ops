@@ -39,9 +39,9 @@ type HubEnvironmentReconciler struct {
 	Scheme         *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=ops.zero-ops.io,resources=hubenvironments/finalizers,verbs=update
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -61,7 +61,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.4: Handle reconcile-trigger annotation
-	if triggerTime, ok := hubEnv.Annotations["ops.zero-ops.io/reconcile-trigger"]; ok {
+	if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok {
 		logger.Info("Manual reconciliation triggered", "timestamp", triggerTime)
 
 		// Clear ALL conditions and uploaded secrets to force full Phase 1 re-run
@@ -70,7 +70,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		hubEnv.Status.UploadedSecrets = []string{}
 
 		// Remove the annotation after processing
-		delete(hubEnv.Annotations, "ops.zero-ops.io/reconcile-trigger")
+		delete(hubEnv.Annotations, "ops.nutgraf.in/reconcile-trigger")
 		if err := r.Update(ctx, hubEnv); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -860,7 +860,7 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 		}
 
 		// Check if secret has the db-credentials label (ESO-managed)
-		if labels := secret.GetLabels(); labels == nil || labels["ops.zero-ops.io/db-credentials"] != "true" {
+		if labels := secret.GetLabels(); labels == nil || labels["ops.nutgraf.in/db-credentials"] != "true" {
 			// Not an ESO-managed secret, skip
 			continue
 		}
@@ -1016,14 +1016,14 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return secret.Name == "platform-db-ca"
 			})),
 		).
-		// Requirement 12.6: Watch secrets with label ops.zero-ops.io/db-credentials=true for password rotation
+		// Requirement 12.6: Watch secrets with label ops.nutgraf.in/db-credentials=true for password rotation
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 				secret := obj.(*corev1.Secret)
 				if labels := secret.GetLabels(); labels != nil {
-					return labels["ops.zero-ops.io/db-credentials"] == "true"
+					return labels["ops.nutgraf.in/db-credentials"] == "true"
 				}
 				return false
 			})),

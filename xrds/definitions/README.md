@@ -11,7 +11,7 @@ Defines the declarative API for provisioning Spoke Pool clusters (cells) that ho
 ### API Schema
 
 ```yaml
-apiVersion: zero-ops.io/v1alpha1
+apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool
 metadata:
   name: spokepool-01

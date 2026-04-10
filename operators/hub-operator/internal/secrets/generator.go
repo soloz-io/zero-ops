@@ -187,7 +187,7 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 			Namespace:       namespace,
 			OwnerReferences: []metav1.OwnerReference{owner},
 			Labels: map[string]string{
-				"ops.zero-ops.io/db-credentials": "true",
+				"ops.nutgraf.in/db-credentials": "true",
 			},
 		},
 		Type: corev1.SecretTypeOpaque,

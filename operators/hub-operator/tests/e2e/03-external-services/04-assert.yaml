@@ -1,6 +1,6 @@
 ---
 # AC 18.8: Assert Ready condition is True
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production

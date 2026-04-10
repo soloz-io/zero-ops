@@ -20,7 +20,7 @@ metadata:
 ---
 # AC 21.3: Assert 3 OAuth clients exist
 # AC 21.3: Assert 3 NATS streams exist
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production

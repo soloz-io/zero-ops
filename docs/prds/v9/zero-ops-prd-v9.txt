@@ -891,13 +891,13 @@ The Platform Console is a web application deployed in the management cluster. It
 
 ```yaml
 # PREnvironment Custom Resource (managed by hub-operator)
-apiVersion: ops.zero-ops.io/v1alpha1
+apiVersion: ops.nutgraf.in/v1alpha1
 kind: PREnvironment
 metadata:
   name: pr-{branch-slug}
   namespace: {tenant-namespace}
   finalizers:
-    - ops.zero-ops.io/pr-environment-cleanup
+    - ops.nutgraf.in/pr-environment-cleanup
 spec:
   branch: {branch-name}
   tenantId: {tenant-id}
@@ -935,7 +935,7 @@ status:
 
 **Creation Phase:**
 1. Operator watches `PREnvironment` CRs in all tenant namespaces.
-2. On CR creation, operator adds finalizer `ops.zero-ops.io/pr-environment-cleanup` if not present.
+2. On CR creation, operator adds finalizer `ops.nutgraf.in/pr-environment-cleanup` if not present.
 3. Operator creates namespace, CNPG cluster (with CSI snapshot restore), application deployment, S3 prefix.
 4. Operator polls resource health and sets status conditions (`Ready`, `DatabaseRestored`).
 5. Operator writes PR environment URL to `status.url` for GitHub status check integration.
@@ -950,7 +950,7 @@ status:
    c. Delete CNPG cluster (wait for `Cluster` resource to be fully removed from API server).
    d. Delete namespace (cascades all remaining resources).
 5. Operator verifies all cleanup operations completed successfully.
-6. Operator removes finalizer `ops.zero-ops.io/pr-environment-cleanup` from CR.
+6. Operator removes finalizer `ops.nutgraf.in/pr-environment-cleanup` from CR.
 7. Kubernetes completes CR deletion. PR environment fully torn down.
 
 **Failure Handling:**

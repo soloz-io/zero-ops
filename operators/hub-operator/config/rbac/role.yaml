@@ -43,7 +43,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ops.zero-ops.io
+  - ops.nutgraf.in
   resources:
   - hubenvironments
   verbs:
@@ -55,13 +55,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ops.zero-ops.io
+  - ops.nutgraf.in
   resources:
   - hubenvironments/finalizers
   verbs:
   - update
 - apiGroups:
-  - ops.zero-ops.io
+  - ops.nutgraf.in
   resources:
   - hubenvironments/status
   verbs:

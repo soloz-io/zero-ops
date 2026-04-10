@@ -1,5 +1,5 @@
 ---
-apiVersion: zero-ops.io/v1alpha1
+apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool
 metadata:
   name: spoke-pool-eu-prod-01

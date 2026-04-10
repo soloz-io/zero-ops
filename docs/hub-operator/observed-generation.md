@@ -192,7 +192,7 @@ kubectl patch hubenvironment hub-production --type=json \
 
 # Option 2: Trigger manual reconciliation (clears all conditions)
 kubectl annotate hubenvironment hub-production \
-  ops.zero-ops.io/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
 ### Check Operator Logs

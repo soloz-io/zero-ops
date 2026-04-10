@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: hubenvironments.ops.zero-ops.io
+  name: hubenvironments.ops.nutgraf.in
 spec:
-  group: ops.zero-ops.io
+  group: ops.nutgraf.in
   names:
     kind: HubEnvironment
     listKind: HubEnvironmentList

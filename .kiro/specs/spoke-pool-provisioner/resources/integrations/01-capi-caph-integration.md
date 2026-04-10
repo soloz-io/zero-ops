@@ -272,7 +272,7 @@ metadata:
   name: spokepool-hetzner-v1
 spec:
   compositeTypeRef:
-    apiVersion: zero-ops.io/v1alpha1
+    apiVersion: nutgraf.in/v1alpha1
     kind: SpokePool
   resources:
   - name: capi-cluster

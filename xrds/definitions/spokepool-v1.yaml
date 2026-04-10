@@ -2,10 +2,10 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: spokepools.zero-ops.io
+  name: spokepools.nutgraf.in
 spec:
   scope: Namespaced
-  group: zero-ops.io
+  group: nutgraf.in
   names:
     kind: SpokePool
     plural: spokepools

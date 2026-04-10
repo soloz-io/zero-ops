@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   # 1. Reference the auto-generated CRD directly
-  - ../config/crd/bases/ops.zero-ops.io_hubenvironments.yaml
+  - ../config/crd/bases/ops.nutgraf.in_hubenvironments.yaml
   - service_account.yaml
   - rbac.yaml
   - deployment.yaml
@@ -14,6 +14,6 @@ patches:
       apiVersion: apiextensions.k8s.io/v1
       kind: CustomResourceDefinition
       metadata:
-        name: hubenvironments.ops.zero-ops.io
+        name: hubenvironments.ops.nutgraf.in
         annotations:
           argocd.argoproj.io/sync-wave: "0"

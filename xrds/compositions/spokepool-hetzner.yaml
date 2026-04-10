@@ -8,7 +8,7 @@ metadata:
     cluster-type: spoke-pool
 spec:
   compositeTypeRef:
-    apiVersion: zero-ops.io/v1alpha1
+    apiVersion: nutgraf.in/v1alpha1
     kind: SpokePool
   
   mode: Pipeline
