@@ -101,8 +101,8 @@ spec:
                   instanceType:
                     type: string
                     description: "Hetzner server type"
-                    enum: ["cx21", "cx31", "cx41", "cx51"]
-                    default: "cx31"
+                    enum: ["cx23", "cx33"]
+                    default: "cx33"
               maxTenantCapacity:
                 type: integer
                 description: "Maximum number of tenant schemas per cell"
@@ -260,7 +260,7 @@ spec:
           spec:
             template:
               spec:
-                type: cx21
+                type: cx23
                 imageName: ubuntu-24.04
           ---
           apiVersion: cluster.x-k8s.io/v1beta1

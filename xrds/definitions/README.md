@@ -19,7 +19,7 @@ spec:
   region: fsn1                    # Hetzner datacenter (fsn1, nbg1, hel1)
   nodePool:
     count: 3                      # Worker nodes (1-10)
-    instanceType: cx31            # Hetzner server type (cx31, cx41, cx51)
+    instanceType: cx33            # Hetzner server type (cx33, cx41, cx51)
   maxTenantCapacity: 100          # Max tenant schemas per cell (1-100)
 ```
 
@@ -31,7 +31,7 @@ spec:
 
 ### Supported Instance Types
 
-- `cx31`: 2 vCPU, 8 GB RAM
+- `cx33`: 2 vCPU, 8 GB RAM
 - `cx41`: 4 vCPU, 16 GB RAM
 - `cx51`: 8 vCPU, 32 GB RAM
 

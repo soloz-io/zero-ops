@@ -98,7 +98,7 @@ spec:
   region: fsn1                    # Hetzner datacenter
   nodePool:
     count: 3                      # Worker nodes
-    instanceType: cx31            # Hetzner server type
+    instanceType: cx33            # Hetzner server type
   maxTenantCapacity: 100          # Max tenant schemas per cell
 ```
 

@@ -15,10 +15,10 @@ When a SpokePool XR is applied, this Composition generates:
 1. **CAPI Cluster** - Main cluster resource with labels `spoke-type: pool` and `cell-id: <name>`
 2. **HetznerCluster** - Hetzner-specific infrastructure (load balancer, network)
 3. **KubeadmControlPlane** - Single control plane node (Ubuntu 24.04, k8s v1.31.6)
-4. **HCloudMachineTemplate** (Control Plane) - cx21 instance template
+4. **HCloudMachineTemplate** (Control Plane) - cx23 instance template
 5. **MachineDeployment** - Worker node deployment
 6. **KubeadmConfigTemplate** - Worker node bootstrap configuration
-7. **HCloudMachineTemplate** (Workers) - Worker instance template (cx31/cx41/cx51)
+7. **HCloudMachineTemplate** (Workers) - Worker instance template (cx33/cx41/cx51)
 
 ### Architecture
 

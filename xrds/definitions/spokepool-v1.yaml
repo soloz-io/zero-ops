@@ -46,10 +46,8 @@ spec:
                       type: string
                       description: "Hetzner server type for worker nodes"
                       enum:
-                        - cx31
-                        - cx41
-                        - cx51
-                      default: cx31
+                        - cx33
+                      default: cx33
                 maxTenantCapacity:
                   type: integer
                   description: "Maximum number of tenant schemas this cell can host"

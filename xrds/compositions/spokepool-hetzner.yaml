@@ -172,7 +172,7 @@ spec:
               spec:
                 template:
                   spec:
-                    type: cx21
+                    type: cx23
                     imageName: ubuntu-24.04
             patches:
               - type: FromCompositeFieldPath
