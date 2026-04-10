@@ -109,13 +109,17 @@ metadata:
 spec:
   template:
     spec:
+      controlPlaneRegions:
+      - fsn1  # Default, will be patched by ClusterClass
       controlPlaneLoadBalancer:
         enabled: true
         type: lb11
         algorithm: round_robin
+        region: fsn1  # Default, will be patched by ClusterClass
       hcloudNetwork:
         enabled: true
         cidrBlock: 10.0.0.0/16
+        networkZone: eu-central  # Default, will be patched by ClusterClass
       sshKeys:
         hcloud:
         - name: default
