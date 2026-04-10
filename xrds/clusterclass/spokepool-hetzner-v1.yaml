@@ -109,6 +109,9 @@ metadata:
 spec:
   template:
     spec:
+      controlPlaneEndpoint:
+        host: ""
+        port: 443
       controlPlaneRegions:
       - fsn1  # Default, will be patched by ClusterClass
       controlPlaneLoadBalancer:
