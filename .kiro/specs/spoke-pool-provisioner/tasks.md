@@ -371,12 +371,12 @@ After completing each phase, you MUST:
 
 ### 3.1 Baseline Migration Files
 
-- [ ] 3.1.1 Create migration repository structure
+- [x] 3.1.1 Create migration repository structure
   - Create directory: `migrations/tenant-baseline/`
   - Initialize Git repository for migrations
   - _Requirements: FR-4.1, AC-5_
 
-- [ ] 3.1.2 Create baseline schema migration
+- [x] 3.1.2 Create baseline schema migration
   - Create migration: `migrations/tenant-baseline/20240101000001_create_schema.sql`
   - Content: `CREATE SCHEMA IF NOT EXISTS tenant_{{.tenant_id}};`
   - Content: `CREATE ROLE tenant_{{.tenant_id}}_role;`
@@ -384,39 +384,39 @@ After completing each phase, you MUST:
   - Ensure idempotent (IF NOT EXISTS)
   - _Requirements: FR-4.1, FR-4.2, NFR-6.1, AC-5_
 
-- [ ] 3.1.3 Create baseline users table migration
+- [x] 3.1.3 Create baseline users table migration
   - Create migration: `migrations/tenant-baseline/20240101000002_create_users_table.sql`
   - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.users (...);`
   - Enable RLS: `ALTER TABLE tenant_{{.tenant_id}}.users ENABLE ROW LEVEL SECURITY;`
   - Create RLS policy using JWT user_id claim
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [ ] 3.1.4 Create baseline sessions table migration
+- [x] 3.1.4 Create baseline sessions table migration
   - Create migration: `migrations/tenant-baseline/20240101000003_create_sessions_table.sql`
   - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.sessions (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [ ] 3.1.5 Create baseline identities table migration
+- [x] 3.1.5 Create baseline identities table migration
   - Create migration: `migrations/tenant-baseline/20240101000004_create_identities_table.sql`
   - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.identities (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
 
-- [ ] 3.1.6 Create baseline buckets table migration
+- [x] 3.1.6 Create baseline buckets table migration
   - Create migration: `migrations/tenant-baseline/20240101000005_create_buckets_table.sql`
   - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.buckets (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [ ] 3.1.7 Create baseline objects table migration
+- [x] 3.1.7 Create baseline objects table migration
   - Create migration: `migrations/tenant-baseline/20240101000006_create_objects_table.sql`
   - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.objects (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [ ] 3.1.8 Commit baseline migrations to Git
+- [x] 3.1.8 Commit baseline migrations to Git
   - Commit all migrations to main branch
   - Verify migrations follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
   - Verify all migrations are idempotent
@@ -424,20 +424,20 @@ After completing each phase, you MUST:
 
 ### 3.2 Universal Tenant Helm Chart
 
-- [ ] 3.2.1 Create Universal Tenant Helm Chart structure
+- [x] 3.2.1 Create Universal Tenant Helm Chart structure
   - Create directory: `charts/universal-tenant/`
   - Create Chart.yaml with metadata
   - Create values.yaml with tenant input schema
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.2.2 Create AINativeSaaS XR template
+- [x] 3.2.2 Create AINativeSaaS XR template
   - Create template: `charts/universal-tenant/templates/ainativesaas.yaml`
   - Template generates AINativeSaaS XR from values
   - Include: tenantId, tier, region from values
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "1"`
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.2.3 Create namespace template
+- [x] 3.2.3 Create namespace template
   - Create template: `charts/universal-tenant/templates/namespace.yaml`
   - Template generates namespace: `tenant-{{.Values.tenantId}}`
   - Add labels: tenant-id, tier
@@ -445,20 +445,20 @@ After completing each phase, you MUST:
   - _Requirements: FR-5.2, AC-5_
 
 
-- [ ] 3.2.4 Create RBAC template
+- [x] 3.2.4 Create RBAC template
   - Create template: `charts/universal-tenant/templates/rbac.yaml`
   - Template generates ServiceAccount, Role, RoleBinding
   - Scope to tenant namespace
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "0"`
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.2.5 Create ResourceQuota template
+- [x] 3.2.5 Create ResourceQuota template
   - Create template: `charts/universal-tenant/templates/resourcequota.yaml`
   - Template generates ResourceQuota based on tier
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "0"`
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.2.6 Create AtlasMigration CR template
+- [x] 3.2.6 Create AtlasMigration CR template
   - Create template: `charts/universal-tenant/templates/atlasmigration.yaml`
   - Template generates AtlasMigration CR with:
     * Schema name: `tenant_{{.Values.tenantId}}`
@@ -468,38 +468,38 @@ After completing each phase, you MUST:
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "2"`
   - _Requirements: FR-5.2, FR-4.1, AC-5_
 
-- [ ] 3.2.7 Create ConfigMap for migrations
+- [x] 3.2.7 Create ConfigMap for migrations
   - Create template: `charts/universal-tenant/templates/migrations-configmap.yaml`
   - Template generates ConfigMap with migration files from Git
   - Atlas Operator reads migrations from this ConfigMap
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "2"`
   - _Requirements: FR-5.2, FR-4.1, AC-5_
 
-- [ ] 3.2.8 Commit Universal Tenant Chart to Git
+- [x] 3.2.8 Commit Universal Tenant Chart to Git
   - Commit chart to main branch
   - Verify chart structure and templates
   - _Requirements: FR-5.2, AC-5_
 
 ### 3.3 Fleet Registry Structure
 
-- [ ] 3.3.1 Create fleet registry repository structure
+- [x] 3.3.1 Create fleet registry repository structure
   - Create directory: `fleet-registry/tenants/`
   - Initialize Git repository
   - _Requirements: FR-5.2, AC-5_
 
 
-- [ ] 3.3.2 Create example tenant values file
+- [x] 3.3.2 Create example tenant values file
   - Create file: `fleet-registry/tenants/tenant-example/values.yaml`
   - Content: tenantId, tier, region, database.schemaName, database.migrations.gitRepo
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.3.3 Commit fleet registry structure to Git
+- [x] 3.3.3 Commit fleet registry structure to Git
   - Commit to main branch
   - _Requirements: FR-5.2, AC-5_
 
 ### 3.4 ArgoCD ApplicationSet for Tenant Provisioning
 
-- [ ] 3.4.1 Create ApplicationSet with Git Generator
+- [x] 3.4.1 Create ApplicationSet with Git Generator
   - Create file: `catalog/argocd/tenant-applicationset.yaml`
   - Use Git Generator to watch `fleet-registry/tenants/*/values.yaml`
   - Generate Helm Application for each tenant directory
@@ -507,20 +507,20 @@ After completing each phase, you MUST:
   - Configure source.helm.valueFiles: `fleet-registry/tenants/{{tenant-id}}/values.yaml`
   - _Requirements: FR-5.2, AC-5_
 
-- [ ] 3.4.2 Commit ApplicationSet to Git
+- [x] 3.4.2 Commit ApplicationSet to Git
   - Commit to feature branch
   - Verify ArgoCD syncs ApplicationSet
   - _Requirements: FR-5.2, AC-5_
 
 ### 3.5 PostgREST Schema Discovery
 
-- [ ] 3.5.1 Update PostgREST configuration for dynamic schema discovery
+- [x] 3.5.1 Update PostgREST configuration for dynamic schema discovery
   - Configure db-schemas to include all tenant schemas
   - Configure schema discovery query: `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`
   - Configure health check to verify schema exists before accepting requests
   - _Requirements: FR-4.1, AC-5_
 
-- [ ] 3.5.2 Commit PostgREST configuration update to Git
+- [x] 3.5.2 Commit PostgREST configuration update to Git
   - Commit to feature branch
   - Verify ArgoCD syncs updated PostgREST config
   - _Requirements: FR-4.1, AC-5_

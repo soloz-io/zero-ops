@@ -65,5 +65,6 @@ kubectl patch application platform-database -n argocd --type merge -p '{"spec":{
 
 kubectl patch application platform-infisical-prerequisites -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"syncStrategy":{"hook":{},"apply":{"force":true}}}}}'
 
-
 kubectl patch application platform-database -n argocd --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+
+export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl get pods
