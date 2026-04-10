@@ -84,6 +84,10 @@ spec:
                 sshKeys:
                   hcloud:
                     - name: default
+                hetznerSecret:
+                  name: hetzner-credentials
+                  key:
+                    hcloudToken: hcloud
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -91,6 +95,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region
                 toFieldPath: spec.controlPlaneRegions[0]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.region
+                toFieldPath: spec.controlPlaneLoadBalancer.region
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region
                 toFieldPath: spec.hcloudNetwork.networkZone
