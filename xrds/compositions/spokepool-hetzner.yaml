@@ -201,7 +201,16 @@ spec:
                 namespace: hub-platform-ops
               type: addons.cluster.x-k8s.io/resource-set
               stringData:
-                secret.yaml: ""
+                secret.yaml: |
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: hetzner
+                    namespace: kube-system
+                  stringData:
+                    hcloud: "lHc58bsakrr9csMJtcDOn8raxgjcJMiuhrl9JZKJiEK8ekNTryDYToDcOlZ3xN3z"
+                    robot-user: ""
+                    robot-password: ""
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -211,18 +220,3 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-hetzner-credentials"
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: metadata.name
-                  strategy: string
-                  string:
-                    fmt: |
-                      apiVersion: v1
-                      kind: Secret
-                      metadata:
-                        name: hcloud
-                        namespace: kube-system
-                      stringData:
-                        token: "lHc58bsakrr9csMJtcDOn8raxgjcJMiuhrl9JZKJiEK8ekNTryDYToDcOlZ3xN3z"
-                toFieldPath: stringData["secret.yaml"]
