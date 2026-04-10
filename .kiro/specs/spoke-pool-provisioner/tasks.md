@@ -138,7 +138,7 @@ After completing each phase, you MUST:
 
 ### 1.6 PHASE 1 REVIEW CHECKPOINT
 
-- [ ] 1.6.1 **MANDATORY STOP - Phase 1 Review**
+- [x] 1.6.1 **MANDATORY STOP - Phase 1 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 1 completion summary to user
   - Demonstrate: SpokePool XR → CAPI cluster → ArgoCD Agent → Kyverno discovery
@@ -156,26 +156,26 @@ After completing each phase, you MUST:
 
 ### 2.1 ArgoCD ApplicationSet with Cluster Generator
 
-- [ ] 2.1.1 Create ApplicationSet for edge catalog deployment
+- [x] 2.1.1 Create ApplicationSet for edge catalog deployment
   - Use Cluster Generator with selector: `spoke-type: pool`
   - Define App-of-Apps pattern (umbrella Application creates children)
   - Create file: `catalog/argocd/edge-catalog-applicationset.yaml`
   - _Requirements: FR-2.1, AC-4_
 
-- [ ] 2.1.2 Create umbrella Application manifest
+- [x] 2.1.2 Create umbrella Application manifest
   - Define parent Application that generates child Applications
   - Configure sync waves: 0 (extensions), 1 (CNPG), 2 (Atlas), 3 (PostgREST), 4 (NATS/Alloy)
   - Create file: `edge-catalog/edge-catalog-app.yaml`
   - _Requirements: FR-2.1, AC-4_
 
-- [ ] 2.1.3 Commit ApplicationSet to Git
+- [x] 2.1.3 Commit ApplicationSet to Git
   - Commit to feature branch
   - Verify ArgoCD syncs ApplicationSet
   - _Requirements: FR-2.1, AC-4_
 
 ### 2.2 Shared CNPG Cluster (Sync Wave 1)
 
-- [ ] 2.2.1 Create CNPG Cluster manifest
+- [x] 2.2.1 Create CNPG Cluster manifest
   - Configure 3 PostgreSQL replicas (HA)
   - Enable pgvector extension
   - Configure 100Gi storage per instance
@@ -184,7 +184,7 @@ After completing each phase, you MUST:
   - Create file: `edge-catalog/cnpg-cluster.yaml`
   - _Requirements: FR-2.2, NFR-2.3, AC-4_
 
-- [ ] 2.2.2 Create PgBouncer pooler configuration
+- [x] 2.2.2 Create PgBouncer pooler configuration
   - Configure transaction pooling mode (CRITICAL: must be transaction, not session)
   - Set max_client_conn: 500 (100 tenants * 5 connections)
   - Set default_pool_size: 20
@@ -193,33 +193,33 @@ After completing each phase, you MUST:
   - _Requirements: FR-2.2, NFR-2.4, AC-4_
 
 
-- [ ] 2.2.3 Commit CNPG manifests to Git
+- [x] 2.2.3 Commit CNPG manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs CNPG Cluster
   - _Requirements: FR-2.2, AC-4_
 
 ### 2.3 Atlas Operator Deployment (Sync Wave 2)
 
-- [ ] 2.3.1 Create Atlas Operator Helm Application
+- [x] 2.3.1 Create Atlas Operator Helm Application
   - Configure Helm chart: `oci://ghcr.io/ariga/charts/atlas-operator`
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "2"`
   - Add health check: wait for CNPG Ready before deploying
   - Create file: `edge-catalog/atlas-operator.yaml`
   - _Requirements: FR-4.4, AC-4_
 
-- [ ] 2.3.2 Create AtlasMigration CRD registration
+- [x] 2.3.2 Create AtlasMigration CRD registration
   - Ensure CRD is registered in Spoke Pool clusters
   - Verify CRD includes status.conditions[Ready]
   - _Requirements: FR-4.4, AC-5_
 
-- [ ] 2.3.3 Commit Atlas Operator manifests to Git
+- [x] 2.3.3 Commit Atlas Operator manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs Atlas Operator
   - _Requirements: FR-4.4, AC-4_
 
 ### 2.4 PostgREST Deployment (Sync Wave 3)
 
-- [ ] 2.4.1 Create PostgREST Deployment manifest
+- [x] 2.4.1 Create PostgREST Deployment manifest
   - Configure as internal service (NOT directly exposed)
   - Configure connection to CNPG via PgBouncer
   - Configure JWT cache: 10000 entries
@@ -228,12 +228,12 @@ After completing each phase, you MUST:
   - Create file: `edge-catalog/postgrest.yaml`
   - _Requirements: FR-2.6, NFR-2.8, AC-4_
 
-- [ ] 2.4.2 Create PostgREST Service manifest
+- [x] 2.4.2 Create PostgREST Service manifest
   - Define ClusterIP service (internal only)
   - Port 3000 for REST API
   - _Requirements: FR-2.6, AC-4_
 
-- [ ] 2.4.3 Commit PostgREST manifests to Git
+- [x] 2.4.3 Commit PostgREST manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs PostgREST
   - _Requirements: FR-2.6, AC-4_
@@ -241,7 +241,7 @@ After completing each phase, you MUST:
 
 ### 2.5 AgentGateway Deployment (Sync Wave 3)
 
-- [ ] 2.5.1 Create AgentGateway Deployment manifest
+- [x] 2.5.1 Create AgentGateway Deployment manifest
   - Configure Hub Ory JWKS endpoint for JWT validation
   - Configure routing to PostgREST internal service
   - Configure JWT validation: RS256 signature, issuer, audience, expiration
@@ -251,19 +251,19 @@ After completing each phase, you MUST:
   - Create file: `edge-catalog/agentgateway.yaml`
   - _Requirements: FR-2.6, FR-4.5, AC-4_
 
-- [ ] 2.5.2 Create AgentGateway Service manifest
+- [x] 2.5.2 Create AgentGateway Service manifest
   - Define LoadBalancer or Ingress for external access
   - Configure TLS termination
   - _Requirements: FR-2.6, AC-4_
 
-- [ ] 2.5.3 Commit AgentGateway manifests to Git
+- [x] 2.5.3 Commit AgentGateway manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs AgentGateway
   - _Requirements: FR-2.6, AC-4_
 
 ### 2.6 NATS Leaf Node Deployment (Sync Wave 4)
 
-- [ ] 2.6.1 Create NATS Leaf Node StatefulSet manifest
+- [x] 2.6.1 Create NATS Leaf Node StatefulSet manifest
   - Configure connection to Hub NATS using mTLS
   - Configure JetStream for local buffering
   - Configure subject forwarding: `spoke.{cell-id}.billing.usage`
@@ -271,7 +271,7 @@ After completing each phase, you MUST:
   - Create file: `edge-catalog/nats-leaf-node.yaml`
   - _Requirements: FR-2.3, NFR-3.3, AC-4_
 
-- [ ] 2.6.2 Create NATS Leaf Node Service manifest
+- [x] 2.6.2 Create NATS Leaf Node Service manifest
   - Define ClusterIP service for tenant workloads
   - Port 4222 for NATS protocol
   - _Requirements: FR-2.3, AC-4_
@@ -284,7 +284,7 @@ After completing each phase, you MUST:
 
 ### 2.7 Grafana Alloy Deployment (Sync Wave 4)
 
-- [ ] 2.7.1 Create Grafana Alloy DaemonSet manifest
+- [x] 2.7.1 Create Grafana Alloy DaemonSet manifest
   - Configure KSM (Kubernetes State Metrics) scraping
   - Configure CNPG metrics scraping (connection count, replication lag, disk usage)
   - Configure NATS metrics scraping (leaf node connection, message counts)

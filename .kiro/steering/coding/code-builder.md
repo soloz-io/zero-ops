@@ -14,3 +14,5 @@ inclusion: manual
 - No unit or integration test cases be written. Only write e2e test cases. Code reviewer will reject if they find unit test cases written.
 - you must never create a summary or temoprary document unless staed in the tasks.
 - Always make sure a README is included or updated per folder.
+
+Note: Cluster is already live and you have access to cluster - export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig && kubectl patch .. you can verify your vhnages
