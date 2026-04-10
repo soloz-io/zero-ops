@@ -192,28 +192,49 @@ spec:
                   metadata:
                     name: argocd
           
-          # Hetzner credentials secret for CCM (per-cluster)
-          # Bootstrap phase: hardcoded credentials pushed via ClusterResourceSet
-          # Runtime phase: ESO will manage credentials dynamically
-          - name: hetzner-credentials-secret
+          # Hetzner credentials ExternalSecret for CCM bootstrap
+          # Fetches credentials from Infisical and creates ClusterResourceSet-compatible secret
+          - name: hetzner-credentials-externalsecret
             base:
-              apiVersion: v1
-              kind: Secret
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
               metadata:
                 namespace: hub-platform-ops
-              type: addons.cluster.x-k8s.io/resource-set
-              stringData:
-                secret.yaml: |
-                  apiVersion: v1
-                  kind: Secret
-                  metadata:
-                    name: hetzner
-                    namespace: kube-system
-                  type: Opaque
-                  stringData:
-                    hcloud: "lHc58bsakrr9csMJtcDOn8raxgjcJMiuhrl9JZKJiEK8ekNTryDYToDcOlZ3xN3z"
-                    robot-user: ""
-                    robot-password: ""
+              spec:
+                refreshInterval: 1h
+                secretStoreRef:
+                  name: infisical-backend
+                  kind: ClusterSecretStore
+                target:
+                  name: ""
+                  creationPolicy: Owner
+                  template:
+                    type: addons.cluster.x-k8s.io/resource-set
+                    data:
+                      secret.yaml: |
+                        apiVersion: v1
+                        kind: Secret
+                        metadata:
+                          name: hetzner
+                          namespace: kube-system
+                        type: Opaque
+                        stringData:
+                          hcloud: "{{ .hcloud }}"
+                          robot-user: "{{ .hetznerRobotUser }}"
+                          robot-password: "{{ .hetznerRobotPassword }}"
+                data:
+                  - secretKey: hcloud
+                    remoteRef:
+                      key: hetzner-credentials
+                      property: hcloud
+                  - secretKey: hetznerRobotUser
+                    remoteRef:
+                      key: hetzner-credentials
+                      property: hetzner-robot-user
+                  - secretKey: hetznerRobotPassword
+                    remoteRef:
+                      key: hetzner-credentials
+                      property: hetzner-robot-password
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -222,4 +243,14 @@ spec:
                   - type: string
                     string:
                       type: Format
+                      fmt: "%s-hetzner-credentials-es"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
                       fmt: "%s-hetzner-credentials"
+          
+
