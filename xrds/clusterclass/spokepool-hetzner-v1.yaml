@@ -126,7 +126,7 @@ spec:
         networkZone: eu-central  # Default, will be patched by ClusterClass
       sshKeys:
         hcloud:
-        - name: default
+        - name: zero-ops-mac-mini-debug
       hetznerSecretRef:
         name: hetzner-credentials
         key:
