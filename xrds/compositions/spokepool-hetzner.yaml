@@ -180,34 +180,7 @@ spec:
                     metadata:
                       namespace: hub-platform-ops
                     data:
-                      argocd-agent-config.yaml: ""
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-params"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-params"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.data["argocd-agent-config.yaml"]
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: |
+                      argocd-agent-config.yaml: |
                         apiVersion: v1
                         kind: ConfigMap
                         metadata:
@@ -227,6 +200,25 @@ spec:
                           agent.destination-based-mapping: "false"
                           agent.create-namespace: "false"
                           agent.allowed-namespaces: ""
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-params"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-params"
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
