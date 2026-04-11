@@ -57,7 +57,7 @@ data:
                 - name: ARGOCD_AGENT_TLS_SECRET_NAME
                   value: "argocd-agent-client-cert"
                 - name: ARGOCD_AGENT_TLS_ROOT_CA_SECRET_NAME
-                  value: "argocd-agent-ca-secret"
+                  value: "argocd-agent-ca"
                 - name: ARGOCD_AGENT_CREDS
                   value: "mtls:^CN=(.+)$"
                 - name: REDIS_ADDR
