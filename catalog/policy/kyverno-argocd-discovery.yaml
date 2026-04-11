@@ -13,7 +13,7 @@ metadata:
       Automatically generates ArgoCD cluster Secret from CAPI kubeconfig Secret
       when a Cluster with label spoke-type=pool is provisioned.
 spec:
-  generateExistingOnPolicyUpdate: false
+  generateExistingOnPolicyUpdate: true
   rules:
     - name: generate-argocd-cluster-secret-from-kubeconfig
       match:
