@@ -28,6 +28,7 @@ spec:
       selector: {}
       template:
         spec:
+          serviceAccountName: provider-kubernetes
           containers:
             - name: package-runtime
               args:

@@ -1,10 +1,12 @@
 ---
-apiVersion: apiextensions.crossplane.io/v2
+apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
   name: spokepools.nutgraf.in
 spec:
-  scope: Namespaced
+  claimNames:
+    kind: SpokePoolClaim
+    plural: spokepoolclaims
   group: nutgraf.in
   names:
     kind: SpokePool
@@ -19,6 +21,7 @@ spec:
           properties:
             spec:
               type: object
+              additionalProperties: true
               required:
                 - region
                 - nodePool
@@ -54,43 +57,3 @@ spec:
                   minimum: 1
                   maximum: 100
                   default: 100
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  description: "Current provisioning phase"
-                  enum:
-                    - Pending
-                    - Provisioning
-                    - Ready
-                    - Failed
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
-                clusterEndpoint:
-                  type: string
-                  description: "Kubernetes API endpoint of the provisioned cluster"
-                cellId:
-                  type: string
-                  description: "Unique identifier for this cell (derived from metadata.name)"
-                tenantCount:
-                  type: integer
-                  description: "Current number of tenants in this cell"
-                  default: 0
