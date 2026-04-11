@@ -21,6 +21,8 @@ spec:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
     path: manifests/spoke-bootstrap
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
