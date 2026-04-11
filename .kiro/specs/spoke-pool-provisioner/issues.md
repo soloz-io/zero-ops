@@ -115,3 +115,35 @@ None - all critical issues resolved. Ready to proceed with task 1.7.11 (ClusterR
 - ADR: `docs/adr/namespace-alignment.md`
 - Design: `.kiro/specs/spoke-pool-provisioner/design.md`
 - Tasks: `.kiro/specs/spoke-pool-provisioner/tasks.md` (Task 1.7.11)
+
+
+## Issue #7: ArgoCD Agent Missing Application CRD
+
+**Date**: 2026-04-11 11:55 UTC  
+**Status**: IDENTIFIED  
+**Severity**: BLOCKER
+
+**Description**: ArgoCD Agent pod crashes with error `the server could not find the requested resource (get applications.argoproj.io)` because ArgoCD CRDs are not installed in spoke cluster.
+
+**Root Cause**: ClusterResourceSet bootstrap only includes 5 resources (Deployment, ConfigMap, mTLS certs, RBAC) but is missing ArgoCD CRDs prerequisite. The agent needs `applications.argoproj.io` CRD to function.
+
+**Evidence**:
+```
+time="2026-04-11T11:55:51Z" level=info msg="Starting argocd-agent (agent) v99.9.9-unreleased (ns=argocd, allowed_namespaces=[], mode=managed, auth=mtls)"
+time="2026-04-11T11:55:51Z" level=error msg="failed to populate the source cache" error="the server could not find the requested resource (get applications.argoproj.io)"
+[FATAL]: Could not start agent: the server could not find the requested resource (get applications.argoproj.io)
+```
+
+**Solution**: Add ArgoCD CRDs to ClusterResourceSet as 6th resource. According to `archived/argo/argocd-agent/install/kubernetes/argo-cd/agent-managed/kustomization.yaml`, the agent-managed mode requires:
+- Application CRD (applications.argoproj.io)
+- AppProject CRD (appprojects.argoproj.io)
+- Other ArgoCD CRDs from https://github.com/argoproj/argo-cd/manifests/cluster-install
+
+**Implementation**:
+1. Create ConfigMap with ArgoCD CRDs YAML in manifests/spoke-bootstrap/
+2. Add to ClusterResourceSet before Agent deployment
+3. Update Composition to include CRDs resource reference
+
+**References**:
+- Spec: `.kiro/specs/spoke-pool-provisioner/resources/integrations/03-argocd-agent-integration.md` Section 3.3
+- Upstream: `archived/argo/argocd-agent/install/kubernetes/argo-cd/agent-managed/kustomization.yaml`

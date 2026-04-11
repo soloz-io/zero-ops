@@ -113,6 +113,9 @@ spec:
                         # ArgoCD namespace
                         - name: argocd-namespace
                           kind: ConfigMap
+                        # ArgoCD CRDs (must be before Agent)
+                        - name: argocd-crds-template
+                          kind: Secret
                         # ArgoCD Agent
                         - name: argocd-agent-deployment
                           kind: ConfigMap

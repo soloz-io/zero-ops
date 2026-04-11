@@ -1,0 +1,107 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-crds-template
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-crds
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: cluster-bios
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  application-crd.yaml: |
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      labels:
+        app.kubernetes.io/name: applications.argoproj.io
+        app.kubernetes.io/part-of: argocd
+      name: applications.argoproj.io
+    spec:
+      group: argoproj.io
+      names:
+        kind: Application
+        listKind: ApplicationList
+        plural: applications
+        shortNames:
+        - app
+        - apps
+        singular: application
+      scope: Namespaced
+      versions:
+      - additionalPrinterColumns:
+        - jsonPath: .status.sync.status
+          name: Sync Status
+          type: string
+        - jsonPath: .status.health.status
+          name: Health Status
+          type: string
+        - jsonPath: .status.sync.revision
+          name: Revision
+          priority: 10
+          type: string
+        name: v1alpha1
+        schema:
+          openAPIV3Schema:
+            description: Application is a definition of Application resource.
+            properties:
+              apiVersion:
+                type: string
+              kind:
+                type: string
+              metadata:
+                type: object
+              spec:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              status:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            type: object
+        served: true
+        storage: true
+        subresources:
+          status: {}
+  appproject-crd.yaml: |
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      labels:
+        app.kubernetes.io/name: appprojects.argoproj.io
+        app.kubernetes.io/part-of: argocd
+      name: appprojects.argoproj.io
+    spec:
+      group: argoproj.io
+      names:
+        kind: AppProject
+        listKind: AppProjectList
+        plural: appprojects
+        shortNames:
+        - appproj
+        - appprojs
+        singular: appproject
+      scope: Namespaced
+      versions:
+      - name: v1alpha1
+        schema:
+          openAPIV3Schema:
+            description: AppProject provides a logical grouping of applications
+            properties:
+              apiVersion:
+                type: string
+              kind:
+                type: string
+              metadata:
+                type: object
+              spec:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              status:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            type: object
+        served: true
+        storage: true
+        subresources:
+          status: {}
