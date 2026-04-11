@@ -106,13 +106,8 @@ spec:
   privateKey:
     algorithm: RSA
     size: 4096
+    encoding: PKCS1
   issuerRef:
     name: argocd-agent-ca
     kind: Issuer
     group: cert-manager.io
-  secretTemplate:
-    annotations:
-      cert-manager.io/alt-names: ""
-    labels:
-      app.kubernetes.io/name: argocd-agent-jwt
-      app.kubernetes.io/part-of: argocd-agent

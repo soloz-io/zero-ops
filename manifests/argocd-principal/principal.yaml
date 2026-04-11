@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: argocd-agent-principal
-        image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:v0.8.1
+        image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest
         imagePullPolicy: IfNotPresent
         args:
         - principal
@@ -128,6 +128,11 @@ spec:
             configMapKeyRef:
               name: argocd-agent-params
               key: principal.jwt.secret-name
+        - name: ARGOCD_PRINCIPAL_JWT_KEY_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.jwt.key-path
         - name: ARGOCD_PRINCIPAL_DESTINATION_BASED_MAPPING
           valueFrom:
             configMapKeyRef:
@@ -173,3 +178,14 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: jwt-secret
+          mountPath: /app/config/jwt
+          readOnly: true
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: argocd-agent-jwt
+          items:
+          - key: tls.key
+            path: tls.key

@@ -45,7 +45,7 @@ data:
   # JWT Configuration
   principal.jwt.allow-generate: "false"
   principal.jwt.secret-name: "argocd-agent-jwt"
-  principal.jwt.key-path: ""
+  principal.jwt.key-path: "/app/config/jwt/tls.key"
   
   # Destination-based mapping for spoke pool routing
   principal.destination-based-mapping: "true"

@@ -154,24 +154,24 @@ After completing each phase, you MUST:
 
 ### 1.8 Hub Infrastructure (ArgoCD Principal and Redis)
 
-- [ ] 1.8.1 Deploy Redis to Hub cluster
+- [x] 1.8.1 Deploy Redis to Hub cluster
   - Create Redis StatefulSet manifest for ArgoCD Principal
   - Configure persistence: 10Gi PVC
   - Configure resource limits: 512Mi memory, 500m CPU
   - Create file: `manifests/argocd-principal/redis.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.8.2 Initialize ArgoCD Agent PKI
+- [x] 1.8.2 Initialize ArgoCD Agent PKI
   - Run: `argocd-agentctl pki init --principal-context hub-cluster --principal-namespace argocd`
   - Verify CA Secret created: `kubectl get secret argocd-agent-ca -n argocd`
   - _Requirements: FR-1.2, NFR-4.1, AC-3_
 
-- [ ] 1.8.3 Issue ArgoCD Principal server certificate
+- [x] 1.8.3 Issue ArgoCD Principal server certificate
   - Run: `argocd-agentctl pki issue principal --principal-context hub-cluster --dns "argocd-agent-principal.hub-platform-ops.svc.cluster.local" --upsert`
   - Verify certificate Secret created: `kubectl get secret argocd-agent-principal-tls -n argocd`
   - _Requirements: FR-1.2, NFR-4.1, AC-3_
 
-- [ ] 1.8.4 Deploy ArgoCD Principal to Hub cluster
+- [x] 1.8.4 Deploy ArgoCD Principal to Hub cluster
   - Create Principal Deployment manifest
   - Configure connection to Redis
   - Configure mTLS with server certificate
@@ -179,14 +179,14 @@ After completing each phase, you MUST:
   - Create file: `manifests/argocd-principal/principal.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.8.5 Create ArgoCD Principal Service
+- [x] 1.8.5 Create ArgoCD Principal Service
   - Define ClusterIP service for Principal
   - Port 8443 for gRPC (agent connections)
   - Port 8080 for HTTP (health checks)
   - Create file: `manifests/argocd-principal/service.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.8.6 Create AppProject for platform infrastructure
+- [x] 1.8.6 Create AppProject for platform infrastructure
   - Create AppProject: `platform-infrastructure`
   - Allow sources: Git repository
   - Allow destinations: All spoke clusters with label `spoke-type: pool`
@@ -199,7 +199,7 @@ After completing each phase, you MUST:
   - Verify ArgoCD syncs Principal to hub cluster
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.8.8 Verify ArgoCD Principal deployment
+- [-] 1.8.8 Verify ArgoCD Principal deployment
   - Verify Redis pod running: `kubectl get pods -n hub-platform-ops -l app=redis`
   - Verify Principal pod running: `kubectl get pods -n hub-platform-ops -l app=argocd-agent-principal`
   - Verify Principal service exists: `kubectl get svc argocd-agent-principal -n hub-platform-ops`
