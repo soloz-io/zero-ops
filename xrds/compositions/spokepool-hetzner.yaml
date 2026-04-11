@@ -184,7 +184,7 @@ spec:
                         apiVersion: v1
                         kind: ConfigMap
                         metadata:
-                          name: argocd-agent-params
+                          name: argocd-agent-config
                           namespace: argocd
                         data:
                           agent.mode: "managed"
