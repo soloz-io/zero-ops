@@ -287,8 +287,8 @@ spec:
                               type: Opaque
                               stringData:
                                 hcloud: "{{ .hcloud }}"
-                                robot-user: "{{ .hetznerRobotUser }}"
-                                robot-password: "{{ .hetznerRobotPassword }}"
+                                robot-user: ""
+                                robot-password: ""
                       data:
                         - secretKey: hcloud
                           remoteRef:
