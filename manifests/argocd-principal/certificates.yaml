@@ -106,7 +106,7 @@ spec:
   privateKey:
     algorithm: RSA
     size: 4096
-    encoding: PKCS1
+    encoding: PKCS8
   issuerRef:
     name: argocd-agent-ca
     kind: Issuer
