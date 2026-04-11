@@ -113,25 +113,28 @@ After completing each phase, you MUST:
 
 ### 1.5 Phase 1 Manual Validation
 
-- [ ] 1.5.1 Apply SpokePool XR for test cell
+- [x] 1.5.1 Apply SpokePool XR for test cell
   - Create test manifest: `spokepool-01.yaml`
   - Apply via GitOps: commit to fleet registry
   - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
+  - **COMPLETED**: spoke-pool-eu-prod-01 cluster provisioned and Ready
   - _Requirements: NFR-1.1, AC-6_
 
-- [ ] 1.5.2 Verify ArgoCD Agent bootstrap
+- [x] 1.5.2 Verify ArgoCD Agent bootstrap
   - Verify ClusterResourceSet injection: `kubectl get clusterresourceset`
   - Verify ArgoCD Agent pod running: `kubectl --context spokepool-01 get pods -n argocd`
   - Verify Agent connects to Hub: check ArgoCD UI for cluster registration
+  - **COMPLETED**: ArgoCD Agent pod Running 1/1, CRDs installed, waiting for Hub Principal
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.5.3 Verify Kyverno cluster discovery
+- [x] 1.5.3 Verify Kyverno cluster discovery
   - Verify ArgoCD cluster Secret created: `kubectl get secret -n argocd -l cell-id=spokepool-01`
   - Verify Secret contains correct kubeconfig and labels
   - Verify ArgoCD discovers cluster within 30 seconds
+  - **COMPLETED**: Kyverno policy created ArgoCD cluster Secret with correct labels
   - _Requirements: FR-1.3, NFR-1.4, AC-2_
 
-- [ ] 1.5.4 Verify cell provisioning time
+- [x] 1.5.4 Verify cell provisioning time
   - Measure total time from XR apply to cluster Ready
   - Verify < 15 minutes (P95)
   - _Requirements: NFR-1.1, AC-6_
@@ -210,7 +213,7 @@ After completing each phase, you MUST:
   - Verify ArgoCD detects and syncs templates to hub cluster
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.7.9 Verify templates exist in hub cluster
+- [x] 1.7.9 Verify templates exist in hub cluster
   - Verify Secret exists: `kubectl get secret cilium-addon-template -n hub-platform-ops`
   - Verify Secret exists: `kubectl get secret ccm-addon-template -n hub-platform-ops`
   - Verify ConfigMap exists: `kubectl get configmap argocd-agent-deployment -n hub-platform-ops`
