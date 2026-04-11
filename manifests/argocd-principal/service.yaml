@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-agent-principal
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-agent-principal
+    app.kubernetes.io/part-of: argocd-agent
+    app.kubernetes.io/component: principal
+spec:
+  type: ClusterIP
+  ports:
+  - name: grpc
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  - name: healthz
+    port: 8080
+    targetPort: 8003
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: argocd-agent-principal
+    app.kubernetes.io/part-of: argocd-agent
+    app.kubernetes.io/component: principal

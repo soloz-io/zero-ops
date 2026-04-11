@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-agent-principal
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-agent-principal
+    app.kubernetes.io/part-of: argocd-agent
+    app.kubernetes.io/component: principal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-agent-principal
+      app.kubernetes.io/part-of: argocd-agent
+      app.kubernetes.io/component: principal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-agent-principal
+        app.kubernetes.io/part-of: argocd-agent
+        app.kubernetes.io/component: principal
+    spec:
+      serviceAccountName: argocd-agent-principal
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: argocd-agent-principal
+        image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:v0.8.1
+        imagePullPolicy: IfNotPresent
+        args:
+        - principal
+        env:
+        - name: ARGOCD_PRINCIPAL_LISTEN_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.listen.host
+        - name: ARGOCD_PRINCIPAL_LISTEN_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.listen.port
+        - name: ARGOCD_PRINCIPAL_LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.log.level
+        - name: ARGOCD_PRINCIPAL_LOG_FORMAT
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.log.format
+        - name: ARGOCD_PRINCIPAL_METRICS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.metrics.port
+        - name: ARGOCD_PRINCIPAL_HEALTH_CHECK_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.healthz.port
+        - name: ARGOCD_PRINCIPAL_NAMESPACE
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.namespace
+        - name: ARGOCD_PRINCIPAL_TLS_SECRET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.tls.secret-name
+        - name: ARGOCD_PRINCIPAL_TLS_CLIENT_CERT_REQUIRE
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.tls.client-cert.require
+        - name: ARGOCD_PRINCIPAL_TLS_SERVER_ROOT_CA_SECRET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.tls.server.root-ca-secret-name
+        - name: ARGOCD_PRINCIPAL_TLS_CLIENT_CERT_MATCH_SUBJECT
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.tls.client-cert.match-subject
+        - name: ARGOCD_PRINCIPAL_TLS_MIN_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.tls.min-version
+        - name: ARGOCD_PRINCIPAL_AUTH
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.auth
+        - name: ARGOCD_PRINCIPAL_REDIS_SERVER_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.redis.server.address
+        - name: ARGOCD_PRINCIPAL_REDIS_COMPRESSION_TYPE
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.redis.compression.type
+        - name: ARGOCD_PRINCIPAL_ENABLE_RESOURCE_PROXY
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.resource-proxy.enable
+        - name: ARGOCD_PRINCIPAL_RESOURCE_PROXY_SECRET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.resource-proxy.secret-name
+        - name: ARGOCD_PRINCIPAL_RESOURCE_PROXY_CA_SECRET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.resource-proxy.ca.secret-name
+        - name: ARGOCD_PRINCIPAL_JWT_SECRET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.jwt.secret-name
+        - name: ARGOCD_PRINCIPAL_DESTINATION_BASED_MAPPING
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.destination-based-mapping
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: argocd-redis
+              key: auth
+        ports:
+        - name: principal
+          containerPort: 8443
+          protocol: TCP
+        - name: metrics
+          containerPort: 8000
+          protocol: TCP
+        - name: healthz
+          containerPort: 8003
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true

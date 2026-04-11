@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-agent-params
+  namespace: hub-platform-ops
+data:
+  principal.listen.host: ""
+  principal.listen.port: "8443"
+  principal.log.level: "info"
+  principal.log.format: "json"
+  principal.metrics.port: "8000"
+  principal.healthz.port: "8003"
+  principal.namespace: "hub-platform-ops"
+  principal.allowed-namespaces: ""
+  
+  # TLS Configuration
+  principal.tls.secret-name: "argocd-agent-principal-tls"
+  principal.tls.server.cert-path: ""
+  principal.tls.server.key-path: ""
+  principal.tls.server.allow-generate: "false"
+  principal.tls.insecure-plaintext: "false"
+  principal.tls.client-cert.require: "true"
+  principal.tls.server.root-ca-secret-name: "argocd-agent-ca"
+  principal.tls.server.root-ca-path: ""
+  principal.tls.client-cert.match-subject: "true"
+  principal.tls.min-version: "tls1.3"
+  principal.tls.max-version: ""
+  principal.tls.ciphersuites: ""
+  
+  # Authentication - mTLS with CN extraction
+  principal.auth: "mtls:CN=([^,]+)"
+  
+  # Redis Configuration
+  principal.redis.server.address: "argocd-redis:6379"
+  principal.redis.compression.type: "gzip"
+  
+  # Resource Proxy Configuration
+  principal.resource-proxy.enable: "true"
+  principal.resource-proxy.secret-name: "argocd-agent-resource-proxy-tls"
+  principal.resource-proxy.tls.cert-path: ""
+  principal.resource-proxy.tls.key-path: ""
+  principal.resource-proxy.ca.secret-name: "argocd-agent-ca"
+  principal.resource-proxy.ca.path: ""
+  
+  # JWT Configuration
+  principal.jwt.allow-generate: "false"
+  principal.jwt.secret-name: "argocd-agent-jwt"
+  principal.jwt.key-path: ""
+  
+  # Destination-based mapping for spoke pool routing
+  principal.destination-based-mapping: "true"
+  
+  # Application label selector (empty = watch all)
+  principal.app-label-selector: ""
+  
+  # Namespace creation (disabled for spoke pool)
+  principal.namespace-create.enable: "false"
+  principal.namespace-create.pattern: ""
+  principal.namespace-create.labels: ""
+  
+  # WebSocket and Keep-Alive
+  principal.websocket.enable: "false"
+  principal.keep-alive.min-interval: "0"
+  
+  # Profiling (disabled in production)
+  principal.pprof.port: "0"
