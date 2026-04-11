@@ -63,7 +63,30 @@
 
 ## Remaining Issues
 
-None - all issues resolved. Ready to proceed with task 1.7.11 (ClusterResourceSet testing).
+### ❌ Issue #6: ArgoCD Agent Image Incorrect
+**Status**: RESOLVED  
+**Resolution Date**: 2026-04-11 12:50 UTC  
+**Impact**: ArgoCD Agent pod failing with ImagePullBackOff  
+**Description**: ClusterResourceSet was using wrong image registry and version
+
+**Root Cause**: 
+- Documentation referenced `quay.io/argoproj-labs/argocd-agent:v0.1.0`
+- This image doesn't exist or is private (401 UNAUTHORIZED)
+- Actual image is hosted on GitHub Container Registry
+
+**Resolution**:
+- Changed image to: `ghcr.io/argoproj-labs/argocd-agent/argocd-agent:v0.8.1`
+- Verified from argoproj-labs/argocd-agent releases page (latest stable release)
+- Updated manifests/spoke-bootstrap/argocd-agent-templates.yaml
+
+**Next Steps**:
+- Wait for ClusterResourceSet to update spoke cluster
+- Verify new pod pulls image successfully
+- Verify ArgoCD Agent connects to Hub
+
+---
+
+None - all critical issues resolved. Ready to proceed with task 1.7.11 (ClusterResourceSet testing).
 
 ### ⚠️ Issue #5: Manual Workaround Secrets
 **Status**: Technical Debt  
