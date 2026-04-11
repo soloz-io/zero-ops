@@ -200,33 +200,33 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: metadata.name
-                  strategy: string
-                  string:
-                    fmt: |
-                      apiVersion: v1
-                      kind: ConfigMap
-                      metadata:
-                        name: argocd-agent-params
-                        namespace: argocd
-                      data:
-                        agent.mode: "managed"
-                        agent.server.address: "argocd-agent-principal.hub-platform-ops.svc.cluster.local"
-                        agent.server.port: "8443"
-                        agent.creds: "mtls:^CN=(.+)$"
-                        agent.tls.secret-name: "argocd-agent-client-tls"
-                        agent.tls.root-ca-secret-name: "argocd-agent-ca"
-                        agent.tls.client.insecure: "false"
-                        agent.namespace: "argocd"
-                        agent.redis.address: "argocd-redis:6379"
-                        agent.resource-proxy.enable: "true"
-                        agent.destination-based-mapping: "false"
-                        agent.create-namespace: "false"
-                        agent.allowed-namespaces: ""
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.data["argocd-agent-config.yaml"]
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: |
+                        apiVersion: v1
+                        kind: ConfigMap
+                        metadata:
+                          name: argocd-agent-params
+                          namespace: argocd
+                        data:
+                          agent.mode: "managed"
+                          agent.server.address: "argocd-agent-principal.hub-platform-ops.svc.cluster.local"
+                          agent.server.port: "8443"
+                          agent.creds: "mtls:^CN=(.+)$"
+                          agent.tls.secret-name: "argocd-agent-client-tls"
+                          agent.tls.root-ca-secret-name: "argocd-agent-ca"
+                          agent.tls.client.insecure: "false"
+                          agent.namespace: "argocd"
+                          agent.redis.address: "argocd-redis:6379"
+                          agent.resource-proxy.enable: "true"
+                          agent.destination-based-mapping: "false"
+                          agent.create-namespace: "false"
+                          agent.allowed-namespaces: ""
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
