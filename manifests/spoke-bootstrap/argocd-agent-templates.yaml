@@ -33,7 +33,7 @@ data:
           serviceAccountName: argocd-agent
           containers:
             - name: argocd-agent
-              image: quay.io/argoproj-labs/argocd-agent:v0.1.0
+              image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:v0.8.1
               args:
                 - agent
                 - --mode=managed
