@@ -36,23 +36,32 @@ data:
               image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest
               args:
                 - agent
-                - --mode=managed
-                - --hub-url=$(HUB_URL)
-                - --cluster-name=$(CLUSTER_NAME)
-                - --tls-cert-file=/etc/argocd/tls/tls.crt
-                - --tls-key-file=/etc/argocd/tls/tls.key
-                - --tls-ca-file=/etc/argocd/tls/ca.crt
               env:
-                - name: HUB_URL
+                - name: ARGOCD_AGENT_MODE
                   valueFrom:
                     configMapKeyRef:
                       name: argocd-agent-config
-                      key: hub-url
-                - name: CLUSTER_NAME
+                      key: agent.mode
+                - name: ARGOCD_AGENT_REMOTE_SERVER
                   valueFrom:
                     configMapKeyRef:
                       name: argocd-agent-config
-                      key: cluster-name
+                      key: agent.server.address
+                - name: ARGOCD_AGENT_REMOTE_PORT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: agent.server.port
+                - name: ARGOCD_AGENT_NAMESPACE
+                  value: "argocd"
+                - name: ARGOCD_AGENT_TLS_SECRET_NAME
+                  value: "argocd-agent-client-cert"
+                - name: ARGOCD_AGENT_TLS_ROOT_CA_SECRET_NAME
+                  value: "argocd-agent-ca-secret"
+                - name: ARGOCD_AGENT_CREDS
+                  value: "mtls:^CN=(.+)$"
+                - name: REDIS_ADDR
+                  value: "argocd-redis:6379"
               volumeMounts:
                 - name: tls-certs
                   mountPath: /etc/argocd/tls
