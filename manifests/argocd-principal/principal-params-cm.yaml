@@ -20,7 +20,7 @@ data:
   principal.tls.server.allow-generate: "false"
   principal.tls.insecure-plaintext: "false"
   principal.tls.client-cert.require: "true"
-  principal.tls.server.root-ca-secret-name: "argocd-agent-ca"
+  principal.tls.server.root-ca-secret-name: "argocd-agent-ca-secret-source"
   principal.tls.server.root-ca-path: ""
   principal.tls.client-cert.match-subject: "true"
   principal.tls.min-version: "tls1.3"
@@ -39,7 +39,7 @@ data:
   principal.resource-proxy.secret-name: "argocd-agent-resource-proxy-tls"
   principal.resource-proxy.tls.cert-path: ""
   principal.resource-proxy.tls.key-path: ""
-  principal.resource-proxy.ca.secret-name: "argocd-agent-ca"
+  principal.resource-proxy.ca.secret-name: "argocd-agent-ca-secret-source"
   principal.resource-proxy.ca.path: ""
   
   # JWT Configuration

@@ -1,39 +1,5 @@
-# Self-signed CA for ArgoCD Agent mTLS
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: argocd-agent-ca-issuer
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: argocd-agent-ca
-  namespace: hub-platform-ops
-spec:
-  isCA: true
-  commonName: argocd-agent-ca
-  secretName: argocd-agent-ca
-  duration: 87600h # 10 years
-  renewBefore: 720h # 30 days
-  privateKey:
-    algorithm: RSA
-    size: 4096
-  issuerRef:
-    name: argocd-agent-ca-issuer
-    kind: ClusterIssuer
-    group: cert-manager.io
----
-# CA Issuer using the self-signed CA
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: argocd-agent-ca
-  namespace: hub-platform-ops
-spec:
-  ca:
-    secretName: argocd-agent-ca
+# NOTE: CA certificate is defined in catalog/security/argocd-agent-cert.yaml
+# This file only contains Principal and Resource Proxy certificates
 ---
 # Principal server certificate
 apiVersion: cert-manager.io/v1
@@ -60,7 +26,7 @@ spec:
     algorithm: RSA
     size: 2048
   issuerRef:
-    name: argocd-agent-ca
+    name: argocd-agent-issuer
     kind: Issuer
     group: cert-manager.io
 ---
@@ -87,7 +53,7 @@ spec:
     algorithm: RSA
     size: 2048
   issuerRef:
-    name: argocd-agent-ca
+    name: argocd-agent-issuer
     kind: Issuer
     group: cert-manager.io
 ---
@@ -110,6 +76,6 @@ spec:
     size: 4096
     encoding: PKCS8
   issuerRef:
-    name: argocd-agent-ca
+    name: argocd-agent-issuer
     kind: Issuer
     group: cert-manager.io
