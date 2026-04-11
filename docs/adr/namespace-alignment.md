@@ -23,6 +23,13 @@
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
 
+## Spoke Cluster Namespaces
+
+| Namespace | Components | Notes |
+|-----------|------------|-------|
+| `kube-system` | Hetzner CCM, Hetzner CSI, Cilium CNI, CoreDNS, kube-proxy | Standard Kubernetes system namespace for spoke clusters |
+| `argocd` | ArgoCD Agent | GitOps agent for spoke cluster management |
+
 ## Notes
 
 Namespace: hub-platform-capi

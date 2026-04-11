@@ -14,18 +14,12 @@ type: addons.cluster.x-k8s.io/resource-set
 stringData:
   ccm.yaml: |
     ---
-    # Namespace must be created first for ClusterResourceSet to work
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: hub-cloud-system
-    ---
     # Source: ccm-hetzner/templates/pdb.yaml
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
       name: ccm-ccm-hetzner
-      namespace: hub-cloud-system
+      namespace: kube-system
     spec:
       minAvailable: 1
       maxUnavailable: 
@@ -39,7 +33,7 @@ stringData:
     kind: ServiceAccount
     metadata:
       name: ccm-ccm-hetzner
-      namespace: hub-cloud-system
+      namespace: kube-system
       labels:
         helm.sh/chart: ccm-hetzner-1.1.10
         app: ccm
@@ -53,7 +47,6 @@ stringData:
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
       name: ccm-ccm-hetzner
-      namespace: hub-cloud-system
       labels:
         helm.sh/chart: ccm-hetzner-1.1.10
         app: ccm
@@ -68,14 +61,14 @@ stringData:
     subjects:
       - kind: ServiceAccount
         name: ccm-ccm-hetzner
-        namespace: hub-cloud-system
+        namespace: kube-system
     ---
     # Source: ccm-hetzner/templates/deployment.yaml
     apiVersion: apps/v1
     kind: Deployment
     metadata:
       name: ccm-ccm-hetzner
-      namespace: hub-cloud-system
+      namespace: kube-system
       labels:
         helm.sh/chart: ccm-hetzner-1.1.10
         app: ccm

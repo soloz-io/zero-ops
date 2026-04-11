@@ -283,7 +283,7 @@ spec:
                               kind: Secret
                               metadata:
                                 name: hetzner
-                                namespace: hub-cloud-system
+                                namespace: kube-system
                               type: Opaque
                               stringData:
                                 hcloud: "{{ .hcloud }}"
