@@ -213,9 +213,9 @@ spec:
                         name: argocd-agent-config
                         namespace: argocd
                       data:
-                        hub-url: "https://argocd.hub.nutgraf.in"
-                        cluster-name: "%s"
-                        mode: "managed"
+                        agent.hub-url: "https://argocd.hub.nutgraf.in"
+                        agent.cluster-name: "%s"
+                        agent.mode: "managed"
                 toFieldPath: spec.forProvider.manifest.data["argocd-agent-config.yaml"]
           
           # ArgoCD namespace ConfigMap
