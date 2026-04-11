@@ -8,9 +8,7 @@ The ArgoCD Agent is the first component deployed to each Spoke Pool cluster, ena
 
 ### Components
 
-1. **argocd-agent-deployment.yaml** - Deployment manifest wrapped in ConfigMap
-2. **argocd-agent-config.yaml** - Configuration (Hub URL, cluster name, mode)
-3. **argocd-agent-rbac.yaml** - ServiceAccount, ClusterRole, ClusterRoleBinding
+1. **argocd-agent-deployment.yaml** - The actual ConfigMap argocd-agent-config is dynamically generated per-cluster by the Crossplane Composition in spokepool-hetzner.yaml
 
 ### Bootstrap Flow
 

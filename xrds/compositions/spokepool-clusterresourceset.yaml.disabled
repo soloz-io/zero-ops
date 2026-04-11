@@ -1,0 +1,51 @@
+# ---
+# apiVersion: addons.cluster.x-k8s.io/v1beta1
+# kind: ClusterResourceSetBinding
+# metadata:
+#   name: spokepool-clusterresourceset-template
+#   namespace: default
+# spec:
+#   # This is a template that will be referenced by the Composition
+#   # The Composition will create actual ClusterResourceSet instances per cluster
+#   clusterName: CLUSTER_NAME_PLACEHOLDER
+#   bindings:
+#     - clusterResourceSetName: spokepool-bootstrap
+#       resources:
+#         - kind: ConfigMap
+#           name: argocd-agent-deployment
+#         - kind: ConfigMap
+#           name: argocd-agent-config
+#         - kind: ConfigMap
+#           name: argocd-agent-rbac
+#         - kind: Secret
+#           name: argocd-agent-client-cert
+#         - kind: Secret
+#           name: argocd-agent-ca-secret
+# ---
+# # ClusterResourceSet Template
+# apiVersion: addons.cluster.x-k8s.io/v1beta1
+# kind: ClusterResourceSet
+# metadata:
+#   name: spokepool-bootstrap-template
+#   namespace: default
+# spec:
+#   clusterSelector:
+#     matchLabels:
+#       spoke-type: pool
+#   resources:
+#     # 1. ArgoCD Agent Deployment
+#     - name: argocd-agent-deployment
+#       kind: ConfigMap
+#     # 2. ArgoCD Agent ConfigMap
+#     - name: argocd-agent-config
+#       kind: ConfigMap
+#     # 3. ArgoCD Agent RBAC
+#     - name: argocd-agent-rbac
+#       kind: ConfigMap
+#     # 4. mTLS Client Certificate
+#     - name: argocd-agent-client-cert
+#       kind: Secret
+#     # 5. CA Certificate
+#     - name: argocd-agent-ca-secret
+#       kind: Secret
+#   strategy: ApplyOnce

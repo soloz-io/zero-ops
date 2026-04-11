@@ -1,0 +1,39 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-crossplane
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  sources:
+    # Crossplane Helm chart
+    - repoURL: https://charts.crossplane.io/stable
+      chart: crossplane
+      targetRevision: 1.14.5
+      helm:
+        releaseName: crossplane
+        values: |
+          webhooks:
+            enabled: true
+    # Crossplane manifests (provider, function, RBAC)
+    - repoURL: https://github.com/soloz-io/zero-ops
+      targetRevision: HEAD
+      path: manifests/crossplane
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hub-platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

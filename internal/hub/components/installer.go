@@ -113,65 +113,6 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	
 	fmt.Println("[postboot] ✓ cloudnative-pg ready")
 	
-	// Install Crossplane via Helm
-	fmt.Println("[postboot] Installing crossplane...")
-	
-	cmd = exec.CommandContext(ctx, "helm", "repo", "add", "crossplane-stable", "https://charts.crossplane.io/stable")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		if !bytes.Contains(output, []byte("already exists")) {
-			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
-		}
-	}
-	
-	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
-	}
-	
-	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "crossplane", "crossplane-stable/crossplane",
-		"--namespace", constants.NamespaceOps,
-		"--create-namespace",
-		"--kubeconfig", i.Kubeconfig,
-		"--wait",
-		"--timeout", "5m",
-	)
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to install crossplane: %w\n%s", err, output)
-	}
-	
-	fmt.Println("[postboot] ✓ crossplane ready")
-	
-	// Install Crossplane function-patch-and-transform
-	fmt.Println("[postboot] Installing crossplane function-patch-and-transform...")
-	
-	functionManifest := `apiVersion: pkg.crossplane.io/v1beta1
-kind: Function
-metadata:
-  name: function-patch-and-transform
-spec:
-  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.2.1`
-	
-	cmd = exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", i.Kubeconfig, "-f", "-")
-	cmd.Stdin = bytes.NewReader([]byte(functionManifest))
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to install crossplane function: %w\n%s", err, output)
-	}
-	
-	// Wait for function to be healthy
-	cmd = exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", i.Kubeconfig,
-		"wait", "function", "function-patch-and-transform",
-		"--for=condition=Healthy",
-		"--timeout=5m",
-	)
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("function not healthy: %w\n%s", err, output)
-	}
-	
-	fmt.Println("[postboot] ✓ crossplane function-patch-and-transform ready")
-	
 	return nil
 }
 

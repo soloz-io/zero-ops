@@ -164,7 +164,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: argocd-agent-client-tls
+                name: argocd-agent-client-cert
                 namespace: argocd
               type: kubernetes.io/tls
               data:
