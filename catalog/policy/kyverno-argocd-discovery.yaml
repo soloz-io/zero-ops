@@ -24,14 +24,14 @@ spec:
               names:
                 - "*-kubeconfig"
               namespaces:
-                - default
+                - hub-platform-ops
       context:
         - name: clusterName
           variable:
             jmesPath: "request.object.metadata.name | split(@, '-kubeconfig') | [0]"
         - name: cluster
           apiCall:
-            urlPath: "/apis/cluster.x-k8s.io/v1beta1/namespaces/default/clusters/{{clusterName}}"
+            urlPath: "/apis/cluster.x-k8s.io/v1beta1/namespaces/hub-platform-ops/clusters/{{clusterName}}"
       preconditions:
         all:
           # Only process if cluster has spoke-type=pool label
@@ -46,7 +46,7 @@ spec:
         apiVersion: v1
         kind: Secret
         name: "{{clusterName}}-argocd-cluster"
-        namespace: argocd
+        namespace: hub-platform-ops
         synchronize: true
         data:
           metadata:
