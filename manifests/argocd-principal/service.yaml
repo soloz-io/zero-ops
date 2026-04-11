@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: argocd-agent
     app.kubernetes.io/component: principal
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - name: grpc
     port: 8443

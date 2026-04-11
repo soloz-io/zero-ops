@@ -1174,9 +1174,9 @@ spec:
 8. **Kagent Controller reconciles Agent CRD:**
    - Creates Kubernetes Deployment (Agent Pod)
    - Injects environment variables:
-     - `LITELLM_ENDPOINT=https://litellm-gateway.hub.zero-ops.internal`
-     - `MEMORY_SERVICE_ENDPOINT=https://memory-service.hub.zero-ops.internal`
-     - `GUARDRAIL_ENDPOINT=https://guardrail-engine.hub.zero-ops.internal`
+     - `LITELLM_ENDPOINT=https://litellm-gateway.hub.nutgraf.internal`
+     - `MEMORY_SERVICE_ENDPOINT=https://memory-service.hub.nutgraf.internal`
+     - `GUARDRAIL_ENDPOINT=https://guardrail-engine.hub.nutgraf.internal`
    - Creates KEDA ScaledObject (scale-to-zero, min: 0, max: 10)
    - Registers A2A handler in Kagent A2AHandlerMux
 

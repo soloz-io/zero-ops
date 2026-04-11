@@ -51,6 +51,8 @@ spec:
   - argocd-agent-principal.hub-platform-ops
   - argocd-agent-principal.hub-platform-ops.svc
   - argocd-agent-principal.hub-platform-ops.svc.cluster.local
+  ipAddresses:
+  - 188.34.180.61
   usages:
   - server auth
   - client auth

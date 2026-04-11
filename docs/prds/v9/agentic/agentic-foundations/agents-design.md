@@ -125,7 +125,7 @@ User → AgentGateway (Hub)
 
 **Hub Services Exposed to Spokes**:
 ```yaml
-# DNS: hub-services.zero-ops.internal
+# DNS: hub-services.nutgraf.internal
 litellm-gateway.hub.svc.cluster.local:8080
 memory-service.hub.svc.cluster.local:8080
 guardrail-engine.hub.svc.cluster.local:8080
@@ -137,13 +137,13 @@ nats.hub.svc.cluster.local:4222
 ```yaml
 env:
   - name: LITELLM_ENDPOINT
-    value: "https://litellm-gateway.hub.zero-ops.internal"
+    value: "https://litellm-gateway.hub.nutgraf.internal"
   - name: MEMORY_SERVICE_ENDPOINT
-    value: "https://memory-service.hub.zero-ops.internal"
+    value: "https://memory-service.hub.nutgraf.internal"
   - name: GUARDRAIL_ENDPOINT
-    value: "https://guardrail-engine.hub.zero-ops.internal"
+    value: "https://guardrail-engine.hub.nutgraf.internal"
   - name: NATS_URL
-    value: "nats://nats.hub.zero-ops.internal:4222"
+    value: "nats://nats.hub.nutgraf.internal:4222"
 ```
 
 ## Missing Pieces to Implement

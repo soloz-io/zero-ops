@@ -1,0 +1,72 @@
+---
+# ArgoCD Redis StatefulSet ConfigMap Template for ClusterResourceSet
+# This ConfigMap contains the Redis StatefulSet manifest for spoke clusters
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-redis
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: cluster-bios
+data:
+  redis.yaml: |
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: argocd-redis
+      namespace: argocd
+      labels:
+        app: argocd-redis
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 6379
+        targetPort: 6379
+        protocol: TCP
+        name: redis
+      selector:
+        app: argocd-redis
+    ---
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: argocd-redis
+      namespace: argocd
+      labels:
+        app: argocd-redis
+    spec:
+      serviceName: argocd-redis
+      replicas: 1
+      selector:
+        matchLabels:
+          app: argocd-redis
+      template:
+        metadata:
+          labels:
+            app: argocd-redis
+        spec:
+          containers:
+          - name: redis
+            image: redis:7.2-alpine
+            ports:
+            - containerPort: 6379
+              name: redis
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+          securityContext:
+            fsGroup: 999

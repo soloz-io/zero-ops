@@ -69,7 +69,7 @@ spec:
     - clientId: web-ui
       clientName: Web UI
       redirectUris:
-      - https://ui.zero-ops.local/callback
+      - https://ui.nutgraf.local/callback
       grantTypes:
       - authorization_code
       responseTypes:

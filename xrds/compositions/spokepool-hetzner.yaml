@@ -116,6 +116,9 @@ spec:
                         # ArgoCD CRDs (must be before Agent)
                         - name: argocd-crds-template
                           kind: Secret
+                        # ArgoCD Redis (must be before Agent)
+                        - name: argocd-redis
+                          kind: ConfigMap
                         # ArgoCD Agent
                         - name: argocd-agent-deployment
                           kind: ConfigMap
@@ -160,7 +163,7 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
                 transforms:
                   - type: string
                     string:
@@ -191,8 +194,8 @@ spec:
                           namespace: argocd
                         data:
                           agent.mode: "managed"
-                          agent.server.address: "argocd-agent-principal.hub-platform-ops.svc.cluster.local"
-                          agent.server.port: "8443"
+                          agent.server.address: "argocd-principal.nutgraf.in"
+                          agent.server.port: "443"
                           agent.creds: "mtls:^CN=(.+)$"
                           agent.tls.secret-name: "argocd-agent-client-cert"
                           agent.tls.root-ca-secret-name: "argocd-agent-ca"
