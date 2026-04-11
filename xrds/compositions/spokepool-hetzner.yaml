@@ -162,7 +162,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-argocd-agent-config"
+                      fmt: "%s-argocd-agent-params"
           
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object
@@ -191,7 +191,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-argocd-agent-config"
+                      fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.name
@@ -199,7 +199,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-argocd-agent-config"
+                      fmt: "%s-argocd-agent-params"
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -210,12 +210,22 @@ spec:
                       apiVersion: v1
                       kind: ConfigMap
                       metadata:
-                        name: argocd-agent-config
+                        name: argocd-agent-params
                         namespace: argocd
                       data:
-                        agent.hub-url: "https://argocd.hub.nutgraf.in"
-                        agent.cluster-name: "%s"
                         agent.mode: "managed"
+                        agent.server.address: "argocd-agent-principal.hub-platform-ops.svc.cluster.local"
+                        agent.server.port: "8443"
+                        agent.creds: "mtls:^CN=(.+)$"
+                        agent.tls.secret-name: "argocd-agent-client-tls"
+                        agent.tls.root-ca-secret-name: "argocd-agent-ca"
+                        agent.tls.client.insecure: "false"
+                        agent.namespace: "argocd"
+                        agent.redis.address: "argocd-redis:6379"
+                        agent.resource-proxy.enable: "true"
+                        agent.destination-based-mapping: "false"
+                        agent.create-namespace: "false"
+                        agent.allowed-namespaces: ""
                 toFieldPath: spec.forProvider.manifest.data["argocd-agent-config.yaml"]
           
           # ArgoCD namespace ConfigMap
