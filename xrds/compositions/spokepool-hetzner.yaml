@@ -292,8 +292,7 @@ spec:
                       data:
                         - secretKey: hcloud
                           remoteRef:
-                            key: hetzner-credentials
-                            property: hcloud
+                            key: hcloud
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
