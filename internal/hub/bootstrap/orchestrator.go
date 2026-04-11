@@ -693,11 +693,11 @@ func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
 	return false
 }
 
-// readClusterBIOSManifest reads a manifest from the cluster-bios directory in Git
+// readClusterBIOSManifest reads a manifest from the spoke-bootstrap directory in Git
 // This ensures both hub and spoke clusters use the same CNI/CCM manifests (single source of truth)
 func (o *Orchestrator) readClusterBIOSManifest(templateFile, dataKey string) ([]byte, error) {
-	// Path to cluster-bios directory relative to project root
-	biosPath := "manifests/platform-ops/cluster-bios/" + templateFile
+	// Path to spoke-bootstrap directory relative to project root
+	biosPath := "manifests/spoke-bootstrap/" + templateFile
 	
 	// Read the template file
 	data, err := os.ReadFile(biosPath)

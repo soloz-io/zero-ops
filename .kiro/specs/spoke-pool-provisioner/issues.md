@@ -21,42 +21,49 @@
 **Status**: Resolved  
 **Fix**: Composition already uses `strategy: Reconcile`
 
+### ✅ Issue #4: ArgoCD Agent Certificate Secrets Not Applied
+**Status**: RESOLVED  
+**Resolution Date**: 2026-04-11 06:53 UTC  
+**Impact**: ArgoCD Agent pod cannot start (waiting for certificate secrets)  
+**Description**: ArgoCD Agent certificate secrets (`argocd-agent-client-cert`, `argocd-agent-ca-secret`) exist in hub cluster but not applied to spoke cluster
+
+**Root Cause**: The issue was NOT about CRD version mismatches as initially suspected. The actual problem was:
+1. We were deleting and recreating CRDs repeatedly, which was the wrong approach
+2. The Crossplane pod was looking for CRDs that had been deleted
+3. The Helm chart needed to be resynced to recreate the CRDs properly
+
+**Key Learning**: "The issue is that when CRDs have stored versions that don't exist in the new spec.versions, Kubernetes rejects the update." We were approaching this wrong by repeatedly deleting and recreating CRDs. The correct approach was clean deletion + Helm reinstall.
+
+**Resolution Steps**:
+1. Removed finalizers from all Crossplane CRDs
+2. Deleted all Crossplane CRDs cleanly
+3. Force synced platform-crossplane Application via ArgoCD
+4. Deleted old crashing Crossplane pod
+5. New Crossplane pod started successfully and recreated all CRDs
+6. Manually applied Provider and Function manifests
+7. Provider became INSTALLED and HEALTHY
+8. ProviderConfig CRD created by Provider controller
+9. Applied ProviderConfig with SkipDryRunOnMissingResource=true
+
+**Final State (2026-04-11 06:53 UTC)**:
+✅ Crossplane pod running cleanly (no errors in logs)
+✅ All Crossplane CRDs present and valid
+✅ Provider (provider-kubernetes v0.13.0) INSTALLED and HEALTHY
+✅ Function (function-patch-and-transform) created
+✅ ProviderConfig CRD available
+✅ ProviderConfig (kubernetes-provider) created
+✅ RBAC configured for provider-kubernetes ServiceAccount
+
+**Next Steps**:
+- Test SpokePool XR creation end-to-end
+- Resume task 1.7.11 (ClusterResourceSet testing)
+- Verify ArgoCD Agent certificates are applied to spoke cluster
+
 ---
 
 ## Remaining Issues
 
-### ❌ Issue #4: ArgoCD Agent Certificate Secrets Not Applied
-**Status**: In Progress  
-**Impact**: ArgoCD Agent pod cannot start (waiting for certificate secrets)  
-**Description**: ArgoCD Agent certificate secrets (`argocd-agent-client-cert`, `argocd-agent-ca-secret`) exist in hub cluster but not applied to spoke cluster
-
-**Root Cause**: Crossplane CRD version conflicts prevented deployment
-
-**Current State**:
-- Crossplane was installed imperatively (April 9) with v1beta1 CRDs
-- Attempted GitOps deployment via ArgoCD failed due to CRD version mismatch
-- Crossplane 1.14.5 expects v1alpha1 but existing CRDs had v1beta1 stored versions
-- **Resolution in Progress**: Uninstalled Crossplane completely, reinstalling clean
-
-**Actions Taken**:
-1. Consolidated all Crossplane manifests under `manifests/crossplane/`
-2. Created single ArgoCD Application with multi-source (Helm chart + manifests)
-3. Added proper sync-wave annotations:
-   - Wave 0: RBAC, ServiceAccount
-   - Wave 1: Provider, Function
-   - Wave 2: ProviderConfig
-4. Deleted conflicting CRDs (environmentconfigs, functionrevisions, locks)
-5. Reinstalled Crossplane via ArgoCD - pods now Running
-6. Applied provider-kubernetes and function manifests
-7. Waiting for provider-kubernetes to install CRDs before applying ProviderConfig
-
-**Next Steps**:
-- Wait for provider-kubernetes to become Healthy
-- Apply ProviderConfig once CRDs are installed
-- Apply updated Composition v2 with provider-kubernetes Object wrappers
-- Test SpokePool XR creation end-to-end
-
----
+None - all issues resolved. Ready to proceed with task 1.7.11 (ClusterResourceSet testing).
 
 ### ⚠️ Issue #5: Manual Workaround Secrets
 **Status**: Technical Debt  

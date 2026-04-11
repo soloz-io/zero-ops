@@ -1,14 +1,16 @@
 ---
-# ArgoCD Application for Cluster BIOS Templates
+# ArgoCD Application for Spoke Bootstrap Templates
 # This Application syncs CNI, CCM, and ArgoCD Agent templates to the hub cluster
 # These templates are referenced by Crossplane Compositions for spoke pool provisioning
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cluster-bios-templates
-  namespace: argocd
+  name: platform-spoke-bootstrap-templates
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   labels:
-    app.kubernetes.io/name: cluster-bios-templates
+    app.kubernetes.io/name: spoke-bootstrap-templates
     app.kubernetes.io/component: platform-ops
     app.kubernetes.io/part-of: zero-ops
   finalizers:
@@ -18,7 +20,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/platform-ops/cluster-bios
+    path: manifests/spoke-bootstrap
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops

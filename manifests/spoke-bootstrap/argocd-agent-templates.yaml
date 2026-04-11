@@ -33,10 +33,9 @@ data:
           serviceAccountName: argocd-agent
           containers:
             - name: argocd-agent
-              image: quay.io/argoproj/argocd:v2.10.0
-              command:
-                - argocd-agent
+              image: quay.io/argoproj-labs/argocd-agent:v0.1.0
               args:
+                - agent
                 - --mode=managed
                 - --hub-url=$(HUB_URL)
                 - --cluster-name=$(CLUSTER_NAME)

@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-ops/cluster-bios
+    path: manifests/spoke-bootstrap
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
