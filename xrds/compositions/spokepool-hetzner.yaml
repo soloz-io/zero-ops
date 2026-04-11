@@ -160,7 +160,7 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[5].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
                 transforms:
                   - type: string
                     string:
