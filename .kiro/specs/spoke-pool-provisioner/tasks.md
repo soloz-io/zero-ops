@@ -152,21 +152,81 @@ After completing each phase, you MUST:
   - **BUGS FIXED**: #1 Kyverno kubeconfig extraction, #2 ClusterResourceSet references, #3 per-cluster ConfigMap generation, #5 test manifest exists
   - _Requirements: All Phase 1 requirements_
 
-### 1.7 ClusterResourceSet Template Management (Bugfix)
+### 1.8 Hub Infrastructure (ArgoCD Principal and Redis)
 
-- [x] 1.7.1 Create ADR for ClusterResourceSet addon template management
+- [ ] 1.8.1 Deploy Redis to Hub cluster
+  - Create Redis StatefulSet manifest for ArgoCD Principal
+  - Configure persistence: 10Gi PVC
+  - Configure resource limits: 512Mi memory, 500m CPU
+  - Create file: `manifests/argocd-principal/redis.yaml`
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.2 Initialize ArgoCD Agent PKI
+  - Run: `argocd-agentctl pki init --principal-context hub-cluster --principal-namespace argocd`
+  - Verify CA Secret created: `kubectl get secret argocd-agent-ca -n argocd`
+  - _Requirements: FR-1.2, NFR-4.1, AC-3_
+
+- [ ] 1.8.3 Issue ArgoCD Principal server certificate
+  - Run: `argocd-agentctl pki issue principal --principal-context hub-cluster --dns "argocd-agent-principal.hub-platform-ops.svc.cluster.local" --upsert`
+  - Verify certificate Secret created: `kubectl get secret argocd-agent-principal-tls -n argocd`
+  - _Requirements: FR-1.2, NFR-4.1, AC-3_
+
+- [ ] 1.8.4 Deploy ArgoCD Principal to Hub cluster
+  - Create Principal Deployment manifest
+  - Configure connection to Redis
+  - Configure mTLS with server certificate
+  - Configure gRPC port: 8443
+  - Create file: `manifests/argocd-principal/principal.yaml`
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.5 Create ArgoCD Principal Service
+  - Define ClusterIP service for Principal
+  - Port 8443 for gRPC (agent connections)
+  - Port 8080 for HTTP (health checks)
+  - Create file: `manifests/argocd-principal/service.yaml`
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.6 Create AppProject for platform infrastructure
+  - Create AppProject: `platform-infrastructure`
+  - Allow sources: Git repository
+  - Allow destinations: All spoke clusters with label `spoke-type: pool`
+  - Create file: `manifests/argocd-principal/appproject.yaml`
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.7 Commit ArgoCD Principal manifests to Git
+  - Commit all Principal manifests to feature branch
+  - Push to GitOps repository
+  - Verify ArgoCD syncs Principal to hub cluster
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.8 Verify ArgoCD Principal deployment
+  - Verify Redis pod running: `kubectl get pods -n hub-platform-ops -l app=redis`
+  - Verify Principal pod running: `kubectl get pods -n hub-platform-ops -l app=argocd-agent-principal`
+  - Verify Principal service exists: `kubectl get svc argocd-agent-principal -n hub-platform-ops`
+  - _Requirements: FR-1.2, AC-3_
+
+- [ ] 1.8.9 Verify ArgoCD Agent connection to Principal
+  - Check Agent logs: `kubectl --context spoke-pool-eu-prod-01 logs -n argocd deployment/argocd-agent`
+  - Verify connection success: "Connected to argocd-agent-principal"
+  - Check Principal logs: `kubectl logs -n hub-platform-ops deployment/argocd-agent-principal | grep spoke-pool-eu-prod-01`
+  - Verify agent registration: "Agent spoke-pool-eu-prod-01 connected"
+  - _Requirements: FR-1.2, AC-3_
+
+### 1.9 ClusterResourceSet Template Management (Bugfix)
+
+- [x] 1.9.1 Create ADR for ClusterResourceSet addon template management
   - Document decision to use static versioned templates in Git
   - Document architecture: Git → ArgoCD → Hub → Crossplane → CRS → Spoke
   - Document alternatives considered (operator, shared operator, dynamic generation)
   - Create file: `docs/adr/0001-clusterresourceset-addon-template-management.md`
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.2 Create directory structure for cluster BIOS templates
+- [x] 1.9.2 Create directory structure for cluster BIOS templates
   - Create directory: `manifests/platform-ops/cluster-bios/`
   - This directory will contain static templates for CNI, CCM, and ArgoCD Agent
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.3 Create Cilium CNI addon template
+- [x] 1.9.3 Create Cilium CNI addon template
   - Copy manifest from: `internal/assets/manifests/addons/cilium-rendered.yaml`
   - Wrap in Secret with type: `addons.cluster.x-k8s.io/resource-set`
   - Create file: `manifests/platform-ops/cluster-bios/cilium-addon-template.yaml`
@@ -174,7 +234,7 @@ After completing each phase, you MUST:
   - Secret namespace: `hub-platform-ops`
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.4 Create Hetzner CCM addon template
+- [x] 1.9.4 Create Hetzner CCM addon template
   - Copy manifest from: `internal/assets/manifests/addons/ccm-rendered.yaml`
   - Wrap in Secret with type: `addons.cluster.x-k8s.io/resource-set`
   - Create file: `manifests/platform-ops/cluster-bios/ccm-addon-template.yaml`
@@ -182,7 +242,7 @@ After completing each phase, you MUST:
   - Secret namespace: `hub-platform-ops`
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.5 Create ArgoCD Agent addon templates
+- [x] 1.9.5 Create ArgoCD Agent addon templates
   - Copy manifests from: `edge-catalog/argocd-agent-deployment.yaml`, `edge-catalog/argocd-agent-rbac.yaml`
   - Wrap in ConfigMaps with type: `addons.cluster.x-k8s.io/resource-set`
   - Create file: `manifests/platform-ops/cluster-bios/argocd-agent-templates.yaml`
@@ -191,7 +251,7 @@ After completing each phase, you MUST:
   - Note: Per-cluster ConfigMap and Secrets are generated by Crossplane Composition
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.6 Refactor hub bootstrap CLI to use static templates
+- [x] 1.9.6 Refactor hub bootstrap CLI to use static templates
   - Update `internal/hub/bootstrap/orchestrator.go` to read from `manifests/platform-ops/cluster-bios/`
   - Remove embedded assets from `internal/assets/manifests/addons/cilium-rendered.yaml`
   - Remove embedded assets from `internal/assets/manifests/addons/ccm-rendered.yaml`
@@ -199,7 +259,7 @@ After completing each phase, you MUST:
   - Single source of truth: Git directory used by both hub CLI and ArgoCD
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.7 Create ArgoCD Application for cluster BIOS templates
+- [x] 1.9.7 Create ArgoCD Application for cluster BIOS templates
   - Create Application manifest to sync templates to hub cluster
   - Source: `manifests/platform-ops/cluster-bios/`
   - Destination: `hub-platform-ops` namespace
@@ -207,26 +267,26 @@ After completing each phase, you MUST:
   - Create file: `manifests/platform-ops/argocd-apps/cluster-bios-templates.yaml`
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.8 Commit cluster BIOS templates to Git
+- [x] 1.9.8 Commit cluster BIOS templates to Git
   - Commit all template files to feature branch
   - Push to GitOps repository
   - Verify ArgoCD detects and syncs templates to hub cluster
   - _Requirements: FR-1.2, AC-3_
 
-- [x] 1.7.9 Verify templates exist in hub cluster
+- [x] 1.9.9 Verify templates exist in hub cluster
   - Verify Secret exists: `kubectl get secret cilium-addon-template -n hub-platform-ops`
   - Verify Secret exists: `kubectl get secret ccm-addon-template -n hub-platform-ops`
   - Verify ConfigMap exists: `kubectl get configmap argocd-agent-deployment -n hub-platform-ops`
   - Verify ConfigMap exists: `kubectl get configmap argocd-agent-rbac -n hub-platform-ops`
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.7.10 Update Crossplane Composition to reference templates
+- [x] 1.9.10 Update Crossplane Composition to reference templates
   - Verify ClusterResourceSet references correct template names
   - Composition already references: `cilium-addon-template`, `ccm-addon-template`, `argocd-agent-deployment`, `argocd-agent-rbac`
   - No changes needed to Composition (templates now exist)
   - _Requirements: FR-1.2, AC-3_
 
-- [ ] 1.7.11 Test ClusterResourceSet with new templates
+- [x] 1.9.11 Test ClusterResourceSet with new templates
   - Apply test SpokePool XR (or use existing spoke-pool-eu-prod-01)
   - Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spoke-pool-eu-prod-01 --timeout=20m`
   - Verify ClusterResourceSet applied successfully: `kubectl get clusterresourceset`
@@ -236,13 +296,13 @@ After completing each phase, you MUST:
   - Verify ArgoCD Agent applied: `kubectl --context spoke-pool-eu-prod-01 get pods -n argocd`
   - _Requirements: FR-1.2, AC-3_
 
-### 1.8 PHASE 1.7 REVIEW CHECKPOINT
+### 1.10 PHASE 1.9 REVIEW CHECKPOINT
 
-- [ ] 1.8.1 **MANDATORY STOP - Phase 1.7 Review**
+- [ ] 1.10.1 **MANDATORY STOP - Phase 1.9 Review**
   - **STOP ALL IMPLEMENTATION WORK**
-  - Present Phase 1.7 completion summary to user
+  - Present Phase 1.9 completion summary to user
   - Demonstrate: Templates in Git → Hub CLI reads + ArgoCD syncs → Crossplane references → CRS applies → Spoke cluster Ready
-  - Show validation results from task 1.7.11
+  - Show validation results from task 1.9.11
   - Highlight: Single source of truth (no duplication between hub and spoke)
   - **WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 2**
   - Document any issues or deviations from design
