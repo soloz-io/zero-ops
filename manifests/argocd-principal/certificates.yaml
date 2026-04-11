@@ -1,0 +1,118 @@
+# Self-signed CA for ArgoCD Agent mTLS
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: argocd-agent-ca-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-ca
+  namespace: hub-platform-ops
+spec:
+  isCA: true
+  commonName: argocd-agent-ca
+  secretName: argocd-agent-ca
+  duration: 87600h # 10 years
+  renewBefore: 720h # 30 days
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: argocd-agent-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# CA Issuer using the self-signed CA
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: argocd-agent-ca
+  namespace: hub-platform-ops
+spec:
+  ca:
+    secretName: argocd-agent-ca
+---
+# Principal server certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-principal-tls
+  namespace: hub-platform-ops
+spec:
+  secretName: argocd-agent-principal-tls
+  duration: 2160h # 90 days
+  renewBefore: 168h # 7 days (renew at 83 days)
+  commonName: argocd-agent-principal
+  dnsNames:
+  - argocd-agent-principal
+  - argocd-agent-principal.hub-platform-ops
+  - argocd-agent-principal.hub-platform-ops.svc
+  - argocd-agent-principal.hub-platform-ops.svc.cluster.local
+  usages:
+  - server auth
+  - client auth
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: argocd-agent-ca
+    kind: Issuer
+    group: cert-manager.io
+---
+# Resource Proxy certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-resource-proxy-tls
+  namespace: hub-platform-ops
+spec:
+  secretName: argocd-agent-resource-proxy-tls
+  duration: 2160h # 90 days
+  renewBefore: 168h # 7 days
+  commonName: argocd-agent-resource-proxy
+  dnsNames:
+  - argocd-agent-resource-proxy
+  - argocd-agent-resource-proxy.hub-platform-ops
+  - argocd-agent-resource-proxy.hub-platform-ops.svc
+  - argocd-agent-resource-proxy.hub-platform-ops.svc.cluster.local
+  usages:
+  - server auth
+  - client auth
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: argocd-agent-ca
+    kind: Issuer
+    group: cert-manager.io
+---
+# JWT signing key certificate (RSA private key for JWT signing)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-jwt
+  namespace: hub-platform-ops
+spec:
+  secretName: argocd-agent-jwt
+  duration: 87600h # 10 years
+  renewBefore: 720h # 30 days
+  commonName: argocd-agent-jwt
+  usages:
+  - digital signature
+  - key encipherment
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: argocd-agent-ca
+    kind: Issuer
+    group: cert-manager.io
+  secretTemplate:
+    annotations:
+      cert-manager.io/alt-names: ""
+    labels:
+      app.kubernetes.io/name: argocd-agent-jwt
+      app.kubernetes.io/part-of: argocd-agent
