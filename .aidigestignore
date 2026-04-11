@@ -1,5 +1,4 @@
 .kiro/specs/
-!.kiro/specs/spoke-pool-provisioner
 .kiro/steering/coding
 .kiro/steering/rules
 .kiro/steering/specs

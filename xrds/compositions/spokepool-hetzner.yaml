@@ -294,14 +294,6 @@ spec:
                           remoteRef:
                             key: hetzner-credentials
                             property: hcloud
-                        - secretKey: hetznerRobotUser
-                          remoteRef:
-                            key: hetzner-credentials
-                            property: hetzner-robot-user
-                        - secretKey: hetznerRobotPassword
-                          remoteRef:
-                            key: hetzner-credentials
-                            property: hetzner-robot-password
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
