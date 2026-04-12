@@ -8,18 +8,25 @@
 
 ## Current Issues
 
-### 🔴 Issue #21: Missing ArgoCD Application Controller on Spoke
-**Status**: ROOT CAUSE IDENTIFIED (2026-04-12 23:22 UTC)  
-**Root Cause**: ArgoCD Agent in managed mode requires local application-controller to reconcile Applications. We only deployed Agent + Redis, missing application-controller and repo-server.  
-**Evidence**:
-- Application exists in argocd namespace but has no status field
-- Agent logs show Application created but no reconciliation activity
-- ArgoCD Agent docs (managed.md): "minimum requirement...is to have an agent and the Argo CD application-controller installed"
-- Agent kustomization shows managed mode needs: agent, application-controller, repo-server, redis
-**Current Deployment**: Agent + Redis only
-**Required Deployment**: Agent + Application Controller + Repo Server + Redis  
-**Solution**: Add application-controller and repo-server to spoke-catalog or ClusterResourceSet bootstrap  
-**Blocker**: Cannot proceed with Phase 2 validation until application-controller is deployed
+No current blockers! Phase 2 validation can proceed.
+
+---
+
+## Resolved Issues
+
+### ✅ Issue #21: Missing ArgoCD Application Controller on Spoke
+**Status**: RESOLVED (2026-04-12 23:42 UTC)  
+**Root Cause**: ArgoCD Agent in managed mode requires local application-controller and repo-server to reconcile Applications. Only Agent + Redis were deployed.  
+**Solution**: Added argocd-core-components ConfigMap to ClusterResourceSet with:
+- argocd-application-controller (StatefulSet + RBAC)
+- argocd-repo-server (Deployment + Service)
+- argocd-cm (ConfigMap)
+- argocd-secret (required by controller)
+**Verified**: 
+- Application-controller and repo-server running on spoke
+- Application status syncing to Hub (OutOfSync/Missing)
+- Reconciliation loop working correctly
+**Commits**: d3a7a3c, 512ff23, ceffeeb
 
 ---
 

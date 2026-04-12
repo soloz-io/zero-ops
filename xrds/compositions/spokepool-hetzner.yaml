@@ -187,6 +187,9 @@ spec:
                         # ArgoCD Core Components (Controller & Repo Server)
                         - name: argocd-core-components
                           kind: ConfigMap
+                        # CNPG CRDs (must be before spoke-catalog syncs)
+                        - name: cnpg-crds-template
+                          kind: Secret
                         # ArgoCD Agent
                         - name: argocd-agent-deployment
                           kind: ConfigMap
@@ -231,17 +234,17 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[9].name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
-              # Patch for ArgoCD Agent client certificate (resources[10])
+              # Patch for ArgoCD Agent client certificate (resources[11])
               # References the Kyverno-generated CRS secret (with -crs suffix)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[11].name
                 transforms:
                   - type: string
                     string:
