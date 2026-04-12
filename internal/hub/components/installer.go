@@ -66,23 +66,8 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
 	
-	// Install capi2argo via manifest
-	fmt.Println("[postboot] Installing capi2argo...")
-	capi2argoManifest, err := assets.ReadCatalog("gitops/capi2argo/install.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read capi2argo manifest: %w", err)
-	}
-	
-	cmd = exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", i.Kubeconfig, "-f", "-")
-	cmd.Stdin = bytes.NewReader(capi2argoManifest)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to install capi2argo: %w\n%s", err, output)
-	}
-	
-	if err := i.verify(ctx, constants.NamespaceOps, "capi2argo-controller-manager"); err != nil {
-		return fmt.Errorf("failed to verify capi2argo: %w", err)
-	}
-	fmt.Println("[postboot] ✓ capi2argo ready")
+	// capi2argo is now managed by ArgoCD (manifests/argocd/apps/platform-capi2argo.yaml)
+	// It will be automatically installed when ArgoCD syncs the app-of-apps
 	
 	// Install CloudNativePG via Helm
 	fmt.Println("[postboot] Installing cloudnative-pg...")
