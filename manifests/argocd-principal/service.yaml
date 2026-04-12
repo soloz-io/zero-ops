@@ -11,6 +11,7 @@ metadata:
     load-balancer.hetzner.cloud/location: fsn1
     load-balancer.hetzner.cloud/name: argocd-principal
     load-balancer.hetzner.cloud/use-private-ip: "false"
+    external-dns.alpha.kubernetes.io/hostname: argocd-principal-lb.nutgraf.in
 spec:
   type: LoadBalancer
   ports:
