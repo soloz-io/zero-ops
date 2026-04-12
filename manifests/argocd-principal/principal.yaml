@@ -68,6 +68,11 @@ spec:
             configMapKeyRef:
               name: argocd-agent-params
               key: principal.namespace
+        - name: ARGOCD_PRINCIPAL_ALLOWED_NAMESPACES
+          valueFrom:
+            configMapKeyRef:
+              name: argocd-agent-params
+              key: principal.allowed-namespaces
         - name: ARGOCD_PRINCIPAL_TLS_SECRET_NAME
           valueFrom:
             configMapKeyRef:
