@@ -19,7 +19,6 @@ spec:
   template:
     metadata:
       name: '{{.name}}-spoke-catalog'
-      namespace: '{{.name}}'
       labels:
         spoke-type: pool
         cell-id: '{{.name}}'
@@ -33,7 +32,7 @@ spec:
         path: manifests/spoke-catalog/components
       
       destination:
-        server: '{{.server}}'
+        name: '{{.name}}'
         namespace: spoke-pool-system
       
       syncPolicy:
