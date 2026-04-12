@@ -205,9 +205,9 @@ spec:
                           agent.namespace: "argocd"
                           agent.redis.address: "argocd-redis:6379"
                           agent.resource-proxy.enable: "true"
-                          agent.destination-based-mapping: "false"
-                          agent.create-namespace: "false"
-                          agent.allowed-namespaces: ""
+                          agent.destination-based-mapping: "true"
+                          agent.create-namespace: "true"
+                          agent.allowed-namespaces: "*"
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -227,6 +227,34 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.data.argocd-agent-config.yaml
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: |
+                        apiVersion: v1
+                        kind: ConfigMap
+                        metadata:
+                          name: argocd-agent-config
+                          namespace: argocd
+                        data:
+                          agent.mode: "managed"
+                          agent.name: "%s"
+                          agent.server.address: "argocd-principal.nutgraf.in"
+                          agent.server.port: "8443"
+                          agent.creds: "mtls:^CN=(.+)$"
+                          agent.tls.secret-name: "argocd-agent-client-cert"
+                          agent.tls.root-ca-secret-name: "argocd-agent-ca"
+                          agent.tls.client.insecure: "false"
+                          agent.namespace: "argocd"
+                          agent.redis.address: "argocd-redis:6379"
+                          agent.resource-proxy.enable: "true"
+                          agent.destination-based-mapping: "true"
+                          agent.create-namespace: "true"
+                          agent.allowed-namespaces: "*"
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
