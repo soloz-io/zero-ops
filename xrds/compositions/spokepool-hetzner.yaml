@@ -42,11 +42,9 @@ spec:
                         pods:
                           cidrBlocks:
                             - 10.244.0.0/16
-                            - fd00:10:244::/56
                         services:
                           cidrBlocks:
                             - 10.96.0.0/12
-                            - fd00:10:96::/108
                       topology:
                         class: hetzner-spoke-pool-v1
                         version: v1.31.6
