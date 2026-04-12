@@ -20,6 +20,8 @@ spec:
             type: LoadBalancer
             annotations:
               load-balancer.hetzner.cloud/location: fsn1
+          extraArgs:
+            enable-ssl-passthrough: "true"
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-edge
