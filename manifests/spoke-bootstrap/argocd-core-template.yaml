@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/name: argocd-core
     app.kubernetes.io/component: bootstrap
     app.kubernetes.io/part-of: cluster-bios
-type: addons.cluster.x-k8s.io/resource-set
+    addons.cluster.x-k8s.io/resource-set: ""
 data:
   argocd-cm.yaml: |
     apiVersion: v1
