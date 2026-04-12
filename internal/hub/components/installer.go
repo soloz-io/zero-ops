@@ -67,36 +67,8 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	}
 	
 	// capi2argo is now managed by ArgoCD (manifests/argocd/apps/platform-capi2argo.yaml)
-	// It will be automatically installed when ArgoCD syncs the app-of-apps
-	
-	// Install CloudNativePG via Helm
-	fmt.Println("[postboot] Installing cloudnative-pg...")
-	
-	cmd = exec.CommandContext(ctx, "helm", "repo", "add", "cnpg", "https://cloudnative-pg.github.io/charts")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		if !bytes.Contains(output, []byte("already exists")) {
-			return fmt.Errorf("failed to add helm repo: %w\n%s", err, output)
-		}
-	}
-	
-	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
-	}
-	
-	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "cnpg", "cnpg/cloudnative-pg",
-		"--namespace", constants.NamespaceCNPG,
-		"--create-namespace",
-		"--kubeconfig", i.Kubeconfig,
-		"--wait",
-		"--timeout", "5m",
-	)
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to install cloudnative-pg: %w\n%s", err, output)
-	}
-	
-	fmt.Println("[postboot] ✓ cloudnative-pg ready")
+	// CloudNativePG is now managed by ArgoCD (manifests/argocd/apps/platform-cloudnative-pg.yaml)
+	// Both will be automatically installed when ArgoCD syncs the app-of-apps
 	
 	return nil
 }
