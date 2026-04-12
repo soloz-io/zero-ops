@@ -8,11 +8,17 @@
 
 ## Current Issues
 
-### 🔴 Issue #21: Application Stuck in Version Ignore Loop
-**Status**: NEW (2026-04-12 16:15 UTC)  
-**Root Cause**: Agent logs show "Couldn't unignore change 1217 for app...version 1217 is already ignored". Application created but never syncs.  
-**Investigation**: Repository credentials distributed successfully, Application exists in spoke cluster, but sync never starts  
-**Next Steps**: Investigate Agent version ignore mechanism, may need to delete/recreate Application with fresh state
+### 🔴 Issue #21: ArgoCD Agent Version Ignore Loop Prevents Sync
+**Status**: BLOCKED (2026-04-12 22:54 UTC)  
+**Root Cause**: Agent stuck in version ignore loop - "Couldn't unignore change 10440...version 10440 is already ignored". Application updates received but never applied to spoke cluster.  
+**Investigation**:
+- CNPG migrated from imperative to declarative (commits: 4ebf536, bb5e560, 6e79f43, b6c7287)
+- Spoke catalog Application references correct resources with sync-waves (operator=0, cluster=1)
+- Agent receives Application updates from Principal but ignores them
+- Redis FLUSHALL did not clear ignore state - persisted elsewhere or sent by Principal
+- No Application resources created on spoke cluster (argocd namespace empty)
+**Workaround Needed**: Delete and recreate Application with new name, or investigate ArgoCD Agent ignore mechanism  
+**Blocker**: Cannot proceed with Phase 2 validation until Applications sync to spoke
 
 ---
 

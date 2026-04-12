@@ -306,9 +306,9 @@ spec:
                           agent.namespace: "argocd"
                           agent.redis.address: "argocd-redis:6379"
                           agent.resource-proxy.enable: "true"
-                          agent.destination-based-mapping: "true"
-                          agent.create-namespace: "true"
-                          agent.allowed-namespaces: "*"
+                          agent.destination-based-mapping: "false"
+                          agent.create-namespace: "false"
+                          agent.allowed-namespaces: ""
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
