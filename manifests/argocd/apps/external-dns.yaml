@@ -28,6 +28,9 @@ spec:
         txtOwnerId: zero-ops-mothership
         domainFilters:
           - nutgraf.in
+        managedRecordTypes:
+          - A
+          - CNAME
         sources:
           - ingress
           - service
