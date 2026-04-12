@@ -136,19 +136,16 @@ stringData:
                   valueFrom:
                     secretKeyRef:
                       name: hetzner
-                      namespace: kube-system
                       key: hcloud
                 - name: ROBOT_USER_NAME
                   valueFrom:
                     secretKeyRef:
                       name: hetzner
-                      namespace: kube-system
                       key: robot-user
                 - name: ROBOT_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: hetzner
-                      namespace: kube-system
                       key: robot-password
                 - name: HCLOUD_DEBUG
                   value: "false"
