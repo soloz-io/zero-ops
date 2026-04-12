@@ -10,6 +10,23 @@ metadata:
     app.kubernetes.io/part-of: cluster-bios
     addons.cluster.x-k8s.io/resource-set: ""
 data:
+  argocd-secret.yaml: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: argocd-secret
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-secret
+        app.kubernetes.io/part-of: argocd
+    type: Opaque
+    stringData:
+      # NOTE: In agent-only mode (no API server), this secret is only used by
+      # application-controller for cluster sharding. Since we only have one cluster
+      # (the local spoke), a static value is acceptable. This is NOT used for
+      # authentication or encryption of sensitive data.
+      server.secretkey: "changeme"
+  
   argocd-cm.yaml: |
     apiVersion: v1
     kind: ConfigMap
@@ -158,6 +175,7 @@ data:
             - argocd-redis:6379
             - --repo-server
             - argocd-repo-server:8081
+            - --repo-server-plaintext
             - --loglevel
             - info
             - --logformat
