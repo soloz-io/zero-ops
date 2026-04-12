@@ -1,10 +1,10 @@
 ---
-# Umbrella Application for Edge Catalog
+# Umbrella Application for Spoke Catalog
 # Generates child Applications for each component with sync wave ordering
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: edge-catalog
+  name: spoke-catalog
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "0"
