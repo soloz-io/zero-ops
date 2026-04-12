@@ -79,3 +79,28 @@ spec:
     name: argocd-agent-issuer
     kind: Issuer
     group: cert-manager.io
+---
+# Principal internal certificate for spoke agent mTLS
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-principal-internal-tls
+  namespace: hub-platform-ops
+spec:
+  secretName: argocd-principal-internal-tls
+  duration: 2160h # 90 days
+  renewBefore: 168h # 7 days
+  commonName: argocd-principal-internal.nutgraf.in
+  dnsNames:
+  - argocd-principal-internal.nutgraf.in
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: argocd-agent-issuer
+    kind: Issuer
+    group: cert-manager.io

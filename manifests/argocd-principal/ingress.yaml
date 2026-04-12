@@ -24,3 +24,34 @@ spec:
             name: argocd-agent-principal
             port:
               number: 8443
+---
+# Ingress for ArgoCD Principal (internal mTLS for spoke agents)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-principal-internal
+  namespace: hub-platform-ops
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: argocd-principal-internal.nutgraf.in
+    cert-manager.io/issuer: argocd-agent-issuer
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    nginx.ingress.kubernetes.io/auth-tls-secret: "hub-platform-ops/argocd-agent-ca-secret-source"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - argocd-principal-internal.nutgraf.in
+    secretName: argocd-principal-internal-tls
+  rules:
+  - host: argocd-principal-internal.nutgraf.in
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argocd-agent-principal
+            port:
+              number: 8443
