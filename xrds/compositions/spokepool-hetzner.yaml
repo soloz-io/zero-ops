@@ -294,7 +294,7 @@ spec:
                                 namespace: kube-system
                               type: Opaque
                               stringData:
-                                hcloud: "{{ .hcloud }}"
+                                hcloud: "{{ .hcloud | trim }}"
                                 robot-user: ""
                                 robot-password: ""
                       data:
