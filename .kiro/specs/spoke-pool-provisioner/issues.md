@@ -8,7 +8,40 @@
 
 ## Current Issues
 
-None - All blocking issues resolved!
+### 🔴 Issue #19: ArgoCD Agent Identity Mismatch - Shared Certificate vs Destination-Based Mapping
+**Status**: IN PROGRESS (2026-04-12 15:16 UTC)  
+**Root Cause**: Agent authenticates with CN from shared certificate (`argocd-agent-client`) but Applications are queued for cluster name (`spoke-pool-eu-prod-01`). With destination-based mapping enabled, Principal routes Applications to queue based on `destination.name`, but Agent listens to queue based on its mTLS identity (certificate CN).
+
+**Investigation Trail**:
+1. ✅ Cluster mapping created: `argocd-agent-client` → `spoke-pool-eu-prod-01`
+2. ✅ Agent connected successfully via mTLS
+3. ✅ Application exists with `destination.name: spoke-pool-eu-prod-01`
+4. ✅ Added `argocd-agent.argoproj-labs.io/agent-name: argocd-agent-client` label to cluster Secret
+5. ✅ Fixed Principal `allowed-namespaces` from `""` to `"*"` (was rejecting all Applications)
+6. ❌ Applications still not syncing - queued for wrong agent name
+
+**Queue Mismatch**:
+- Application queued to: `spoke-pool-eu-prod-01` (from `destination.name`)
+- Agent listening on: `argocd-agent-client` (from certificate CN)
+- Result: Messages never delivered, no errors logged
+
+**Solution**: Transition to Phase 2 - Dynamic per-cluster certificates
+- Generate unique Certificate per spoke pool via Crossplane Composition
+- Set `commonName: spoke-pool-eu-prod-01` (matches cluster name)
+- Update Kyverno policy to watch label-based selector instead of hardcoded name
+- Agent will authenticate with correct identity matching Application routing
+
+**Next Steps**:
+1. Update Kyverno policy to use label selector (`cert-type: argocd-agent-client`)
+2. Add Certificate resource to Crossplane Composition with dynamic CN
+3. Update ClusterResourceSet to reference per-cluster certificate Secret
+4. Verify Agent authenticates with cluster-specific identity
+
+**Files to Modify**:
+- `catalog/security/argocd-agent-cert.yaml` (Kyverno policy)
+- `xrds/compositions/spokepool-hetzner.yaml` (add Certificate resource)
+
+---
 
 ---
 
