@@ -19,6 +19,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-spoke-catalog'
+      namespace: '{{.name}}'
       labels:
         spoke-type: pool
         cell-id: '{{.name}}'

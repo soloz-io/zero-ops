@@ -2,7 +2,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: spoke-pool-eu-prod-01
+  name: platform-spoke-pools
   namespace: hub-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "10"
@@ -13,7 +13,7 @@ spec:
     targetRevision: HEAD
     path: manifests/spoke-pools
     directory:
-      include: spoke-pool-eu-prod-01.yaml
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
