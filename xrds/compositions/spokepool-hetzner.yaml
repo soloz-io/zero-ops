@@ -196,6 +196,7 @@ spec:
                           namespace: argocd
                         data:
                           agent.mode: "managed"
+                          agent.name: "AGENT_NAME_PLACEHOLDER"
                           agent.server.address: "argocd-principal.nutgraf.in"
                           agent.server.port: "8443"
                           agent.creds: "mtls:^CN=(.+)$"
@@ -229,32 +230,14 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.data.argocd-agent-config.yaml
+                toFieldPath: spec.forProvider.manifest.data[argocd-agent-config.yaml]
                 transforms:
                   - type: string
                     string:
-                      type: Format
-                      fmt: |
-                        apiVersion: v1
-                        kind: ConfigMap
-                        metadata:
-                          name: argocd-agent-config
-                          namespace: argocd
-                        data:
-                          agent.mode: "managed"
-                          agent.name: "%s"
-                          agent.server.address: "argocd-principal.nutgraf.in"
-                          agent.server.port: "8443"
-                          agent.creds: "mtls:^CN=(.+)$"
-                          agent.tls.secret-name: "argocd-agent-client-cert"
-                          agent.tls.root-ca-secret-name: "argocd-agent-ca"
-                          agent.tls.client.insecure: "false"
-                          agent.namespace: "argocd"
-                          agent.redis.address: "argocd-redis:6379"
-                          agent.resource-proxy.enable: "true"
-                          agent.destination-based-mapping: "true"
-                          agent.create-namespace: "true"
-                          agent.allowed-namespaces: "*"
+                      type: Replace
+                      replace:
+                        - from: "AGENT_NAME_PLACEHOLDER"
+                          to: "%s"
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
