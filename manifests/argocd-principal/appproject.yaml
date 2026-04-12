@@ -7,6 +7,8 @@ spec:
   description: Platform infrastructure services for spoke pool clusters
   sourceRepos:
   - '*'
+  sourceNamespaces:
+  - 'spoke-pool-*'
   destinations:
   - namespace: '*'
     server: '*'
