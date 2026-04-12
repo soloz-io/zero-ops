@@ -84,6 +84,69 @@ spec:
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
           
+          # Dynamic Certificate generation per Spoke Pool (Phase 2)
+          # Generates unique client certificate with CN matching cluster name
+          # cert-manager creates Secret with label cert-type: argocd-agent-client
+          # Kyverno watches for this label and generates CRS-compatible Secret
+          - name: argocd-agent-client-cert
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: cert-manager.io/v1
+                    kind: Certificate
+                    metadata:
+                      namespace: hub-platform-ops
+                    spec:
+                      secretName: ""  # Patched below
+                      duration: 2160h  # 90 days
+                      renewBefore: 168h  # 7 days
+                      usages:
+                        - client auth
+                        - digital signature
+                        - key encipherment
+                      commonName: ""  # Patched below - CRITICAL: Must match cluster name
+                      issuerRef:
+                        name: argocd-agent-issuer
+                        kind: Issuer
+                      secretTemplate:
+                        labels:
+                          cert-type: argocd-agent-client
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.secretName
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.commonName
+          
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
           - name: cluster-resource-set
@@ -171,6 +234,16 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
+              # Patch for ArgoCD Agent client certificate (resources[9])
+              # References the Kyverno-generated CRS secret (with -crs suffix)
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[9].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-client-cert-crs"
           
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object
@@ -188,27 +261,7 @@ spec:
                     metadata:
                       namespace: hub-platform-ops
                     data:
-                      argocd-agent-config.yaml: |
-                        apiVersion: v1
-                        kind: ConfigMap
-                        metadata:
-                          name: argocd-agent-config
-                          namespace: argocd
-                        data:
-                          agent.mode: "managed"
-                          agent.name: "AGENT_NAME_PLACEHOLDER"
-                          agent.server.address: "argocd-principal.nutgraf.in"
-                          agent.server.port: "8443"
-                          agent.creds: "mtls:^CN=(.+)$"
-                          agent.tls.secret-name: "argocd-agent-client-cert"
-                          agent.tls.root-ca-secret-name: "argocd-agent-ca"
-                          agent.tls.client.insecure: "false"
-                          agent.namespace: "argocd"
-                          agent.redis.address: "argocd-redis:6379"
-                          agent.resource-proxy.enable: "true"
-                          agent.destination-based-mapping: "true"
-                          agent.create-namespace: "true"
-                          agent.allowed-namespaces: "*"
+                      argocd-agent-config.yaml: ""
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -234,10 +287,28 @@ spec:
                 transforms:
                   - type: string
                     string:
-                      type: Replace
-                      replace:
-                        - from: "AGENT_NAME_PLACEHOLDER"
-                          to: "%s"
+                      type: Format
+                      fmt: |
+                        apiVersion: v1
+                        kind: ConfigMap
+                        metadata:
+                          name: argocd-agent-config
+                          namespace: argocd
+                        data:
+                          agent.mode: "managed"
+                          agent.name: "%s"
+                          agent.server.address: "argocd-principal.nutgraf.in"
+                          agent.server.port: "8443"
+                          agent.creds: "mtls:^CN=(.+)$"
+                          agent.tls.secret-name: "argocd-agent-client-cert"
+                          agent.tls.root-ca-secret-name: "argocd-agent-ca"
+                          agent.tls.client.insecure: "false"
+                          agent.namespace: "argocd"
+                          agent.redis.address: "argocd-redis:6379"
+                          agent.resource-proxy.enable: "true"
+                          agent.destination-based-mapping: "true"
+                          agent.create-namespace: "true"
+                          agent.allowed-namespaces: "*"
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object

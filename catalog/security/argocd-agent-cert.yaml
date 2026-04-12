@@ -57,6 +57,9 @@ spec:
   issuerRef:
     name: argocd-agent-issuer
     kind: Issuer
+  secretTemplate:
+    labels:
+      cert-type: argocd-agent-client
 ---
 # Kyverno Policy: Transform cert-manager CA secret to ClusterResourceSet format
 # Watches for cert-manager secret (type: kubernetes.io/tls)
@@ -112,8 +115,9 @@ spec:
                 ca.crt: "{{caCrt}}"
 ---
 # Kyverno Policy: Transform cert-manager client cert secret to ClusterResourceSet format
-# Watches for cert-manager secret (type: kubernetes.io/tls)
+# Phase 2: Watches for ANY cert-manager secret with label cert-type: argocd-agent-client
 # Generates ClusterResourceSet-compatible secret (type: addons.cluster.x-k8s.io/resource-set)
+# Dynamically names the CRS secret based on the source secret name
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -122,7 +126,8 @@ metadata:
     policies.kyverno.io/title: Transform ArgoCD Agent Client Certificate for ClusterResourceSet
     policies.kyverno.io/category: ClusterResourceSet Integration
     policies.kyverno.io/description: |
-      Automatically transforms cert-manager client certificate secret to ClusterResourceSet format.
+      Automatically transforms cert-manager client certificate secrets to ClusterResourceSet format.
+      Watches for secrets with label cert-type: argocd-agent-client (supports multiple spoke pools).
       ClusterResourceSet requires type: addons.cluster.x-k8s.io/resource-set with YAML manifest in stringData.
 spec:
   generateExisting: true
@@ -133,8 +138,9 @@ spec:
           - resources:
               kinds:
                 - Secret
-              names:
-                - argocd-agent-client-cert-source
+              selector:
+                matchLabels:
+                  cert-type: argocd-agent-client
               namespaces:
                 - hub-platform-ops
       context:
@@ -150,7 +156,8 @@ spec:
       generate:
         apiVersion: v1
         kind: Secret
-        name: argocd-agent-client-cert
+        # Dynamically name the CRS secret based on the cert-manager generated secret
+        name: "{{request.object.metadata.name}}-crs"
         namespace: hub-platform-ops
         synchronize: true
         data:
@@ -158,7 +165,7 @@ spec:
           metadata:
             labels:
               app.kubernetes.io/managed-by: kyverno
-              cert-type: argocd-agent-client
+              cert-type: argocd-agent-client-crs
           stringData:
             client-cert.yaml: |
               apiVersion: v1
