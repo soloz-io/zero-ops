@@ -29,7 +29,7 @@ spec:
       source:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: '{{.values.revision}}'
-        path: manifests/spoke-catalog
+        path: manifests/spoke-catalog/components
       
       destination:
         server: '{{.server}}'

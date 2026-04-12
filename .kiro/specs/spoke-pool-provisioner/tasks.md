@@ -469,7 +469,7 @@ After completing each phase, you MUST:
 - [ ] 2.8.1 Verify edge catalog deployment with sync waves
   - Verify ApplicationSet creates Applications for spokepool-01
   - Verify sync wave 1 (CNPG) completes before wave 2 (Atlas)
-  - Verify sync wave 2 (Atlas) completes before wave 3 (PostgREST/AgentGateway)
+  - Verify sync wave 2 (Atlas) completes before wave 3 (PostgREST)
   - Verify sync wave 3 completes before wave 4 (NATS/Alloy)
   - Check: `argocd app list | grep spokepool-01`
   - _Requirements: FR-2.1, AC-4_
@@ -493,11 +493,7 @@ After completing each phase, you MUST:
   - Verify connection to PgBouncer
   - _Requirements: FR-2.6, NFR-2.8, AC-4_
 
-- [ ] 2.8.5 Verify AgentGateway deployment
-  - Verify AgentGateway pod running: `kubectl --context spokepool-01 get deployment agentgateway`
-  - Verify Hub Ory JWKS endpoint configured
-  - Verify routing to PostgREST internal service
-  - _Requirements: FR-2.6, AC-4_
+- [ ] 2.8.5 Verify NATS Leaf Node deployment
 
 - [ ] 2.8.6 Verify NATS Leaf Node connection
   - Verify NATS pod running: `kubectl --context spokepool-01 get statefulset nats`
