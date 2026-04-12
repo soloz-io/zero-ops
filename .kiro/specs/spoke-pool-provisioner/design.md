@@ -347,7 +347,70 @@ Every 30-60 seconds (Atlas Operator reconciliation loop):
 
 **Certificate Rotation** (Phase 1): Manual rotation (quarterly), Phase 2: Automated via External Secrets Operator
 
-### 6.2 Tenant Isolation
+### 6.2 ArgoCD Principal Connectivity (LoadBalancer Pattern)
+
+**Architecture Decision**: Use Kubernetes LoadBalancer service (not Ingress) for ArgoCD Principal exposure
+
+**Rationale**:
+- **Official Pattern**: Matches argocd-agent reference implementation
+- **Direct mTLS**: No TLS termination at proxy layer, end-to-end encryption
+- **No Ingress Complexity**: Avoids ssl-passthrough configuration and double mTLS verification
+- **Multi-Environment Portability**: DNS-based addressing works across dev/staging/prod
+- **Automatic Provisioning**: Hetzner CCM auto-creates Load Balancer from service annotations
+
+**Implementation**:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-agent-principal
+  namespace: hub-platform-ops
+  annotations:
+    load-balancer.hetzner.cloud/location: fsn1
+    load-balancer.hetzner.cloud/name: argocd-principal
+    external-dns.alpha.kubernetes.io/hostname: argocd-principal.nutgraf.in
+spec:
+  type: LoadBalancer
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+```
+
+**DNS Configuration**:
+- **Production**: `argocd-principal.nutgraf.in` → LoadBalancer IP
+- **Staging**: `argocd-principal-stg.nutgraf.in` → Staging LB IP
+- **Dev**: `argocd-principal-dev.nutgraf.in` → Dev LB IP
+- **Automation**: external-dns creates A records from LoadBalancer service annotations
+
+**Agent Configuration** (per-cluster):
+```yaml
+agent.server.address: "argocd-principal.nutgraf.in"
+agent.server.port: "443"
+agent.tls.root-ca-secret-name: "argocd-agent-ca"
+agent.tls.secret-name: "argocd-agent-client-cert"
+```
+
+**Certificate SAN Requirements**:
+- Principal certificate must include DNS name in Subject Alternative Names
+- Example: `argocd-principal.nutgraf.in`
+- IP addresses NOT required (DNS-based addressing)
+
+**Connection Flow**:
+1. Agent resolves DNS name to LoadBalancer IP
+2. Agent initiates TLS handshake with client certificate
+3. LoadBalancer forwards to Principal pod (no TLS termination)
+4. Principal validates client certificate against CA
+5. Principal extracts agent ID from certificate CN
+6. mTLS connection established
+
+**Benefits**:
+- Environment-agnostic Agent configuration (same config across all environments)
+- No hardcoded IPs in certificates or configurations
+- Automatic failover if Principal pod restarts (LoadBalancer maintains connection)
+- Standard HTTPS port (443) for firewall compatibility
+
+### 6.3 Tenant Isolation
 
 **Platform-Level Isolation** (Schema-Level):
 - Deterministic schema naming: `tenant_<id>`
@@ -356,12 +419,12 @@ Every 30-60 seconds (Atlas Operator reconciliation loop):
 - PgBouncer transaction pooling resets session state between transactions
 - No cross-tenant access possible (no shared search_path)
 
-**End-User Isolation** (Row-Level Security):
+### 6.4 End-User Isolation
 - PostgreSQL RLS policies within tenant schema
 - JWT `user_id` claim enforces access control
 - Example: `user_id = current_setting('request.jwt.claims')::json->>'user_id'`
 
-### 6.3 JWT Validation
+### 6.5 JWT Validation
 
 **Primary Validation** (AgentGateway):
 - Fetches JWKS from Hub Ory on startup (cache for 1 hour)
