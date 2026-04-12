@@ -10,13 +10,28 @@ spec:
   project: default
   
   source:
-    repoURL: https://github.com/soloz-io/zero-ops
-    path: manifests/platform-core-services/cloudnative-pg
-    targetRevision: HEAD
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.28.0
+    helm:
+      values: |
+        crds:
+          create: true
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+        
+        monitoring:
+          podMonitorEnabled: false
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd
+    namespace: cnpg-system
   
   syncPolicy:
     automated:
@@ -24,6 +39,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
     retry:
       limit: 5
       backoff:
