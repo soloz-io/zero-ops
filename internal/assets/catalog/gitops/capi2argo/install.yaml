@@ -18,6 +18,12 @@ spec:
       labels:
         control-plane: controller-manager
     spec:
+      serviceAccountName: capi2argo-controller-manager
       containers:
       - name: manager
         image: ghcr.io/dntosas/capi2argo-cluster-operator:latest
+        env:
+        - name: ARGOCD_NAMESPACE
+          value: "hub-platform-ops"
+        - name: ENABLE_GARBAGE_COLLECTION
+          value: "true"

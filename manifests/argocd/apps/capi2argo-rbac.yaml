@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: capi2argo-rbac
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: HEAD
+    path: manifests/platform-ops
+    directory:
+      include: capi2argo-rbac.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hub-platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
