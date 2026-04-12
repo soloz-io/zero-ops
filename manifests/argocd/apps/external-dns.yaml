@@ -30,6 +30,7 @@ spec:
           - nutgraf.in
         sources:
           - ingress
+          - service
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-edge
