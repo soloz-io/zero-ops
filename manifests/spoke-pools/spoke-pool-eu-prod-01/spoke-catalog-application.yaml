@@ -16,7 +16,7 @@ spec:
     path: manifests/spoke-catalog
   
   destination:
-    name: spoke-pool-eu-prod-01
+    name: argocd-agent-client
     namespace: spoke-pool-system
   
   syncPolicy:
