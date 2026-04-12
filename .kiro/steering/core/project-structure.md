@@ -103,7 +103,7 @@ To understand this structure, you must understand the v9.0 hub-spoke deployment 
    - Tenant workloads (physical isolation)
    - Uses LocalStore (writes locally, syncs via NATS)
 
-5. **Tenant Clusters (Hetzner VMs):** Runs Ubuntu + kubeadm (not Talos). At boot, CAPI injects edge-catalog via ClusterResourceSet. ArgoCD pulls catalog from OCI registry.
+5. **Tenant Clusters (Hetzner VMs):** Runs Ubuntu + kubeadm (not Talos). At boot, CAPI injects manifests/spoke-catalog via ClusterResourceSet. ArgoCD pulls catalog from OCI registry.
 
 ### 4. Hub-Spoke Data Flow Patterns
 

@@ -2,7 +2,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: edge-catalog
+  name: spoke-catalog
   namespace: hub-platform-ops
 spec:
   goTemplate: true
@@ -18,7 +18,7 @@ spec:
   
   template:
     metadata:
-      name: '{{.name}}-edge-catalog'
+      name: '{{.name}}-spoke-catalog'
       labels:
         spoke-type: pool
         cell-id: '{{.name}}'
@@ -29,7 +29,7 @@ spec:
       source:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: '{{.values.revision}}'
-        path: edge-catalog
+        path: manifests/spoke-catalog
       
       destination:
         server: '{{.server}}'

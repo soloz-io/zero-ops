@@ -17,7 +17,7 @@ In the v9.0 hub-spoke architecture, the platform scales to 10,000+ clusters thro
 
 **The Three-Tier Delivery Model:**
 
-1. **The Catalog:** Services (Cilium, CNPG, Prometheus, etc.) are stored in the monorepo's `catalog/` and `edge-catalog/` directories.
+1. **The Catalog:** Services (Cilium, CNPG, Prometheus, etc.) are stored in the monorepo's `catalog/` and `manifests/spoke-catalog/` directories.
 
 2. **The Delivery:** CI/CD packages catalogs into versioned **OCI Artifacts** (e.g., `ghcr.io/zero-ops/catalog:v1.5.0`) and publishes to registry.
 
@@ -34,9 +34,9 @@ The monorepo acts as the single source of truth for all available services.
 
 ```text
 zero-ops/
-├── edge-catalog/               # Injected at cluster bootstrap via ClusterResourceSet
-│   ├── argocd-agent.yaml       # ArgoCD Agent (Starter + Enterprise Autopilot)
-│   ├── grafana-alloy.yaml      # Metrics collection
+├── manifests/spoke-catalog/     # Injected at cluster bootstrap via ClusterResourceSet
+│   ├── argocd-agent.yaml        # ArgoCD Agent (Starter + Enterprise Autopilot)
+│   ├── grafana-alloy.yaml       # Metrics collection
 │   ├── kube-events-exporter.yaml
 │   ├── k8sgpt-operator.yaml
 │   ├── cnpg2monitor.yaml       # Fleet-wide CNPG monitoring
@@ -86,7 +86,7 @@ Let's trace what happens when a tenant requests a database via the API or MCP cl
    - CNPG Cluster CR (HA, pgvector, PgBouncer)
    - ArgoCD Application CR pointing to OCI catalog
 
-5. **Spoke Bootstrap:** CAPI provisions the cluster, injects edge-catalog via ClusterResourceSet. ArgoCD Agent starts, connects to Hub.
+5. **Spoke Bootstrap:** CAPI provisions the cluster, injects manifests/spoke-catalog via ClusterResourceSet. ArgoCD Agent starts, connects to Hub.
 
 6. **Edge Pull:** The ArgoCD Agent running in the Spoke Silo detects the Application CR. It pulls the `cloudnative-pg` manifests from the OCI Catalog Artifact and applies them locally.
 

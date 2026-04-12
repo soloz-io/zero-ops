@@ -50,7 +50,7 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 │ Spoke Pool 01    │  │ Spoke Pool 02│  │ Spoke Pool N │
 │ (100 tenants)    │  │ (100 tenants)│  │ (100 tenants)│
 │                  │  │              │  │              │
-│ Edge Catalog:    │  │              │  │              │
+│ Spoke Catalog:   │  │              │  │              │
 │ - ArgoCD Agent   │  │              │  │              │
 │ - CNPG (shared)  │  │              │  │              │
 │ - Atlas Operator │  │              │  │              │
@@ -74,7 +74,7 @@ ClusterResourceSet injects ArgoCD Agent + mTLS certs
          ↓
 Kyverno generates ArgoCD cluster Secret
          ↓
-ArgoCD ApplicationSet deploys edge catalog (sync waves 0-4)
+ArgoCD ApplicationSet deploys spoke catalog (sync waves 0-4)
          ↓
 Cell Ready for tenant onboarding
 ```
@@ -174,7 +174,7 @@ stringData:
 
 ### 3.5 ArgoCD ApplicationSet
 
-**Purpose**: Deploy edge catalog to all Spoke Pool clusters
+**Purpose**: Deploy spoke catalog to all Spoke Pool clusters
 
 **Generator**: Cluster Generator with selector `spoke-type: pool`
 
@@ -259,8 +259,8 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 6. Hetzner CCM: Applied, cloud integration enabled
 7. ArgoCD Agent: Starts, connects to Hub using mTLS
 8. Kyverno: Generates ArgoCD cluster Secret
-9. ArgoCD: Discovers cluster, ApplicationSet creates edge catalog Application
-10. ArgoCD Agent: Pulls edge catalog, applies with sync waves
+9. ArgoCD: Discovers cluster, ApplicationSet creates spoke catalog Application
+10. ArgoCD Agent: Pulls spoke catalog, applies with sync waves
 11. CNPG: Cluster reaches Ready (Wave 1)
 12. Atlas Operator: Deployed (Wave 2)
 13. PostgREST + AgentGateway: Deployed (Wave 3)
@@ -509,7 +509,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 1. Apply SpokePool XR: `kubectl apply -f spokepool-01.yaml`
 2. Wait for CAPI cluster Ready: `kubectl wait --for=condition=Ready cluster/spokepool-01 --timeout=20m`
 3. Verify ArgoCD cluster Secret: `kubectl get secret -n argocd -l cell-id=spokepool-01`
-4. Verify edge catalog synced: `argocd app list | grep spokepool-01`
+4. Verify spoke catalog synced: `argocd app list | grep spokepool-01`
 5. Verify CNPG Ready: `kubectl --context spokepool-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
 6. Verify Atlas Operator Ready: `kubectl --context spokepool-01 get deployment atlas-operator`
 7. Verify PostgREST Ready: `kubectl --context spokepool-01 get deployment postgrest`
@@ -591,7 +591,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Validation**: Apply SpokePool XR, verify cluster provisioned and ArgoCD Agent connects
 
-### Phase 2: Edge Catalog (Week 3-4)
+### Phase 2: Spoke Catalog (Week 3-4)
 
 **Deliverables**:
 - ArgoCD ApplicationSet with Cluster Generator
@@ -601,7 +601,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 - NATS Leaf Node deployment
 - Grafana Alloy deployment
 
-**Validation**: Verify all edge catalog components reach Healthy status with correct sync waves
+**Validation**: Verify all spoke catalog components reach Healthy status with correct sync waves
 
 ### Phase 3: Tenant Schema Provisioning (Week 5-6)
 
