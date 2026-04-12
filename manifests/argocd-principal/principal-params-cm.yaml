@@ -11,7 +11,7 @@ data:
   principal.metrics.port: "8000"
   principal.healthz.port: "8003"
   principal.namespace: "hub-platform-ops"
-  principal.allowed-namespaces: ""
+  principal.allowed-namespaces: "*"
   
   # TLS Configuration
   principal.tls.secret-name: "argocd-agent-principal-tls"
