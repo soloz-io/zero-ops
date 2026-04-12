@@ -55,7 +55,6 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 │ - CNPG (shared)  │  │              │  │              │
 │ - Atlas Operator │  │              │  │              │
 │ - PostgREST      │  │              │  │              │
-│ - AgentGateway   │  │              │  │              │
 │ - NATS Leaf Node │  │              │  │              │
 │ - Grafana Alloy  │  │              │  │              │
 └──────────────────┘  └──────────────┘  └──────────────┘
@@ -184,7 +183,7 @@ stringData:
 - Wave 0: Database extensions (if needed)
 - Wave 1: CNPG Cluster + PgBouncer
 - Wave 2: Atlas Operator + AtlasMigration CRs
-- Wave 3: PostgREST + AgentGateway
+- Wave 3: PostgREST
 - Wave 4: NATS Leaf Node, Grafana Alloy
 
 **Health Checks**: CNPG Ready before Wave 2, AtlasMigration Ready before Wave 3
@@ -263,7 +262,7 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 10. ArgoCD Agent: Pulls spoke catalog, applies with sync waves
 11. CNPG: Cluster reaches Ready (Wave 1)
 12. Atlas Operator: Deployed (Wave 2)
-13. PostgREST + AgentGateway: Deployed (Wave 3)
+13. PostgREST: Deployed (Wave 3)
 14. NATS Leaf Node + Grafana Alloy: Deployed (Wave 4)
 15. Cell: Ready for tenant onboarding
 ```
@@ -293,7 +292,7 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 8. ArgoCD: Health check passes (Ready=True)
 9. ArgoCD: Proceeds to sync wave 3 (PostgREST deployment)
 10. PostgREST: Deployed with db-schemas including tenant_acme
-11. Tenant: Ready for requests via AgentGateway → PostgREST
+11. Tenant: Ready for requests via Hub AgentGateway → PostgREST
 ```
 
 ### 5.3 Authentication Flow
@@ -301,9 +300,10 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 ```
 Developer/Agent (IDE Client)
     ↓ [JWT from Hub Ory Hydra]
-AgentGateway (Spoke Pool)
+AgentGateway (Hub Cluster)
     ↓ [Validates JWT using Hub Ory JWKS]
     ↓ [Extracts tenant_id from JWT claims]
+    ↓ [Routes to appropriate Spoke Pool]
     ↓ [Forwards: JWT + X-Tenant-ID header]
 PostgREST (Spoke Pool, Internal Service)
     ↓ [Caches validated JWT (10000 entries)]
@@ -414,7 +414,7 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 
 **Platform-Level Isolation** (Schema-Level):
 - Deterministic schema naming: `tenant_<id>`
-- AgentGateway validates JWT, extracts `tenant_id`
+- Hub AgentGateway validates JWT, extracts `tenant_id`, routes to correct Spoke Pool
 - PostgREST sets `search_path=tenant_<id>` per request
 - PgBouncer transaction pooling resets session state between transactions
 - No cross-tenant access possible (no shared search_path)
@@ -426,11 +426,12 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 
 ### 6.5 JWT Validation
 
-**Primary Validation** (AgentGateway):
+**Primary Validation** (Hub AgentGateway):
 - Fetches JWKS from Hub Ory on startup (cache for 1 hour)
 - Validates JWT signature using cached public key (RS256)
 - Validates issuer, audience, expiration
 - Extracts `tenant_id` claim
+- Routes request to appropriate Spoke Pool based on tenant-to-cell mapping
 - Forwards to PostgREST with `X-Tenant-ID` header
 
 **Secondary Caching** (PostgREST):
@@ -482,7 +483,6 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 - ArgoCD Agent: Connection status, Application sync events
 - Atlas Operator: Migration apply, drift detection
 - PostgREST: Query execution, JWT validation
-- AgentGateway: Request routing, JWT validation
 
 **Log Aggregation**: Grafana Alloy → Loki (Hub)
 
@@ -534,12 +534,12 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 ### 8.3 Authentication Flow Test
 
-**Test Case**: Tenant can access their schema via AgentGateway → PostgREST
+**Test Case**: Tenant can access their schema via Hub AgentGateway → PostgREST
 
 **Steps**:
 1. Obtain JWT from Hub Ory: `curl -X POST https://auth.nutgraf.in/oauth2/token ...`
 2. Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.nutgraf.in/documents`
-3. Verify AgentGateway logs show JWT validation
+3. Verify Hub AgentGateway logs show JWT validation and routing
 4. Verify PostgREST logs show `search_path=tenant_acme`
 5. Verify response contains only tenant's documents
 
@@ -597,7 +597,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 - ArgoCD ApplicationSet with Cluster Generator
 - CNPG Cluster + PgBouncer configuration
 - Atlas Operator deployment
-- PostgREST + AgentGateway deployment
+- PostgREST deployment
 - NATS Leaf Node deployment
 - Grafana Alloy deployment
 

@@ -4,7 +4,7 @@ metadata:
   name: agentgateway
   namespace: hub-platform-edge
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: agentgateway
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: agentgateway
-        image: ghcr.io/agentgateway/agentgateway:latest
+        image: ghcr.io/agentgateway/agentgateway:v0.1.0
         args: ["-f", "/etc/agentgateway/config.yaml"]
         ports:
         - containerPort: 3000
@@ -30,6 +30,18 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
       volumes:
       - name: config
         configMap:
@@ -40,10 +52,41 @@ kind: Service
 metadata:
   name: agentgateway
   namespace: hub-platform-edge
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: api.nutgraf.in
 spec:
+  type: LoadBalancer
   selector:
     app: agentgateway
   ports:
-  - port: 3000
+  - port: 443
     targetPort: 3000
-    name: http
+    protocol: TCP
+    name: https
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentgateway
+  namespace: hub-platform-edge
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api.nutgraf.in
+    secretName: agentgateway-tls
+  rules:
+  - host: api.nutgraf.in
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: agentgateway
+            port:
+              number: 3000

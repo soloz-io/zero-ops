@@ -24,7 +24,7 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: identity-services
+          kubernetes.io/metadata.name: hub-platform-identity
       podSelector:
         matchLabels:
           app: auth-proxy
@@ -43,7 +43,7 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: ory-system
+          kubernetes.io/metadata.name: hub-platform-identity
     ports:
     - protocol: TCP
       port: 4444

@@ -31,9 +31,9 @@ These components are deployed via GitOps because:
 **Purpose**: Declarative schema migrations  
 **Features**: Tenant baseline schemas, migration versioning
 
-### Wave 3: PostgREST + AgentGateway
-**Files**: `components/postgrest.yaml`, `components/agentgateway.yaml`  
-**Purpose**: Auto-generated REST APIs, MCP tool gateway  
+### Wave 3: PostgREST
+**Files**: `components/postgrest.yaml`  
+**Purpose**: Auto-generated REST APIs  
 **Features**: RLS enforcement, tenant isolation, JWT validation
 
 ### Wave 4: Observability + Event Bus
