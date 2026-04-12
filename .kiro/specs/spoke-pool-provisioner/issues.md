@@ -8,26 +8,29 @@
 
 ## Current Issues
 
-### 🔴 Issue #19: ArgoCD Agent Identity Mismatch - Shared Certificate vs Destination-Based Mapping
-**Status**: IN PROGRESS (2026-04-12 15:16 UTC)  
-**Root Cause**: Agent authenticates with CN from shared certificate (`argocd-agent-client`) but Applications are queued for cluster name (`spoke-pool-eu-prod-01`). With destination-based mapping enabled, Principal routes Applications to queue based on `destination.name`, but Agent listens to queue based on its mTLS identity (certificate CN).
+### 🔴 Issue #20: Repository Secret Not Distributed to Spoke Agent
+**Status**: NEW (2026-04-12 15:47 UTC)  
+**Root Cause**: Repository secret missing `project` field, AppProject missing `sourceNamespaces` field. Agent can't clone Git repo without repository credentials.
 
-**Investigation Trail**:
-1. ✅ Cluster mapping created: `argocd-agent-client` → `spoke-pool-eu-prod-01`
-2. ✅ Agent connected successfully via mTLS
-3. ✅ Application exists with `destination.name: spoke-pool-eu-prod-01`
-4. ✅ Added `argocd-agent.argoproj-labs.io/agent-name: argocd-agent-client` label to cluster Secret
-5. ✅ Fixed Principal `allowed-namespaces` from `""` to `"*"` (was rejecting all Applications)
-6. ❌ Applications still not syncing - queued for wrong agent name
+**Solution**:
+1. Update `platform-infrastructure` AppProject: add `sourceNamespaces: ["spoke-pool-*"]`
+2. Patch `hub-platform-git-secret`: add `project: platform-infrastructure` in stringData
+3. Principal will distribute repository to matching agents
 
-**Queue Mismatch**:
-- Application queued to: `spoke-pool-eu-prod-01` (from `destination.name`)
-- Agent listening on: `argocd-agent-client` (from certificate CN)
-- Result: Messages never delivered, no errors logged
+**Files**: `manifests/argocd-principal/appproject.yaml`, repository secret patch
 
-**Solution**: Transition to Phase 2 - Dynamic per-cluster certificates
-- Generate unique Certificate per spoke pool via Crossplane Composition
-- Set `commonName: spoke-pool-eu-prod-01` (matches cluster name)
+---
+
+## Resolved Issues
+
+### ✅ Issue #19: ArgoCD Agent Identity Mismatch - Shared Certificate vs Destination-Based Mapping
+**Status**: RESOLVED (2026-04-12 15:35 UTC)  
+**Root Cause**: Agent authenticated with CN from shared certificate (`argocd-agent-client`) but Applications queued for cluster name (`spoke-pool-eu-prod-01`)  
+**Solution**: Implemented Phase 2 dynamic per-cluster certificates via Crossplane Composition  
+**Verified**: Agent authenticates with `CN=spoke-pool-eu-prod-01`, Application synced to spoke cluster  
+**Commits**: 9844683
+
+### ✅ Issue #18: ArgoCD Agent mTLS Connection Failure (EOF)
 - Update Kyverno policy to watch label-based selector instead of hardcoded name
 - Agent will authenticate with correct identity matching Application routing
 
