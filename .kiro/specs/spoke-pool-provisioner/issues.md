@@ -8,16 +8,6 @@
 
 ## Current Issues
 
-### 🔴 Issue #20: Repository Secret Not Distributed to Spoke Agent
-**Status**: PARTIALLY RESOLVED (2026-04-12 16:15 UTC)  
-**Root Cause**: Repository secret missing `project` field, AppProject missing `sourceNamespaces` field  
-**Solution Applied**: Added `project: platform-infrastructure` to ExternalSecret template, added `sourceNamespaces: ["spoke-pool-*"]` to AppProject  
-**Verified**: Repository secret distributed to spoke agent successfully  
-**Remaining**: Application stuck in "Couldn't unignore change 1217" loop, not syncing (new issue #21)  
-**Commits**: 996c8fd
-
----
-
 ### 🔴 Issue #21: Application Stuck in Version Ignore Loop
 **Status**: NEW (2026-04-12 16:15 UTC)  
 **Root Cause**: Agent logs show "Couldn't unignore change 1217 for app...version 1217 is already ignored". Application created but never syncs.  
@@ -27,6 +17,13 @@
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #20: Repository Secret Not Distributed to Spoke Agent
+**Status**: RESOLVED (2026-04-12 16:15 UTC)  
+**Root Cause**: Repository secret missing `project` field, AppProject missing `sourceNamespaces` field  
+**Solution**: Added `project: platform-infrastructure` to ExternalSecret template, added `sourceNamespaces: ["spoke-pool-*"]` to AppProject  
+**Verified**: Repository secret distributed to spoke agent successfully  
+**Commits**: 996c8fd
 
 ### ✅ Issue #19: ArgoCD Agent Identity Mismatch - Shared Certificate vs Destination-Based Mapping
 **Status**: RESOLVED (2026-04-12 15:35 UTC)  
