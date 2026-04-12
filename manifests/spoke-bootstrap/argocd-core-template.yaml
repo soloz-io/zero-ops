@@ -1,0 +1,187 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-core-components
+  namespace: hub-platform-ops
+  labels:
+    app.kubernetes.io/name: argocd-core
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: cluster-bios
+type: addons.cluster.x-k8s.io/resource-set
+data:
+  argocd-cm.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: argocd-cm
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-cm
+        app.kubernetes.io/part-of: argocd
+    data:
+      application.instanceLabelKey: argocd.argoproj.io/instance
+  
+  repo-server.yaml: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: argocd-repo-server
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-repo-server
+        app.kubernetes.io/part-of: argocd
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-repo-server
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: argocd-repo-server
+        spec:
+          containers:
+          - name: argocd-repo-server
+            image: quay.io/argoproj/argocd:v2.11.2
+            command: ["argocd-repo-server"]
+            ports:
+            - containerPort: 8081
+            env:
+            - name: ARGOCD_RECONCILIATION_TIMEOUT
+              value: "180s"
+            - name: ARGOCD_REPO_SERVER_LOGFORMAT
+              value: "text"
+            - name: ARGOCD_REPO_SERVER_LOGLEVEL
+              value: "info"
+            - name: ARGOCD_REPO_SERVER_PARALLELISM_LIMIT
+              value: "0"
+            - name: ARGOCD_REPO_SERVER_DISABLE_TLS
+              value: "true"
+            - name: ARGOCD_EXEC_TIMEOUT
+              value: "180s"
+            livenessProbe:
+              tcpSocket:
+                port: 8081
+              initialDelaySeconds: 10
+              periodSeconds: 10
+            readinessProbe:
+              tcpSocket:
+                port: 8081
+              initialDelaySeconds: 5
+              periodSeconds: 10
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: argocd-repo-server
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-repo-server
+        app.kubernetes.io/part-of: argocd
+    spec:
+      selector:
+        app.kubernetes.io/name: argocd-repo-server
+      ports:
+      - port: 8081
+        targetPort: 8081
+        protocol: TCP
+        name: server
+  
+  application-controller.yaml: |
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: argocd-application-controller
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-application-controller
+        app.kubernetes.io/part-of: argocd
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: argocd-application-controller
+      labels:
+        app.kubernetes.io/name: argocd-application-controller
+        app.kubernetes.io/part-of: argocd
+    rules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["*"]
+    - nonResourceURLs: ["*"]
+      verbs: ["*"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: argocd-application-controller
+      labels:
+        app.kubernetes.io/name: argocd-application-controller
+        app.kubernetes.io/part-of: argocd
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: argocd-application-controller
+    subjects:
+    - kind: ServiceAccount
+      name: argocd-application-controller
+      namespace: argocd
+    ---
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: argocd-application-controller
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-application-controller
+        app.kubernetes.io/part-of: argocd
+    spec:
+      replicas: 1
+      serviceName: argocd-application-controller
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-application-controller
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: argocd-application-controller
+        spec:
+          serviceAccountName: argocd-application-controller
+          containers:
+          - name: argocd-application-controller
+            image: quay.io/argoproj/argocd:v2.11.2
+            command:
+            - argocd-application-controller
+            args:
+            - --redis
+            - argocd-redis:6379
+            - --repo-server
+            - argocd-repo-server:8081
+            - --loglevel
+            - info
+            - --logformat
+            - text
+            env:
+            - name: ARGOCD_CONTROLLER_REPLICAS
+              value: "1"
+            - name: ARGOCD_RECONCILIATION_TIMEOUT
+              value: "180s"
+            - name: ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER
+              value: "argocd-repo-server:8081"
+            - name: ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_TIMEOUT_SECONDS
+              value: "60"
+            ports:
+            - containerPort: 8082
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8082
+              initialDelaySeconds: 30
+              periodSeconds: 10
+            readinessProbe:
+              httpGet:
+                path: /healthz
+                port: 8082
+              initialDelaySeconds: 10
+              periodSeconds: 10

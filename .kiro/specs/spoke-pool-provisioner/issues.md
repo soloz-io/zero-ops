@@ -8,17 +8,18 @@
 
 ## Current Issues
 
-### 🔴 Issue #21: ArgoCD Agent Version Ignore Loop Prevents Sync
-**Status**: BLOCKED (2026-04-12 22:54 UTC)  
-**Root Cause**: Agent stuck in version ignore loop - "Couldn't unignore change 10440...version 10440 is already ignored". Application updates received but never applied to spoke cluster.  
-**Investigation**:
-- CNPG migrated from imperative to declarative (commits: 4ebf536, bb5e560, 6e79f43, b6c7287)
-- Spoke catalog Application references correct resources with sync-waves (operator=0, cluster=1)
-- Agent receives Application updates from Principal but ignores them
-- Redis FLUSHALL did not clear ignore state - persisted elsewhere or sent by Principal
-- No Application resources created on spoke cluster (argocd namespace empty)
-**Workaround Needed**: Delete and recreate Application with new name, or investigate ArgoCD Agent ignore mechanism  
-**Blocker**: Cannot proceed with Phase 2 validation until Applications sync to spoke
+### 🔴 Issue #21: Missing ArgoCD Application Controller on Spoke
+**Status**: ROOT CAUSE IDENTIFIED (2026-04-12 23:22 UTC)  
+**Root Cause**: ArgoCD Agent in managed mode requires local application-controller to reconcile Applications. We only deployed Agent + Redis, missing application-controller and repo-server.  
+**Evidence**:
+- Application exists in argocd namespace but has no status field
+- Agent logs show Application created but no reconciliation activity
+- ArgoCD Agent docs (managed.md): "minimum requirement...is to have an agent and the Argo CD application-controller installed"
+- Agent kustomization shows managed mode needs: agent, application-controller, repo-server, redis
+**Current Deployment**: Agent + Redis only
+**Required Deployment**: Agent + Application Controller + Repo Server + Redis  
+**Solution**: Add application-controller and repo-server to spoke-catalog or ClusterResourceSet bootstrap  
+**Blocker**: Cannot proceed with Phase 2 validation until application-controller is deployed
 
 ---
 

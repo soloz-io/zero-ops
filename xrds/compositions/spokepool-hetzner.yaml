@@ -184,6 +184,9 @@ spec:
                         # ArgoCD Redis (must be before Agent)
                         - name: argocd-redis
                           kind: ConfigMap
+                        # ArgoCD Core Components (Controller & Repo Server)
+                        - name: argocd-core-components
+                          kind: ConfigMap
                         # ArgoCD Agent
                         - name: argocd-agent-deployment
                           kind: ConfigMap
@@ -228,17 +231,17 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
-              # Patch for ArgoCD Agent client certificate (resources[9])
+              # Patch for ArgoCD Agent client certificate (resources[10])
               # References the Kyverno-generated CRS secret (with -crs suffix)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[9].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
                 transforms:
                   - type: string
                     string:
