@@ -6,11 +6,13 @@ metadata:
   annotations:
     external-dns.alpha.kubernetes.io/hostname: argocd-principal.nutgraf.in
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: nginx
   tls:
   - hosts:
     - argocd-principal.nutgraf.in
+    secretName: argocd-agent-principal-tls
   rules:
   - host: argocd-principal.nutgraf.in
     http:

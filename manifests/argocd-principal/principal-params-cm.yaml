@@ -6,7 +6,7 @@ metadata:
 data:
   principal.listen.host: ""
   principal.listen.port: "8443"
-  principal.log.level: "info"
+  principal.log.level: "debug"
   principal.log.format: "json"
   principal.metrics.port: "8000"
   principal.healthz.port: "8003"
