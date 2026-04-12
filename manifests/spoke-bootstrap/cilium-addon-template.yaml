@@ -99,7 +99,7 @@ stringData:
     
       # Enable IPv6 addressing. If enabled, all endpoints are allocated an IPv6
       # address.
-      enable-ipv6: "false"
+      enable-ipv6: "true"
       # Users who wish to specify their own custom CNI configuration file must set
       # custom-cni-conf to "true", otherwise Cilium may overwrite the configuration.
       custom-cni-conf: "false"
