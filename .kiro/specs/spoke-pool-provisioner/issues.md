@@ -8,17 +8,22 @@
 
 ## Current Issues
 
-### ⚠️ Issue #16: ArgoCD Agent mTLS CA Mismatch
-**Status**: BLOCKING | **Date**: 2026-04-11 15:09 UTC | **Severity**: HIGH  
-**Description**: Agent cannot verify Principal cert - different CA fingerprints (Hub: 9A:80:7A..., Spoke: 69:E3:D9...)  
-**Root Cause**: CRS injects separate CA during spoke bootstrap, Agent and Principal don't share same CA  
-**Blocks**: Task 1.8.9 (Agent connection verification)  
-**Completed**: Redis deployed, NodePort service (188.34.180.61:31784), Principal cert with IP SAN  
-**Next**: Sync Hub CA to spoke cluster or regenerate with shared CA
+### ⚠️ Issue #17: Hetzner CCM Token Has Trailing Newline
+**Status**: BLOCKING | **Date**: 2026-04-11 16:40 UTC | **Severity**: HIGH  
+**Description**: CCM crashes with "entered token is invalid (must be exactly 64 characters long)" - token has 65 chars (trailing newline)  
+**Root Cause**: ExternalSecret template in composition adds newline to hcloud token  
+**Blocks**: Node initialization, Agent pod scheduling  
+**Next**: Fix ExternalSecret template to trim newline from token
 
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #16: ArgoCD Agent mTLS CA Mismatch
+**Status**: RESOLVED (2026-04-11 16:38 UTC)  
+**Fix**: Unified CA definition - removed duplicate from manifests/argocd-principal/certificates.yaml, use catalog/security/argocd-agent-cert.yaml only  
+**Verified**: Both Agent and Principal now use same CA (fingerprint 69:E3:D9...)  
+**Architecture**: cert-manager → Kyverno → CRS → Spoke cluster (automated flow)
 
 ### ✅ Issue #15: ArgoCD Principal JWT Key Parse Error
 **Status**: RESOLVED (2026-04-11 14:21 UTC)  
@@ -86,9 +91,9 @@
 
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
-**Phase 1.8 Hub Infrastructure**: 🔄 IN PROGRESS (blocked by Issue #16)  
-**Total Issues Resolved**: 15  
-**Current Blockers**: 1 (Issue #16 - Agent connection config)
+**Phase 1.8 Hub Infrastructure**: 🔄 IN PROGRESS (blocked by Issue #17)  
+**Total Issues Resolved**: 16  
+**Current Blockers**: 1 (Issue #17 - CCM token newline)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
