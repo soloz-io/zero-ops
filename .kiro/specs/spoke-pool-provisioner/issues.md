@@ -1,23 +1,45 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-11 14:21 UTC  
-**Context**: Hub Infrastructure - ArgoCD Principal Deployment Complete
+**Last Updated**: 2026-04-12 09:48 UTC  
+**Context**: Hub Infrastructure - ArgoCD Agent Successfully Connected via mTLS
 
 ---
 
 ## Current Issues
 
-### ⚠️ Issue #17: Hetzner CCM Token Has Trailing Newline
-**Status**: BLOCKING | **Date**: 2026-04-11 16:40 UTC | **Severity**: HIGH  
-**Description**: CCM crashes with "entered token is invalid (must be exactly 64 characters long)" - token has 65 chars (trailing newline)  
-**Root Cause**: ExternalSecret template in composition adds newline to hcloud token  
-**Blocks**: Node initialization, Agent pod scheduling  
-**Next**: Fix ExternalSecret template to trim newline from token
+None - All blocking issues resolved!
 
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #18: ArgoCD Agent mTLS Connection Failure (EOF)
+**Status**: RESOLVED (2026-04-12 09:48 UTC)  
+**Root Cause**: NGINX Ingress ssl-passthrough annotation was ignored due to HTTP rules conflict. NGINX treated connection as Layer 7 (HTTPS), terminated TLS, and sent mangled request to Principal, causing EOF during handshake.  
+**Investigation**:
+1. IPv6 connectivity issue (resolved - disabled IPv6 on LoadBalancer)
+2. Certificate hostname mismatch (resolved - added both hostnames to SANs)
+3. NGINX TLS termination instead of passthrough (root cause)
+4. Direct connection test proved Principal TLS config was correct
+
+**Solution**: Switched to NGINX native TCP proxy on port 8443
+- Configured `tcp: 8443: "hub-platform-ops/argocd-agent-principal:443"` in NGINX Helm values
+- Updated Agent to connect to `argocd-principal.nutgraf.in:8443`
+- Deleted conflicting Ingress resource
+- Pure Layer 4 TCP stream bypasses all Layer 7 issues
+
+**Verified**: 
+- Agent logs: `Authentication successful`, `Connected to argocd-agent-99.9.9-unreleased`
+- Bidirectional event stream established
+- GPG keys syncing between Principal and Agent
+
+**Commits**: ab61743, 1b97555, 96ca59b, 1dd486a, 88c9960
+
+### ✅ Issue #17: Hetzner CCM Token Has Trailing Newline
+**Status**: RESOLVED (2026-04-11 16:40 UTC)  
+**Fix**: ExternalSecret template trimmed newline from hcloud token  
+**Verified**: CCM pod running, nodes initialized successfully
 
 ### ✅ Issue #16: ArgoCD Agent mTLS CA Mismatch
 **Status**: RESOLVED (2026-04-11 16:38 UTC)  
@@ -91,13 +113,16 @@
 
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
-**Phase 1.8 Hub Infrastructure**: 🔄 IN PROGRESS (blocked by Issue #17)  
-**Total Issues Resolved**: 16  
-**Current Blockers**: 1 (Issue #17 - CCM token newline)
+**Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
+**Total Issues Resolved**: 18  
+**Current Blockers**: 0
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
-- ArgoCD Agent pod Running 1/1 with CRDs
+- ArgoCD Agent successfully connected to Principal via mTLS
+- NGINX TCP proxy (port 8443) for Layer 4 passthrough
+- Bidirectional event stream established
+- GPG keys syncing between hub and spoke
 - Kyverno cluster discovery working
 - Redis StatefulSet deployed and running
 - ArgoCD Principal deployed and running with cert-manager PKI automation

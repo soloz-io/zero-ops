@@ -58,6 +58,6 @@ spec:
           data:
             # Extract kubeconfig components from CAPI Secret
             name: "{{clusterName | base64_encode(@)}}"
-            server: "{{cluster.spec.controlPlaneEndpoint.host | to_string(@) | base64_encode(@)}}"
+            server: "{{join('', ['https://', cluster.spec.controlPlaneEndpoint.host | to_string(@), ':', cluster.spec.controlPlaneEndpoint.port | to_string(@)]) | base64_encode(@)}}"
             # CAPI stores kubeconfig in data.value field (base64 encoded YAML)
             config: "{{request.object.data.value}}"
