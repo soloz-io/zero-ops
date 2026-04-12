@@ -42,6 +42,11 @@ data:
                     configMapKeyRef:
                       name: argocd-agent-config
                       key: agent.mode
+                - name: ARGOCD_AGENT_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: agent.name
                 - name: ARGOCD_AGENT_REMOTE_SERVER
                   valueFrom:
                     configMapKeyRef:
@@ -60,6 +65,21 @@ data:
                   value: "/etc/argocd/ca/ca.crt"
                 - name: ARGOCD_AGENT_CREDS
                   value: "mtls:^CN=(.+)$"
+                - name: ARGOCD_AGENT_DESTINATION_BASED_MAPPING
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: agent.destination-based-mapping
+                - name: ARGOCD_AGENT_CREATE_NAMESPACE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: agent.create-namespace
+                - name: ARGOCD_AGENT_ALLOWED_NAMESPACES
+                  valueFrom:
+                    configMapKeyRef:
+                      name: argocd-agent-config
+                      key: agent.allowed-namespaces
                 - name: REDIS_ADDR
                   value: "argocd-redis:6379"
               volumeMounts:
