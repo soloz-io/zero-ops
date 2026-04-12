@@ -147,11 +147,6 @@ spec:
         - name: caCrt
           variable:
             jmesPath: 'request.object.data."ca.crt"'
-            default: ""
-        - name: rootCaCrt
-          apiCall:
-            urlPath: "/api/v1/namespaces/hub-platform-ops/secrets/argocd-agent-ca-secret-source"
-            jmesPath: 'data."ca.crt"'
       generate:
         apiVersion: v1
         kind: Secret
@@ -175,4 +170,4 @@ spec:
               data:
                 tls.crt: "{{tlsCrt}}"
                 tls.key: "{{tlsKey}}"
-                ca.crt: "{{rootCaCrt}}"
+                ca.crt: "{{caCrt}}"

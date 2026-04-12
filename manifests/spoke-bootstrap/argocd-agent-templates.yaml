@@ -56,8 +56,8 @@ data:
                   value: "argocd"
                 - name: ARGOCD_AGENT_TLS_SECRET_NAME
                   value: "argocd-agent-client-cert"
-                - name: ARGOCD_AGENT_TLS_ROOT_CA_SECRET_NAME
-                  value: "argocd-agent-ca"
+                - name: ARGOCD_AGENT_TLS_ROOT_CA_PATH
+                  value: "/etc/argocd/ca/ca.crt"
                 - name: ARGOCD_AGENT_CREDS
                   value: "mtls:^CN=(.+)$"
                 - name: REDIS_ADDR
@@ -65,6 +65,9 @@ data:
               volumeMounts:
                 - name: tls-certs
                   mountPath: /etc/argocd/tls
+                  readOnly: true
+                - name: root-ca
+                  mountPath: /etc/argocd/ca
                   readOnly: true
               resources:
                 requests:
@@ -84,6 +87,9 @@ data:
             - name: tls-certs
               secret:
                 secretName: argocd-agent-client-cert
+            - name: root-ca
+              secret:
+                secretName: argocd-agent-ca
           securityContext:
             fsGroup: 999
 ---
