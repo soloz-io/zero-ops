@@ -55,9 +55,10 @@ spec:
               spoke-type: pool
               cell-id: "{{clusterName}}"
           type: Opaque
-          data:
+          stringData:
             # Extract kubeconfig components from CAPI Secret
-            name: "{{clusterName | base64_encode(@)}}"
-            server: "{{join('', ['https://', cluster.spec.controlPlaneEndpoint.host | to_string(@), ':', cluster.spec.controlPlaneEndpoint.port | to_string(@)]) | base64_encode(@)}}"
+            name: "{{clusterName}}"
+            server: "{{join('', ['https://', cluster.spec.controlPlaneEndpoint.host | to_string(@), ':', cluster.spec.controlPlaneEndpoint.port | to_string(@)])}}"
             # CAPI stores kubeconfig in data.value field (base64 encoded YAML)
-            config: "{{request.object.data.value}}"
+            # ArgoCD will parse the kubeconfig and extract the necessary auth details
+            config: "{{request.object.data.value | base64_decode(@)}}"
