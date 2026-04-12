@@ -7,11 +7,15 @@ metadata:
     app.kubernetes.io/name: argocd-agent-principal
     app.kubernetes.io/part-of: argocd-agent
     app.kubernetes.io/component: principal
+  annotations:
+    load-balancer.hetzner.cloud/location: fsn1
+    load-balancer.hetzner.cloud/name: argocd-principal
+    load-balancer.hetzner.cloud/use-private-ip: "false"
 spec:
-  type: NodePort
+  type: LoadBalancer
   ports:
-  - name: grpc
-    port: 8443
+  - name: https
+    port: 443
     targetPort: 8443
     protocol: TCP
   - name: metrics
