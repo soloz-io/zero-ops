@@ -9,15 +9,20 @@
 ## Current Issues
 
 ### 🔴 Issue #20: Repository Secret Not Distributed to Spoke Agent
-**Status**: NEW (2026-04-12 15:47 UTC)  
-**Root Cause**: Repository secret missing `project` field, AppProject missing `sourceNamespaces` field. Agent can't clone Git repo without repository credentials.
+**Status**: PARTIALLY RESOLVED (2026-04-12 16:15 UTC)  
+**Root Cause**: Repository secret missing `project` field, AppProject missing `sourceNamespaces` field  
+**Solution Applied**: Added `project: platform-infrastructure` to ExternalSecret template, added `sourceNamespaces: ["spoke-pool-*"]` to AppProject  
+**Verified**: Repository secret distributed to spoke agent successfully  
+**Remaining**: Application stuck in "Couldn't unignore change 1217" loop, not syncing (new issue #21)  
+**Commits**: 996c8fd
 
-**Solution**:
-1. Update `platform-infrastructure` AppProject: add `sourceNamespaces: ["spoke-pool-*"]`
-2. Patch `hub-platform-git-secret`: add `project: platform-infrastructure` in stringData
-3. Principal will distribute repository to matching agents
+---
 
-**Files**: `manifests/argocd-principal/appproject.yaml`, repository secret patch
+### 🔴 Issue #21: Application Stuck in Version Ignore Loop
+**Status**: NEW (2026-04-12 16:15 UTC)  
+**Root Cause**: Agent logs show "Couldn't unignore change 1217 for app...version 1217 is already ignored". Application created but never syncs.  
+**Investigation**: Repository credentials distributed successfully, Application exists in spoke cluster, but sync never starts  
+**Next Steps**: Investigate Agent version ignore mechanism, may need to delete/recreate Application with fresh state
 
 ---
 
