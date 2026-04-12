@@ -13,6 +13,8 @@ spec:
     targetRevision: "4.15.0"
     helm:
       values: |
+        tcp:
+          8443: "hub-platform-ops/argocd-agent-principal:443"
         controller:
           admissionWebhooks:
             enabled: false
@@ -20,6 +22,7 @@ spec:
             type: LoadBalancer
             annotations:
               load-balancer.hetzner.cloud/location: fsn1
+              external-dns.alpha.kubernetes.io/hostname: "argocd-principal.nutgraf.in"
           extraArgs:
             enable-ssl-passthrough: "true"
   destination:
