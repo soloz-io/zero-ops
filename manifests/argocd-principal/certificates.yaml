@@ -11,8 +11,9 @@ spec:
   secretName: argocd-agent-principal-tls
   duration: 2160h # 90 days
   renewBefore: 168h # 7 days (renew at 83 days)
-  commonName: argocd-principal-internal.nutgraf.in
+  commonName: argocd-principal.nutgraf.in
   dnsNames:
+  - argocd-principal.nutgraf.in
   - argocd-principal-internal.nutgraf.in
   - argocd-agent-principal
   - argocd-agent-principal.hub-platform-ops
