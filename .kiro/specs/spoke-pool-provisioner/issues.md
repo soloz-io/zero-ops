@@ -10,25 +10,36 @@
 
 ### ❌ Issue #32: Infrastructure Application Degraded - NATS/Alloy Blocked
 
-**STATUS**: PARTIALLY RESOLVED (2026-04-13 13:40 UTC)  
-**FIXED**:
-- ✅ PostgREST DNS: Changed `shared-cnpg-pooler-rw` → `shared-cnpg-pooler` (Pooler CRD doesn't use -rw suffix)
-- ✅ PostgREST Auth: Added password from `shared-cnpg-app` secret
-- ✅ Pooler poolMode: Changed `transaction` → `session` (PostgREST requires session mode for prepared statements)
-- ✅ PostgREST: Connected successfully, listening on port 3000
+**STATUS**: IMPLEMENTATION COMPLETE - AWAITING OPERATOR REBUILD (2026-04-13 15:40 UTC)
 
-**REMAINING BLOCKERS**:
-- ❌ NATS: Missing `nats-leaf-creds` secret (leaf node credentials to connect to Hub)
-- ❌ Alloy: CreateContainerConfigError (ConfigMap mount timeout)
+**IMPLEMENTATION COMPLETE**:
+- ✅ Phase 1: Added NATS/Victoria to hub-operator secret_mappings.go
+- ✅ Phase 2: Hub NATS configured to accept leaf connections (port 7422)
+- ✅ Phase 3: Crossplane Composition updated with ExternalSecrets
+- ✅ Phase 4: Spoke NATS configured to use password auth
+
+**BLOCKING**: Hub operator needs image rebuild to pick up new secret mappings
+- Current operator image: `ghcr.io/soloz-io/zero-ops/hub-operator@sha256:477e15b8...`
+- Operator logs show only 7 application secrets (old code)
+- New code has 9 application secrets (NATS + Victoria added)
+
+**NEXT STEPS**:
+1. Rebuild hub-operator image with new code
+2. Push to ghcr.io
+3. Update deployment or wait for CI/CD
+4. Operator will generate and upload credentials to Infisical
+5. ExternalSecrets will sync to spoke clusters
+6. NATS and Alloy will start successfully
+
+**COMMITS**: 948061a (CLI - reverted), dccb94f (Hub NATS), 00a29a5 (Composition), a308e5b (Operator fix)
 
 **EVIDENCE**:
 - CNPG Cluster: ✅ Ready (3/3 pods)
 - Pooler: ✅ Running (2/2 pods, session mode)
 - PostgREST: ✅ Running (2/2 pods, connected to DB)
 - NATS: ❌ ContainerCreating (waiting for nats-leaf-creds secret)
-- Alloy: ❌ CreateContainerConfigError (ConfigMap mount issue)
+- Alloy: ❌ CreateContainerConfigError (waiting for victoria-credentials secret)
 
-**COMMITS**: 0f198a4, 6a74981, c62bcec  
 **APPLICATION**: spoke-pool-eu-prod-01-infrastructure  
 **NAMESPACE**: spoke-pool-system
 
