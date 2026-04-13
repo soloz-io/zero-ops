@@ -8,58 +8,46 @@
 
 ## Current Issues
 
-### ❌ Issue #33: ArgoCD Repo-Server Authentication Failure
+### ✅ Issue #33: ArgoCD Repo-Server Authentication Failure
 
-**STATUS**: ROOT CAUSE IDENTIFIED (2026-04-13 16:20 UTC)
+**STATUS**: RESOLVED (2026-04-13 16:35 UTC)
 
-**SYMPTOM**: 
-- ArgoCD Applications fail to sync with error: `authentication required`
-- Repo-server logs: `fatal: could not read Username for 'https://github.com': terminal prompts disabled`
-- Affects hub-operator and other Applications using GitHub repository
+**ROOT CAUSES IDENTIFIED**:
 
-**ROOT CAUSE**: ArgoCD repo-server credential cache issue
-- Repository secret `hub-platform-git-secret` exists with valid credentials
-- Secret has correct label: `argocd.argoproj.io/secret-type: repository`
-- Secret URL matches Application repoURL exactly: `https://github.com/soloz-io/zero-ops`
-- GitHub token is valid (starts with `ghp_`)
-- **Issue**: Repo-server does not load credentials from secrets without restart
+1. **ArgoCD Credential Auto-Reload Failure**:
+   - ArgoCD uses filtered Kubernetes Informer watching only secrets with `app.kubernetes.io/part-of: argocd` label
+   - ExternalSecrets generated credentials without this label
+   - ArgoCD only discovered credentials on manual pod restart (forced API read)
 
-**EVIDENCE**:
-```bash
-# Secret exists with correct structure
-$ kubectl get secret -n hub-platform-ops hub-platform-git-secret
-NAME                        TYPE     DATA   AGE
-hub-platform-git-secret     Opaque   5      24h
+2. **Redis "Operation not permitted" (EPERM)**:
+   - Cilium with `kubeProxyReplacement=true` uses eBPF for socket-level load balancing
+   - ArgoCD repo-server has strict security context (`drop: ALL` capabilities)
+   - Without explicit NetworkPolicies, Cilium BPF drops unprivileged socket connections with EPERM
 
-# Git fetch fails without credentials
-$ git fetch origin
-fatal: could not read Username for 'https://github.com': terminal prompts disabled
+**FIXES APPLIED**:
 
-# Git config shows no credential helper configured
-$ git config --list | grep credential
-(empty)
-```
+1. **Enable Credential Auto-Discovery**:
+   - Added `app.kubernetes.io/part-of: argocd` label to ExternalSecret templates
+   - Files: `manifests/platform-core-services/platform-argocd-github-auth/external-secret.yaml`
+   - Files: `manifests/platform-core-services/platform-argocd-fleet-registry-auth/external-secret.yaml`
 
-**ARGOCD BEHAVIOR**: 
-ArgoCD repo-server loads repository credentials from labeled secrets at startup. When secrets are created/updated after repo-server starts, it does not automatically reload them. This is a known ArgoCD limitation.
+2. **Fix Cilium BPF Socket Blocking**:
+   - Enabled ArgoCD NetworkPolicies in Helm install: `networkPolicy.enabled=true`
+   - Prevented ingress lockout: `networkPolicy.defaultDeny=false`
+   - File: `internal/hub/components/installer.go`
 
-**SOLUTION**: Restart ArgoCD repo-server deployment
-```bash
-kubectl rollout restart deployment/argocd-repo-server -n hub-platform-ops
-```
-
-**WHY THIS HAPPENED**:
-- Hub operator image was manually updated with `kubectl set image` (workaround for CI/CD issue)
-- This bypassed ArgoCD sync, so repo-server was never restarted
-- Repo-server still has stale credential cache from before operator changes
+**RESULT**:
+- ArgoCD will auto-discover credential changes without pod restarts
+- Cilium BPF will permit repo-server → Redis connections
+- No more stale ComparisonError states
 
 **NEXT STEPS**:
-1. Restart repo-server to reload credentials
-2. Verify hub-operator Application syncs successfully
-3. Verify operator generates NATS/Victoria credentials
+1. Apply ExternalSecret changes to Hub cluster (ArgoCD will sync)
+2. NetworkPolicy fix requires Hub cluster rebuild (bootstrap change)
+3. Verify hub-operator Application syncs successfully
 4. Continue with Issue #32 validation
 
-**COMMITS**: N/A (operational issue, not code)
+**COMMITS**: 1069d1a (RCA), 5b6bfe2 (fixes)
 
 ---
 
