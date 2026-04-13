@@ -8,37 +8,37 @@
 
 ## Current Issues
 
-### ❌ Issue #25: Infrastructure Application OutOfSync/Missing After Spoke Cluster Recreate
+### ❌ Issue #25: Infrastructure Application Sync Failing - CNPG Schema Validation Error
 
 **STATUS**: ACTIVE  
-**Root Cause**: TBD - Infrastructure Application shows OutOfSync/Missing status after spoke cluster recreation  
+**Root Cause**: CNPG Cluster CR has `.spec.pooler` field that's not declared in the CRD schema  
 **Evidence**:
-- Spoke cluster provisioned successfully (Phase: Provisioned) ✅
-- Kubeconfig secret exists ✅
-- All 4 ApplicationSets generating Applications ✅
-- 3 Applications show Unknown/Healthy status ✅
-- Infrastructure Application shows OutOfSync/Missing ❌
-- Spire-agent was disabled (renamed to .disabled) but Application may still reference old revision
+- Application using correct Git revision (1936eda - spire-agent disabled) ✅
+- Sync operation status: Running ❌
+- Error: "failed to create typed patch object (spoke-pool-system/shared-cnpg; postgresql.cnpg.io/v1, Kind=Cluster): .spec.pooler: field not declared in schema"
+- Retrying attempt #5
+
+**Root Cause Analysis**:
+- CNPG CRDs deployed from upstream GitHub (release-1.24)
+- CNPG Cluster manifest uses `.spec.pooler` field
+- Field doesn't exist in the CRD schema version being used
+- Possible version mismatch between CRD and CR
 
 **Observations**:
-- Cluster: spoke-pool-eu-prod-01 - Phase: Provisioned
-- Applications generated:
-  - spoke-pool-eu-prod-01-cnpg-crds: Unknown/Healthy
-  - spoke-pool-eu-prod-01-cnpg-operator: Unknown/Healthy
-  - spoke-pool-eu-prod-01-atlas-operator: Unknown/Healthy
-  - spoke-pool-eu-prod-01-infrastructure: OutOfSync/Missing
-- Kubeconfig secret exists but connection test failed (localhost:8080 error)
+- Spoke cluster: Provisioned ✅
+- CNPG CRDs Application: Unknown/Healthy
+- CNPG Operator Application: Unknown/Healthy
+- Infrastructure Application: OutOfSync/Missing (sync failing)
 
 **Next Steps**:
-1. Get fresh kubeconfig and verify spoke cluster connectivity
-2. Check if Applications are synced to spoke cluster
-3. Check infrastructure Application revision and source
-4. Verify spire-agent.yaml.disabled is not being deployed
-5. Check application-controller logs on spoke
+1. Check CNPG CRD version (release-1.24) schema for pooler field
+2. Check CNPG Cluster manifest pooler configuration
+3. Verify if pooler field was added in a later CNPG version
+4. Either update CRD version or remove pooler field from Cluster CR
 
 **Files Affected**:
-- `manifests/spoke-catalog/infra/spire-agent.yaml.disabled`
-- `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
+- `manifests/spoke-catalog/infra/cnpg-cluster.yaml` (Cluster CR with pooler field)
+- `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml` (CRD source: release-1.24)
 
 ---
 
