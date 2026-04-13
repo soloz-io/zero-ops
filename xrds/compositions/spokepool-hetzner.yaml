@@ -39,6 +39,7 @@ spec:
                         spoke-type: pool
                         take-along-label.capi-to-argocd.spoke-type: ""
                         take-along-label.capi-to-argocd.cell-id: ""
+                        take-along-label.capi-to-argocd.argocd-agent.argoproj-labs.io/agent-name: ""
                     spec:
                       clusterNetwork:
                         pods:
@@ -74,6 +75,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels.cell-id
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
