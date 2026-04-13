@@ -8,49 +8,6 @@
 
 ## Current Issues
 
-### ✅ Issue #33: ArgoCD Repo-Server Authentication Failure
-
-**STATUS**: RESOLVED (2026-04-13 16:35 UTC)
-
-**ROOT CAUSES IDENTIFIED**:
-
-1. **ArgoCD Credential Auto-Reload Failure**:
-   - ArgoCD uses filtered Kubernetes Informer watching only secrets with `app.kubernetes.io/part-of: argocd` label
-   - ExternalSecrets generated credentials without this label
-   - ArgoCD only discovered credentials on manual pod restart (forced API read)
-
-2. **Redis "Operation not permitted" (EPERM)**:
-   - Cilium with `kubeProxyReplacement=true` uses eBPF for socket-level load balancing
-   - ArgoCD repo-server has strict security context (`drop: ALL` capabilities)
-   - Without explicit NetworkPolicies, Cilium BPF drops unprivileged socket connections with EPERM
-
-**FIXES APPLIED**:
-
-1. **Enable Credential Auto-Discovery**:
-   - Added `app.kubernetes.io/part-of: argocd` label to ExternalSecret templates
-   - Files: `manifests/platform-core-services/platform-argocd-github-auth/external-secret.yaml`
-   - Files: `manifests/platform-core-services/platform-argocd-fleet-registry-auth/external-secret.yaml`
-
-2. **Fix Cilium BPF Socket Blocking**:
-   - Enabled ArgoCD NetworkPolicies in Helm install: `networkPolicy.enabled=true`
-   - Prevented ingress lockout: `networkPolicy.defaultDeny=false`
-   - File: `internal/hub/components/installer.go`
-
-**RESULT**:
-- ArgoCD will auto-discover credential changes without pod restarts
-- Cilium BPF will permit repo-server → Redis connections
-- No more stale ComparisonError states
-
-**NEXT STEPS**:
-1. Apply ExternalSecret changes to Hub cluster (ArgoCD will sync)
-2. NetworkPolicy fix requires Hub cluster rebuild (bootstrap change)
-3. Verify hub-operator Application syncs successfully
-4. Continue with Issue #32 validation
-
-**COMMITS**: 1069d1a (RCA), 5b6bfe2 (fixes)
-
----
-
 ### ❌ Issue #32: Infrastructure Application Degraded - NATS/Alloy Blocked
 
 **STATUS**: IMPLEMENTATION COMPLETE - AWAITING OPERATOR REBUILD (2026-04-13 15:40 UTC)
@@ -85,6 +42,14 @@
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #33: ArgoCD Redis Connection EPERM
+
+**STATUS**: RESOLVED (2026-04-13 17:30 UTC)  
+**ROOT CAUSE**: Redis service selector `app.kubernetes.io/name: redis` but pod has `argocd-redis` → zero endpoints → Cilium EPERM  
+**FIX**: Patched service selector to match pod label (manual cluster fix, not in Git)  
+**VERIFIED**: Redis connections working, repo-server using cache ✅  
+**COMMITS**: ab79ef4 (credential label + defaultDeny), 7521fd3 (revert incorrect socketLB)
 
 ### ✅ Issue #31: Missing Hetzner CSI Driver - Secret Reference Mismatch
 
