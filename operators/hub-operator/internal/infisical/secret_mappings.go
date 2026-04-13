@@ -272,5 +272,17 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		Description: "Hydra system secret for cookie/session encryption",
 	},
+	{
+		UsernameKey: "nats-leaf-username",
+		PasswordKey: "nats-leaf-password",
+		Username:    "leafnode",
+		Description: "NATS Leaf Node credentials for spoke clusters",
+	},
+	{
+		UsernameKey: "victoria-username",
+		PasswordKey: "victoria-password",
+		Username:    "metrics",
+		Description: "VictoriaMetrics credentials for spoke metrics remote_write",
+	},
 }
 
