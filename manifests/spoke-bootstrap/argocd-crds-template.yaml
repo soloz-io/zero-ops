@@ -52,6 +52,9 @@ stringData:
                 type: string
               metadata:
                 type: object
+              operation:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
