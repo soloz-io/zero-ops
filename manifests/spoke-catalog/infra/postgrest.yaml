@@ -8,7 +8,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 data:
   postgrest.conf: |
-    db-uri = "postgres://app@shared-cnpg-pooler-rw.spoke-pool-system.svc:5432/app"
+    db-uri = "postgres://app@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
     # Dynamic schema discovery: Query database for tenant schemas at startup
     # PostgREST will expose all schemas returned by this query
     db-schemas = "public"
@@ -63,7 +63,7 @@ spec:
               name: http
           env:
             - name: PGRST_DB_URI
-              value: "postgres://app@shared-cnpg-pooler-rw.spoke-pool-system.svc:5432/app"
+              value: "postgres://app@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
             # Dynamic schema list - updated by schema-discovery CronJob
             - name: PGRST_DB_SCHEMAS
               value: "public"
@@ -171,7 +171,7 @@ spec:
                   echo "PostgREST configuration updated successfully"
               env:
                 - name: DB_URI
-                  value: "postgres://app@shared-cnpg-pooler-rw.spoke-pool-system.svc:5432/app"
+                  value: "postgres://app@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
           serviceAccountName: postgrest-schema-discovery
 ---
 apiVersion: v1
