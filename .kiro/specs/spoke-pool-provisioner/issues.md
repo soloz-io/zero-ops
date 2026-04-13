@@ -8,6 +8,61 @@
 
 ## Current Issues
 
+### ❌ Issue #33: ArgoCD Repo-Server Authentication Failure
+
+**STATUS**: ROOT CAUSE IDENTIFIED (2026-04-13 16:20 UTC)
+
+**SYMPTOM**: 
+- ArgoCD Applications fail to sync with error: `authentication required`
+- Repo-server logs: `fatal: could not read Username for 'https://github.com': terminal prompts disabled`
+- Affects hub-operator and other Applications using GitHub repository
+
+**ROOT CAUSE**: ArgoCD repo-server credential cache issue
+- Repository secret `hub-platform-git-secret` exists with valid credentials
+- Secret has correct label: `argocd.argoproj.io/secret-type: repository`
+- Secret URL matches Application repoURL exactly: `https://github.com/soloz-io/zero-ops`
+- GitHub token is valid (starts with `ghp_`)
+- **Issue**: Repo-server does not load credentials from secrets without restart
+
+**EVIDENCE**:
+```bash
+# Secret exists with correct structure
+$ kubectl get secret -n hub-platform-ops hub-platform-git-secret
+NAME                        TYPE     DATA   AGE
+hub-platform-git-secret     Opaque   5      24h
+
+# Git fetch fails without credentials
+$ git fetch origin
+fatal: could not read Username for 'https://github.com': terminal prompts disabled
+
+# Git config shows no credential helper configured
+$ git config --list | grep credential
+(empty)
+```
+
+**ARGOCD BEHAVIOR**: 
+ArgoCD repo-server loads repository credentials from labeled secrets at startup. When secrets are created/updated after repo-server starts, it does not automatically reload them. This is a known ArgoCD limitation.
+
+**SOLUTION**: Restart ArgoCD repo-server deployment
+```bash
+kubectl rollout restart deployment/argocd-repo-server -n hub-platform-ops
+```
+
+**WHY THIS HAPPENED**:
+- Hub operator image was manually updated with `kubectl set image` (workaround for CI/CD issue)
+- This bypassed ArgoCD sync, so repo-server was never restarted
+- Repo-server still has stale credential cache from before operator changes
+
+**NEXT STEPS**:
+1. Restart repo-server to reload credentials
+2. Verify hub-operator Application syncs successfully
+3. Verify operator generates NATS/Victoria credentials
+4. Continue with Issue #32 validation
+
+**COMMITS**: N/A (operational issue, not code)
+
+---
+
 ### ❌ Issue #32: Infrastructure Application Degraded - NATS/Alloy Blocked
 
 **STATUS**: IMPLEMENTATION COMPLETE - AWAITING OPERATOR REBUILD (2026-04-13 15:40 UTC)
@@ -18,18 +73,14 @@
 - ✅ Phase 3: Crossplane Composition updated with ExternalSecrets
 - ✅ Phase 4: Spoke NATS configured to use password auth
 
-**BLOCKING**: Hub operator needs image rebuild to pick up new secret mappings
-- Current operator image: `ghcr.io/soloz-io/zero-ops/hub-operator@sha256:477e15b8...`
-- Operator logs show only 7 application secrets (old code)
-- New code has 9 application secrets (NATS + Victoria added)
+**BLOCKING**: Hub operator image rebuild completed, but ArgoCD sync blocked by Issue #33
 
 **NEXT STEPS**:
-1. Rebuild hub-operator image with new code
-2. Push to ghcr.io
-3. Update deployment or wait for CI/CD
-4. Operator will generate and upload credentials to Infisical
-5. ExternalSecrets will sync to spoke clusters
-6. NATS and Alloy will start successfully
+1. Resolve Issue #33 (ArgoCD authentication)
+2. Verify hub-operator Application syncs with new image
+3. Verify operator generates NATS/Victoria credentials
+4. Check ExternalSecrets sync credentials to spoke
+5. Verify NATS and Alloy start successfully
 
 **COMMITS**: 948061a (CLI - reverted), dccb94f (Hub NATS), 00a29a5 (Composition), a308e5b (Operator fix)
 
