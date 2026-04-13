@@ -5,9 +5,9 @@
 - @mastra/react - React hooks
 - @mastra/client-js - HTTP client (modify for Kagent)
 
-# @mastra/server - Replace with custom backend
+# @mastra/server - Use it as the reference and Replace with custom backend
 
-# zero-ops/archived/agentic-ai/solo/agentregistry
+# zero-ops/archived/agentic-ai/solo/agentregistry - Use openai agent builder as good reference for agents deployment
 
 # zero-ops/archived/agentic-ai/solo/kagent
 

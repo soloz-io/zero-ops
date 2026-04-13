@@ -10,29 +10,38 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
-    # Automatically discovers all Spoke clusters labeled by capi2argo
-    - clusters:
-        selector:
-          matchLabels:
-            spoke-type: pool
+    # Matrix generator: Spoke clusters × Catalog apps
+    - matrix:
+        generators:
+          # 1. Discover all Spoke Pool clusters via capi2argo labels
+          - clusters:
+              selector:
+                matchLabels:
+                  spoke-type: pool
+          # 2. Iterate through catalog app directories
+          - git:
+              repoURL: https://github.com/soloz-io/zero-ops
+              revision: HEAD
+              directories:
+                - path: manifests/spoke-catalog/apps/*
   template:
     metadata:
-      # Creates a unique parent app per spoke cluster, e.g., "spoke-pool-eu-prod-01-catalog"
-      name: '{{.name}}-catalog'
+      # Creates unique app per spoke+catalog, e.g., "spoke-pool-eu-prod-01-cnpg-operator"
+      name: '{{.name}}-{{path.basename}}'
       namespace: hub-platform-ops
       labels:
         cell-id: '{{.name}}'
+        catalog-app: '{{path.basename}}'
     spec:
       project: platform-infrastructure
       source:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: HEAD
-        # Points to the directory containing our child apps (atlas, cnpg, infra)
-        path: manifests/spoke-catalog/apps
+        path: '{{path}}'
       destination:
-        server: https://kubernetes.default.svc
-        # CRITICAL: Deploys child apps into the Agent's specific namespace on the Hub
-        namespace: '{{.name}}'
+        # CRITICAL: Routes to Spoke via argocd-agent, prevents Hub reconciliation
+        name: '{{.name}}'
+        namespace: spoke-pool-system
       syncPolicy:
         automated:
           prune: true

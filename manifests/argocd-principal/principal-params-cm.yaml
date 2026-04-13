@@ -48,7 +48,7 @@ data:
   principal.jwt.key-path: "/app/config/jwt/tls.key"
   
   # Destination-based mapping for spoke pool routing
-  principal.destination-based-mapping: "false"
+  principal.destination-based-mapping: "true"
   
   # Application label selector (empty = watch all)
   principal.app-label-selector: ""

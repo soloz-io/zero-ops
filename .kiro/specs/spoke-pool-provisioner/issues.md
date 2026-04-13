@@ -8,7 +8,33 @@
 
 ## Current Issues
 
-No current blockers! Phase 2 validation can proceed.
+### ❌ Issue #24: Directory-Based Application Incompatible with argocd-agent Managed Mode
+
+**STATUS**: BLOCKED - Architectural Limitation  
+**Root Cause**: Applications created by directory-based Application don't get `argocd-agent.argoproj-labs.io/source-uid` annotation  
+**Evidence**:
+- Applications exist on Hub in `spoke-pool-eu-prod-01` namespace ✅
+- Cluster mapping fixed (Principal ClusterManager successfully mapped cluster to agent) ✅
+- Agent logs: "Failed to send request update: source UID annotation not found" ❌
+- Applications have no sync status on Hub or Spoke ❌
+
+**Why This Happens**:
+- In argocd-agent Managed Mode, Applications MUST be created by the Principal (via event stream)
+- Directory-based Applications are created by ArgoCD's Application controller, bypassing Principal
+- Principal only adds source-uid annotation when it creates Applications via event stream
+- Agent filters out Applications without source-uid annotation (they're considered "unmanaged")
+
+**Solution Required**: Refactor to use ApplicationSet with Git generator
+- ApplicationSet creates Applications via ArgoCD API
+- Principal watches Application creation events
+- Principal adds source-uid annotation
+- Agent processes Applications normally
+
+**Blocked Until**: ApplicationSet implementation completed
+
+**Files Affected**:
+- `manifests/spoke-pools/spoke-pool-eu-prod-01/spoke-catalog-application.yaml` (needs to become ApplicationSet)
+- `manifests/spoke-catalog/apps/*.yaml` (Application CRs - will be discovered by ApplicationSet)
 
 ---
 
@@ -188,13 +214,30 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 
 ---
 
+### ✅ Issue #23: ArgoCD Agent Cluster Mapping - Missing Label (PARTIALLY RESOLVED)
+**Status**: PARTIALLY RESOLVED (2026-04-13 06:15 UTC)  
+**Part 1 - Cluster Mapping**: ✅ RESOLVED
+- **Root Cause**: Cluster Secret missing `argocd-agent.argoproj-labs.io/agent-name` label
+- **Solution**: Added take-along-label to CAPI Cluster in Composition, manually labeled existing Secret
+- **Verified**: Principal ClusterManager successfully mapped cluster to agent
+
+**Part 2 - Application Sync**: ❌ BLOCKED (moved to Issue #24)
+- Applications created by directory-based Application lack `source-uid` annotation
+- Agent cannot process Applications without this annotation
+- Requires architectural change to ApplicationSet pattern
+
+**Commits**: 6b2d7a6, 396975e
+
+---
+
 ## Summary
 
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Total Issues Resolved**: 18  
-**Current Blockers**: 0
+**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #24)
+**Total Issues Resolved**: 22  
+**Current Blockers**: 1 (Issue #24 - ApplicationSet refactor required)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
@@ -202,6 +245,7 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 - NGINX TCP proxy (port 8443) for Layer 4 passthrough
 - Bidirectional event stream established
 - GPG keys syncing between hub and spoke
+- Cluster mapping working (Principal → Agent)
 - Kyverno cluster discovery working
 - Redis StatefulSet deployed and running
 - ArgoCD Principal deployed and running with cert-manager PKI automation
@@ -215,25 +259,3 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 - ADR: `docs/adr/namespace-alignment.md`
 - Design: `.kiro/specs/spoke-pool-provisioner/design.md`
 - Tasks: `.kiro/specs/spoke-pool-provisioner/tasks.md`
-
-
-### ✅ Issue #24: ArgoCD Agent Cluster Mapping Failure
-**Status**: RESOLVED (2026-04-13 06:15 UTC)  
-**Root Cause**: Cluster Secret missing required agent mapping label for Principal ClusterManager discovery  
-**Investigation**:
-- Principal ClusterManager filters Secrets requiring BOTH labels:
-  - `argocd.argoproj.io/secret-type: cluster` ✅
-  - `argocd-agent.argoproj-labs.io/agent-name: <agent-name>` ❌ (was missing)
-- Without this label, informer never called `onClusterAdded()`, cluster never registered
-- When agent sent events, `m.mapping(agentName)` returned `nil`, causing "agent is not mapped to any cluster" error
-**Solution**: 
-- Added `take-along-label.capi-to-argocd.argocd-agent.argoproj-labs.io/agent-name: ""` to CAPI Cluster in Composition
-- Added patch to set agent-name label value from cluster name
-- Manually labeled existing cluster Secret for immediate fix
-- Principal ClusterManager successfully mapped cluster to agent
-**Architectural Discovery**: Directory-based Application pattern (App-of-Apps) is NOT compatible with argocd-agent Managed Mode
-- Applications created by directory-based Application don't get `argocd-agent.argoproj-labs.io/source-uid` annotation
-- Agent requires this annotation to track managed resources
-- Agent logs: "Failed to send request update: source UID annotation not found"
-**Next Steps**: Refactor to use ApplicationSet with Git generator instead of directory-based Application
-**Commits**: 6b2d7a6
