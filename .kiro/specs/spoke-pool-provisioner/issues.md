@@ -10,14 +10,11 @@
 
 ### ❌ Issue #31: Missing Hetzner CSI Driver - Not in ClusterResourceSet
 
-**STATUS**: RCA COMPLETE  
-**ROOT CAUSE**: Hub got CSI via bootstrap script (`kubectl apply`), Spoke clusters don't have CSI in ClusterResourceSet  
-**EVIDENCE**:  
-- Hub: CSI installed by `internal/hub/components/installer.go` during bootstrap  
-- Spoke: ClusterResourceSet has 12 resources (CNI, CCM, ArgoCD) but NO CSI  
-- PVC `shared-cnpg-1` Pending, no StorageClass exists  
-**FIX**: Add CSI to ClusterResourceSet resources (after CCM, before ArgoCD namespace)  
-**FILES**: `xrds/compositions/spokepool-hetzner.yaml`, `internal/assets/catalog/cloud-providers/hetzner/csi/install.yaml`
+**STATUS**: FIXED - Pending verification  
+**ROOT CAUSE**: Hub got CSI via bootstrap script, Spoke clusters don't have CSI in ClusterResourceSet  
+**FIX**: Created `csi-addon-template.yaml`, added to ClusterResourceSet after CCM  
+**VERIFICATION**: Deleted spoke cluster, waiting for recreation with CSI  
+**COMMIT**: f1fb809
 
 ---
 
