@@ -39,6 +39,20 @@ data:
     data:
       application.instanceLabelKey: argocd.argoproj.io/instance
   
+  argocd-cmd-params-cm.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: argocd-cmd-params-cm
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: argocd-cmd-params-cm
+        app.kubernetes.io/part-of: argocd
+    data:
+      # Allow application-controller to watch hub-platform-ops namespace
+      # Required for destination-based mapping where Applications are created in hub-platform-ops
+      application.namespaces: "hub-platform-ops,argocd"
+  
   repo-server.yaml: |
     apiVersion: apps/v1
     kind: Deployment

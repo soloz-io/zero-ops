@@ -1,0 +1,228 @@
+---
+# CNPG CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-cnpg-crds
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-cnpg-crds'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "-1"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://github.com/cloudnative-pg/cloudnative-pg
+        path: config/crd/bases
+        targetRevision: release-1.24
+      destination:
+        name: '{{.name}}'
+        namespace: cnpg-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - Replace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+---
+# CNPG Operator
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-cnpg-operator
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-cnpg-operator'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://cloudnative-pg.github.io/charts
+        chart: cloudnative-pg
+        targetRevision: 0.28.0
+        helm:
+          skipCrds: true
+          values: |
+            crds:
+              create: false
+            
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "1000m"
+            
+            monitoring:
+              podMonitorEnabled: false
+      destination:
+        name: '{{.name}}'
+        namespace: cnpg-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+---
+# Atlas Operator
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-atlas-operator
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-atlas-operator'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: ghcr.io/ariga/charts
+        chart: atlas-operator
+        targetRevision: 0.3.8
+        helm:
+          values: |
+            image:
+              repository: arigaio/atlas-operator
+              tag: 0.3.8
+            
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "256Mi"
+                cpu: "500m"
+            
+            env:
+              - name: ATLAS_CLOUD_TOKEN
+                value: ""
+      destination:
+        name: '{{.name}}'
+        namespace: spoke-pool-system
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+---
+# Spoke Infrastructure
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-infrastructure
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-infrastructure'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "4"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://github.com/soloz-io/zero-ops
+        targetRevision: HEAD
+        path: manifests/spoke-catalog/infra
+      destination:
+        name: '{{.name}}'
+        namespace: spoke-pool-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
