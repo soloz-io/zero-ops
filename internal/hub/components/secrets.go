@@ -140,6 +140,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 				"argocd.argoproj.io/secret-type": "repository",
 				"app.kubernetes.io/managed-by":   "zero-ops-hub-cli",
 				"app.kubernetes.io/component":    "secret-zero",
+				"app.kubernetes.io/part-of":      "argocd",
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
