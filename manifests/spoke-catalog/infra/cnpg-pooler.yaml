@@ -1,0 +1,44 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: shared-cnpg-pooler
+  namespace: spoke-pool-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  cluster:
+    name: shared-cnpg
+  
+  instances: 2
+  type: rw
+  
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "500"
+      default_pool_size: "20"
+      reserve_pool_size: "5"
+      max_db_connections: "100"
+      server_reset_query: "DISCARD ALL"
+      server_check_delay: "30"
+      max_client_idle: "0"
+      server_idle_timeout: "600"
+  
+  template:
+    metadata:
+      labels:
+        app: shared-cnpg-pooler
+    spec:
+      containers:
+      - name: pgbouncer
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+  
+  monitoring:
+    enablePodMonitor: true

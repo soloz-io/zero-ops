@@ -75,33 +75,3 @@ spec:
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
-  
-  # PgBouncer pooler configuration
-  # CRITICAL: Must use transaction pooling mode (not session)
-  pooler:
-    enabled: true
-    type: rw
-    instances: 2
-    
-    poolMode: transaction
-    
-    parameters:
-      max_client_conn: "500"
-      default_pool_size: "20"
-      max_db_connections: "100"
-      pool_mode: "transaction"
-      server_reset_query: "DISCARD ALL"
-      server_check_delay: "30"
-      max_client_idle: "0"
-      server_idle_timeout: "600"
-    
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "100m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-    
-    monitoring:
-      enablePodMonitor: true
