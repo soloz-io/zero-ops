@@ -215,3 +215,25 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 - ADR: `docs/adr/namespace-alignment.md`
 - Design: `.kiro/specs/spoke-pool-provisioner/design.md`
 - Tasks: `.kiro/specs/spoke-pool-provisioner/tasks.md`
+
+
+### ✅ Issue #24: ArgoCD Agent Cluster Mapping Failure
+**Status**: RESOLVED (2026-04-13 06:15 UTC)  
+**Root Cause**: Cluster Secret missing required agent mapping label for Principal ClusterManager discovery  
+**Investigation**:
+- Principal ClusterManager filters Secrets requiring BOTH labels:
+  - `argocd.argoproj.io/secret-type: cluster` ✅
+  - `argocd-agent.argoproj-labs.io/agent-name: <agent-name>` ❌ (was missing)
+- Without this label, informer never called `onClusterAdded()`, cluster never registered
+- When agent sent events, `m.mapping(agentName)` returned `nil`, causing "agent is not mapped to any cluster" error
+**Solution**: 
+- Added `take-along-label.capi-to-argocd.argocd-agent.argoproj-labs.io/agent-name: ""` to CAPI Cluster in Composition
+- Added patch to set agent-name label value from cluster name
+- Manually labeled existing cluster Secret for immediate fix
+- Principal ClusterManager successfully mapped cluster to agent
+**Architectural Discovery**: Directory-based Application pattern (App-of-Apps) is NOT compatible with argocd-agent Managed Mode
+- Applications created by directory-based Application don't get `argocd-agent.argoproj-labs.io/source-uid` annotation
+- Agent requires this annotation to track managed resources
+- Agent logs: "Failed to send request update: source UID annotation not found"
+**Next Steps**: Refactor to use ApplicationSet with Git generator instead of directory-based Application
+**Commits**: 6b2d7a6
