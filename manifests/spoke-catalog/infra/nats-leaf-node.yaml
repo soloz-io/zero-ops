@@ -20,8 +20,7 @@ data:
     leafnodes {
       remotes = [
         {
-          url: "tls://nats.hub-platform-messaging.svc:7422"
-          credentials: "/etc/nats/creds/leaf.creds"
+          url: "tls://leafnode:$NATS_LEAF_PASSWORD@nats.hub-platform-messaging.svc:7422"
         }
       ]
     }
@@ -61,6 +60,12 @@ spec:
               name: monitor
             - containerPort: 7422
               name: leafnodes
+          env:
+            - name: NATS_LEAF_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-leaf-creds
+                  key: password
           command:
             - nats-server
             - --config
@@ -70,8 +75,6 @@ spec:
               mountPath: /etc/nats
             - name: data
               mountPath: /data
-            - name: creds
-              mountPath: /etc/nats/creds
           resources:
             requests:
               memory: "512Mi"
@@ -95,9 +98,6 @@ spec:
         - name: config
           configMap:
             name: nats-config
-        - name: creds
-          secret:
-            secretName: nats-leaf-creds
   volumeClaimTemplates:
     - metadata:
         name: data
