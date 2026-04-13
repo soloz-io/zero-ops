@@ -8,17 +8,41 @@
 
 ## Current Issues
 
-### ❌ Issue #31: Missing Hetzner CSI Driver - Not in ClusterResourceSet
+### ❌ Issue #32: Infrastructure Application Degraded - PostgREST/NATS/Alloy Missing
 
-**STATUS**: FIXED - Pending verification  
-**ROOT CAUSE**: Hub got CSI via bootstrap script, Spoke clusters don't have CSI in ClusterResourceSet  
-**FIX**: Created `csi-addon-template.yaml`, added to ClusterResourceSet after CCM  
-**VERIFICATION**: Deleted spoke cluster, waiting for recreation with CSI  
-**COMMIT**: f1fb809
+**STATUS**: ACTIVE  
+**ROOT CAUSE**: Infrastructure Application OutOfSync/Degraded  
+**EVIDENCE**:
+- PostgREST Deployment: Degraded (exceeded progress deadline)
+- NATS StatefulSet: Missing (OutOfSync)
+- Grafana Alloy DaemonSet: Missing (OutOfSync)
+- CNPG Cluster: ✅ Synced and Ready
+- Pooler: ✅ Synced
+**APPLICATION**: spoke-pool-eu-prod-01-infrastructure  
+**NAMESPACE**: spoke-pool-system  
+**SYNC WAVE**: Wave 3 (PostgREST), Wave 4 (NATS, Alloy)
 
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #31: Missing Hetzner CSI Driver - Secret Reference Mismatch
+
+**STATUS**: RESOLVED (2026-04-13 17:50 UTC)  
+**ROOT CAUSE**: CSI not in ClusterResourceSet + secret reference mismatch (hcloud/token vs hetzner/hcloud)  
+**SOLUTION**: 
+- Created `csi-addon-template.yaml` and added to ClusterResourceSet
+- Updated CSI manifests to use `hetzner/hcloud` secret reference (Hub + Spoke)
+- Fixed Composition patch indices after adding CSI (8→9, 10→11)
+- Updated `installer.go` to create correct secret during bootstrap
+- Added hcloud token upload to Infisical in `secrets.go`
+**VERIFIED**: 
+- StorageClass: hcloud-volumes (default) ✅
+- CSI Controller: 5/5 Running ✅
+- CSI Node: 3/3 Running ✅
+- CNPG Cluster: Ready ✅
+- PVCs: 3 Bound (100Gi each) ✅
+**COMMITS**: f1fb809, cef667c, 688412e, b5973e6
 
 ### ✅ Issue #30: CRD Version Mismatch - Operator 1.29 vs CRDs 1.24
 
@@ -339,9 +363,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #30 - Missing FailoverQuorum CRD)
-**Total Issues Resolved**: 29 (Issue #29 resolved - Pooler created)  
-**Current Blockers**: 1 (Issue #30 - CRD version mismatch)
+**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #32 - Infrastructure Application Degraded)  
+**Total Issues Resolved**: 31 (Issue #31 resolved - CSI driver working)  
+**Current Blockers**: 1 (Issue #32 - PostgREST/NATS/Alloy missing)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
