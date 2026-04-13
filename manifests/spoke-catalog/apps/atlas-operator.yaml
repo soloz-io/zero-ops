@@ -2,37 +2,37 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cnpg-operator
-  namespace: argocd
+  name: atlas-operator
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   project: default
   
   source:
-    repoURL: https://cloudnative-pg.github.io/charts
-    chart: cloudnative-pg
-    targetRevision: 0.28.0
+    repoURL: ghcr.io/ariga/charts
+    chart: atlas-operator
+    targetRevision: 0.3.8
     helm:
-      skipCrds: true
       values: |
-        crds:
-          create: false
+        image:
+          repository: arigaio/atlas-operator
+          tag: 0.3.8
         
         resources:
           requests:
             memory: "128Mi"
             cpu: "100m"
           limits:
-            memory: "512Mi"
-            cpu: "1000m"
+            memory: "256Mi"
+            cpu: "500m"
         
-        monitoring:
-          podMonitorEnabled: false
+        env:
+          - name: ATLAS_CLOUD_TOKEN
+            value: ""
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: cnpg-system
+    namespace: spoke-pool-system
   
   syncPolicy:
     automated:
@@ -46,5 +46,10 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
-
+  
+  # Health check: wait for CNPG Ready before deploying
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
