@@ -18,6 +18,9 @@ spec:
   - name: cluster
     port: 6222
     targetPort: 6222
+  - name: leafnodes
+    port: 7422
+    targetPort: 7422
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -44,6 +47,15 @@ data:
         "nats://nats-1.nats.hub-platform-messaging.svc.cluster.local:6222",
         "nats://nats-2.nats.hub-platform-messaging.svc.cluster.local:6222"
       ]
+    }
+    
+    leafnodes {
+      port: 7422
+      authorization {
+        users = [
+          { user: "leafnode", password: "$NATS_LEAF_PASSWORD" }
+        ]
+      }
     }
     
     jetstream {
@@ -78,6 +90,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: NATS_LEAF_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: nats-leaf-credentials
+              key: password
         ports:
         - containerPort: 4222
           name: client
@@ -85,6 +102,8 @@ spec:
           name: cluster
         - containerPort: 8222
           name: monitoring
+        - containerPort: 7422
+          name: leafnodes
         volumeMounts:
         - name: config
           mountPath: /etc/nats
