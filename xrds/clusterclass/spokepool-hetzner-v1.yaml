@@ -151,6 +151,7 @@ spec:
           controllerManager:
             extraArgs:
               cloud-provider: external
+              allocate-node-cidrs: "true"
         initConfiguration:
           nodeRegistration:
             kubeletExtraArgs:
