@@ -28,7 +28,7 @@ spec:
       source:
         repoURL: https://github.com/cloudnative-pg/cloudnative-pg
         path: config/crd/bases
-        targetRevision: release-1.24
+        targetRevision: release-1.29
       destination:
         name: '{{.name}}'
         namespace: cnpg-system
