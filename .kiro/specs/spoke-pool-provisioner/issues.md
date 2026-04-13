@@ -8,34 +8,32 @@
 
 ## Current Issues
 
-### ❌ Issue #25: CNPG Cluster CRD Schema Validation Error - pooler field not declared
+### ❌ Issue #26: Cilium CNI Not Deployed - Nodes NotReady
 
 **STATUS**: ACTIVE  
-**Root Cause**: CNPG uses separate `Pooler` CRD, not inline `pooler` field in Cluster spec  
+**Root Cause**: ClusterResourceSet not applying Cilium addon  
 **Evidence**:
-- Error: ".spec.pooler: field not declared in schema"
-- Cluster manifest has inline `pooler:` configuration
-- CNPG architecture uses separate `Pooler` CRD (postgresql.cnpg.io/v1, Kind=Pooler)
-- Verified in archived/cloud-native/cloudnative-pg/config/crd/bases/
+- Nodes: 3 NotReady (21+ min) ❌
+- Cilium/ArgoCD pods: None ❌
+- ClusterResourceSetBinding: Applied 4 resources, missing Cilium ConfigMap ❌
 
-**Root Cause Analysis**:
-- CNPG Cluster CRD does NOT have `.spec.pooler` field
-- PgBouncer pooling requires separate `Pooler` resource
-- Current manifest incorrectly embeds pooler config in Cluster spec
-- Need to extract pooler config into separate Pooler CR
+**Next Steps**:
+1. Check ClusterResourceSet spec - verify Cilium addon referenced
+2. Check if Cilium ConfigMap exists in hub-platform-ops
+3. Verify ClusterResourceSet labels match Cluster labels
 
-**Fix Required**:
-1. Remove `pooler:` section from cnpg-cluster.yaml Cluster spec
-2. Create separate Pooler CR in new file (e.g., cnpg-pooler.yaml)
-3. Pooler CR references the Cluster via `cluster.name` field
-4. Set appropriate sync-wave (after Cluster, e.g., wave 3)
+**Files**: `xrds/compositions/spokepool-hetzner.yaml`, `manifests/spoke-bootstrap/cilium-addon-template.yaml`
 
-**Files Affected**:
-- `manifests/spoke-catalog/infra/cnpg-cluster.yaml` (remove pooler section)
-- `manifests/spoke-catalog/infra/cnpg-pooler.yaml` (new file - separate Pooler CR)
+---
 
-**Reference**:
-- Pooler CRD: `archived/cloud-native/cloudnative-pg/config/crd/bases/postgresql.cnpg.io_poolers.yaml`
+## Current Issues
+
+### ❌ Issue #25: CNPG Pooler Field Not Declared in Schema
+
+**STATUS**: FIXED - Pending verification (blocked by Issue #26)  
+**Root Cause**: CNPG uses separate `Pooler` CRD, not inline field  
+**Solution**: Split into Cluster + Pooler CRDs (commit 546858c) ✅  
+**Files**: `manifests/spoke-catalog/infra/cnpg-cluster.yaml`, `cnpg-pooler.yaml`
 
 ---
 
@@ -279,9 +277,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #25 fixed, Issue #26 blocking)
-**Total Issues Resolved**: 25  
-**Current Blockers**: 1 (Issue #26 - Cilium CNI not deployed, nodes NotReady)
+**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #26 - Cilium CNI not deployed)
+**Total Issues Resolved**: 25 (Issue #25 fixed, pending verification)  
+**Current Blockers**: 1 (Issue #26 - Nodes NotReady, blocking all spoke workloads)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
