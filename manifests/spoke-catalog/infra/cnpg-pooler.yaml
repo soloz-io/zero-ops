@@ -19,11 +19,7 @@ spec:
       max_client_conn: "500"
       default_pool_size: "20"
       reserve_pool_size: "5"
-      max_db_connections: "100"
-      server_reset_query: "DISCARD ALL"
-      server_check_delay: "30"
-      max_client_idle: "0"
-      server_idle_timeout: "600"
+      reserve_pool_timeout: "5"
   
   template:
     metadata:
@@ -42,3 +38,4 @@ spec:
   
   monitoring:
     enablePodMonitor: true
+
