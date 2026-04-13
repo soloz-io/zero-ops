@@ -8,6 +8,42 @@
 
 ## Current Issues
 
+### ❌ Issue #25: Infrastructure Application OutOfSync/Missing After Spoke Cluster Recreate
+
+**STATUS**: ACTIVE  
+**Root Cause**: TBD - Infrastructure Application shows OutOfSync/Missing status after spoke cluster recreation  
+**Evidence**:
+- Spoke cluster provisioned successfully (Phase: Provisioned) ✅
+- Kubeconfig secret exists ✅
+- All 4 ApplicationSets generating Applications ✅
+- 3 Applications show Unknown/Healthy status ✅
+- Infrastructure Application shows OutOfSync/Missing ❌
+- Spire-agent was disabled (renamed to .disabled) but Application may still reference old revision
+
+**Observations**:
+- Cluster: spoke-pool-eu-prod-01 - Phase: Provisioned
+- Applications generated:
+  - spoke-pool-eu-prod-01-cnpg-crds: Unknown/Healthy
+  - spoke-pool-eu-prod-01-cnpg-operator: Unknown/Healthy
+  - spoke-pool-eu-prod-01-atlas-operator: Unknown/Healthy
+  - spoke-pool-eu-prod-01-infrastructure: OutOfSync/Missing
+- Kubeconfig secret exists but connection test failed (localhost:8080 error)
+
+**Next Steps**:
+1. Get fresh kubeconfig and verify spoke cluster connectivity
+2. Check if Applications are synced to spoke cluster
+3. Check infrastructure Application revision and source
+4. Verify spire-agent.yaml.disabled is not being deployed
+5. Check application-controller logs on spoke
+
+**Files Affected**:
+- `manifests/spoke-catalog/infra/spire-agent.yaml.disabled`
+- `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
+
+---
+
+## Current Issues
+
 ### ✅ Issue #24: Directory-Based Application Incompatible with argocd-agent Managed Mode
 
 **STATUS**: RESOLVED (2026-04-13 08:15 UTC)  
@@ -246,9 +282,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ✅ COMPLETE
+**Phase 2 Spoke Catalog**: ⚠️ PARTIAL (Issue #25)
 **Total Issues Resolved**: 24  
-**Current Blockers**: 0
+**Current Blockers**: 1 (Issue #25 - Infrastructure Application OutOfSync/Missing)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
