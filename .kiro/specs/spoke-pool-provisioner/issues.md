@@ -8,33 +8,44 @@
 
 ## Current Issues
 
-### ❌ Issue #24: Directory-Based Application Incompatible with argocd-agent Managed Mode
+### ✅ Issue #24: Directory-Based Application Incompatible with argocd-agent Managed Mode
 
-**STATUS**: BLOCKED - Architectural Limitation  
+**STATUS**: RESOLVED (2026-04-13 08:15 UTC)  
 **Root Cause**: Applications created by directory-based Application don't get `argocd-agent.argoproj-labs.io/source-uid` annotation  
-**Evidence**:
-- Applications exist on Hub in `spoke-pool-eu-prod-01` namespace ✅
-- Cluster mapping fixed (Principal ClusterManager successfully mapped cluster to agent) ✅
-- Agent logs: "Failed to send request update: source UID annotation not found" ❌
-- Applications have no sync status on Hub or Spoke ❌
-
-**Why This Happens**:
+**Investigation**:
 - In argocd-agent Managed Mode, Applications MUST be created by the Principal (via event stream)
 - Directory-based Applications are created by ArgoCD's Application controller, bypassing Principal
 - Principal only adds source-uid annotation when it creates Applications via event stream
 - Agent filters out Applications without source-uid annotation (they're considered "unmanaged")
 
-**Solution Required**: Refactor to use ApplicationSet with Git generator
-- ApplicationSet creates Applications via ArgoCD API
-- Principal watches Application creation events
-- Principal adds source-uid annotation
-- Agent processes Applications normally
+**Solution**: Switched to Hub-side ApplicationSets with destination-based mapping
+1. Enabled destination-based-mapping on Principal and Agent
+2. Deleted directory-based ApplicationSet and `manifests/spoke-catalog/apps/` directory
+3. Created 4 Hub-side ApplicationSets that generate individual Applications per spoke:
+   - `spoke-cnpg-crds` (sync-wave: -1)
+   - `spoke-cnpg-operator` (sync-wave: 0)
+   - `spoke-atlas-operator` (sync-wave: 2)
+   - `spoke-infrastructure` (sync-wave: 4)
+4. Each ApplicationSet uses `destination.name: '{{.name}}'` for proper argocd-agent routing
+5. Added `argocd-cmd-params-cm` to spoke bootstrap to watch `hub-platform-ops` namespace
+6. Manually applied ConfigMap to existing spoke cluster and restarted application-controller
 
-**Blocked Until**: ApplicationSet implementation completed
+**Verified**:
+- Hub ApplicationSets successfully generated individual Applications ✅
+- Applications have `source-uid` annotation on Spoke ✅
+- Spoke ArgoCD application-controller watching `hub-platform-ops` namespace ✅
+- CNPG operator deployed and running (2 pods) ✅
+- Atlas operator deployed and running (2 pods) ✅
+- Applications reconciling correctly ✅
 
-**Files Affected**:
-- `manifests/spoke-pools/spoke-pool-eu-prod-01/spoke-catalog-application.yaml` (needs to become ApplicationSet)
-- `manifests/spoke-catalog/apps/*.yaml` (Application CRs - will be discovered by ApplicationSet)
+**Files Modified**:
+- `manifests/argocd-principal/principal-params-cm.yaml` (destination-based-mapping: true)
+- `xrds/compositions/spokepool-hetzner.yaml` (Agent config with destination-based-mapping)
+- `manifests/spoke-bootstrap/argocd-core-template.yaml` (added argocd-cmd-params-cm)
+- `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml` (Hub-side ApplicationSets)
+- Deleted: `manifests/spoke-catalog/apps/` directory
+
+**Commits**: 761a0c4, 87108f2, 1938fc7
 
 ---
 
@@ -235,9 +246,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #24)
-**Total Issues Resolved**: 22  
-**Current Blockers**: 1 (Issue #24 - ApplicationSet refactor required)
+**Phase 2 Spoke Catalog**: ✅ COMPLETE
+**Total Issues Resolved**: 24  
+**Current Blockers**: 0
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
