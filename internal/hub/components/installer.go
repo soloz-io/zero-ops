@@ -231,6 +231,7 @@ func (i *Installer) InstallCilium(ctx context.Context) error {
 		"--kubeconfig", i.Kubeconfig,
 		"--set", "ipam.mode=kubernetes",
 		"--set", "kubeProxyReplacement=true",
+		"--set", "socketLB.enabled=false",
 		"--set", "operator.rollOutPods=true",
 		"--set", "rollOutCiliumPods=true",
 		"--set", "priorityClassName=system-node-critical",
