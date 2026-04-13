@@ -292,8 +292,8 @@ spec:
             - name: HCLOUD_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: hcloud
-                  key: token
+                  name: hetzner
+                  key: hcloud
           ports:
             - name: metrics
               containerPort: 9189
