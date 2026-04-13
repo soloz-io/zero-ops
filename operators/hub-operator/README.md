@@ -16,7 +16,7 @@ The hub-operator replaces imperative CLI-driven bootstrap logic with declarative
 ## Architecture
 
 The operator follows a 3-phase reconciliation model:
-
+ 
 1. **Phase 1: Secret Zero Generation** - Generates bootstrap secrets required before ArgoCD syncs dependent services
 2. **Phase 2: Database Setup** - Executes migrations and creates database roles when CNPG becomes ready
 3. **Phase 3: External Services Configuration** - Configures Infisical, Hydra, and NATS when they become ready
