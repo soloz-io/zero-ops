@@ -8,21 +8,14 @@
 
 ## Current Issues
 
-### ❌ Issue #30: Missing FailoverQuorum CRD - CNPG Operator Version Mismatch
+### ❌ Issue #30: CRD Version Mismatch - Operator 1.29 vs CRDs 1.24
 
-**STATUS**: ACTIVE  
-**Root Cause**: CNPG operator expects FailoverQuorum CRD that doesn't exist in deployed CRDs  
-**Evidence**:
-- Error: "no matches for kind FailoverQuorum in version postgresql.cnpg.io/v1"
-- CNPG Cluster created but can't reconcile
-- Operator version 0.28.0, CRDs from release-1.24
-
-**Next Steps**:
-1. Check if FailoverQuorum CRD exists in release-1.24
-2. Verify CRD/operator version compatibility
-3. Either update CRD source or downgrade operator
-
-**Files**: `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml` (CRD source)
+**STATUS**: RCA COMPLETE  
+**ROOT CAUSE**: Spoke CRDs from `release-1.24` missing FailoverQuorum/Databases/Publications/Subscriptions required by operator v0.28.0 (CNPG 1.29)  
+**HUB**: 10 CRDs (includes failoverquorums, databases, publications, subscriptions)  
+**SPOKE**: 6 CRDs (missing 4 CRDs)  
+**FIX**: Change `targetRevision: release-1.24` → `release-1.29` in spoke-cnpg-crds ApplicationSet  
+**FILE**: `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
 
 ---
 
