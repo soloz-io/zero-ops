@@ -5,11 +5,8 @@ archived
 bin
 docs
 memory
-operators
 k8-secrets
 test
 manifests/crds/
 scripts
 internal/assets/
-migrations
-internal
