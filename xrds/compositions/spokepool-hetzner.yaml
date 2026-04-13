@@ -187,9 +187,6 @@ spec:
                         # ArgoCD Core Components (Controller & Repo Server)
                         - name: argocd-core-components
                           kind: ConfigMap
-                        # CNPG CRDs (must be before spoke-catalog syncs)
-                        - name: cnpg-crds-template
-                          kind: Secret
                         # ArgoCD Agent
                         - name: argocd-agent-deployment
                           kind: ConfigMap

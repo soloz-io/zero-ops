@@ -1,7 +1,7 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-12 09:48 UTC  
+**Last Updated**: 2026-04-12 23:55 UTC  
 **Context**: Hub Infrastructure - ArgoCD Agent Successfully Connected via mTLS
 
 ---
@@ -13,6 +13,33 @@ No current blockers! Phase 2 validation can proceed.
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #22: CNPG CRDs Too Large for kubectl apply (256KB Annotation Limit)
+**Status**: RESOLVED (2026-04-13 00:15 UTC)  
+**Root Cause**: Kubernetes has 256KB limit on annotations. `kubectl apply` stores last-applied-configuration in annotations. CNPG Cluster CRD is 458KB, Pooler CRD is 700KB.  
+**Investigation**: 
+- Attempted Job-based installer (rejected - imperative, not idiomatic)
+- Attempted splitting CRDs into multiple Secrets (rejected - workaround, not best practice)
+- Researched idiomatic solutions: Server-Side Apply with upstream Git references
+**Solution**: Battle-tested GitOps approach with sync-wave isolation
+- Created separate `cnpg-crds` Application (wave -1) pointing to upstream GitHub
+- Updated `cnpg-operator` Application (wave 0) with `skipCrds: true`
+- Updated `cnpg-cluster` Application (wave 2) with `SkipDryRunOnMissingResource=true`
+- All Applications use `ServerSideApply=true` to avoid annotation limits
+**Architecture**:
+```
+Wave -1: CRDs (upstream GitHub, ServerSideApply)
+Wave  0: Operator (Helm chart, skipCrds)
+Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
+```
+**Benefits**:
+- Fully declarative GitOps
+- No ConfigMap/Secret size hacks
+- Authoritative upstream source
+- Continuous reconciliation
+- Clean separation of concerns
+**Trade-off**: Slightly less deterministic than ClusterResourceSet bootstrap, but more maintainable
+**Commits**: [pending]
 
 ### ✅ Issue #21: Missing ArgoCD Application Controller on Spoke
 **Status**: RESOLVED (2026-04-12 23:42 UTC)  
