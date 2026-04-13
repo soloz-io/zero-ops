@@ -8,51 +8,65 @@
 
 ## Current Issues
 
-### ❌ Issue #27: ClusterResourceSet Array Index Bug - Resources Not Applied
+### ❌ Issue #29: Pooler Validation Error - max_client_idle Invalid Parameter
 
 **STATUS**: ACTIVE  
-**Root Cause**: Crossplane Composition patches wrong array indices, leaving empty ConfigMap name  
+**Root Cause**: CNPG Pooler webhook rejects `max_client_idle` parameter  
 **Evidence**:
-- Patch targets `resources[9]` instead of `resources[8]` (argocd-agent-params)
-- Patch targets `resources[11]` instead of `resources[10]` (argocd-agent-client-cert)
-- Index `[8]` left with `name: ""` causes CRS validation error
-- CRS controller halts, remaining resources never applied
+- Error: "Invalid or reserved parameter: max_client_idle"
+- Pooler admission webhook validation failing
+- CNPG Cluster created but not Ready
 
 **Fix Required**:
-1. Change `resources[9]` to `resources[8]` in argocd-agent-params patch
-2. Change `resources[11]` to `resources[10]` in argocd-agent-client-cert patch
+Remove `max_client_idle: "0"` from Pooler parameters
 
-**Files**: `xrds/compositions/spokepool-hetzner.yaml`
+**Files**: `manifests/spoke-catalog/infra/cnpg-pooler.yaml`
 
 ---
 
-## Current Issues
+## Resolved Issues
 
-### ❌ Issue #28: Nodes NotReady - Missing allocate-node-cidrs Configuration
+### ✅ Issue #27: ClusterResourceSet Array Index Bug
 
-**STATUS**: ACTIVE  
-**Root Cause**: External cloud provider mode disables node CIDR allocation, Cilium can't start  
-**Evidence**:
-- `cloud-provider: external` set in Kubeadm config
-- kube-controller-manager stops allocating Pod CIDRs by default
-- Cilium uses `ipam: kubernetes`, waits for node PodCIDR assignment
-- Nodes stuck NotReady even if Cilium deployed
-
-**Fix Required**:
-Add `allocate-node-cidrs: "true"` to controllerManager extraArgs in KubeadmControlPlaneTemplate
-
-**Files**: `xrds/clusterclass/spokepool-hetzner-v1.yaml`
+**STATUS**: RESOLVED (2026-04-13 10:15 UTC)  
+**Root Cause**: Composition patches wrong array indices  
+**Solution**: Changed resources[9]→[8], resources[11]→[10]  
+**Verified**: CRS now lists all 12 resources correctly ✅  
+**Commits**: 28aa60e
 
 ---
 
-## Current Issues
+## Resolved Issues
 
-### ❌ Issue #26: Cilium CNI Not Deployed - Nodes NotReady
+### ✅ Issue #28: Missing allocate-node-cidrs Configuration
 
-**STATUS**: ROOT CAUSE IDENTIFIED (Issue #27 + #28)  
-**Root Cause**: Combination of two bugs blocking CNI deployment and node readiness
-- Issue #27: CRS array index bug prevents Cilium from being applied
-- Issue #28: Missing allocate-node-cidrs prevents Cilium from starting even if applied
+**STATUS**: RESOLVED (2026-04-13 10:15 UTC)  
+**Root Cause**: External cloud provider disables node CIDR allocation  
+**Solution**: Added `allocate-node-cidrs: "true"` to controllerManager  
+**Verified**: Nodes Ready, Cilium running ✅  
+**Commits**: 28aa60e
+
+---
+
+## Resolved Issues
+
+### ✅ Issue #26: Cilium CNI Not Deployed
+
+**STATUS**: RESOLVED (2026-04-13 10:18 UTC)  
+**Root Cause**: Combination of Issue #27 + #28  
+**Verified**: Cilium deployed, nodes Ready ✅
+
+---
+
+## Resolved Issues
+
+### ✅ Issue #25: CNPG Pooler Field Not Declared
+
+**STATUS**: RESOLVED (2026-04-13 10:20 UTC)  
+**Root Cause**: CNPG uses separate Pooler CRD  
+**Solution**: Split into Cluster + Pooler CRDs ✅  
+**Verified**: CNPG Cluster created (pending Pooler fix - Issue #29)  
+**Commits**: 546858c
 
 ---
 
@@ -307,9 +321,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #26 - Cilium CNI not deployed)
-**Total Issues Resolved**: 25 (Issue #25 fixed, pending verification)  
-**Current Blockers**: 1 (Issue #26 - Nodes NotReady, blocking all spoke workloads)
+**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #29 - Pooler parameter validation)
+**Total Issues Resolved**: 27 (Issue #25, #26, #27, #28 resolved)  
+**Current Blockers**: 1 (Issue #29 - Invalid Pooler parameter)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
