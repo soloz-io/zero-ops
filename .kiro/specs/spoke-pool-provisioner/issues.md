@@ -8,21 +8,51 @@
 
 ## Current Issues
 
-### ❌ Issue #26: Cilium CNI Not Deployed - Nodes NotReady
+### ❌ Issue #27: ClusterResourceSet Array Index Bug - Resources Not Applied
 
 **STATUS**: ACTIVE  
-**Root Cause**: ClusterResourceSet not applying Cilium addon  
+**Root Cause**: Crossplane Composition patches wrong array indices, leaving empty ConfigMap name  
 **Evidence**:
-- Nodes: 3 NotReady (21+ min) ❌
-- Cilium/ArgoCD pods: None ❌
-- ClusterResourceSetBinding: Applied 4 resources, missing Cilium ConfigMap ❌
+- Patch targets `resources[9]` instead of `resources[8]` (argocd-agent-params)
+- Patch targets `resources[11]` instead of `resources[10]` (argocd-agent-client-cert)
+- Index `[8]` left with `name: ""` causes CRS validation error
+- CRS controller halts, remaining resources never applied
 
-**Next Steps**:
-1. Check ClusterResourceSet spec - verify Cilium addon referenced
-2. Check if Cilium ConfigMap exists in hub-platform-ops
-3. Verify ClusterResourceSet labels match Cluster labels
+**Fix Required**:
+1. Change `resources[9]` to `resources[8]` in argocd-agent-params patch
+2. Change `resources[11]` to `resources[10]` in argocd-agent-client-cert patch
 
-**Files**: `xrds/compositions/spokepool-hetzner.yaml`, `manifests/spoke-bootstrap/cilium-addon-template.yaml`
+**Files**: `xrds/compositions/spokepool-hetzner.yaml`
+
+---
+
+## Current Issues
+
+### ❌ Issue #28: Nodes NotReady - Missing allocate-node-cidrs Configuration
+
+**STATUS**: ACTIVE  
+**Root Cause**: External cloud provider mode disables node CIDR allocation, Cilium can't start  
+**Evidence**:
+- `cloud-provider: external` set in Kubeadm config
+- kube-controller-manager stops allocating Pod CIDRs by default
+- Cilium uses `ipam: kubernetes`, waits for node PodCIDR assignment
+- Nodes stuck NotReady even if Cilium deployed
+
+**Fix Required**:
+Add `allocate-node-cidrs: "true"` to controllerManager extraArgs in KubeadmControlPlaneTemplate
+
+**Files**: `xrds/clusterclass/spokepool-hetzner-v1.yaml`
+
+---
+
+## Current Issues
+
+### ❌ Issue #26: Cilium CNI Not Deployed - Nodes NotReady
+
+**STATUS**: ROOT CAUSE IDENTIFIED (Issue #27 + #28)  
+**Root Cause**: Combination of two bugs blocking CNI deployment and node readiness
+- Issue #27: CRS array index bug prevents Cilium from being applied
+- Issue #28: Missing allocate-node-cidrs prevents Cilium from starting even if applied
 
 ---
 
