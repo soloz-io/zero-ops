@@ -191,6 +191,8 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 		"--namespace", constants.NamespaceOps,
 		"--create-namespace",
 		"--kubeconfig", i.Kubeconfig,
+		"--set", "networkPolicy.enabled=true",
+		"--set", "networkPolicy.defaultDeny=false",
 		"--wait",
 		"--timeout", "10m",
 	)
