@@ -62,8 +62,13 @@ spec:
             - containerPort: 3000
               name: http
           env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-cnpg-app
+                  key: password
             - name: PGRST_DB_URI
-              value: "postgres://app@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
+              value: "postgres://app:$(DB_PASSWORD)@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
             # Dynamic schema list - updated by schema-discovery CronJob
             - name: PGRST_DB_SCHEMAS
               value: "public"
@@ -170,8 +175,13 @@ spec:
                   
                   echo "PostgREST configuration updated successfully"
               env:
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: shared-cnpg-app
+                      key: password
                 - name: DB_URI
-                  value: "postgres://app@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
+                  value: "postgres://app:$(DB_PASSWORD)@shared-cnpg-pooler.spoke-pool-system.svc:5432/app"
           serviceAccountName: postgrest-schema-discovery
 ---
 apiVersion: v1
