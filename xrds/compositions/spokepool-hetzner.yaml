@@ -315,7 +315,7 @@ spec:
                           agent.resource-proxy.enable: "true"
                           agent.destination-based-mapping: "true"
                           agent.create-namespace: "true"
-                          agent.allowed-namespaces: ""
+                          agent.allowed-namespaces: "*"
           
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
