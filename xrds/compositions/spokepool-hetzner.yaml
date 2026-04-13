@@ -174,10 +174,12 @@ spec:
                         # Hetzner credentials (must be first)
                         - name: ""
                           kind: Secret
-                        # CNI and CCM
+                        # CNI, CCM, and CSI
                         - name: cilium-addon-template
                           kind: Secret
                         - name: ccm-addon-template
+                          kind: Secret
+                        - name: csi-addon-template
                           kind: Secret
                         # ArgoCD namespace
                         - name: argocd-namespace
