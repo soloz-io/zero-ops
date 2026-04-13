@@ -8,19 +8,33 @@
 
 ## Current Issues
 
-### ❌ Issue #29: Pooler Validation Error - max_client_idle Invalid Parameter
+### ❌ Issue #30: Missing FailoverQuorum CRD - CNPG Operator Version Mismatch
 
 **STATUS**: ACTIVE  
-**Root Cause**: CNPG Pooler webhook rejects `max_client_idle` parameter  
+**Root Cause**: CNPG operator expects FailoverQuorum CRD that doesn't exist in deployed CRDs  
 **Evidence**:
-- Error: "Invalid or reserved parameter: max_client_idle"
-- Pooler admission webhook validation failing
-- CNPG Cluster created but not Ready
+- Error: "no matches for kind FailoverQuorum in version postgresql.cnpg.io/v1"
+- CNPG Cluster created but can't reconcile
+- Operator version 0.28.0, CRDs from release-1.24
 
-**Fix Required**:
-Remove `max_client_idle: "0"` from Pooler parameters
+**Next Steps**:
+1. Check if FailoverQuorum CRD exists in release-1.24
+2. Verify CRD/operator version compatibility
+3. Either update CRD source or downgrade operator
 
-**Files**: `manifests/spoke-catalog/infra/cnpg-pooler.yaml`
+**Files**: `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml` (CRD source)
+
+---
+
+## Resolved Issues
+
+### ✅ Issue #29: Pooler Invalid Parameter
+
+**STATUS**: RESOLVED (2026-04-13 10:35 UTC)  
+**Root Cause**: Invalid pgbouncer parameters  
+**Solution**: Used Hub Pooler parameter pattern ✅  
+**Verified**: Pooler created successfully ✅  
+**Commits**: fd534e1
 
 ---
 
@@ -321,9 +335,9 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Bootstrap Phase**: ✅ COMPLETE  
 **Phase 1 Validation**: ✅ COMPLETE  
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
-**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #29 - Pooler parameter validation)
-**Total Issues Resolved**: 27 (Issue #25, #26, #27, #28 resolved)  
-**Current Blockers**: 1 (Issue #29 - Invalid Pooler parameter)
+**Phase 2 Spoke Catalog**: ❌ BLOCKED (Issue #30 - Missing FailoverQuorum CRD)
+**Total Issues Resolved**: 29 (Issue #29 resolved - Pooler created)  
+**Current Blockers**: 1 (Issue #30 - CRD version mismatch)
 
 **Key Achievements**:
 - Spoke cluster provisioning end-to-end (23m 18s first cluster)
