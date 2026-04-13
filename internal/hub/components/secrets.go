@@ -590,6 +590,36 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	}
 	fmt.Println("[bootstrap-secrets] ✓ hcloud token uploaded to Infisical")
 
+	// Generate and upload NATS leaf node credentials
+	fmt.Println("[bootstrap-secrets] Generating NATS leaf node credentials...")
+	natsLeafPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate NATS leaf password: %w", err)
+	}
+	
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "nats-leaf-username", "leafnode"); err != nil {
+		return false, fmt.Errorf("failed to upload nats-leaf-username: %w", err)
+	}
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "nats-leaf-password", natsLeafPassword); err != nil {
+		return false, fmt.Errorf("failed to upload nats-leaf-password: %w", err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ NATS leaf credentials uploaded to Infisical")
+
+	// Generate and upload VictoriaMetrics credentials
+	fmt.Println("[bootstrap-secrets] Generating VictoriaMetrics credentials...")
+	victoriaPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate VictoriaMetrics password: %w", err)
+	}
+	
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "victoria-username", "metrics"); err != nil {
+		return false, fmt.Errorf("failed to upload victoria-username: %w", err)
+	}
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "victoria-password", victoriaPassword); err != nil {
+		return false, fmt.Errorf("failed to upload victoria-password: %w", err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ VictoriaMetrics credentials uploaded to Infisical")
+
 	// Step 2: Generate and store Layer 2 Application Credentials in Infisical
 	fmt.Println("[bootstrap-secrets] Generating Layer 2 (Application) credentials and storing in Infisical...")
 

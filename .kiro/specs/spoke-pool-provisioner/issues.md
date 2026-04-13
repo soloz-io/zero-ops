@@ -8,19 +8,29 @@
 
 ## Current Issues
 
-### ❌ Issue #32: Infrastructure Application Degraded - PostgREST/NATS/Alloy Missing
+### ❌ Issue #32: Infrastructure Application Degraded - NATS/Alloy Blocked
 
-**STATUS**: ACTIVE  
-**ROOT CAUSE**: Infrastructure Application OutOfSync/Degraded  
+**STATUS**: PARTIALLY RESOLVED (2026-04-13 13:40 UTC)  
+**FIXED**:
+- ✅ PostgREST DNS: Changed `shared-cnpg-pooler-rw` → `shared-cnpg-pooler` (Pooler CRD doesn't use -rw suffix)
+- ✅ PostgREST Auth: Added password from `shared-cnpg-app` secret
+- ✅ Pooler poolMode: Changed `transaction` → `session` (PostgREST requires session mode for prepared statements)
+- ✅ PostgREST: Connected successfully, listening on port 3000
+
+**REMAINING BLOCKERS**:
+- ❌ NATS: Missing `nats-leaf-creds` secret (leaf node credentials to connect to Hub)
+- ❌ Alloy: CreateContainerConfigError (ConfigMap mount timeout)
+
 **EVIDENCE**:
-- PostgREST Deployment: Degraded (exceeded progress deadline)
-- NATS StatefulSet: Missing (OutOfSync)
-- Grafana Alloy DaemonSet: Missing (OutOfSync)
-- CNPG Cluster: ✅ Synced and Ready
-- Pooler: ✅ Synced
+- CNPG Cluster: ✅ Ready (3/3 pods)
+- Pooler: ✅ Running (2/2 pods, session mode)
+- PostgREST: ✅ Running (2/2 pods, connected to DB)
+- NATS: ❌ ContainerCreating (waiting for nats-leaf-creds secret)
+- Alloy: ❌ CreateContainerConfigError (ConfigMap mount issue)
+
+**COMMITS**: 0f198a4, 6a74981, c62bcec  
 **APPLICATION**: spoke-pool-eu-prod-01-infrastructure  
-**NAMESPACE**: spoke-pool-system  
-**SYNC WAVE**: Wave 3 (PostgREST), Wave 4 (NATS, Alloy)
+**NAMESPACE**: spoke-pool-system
 
 ---
 
