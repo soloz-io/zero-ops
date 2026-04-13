@@ -19,19 +19,21 @@ type Installer struct {
 
 // InstallAll installs all required components sequentially (CNI/CCM handled by CRS)
 func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
-	// Create hcloud secret for CSI driver
-	// NOTE: CSI manifest expects secret in kube-system (upstream default), not hub-cloud-system
-	fmt.Println("[postboot] Creating hcloud secret for CSI...")
+	// Create hetzner secret for CSI driver
+	// NOTE: CSI manifest expects secret in hub-cloud-system namespace
+	fmt.Println("[postboot] Creating hetzner secret for CSI...")
 	secretCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,
-		"create", "secret", "generic", "hcloud",
-		"-n", constants.NamespaceKubeSystem,
-		"--from-literal=token="+hcloudToken,
+		"create", "secret", "generic", "hetzner",
+		"-n", constants.NamespaceCloud,
+		"--from-literal=hcloud="+hcloudToken,
+		"--from-literal=robot-user=",
+		"--from-literal=robot-password=",
 		"--dry-run=client", "-o", "yaml",
 	)
 	secretYAML, err := secretCmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to generate hcloud secret: %w", err)
+		return fmt.Errorf("failed to generate hetzner secret: %w", err)
 	}
 	
 	applyCmd := exec.CommandContext(ctx, "kubectl",
@@ -40,7 +42,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	)
 	applyCmd.Stdin = bytes.NewReader(secretYAML)
 	if output, err := applyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create hcloud secret: %w\n%s", err, output)
+		return fmt.Errorf("failed to create hetzner secret: %w\n%s", err, output)
 	}
 	
 	// Install CSI via manifest
@@ -56,7 +58,7 @@ func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 		return fmt.Errorf("failed to install CSI: %w\n%s", err, output)
 	}
 	
-	if err := i.verify(ctx, constants.NamespaceKubeSystem, "hcloud-csi-controller"); err != nil {
+	if err := i.verify(ctx, constants.NamespaceCloud, "hcloud-csi-controller"); err != nil {
 		return fmt.Errorf("failed to verify CSI: %w", err)
 	}
 	fmt.Println("[postboot] ✓ hetzner-csi ready")
