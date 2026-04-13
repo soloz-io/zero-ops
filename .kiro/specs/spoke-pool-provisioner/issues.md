@@ -8,37 +8,34 @@
 
 ## Current Issues
 
-### ❌ Issue #25: Infrastructure Application Sync Failing - CNPG Schema Validation Error
+### ❌ Issue #25: CNPG Cluster CRD Schema Validation Error - pooler field not declared
 
 **STATUS**: ACTIVE  
-**Root Cause**: CNPG Cluster CR has `.spec.pooler` field that's not declared in the CRD schema  
+**Root Cause**: CNPG uses separate `Pooler` CRD, not inline `pooler` field in Cluster spec  
 **Evidence**:
-- Application using correct Git revision (1936eda - spire-agent disabled) ✅
-- Sync operation status: Running ❌
-- Error: "failed to create typed patch object (spoke-pool-system/shared-cnpg; postgresql.cnpg.io/v1, Kind=Cluster): .spec.pooler: field not declared in schema"
-- Retrying attempt #5
+- Error: ".spec.pooler: field not declared in schema"
+- Cluster manifest has inline `pooler:` configuration
+- CNPG architecture uses separate `Pooler` CRD (postgresql.cnpg.io/v1, Kind=Pooler)
+- Verified in archived/cloud-native/cloudnative-pg/config/crd/bases/
 
 **Root Cause Analysis**:
-- CNPG CRDs deployed from upstream GitHub (release-1.24)
-- CNPG Cluster manifest uses `.spec.pooler` field
-- Field doesn't exist in the CRD schema version being used
-- Possible version mismatch between CRD and CR
+- CNPG Cluster CRD does NOT have `.spec.pooler` field
+- PgBouncer pooling requires separate `Pooler` resource
+- Current manifest incorrectly embeds pooler config in Cluster spec
+- Need to extract pooler config into separate Pooler CR
 
-**Observations**:
-- Spoke cluster: Provisioned ✅
-- CNPG CRDs Application: Unknown/Healthy
-- CNPG Operator Application: Unknown/Healthy
-- Infrastructure Application: OutOfSync/Missing (sync failing)
-
-**Next Steps**:
-1. Check CNPG CRD version (release-1.24) schema for pooler field
-2. Check CNPG Cluster manifest pooler configuration
-3. Verify if pooler field was added in a later CNPG version
-4. Either update CRD version or remove pooler field from Cluster CR
+**Fix Required**:
+1. Remove `pooler:` section from cnpg-cluster.yaml Cluster spec
+2. Create separate Pooler CR in new file (e.g., cnpg-pooler.yaml)
+3. Pooler CR references the Cluster via `cluster.name` field
+4. Set appropriate sync-wave (after Cluster, e.g., wave 3)
 
 **Files Affected**:
-- `manifests/spoke-catalog/infra/cnpg-cluster.yaml` (Cluster CR with pooler field)
-- `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml` (CRD source: release-1.24)
+- `manifests/spoke-catalog/infra/cnpg-cluster.yaml` (remove pooler section)
+- `manifests/spoke-catalog/infra/cnpg-pooler.yaml` (new file - separate Pooler CR)
+
+**Reference**:
+- Pooler CRD: `archived/cloud-native/cloudnative-pg/config/crd/bases/postgresql.cnpg.io_poolers.yaml`
 
 ---
 
