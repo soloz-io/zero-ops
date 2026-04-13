@@ -8,14 +8,28 @@
 
 ## Current Issues
 
-### ❌ Issue #30: CRD Version Mismatch - Operator 1.29 vs CRDs 1.24
+### ❌ Issue #31: Missing Hetzner CSI Driver - Not in ClusterResourceSet
 
 **STATUS**: RCA COMPLETE  
-**ROOT CAUSE**: Spoke CRDs from `release-1.24` missing FailoverQuorum/Databases/Publications/Subscriptions required by operator v0.28.0 (CNPG 1.29)  
-**HUB**: 10 CRDs (includes failoverquorums, databases, publications, subscriptions)  
-**SPOKE**: 6 CRDs (missing 4 CRDs)  
-**FIX**: Change `targetRevision: release-1.24` → `release-1.29` in spoke-cnpg-crds ApplicationSet  
-**FILE**: `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
+**ROOT CAUSE**: Hub got CSI via bootstrap script (`kubectl apply`), Spoke clusters don't have CSI in ClusterResourceSet  
+**EVIDENCE**:  
+- Hub: CSI installed by `internal/hub/components/installer.go` during bootstrap  
+- Spoke: ClusterResourceSet has 12 resources (CNI, CCM, ArgoCD) but NO CSI  
+- PVC `shared-cnpg-1` Pending, no StorageClass exists  
+**FIX**: Add CSI to ClusterResourceSet resources (after CCM, before ArgoCD namespace)  
+**FILES**: `xrds/compositions/spokepool-hetzner.yaml`, `internal/assets/catalog/cloud-providers/hetzner/csi/install.yaml`
+
+---
+
+## Resolved Issues
+
+### ✅ Issue #30: CRD Version Mismatch - Operator 1.29 vs CRDs 1.24
+
+**STATUS**: RESOLVED  
+**ROOT CAUSE**: Spoke CRDs from `release-1.24` missing FailoverQuorum/Databases/Publications/Subscriptions  
+**FIX**: Updated `targetRevision: release-1.29` in spoke-cnpg-crds ApplicationSet  
+**VERIFIED**: All 10 CRDs deployed, CNPG Cluster reconciling  
+**COMMIT**: dc2bc02
 
 ---
 
