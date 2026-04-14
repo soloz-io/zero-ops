@@ -56,9 +56,10 @@ data:
         url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
         
         tls_config {
-          ca_file   = "/etc/alloy/certs/ca.crt"
           cert_file = "/etc/alloy/certs/tls.crt"
           key_file  = "/etc/alloy/certs/tls.key"
+          // Server uses Let's Encrypt, client auth uses observability CA
+          // System CA bundle validates server cert, observability CA is for client cert only
         }
       }
     }
