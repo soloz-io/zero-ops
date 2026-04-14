@@ -32,6 +32,28 @@ spec:
   ca:
     secretName: nats-leafnode-ca-secret-source
 ---
+# Hub NATS Server Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-leafnode-server
+  namespace: hub-platform-messaging
+spec:
+  secretName: nats-leafnode-server-cert
+  duration: 2160h  # 90 days
+  renewBefore: 168h  # 7 days
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - nats.hub-platform-messaging.svc
+    - nats.hub-platform-messaging.svc.cluster.local
+    - argocd-principal.nutgraf.in
+  issuerRef:
+    name: nats-leafnode-issuer
+    kind: Issuer
+---
 # Kyverno Policy: Transform CA Secret for CRS
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy

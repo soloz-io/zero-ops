@@ -127,7 +127,7 @@ spec:
           name: nats-config
       - name: nats-certs
         secret:
-          secretName: nats-leafnode-ca-secret-source
+          secretName: nats-leafnode-server-cert
   volumeClaimTemplates:
   - metadata:
       name: data
