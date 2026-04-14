@@ -53,7 +53,7 @@ data:
     // Remote write to Hub VictoriaMetrics using mTLS
     prometheus.remote_write "hub" {
       endpoint {
-        url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
+        url = "https://victoriametrics.hub.nutgraf.in/insert/0/prometheus/api/v1/write"
         
         tls_config {
           cert_file = "/etc/alloy/certs/tls.crt"
