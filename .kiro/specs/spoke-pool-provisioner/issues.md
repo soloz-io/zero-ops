@@ -6,36 +6,22 @@
 
 ---
 
-## Current Issues
+## Resolved Issues
 
-### ❌ Issue #38: NGINX Cannot Connect to Hub NATS Leafnode Port
+### ✅ Issue #38: NATS Leafnode mTLS Connection
 
-**STATUS**: FIX APPLIED - Awaiting Verification  
+**STATUS**: RESOLVED (2026-04-14 13:44 UTC)  
 **ROOT CAUSE**: NetworkPolicy blocking NGINX → NATS traffic on port 7422  
-**ERROR**: `upstream timed out (110: Operation timed out) while connecting to upstream`  
-**INVESTIGATION**:
-- NGINX TCP config correct: `7422: hub-platform-messaging/nats:7422` ✅
-- NATS Service has port 7422 exposed ✅
-- NATS pods have port 7422 defined ✅
-- NATS config shows "Listening for leafnode connections on 0.0.0.0:7422" ✅
-- NetworkPolicy only allowed ingress on ports 4222, 6222, 8222 ❌
-**FIX APPLIED**: 
-- Added ingress rule to `manifests/platform-core-services/nats/network-policy.yaml`:
-  ```yaml
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: hub-platform-edge
-    ports:
-    - protocol: TCP
-      port: 7422
-  ```
-**NEXT STEPS**:
-1. Commit NetworkPolicy fix to Git
-2. Verify spoke NATS connects successfully
-3. Check spoke NATS logs for successful leafnode connection
-4. Test NATS message flow from spoke to Hub
-**IMPACT**: Spoke NATS cannot connect to Hub, no billing events, no state sync
+**SOLUTION**: 
+- Added NetworkPolicy ingress rule for port 7422 from hub-platform-edge namespace
+- NGINX TCP proxy successfully passes TLS traffic to Hub NATS
+- Spoke NATS establishes leafnode connection via mTLS
+**VERIFIED**: 
+- Spoke NATS `/leafz` shows 1 connected leafnode (167.235.216.57:7422) ✅
+- RTT: 1.669ms, subscriptions: 6, compression: s2_uncompressed ✅
+- Test message published successfully ✅
+**NOTE**: TLS handshake errors in logs are from NATS internal retry attempts to individual Hub pod IPs (blocked by NetworkPolicy) - these are expected and non-blocking
+**COMMITS**: 80ee2a2 (NetworkPolicy fix), f8ee8fc (debug logging)
 
 ---
 
