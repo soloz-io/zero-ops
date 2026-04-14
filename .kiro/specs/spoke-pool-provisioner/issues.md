@@ -1,14 +1,36 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-14 08:50 UTC  
-**Context**: mTLS Observability Pipeline Operational
+**Last Updated**: 2026-04-14 10:15 UTC  
+**Context**: Phase 2 Validation Blocked - 3 Critical Issues
 
 ---
 
 ## Current Issues
 
-No active blockers. Spoke infrastructure operational.
+### ❌ Issue #35: NATS Leaf Node Cannot Connect to Hub
+
+**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.6)  
+**ROOT CAUSE**: Spoke trying to resolve Hub internal service `nats.hub-platform-messaging.svc:7422` (DNS fails across clusters)  
+**ERROR**: `lookup nats.hub-platform-messaging.svc on 10.96.0.10:53: no such host`  
+**REQUIRED**: External endpoint (LoadBalancer/Ingress) for Hub NATS leafnode port 7422  
+**IMPACT**: No billing events, no state sync from Spoke to Hub
+
+### ❌ Issue #36: CNPG Cluster Degraded - Replica Failure
+
+**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.2)  
+**ROOT CAUSE**: Pod `shared-cnpg-1` in Error state (0/1, 4 restarts)  
+**CURRENT**: Only 2/3 replicas healthy  
+**REQUIRED**: Investigate pod logs, fix replica failure  
+**IMPACT**: Reduced HA, potential data loss risk
+
+### ❌ Issue #37: Metrics Flow Unverified
+
+**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.7)  
+**ROOT CAUSE**: Cannot verify VictoriaMetrics receiving metrics with `cell_id` label  
+**CURRENT**: Alloy pods running (2/2) but metrics query failed  
+**REQUIRED**: Verify metrics flowing to Hub VictoriaMetrics with correct labels  
+**IMPACT**: No observability for spoke cluster
 
 ---
 
