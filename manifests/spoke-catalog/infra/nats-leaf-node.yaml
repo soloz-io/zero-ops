@@ -31,9 +31,8 @@ data:
     }
     
     # Logging configuration
-    debug: false
-    trace: false
-    logtime: true
+    debug: true
+    trace: true
     logtime: true
 ---
 apiVersion: apps/v1
