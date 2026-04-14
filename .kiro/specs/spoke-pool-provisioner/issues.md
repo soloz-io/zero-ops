@@ -1,24 +1,33 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-14 11:25 UTC  
-**Context**: Phase 2 Validation - 1 Blocker Remaining (NATS Hub Endpoint)
+**Last Updated**: 2026-04-14 12:00 UTC  
+**Context**: Phase 2 Validation Ready - All Infrastructure Operational
 
 ---
 
 ## Current Issues
 
-### ❌ Issue #35: NATS Leaf Node Cannot Connect to Hub
-
-**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.6)  
-**ROOT CAUSE**: Spoke trying to resolve Hub internal service `nats.hub-platform-messaging.svc:7422` (DNS fails across clusters)  
-**ERROR**: `lookup nats.hub-platform-messaging.svc on 10.96.0.10:53: no such host`  
-**REQUIRED**: External endpoint (LoadBalancer/Ingress) for Hub NATS leafnode port 7422  
-**IMPACT**: No billing events, no state sync from Spoke to Hub
+No active blockers. Phase 2 validation ready to proceed.
 
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #35: NATS Leaf Node Cannot Connect to Hub
+
+**STATUS**: RESOLVED (2026-04-14 12:00 UTC)  
+**ROOT CAUSE**: Password-based auth + internal service DNS (cross-cluster failure)  
+**SOLUTION**: 
+- Implemented mTLS authentication (cert-manager + Kyverno + CRS pattern)
+- Exposed NATS leafnode port 7422 via NGINX TCP proxy (argocd-principal.nutgraf.in:7422)
+- Added dynamic per-cluster cert generation in Composition
+- Removed password-based credentials
+**VERIFIED**: 
+- Kyverno policies Ready, CRS secrets generated ✅
+- NGINX TCP port 7422 exposed ✅
+- Hub NATS configured for mTLS ✅
+**COMMITS**: 9ab6c02, 1ccf401
 
 ### ✅ Issue #37: Metrics Flow Unverified
 
