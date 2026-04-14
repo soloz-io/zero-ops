@@ -37,6 +37,14 @@ spec:
     ports:
     - protocol: TCP
       port: 8222
+  # Allow leafnode connections from NGINX ingress
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hub-platform-edge
+    ports:
+    - protocol: TCP
+      port: 7422
   egress:
   # Allow NATS cluster communication
   - to:

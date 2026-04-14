@@ -10,16 +10,31 @@
 
 ### ❌ Issue #38: NGINX Cannot Connect to Hub NATS Leafnode Port
 
-**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.6)  
-**ROOT CAUSE**: NGINX TCP proxy timing out when connecting to NATS pods on port 7422  
+**STATUS**: FIX APPLIED - Awaiting Verification  
+**ROOT CAUSE**: NetworkPolicy blocking NGINX → NATS traffic on port 7422  
 **ERROR**: `upstream timed out (110: Operation timed out) while connecting to upstream`  
 **INVESTIGATION**:
 - NGINX TCP config correct: `7422: hub-platform-messaging/nats:7422` ✅
 - NATS Service has port 7422 exposed ✅
 - NATS pods have port 7422 defined ✅
 - NATS config shows "Listening for leafnode connections on 0.0.0.0:7422" ✅
-- But NGINX cannot connect to NATS pod IPs (10.244.x.x:7422) ❌
-**HYPOTHESIS**: Network policy or firewall blocking NGINX → NATS communication  
+- NetworkPolicy only allowed ingress on ports 4222, 6222, 8222 ❌
+**FIX APPLIED**: 
+- Added ingress rule to `manifests/platform-core-services/nats/network-policy.yaml`:
+  ```yaml
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hub-platform-edge
+    ports:
+    - protocol: TCP
+      port: 7422
+  ```
+**NEXT STEPS**:
+1. Commit NetworkPolicy fix to Git
+2. Verify spoke NATS connects successfully
+3. Check spoke NATS logs for successful leafnode connection
+4. Test NATS message flow from spoke to Hub
 **IMPACT**: Spoke NATS cannot connect to Hub, no billing events, no state sync
 
 ---
