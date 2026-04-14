@@ -19,6 +19,13 @@ spec:
   - host: victoriametrics.hub.nutgraf.in
     http:
       paths:
+      - path: /api/v1/write
+        pathType: Prefix
+        backend:
+          service:
+            name: victoria-metrics-cluster-vminsert
+            port:
+              number: 8480
       - path: /
         pathType: Prefix
         backend:

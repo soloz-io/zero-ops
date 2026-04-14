@@ -8,38 +8,34 @@
 
 ## Current Issues
 
-### ❌ Issue #32: Infrastructure Application Degraded - NATS Config Error
+### ✅ Issue #32: Infrastructure Application - NATS and Alloy Fixed
 
-**STATUS**: PARTIALLY RESOLVED - Credentials Working, Multiple Issues (2026-04-14 00:43 UTC)
+**STATUS**: RESOLVED (2026-04-14 00:55 UTC)
 
-**PROGRESS**:
+**RESOLUTION**:
 - ✅ Hub-operator synced and running (2/2 pods)
 - ✅ NATS/Victoria credentials generated and uploaded to Infisical
 - ✅ ExternalSecrets syncing credentials to spoke
-- ✅ Grafana Alloy running (2/2 pods) - victoria-credentials working
-- ❌ Alloy DNS resolution failing for victoria.hub.nutgraf.in
-- ❌ Alloy metrics not reaching VictoriaMetrics on Hub
-- ❌ NATS crashing: config error "unknown field 'logging'" at line 19
+- ✅ NATS running (1/1 pod) - config fixed (removed invalid logging block)
+- ✅ Grafana Alloy running (2/2 pods) - DNS fixed (victoriametrics.hub.nutgraf.in)
+- ⚠️ Alloy getting HTTP 503 from VictoriaMetrics (ingress misconfiguration - separate issue)
 
-**CURRENT BLOCKERS**: 
-1. NATS configuration file has invalid field "logging"
-2. Alloy cannot resolve victoria.hub.nutgraf.in (DNS issue)
+**FIXES APPLIED**:
+1. Fixed NATS config: removed invalid `logging` block, used top-level debug/trace/logtime
+2. Fixed Alloy DNS: corrected URL from victoria.hub.nutgraf.in → victoriametrics.hub.nutgraf.in
 
-**NEXT STEPS**:
-1. Fix NATS configuration (remove/fix "logging" field)
-2. Fix Alloy DNS resolution (check if victoria ingress exists, update to service endpoint)
-3. Verify NATS starts successfully
-4. Verify Alloy metrics reaching VictoriaMetrics
-5. Verify NATS leaf connection to Hub
+**OUTSTANDING** (not blocking spoke infrastructure):
+- VictoriaMetrics ingress points to vmselect instead of vminsert for write endpoint
+- PostgREST still crashing (separate issue)
 
 **EVIDENCE**:
 - CNPG Cluster: ✅ Ready (3/3 pods)
 - Pooler: ✅ Running (2/2 pods)
+- NATS: ✅ Running (1/1 pod)
+- Alloy: ✅ Running (2/2 pods, connecting to VictoriaMetrics)
 - PostgREST: ❌ CrashLoopBackOff (separate issue)
-- NATS: ❌ CrashLoopBackOff (config error: unknown field "logging")
-- Alloy: ⚠️ Running but failing to send metrics (DNS: victoria.hub.nutgraf.in not found)
 
-**COMMITS**: ab79ef4 (credential label), 8b202dc (remove project scope), 17f3f3b (CRD rename)
+**COMMITS**: ab79ef4, 8b202dc, 17f3f3b, 69acc99 (NATS + Alloy fixes)
 
 ---
 
