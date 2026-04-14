@@ -240,9 +240,6 @@ spec:
                         # NATS leaf node credentials
                         - name: ""
                           kind: Secret
-                        # VictoriaMetrics credentials
-                        - name: ""
-                          kind: Secret
                         # CNI, CCM, and CSI
                         - name: cilium-addon-template
                           kind: Secret
@@ -317,14 +314,6 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[2].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-victoria-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.resources[11].name
@@ -589,69 +578,3 @@ spec:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
 
-          # VictoriaMetrics Credentials ExternalSecret
-          # Wrapped in provider-kubernetes Object
-          - name: victoria-credentials-externalsecret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: external-secrets.io/v1
-                    kind: ExternalSecret
-                    metadata:
-                      namespace: hub-platform-ops
-                    spec:
-                      refreshInterval: 1h
-                      secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
-                      target:
-                        name: ""
-                        creationPolicy: Owner
-                        template:
-                          type: addons.cluster.x-k8s.io/resource-set
-                          data:
-                            secret.yaml: |
-                              apiVersion: v1
-                              kind: Secret
-                              metadata:
-                                name: victoria-credentials
-                                namespace: spoke-pool-system
-                              type: Opaque
-                              stringData:
-                                password: "{{ .password | trim }}"
-                      data:
-                        - secretKey: password
-                          remoteRef:
-                            key: victoria-password
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-victoria-credentials-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-victoria-credentials-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.target.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-victoria-credentials"

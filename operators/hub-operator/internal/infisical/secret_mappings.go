@@ -278,11 +278,5 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "leafnode",
 		Description: "NATS Leaf Node credentials for spoke clusters",
 	},
-	{
-		UsernameKey: "victoria-username",
-		PasswordKey: "victoria-password",
-		Username:    "metrics",
-		Description: "VictoriaMetrics credentials for spoke metrics remote_write",
-	},
 }
 
