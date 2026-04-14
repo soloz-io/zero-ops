@@ -29,6 +29,7 @@ data:
     debug: false
     trace: false
     logtime: true
+    logtime: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet

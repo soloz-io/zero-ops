@@ -8,15 +8,19 @@
 
 ## Current Issues
 
-### ❌ Issue #34: PostgREST CrashLoopBackOff
-
-**STATUS**: ACTIVE  
-**SYMPTOMS**: PostgREST 0/1 CrashLoopBackOff (387 restarts), spoke application Degraded  
-**IMPACT**: Doesn't block mTLS observability (Alloy, NATS, CNPG healthy)
+No active blockers. Spoke infrastructure operational.
 
 ---
 
 ## Resolved Issues
+
+### ✅ Issue #34: PostgREST CrashLoopBackOff
+
+**STATUS**: RESOLVED (2026-04-14 09:25 UTC)  
+**ROOT CAUSE**: HTTP liveness probe GET / returns 400 (PostgREST requires valid schema/headers)  
+**FIX**: Changed probes from HTTP to TCP socket (checks port 3000 listening)  
+**VERIFIED**: PostgREST 2/2 Running, spoke application Healthy ✅  
+**COMMITS**: 2898c45
 
 ### ✅ Issue #32: Observability mTLS Migration
 
