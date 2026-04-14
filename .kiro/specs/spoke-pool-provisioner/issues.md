@@ -8,36 +8,38 @@
 
 ## Current Issues
 
-### ❌ Issue #32: Infrastructure Application Degraded - NATS/Alloy Blocked
+### ❌ Issue #32: Infrastructure Application Degraded - NATS Config Error
 
-**STATUS**: IMPLEMENTATION COMPLETE - AWAITING OPERATOR REBUILD (2026-04-13 15:40 UTC)
+**STATUS**: PARTIALLY RESOLVED - Credentials Working, Multiple Issues (2026-04-14 00:43 UTC)
 
-**IMPLEMENTATION COMPLETE**:
-- ✅ Phase 1: Added NATS/Victoria to hub-operator secret_mappings.go
-- ✅ Phase 2: Hub NATS configured to accept leaf connections (port 7422)
-- ✅ Phase 3: Crossplane Composition updated with ExternalSecrets
-- ✅ Phase 4: Spoke NATS configured to use password auth
+**PROGRESS**:
+- ✅ Hub-operator synced and running (2/2 pods)
+- ✅ NATS/Victoria credentials generated and uploaded to Infisical
+- ✅ ExternalSecrets syncing credentials to spoke
+- ✅ Grafana Alloy running (2/2 pods) - victoria-credentials working
+- ❌ Alloy DNS resolution failing for victoria.hub.nutgraf.in
+- ❌ Alloy metrics not reaching VictoriaMetrics on Hub
+- ❌ NATS crashing: config error "unknown field 'logging'" at line 19
 
-**BLOCKING**: Hub operator image rebuild completed, but ArgoCD sync blocked by Issue #33
+**CURRENT BLOCKERS**: 
+1. NATS configuration file has invalid field "logging"
+2. Alloy cannot resolve victoria.hub.nutgraf.in (DNS issue)
 
 **NEXT STEPS**:
-1. Resolve Issue #33 (ArgoCD authentication)
-2. Verify hub-operator Application syncs with new image
-3. Verify operator generates NATS/Victoria credentials
-4. Check ExternalSecrets sync credentials to spoke
-5. Verify NATS and Alloy start successfully
-
-**COMMITS**: 948061a (CLI - reverted), dccb94f (Hub NATS), 00a29a5 (Composition), a308e5b (Operator fix)
+1. Fix NATS configuration (remove/fix "logging" field)
+2. Fix Alloy DNS resolution (check if victoria ingress exists, update to service endpoint)
+3. Verify NATS starts successfully
+4. Verify Alloy metrics reaching VictoriaMetrics
+5. Verify NATS leaf connection to Hub
 
 **EVIDENCE**:
 - CNPG Cluster: ✅ Ready (3/3 pods)
-- Pooler: ✅ Running (2/2 pods, session mode)
-- PostgREST: ✅ Running (2/2 pods, connected to DB)
-- NATS: ❌ ContainerCreating (waiting for nats-leaf-creds secret)
-- Alloy: ❌ CreateContainerConfigError (waiting for victoria-credentials secret)
+- Pooler: ✅ Running (2/2 pods)
+- PostgREST: ❌ CrashLoopBackOff (separate issue)
+- NATS: ❌ CrashLoopBackOff (config error: unknown field "logging")
+- Alloy: ⚠️ Running but failing to send metrics (DNS: victoria.hub.nutgraf.in not found)
 
-**APPLICATION**: spoke-pool-eu-prod-01-infrastructure  
-**NAMESPACE**: spoke-pool-system
+**COMMITS**: ab79ef4 (credential label), 8b202dc (remove project scope), 17f3f3b (CRD rename)
 
 ---
 

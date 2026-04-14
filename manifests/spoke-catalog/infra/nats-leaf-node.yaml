@@ -25,12 +25,10 @@ data:
       ]
     }
     
-    logging {
-      time: true
-      debug: false
-      trace: false
-      logtime: true
-    }
+    # Logging configuration
+    debug: false
+    trace: false
+    logtime: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet

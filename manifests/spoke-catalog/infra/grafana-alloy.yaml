@@ -53,7 +53,7 @@ data:
     // Remote write to Hub VictoriaMetrics
     prometheus.remote_write "hub" {
       endpoint {
-        url = "https://victoria.hub.nutgraf.in/api/v1/write"
+        url = "https://victoriametrics.hub.nutgraf.in/api/v1/write"
         
         basic_auth {
           username = "metrics"
