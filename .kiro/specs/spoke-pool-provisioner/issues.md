@@ -1,41 +1,48 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-12 23:55 UTC  
-**Context**: Hub Infrastructure - ArgoCD Agent Successfully Connected via mTLS
+**Last Updated**: 2026-04-14 01:30 UTC  
+**Context**: Hub Infrastructure - mTLS Implementation Complete
 
 ---
 
 ## Current Issues
 
-### ✅ Issue #32: Infrastructure Application - NATS and Alloy Fixed
+### ✅ Issue #32: Infrastructure Application - Observability mTLS Migration
 
-**STATUS**: RESOLVED (2026-04-14 00:55 UTC)
+**STATUS**: RESOLVED (2026-04-14 01:30 UTC)
 
 **RESOLUTION**:
-- ✅ Hub-operator synced and running (2/2 pods)
-- ✅ NATS/Victoria credentials generated and uploaded to Infisical
-- ✅ ExternalSecrets syncing credentials to spoke
-- ✅ NATS running (1/1 pod) - config fixed (removed invalid logging block)
-- ✅ Grafana Alloy running (2/2 pods) - DNS fixed (victoriametrics.hub.nutgraf.in)
-- ⚠️ Alloy getting HTTP 503 from VictoriaMetrics (ingress misconfiguration - separate issue)
+- ✅ Implemented mTLS for Alloy→VictoriaMetrics following ArgoCD pattern
+- ✅ Created observability CA infrastructure with cert-manager + Kyverno
+- ✅ Updated VictoriaMetrics ingress to use mTLS instead of basic auth
+- ✅ Updated Alloy DaemonSet to mount mTLS certs and use tls_config
+- ✅ Added Alloy client cert generation in Crossplane Composition
+- ✅ Removed VictoriaMetrics basic auth from hub-operator and Composition
+- ✅ Zero shared secrets: per-cluster cert with CN=cluster-name for identity
 
-**FIXES APPLIED**:
-1. Fixed NATS config: removed invalid `logging` block, used top-level debug/trace/logtime
-2. Fixed Alloy DNS: corrected URL from victoria.hub.nutgraf.in → victoriametrics.hub.nutgraf.in
+**ARCHITECTURE**:
+- CA Infrastructure: `catalog/security/observability-cert.yaml`
+- Hub Ingress: mTLS termination with CA validation
+- Spoke Alloy: mTLS client cert mounted at `/etc/alloy/certs`
+- Dynamic Provisioning: Crossplane generates per-cluster certs
+- Kyverno: Transforms cert-manager secrets to CRS format
 
-**OUTSTANDING** (not blocking spoke infrastructure):
-- VictoriaMetrics ingress points to vmselect instead of vminsert for write endpoint
-- PostgREST still crashing (separate issue)
+**BENEFITS**:
+- Eliminated Infisical dependency for metrics authentication
+- Cryptographic identity per spoke cluster (CN=cluster-name)
+- Nginx passes client certificate to upstream for attribution
+- Cannot spoof CELL_ID - identity verified by TLS handshake
 
-**EVIDENCE**:
-- CNPG Cluster: ✅ Ready (3/3 pods)
-- Pooler: ✅ Running (2/2 pods)
-- NATS: ✅ Running (1/1 pod)
-- Alloy: ✅ Running (2/2 pods, connecting to VictoriaMetrics)
-- PostgREST: ❌ CrashLoopBackOff (separate issue)
+**COMMITS**: e32c123 (mTLS implementation), 079955a (remove basic auth)
 
-**COMMITS**: ab79ef4, 8b202dc, 17f3f3b, 69acc99 (NATS + Alloy fixes)
+**FILEPATHS**:
+- `catalog/security/observability-cert.yaml` (NEW)
+- `manifests/platform-core-services/victoriametrics/ingress.yaml`
+- `manifests/platform-core-services/victoriametrics/cluster.yaml`
+- `manifests/spoke-catalog/infra/grafana-alloy.yaml`
+- `xrds/compositions/spokepool-hetzner.yaml`
+- `operators/hub-operator/internal/infisical/secret_mappings.go`
 
 ---
 
