@@ -1,48 +1,33 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-14 01:30 UTC  
-**Context**: Hub Infrastructure - mTLS Implementation Complete
+**Last Updated**: 2026-04-14 08:50 UTC  
+**Context**: mTLS Observability Pipeline Operational
 
 ---
 
 ## Current Issues
 
-### ✅ Issue #32: Infrastructure Application - Observability mTLS Migration
+### ❌ Issue #34: PostgREST CrashLoopBackOff
 
-**STATUS**: RESOLVED (2026-04-14 01:30 UTC)
+**STATUS**: ACTIVE  
+**SYMPTOMS**: PostgREST 0/1 CrashLoopBackOff (387 restarts), spoke application Degraded  
+**IMPACT**: Doesn't block mTLS observability (Alloy, NATS, CNPG healthy)
 
-**RESOLUTION**:
-- ✅ Implemented mTLS for Alloy→VictoriaMetrics following ArgoCD pattern
-- ✅ Created observability CA infrastructure with cert-manager + Kyverno
-- ✅ Updated VictoriaMetrics ingress to use mTLS instead of basic auth
-- ✅ Updated Alloy DaemonSet to mount mTLS certs and use tls_config
-- ✅ Added Alloy client cert generation in Crossplane Composition
-- ✅ Removed VictoriaMetrics basic auth from hub-operator and Composition
-- ✅ Zero shared secrets: per-cluster cert with CN=cluster-name for identity
+---
 
-**ARCHITECTURE**:
-- CA Infrastructure: `catalog/security/observability-cert.yaml`
-- Hub Ingress: mTLS termination with CA validation
-- Spoke Alloy: mTLS client cert mounted at `/etc/alloy/certs`
-- Dynamic Provisioning: Crossplane generates per-cluster certs
-- Kyverno: Transforms cert-manager secrets to CRS format
+## Resolved Issues
 
-**BENEFITS**:
-- Eliminated Infisical dependency for metrics authentication
-- Cryptographic identity per spoke cluster (CN=cluster-name)
-- Nginx passes client certificate to upstream for attribution
-- Cannot spoof CELL_ID - identity verified by TLS handshake
+### ✅ Issue #32: Observability mTLS Migration
 
-**COMMITS**: e32c123 (mTLS implementation), 079955a (remove basic auth)
-
-**FILEPATHS**:
-- `catalog/security/observability-cert.yaml` (NEW)
-- `manifests/platform-core-services/victoriametrics/ingress.yaml`
-- `manifests/platform-core-services/victoriametrics/cluster.yaml`
-- `manifests/spoke-catalog/infra/grafana-alloy.yaml`
-- `xrds/compositions/spokepool-hetzner.yaml`
-- `operators/hub-operator/internal/infisical/secret_mappings.go`
+**STATUS**: RESOLVED (2026-04-14 08:50 UTC)  
+**ROOT CAUSE**: Basic auth for metrics, no cryptographic identity per spoke  
+**SOLUTION**: 
+- Implemented mTLS following ArgoCD pattern (cert-manager + Kyverno + CRS)
+- Fixed Kyverno namespace (hub-platform-ops), Alloy TLS config, VictoriaMetrics path
+- Removed victoria-credentials from hub-operator and Composition
+**VERIFIED**: Alloy 2/2 Running, metrics flowing via mTLS, CN=spoke-pool-eu-prod-01 ✅  
+**COMMITS**: e32c123, 079955a, 83cb89c, 3c359e4, c598185
 
 ---
 
