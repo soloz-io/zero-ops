@@ -37,9 +37,13 @@ apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: nats-leafnode-ca-crs-transform
+  annotations:
+    policies.kyverno.io/title: Transform NATS Leafnode CA Secret for ClusterResourceSet
+    policies.kyverno.io/category: ClusterResourceSet Integration
 spec:
+  generateExisting: true
   rules:
-  - name: transform-ca-for-crs
+  - name: generate-crs-ca-secret
     match:
       any:
       - resources:
@@ -49,21 +53,24 @@ spec:
           - hub-platform-messaging
           names:
           - nats-leafnode-ca-secret-source
+    context:
+      - name: caCrt
+        variable:
+          jmesPath: 'request.object.data."ca.crt"'
     generate:
       apiVersion: v1
       kind: Secret
-      name: nats-leafnode-ca-crs
+      name: nats-leafnode-ca-secret
       namespace: hub-platform-ops
       synchronize: true
       data:
-        kind: Secret
+        type: addons.cluster.x-k8s.io/resource-set
         metadata:
           labels:
-            addons.cluster.x-k8s.io/resource-set: "nats-leafnode-ca"
-        type: addons.cluster.x-k8s.io/resource-set
+            app.kubernetes.io/managed-by: kyverno
+            cert-type: nats-leafnode-ca
         stringData:
-          value: |
-            ---
+          ca-secret.yaml: |
             apiVersion: v1
             kind: Secret
             metadata:
@@ -71,16 +78,20 @@ spec:
               namespace: spoke-pool-system
             type: Opaque
             data:
-              ca.crt: "{{ `{{ request.object.data.\"ca.crt\" }}` }}"
+              ca.crt: "{{caCrt}}"
 ---
 # Kyverno Policy: Transform Client Certs for CRS
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: nats-leafnode-client-crs-transform
+  annotations:
+    policies.kyverno.io/title: Transform NATS Leafnode Client Certificate for ClusterResourceSet
+    policies.kyverno.io/category: ClusterResourceSet Integration
 spec:
+  generateExisting: true
   rules:
-  - name: transform-client-cert-for-crs
+  - name: generate-crs-client-cert
     match:
       any:
       - resources:
@@ -91,21 +102,30 @@ spec:
           selector:
             matchLabels:
               cert-type: nats-leafnode-client
+    context:
+      - name: tlsCrt
+        variable:
+          jmesPath: 'request.object.data."tls.crt"'
+      - name: tlsKey
+        variable:
+          jmesPath: 'request.object.data."tls.key"'
+      - name: caCrt
+        variable:
+          jmesPath: 'request.object.data."ca.crt"'
     generate:
       apiVersion: v1
       kind: Secret
-      name: "{{ request.object.metadata.name }}-crs"
+      name: "{{request.object.metadata.name}}-crs"
       namespace: hub-platform-ops
       synchronize: true
       data:
-        kind: Secret
+        type: addons.cluster.x-k8s.io/resource-set
         metadata:
           labels:
-            addons.cluster.x-k8s.io/resource-set: "{{ request.object.metadata.name }}"
-        type: addons.cluster.x-k8s.io/resource-set
+            app.kubernetes.io/managed-by: kyverno
+            cert-type: nats-leafnode-client-crs
         stringData:
-          value: |
-            ---
+          client-cert.yaml: |
             apiVersion: v1
             kind: Secret
             metadata:
@@ -113,6 +133,6 @@ spec:
               namespace: spoke-pool-system
             type: kubernetes.io/tls
             data:
-              ca.crt: "{{ `{{ request.object.data.\"ca.crt\" }}` }}"
-              tls.crt: "{{ `{{ request.object.data.\"tls.crt\" }}` }}"
-              tls.key: "{{ `{{ request.object.data.\"tls.key\" }}` }}"
+              tls.crt: "{{tlsCrt}}"
+              tls.key: "{{tlsKey}}"
+              ca.crt: "{{caCrt}}"
