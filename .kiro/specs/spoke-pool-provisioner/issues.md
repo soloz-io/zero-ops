@@ -1,14 +1,26 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-14 12:00 UTC  
-**Context**: Phase 2 Validation Ready - All Infrastructure Operational
+**Last Updated**: 2026-04-14 12:50 UTC  
+**Context**: Phase 2 Validation Blocked - NGINX → NATS Connectivity Issue
 
 ---
 
 ## Current Issues
 
-No active blockers. Phase 2 validation ready to proceed.
+### ❌ Issue #38: NGINX Cannot Connect to Hub NATS Leafnode Port
+
+**STATUS**: BLOCKING Phase 2 Validation (Task 2.8.6)  
+**ROOT CAUSE**: NGINX TCP proxy timing out when connecting to NATS pods on port 7422  
+**ERROR**: `upstream timed out (110: Operation timed out) while connecting to upstream`  
+**INVESTIGATION**:
+- NGINX TCP config correct: `7422: hub-platform-messaging/nats:7422` ✅
+- NATS Service has port 7422 exposed ✅
+- NATS pods have port 7422 defined ✅
+- NATS config shows "Listening for leafnode connections on 0.0.0.0:7422" ✅
+- But NGINX cannot connect to NATS pod IPs (10.244.x.x:7422) ❌
+**HYPOTHESIS**: Network policy or firewall blocking NGINX → NATS communication  
+**IMPACT**: Spoke NATS cannot connect to Hub, no billing events, no state sync
 
 ---
 
