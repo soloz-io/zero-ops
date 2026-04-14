@@ -15,6 +15,7 @@ spec:
       values: |
         tcp:
           8443: "hub-platform-ops/argocd-agent-principal:443"
+          7422: "hub-platform-messaging/nats:7422"
         controller:
           admissionWebhooks:
             enabled: false

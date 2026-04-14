@@ -51,10 +51,11 @@ data:
     
     leafnodes {
       port: 7422
-      authorization {
-        users = [
-          { user: "leafnode", password: "$NATS_LEAF_PASSWORD" }
-        ]
+      tls {
+        cert_file: "/etc/nats/certs/tls.crt"
+        key_file: "/etc/nats/certs/tls.key"
+        ca_file: "/etc/nats/certs/ca.crt"
+        verify: true
       }
     }
     
@@ -90,11 +91,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: NATS_LEAF_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: nats-leaf-credentials
-              key: password
         ports:
         - containerPort: 4222
           name: client
@@ -109,6 +105,9 @@ spec:
           mountPath: /etc/nats
         - name: data
           mountPath: /data
+        - name: nats-certs
+          mountPath: /etc/nats/certs
+          readOnly: true
         command: ["nats-server", "-c", "/etc/nats/nats.conf"]
         livenessProbe:
           httpGet:
@@ -126,6 +125,9 @@ spec:
       - name: config
         configMap:
           name: nats-config
+      - name: nats-certs
+        secret:
+          secretName: nats-leafnode-ca-secret-source
   volumeClaimTemplates:
   - metadata:
       name: data

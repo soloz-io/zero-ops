@@ -44,7 +44,7 @@ After completing each phase, you MUST:
 - [x] 1.2.1 Create ArgoCD Agent mTLS Certificate manifest
   - Define Certificate CR for ArgoCD Agent (90-day validity, auto-renew at 83 days)
   - Create self-signed CA for ArgoCD
-  - Create file: `catalog/security/argocd-agent-cert.yaml`
+  - Create file: `manifests/platform-core-services/security/argocd-agent-cert.yaml`
   - _Requirements: FR-1.2, NFR-4.1, NFR-4.2, AC-3_
 
 - [x] 1.2.2 Create NATS Leaf Node mTLS Certificate manifest

@@ -1,4 +1,4 @@
-# NOTE: CA certificate is defined in catalog/security/argocd-agent-cert.yaml
+# NOTE: CA certificate is defined in manifests/platform-core-services/security/argocd-agent-cert.yaml
 # This file only contains Principal and Resource Proxy certificates
 ---
 # Principal server certificate

@@ -214,6 +214,69 @@ spec:
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.commonName
           
+          # Dynamic Certificate generation for NATS Leafnode (mTLS)
+          # Generates unique client certificate with CN matching cluster name
+          # cert-manager creates Secret with label cert-type: nats-leafnode-client
+          # Kyverno watches for this label and generates CRS-compatible Secret
+          - name: nats-leafnode-client-cert
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: cert-manager.io/v1
+                    kind: Certificate
+                    metadata:
+                      namespace: hub-platform-messaging
+                    spec:
+                      secretName: ""  # Patched below
+                      duration: 2160h  # 90 days
+                      renewBefore: 168h  # 7 days
+                      usages:
+                        - client auth
+                        - digital signature
+                        - key encipherment
+                      commonName: ""  # Patched below - CRITICAL: Must match cluster name
+                      issuerRef:
+                        name: nats-leafnode-issuer
+                        kind: Issuer
+                      secretTemplate:
+                        labels:
+                          cert-type: nats-leafnode-client
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-leafnode-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-leafnode-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.secretName
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-leafnode-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.commonName
+          
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
           - name: cluster-resource-set
@@ -274,6 +337,11 @@ spec:
                         - name: alloy-client-cert
                           kind: Secret
                         - name: observability-ca-secret
+                          kind: Secret
+                        # NATS Leafnode mTLS certificates
+                        - name: nats-leafnode-client-cert
+                          kind: Secret
+                        - name: nats-leafnode-ca
                           kind: Secret
                       strategy: Reconcile
                 providerConfigRef:
@@ -342,6 +410,16 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-alloy-client-cert-crs"
+              # Patch for NATS leafnode client certificate (resources[17])
+              # References the Kyverno-generated CRS secret (with -crs suffix)
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-leafnode-client-cert-crs"
           
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object

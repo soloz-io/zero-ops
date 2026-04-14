@@ -1,0 +1,118 @@
+---
+# Self-signed CA for NATS Leafnode mTLS
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: nats-leafnode-ca-issuer
+spec:
+  selfSigned: {}
+---
+# Root CA Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-leafnode-ca
+  namespace: hub-platform-messaging
+spec:
+  isCA: true
+  commonName: nats-leafnode-ca
+  secretName: nats-leafnode-ca-secret-source
+  duration: 87600h  # 10 years
+  issuerRef:
+    name: nats-leafnode-ca-issuer
+    kind: ClusterIssuer
+---
+# Issuer for NATS Leafnode Clients
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: nats-leafnode-issuer
+  namespace: hub-platform-messaging
+spec:
+  ca:
+    secretName: nats-leafnode-ca-secret-source
+---
+# Kyverno Policy: Transform CA Secret for CRS
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nats-leafnode-ca-crs-transform
+spec:
+  rules:
+  - name: transform-ca-for-crs
+    match:
+      any:
+      - resources:
+          kinds:
+          - Secret
+          namespaces:
+          - hub-platform-messaging
+          names:
+          - nats-leafnode-ca-secret-source
+    generate:
+      apiVersion: v1
+      kind: Secret
+      name: nats-leafnode-ca-crs
+      namespace: hub-platform-ops
+      synchronize: true
+      data:
+        kind: Secret
+        metadata:
+          labels:
+            addons.cluster.x-k8s.io/resource-set: "nats-leafnode-ca"
+        type: addons.cluster.x-k8s.io/resource-set
+        stringData:
+          value: |
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: nats-leafnode-ca
+              namespace: spoke-pool-system
+            type: Opaque
+            data:
+              ca.crt: "{{ `{{ request.object.data.\"ca.crt\" }}` }}"
+---
+# Kyverno Policy: Transform Client Certs for CRS
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nats-leafnode-client-crs-transform
+spec:
+  rules:
+  - name: transform-client-cert-for-crs
+    match:
+      any:
+      - resources:
+          kinds:
+          - Secret
+          namespaces:
+          - hub-platform-messaging
+          selector:
+            matchLabels:
+              cert-type: nats-leafnode-client
+    generate:
+      apiVersion: v1
+      kind: Secret
+      name: "{{ request.object.metadata.name }}-crs"
+      namespace: hub-platform-ops
+      synchronize: true
+      data:
+        kind: Secret
+        metadata:
+          labels:
+            addons.cluster.x-k8s.io/resource-set: "{{ request.object.metadata.name }}"
+        type: addons.cluster.x-k8s.io/resource-set
+        stringData:
+          value: |
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: nats-leafnode-client-cert
+              namespace: spoke-pool-system
+            type: kubernetes.io/tls
+            data:
+              ca.crt: "{{ `{{ request.object.data.\"ca.crt\" }}` }}"
+              tls.crt: "{{ `{{ request.object.data.\"tls.crt\" }}` }}"
+              tls.key: "{{ `{{ request.object.data.\"tls.key\" }}` }}"
