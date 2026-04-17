@@ -45,7 +45,7 @@ spec:
       
       destination:
         # Deploy to the appropriate Spoke Pool cluster based on cellId from values
-        # CRITICAL FIX (Issue #39): Use cellId from values.yaml, not hardcoded
+        # CRITICAL FIX (Issue #39): Use cellId from YAML file content, not .values prefix
         name: '{{.cellId}}'
         namespace: 'tenant-{{.tenantId}}'
       
