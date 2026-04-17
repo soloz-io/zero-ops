@@ -11,15 +11,12 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   
   generators:
-    # Git Generator watches fleet-registry for tenant directories
+    # Git Generator watches fleet-registry for tenant values files
     - git:
         repoURL: https://github.com/soloz-io/fleet-registry.git
         revision: main
-        directories:
-          - path: tenants/*
-        values:
-          # Extract tenant ID from directory name (tenants/tenant-<id>)
-          tenantId: '{{index .path.segments 1}}'
+        files:
+          - path: 'tenants/*/values.yaml'
   
   template:
     metadata:
@@ -47,10 +44,10 @@ spec:
           ref: values
       
       destination:
-        # Deploy to the appropriate Spoke Pool cluster
-        # This will be determined by the cell-id label in tenant values
-        server: https://kubernetes.default.svc
-        namespace: '{{.values.tenantId}}'
+        # Deploy to the appropriate Spoke Pool cluster based on cellId from values
+        # CRITICAL FIX (Issue #39): Use cellId from values.yaml, not hardcoded
+        name: '{{.values.cellId}}'
+        namespace: 'tenant-{{.values.tenantId}}'
       
       syncPolicy:
         automated:
