@@ -1,0 +1,125 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: ainativesaases.nutgraf.in
+spec:
+  group: nutgraf.in
+  names:
+    kind: AINativeSaaS
+    plural: ainativesaases
+  claimNames:
+    kind: AINativeSaaSClaim
+    plural: ainativesaasclaims
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required:
+            - tenantId
+            - tier
+            - cellId
+            - database
+            properties:
+              tenantId:
+                type: string
+                description: "Unique tenant identifier (e.g., 'acme')"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                minLength: 3
+                maxLength: 63
+              tier:
+                type: string
+                description: "Tenant tier: starter or enterprise"
+                enum:
+                - starter
+                - enterprise
+              cellId:
+                type: string
+                description: "Target Spoke Pool cluster name (e.g., 'spokepool-01')"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              database:
+                type: object
+                required:
+                - name
+                properties:
+                  name:
+                    type: string
+                    description: "Deterministic database name: tenant_<tenantId>_db"
+                    pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_db$'
+                  migrations:
+                    type: object
+                    properties:
+                      baseline:
+                        type: string
+                        description: "Path to tenant baseline migrations in Git"
+                        default: "migrations/tenant-baseline/"
+                      tenant:
+                        type: string
+                        description: "Path to tenant-specific migrations in Git"
+                        default: "fleet-registry/tenants/{{tenantId}}/migrations/"
+              pooler:
+                type: object
+                description: "PgBouncer pooler configuration"
+                properties:
+                  maxConnections:
+                    type: integer
+                    description: "Maximum concurrent connections per tenant"
+                    default: 5
+                    minimum: 1
+                    maximum: 20
+                  poolMode:
+                    type: string
+                    description: "PgBouncer pooling mode (MUST be transaction)"
+                    enum:
+                    - transaction
+                    default: transaction
+              postgrest:
+                type: object
+                description: "PostgREST configuration"
+                properties:
+                  dbSchema:
+                    type: string
+                    description: "PostgreSQL schema to expose via REST API"
+                    default: "public"
+                  jwtCacheSize:
+                    type: integer
+                    description: "JWT cache size (number of tokens)"
+                    default: 10000
+                    minimum: 1000
+                    maximum: 100000
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+              databaseReady:
+                type: boolean
+                description: "True when CNPG Database CR is Ready"
+              poolerReady:
+                type: boolean
+                description: "True when CNPG Pooler CR is Ready"
+              postgrestReady:
+                type: boolean
+                description: "True when PostgREST Deployment is Ready"
+              migrationsApplied:
+                type: boolean
+                description: "True when Atlas migrations are applied"

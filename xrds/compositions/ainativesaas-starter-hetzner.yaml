@@ -1,0 +1,207 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ainativesaas-starter-hetzner
+  labels:
+    provider: hetzner
+    tier: starter
+spec:
+  compositeTypeRef:
+    apiVersion: nutgraf.in/v1alpha1
+    kind: AINativeSaaS
+  
+  resources:
+  # 1. CNPG Database CR - Creates logical database in shared cluster
+  - name: database
+    base:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Database
+      spec:
+        cluster:
+          name: shared-cnpg  # Reference to shared CNPG cluster in spoke
+        owner: postgres
+        ensure: present
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: metadata.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.labels['tenant-id']
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.ready
+      toFieldPath: status.databaseReady
+
+  # 2. CNPG Pooler CR - Dedicated pooler for tenant database
+  - name: pooler
+    base:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Pooler
+      spec:
+        cluster:
+          name: shared-cnpg
+        type: rw  # Read-write pooler
+        instances: 1
+        pgbouncer:
+          poolMode: transaction  # CRITICAL: transaction mode only
+          parameters:
+            max_client_conn: "100"
+            default_pool_size: "5"
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.pgbouncer.parameters.databases
+      transforms:
+      - type: string
+        string:
+          fmt: "%s = host=shared-cnpg-rw port=5432 dbname=%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.pooler.maxConnections
+      toFieldPath: spec.pgbouncer.parameters.default_pool_size
+      transforms:
+      - type: convert
+        convert:
+          toType: string
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.labels['tenant-id']
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.conditions[?(@.type=='Ready')].status
+      toFieldPath: status.poolerReady
+      transforms:
+      - type: map
+        map:
+          "True": true
+          "False": false
+
+  # 3. PostgREST Deployment - Dedicated REST API instance
+  - name: postgrest-deployment
+    base:
+      apiVersion: apps/v1
+      kind: Deployment
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: postgrest
+        template:
+          metadata:
+            labels:
+              app: postgrest
+          spec:
+            containers:
+            - name: postgrest
+              image: postgrest/postgrest:v12.0.2
+              ports:
+              - containerPort: 3000
+                name: http
+              env:
+              - name: PGRST_DB_URI
+                value: ""  # Patched from pooler connection string
+              - name: PGRST_DB_SCHEMA
+                value: "public"
+              - name: PGRST_DB_ANON_ROLE
+                value: "postgres"
+              - name: PGRST_JWT_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: hub-ory-jwt-secret
+                    key: secret
+              - name: PGRST_JWT_CACHE_MAX_LIFETIME
+                value: "3600"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.selector.matchLabels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.template.metadata.labels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.template.spec.containers[0].env[0].value
+      transforms:
+      - type: string
+        string:
+          fmt: "postgresql://postgres@%s-pooler:5432/%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.template.spec.containers[0].env[0].value
+      transforms:
+      - type: string
+        string:
+          fmt: "postgresql://postgres@pooler:5432/%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.postgrest.dbSchema
+      toFieldPath: spec.template.spec.containers[0].env[1].value
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.conditions[?(@.type=='Available')].status
+      toFieldPath: status.postgrestReady
+      transforms:
+      - type: map
+        map:
+          "True": true
+          "False": false
+
+  # 4. PostgREST Service - ClusterIP (internal only)
+  - name: postgrest-service
+    base:
+      apiVersion: v1
+      kind: Service
+      spec:
+        type: ClusterIP
+        ports:
+        - port: 3000
+          targetPort: 3000
+          protocol: TCP
+          name: http
+        selector:
+          app: postgrest
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.selector['tenant-id']
