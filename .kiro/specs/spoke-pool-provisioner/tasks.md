@@ -466,7 +466,7 @@ After completing each phase, you MUST:
 
 ### 2.8 Phase 2 Manual Validation
 
-- [ ] 2.8.1 Verify edge catalog deployment with sync waves
+- [*] 2.8.1 Verify edge catalog deployment with sync waves
   - Verify ApplicationSet creates Applications for spokepool-01
   - Verify sync wave 1 (CNPG) completes before wave 2 (Atlas)
   - Verify sync wave 2 (Atlas) completes before wave 3 (PostgREST)
@@ -474,41 +474,41 @@ After completing each phase, you MUST:
   - Check: `argocd app list | grep spokepool-01`
   - _Requirements: FR-2.1, AC-4_
 
-- [ ] 2.8.2 Verify CNPG cluster health
+- [*] 2.8.2 Verify CNPG cluster health
   - Verify CNPG cluster reaches Ready: `kubectl --context spokepool-01 get cluster shared-cnpg -o jsonpath='{.status.phase}'`
   - Verify 3 replicas running
   - Verify PgBouncer pooler running with transaction mode
   - Verify pgvector extension enabled
   - _Requirements: FR-2.2, NFR-2.3, NFR-2.4, AC-4_
 
-- [ ] 2.8.3 Verify Atlas Operator deployment
+- [*] 2.8.3 Verify Atlas Operator deployment
   - Verify Atlas Operator pod running: `kubectl --context spokepool-01 get deployment atlas-operator`
   - Verify AtlasMigration CRD registered
   - _Requirements: FR-4.4, AC-4_
 
 
-- [ ] 2.8.4 Verify PostgREST deployment
+- [*] 2.8.4 Verify PostgREST deployment
   - Verify PostgREST pod running: `kubectl --context spokepool-01 get deployment postgrest`
   - Verify PostgREST is internal service only (no external LoadBalancer)
   - Verify connection to PgBouncer
   - _Requirements: FR-2.6, NFR-2.8, AC-4_
 
-- [ ] 2.8.5 Verify NATS Leaf Node deployment
+- [*] 2.8.5 Verify NATS Leaf Node deployment
 
-- [ ] 2.8.6 Verify NATS Leaf Node connection
+- [*] 2.8.6 Verify NATS Leaf Node connection
   - Verify NATS pod running: `kubectl --context spokepool-01 get statefulset nats`
   - Verify connection to Hub NATS: check logs for "leafnode connected"
   - Publish test event: `kubectl --context spokepool-01 exec -n spoke-pool-system nats-0 -- nats pub spoke.test-01.billing.usage '{"test": "event"}'`
   - Verify event received in Hub: `kubectl --context hub exec -n hub-platform-messaging nats-0 -- nats stream info`
   - _Requirements: FR-2.3, AC-4_
 
-- [ ] 2.8.7 Verify Grafana Alloy metrics forwarding
+- [*] 2.8.7 Verify Grafana Alloy metrics forwarding
   - Verify Alloy pods running: `kubectl --context spokepool-01 get daemonset grafana-alloy`
   - Verify metrics forwarded to Hub VictoriaMetrics
   - Query VictoriaMetrics for cell_id label: `cell_id="spokepool-01"`
   - _Requirements: FR-2.4, NFR-5.1, AC-4_
 
-- [ ] 2.8.8 Verify edge catalog deployment time
+- [*] 2.8.8 Verify edge catalog deployment time
   - Measure time from ArgoCD sync start to all components Healthy
   - Verify < 10 minutes
   - _Requirements: FR-2.1, AC-4_
@@ -527,170 +527,168 @@ After completing each phase, you MUST:
 
 ---
 
-## Phase 3: Tenant Schema Provisioning (Week 5-6)
+## Phase 3: Tenant Database Provisioning (Week 5-6)
 
-### 3.1 Baseline Migration Files
+### 3.1 Tenant Baseline Migration Files
 
-- [x] 3.1.1 Create migration repository structure
-  - Create directory: `migrations/tenant-baseline/`
-  - Initialize Git repository for migrations
+- [ ] 3.1.1 Update migration files from schema-based to database-based
+  - Update 6 SQL files in `migrations/tenant-baseline/` to change `tenant_{{.tenant_id}}` schema references to `public` schema
+  - Remove schema creation migration (20240101000001_create_schema.sql)
+  - Remove role creation references (`tenant_{{.tenant_id}}_role`)
+  - Renumber remaining migrations starting from 20240101000001
   - _Requirements: FR-4.1, AC-5_
 
-- [x] 3.1.2 Create baseline schema migration
-  - Create migration: `migrations/tenant-baseline/20240101000001_create_schema.sql`
-  - Content: `CREATE SCHEMA IF NOT EXISTS tenant_{{.tenant_id}};`
-  - Content: `CREATE ROLE tenant_{{.tenant_id}}_role;`
-  - Content: `GRANT ALL ON SCHEMA tenant_{{.tenant_id}} TO tenant_{{.tenant_id}}_role;`
+- [ ] 3.1.2 Update users table migration for database model
+  - Update file: `migrations/tenant-baseline/20240101000001_create_users_table.sql` (renumbered from 000002)
+  - Content: `CREATE TABLE IF NOT EXISTS public.users (...);`
+  - Enable RLS: `ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;`
+  - Create RLS policy using JWT user_id claim
   - Ensure idempotent (IF NOT EXISTS)
   - _Requirements: FR-4.1, FR-4.2, NFR-6.1, AC-5_
 
-- [x] 3.1.3 Create baseline users table migration
-  - Create migration: `migrations/tenant-baseline/20240101000002_create_users_table.sql`
-  - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.users (...);`
-  - Enable RLS: `ALTER TABLE tenant_{{.tenant_id}}.users ENABLE ROW LEVEL SECURITY;`
-  - Create RLS policy using JWT user_id claim
-  - _Requirements: FR-4.1, FR-4.2, AC-5_
-
-- [x] 3.1.4 Create baseline sessions table migration
-  - Create migration: `migrations/tenant-baseline/20240101000003_create_sessions_table.sql`
-  - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.sessions (...);`
+- [ ] 3.1.3 Update sessions table migration for database model
+  - Update file: `migrations/tenant-baseline/20240101000002_create_sessions_table.sql` (renumbered from 000003)
+  - Content: `CREATE TABLE IF NOT EXISTS public.sessions (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [x] 3.1.5 Create baseline identities table migration
-  - Create migration: `migrations/tenant-baseline/20240101000004_create_identities_table.sql`
-  - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.identities (...);`
+- [ ] 3.1.4 Update identities table migration for database model
+  - Update file: `migrations/tenant-baseline/20240101000003_create_identities_table.sql` (renumbered from 000004)
+  - Content: `CREATE TABLE IF NOT EXISTS public.identities (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-
-- [x] 3.1.6 Create baseline buckets table migration
-  - Create migration: `migrations/tenant-baseline/20240101000005_create_buckets_table.sql`
-  - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.buckets (...);`
+- [ ] 3.1.5 Update buckets table migration for database model
+  - Update file: `migrations/tenant-baseline/20240101000004_create_buckets_table.sql` (renumbered from 000005)
+  - Content: `CREATE TABLE IF NOT EXISTS public.buckets (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [x] 3.1.7 Create baseline objects table migration
-  - Create migration: `migrations/tenant-baseline/20240101000006_create_objects_table.sql`
-  - Content: `CREATE TABLE IF NOT EXISTS tenant_{{.tenant_id}}.objects (...);`
+- [ ] 3.1.6 Update objects table migration for database model
+  - Update file: `migrations/tenant-baseline/20240101000005_create_objects_table.sql` (renumbered from 000006)
+  - Content: `CREATE TABLE IF NOT EXISTS public.objects (...);`
   - Enable RLS with JWT user_id policy
   - _Requirements: FR-4.1, FR-4.2, AC-5_
 
-- [x] 3.1.8 Commit baseline migrations to Git
+- [ ] 3.1.7 Commit updated baseline migrations to Git
   - Commit all migrations to main branch
   - Verify migrations follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
   - Verify all migrations are idempotent
+  - Verify all tables in `public` schema (not tenant-specific schemas)
   - _Requirements: FR-4.1, NFR-6.1, NFR-6.6, NFR-6.7, AC-5_
 
-### 3.2 Universal Tenant Helm Chart
+### 3.2 AINativeSaaS XRD and Composition
 
-- [x] 3.2.1 Create Universal Tenant Helm Chart structure
-  - Create directory: `charts/universal-tenant/`
-  - Create Chart.yaml with metadata
-  - Create values.yaml with tenant input schema
+- [ ] 3.2.1 Create AINativeSaaS XRD definition
+  - Define API schema: `tenantId`, `tier`, `cellId`, `database.name`, `database.migrations`
+  - Create file: `xrds/definitions/ainativesaas-v1.yaml`
+  - Add OpenAPI validation for required fields
+  - _Requirements: FR-4.1, FR-5.2, AC-5_
+
+- [ ] 3.2.2 Create AINativeSaaS Composition for Starter tier
+  - Generate CNPG Database CR: `tenant_<tenantId>_db` in shared cluster
+  - Generate CNPG Pooler CR: connects to tenant's database (transaction mode, 5 connections)
+  - Generate PostgREST Deployment: connects via tenant's pooler, `db-schema=public`
+  - Generate PostgREST Service: ClusterIP in tenant namespace
+  - Create file: `xrds/compositions/ainativesaas-starter-hetzner.yaml`
+  - _Requirements: FR-4.1, FR-5.2, AC-5_
+
+- [ ] 3.2.3 Commit AINativeSaaS XRD and Composition to Git
+  - Commit to feature branch
+  - Push to GitOps repository
+  - Verify ArgoCD detects and syncs XRD
+  - _Requirements: FR-4.1, FR-5.2, AC-5_
+
+### 3.3 Universal Tenant Helm Chart Updates
+
+- [ ] 3.3.1 Verify Universal Tenant Helm Chart structure
+  - Verify directory exists: `charts/universal-tenant/`
+  - Verify Chart.yaml and values.yaml exist
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.2.2 Create AINativeSaaS XR template
-  - Create template: `charts/universal-tenant/templates/ainativesaas.yaml`
+- [ ] 3.3.2 Update AINativeSaaS XR template
+  - Update template: `charts/universal-tenant/templates/ainativesaas.yaml`
   - Template generates AINativeSaaS XR from values
-  - Include: tenantId, tier, region from values
+  - Include: tenantId, tier, cellId, database.name from values
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "1"`
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.2.3 Create namespace template
-  - Create template: `charts/universal-tenant/templates/namespace.yaml`
+- [ ] 3.3.3 Verify namespace template (no changes needed)
+  - Verify template: `charts/universal-tenant/templates/namespace.yaml`
   - Template generates namespace: `tenant-{{.Values.tenantId}}`
-  - Add labels: tenant-id, tier
-  - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "0"`
   - _Requirements: FR-5.2, AC-5_
 
-
-- [x] 3.2.4 Create RBAC template
-  - Create template: `charts/universal-tenant/templates/rbac.yaml`
-  - Template generates ServiceAccount, Role, RoleBinding
-  - Scope to tenant namespace
-  - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "0"`
+- [ ] 3.3.4 Verify RBAC template (no changes needed)
+  - Verify template: `charts/universal-tenant/templates/rbac.yaml`
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.2.5 Create ResourceQuota template
-  - Create template: `charts/universal-tenant/templates/resourcequota.yaml`
-  - Template generates ResourceQuota based on tier
-  - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "0"`
+- [ ] 3.3.5 Verify ResourceQuota template (no changes needed)
+  - Verify template: `charts/universal-tenant/templates/resourcequota.yaml`
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.2.6 Create AtlasMigration CR template
-  - Create template: `charts/universal-tenant/templates/atlasmigration.yaml`
+- [ ] 3.3.6 Update AtlasMigration CR template for database model
+  - Update template: `charts/universal-tenant/templates/atlasmigration.yaml`
   - Template generates AtlasMigration CR with:
-    * Schema name: `tenant_{{.Values.tenantId}}`
-    * Migration directory: `migrations/tenant-baseline/`
-    * Connection to CNPG via PgBouncer
+    * Database name: `tenant_{{.Values.tenantId}}_db` (not schema name)
+    * Composite sources: tenant-baseline (`migrations/tenant-baseline/`) + tenant-specific (`fleet-registry/tenants/tenant-{{.Values.tenantId}}/migrations/`)
+    * Connection to tenant's database via tenant's pooler
     * Git repository URL for migrations
   - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "2"`
   - _Requirements: FR-5.2, FR-4.1, AC-5_
 
-- [x] 3.2.7 Create ConfigMap for migrations
-  - Create template: `charts/universal-tenant/templates/migrations-configmap.yaml`
-  - Template generates ConfigMap with migration files from Git
-  - Atlas Operator reads migrations from this ConfigMap
-  - Add sync wave annotation: `argocd.argoproj.io/sync-wave: "2"`
+- [ ] 3.3.7 Remove migrations ConfigMap template (not needed with composite sources)
+  - Delete template: `charts/universal-tenant/templates/migrations-configmap.yaml`
+  - Atlas Operator reads migrations directly from Git via composite sources
   - _Requirements: FR-5.2, FR-4.1, AC-5_
 
-- [x] 3.2.8 Commit Universal Tenant Chart to Git
-  - Commit chart to main branch
+- [ ] 3.3.8 Commit Universal Tenant Chart updates to Git
+  - Commit chart updates to main branch
   - Verify chart structure and templates
   - _Requirements: FR-5.2, AC-5_
 
-### 3.3 Fleet Registry Structure
+### 3.4 Fleet Registry Structure Updates
 
-- [x] 3.3.1 Create fleet registry repository structure
-  - Create directory: `fleet-registry/tenants/`
-  - Initialize Git repository
+- [ ] 3.4.1 Verify fleet registry repository structure
+  - Verify directory exists: `fleet-registry/tenants/`
   - _Requirements: FR-5.2, AC-5_
 
-
-- [x] 3.3.2 Create example tenant values file
-  - Create file: `fleet-registry/tenants/tenant-example/values.yaml`
-  - Content: tenantId, tier, region, database.schemaName, database.migrations.gitRepo
+- [ ] 3.4.2 Update example tenant values file for database model
+  - Update file: `fleet-registry/tenants/tenant-example/values.yaml`
+  - Content: tenantId, tier, cellId, database.name (tenant_<id>_db), database.migrations.baseline, database.migrations.tenant
+  - Remove: database.schemaName (replaced by database.name)
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.3.3 Commit fleet registry structure to Git
+- [ ] 3.4.3 Create example tenant-specific migrations directory
+  - Create directory: `fleet-registry/tenants/tenant-example/migrations/`
+  - Add README explaining tenant-specific migrations
+  - _Requirements: FR-5.2, AC-5_
+
+- [ ] 3.4.4 Commit fleet registry updates to Git
   - Commit to main branch
   - _Requirements: FR-5.2, AC-5_
 
-### 3.4 ArgoCD ApplicationSet for Tenant Provisioning
+### 3.5 ArgoCD ApplicationSet Updates
 
-- [x] 3.4.1 Create ApplicationSet with Git Generator
-  - Create file: `catalog/argocd/tenant-applicationset.yaml`
-  - Use Git Generator to watch `fleet-registry/tenants/*/values.yaml`
-  - Generate Helm Application for each tenant directory
-  - Configure source.chart: `charts/universal-tenant`
-  - Configure source.helm.valueFiles: `fleet-registry/tenants/{{tenant-id}}/values.yaml`
+- [ ] 3.5.1 Update ApplicationSet with cellId destination (Fix Issue #39)
+  - Update file: `manifests/argocd/apps/platform-tenant-applicationset.yaml`
+  - Verify Git Generator watches `fleet-registry/tenants/*/values.yaml`
+  - Verify Helm Application generation for each tenant directory
+  - Verify source.chart: `charts/universal-tenant`
+  - Verify source.helm.valueFiles: `fleet-registry/tenants/{{tenant-id}}/values.yaml`
+  - **CRITICAL FIX**: Update destination.name: `{{cellId}}` (from values.yaml, not hardcoded)
   - _Requirements: FR-5.2, AC-5_
 
-- [x] 3.4.2 Commit ApplicationSet to Git
+- [ ] 3.5.2 Commit ApplicationSet update to Git
   - Commit to feature branch
   - Verify ArgoCD syncs ApplicationSet
   - _Requirements: FR-5.2, AC-5_
-
-### 3.5 PostgREST Schema Discovery
-
-- [x] 3.5.1 Update PostgREST configuration for dynamic schema discovery
-  - Configure db-schemas to include all tenant schemas
-  - Configure schema discovery query: `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`
-  - Configure health check to verify schema exists before accepting requests
-  - _Requirements: FR-4.1, AC-5_
-
-- [x] 3.5.2 Commit PostgREST configuration update to Git
-  - Commit to feature branch
-  - Verify ArgoCD syncs updated PostgREST config
-  - _Requirements: FR-4.1, AC-5_
 
 
 ### 3.6 Phase 3 Manual Validation
 
 - [ ] 3.6.1 Create test tenant via GitOps flow
   - Create file: `fleet-registry/tenants/tenant-acme/values.yaml`
-  - Content: `tenantId: acme`, `tier: starter`, `database.schemaName: tenant_acme`
+  - Content: `tenantId: acme`, `tier: starter`, `cellId: spokepool-01`, `database.name: tenant_acme_db`
   - Commit to main branch
   - _Requirements: FR-5.2, AC-5, AC-6_
 
@@ -698,6 +696,7 @@ After completing each phase, you MUST:
   - Verify ApplicationSet detects new tenant directory
   - Verify Helm Application created: `argocd app get tenant-acme`
   - Verify Application uses Universal Tenant Chart
+  - Verify Application destination: `spokepool-01` (from cellId in values.yaml)
   - _Requirements: FR-5.2, AC-5, AC-6_
 
 - [ ] 3.6.3 Verify Helm renders CRs correctly
@@ -705,56 +704,76 @@ After completing each phase, you MUST:
   - Verify AINativeSaaS XR, AtlasMigration CR, namespace, RBAC generated
   - _Requirements: FR-5.2, AC-5, AC-6_
 
-- [ ] 3.6.4 Verify AtlasMigration CR deployed
+- [ ] 3.6.4 Verify AINativeSaaS XR deployed
+  - Verify XR deployed: `kubectl --context spokepool-01 get ainativesaas tenant-acme`
+  - Verify XR provisions Database, Pooler, PostgREST
+  - _Requirements: FR-4.1, AC-5, AC-6_
+
+- [ ] 3.6.5 Verify CNPG Database CR created
+  - Verify Database CR: `kubectl --context spokepool-01 get database tenant-acme-db`
+  - Verify database name: `tenant_acme_db`
+  - _Requirements: FR-4.1, AC-5, AC-6_
+
+- [ ] 3.6.6 Verify CNPG Pooler CR created
+  - Verify Pooler CR: `kubectl --context spokepool-01 get pooler tenant-acme-pooler`
+  - Verify pooler connects to `tenant_acme_db`
+  - Verify transaction pooling mode
+  - _Requirements: FR-4.1, AC-5, AC-6_
+
+- [ ] 3.6.7 Verify PostgREST Deployment created
+  - Verify Deployment: `kubectl --context spokepool-01 get deployment -n tenant-acme postgrest`
+  - Verify PostgREST connects via tenant's pooler
+  - Verify `db-schema=public` configuration
+  - _Requirements: FR-2.6, AC-5, AC-6_
+
+- [ ] 3.6.8 Verify PostgREST Service created
+  - Verify Service: `kubectl --context spokepool-01 get service -n tenant-acme postgrest`
+  - Verify ClusterIP type (internal only)
+  - _Requirements: FR-2.6, AC-5, AC-6_
+
+- [ ] 3.6.9 Verify AtlasMigration CR deployed
   - Verify CR deployed: `kubectl --context spokepool-01 get atlasmigration tenant-acme`
-  - Verify CR references correct schema: `tenant_acme`
-  - Verify CR references migration directory
+  - Verify CR references database: `tenant_acme_db`
+  - Verify CR uses composite sources (shared + tenant-specific)
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.5 Verify schema created in CNPG
-  - Verify schema exists: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dn tenant_acme"`
-  - Verify schema owner role: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\du tenant_acme_role"`
+- [ ] 3.6.10 Verify database created in CNPG
+  - Verify database exists: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\l tenant_acme_db"`
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.6 Verify baseline tables created
-  - Verify tables exist: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dt tenant_acme.*"`
+- [ ] 3.6.11 Verify baseline tables created
+  - Verify tables exist: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "\dt public.*"`
   - Verify RLS enabled on tables
   - Verify RLS policies exist
   - _Requirements: FR-4.1, FR-4.2, AC-5, AC-6_
 
-
-- [ ] 3.6.7 Verify AtlasMigration CR status
+- [ ] 3.6.12 Verify AtlasMigration CR status
   - Verify CR status: `kubectl --context spokepool-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
   - Verify status is True
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.8 Verify PostgREST schema discovery
-  - Verify PostgREST db-schemas includes tenant_acme
-  - Verify PostgREST health check passes
-  - _Requirements: FR-4.1, AC-5, AC-6_
-
-- [ ] 3.6.9 Verify schema provisioning time
+- [ ] 3.6.13 Verify database provisioning time
   - Measure time from Git commit to AtlasMigration Ready
   - Verify < 5 seconds
   - _Requirements: NFR-1.3, AC-5, AC-6_
 
-- [ ] 3.6.10 Test authentication flow via AgentGateway
+- [ ] 3.6.14 Test authentication flow via Hub AgentGateway
   - Obtain JWT from Hub Ory: `curl -X POST https://auth.hub.example.com/oauth2/token ...`
-  - Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.spokepool-01.example.com/documents`
-  - Verify AgentGateway logs show JWT validation
-  - Verify AgentGateway extracts tenant_id from JWT
-  - Verify AgentGateway forwards request with X-Tenant-ID header
-  - Verify PostgREST logs show search_path=tenant_acme
+  - Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.hub.example.com/tenant-acme/documents`
+  - Verify Hub AgentGateway logs show JWT validation
+  - Verify Hub AgentGateway extracts tenant_id from JWT
+  - Verify Hub AgentGateway routes to tenant's PostgREST instance
+  - Verify tenant PostgREST logs show connection to tenant_acme_db
   - Verify response contains only tenant's data
   - _Requirements: FR-4.5, FR-2.6, AC-6_
 
-- [ ] 3.6.11 Test drift detection and recovery
-  - Manually alter schema: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "ALTER TABLE tenant_acme.users ADD COLUMN test VARCHAR(20)"`
+- [ ] 3.6.15 Test drift detection and recovery
+  - Manually alter database: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "ALTER TABLE public.users ADD COLUMN test VARCHAR(20)"`
   - Wait 60 seconds (Atlas Operator reconciliation loop)
   - Verify Atlas Operator logs show drift detection
-  - Create new migration: `migrations/tenant-baseline/20240101000007_add_test_column.sql`
-  - Commit to Git, ArgoCD syncs ConfigMap
-  - Verify Atlas Operator applies migration
+  - Create new migration: `migrations/tenant-baseline/20240101000006_add_test_column.sql`
+  - Commit to Git, ArgoCD syncs
+  - Verify Atlas Operator applies migration to tenant_acme_db
   - Verify AtlasMigration CR status remains Ready=True
   - _Requirements: FR-4.4, NFR-3.6, AC-6_
 
@@ -763,8 +782,8 @@ After completing each phase, you MUST:
 - [ ] 3.7.1 **MANDATORY STOP - Phase 3 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 3 completion summary to user
-  - Demonstrate: Git commit → ApplicationSet → Helm → AtlasMigration → Schema provisioned
-  - Show validation results from tasks 3.6.1-3.6.11
+  - Demonstrate: Git commit → ApplicationSet → Helm → AINativeSaaS XR → Database + Pooler + PostgREST provisioned
+  - Show validation results from tasks 3.6.1-3.6.15
   - **WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 4**
   - Document any issues or deviations from design
   - _Requirements: All Phase 3 requirements_

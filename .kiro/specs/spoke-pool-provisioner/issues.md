@@ -1,12 +1,56 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-14 12:50 UTC  
-**Context**: Phase 2 Validation Blocked - NGINX → NATS Connectivity Issue
+**Last Updated**: 2026-04-16 05:15 UTC  
+**Context**: Phase 3 Blocked - Fleet Registry Repository Missing
 
 ---
 
-## Resolved Issues
+## Current Issues
+
+### ❌ Issue #39: Tenant Application Deploying to Wrong Cluster
+
+**STATUS**: BLOCKING Phase 3 Validation  
+**ROOT CAUSE**: ApplicationSet destination points to Hub cluster instead of Spoke Pool cluster  
+**ERROR**: `The Kubernetes API could not find db.atlasgo.io/AtlasMigration for requested resource`  
+**INVESTIGATION**:
+- Fleet registry repository exists and accessible ✅
+- ApplicationSet detected `tenant-example` ✅
+- Application created with OutOfSync status ✅
+- Application trying to deploy to `https://kubernetes.default.svc` (Hub cluster) ❌
+- AtlasMigration CRD only exists on Spoke Pool clusters ❌
+- Tenant resources should deploy to Spoke Pool, not Hub ❌
+**ROOT CAUSE ANALYSIS**:
+- ApplicationSet template has hardcoded destination: `server: https://kubernetes.default.svc`
+- Should use dynamic destination based on tenant's `cell-id` from values.yaml
+- Need to map tenant to correct Spoke Pool cluster
+**REQUIRED ACTIONS**:
+1. Update ApplicationSet template to use dynamic destination
+2. Read `cell-id` from tenant values.yaml
+3. Map cell-id to Spoke Pool cluster URL
+4. Options:
+   - Use cluster name from ArgoCD cluster Secret
+   - Use cluster label selector
+   - Use cluster decision resource
+5. Verify tenant deploys to correct Spoke Pool cluster
+**BLOCKED TASKS**:
+- Task 3.6.4: Verify AtlasMigration CR deployed (deploying to wrong cluster)
+- Task 3.6.5: Verify schema created in CNPG (CNPG is on spoke, not hub)
+- Task 3.6.6: Verify baseline tables created
+- Task 3.6.7: Verify AtlasMigration CR status
+- Task 3.6.8: Verify PostgREST schema discovery
+- Task 3.6.9: Verify schema provisioning time
+- Task 3.6.10: Test authentication flow
+- Task 3.6.11: Test drift detection
+**CURRENT STATE**:
+- Application: `tenant-example` created in hub-platform-ops namespace
+- Status: OutOfSync, SyncFailed
+- Resources: 9 resources (Namespace, RBAC, AINativeSaaS, AtlasMigration, etc.)
+- All resources marked as Missing (trying to create on Hub cluster)
+
+---
+
+## Current Issues
 
 ### ✅ Issue #38: NATS Leafnode mTLS Connection
 

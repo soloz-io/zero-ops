@@ -11,15 +11,16 @@
 
 ### 1.1 Purpose
 
-Automate the provisioning of Spoke Pool clusters (cells) that host multiple Starter tier tenants with schema-level isolation. Each cell is a complete Kubernetes cluster containing shared infrastructure (CNPG database, NATS leaf node, ArgoCD agent) that serves all tenants within that cell.
+Automate the provisioning of Spoke Pool clusters (cells) that host multiple Starter tier tenants with database-level isolation. Each cell is a complete Kubernetes cluster containing shared infrastructure (CNPG cluster, NATS leaf node, ArgoCD agent) that serves all tenants within that cell. Each tenant gets a dedicated logical database, connection pooler, and PostgREST instance provisioned via Crossplane AINativeSaaS XR.
 
 ### 1.2 Architecture Principles
 
 - **GitOps-First**: All infrastructure changes via Git commits, ArgoCD reconciles
-- **Declarative Provisioning**: Single SpokePool XR expands into full cluster + edge catalog
+- **Declarative Provisioning**: AINativeSaaS XR expands into tenant database + pooler + PostgREST
 - **Event-Driven**: CAPI cluster Ready → Kyverno generates ArgoCD Secret → ApplicationSet deploys edge catalog
 - **Hub-Spoke Model**: Hub manages control plane, Spokes operate autonomously with eventual consistency
-- **Schema-Level Isolation**: 100 tenant schemas per cell with deterministic naming (`tenant_<id>`)
+- **Database-Level Isolation**: 100 tenant databases per cell with deterministic naming (`tenant_<id>_db`)
+- **Composite Migrations**: Atlas merges shared baseline + tenant-specific migrations declaratively
 
 ---
 
@@ -54,9 +55,13 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 │ - ArgoCD Agent   │  │              │  │              │
 │ - CNPG (shared)  │  │              │  │              │
 │ - Atlas Operator │  │              │  │              │
-│ - PostgREST      │  │              │  │              │
 │ - NATS Leaf Node │  │              │  │              │
 │ - Grafana Alloy  │  │              │  │              │
+│                  │  │              │  │              │
+│ Per-Tenant:      │  │              │  │              │
+│ - Database       │  │              │  │              │
+│ - Pooler         │  │              │  │              │
+│ - PostgREST      │  │              │  │              │
 └──────────────────┘  └──────────────┘  └──────────────┘
 ```
 
@@ -197,42 +202,48 @@ stringData:
 **Configuration**:
 - 3 PostgreSQL replicas (HA)
 - pgvector extension enabled
-- PgBouncer transaction pooling (500 max connections)
 - 100Gi storage per instance
 - Backup to Hetzner S3 (30-day retention)
+- Hosts 100 logical databases (one per tenant)
 
-**Connection Pooling** (NFR-2.4):
-```ini
-pool_mode = transaction  # CRITICAL: Must be transaction mode
-max_client_conn = 500    # 100 tenants * 5 connections
-default_pool_size = 20
-max_db_connections = 100
-```
+**Per-Tenant Pooler Configuration** (provisioned via AINativeSaaS XR):
+- Each tenant gets dedicated CNPG Pooler CR
+- Pooler connects only to tenant's database
+- Transaction pooling mode (CRITICAL: not session pooling)
+- 5 concurrent connections per tenant pooler
+- Pooler deployed in tenant namespace
 
-### 4.2 Tenant Schema Model
+### 4.2 Tenant Database Model
 
-**Naming Convention**: `tenant_<id>` (deterministic, idempotent)
+**Naming Convention**: `tenant_<id>_db` (deterministic, idempotent)
 
-**Schema Structure**:
+**Database Structure**:
 ```sql
-CREATE SCHEMA IF NOT EXISTS tenant_acme;
-CREATE ROLE tenant_acme_role;
-GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
+CREATE DATABASE tenant_acme_db;
+-- All tables in public schema
 ```
 
-**Baseline Tables** (adapted from Supabase):
-- `tenant_<id>.users` (auth)
-- `tenant_<id>.sessions` (auth)
-- `tenant_<id>.identities` (OAuth/SSO)
-- `tenant_<id>.buckets` (storage)
-- `tenant_<id>.objects` (storage)
+**Per-Tenant Resources** (provisioned via AINativeSaaS XR):
+- CNPG Database CR: `tenant_<id>_db` (logical database in shared cluster)
+- CNPG Pooler CR: Dedicated pooler connecting to tenant's database
+- PostgREST Deployment: Dedicated instance connecting via tenant's pooler
+- PostgREST Service: ClusterIP service in tenant namespace
+
+**Baseline Tables** (adapted from Supabase, in `public` schema):
+- `public.users` (auth)
+- `public.sessions` (auth)
+- `public.identities` (OAuth/SSO)
+- `public.buckets` (storage)
+- `public.objects` (storage)
 - Application-specific tables (e.g., `posts`)
 
-**RLS Policies**: End-user isolation within tenant schema using JWT `user_id` claim
+**RLS Policies**: End-user isolation within tenant database using JWT `user_id` claim
 
 ### 4.3 Migration Files
 
-**Location**: `migrations/tenant-baseline/`
+**Shared Baseline Location**: `migrations/tenant-baseline/`
+
+**Tenant-Specific Location**: `fleet-registry/tenants/tenant-<id>/migrations/`
 
 **Naming**: `YYYYMMDDHHMMSS_description.sql` (Atlas format)
 
@@ -241,7 +252,9 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 - All migrations forward-only (no destructive operations)
 - Immutable once merged to main branch
 
-**Tracking**: `atlas_schema_revisions` table per schema
+**Tracking**: `atlas_schema_revisions` table per database
+
+**Composite Sources**: Atlas merges tenant-baseline + tenant-specific migrations declaratively
 
 ---
 
@@ -267,32 +280,36 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 15. Cell: Ready for tenant onboarding
 ```
 
-### 5.2 Tenant Schema Provisioning Sequence
+### 5.2 Tenant Database Provisioning Sequence
 
 ```
-1. MCP API: Receives tenant_create(tenant_id="acme", tier="starter")
+1. MCP API: Receives tenant_create(tenant_id="acme", tier="starter", cell_id="spokepool-01")
 2. MCP API: Commits values to Git: fleet-registry/tenants/tenant-acme/values.yaml
 3. ArgoCD ApplicationSet: Detects new tenant directory (Git Generator)
 4. ApplicationSet: Creates Helm Application pointing to Universal Tenant Chart
 5. Helm: Renders templates with tenant values:
-   - AINativeSaaS XR (namespace, RBAC, ResourceQuota)
-   - AtlasMigration CR (schema provisioning)
-6. ArgoCD: Deploys generated CRs to Spoke Pool cluster (sync wave 2)
-7. Atlas Operator: Reconciles AtlasMigration CR:
-   a. Reads migrations from ConfigMap
-   b. Connects to CNPG via PgBouncer
-   c. Checks atlas_schema_revisions for tenant_acme schema
+   - AINativeSaaS XR (provisions Database, Pooler, PostgREST)
+   - AtlasMigration CR (database migrations with composite sources)
+   - Namespace (tenant-acme)
+   - RBAC, ResourceQuota
+6. ArgoCD: Deploys generated CRs to Spoke Pool cluster (destination: cell_id)
+7. Crossplane: Reconciles AINativeSaaS XR:
+   a. Creates CNPG Database CR: tenant_acme_db
+   b. Creates CNPG Pooler CR: connects to tenant_acme_db (transaction mode)
+   c. Creates PostgREST Deployment: connects via tenant's pooler
+   d. Creates PostgREST Service: ClusterIP in tenant-acme namespace
+8. Atlas Operator: Reconciles AtlasMigration CR:
+   a. Reads migrations from Git (tenant-baseline + tenant-specific via composite sources)
+   b. Connects to tenant_acme_db via tenant's pooler
+   c. Checks atlas_schema_revisions for tenant_acme_db
    d. Detects missing migrations
    e. Validates migrations in ephemeral dev database
-   f. Applies migrations: CREATE SCHEMA IF NOT EXISTS tenant_acme
-   g. Creates schema owner role: tenant_acme_role
-   h. Applies baseline tables with RLS policies
-   i. Updates atlas_schema_revisions
-   j. Updates CR status: Ready=True
-8. ArgoCD: Health check passes (Ready=True)
-9. ArgoCD: Proceeds to sync wave 3 (PostgREST deployment)
-10. PostgREST: Deployed with db-schemas including tenant_acme
-11. Tenant: Ready for requests via Hub AgentGateway → PostgREST
+   f. Applies migrations: CREATE TABLE IF NOT EXISTS public.users ...
+   g. Applies baseline tables with RLS policies in public schema
+   h. Updates atlas_schema_revisions
+   i. Updates CR status: Ready=True
+9. ArgoCD: Health check passes (Ready=True)
+10. Tenant: Ready for requests via Hub AgentGateway → Tenant PostgREST → Tenant Pooler → Tenant Database
 ```
 
 ### 5.3 Authentication Flow
@@ -300,16 +317,17 @@ GRANT ALL ON SCHEMA tenant_acme TO tenant_acme_role;
 ```
 Developer/Agent (IDE Client)
     ↓ [JWT from Hub Ory Hydra]
-AgentGateway (Hub Cluster)
+Hub AgentGateway
     ↓ [Validates JWT using Hub Ory JWKS]
     ↓ [Extracts tenant_id from JWT claims]
     ↓ [Routes to appropriate Spoke Pool]
-    ↓ [Forwards: JWT + X-Tenant-ID header]
-PostgREST (Spoke Pool, Internal Service)
-    ↓ [Caches validated JWT (10000 entries)]
-    ↓ [Sets search_path=tenant_<id>]
-    ↓ [Executes query via PgBouncer]
-CNPG Cluster (Spoke Pool, Shared Database)
+    ↓ [Forwards: JWT to tenant's PostgREST]
+Tenant PostgREST (Spoke Pool, Dedicated Instance)
+    ↓ [Connects to tenant's database via tenant's pooler]
+    ↓ [Executes query in public schema]
+Tenant Pooler (Spoke Pool, Dedicated)
+    ↓ [Transaction pooling to tenant's database]
+Tenant Database (Spoke Pool, Logical Database: tenant_<id>_db)
 ```
 
 ### 5.4 Drift Detection and Recovery
@@ -317,13 +335,13 @@ CNPG Cluster (Spoke Pool, Shared Database)
 ```
 Every 30-60 seconds (Atlas Operator reconciliation loop):
 1. Atlas Operator: Reads AtlasMigration CR for tenant_acme
-2. Atlas Operator: Fetches migration directory from ConfigMap
-3. Atlas Operator: Connects to CNPG via PgBouncer
-4. Atlas Operator: Queries atlas_schema_revisions for tenant_acme schema
+2. Atlas Operator: Fetches migration directory from Git (tenant-baseline + tenant-specific)
+3. Atlas Operator: Connects to tenant_acme_db via tenant's pooler
+4. Atlas Operator: Queries atlas_schema_revisions for tenant_acme_db
 5. Atlas Operator: Compares Git migrations vs applied migrations
 6. If drift detected:
    a. Validates missing migrations in ephemeral dev database
-   b. Applies missing migrations to production
+   b. Applies missing migrations to production database
    c. Updates atlas_schema_revisions
    d. Updates CR status: Ready=True
    e. Emits metric: atlas_drift_detected_total++
@@ -412,12 +430,14 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 
 ### 6.3 Tenant Isolation
 
-**Platform-Level Isolation** (Schema-Level):
-- Deterministic schema naming: `tenant_<id>`
-- Hub AgentGateway validates JWT, extracts `tenant_id`, routes to correct Spoke Pool
-- PostgREST sets `search_path=tenant_<id>` per request
+**Platform-Level Isolation** (Database-Level):
+- Deterministic database naming: `tenant_<id>_db`
+- Each tenant has dedicated logical database in shared CNPG cluster
+- Each tenant has dedicated pooler connecting only to their database
+- Each tenant has dedicated PostgREST instance connecting via their pooler
+- Hub AgentGateway validates JWT, extracts `tenant_id`, routes to correct tenant's PostgREST
 - PgBouncer transaction pooling resets session state between transactions
-- No cross-tenant access possible (no shared search_path)
+- No cross-tenant access possible (separate databases)
 
 ### 6.4 End-User Isolation
 - PostgreSQL RLS policies within tenant schema
@@ -468,9 +488,9 @@ cnpg_pg_database_size_bytes{cell_id="spokepool-01"}
 nats_leafnode_connected{cell_id="spokepool-01"}
 nats_leafnode_in_msgs{cell_id="spokepool-01"}
 
-# PostgREST
-postgrest_requests_total{cell_id="spokepool-01", schema="tenant_acme"}
-postgrest_jwt_cache_hits_total{cell_id="spokepool-01"}
+# PostgREST (per-tenant instances)
+postgrest_requests_total{cell_id="spokepool-01", tenant_id="acme", namespace="tenant-acme"}
+postgrest_jwt_cache_hits_total{cell_id="spokepool-01", tenant_id="acme"}
 
 # Atlas
 atlas_drift_detected_total{cell_id="spokepool-01"}
@@ -516,46 +536,48 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Expected Result**: All components reach Healthy status within 15 minutes
 
-### 8.2 Tenant Schema Provisioning Test
+### 8.2 Tenant Database Provisioning Test
 
-**Test Case**: Create tenant schema via GitOps flow
+**Test Case**: Create tenant database via GitOps flow
 
 **Steps**:
-1. Call MCP API: `tenant_create(tenant_id="acme", tier="starter")`
+1. Call MCP API: `tenant_create(tenant_id="acme", tier="starter", cell_id="spokepool-01")`
 2. Verify MCP API commits values to Git: `fleet-registry/tenants/tenant-acme/values.yaml`
 3. Verify ArgoCD detects new tenant directory and creates Helm Application
-4. Verify AtlasMigration CR deployed: `kubectl --context spokepool-01 get atlasmigration tenant-acme`
-5. Verify schema created: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dn tenant_acme"`
-6. Verify schema owner role: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\du tenant_acme_role"`
-7. Verify baseline tables: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\dt tenant_acme.*"`
-8. Verify AtlasMigration CR status: `kubectl --context spokepool-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
+4. Verify AINativeSaaS XR deployed: `kubectl --context spokepool-01 get ainativesaas tenant-acme`
+5. Verify CNPG Database CR created: `kubectl --context spokepool-01 get database tenant-acme-db`
+6. Verify CNPG Pooler CR created: `kubectl --context spokepool-01 get pooler tenant-acme-pooler`
+7. Verify PostgREST Deployment created: `kubectl --context spokepool-01 get deployment -n tenant-acme postgrest`
+8. Verify database created: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\l tenant_acme_db"`
+9. Verify baseline tables: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "\dt public.*"`
+10. Verify AtlasMigration CR status: `kubectl --context spokepool-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
 
-**Expected Result**: Schema provisioning completes in < 5 seconds
+**Expected Result**: Database provisioning completes in < 5 seconds
 
 ### 8.3 Authentication Flow Test
 
-**Test Case**: Tenant can access their schema via Hub AgentGateway → PostgREST
+**Test Case**: Tenant can access their database via Hub AgentGateway → Tenant PostgREST
 
 **Steps**:
 1. Obtain JWT from Hub Ory: `curl -X POST https://auth.nutgraf.in/oauth2/token ...`
 2. Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.nutgraf.in/documents`
-3. Verify Hub AgentGateway logs show JWT validation and routing
-4. Verify PostgREST logs show `search_path=tenant_acme`
+3. Verify Hub AgentGateway logs show JWT validation and routing to tenant PostgREST
+4. Verify tenant PostgREST logs show connection to tenant database
 5. Verify response contains only tenant's documents
 
 **Expected Result**: Request succeeds, tenant isolation enforced
 
 ### 8.4 Drift Detection Test
 
-**Test Case**: Atlas Operator detects and repairs manual schema change
+**Test Case**: Atlas Operator detects and repairs manual database change
 
 **Steps**:
-1. Manually alter schema: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "ALTER TABLE tenant_acme.users ADD COLUMN test VARCHAR(20)"`
+1. Manually alter database: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "ALTER TABLE public.users ADD COLUMN test VARCHAR(20)"`
 2. Wait 60 seconds (Atlas Operator reconciliation loop)
 3. Verify Atlas Operator logs show drift detection
-4. Create new migration file: `20240101000007_add_test_column.sql`
-5. Commit to Git, ArgoCD syncs ConfigMap
-6. Verify Atlas Operator applies migration
+4. Create new migration file: `migrations/shared/20240101000007_add_test_column.sql`
+5. Commit to Git, ArgoCD syncs
+6. Verify Atlas Operator applies migration to tenant_acme_db
 7. Verify AtlasMigration CR status: `Ready=True`
 
 **Expected Result**: Drift detected and repaired within 5 minutes
@@ -603,16 +625,16 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Validation**: Verify all spoke catalog components reach Healthy status with correct sync waves
 
-### Phase 3: Tenant Schema Provisioning (Week 5-6)
+### Phase 3: Tenant Database Provisioning (Week 5-6)
 
 **Deliverables**:
-- Universal Tenant Helm Chart
-- Baseline migration files (Supabase-adapted)
-- AtlasMigration CR template
-- ArgoCD ApplicationSet (Git Generator for tenants)
-- PostgREST schema discovery
+- AINativeSaaS XRD and Composition
+- Universal Tenant Helm Chart (generates AINativeSaaS XR + AtlasMigration CR)
+- Tenant baseline migration files (Supabase-adapted) in `migrations/tenant-baseline/`
+- AtlasMigration CR template with composite sources
+- ArgoCD ApplicationSet (Git Generator for tenants) with cellId destination
 
-**Validation**: Create tenant via MCP API, verify schema provisioned in < 5 seconds
+**Validation**: Create tenant via MCP API, verify database + pooler + PostgREST provisioned in < 5 seconds
 
 ### Phase 4: Observability and Monitoring (Week 7)
 
