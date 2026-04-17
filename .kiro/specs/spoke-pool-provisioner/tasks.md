@@ -531,7 +531,7 @@ After completing each phase, you MUST:
 
 ### 3.1 Tenant Baseline Migration Files
 
-- [ ] 3.1.1 Update migration files from schema-based to database-based
+- [x] 3.1.1 Update migration files from schema-based to database-based
   - Update 6 SQL files in `migrations/tenant-baseline/` to change `tenant_{{.tenant_id}}` schema references to `public` schema
   - Remove schema creation migration (20240101000001_create_schema.sql)
   - Remove role creation references (`tenant_{{.tenant_id}}_role`)
