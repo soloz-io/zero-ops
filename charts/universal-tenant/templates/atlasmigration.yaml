@@ -1,4 +1,5 @@
-{{- $schemaName := .Values.database.schemaName | default (printf "tenant_%s" .Values.tenantId) -}}
+{{- $databaseName := .Values.database.name | default (printf "tenant_%s_db" .Values.tenantId) -}}
+{{- $poolerService := printf "%s-pooler.tenant-%s.svc.cluster.local" .Values.tenantId .Values.tenantId -}}
 ---
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasMigration
@@ -10,23 +11,21 @@ metadata:
   labels:
     tenant-id: {{ .Values.tenantId }}
     tier: {{ .Values.tier }}
+    cell-id: {{ .Values.cellId }}
 spec:
-  # Connection to shared CNPG cluster via PgBouncer
-  url: postgresql://postgres:password@shared-cnpg-pooler-rw.spoke-pool-system.svc.cluster.local:5432/postgres?sslmode=disable
+  # Connection to tenant's dedicated database via tenant's dedicated pooler
+  url: postgresql://postgres@{{ $poolerService }}:5432/{{ $databaseName }}?sslmode=disable
   
-  # Schema to manage
-  schema: {{ $schemaName }}
-  
-  # Migration directory from ConfigMap
+  # Composite migration sources (tenant-baseline + tenant-specific)
   dir:
-    configMapRef:
-      name: tenant-{{ .Values.tenantId }}-migrations
+    # Tenant baseline migrations (applied to all tenants)
+    - url: {{ .Values.database.migrations.baseline | default "migrations/tenant-baseline/" }}
+      format: atlas
+    # Tenant-specific migrations (custom tables)
+    - url: {{ .Values.database.migrations.tenant | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
+      format: atlas
   
-  # Template variables for migration files
-  vars:
-    tenant_id: {{ .Values.tenantId }}
-  
-  # Baseline version (first migration)
+  # Baseline version (first migration in tenant-baseline)
   baseline: "20240101000001"
   
   # Reconciliation policy
@@ -34,6 +33,10 @@ spec:
     # Detect and report drift
     drift:
       enabled: true
+      # Check every 60 seconds
+      interval: 60s
     # Auto-apply migrations
     apply:
       enabled: true
+      # Validate in dev database first
+      devURL: postgresql://postgres@{{ $poolerService }}:5432/{{ $databaseName }}_dev?sslmode=disable

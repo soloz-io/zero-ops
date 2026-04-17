@@ -1,4 +1,4 @@
-{{- $schemaName := .Values.database.schemaName | default (printf "tenant_%s" .Values.tenantId) -}}
+{{- $databaseName := .Values.database.name | default (printf "tenant_%s_db" .Values.tenantId) -}}
 ---
 apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
@@ -10,12 +10,22 @@ metadata:
   labels:
     tenant-id: {{ .Values.tenantId }}
     tier: {{ .Values.tier }}
+    cell-id: {{ .Values.cellId }}
 spec:
   tenantId: {{ .Values.tenantId }}
   tier: {{ .Values.tier }}
-  region: {{ .Values.region }}
+  cellId: {{ .Values.cellId }}
   
   database:
-    schemaName: {{ $schemaName }}
-    pooler: pgbouncer
-    poolerMode: transaction
+    name: {{ $databaseName }}
+    migrations:
+      baseline: {{ .Values.database.migrations.baseline | default "migrations/tenant-baseline/" }}
+      tenant: {{ .Values.database.migrations.tenant | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
+  
+  pooler:
+    maxConnections: {{ .Values.pooler.maxConnections | default 5 }}
+    poolMode: transaction
+  
+  postgrest:
+    dbSchema: {{ .Values.postgrest.dbSchema | default "public" }}
+    jwtCacheSize: {{ .Values.postgrest.jwtCacheSize | default 10000 }}
