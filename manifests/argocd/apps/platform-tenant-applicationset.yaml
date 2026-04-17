@@ -20,9 +20,9 @@ spec:
   
   template:
     metadata:
-      name: '{{.values.tenantId}}'
+      name: '{{.tenantId}}'
       labels:
-        tenant-id: '{{.values.tenantId}}'
+        tenant-id: '{{.tenantId}}'
         provisioning-type: gitops
     
     spec:
@@ -46,8 +46,8 @@ spec:
       destination:
         # Deploy to the appropriate Spoke Pool cluster based on cellId from values
         # CRITICAL FIX (Issue #39): Use cellId from values.yaml, not hardcoded
-        name: '{{.values.cellId}}'
-        namespace: 'tenant-{{.values.tenantId}}'
+        name: '{{.cellId}}'
+        namespace: 'tenant-{{.tenantId}}'
       
       syncPolicy:
         automated:
