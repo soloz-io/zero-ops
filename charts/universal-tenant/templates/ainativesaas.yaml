@@ -1,4 +1,16 @@
 {{- $databaseName := .Values.database.name | default (printf "tenant_%s_db" .Values.tenantId) -}}
+{{- $poolerMaxConn := 5 -}}
+{{- $poolerMode := "transaction" -}}
+{{- if .Values.pooler -}}
+  {{- $poolerMaxConn = .Values.pooler.maxConnections | default 5 -}}
+  {{- $poolerMode = .Values.pooler.poolMode | default "transaction" -}}
+{{- end -}}
+{{- $dbSchema := "public" -}}
+{{- $jwtCacheSize := 10000 -}}
+{{- if .Values.postgrest -}}
+  {{- $dbSchema = .Values.postgrest.dbSchema | default "public" -}}
+  {{- $jwtCacheSize = .Values.postgrest.jwtCacheSize | default 10000 -}}
+{{- end -}}
 ---
 apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
@@ -23,9 +35,9 @@ spec:
       tenant: {{ .Values.database.migrations.tenant | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
   
   pooler:
-    maxConnections: {{ .Values.pooler.maxConnections | default 5 }}
-    poolMode: transaction
+    maxConnections: {{ $poolerMaxConn }}
+    poolMode: {{ $poolerMode }}
   
   postgrest:
-    dbSchema: {{ .Values.postgrest.dbSchema | default "public" }}
-    jwtCacheSize: {{ .Values.postgrest.jwtCacheSize | default 10000 }}
+    dbSchema: {{ $dbSchema }}
+    jwtCacheSize: {{ $jwtCacheSize }}
