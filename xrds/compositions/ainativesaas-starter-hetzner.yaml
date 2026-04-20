@@ -335,6 +335,7 @@ spec:
               dir:
                 configMapRef:
                   name: tenant-baseline-migrations
+                  namespace: spoke-pool-system
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
