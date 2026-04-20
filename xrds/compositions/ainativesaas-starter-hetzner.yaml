@@ -162,7 +162,7 @@ spec:
         - fromFieldPath: spec.database.name
         strategy: string
         string:
-          fmt: "postgresql://postgres@%s-pooler-rw.spoke-pool-system.svc:5432/%s"
+          fmt: "postgresql://postgres@%s-pooler.spoke-pool-system.svc:5432/%s"
       toFieldPath: spec.forProvider.manifest.stringData.url
 
   # 3. PostgREST Deployment - Wrapped in provider-kubernetes Object
