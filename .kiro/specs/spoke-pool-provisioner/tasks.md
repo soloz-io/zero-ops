@@ -686,13 +686,13 @@ After completing each phase, you MUST:
 
 ### 3.6 Phase 3 Manual Validation
 
-- [-] 3.6.1 Create test tenant via GitOps flow
+- [x] 3.6.1 Create test tenant via GitOps flow
   - Create file: `fleet-registry/tenants/tenant-acme/values.yaml`
   - Content: `tenantId: acme`, `tier: starter`, `cellId: spokepool-01`, `database.name: tenant_acme_db`
   - Commit to main branch
   - _Requirements: FR-5.2, AC-5, AC-6_
 
-- [ ] 3.6.2 Verify ArgoCD detects tenant and creates Application
+- [x] 3.6.2 Verify ArgoCD detects tenant and creates Application
   - Verify ApplicationSet detects new tenant directory
   - Verify Helm Application created: `argocd app get tenant-acme`
   - Verify Application uses Universal Tenant Chart
@@ -704,7 +704,7 @@ After completing each phase, you MUST:
   - Verify AINativeSaaS XR, AtlasMigration CR, namespace, RBAC generated
   - _Requirements: FR-5.2, AC-5, AC-6_
 
-- [ ] 3.6.4 Verify AINativeSaaS XR deployed
+- [-] 3.6.4 Verify AINativeSaaS XR deployed
   - Verify XR deployed: `kubectl --context spokepool-01 get ainativesaas tenant-acme`
   - Verify XR provisions Database, Pooler, PostgREST
   - _Requirements: FR-4.1, AC-5, AC-6_

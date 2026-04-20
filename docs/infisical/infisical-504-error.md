@@ -33,7 +33,7 @@ Enable PgBouncer (CNPG's built-in connection pooler) to handle connection multip
 ### Implementation Status
 
 **✅ Completed (GitOps Compliant):**
-1. Updated `manifests/platform-database/platform-db.yaml` with pooler config
+1. Updated `manifests/hub-core-services/platform-database/platform-db.yaml` with pooler config
 2. Updated `internal/hub/components/installer.go` to use pooler endpoint
 3. Committed and pushed changes (commit 7ea5bc2)
 4. Documentation approved for Day 2 operations

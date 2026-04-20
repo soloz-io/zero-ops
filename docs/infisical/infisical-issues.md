@@ -149,7 +149,7 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 
 **Blocker A: PostgreSQL Superuser mTLS Authentication**
 
-1. **File:** `manifests/platform-database/setup-platform-roles-job.yaml`
+1. **File:** `manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml`
    - Changed authentication from password to mTLS using CNPG client certificates
    - Added environment variables:
      - `PGSSLMODE=verify-ca` (was `require`)
@@ -390,8 +390,8 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 - Removed imperative job deletion from CLI
 
 **Files Modified:**
-- `manifests/platform-database/setup-platform-roles-job.yaml` - Added Sync Hook annotations
-- `manifests/platform-database/migrations/infisical-job.yaml` - Added Sync Hook annotations
+- `manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml` - Added Sync Hook annotations
+- `manifests/hub-core-services/platform-database/migrations/infisical-job.yaml` - Added Sync Hook annotations
 - `internal/hub/components/installer.go` - Removed job deletion logic
 
 **Why This is Production-Grade:**
@@ -496,7 +496,7 @@ const $decryptRootKey = async (kmsRootConfig: TKmsRootConfig) => {
 The `infisical-migrations` job already has database wipe logic:
 
 ```yaml
-# manifests/platform-database/migrations/infisical-migrations.yaml
+# manifests/hub-core-services/platform-database/migrations/infisical-migrations.yaml
 command:
 - /bin/sh
 - -c
@@ -607,8 +607,8 @@ Commit to Git → ArgoCD syncs → Pods restart automatically
 - `manifests/argocd/apps/platform-victoriametrics.yaml` - Reduced memory requests
 - `manifests/hub-core-services/platform-infisical/values.yaml` - Updated pod restart annotation, changed to envFrom pattern
 - `manifests/hub-core-services/platform-infisical/redis.yaml` - Standalone Redis deployment
-- `manifests/platform-database/migrations/infisical-migrations.yaml` - Database wipe logic
-- `manifests/platform-database/setup-platform-roles-job.yaml` - Changed to mTLS authentication
+- `manifests/hub-core-services/platform-database/migrations/infisical-migrations.yaml` - Database wipe logic
+- `manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml` - Changed to mTLS authentication
 
 ### Hub CLI
 - `internal/hub/components/installer.go` - Auto-delete job after password rotation, changed to individual DB params
@@ -728,7 +728,7 @@ connection: {
 - This is irrecoverable without original key
 
 **Solution (Option 3 - Fresh Database via GitOps):**
-1. Created `manifests/platform-database/reset-infisical-db-job.yaml`
+1. Created `manifests/hub-core-services/platform-database/reset-infisical-db-job.yaml`
    - ArgoCD Sync Hook with sync-wave: "2" (runs before setup-platform-roles)
    - Terminates active connections to infisical database
    - Drops and recreates infisical database

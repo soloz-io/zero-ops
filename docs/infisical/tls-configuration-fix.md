@@ -28,7 +28,7 @@ This implements end-to-end encryption across all hops, following zero-trust netw
 ## Fixes Applied
 
 ### 1. Database Role Creation
-**File:** `manifests/platform-database/setup-platform-roles-job.yaml`
+**File:** `manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml`
 - Added `cnpg_pooler_pgbouncer` role creation
 - PgBouncer pooler requires this role for authentication
 
@@ -48,7 +48,7 @@ This implements end-to-end encryption across all hops, following zero-trust netw
 - Enforces consistent TLS configuration across all connection parameters
 
 ### 3. PgBouncer Authentication Configuration
-**File:** `manifests/platform-database/platform-db-pooler.yaml`
+**File:** `manifests/hub-core-services/platform-database/platform-db-pooler.yaml`
 - Added `authQuery: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"`
 - Enables PgBouncer to authenticate users via PostgreSQL's pg_shadow
 - CNPG automatically creates `user_search` function when pooler with authQuery is deployed

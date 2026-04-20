@@ -30,7 +30,7 @@ Application (runtime)
 **Single cluster with multiple logical databases:**
 
 ```yaml
-# manifests/platform-database/platform-db.yaml
+# manifests/hub-core-services/platform-database/platform-db.yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -94,7 +94,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO agentregistry;
 **Kubernetes Jobs run after cluster is ready:**
 
 ```yaml
-# manifests/platform-database/migrations/control-plane-migrations.yaml
+# manifests/hub-core-services/platform-database/migrations/control-plane-migrations.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -208,7 +208,7 @@ func main() {
 ### Step 1: Deploy CNPG Cluster
 
 ```bash
-kubectl apply -f manifests/platform-database/platform-db.yaml
+kubectl apply -f manifests/hub-core-services/platform-database/platform-db.yaml
 ```
 
 **What happens:**
@@ -221,7 +221,7 @@ kubectl apply -f manifests/platform-database/platform-db.yaml
 ### Step 2: Run Migration Jobs
 
 ```bash
-kubectl apply -f manifests/platform-database/migrations/
+kubectl apply -f manifests/hub-core-services/platform-database/migrations/
 ```
 
 **What happens:**

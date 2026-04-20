@@ -174,7 +174,7 @@ echo "---------------------------------"
 
 # Verify NO hardcoded passwords in CNPG postInitSQL
 echo -n "Checking: No hardcoded passwords in platform-db.yaml... "
-if ! grep -q "PASSWORD.*changeme\|PASSWORD.*'[^$]" manifests/platform-database/platform-db.yaml 2>/dev/null; then
+if ! grep -q "PASSWORD.*changeme\|PASSWORD.*'[^$]" manifests/hub-core-services/platform-database/platform-db.yaml 2>/dev/null; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"
@@ -184,7 +184,7 @@ fi
 
 # Verify setup-platform-roles-job uses secretKeyRef
 echo -n "Checking: setup-platform-roles-job uses secretKeyRef pattern... "
-if grep -q "secretKeyRef" manifests/platform-database/setup-platform-roles-job.yaml; then
+if grep -q "secretKeyRef" manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml; then
     echo -e "${GREEN}✓${NC}"
 else
     echo -e "${RED}✗${NC}"

@@ -88,7 +88,7 @@ status:
 **Q: After uploading to Infisical, should the operator delete the Kubernetes secrets?**
 
 **A: Leave the Kubernetes Secrets alone.**
-Look at your `manifests/platform-database/platform-db-app-credentials-externalsecret.yaml`. You are using `creationPolicy: Owner`. 
+Look at your `manifests/hub-core-services/platform-database/platform-db-app-credentials-externalsecret.yaml`. You are using `creationPolicy: Owner`. 
 If you delete the Secret, the External Secrets Operator (ESO) will immediately recreate it from Infisical. 
 **The Flow:** 
 1. Operator generates secure string.

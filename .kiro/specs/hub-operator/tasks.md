@@ -86,7 +86,7 @@
 
 - [x] 4.1 Create internal/database/migrator.go package
 - [x] 4.2 Create internal/embed/migrations.go with embedded filesystem
-- [x] 4.3 Copy SQL migration files from manifests/platform-database/migrations/ to internal/embed/migrations/
+- [x] 4.3 Copy SQL migration files from manifests/hub-core-services/platform-database/migrations/ to internal/embed/migrations/
 - [x] 4.4 Implement NewMigrator() constructor (connects to platform-db-rw, not pooler)
 - [x] 4.5 Implement RunMigrations() using golang-migrate/migrate
 - [x] 4.6 Implement DirtyDatabaseError custom error type
@@ -621,9 +621,9 @@
 
 ### Subtasks:
 
-- [ ] 24.1 Delete manifests/platform-database/setup-platform-roles-job.yaml
-- [ ] 24.2 Delete manifests/platform-database/password-rotation-job.yaml
-- [ ] 24.3 Delete manifests/platform-database/setup-infisical-role-job.yaml
+- [ ] 24.1 Delete manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml
+- [ ] 24.2 Delete manifests/hub-core-services/platform-database/password-rotation-job.yaml
+- [ ] 24.3 Delete manifests/hub-core-services/platform-database/setup-infisical-role-job.yaml
 - [ ] 24.4 Delete manifests/hub-core-services/nats/init-streams-job.yaml
 - [ ] 24.5 Update ArgoCD Applications to remove deleted jobs
 - [ ] 24.6 Update sync-wave documentation

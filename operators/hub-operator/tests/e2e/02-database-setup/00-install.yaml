@@ -12,7 +12,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/platform-database
+    path: manifests/hub-core-services/platform-database
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-data

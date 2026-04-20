@@ -148,7 +148,7 @@ extraEnv:
 
 ### Attempt 2: Increase PostgreSQL max_connections (NOT RECOMMENDED)
 ```yaml
-# manifests/platform-database/platform-db.yaml
+# manifests/hub-core-services/platform-database/platform-db.yaml
 spec:
   postgresql:
     parameters:
@@ -202,7 +202,7 @@ With PgBouncer:
 
 **Step 1: Enable CNPG Pooler**
 ```yaml
-# File: manifests/platform-database/platform-db.yaml
+# File: manifests/hub-core-services/platform-database/platform-db.yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -357,7 +357,7 @@ kubectl delete pod -n zero-ops-system -l app.kubernetes.io/name=infisical
 
 **Step 1: Update Database Manifest**
 ```yaml
-# File: manifests/platform-database/platform-db.yaml
+# File: manifests/hub-core-services/platform-database/platform-db.yaml
 # Add pooler configuration to existing Cluster spec
 ```
 
@@ -369,7 +369,7 @@ kubectl delete pod -n zero-ops-system -l app.kubernetes.io/name=infisical
 
 **Step 3: Commit and Sync**
 ```bash
-git add manifests/platform-database/platform-db.yaml
+git add manifests/hub-core-services/platform-database/platform-db.yaml
 git add internal/hub/components/installer.go
 git commit -m "feat(infisical): enable PgBouncer for connection pooling"
 git push origin <branch>
@@ -517,7 +517,7 @@ kubectl logs -n zero-ops-system -l cnpg.io/poolerName=platform-db-pooler-rw
 kubectl delete pod -n zero-ops-system -l app.kubernetes.io/name=infisical
 
 # Step 3: Disable pooler in Git
-# Edit manifests/platform-database/platform-db.yaml
+# Edit manifests/hub-core-services/platform-database/platform-db.yaml
 # Set pooler.enabled: false
 # Commit and push
 

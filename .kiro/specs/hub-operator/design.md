@@ -1428,9 +1428,9 @@ echo "=== Verification Complete ==="
 ### Manifests to Reference
 
 **Database Configuration:**
-- `manifests/platform-database/platform-db.yaml` - CNPG Cluster definition (watch for Ready status)
-- `manifests/platform-database/platform-db-pooler.yaml` - PgBouncer pooler config (connection target)
-- `manifests/platform-database/migrations/*.yaml` - SQL migration files (embed in operator binary)
+- `manifests/hub-core-services/platform-database/platform-db.yaml` - CNPG Cluster definition (watch for Ready status)
+- `manifests/hub-core-services/platform-database/platform-db-pooler.yaml` - PgBouncer pooler config (connection target)
+- `manifests/hub-core-services/platform-database/migrations/*.yaml` - SQL migration files (embed in operator binary)
 
 **NATS Configuration:**
 - `manifests/hub-core-services/nats/` - NATS StatefulSet (watch for Ready status)
@@ -1444,9 +1444,9 @@ echo "=== Verification Complete ==="
 ### Manifests to DELETE
 
 **Bash Jobs (Replaced by Operator):**
-- `manifests/platform-database/setup-platform-roles-job.yaml` → DELETE (operator creates roles via database/sql)
-- `manifests/platform-database/password-rotation-job.yaml` → DELETE (operator manages secrets)
-- `manifests/platform-database/setup-infisical-role-job.yaml` → DELETE (operator creates roles)
+- `manifests/hub-core-services/platform-database/setup-platform-roles-job.yaml` → DELETE (operator creates roles via database/sql)
+- `manifests/hub-core-services/platform-database/password-rotation-job.yaml` → DELETE (operator manages secrets)
+- `manifests/hub-core-services/platform-database/setup-infisical-role-job.yaml` → DELETE (operator creates roles)
 - `manifests/hub-core-services/nats/init-streams-job.yaml` → DELETE (operator creates streams via NATS SDK)
 
 ### Migration Checklist
@@ -1462,7 +1462,7 @@ echo "=== Verification Complete ==="
 - [ ] Implement Hydra client wrapper using Ory Hydra Go SDK
 - [ ] Implement NATS client wrapper using NATS Go SDK
 - [ ] Implement database migrator using golang-migrate/migrate
-- [ ] Embed SQL migration files from `manifests/platform-database/migrations/`
+- [ ] Embed SQL migration files from `manifests/hub-core-services/platform-database/migrations/`
 - [ ] Implement controller reconciliation logic
 - [ ] Implement watch configuration for CNPG, Hydra, Infisical, NATS
 - [ ] Implement memory optimization (cache transformers)
@@ -2337,7 +2337,7 @@ func (nc *NATSClient) Close() {
 
 ### Embedded Migrations (`internal/embed/migrations.go`)
 
-**SQL files to embed from `manifests/platform-database/migrations/`:**
+**SQL files to embed from `manifests/hub-core-services/platform-database/migrations/`:**
 
 ```go
 package embed

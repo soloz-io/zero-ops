@@ -75,7 +75,7 @@ const withStartupLock = async (db: Knex, logger: Logger, doMigrations: () => Pro
 
 ### 3. PgBouncer Transaction Mode Incompatibility
 
-From our configuration in `manifests/platform-database/platform-db-pooler.yaml`:
+From our configuration in `manifests/hub-core-services/platform-database/platform-db-pooler.yaml`:
 
 ```yaml
 spec:
@@ -162,7 +162,7 @@ extraEnv:
 
 **Change:**
 ```yaml
-# manifests/platform-database/platform-db-pooler.yaml
+# manifests/hub-core-services/platform-database/platform-db-pooler.yaml
 spec:
   pgbouncer:
     poolMode: session  # Changed from transaction
@@ -230,7 +230,7 @@ initContainers:
 
 **Use Session Pooling Mode:**
 
-1. Update `manifests/platform-database/platform-db-pooler.yaml`:
+1. Update `manifests/hub-core-services/platform-database/platform-db-pooler.yaml`:
 ```yaml
 spec:
   pgbouncer:

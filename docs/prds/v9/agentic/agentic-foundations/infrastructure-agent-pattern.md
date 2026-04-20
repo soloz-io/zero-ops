@@ -34,7 +34,7 @@ manifests/{component-name}/
 
 ### Directory Structure
 ```
-manifests/platform-database/
+manifests/hub-core-services/platform-database/
 ├── cnpg-cluster.yaml              # PostgreSQL cluster
 ├── cnpg-toolserver.yaml           # MCP server for CNPG operations
 ├── cnpg-agent.yaml                # Kagent Agent CR
@@ -46,7 +46,7 @@ manifests/platform-database/
 ```
 
 ### 1. Component Deployment
-**File**: `manifests/platform-database/cnpg-cluster.yaml`
+**File**: `manifests/hub-core-services/platform-database/cnpg-cluster.yaml`
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -64,7 +64,7 @@ spec:
 ```
 
 ### 2. MCP Tool Server
-**File**: `manifests/platform-database/cnpg-toolserver.yaml`
+**File**: `manifests/hub-core-services/platform-database/cnpg-toolserver.yaml`
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -151,7 +151,7 @@ subjects:
 ```
 
 ### 3. Kagent Agent CR
-**File**: `manifests/platform-database/cnpg-agent.yaml`
+**File**: `manifests/hub-core-services/platform-database/cnpg-agent.yaml`
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -197,7 +197,7 @@ spec:
 ```
 
 ### 4. Tool Implementations
-**File**: `manifests/platform-database/tools/get_cluster_status.go`
+**File**: `manifests/hub-core-services/platform-database/tools/get_cluster_status.go`
 
 ```go
 package tools
@@ -243,7 +243,7 @@ func GetClusterStatus(ctx context.Context, k8sClient client.Client, input GetClu
 }
 ```
 
-**File**: `manifests/platform-database/tools/list_backups.go`
+**File**: `manifests/hub-core-services/platform-database/tools/list_backups.go`
 
 ```go
 package tools
@@ -420,7 +420,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-database  # Syncs ALL: component + toolserver + agent
+    path: manifests/hub-core-services/platform-database  # Syncs ALL: component + toolserver + agent
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-database
@@ -442,7 +442,7 @@ spec:
 
 | Component | Folder | Agent Name | Tool Server | Tools |
 |-----------|--------|------------|-------------|-------|
-| **CNPG** | `manifests/platform-database/` | `cnpg-ops-agent` | `cnpg-mcp-server` | get_cluster_status, list_backups, check_replication |
+| **CNPG** | `manifests/hub-core-services/platform-database/` | `cnpg-ops-agent` | `cnpg-mcp-server` | get_cluster_status, list_backups, check_replication |
 | **Ory Kratos** | `manifests/hub-core-services/platform-identity/ory-kratos/` | `kratos-ops-agent` | `kratos-mcp-server` | list_users, get_identity, verify_session |
 | **Ory Keto** | `manifests/hub-core-services/platform-identity/ory-keto/` | `keto-ops-agent` | `keto-mcp-server` | check_permission, list_relations |
 | **Ory Hydra** | `manifests/hub-core-services/platform-identity/ory-hydra/` | `hydra-ops-agent` | `hydra-mcp-server` | list_clients, get_token_info |
@@ -521,10 +521,10 @@ func main() {
 ### 1. Component Development
 ```bash
 # Create component folder
-mkdir -p manifests/platform-database/tools
+mkdir -p manifests/hub-core-services/platform-database/tools
 
 # Add component manifest
-vim manifests/platform-database/cnpg-cluster.yaml
+vim manifests/hub-core-services/platform-database/cnpg-cluster.yaml
 
 # Implement MCP tool server
 cd tools/cnpg-mcp-server
@@ -538,25 +538,25 @@ docker push zero-ops/cnpg-mcp-server:v1.0.0
 
 ### 2. Add Tool Server Manifest
 ```bash
-vim manifests/platform-database/cnpg-toolserver.yaml
+vim manifests/hub-core-services/platform-database/cnpg-toolserver.yaml
 # Add ToolServer CR + Deployment + Service + RBAC
 ```
 
 ### 3. Add Agent CR
 ```bash
-vim manifests/platform-database/cnpg-agent.yaml
+vim manifests/hub-core-services/platform-database/cnpg-agent.yaml
 # Define Kagent Agent with tools reference
 ```
 
 ### 4. Create ArgoCD Application
 ```bash
 vim manifests/argocd/apps/platform-database.yaml
-# Point to manifests/platform-database/ folder
+# Point to manifests/hub-core-services/platform-database/ folder
 ```
 
 ### 5. Commit and Sync
 ```bash
-git add manifests/platform-database/
+git add manifests/hub-core-services/platform-database/
 git add manifests/argocd/apps/platform-database.yaml
 git commit -m "Add CNPG component with agent and tools"
 git push
@@ -582,7 +582,7 @@ git push
 ❌ **Separate agent folders**:
 ```
 manifests/agents/cnpg-agent.yaml        # DON'T: Separated from component
-manifests/platform-database/cnpg.yaml
+manifests/hub-core-services/platform-database/cnpg.yaml
 ```
 
 ❌ **Shared tool servers**:
@@ -597,7 +597,7 @@ kubectl apply -f agent.yaml             # DON'T: Bypass GitOps
 
 ✅ **Correct pattern**:
 ```
-manifests/platform-database/
+manifests/hub-core-services/platform-database/
 ├── cnpg-cluster.yaml
 ├── cnpg-toolserver.yaml
 ├── cnpg-agent.yaml
