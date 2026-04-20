@@ -1,0 +1,86 @@
+---
+# Kyverno ClusterPolicy to auto-generate ProviderConfig for each Spoke cluster
+apiVersion: kyverno.io/v2
+kind: ClusterPolicy
+metadata:
+  name: generate-spoke-providerconfig
+  annotations:
+    policies.kyverno.io/title: Generate Spoke ProviderConfig
+    policies.kyverno.io/category: Crossplane
+    policies.kyverno.io/description: |
+      Automatically generates provider-kubernetes ProviderConfig for each Spoke cluster
+      when CAPI cluster becomes Ready. Extracts kubeconfig from CAPI Secret and creates
+      Crossplane Secret + ProviderConfig.
+spec:
+  generateExisting: true
+  rules:
+    # Rule 1: Generate Crossplane Secret with kubeconfig
+    - name: generate-crossplane-kubeconfig-secret
+      match:
+        any:
+        - resources:
+            kinds:
+            - Cluster
+            selector:
+              matchLabels:
+                spoke-type: pool
+      context:
+      - name: clusterName
+        variable:
+          jmesPath: request.object.metadata.name
+      - name: kubeconfigSecretName
+        variable:
+          jmesPath: request.object.metadata.name
+          value: "{{ clusterName }}-kubeconfig"
+      - name: kubeconfigData
+        apiCall:
+          urlPath: "/api/v1/namespaces/{{ request.object.metadata.namespace }}/secrets/{{ kubeconfigSecretName }}"
+          jmesPath: data.value
+      preconditions:
+        all:
+        - key: "{{ request.object.status.phase || '' }}"
+          operator: Equals
+          value: "Provisioned"
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: "{{ clusterName }}-crossplane-kubeconfig"
+        namespace: crossplane-system
+        synchronize: true
+        data:
+          type: Opaque
+          data:
+            kubeconfig: "{{ kubeconfigData }}"
+    
+    # Rule 2: Generate ProviderConfig
+    - name: generate-providerconfig
+      match:
+        any:
+        - resources:
+            kinds:
+            - Cluster
+            selector:
+              matchLabels:
+                spoke-type: pool
+      context:
+      - name: clusterName
+        variable:
+          jmesPath: request.object.metadata.name
+      preconditions:
+        all:
+        - key: "{{ request.object.status.phase || '' }}"
+          operator: Equals
+          value: "Provisioned"
+      generate:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: ProviderConfig
+        name: "{{ clusterName }}"
+        synchronize: true
+        data:
+          spec:
+            credentials:
+              source: Secret
+              secretRef:
+                name: "{{ clusterName }}-crossplane-kubeconfig"
+                namespace: crossplane-system
+                key: kubeconfig

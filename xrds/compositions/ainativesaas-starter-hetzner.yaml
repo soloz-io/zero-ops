@@ -11,46 +11,78 @@ spec:
     kind: AINativeSaaS
   
   resources:
-  # 1. CNPG Database CR - Creates logical database in shared cluster
+  # 1. CNPG Database CR - Wrapped in provider-kubernetes Object
   - name: database
     base:
-      apiVersion: postgresql.cnpg.io/v1
-      kind: Database
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
       spec:
-        cluster:
-          name: shared-cnpg  # Reference to shared CNPG cluster in spoke
-        owner: postgres
-        ensure: present
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Database
+            metadata:
+              namespace: spoke-pool-system
+            spec:
+              cluster:
+                name: shared-cnpg
+              owner: postgres
+              ensure: present
+        providerConfigRef:
+          name: ""  # Patched from cellId
     patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
     - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
       toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-database"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
-      toFieldPath: spec.name
+      toFieldPath: spec.forProvider.manifest.metadata.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.manifest.spec.name
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: metadata.labels['tenant-id']
-    - type: ToCompositeFieldPath
-      fromFieldPath: status.ready
-      toFieldPath: status.databaseReady
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
 
-  # 2. CNPG Pooler CR - Dedicated pooler for tenant database
+  # 2. CNPG Pooler CR - Wrapped in provider-kubernetes Object
   - name: pooler
     base:
-      apiVersion: postgresql.cnpg.io/v1
-      kind: Pooler
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
       spec:
-        cluster:
-          name: shared-cnpg
-        type: rw  # Read-write pooler
-        instances: 1
-        pgbouncer:
-          poolMode: transaction  # CRITICAL: transaction mode only
-          parameters:
-            max_client_conn: "100"
-            default_pool_size: "5"
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Pooler
+            metadata:
+              namespace: spoke-pool-system
+            spec:
+              cluster:
+                name: shared-cnpg
+              type: rw
+              instances: 1
+              pgbouncer:
+                poolMode: transaction
+                parameters:
+                  max_client_conn: "100"
+                  default_pool_size: "5"
+        providerConfigRef:
+          name: ""  # Patched from cellId
     patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: metadata.name
@@ -59,74 +91,80 @@ spec:
         string:
           fmt: "%s-pooler"
     - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler"
+    - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
-      toFieldPath: spec.pgbouncer.parameters.databases
+      toFieldPath: spec.forProvider.manifest.spec.pgbouncer.parameters.databases
       transforms:
       - type: string
         string:
           fmt: "%s = host=shared-cnpg-rw port=5432 dbname=%s"
     - type: FromCompositeFieldPath
-      fromFieldPath: spec.pooler.maxConnections
-      toFieldPath: spec.pgbouncer.parameters.default_pool_size
-      transforms:
-      - type: convert
-        convert:
-          toType: string
-    - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: metadata.labels['tenant-id']
-    - type: ToCompositeFieldPath
-      fromFieldPath: status.conditions[?(@.type=='Ready')].status
-      toFieldPath: status.poolerReady
-      transforms:
-      - type: map
-        map:
-          "True": true
-          "False": false
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
 
-  # 3. PostgREST Deployment - Dedicated REST API instance
+  # 3. PostgREST Deployment - Wrapped in provider-kubernetes Object
   - name: postgrest-deployment
     base:
-      apiVersion: apps/v1
-      kind: Deployment
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
       spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: postgrest
-        template:
-          metadata:
-            labels:
-              app: postgrest
-          spec:
-            containers:
-            - name: postgrest
-              image: postgrest/postgrest:v12.0.2
-              ports:
-              - containerPort: 3000
-                name: http
-              env:
-              - name: PGRST_DB_URI
-                value: ""  # Patched from pooler connection string
-              - name: PGRST_DB_SCHEMA
-                value: "public"
-              - name: PGRST_DB_ANON_ROLE
-                value: "postgres"
-              - name: PGRST_JWT_SECRET
-                valueFrom:
-                  secretKeyRef:
-                    name: hub-ory-jwt-secret
-                    key: secret
-              - name: PGRST_JWT_CACHE_MAX_LIFETIME
-                value: "3600"
-              resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  cpu: 500m
-                  memory: 512Mi
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: postgrest
+              template:
+                metadata:
+                  labels:
+                    app: postgrest
+                spec:
+                  containers:
+                  - name: postgrest
+                    image: postgrest/postgrest:v12.0.2
+                    ports:
+                    - containerPort: 3000
+                      name: http
+                    env:
+                    - name: PGRST_DB_URI
+                      value: ""  # Patched
+                    - name: PGRST_DB_SCHEMA
+                      value: "public"
+                    - name: PGRST_DB_ANON_ROLE
+                      value: "postgres"
+                    - name: PGRST_JWT_SECRET
+                      valueFrom:
+                        secretKeyRef:
+                          name: hub-ory-jwt-secret
+                          key: secret
+                    - name: PGRST_JWT_CACHE_MAX_LIFETIME
+                      value: "3600"
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+        providerConfigRef:
+          name: ""  # Patched from cellId
     patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: metadata.name
@@ -136,72 +174,148 @@ spec:
           fmt: "postgrest-%s"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: metadata.namespace
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
       transforms:
       - type: string
         string:
           fmt: "tenant-%s"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: spec.selector.matchLabels['tenant-id']
+      toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels['tenant-id']
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: spec.template.metadata.labels['tenant-id']
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.template.spec.containers[0].env[0].value
-      transforms:
-      - type: string
+      toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels['tenant-id']
+    - type: CombineFromComposite
+      combine:
+        variables:
+        - fromFieldPath: spec.tenantId
+        - fromFieldPath: spec.database.name
+        strategy: string
         string:
           fmt: "postgresql://postgres@%s-pooler:5432/%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.database.name
-      toFieldPath: spec.template.spec.containers[0].env[0].value
-      transforms:
-      - type: string
-        string:
-          fmt: "postgresql://postgres@pooler:5432/%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.postgrest.dbSchema
-      toFieldPath: spec.template.spec.containers[0].env[1].value
-    - type: ToCompositeFieldPath
-      fromFieldPath: status.conditions[?(@.type=='Available')].status
-      toFieldPath: status.postgrestReady
-      transforms:
-      - type: map
-        map:
-          "True": true
-          "False": false
+      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].value
 
-  # 4. PostgREST Service - ClusterIP (internal only)
+  # 4. PostgREST Service - Wrapped in provider-kubernetes Object
   - name: postgrest-service
     base:
-      apiVersion: v1
-      kind: Service
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
       spec:
-        type: ClusterIP
-        ports:
-        - port: 3000
-          targetPort: 3000
-          protocol: TCP
-          name: http
-        selector:
-          app: postgrest
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              type: ClusterIP
+              ports:
+              - port: 3000
+                targetPort: 3000
+                protocol: TCP
+                name: http
+              selector:
+                app: postgrest
+        providerConfigRef:
+          name: ""  # Patched from cellId
     patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: metadata.name
       transforms:
       - type: string
         string:
+          fmt: "postgrest-%s-service"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
           fmt: "postgrest-%s"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: metadata.namespace
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
       transforms:
       - type: string
         string:
           fmt: "tenant-%s"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
-      toFieldPath: spec.selector['tenant-id']
+      toFieldPath: spec.forProvider.manifest.spec.selector['tenant-id']
+
+  # 5. AtlasMigration CR - Wrapped in provider-kubernetes Object
+  - name: atlasmigration
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: db.atlasgo.io/v1alpha1
+            kind: AtlasMigration
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              urlFrom:
+                secretKeyRef:
+                  name: ""  # Patched
+                  key: url
+              dir:
+                configMapRef:
+                  name: ""  # Patched
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-atlasmigration"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-migrations"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.urlFrom.secretKeyRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-app"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-migrations"
