@@ -1,0 +1,6 @@
+h1:NB0TiSrATCohJvFIiF/2ULHbmk9iJkKPUpce9e4ssS0=
+20240101000001_create_users_table.sql h1:qUaOoMSYljWqT/XM5pvmtd/IpEW3dZNLCYTEtA7fwog=
+20240101000002_create_sessions_table.sql h1:Ft3bG0J15JaKgu4V8XKt3UWCDOogBMuVQz5WnTDEZtU=
+20240101000003_create_identities_table.sql h1:CqQ0jTNluCxI6OO0viT3qWsHLLn1VEY4XGDGDnPHUIc=
+20240101000004_create_buckets_table.sql h1:ts9cwtD0hcapa5RvWr+a3cCM2Ge/vHkzYF9MHj2/TwY=
+20240101000005_create_objects_table.sql h1:Q2WxpJ9xwjZXz2X0B1eJUPjxmDyW5ve7qj55l/HhDuw=
