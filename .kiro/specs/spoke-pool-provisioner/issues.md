@@ -8,95 +8,6 @@
 
 ## Current Issues
 
-### ✅ Issue #40: AINativeSaaS Architecture Incomplete - Missing provider-kubernetes Pattern
-
-**STATUS**: RESOLVED ✅ (2026-04-20 12:00 UTC)  
-**ROOT CAUSE**: AINativeSaaS Composition creates resources directly without provider-kubernetes Object wrappers, ApplicationSet deploys XR to Spoke instead of Hub  
-**DISCOVERY**: Phase 3 validation revealed "CRD not found" error when XR deployed to Spoke cluster where Crossplane doesn't run  
-
-**ARCHITECTURE ISSUE**:
-- Current: ApplicationSet deploys AINativeSaaS XR to Spoke cluster
-- Problem: Crossplane runs on Hub, not Spoke - XR cannot be reconciled
-- Current Composition: Creates Database/Pooler/PostgREST directly (no provider-kubernetes)
-- Problem: Resources created on Hub cluster, not Spoke cluster
-
-**CORRECT ARCHITECTURE** (documented in ADR):
-```
-Hub Cluster (Control Plane):
-├── AINativeSaaS XR created here
-├── Crossplane reconciles XR
-└── provider-kubernetes provisions to Spoke
-
-Spoke Cluster (Data Plane):
-├── Database (provisioned via provider-kubernetes)
-├── Pooler (provisioned via provider-kubernetes)
-├── PostgREST (provisioned via provider-kubernetes)
-└── AtlasMigration CR (provisioned via provider-kubernetes)
-```
-
-**REQUIRED CHANGES**:
-1. ✅ **Split ApplicationSet** into two:
-   - `tenant-xr-provisioning` (destination: Hub) - deploys AINativeSaaS XR ✅
-   - `tenant-spoke-provisioning` (destination: Spoke) - deploys Namespace/RBAC/ResourceQuota ✅
-2. ✅ **Update AINativeSaaS Composition**:
-   - Wrap Database CR in provider-kubernetes Object ✅
-   - Wrap Pooler CR in provider-kubernetes Object ✅
-   - Wrap PostgREST Deployment in provider-kubernetes Object ✅
-   - Wrap PostgREST Service in provider-kubernetes Object ✅
-   - Add AtlasMigration CR wrapped in provider-kubernetes Object ✅
-   - Add providerConfigRef patches (cellId → ProviderConfig name) ✅
-3. ✅ **ProviderConfig Management**:
-   - Kyverno policy deployed via GitOps (manifests/hub-core-services/security/) ✅
-   - Policy auto-generates ProviderConfig when CAPI Cluster becomes Ready ✅
-   - Removed duplicate policy file from manifests/platform-ops/crossplane/ ✅
-4. ✅ **Update Universal Tenant Helm Chart**:
-   - AtlasMigration removed from Helm chart (now in Composition) ✅
-   - Kept only Namespace, RBAC, ResourceQuota templates ✅
-
-**DOCUMENTATION**:
-- ✅ ADR created: `docs/adr/hub-spoke-provisioning.md`
-- ✅ Documents idiomatic Hub-Spoke control plane pattern
-- ✅ Aligns with SpokePool pattern (provider-kubernetes Object wrappers)
-- ✅ Includes AtlasMigration CR in Composition for atomic provisioning
-
-**ESTIMATED EFFORT**: 8 hours (per ADR migration path)
-
-**BLOCKED TASKS** (resolved):
-- ✅ All Phase 3 validation tasks (3.6.1-3.6.15) - ready to proceed
-- ✅ Tenant database provisioning end-to-end - implementation complete
-
-**CODE CHANGES COMMITTED**:
-- ✅ ApplicationSet split into tenant-xr-provisioning and tenant-spoke-provisioning
-- ✅ AINativeSaaS Composition updated with provider-kubernetes Object wrappers
-- ✅ Universal Tenant Helm Chart updated (AtlasMigration removed)
-- ✅ Kyverno ProviderConfig generator policy deployed via GitOps
-- ✅ Duplicate policy file removed
-
-**CLUSTER VALIDATION COMPLETE**:
-- ✅ ProviderConfig deployed via GitOps (spoke-pool-eu-prod-01)
-- ✅ References CAPI kubeconfig from hub-platform-ops namespace
-- ✅ Old crossplane-system namespace deleted (v2.2.0 Helm release)
-- ✅ Using hub-platform-ops Crossplane (v1.20.5) per namespace-alignment.md
-- ✅ Kustomization.yaml removed, using directory mode for ArgoCD sync
-
-**COMMITS**:
-- 817afad: Issue #40 implementation (ApplicationSet split, Composition updated)
-- a762864: ProviderConfig via ExternalSecret (reverted)
-- 86116dc: Simplified ProviderConfig to reference CAPI Secret directly
-- 3e68767: Removed kustomization.yaml, deleted old crossplane-system
-
-**READY FOR PHASE 3 VALIDATION**:
-All infrastructure changes complete and validated in cluster. Ready to create test tenant and proceed with tasks 3.6.1-3.6.15.
-
-**REFERENCES**:
-- ADR: `docs/adr/hub-spoke-provisioning.md`
-- ADR: `docs/adr/crossplane-capi-ownership-pattern.md` (establishes provider-kubernetes pattern)
-- Resource: `.kiro/specs/spoke-pool-provisioner/resources/crossplane-schema-issue.md` (provider-kubernetes usage)
-
----
-
-## Current Issues
-
 ### ✅ Issue #39: Tenant Application Deploying to Wrong Cluster
 
 **STATUS**: RESOLVED ✅ (2026-04-17 06:43 UTC)  
@@ -122,7 +33,7 @@ All infrastructure changes complete and validated in cluster. Ready to create te
 
 ---
 
-## Current Issues
+## Resolved Issues
 
 ### ✅ Issue #38: NATS Leafnode mTLS Connection
 
@@ -141,7 +52,21 @@ All infrastructure changes complete and validated in cluster. Ready to create te
 
 ---
 
-## Resolved Issues
+### ✅ Issue #40: AINativeSaaS Architecture Incomplete - Missing provider-kubernetes Pattern
+
+**STATUS**: RESOLVED ✅ (2026-04-20 12:00 UTC)  
+**ROOT CAUSE**: AINativeSaaS Composition creates resources directly without provider-kubernetes Object wrappers, ApplicationSet deploys XR to Spoke instead of Hub  
+**DISCOVERY**: Phase 3 validation revealed "CRD not found" error when XR deployed to Spoke cluster where Crossplane doesn't run  
+
+**ARCHITECTURE ISSUE**:
+- Current: ApplicationSet deploys AINativeSaaS XR to Spoke cluster
+- Problem: Crossplane runs on Hub, not Spoke - XR cannot be reconciled
+- Current Composition: Creates Database/Pooler/PostgREST directly (no provider-kubernetes)
+- Problem: Resources created on Hub cluster, not Spoke cluster
+
+
+
+---
 
 ### ✅ Issue #35: NATS Leaf Node Cannot Connect to Hub
 
@@ -289,18 +214,6 @@ All infrastructure changes complete and validated in cluster. Ready to create te
 
 ---
 
-## Current Issues
-
-### ❌ Issue #25: CNPG Pooler Field Not Declared in Schema
-
-**STATUS**: FIXED - Pending verification (blocked by Issue #26)  
-**Root Cause**: CNPG uses separate `Pooler` CRD, not inline field  
-**Solution**: Split into Cluster + Pooler CRDs (commit 546858c) ✅  
-**Files**: `manifests/spoke-catalog/infra/cnpg-cluster.yaml`, `cnpg-pooler.yaml`
-
----
-
-## Current Issues
 
 ### ✅ Issue #24: Directory-Based Application Incompatible with argocd-agent Managed Mode
 

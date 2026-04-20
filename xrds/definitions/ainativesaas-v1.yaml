@@ -49,8 +49,8 @@ spec:
                 properties:
                   name:
                     type: string
-                    description: "Deterministic database name: tenant_<tenantId>_db"
-                    pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_db$'
+                    description: "Deterministic database name: tenant-<tenantId>-db"
+                    pattern: '^tenant-[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
                   migrations:
                     type: object
                     properties:

@@ -704,7 +704,7 @@ After completing each phase, you MUST:
   - Verify AINativeSaaS XR, AtlasMigration CR, namespace, RBAC generated
   - _Requirements: FR-5.2, AC-5, AC-6_
 
-- [-] 3.6.4 Verify AINativeSaaS XR deployed
+- [x] 3.6.4 Verify AINativeSaaS XR deployed
   - Verify XR deployed: `kubectl --context spokepool-01 get ainativesaas tenant-acme`
   - Verify XR provisions Database, Pooler, PostgREST
   - _Requirements: FR-4.1, AC-5, AC-6_
