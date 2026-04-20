@@ -10,17 +10,42 @@
 
 ### ⚠️ Issue #42: AtlasMigration Missing Pooler Connection Secret
 
-**STATUS**: BLOCKED  
+**STATUS**: IN PROGRESS  
 **ROOT CAUSE**: AtlasMigration references `app-creator-pooler-app` secret that doesn't exist  
 **DISCOVERY**: Phase 3 validation task 3.6.9
 
-**ERROR**: `Secret "app-creator-pooler-app" not found`
+**SOLUTION IMPLEMENTED**: 
+- Added pooler-secret resource to Composition (Object wrapping Secret with connection URL)
+- Connection URL: `postgresql://postgres@{tenantId}-pooler-rw.spoke-pool-system.svc:5432/{database.name}`
+- Commit: a689d28
 
-**ANALYSIS**: CNPG Pooler doesn't auto-create application connection secrets for per-tenant databases in shared cluster model. Composition must create Secret with connection URL.
-
-**SOLUTION**: Add Secret resource to Composition with pooler connection string: `postgresql://postgres@app-creator-pooler-rw:5432/tenant-app-creator-db`
+**NEXT STEPS**: 
+1. Commit removal of shared pooler (Issue #43)
+2. Delete/recreate app-creator XR to apply new Composition
+3. Validate pooler-secret created in cluster
+4. Validate AtlasMigration becomes Ready
 
 **BLOCKED TASKS**: 3.6.9-3.6.15
+
+---
+
+### ⚠️ Issue #43: Shared CNPG Pooler Violates Hub-Spoke Design
+
+**STATUS**: IN PROGRESS  
+**ROOT CAUSE**: `shared-cnpg-pooler` exists in spoke catalog from Phase 2, violates per-tenant isolation  
+**DISCOVERY**: Phase 3 validation - reviewing spoke catalog
+
+**ANALYSIS**: 
+- Shared pooler (`manifests/spoke-catalog/infra/cnpg-pooler.yaml`) serves ALL tenants
+- Per design: each tenant must have their own pooler (created by Composition)
+- Shared pooler breaks tenant isolation and connection tracking
+
+**SOLUTION IN PROGRESS**: 
+- Deleted `manifests/spoke-catalog/infra/cnpg-pooler.yaml` ✓
+- Updated `manifests/spoke-catalog/infra/postgrest.yaml` (removed all shared pooler references) ✓
+- Ready to commit
+
+**NEXT STEPS**: Commit and validate in cluster
 
 ---
 
