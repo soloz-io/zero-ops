@@ -333,11 +333,8 @@ spec:
                   name: ""  # Patched
                   key: url
               dir:
-                remote:
-                  name: tenant-baseline
-                  url: https://github.com/soloz-io/zero-ops
-                  ref: main
-                  path: migrations/tenant-baseline
+                configMapRef:
+                  name: tenant-baseline-migrations
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
