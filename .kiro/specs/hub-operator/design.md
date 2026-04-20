@@ -2568,7 +2568,7 @@ subjects:
   namespace: hub-platform-ops
 ```
 
-### Example HubEnvironment CR Deployment (`manifests/hub-environment.yaml`)
+### Example HubEnvironment CR Deployment (`manifests/platform-core-services/hub-environment.yaml`)
 
 ```yaml
 apiVersion: ops.nutgraf.in/v1alpha1

@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/hub-environment
+    path: manifests/platform-core-services/hub-environment
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
