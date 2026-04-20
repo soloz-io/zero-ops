@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/component: tenant-migrations
 data:
 {{- range $path, $bytes := .Files.Glob "files/migrations/*.sql" }}
-  {{ base $path }}: |-
+  {{ base $path }}: |
 {{ $bytes | toString | indent 4 }}
 {{- end }}
 {{- if .Files.Get "files/migrations/atlas.sum" }}
