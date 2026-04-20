@@ -8,22 +8,27 @@
 
 ## Current Issues
 
-### ⚠️ Issue #42: AtlasMigration Missing Pooler Connection Secret
+### ⚠️ Issue #44: AtlasMigration Authentication - Shared Cluster User Violates Isolation
 
 **STATUS**: IN PROGRESS  
-**ROOT CAUSE**: AtlasMigration references `app-creator-pooler-app` secret that doesn't exist  
-**DISCOVERY**: Phase 3 validation task 3.6.9
+**ROOT CAUSE**: All tenants share cluster-wide `app` user, violating security isolation  
+**DISCOVERY**: Phase 3 validation - AtlasMigration password authentication failed
 
-**SOLUTION IMPLEMENTED**: 
-- Added pooler-secret resource to Composition (Object wrapping Secret with connection URL)
-- Connection URL: `postgresql://postgres@{tenantId}-pooler-rw.spoke-pool-system.svc:5432/{database.name}`
-- Commit: a689d28
+**ARCHITECTURE ISSUE**:
+- Current: All tenants use `shared-cnpg-app` credentials (cluster-wide `app` user)
+- Problem: Single password compromise = all tenant data exposed
+- Required: Per-tenant database users with isolated credentials
+
+**PROPOSED SOLUTION**: 
+- Option A (Recommended): CNPG User CR for per-tenant user management
+- Option B (Fallback): SQL Job to create users if CNPG doesn't support User CRD
+- Verify CNPG v1.29 User CRD support in archived codebase
 
 **NEXT STEPS**: 
-1. Commit removal of shared pooler (Issue #43)
-2. Delete/recreate app-creator XR to apply new Composition
-3. Validate pooler-secret created in cluster
-4. Validate AtlasMigration becomes Ready
+1. Check `archived/cloud-native/cloudnative-pg/` for User CRD examples
+2. Implement per-tenant user creation in Composition
+3. Update pooler-secret to use tenant-specific credentials
+4. Validate AtlasMigration connects with isolated user
 
 **BLOCKED TASKS**: 3.6.9-3.6.15
 
@@ -42,6 +47,21 @@
 - **COMMIT**: a32146e
 
 **NEXT STEPS**: ArgoCD will sync and remove shared resources from spoke cluster
+
+---
+
+### ✅ Issue #42: AtlasMigration ConfigMap Namespace Mismatch
+
+**STATUS**: RESOLVED ✅ (2026-04-20 18:30 UTC)  
+**ROOT CAUSE**: ConfigMap must be in same namespace as AtlasMigration (LocalObjectReference limitation)  
+**DISCOVERY**: Phase 3 validation - Atlas Operator couldn't find ConfigMap
+
+**SOLUTION IMPLEMENTED**:
+- Bundled migrations in Helm chart using `.Files.Glob` pattern ✅
+- ConfigMap deployed to tenant namespace alongside AtlasMigration ✅
+- Fixed YAML scalar format (`|` instead of `|-`) to preserve trailing newlines ✅
+- Generated proper `atlas.sum` checksums ✅
+- **COMMITS**: a34a8e6, 4e9d0a5, e6f0f69, 65bf636
 
 ---
 
