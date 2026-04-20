@@ -169,23 +169,34 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - Migration files follow Atlas naming convention: `YYYYMMDDHHMMSS_description.sql`
   - Database name is deterministic: `tenant_<tenant-id>_db` (e.g., `tenant_acme_db`, `tenant_xyz_db`)
   - AINativeSaaS XR provisions: CNPG Database CR, CNPG Pooler CR, PostgREST Deployment, PostgREST Service
+  - AINativeSaaS XR provisions dedicated database user via SQL execution (after database creation)
   - Database provisioned in shared CNPG cluster
-  - Pooler connects to tenant's dedicated database (transaction pooling mode)
-  - PostgREST connects to tenant's database via tenant's pooler
+  - Dedicated database user created with naming convention: `tenant_<id>_user` (e.g., `tenant_acme_user`)
+  - User credentials stored in Kubernetes Secret: `<tenantId>-db-credentials` in tenant namespace
+  - Secret contains: `username`, `password`, `database`, `host`, `port`
+  - User has GRANT permissions ONLY on their own database (`tenant_<id>_db`)
+  - User CANNOT access other tenant databases (REVOKE enforced)
+  - Pooler connects to tenant's dedicated database using tenant-specific user credentials (transaction pooling mode)
+  - PostgREST connects to tenant's database via tenant's pooler using tenant-specific user credentials
   - Baseline migrations applied via Atlas Operator using composite sources (tenant-baseline + tenant-specific)
-  - Database provisioning completes within 5 seconds (CREATE DATABASE + baseline migrations)
+  - Database provisioning completes within 5 seconds (CREATE DATABASE + user creation + baseline migrations)
   - All migrations are idempotent and replayable
   - Migration history tracked in `atlas_schema_revisions` table per database
   - PostgREST configured with `db-schema=public` (no schema discovery needed)
 
 **FR-4.2: Tenant Isolation and RLS Support**
-- **Description**: Tenant isolation is enforced by dedicated logical database; within each database, RLS isolates end-users
+- **Description**: Tenant isolation is enforced by dedicated logical database + dedicated database user; within each database, RLS isolates end-users
 - **Acceptance Criteria**:
+  - Platform-level isolation enforced by dedicated database + dedicated user
   - Tenant isolation enforced by deterministic database naming: `tenant_<id>_db`
-  - Each tenant has dedicated pooler connecting only to their database
-  - Each tenant has dedicated PostgREST instance connecting only to their database
+  - Each tenant has dedicated database user: `tenant_<id>_user` with unique password
+  - Each tenant user has GRANT permissions only on their database
+  - PostgreSQL REVOKE prevents cross-tenant access at database level
+  - Audit trail: Each tenant's queries logged with their unique username
+  - Each tenant has dedicated pooler connecting only to their database using tenant-specific credentials
+  - Each tenant has dedicated PostgREST instance connecting only to their database using tenant-specific credentials
   - PgBouncer transaction pooling ensures connection reuse without session state leakage
-  - PostgreSQL database isolation prevents cross-tenant access (separate databases)
+  - PostgreSQL database isolation prevents cross-tenant access (separate databases + separate users)
   - Within tenant database, Row-Level Security (RLS) enabled for end-user isolation
   - RLS policies use JWT claims (e.g., `user_id` from JWT) for end-user access control
   - Baseline migrations create tables in `public` schema with RLS enabled
@@ -228,6 +239,22 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
   - User login/signup happens via Hub Ory (cells are stateless)
   - Tenant users stored in Hub Ory database (not per-cell)
 
+**FR-4.6: Per-Tenant Database User Creation**
+- **Description**: Each tenant gets a dedicated PostgreSQL user (not shared cluster-wide user) with isolated credentials
+- **Acceptance Criteria**:
+  - Each tenant gets dedicated PostgreSQL user provisioned via AINativeSaaS XR
+  - User naming convention: `tenant_<id>_user` (e.g., `tenant_acme_user`)
+  - Each user has unique randomly-generated password (32 characters, alphanumeric)
+  - User created after database creation (dependency ordering in Composition)
+  - User has GRANT permissions ONLY on their own database (`tenant_<id>_db`)
+  - User CANNOT access other tenant databases (explicit REVOKE on other databases)
+  - Credentials stored in Kubernetes Secret: `<tenantId>-db-credentials` in tenant namespace
+  - Secret contains fields: `username`, `password`, `database`, `host`, `port`
+  - Pooler configured to use tenant-specific credentials from Secret
+  - PostgREST configured to use tenant-specific credentials from Secret
+  - Shared cluster-wide `app` user is NOT used for tenant workloads
+  - User creation implemented via Crossplane provider-sql or CNPG native user management
+
 ---
 
 ## 4. Non-Functional Requirements
@@ -268,6 +295,11 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - **NFR-4.7**: Each tenant has dedicated PostgREST instance (no cross-tenant API access)
 - **NFR-4.8**: PostgREST is NOT directly exposed - only accessible via Hub AgentGateway
 - **NFR-4.9**: Hub Ory identity database isolated from tenant data
+- **NFR-4.10**: Per-tenant database users with unique passwords (not shared cluster-wide user)
+- **NFR-4.11**: Tenant user credentials rotated every 90 days (Phase 2 - automated rotation)
+- **NFR-4.12**: Tenant user has minimum required privileges (CONNECT, SELECT, INSERT, UPDATE, DELETE on their database only)
+- **NFR-4.13**: Shared cluster-wide `app` user is NOT used for tenant workloads
+- **NFR-4.14**: Credential secrets encrypted at rest in etcd (Kubernetes default encryption)
 
 ### 4.5 Observability
 - **NFR-5.1**: All Spoke Pool metrics are forwarded to Hub VictoriaMetrics
@@ -350,6 +382,12 @@ Acceptance Criteria:
 - ArgoCD ApplicationSet detects new tenant directory and creates Helm Application
 - Helm chart generates CRs: `AINativeSaaS` XR, `AtlasMigration` CR, namespace, RBAC
 - AINativeSaaS XR provisions: CNPG Database CR, CNPG Pooler CR, PostgREST Deployment, PostgREST Service
+- AINativeSaaS XR creates dedicated database user: `tenant_<id>_user`
+- AINativeSaaS XR generates random password and stores in Secret: `<tenantId>-db-credentials`
+- AINativeSaaS XR grants permissions on `tenant_<id>_db` to `tenant_<id>_user`
+- AINativeSaaS XR revokes access to other databases
+- Pooler updated to use tenant-specific credentials from Secret
+- PostgREST updated to use tenant-specific credentials from Secret
 - Atlas Operator creates deterministic database: `tenant_<id>_db` (< 5 seconds)
 - Baseline migrations applied from Git via Atlas Operator (tenant-baseline + tenant-specific)
 - Per-tenant PostgREST deployed connecting to tenant's database via tenant's pooler
@@ -446,6 +484,13 @@ Acceptance Criteria:
 - [ ] Helm renders templates with tenant values and generates CRs
 - [ ] Application deploys generated CRs to Spoke Pool cluster (destination: cellId) with sync waves
 - [ ] AINativeSaaS XR provisions: CNPG Database CR (`tenant_acme_db`), CNPG Pooler CR, PostgREST Deployment, PostgREST Service
+- [ ] Verify dedicated database user created: `tenant_<id>_user`
+- [ ] Verify user credentials stored in Secret: `<tenantId>-db-credentials`
+- [ ] Verify Secret contains fields: `username`, `password`, `database`, `host`, `port`
+- [ ] Verify user can connect to their database only
+- [ ] Verify user CANNOT connect to other tenant databases
+- [ ] Verify Pooler uses tenant-specific credentials from Secret
+- [ ] Verify PostgREST uses tenant-specific credentials from Secret
 - [ ] Atlas Operator creates deterministic database: `tenant_<tenant-id>_db` (e.g., `tenant_acme_db`)
 - [ ] Atlas Operator applies baseline migrations from Git (tenant-baseline + tenant-specific via composite sources)
 - [ ] Baseline tables created in `public` schema with RLS enabled
@@ -530,7 +575,7 @@ The following features are explicitly deferred to later phases:
 ### 8.1 External Dependencies
 - **CAPI + CAPH**: Cluster API with Hetzner provider for VM provisioning
 - **Crossplane**: Infrastructure provisioning engine (v1.14+)
-- **Crossplane provider-sql**: Logical database provisioning (v0.9+)
+- **Crossplane provider-sql**: Logical database provisioning and SQL user creation (v0.9+)
 - **ArgoCD**: GitOps deployment engine (v2.10+)
 - **Kyverno**: Policy engine for CAPI-to-ArgoCD bridge (v1.11+)
 - **cert-manager**: mTLS certificate generation (v1.13+)
@@ -597,6 +642,7 @@ The following features are explicitly deferred to later phases:
 | Edge catalog deployment times out | Medium | Medium | Increase ArgoCD sync timeout; implement health checks for each component |
 | Schema migration fails | High | Low | Add SQL migration validation; implement rollback mechanism for failed migrations; use idempotent migrations |
 | Control plane database unavailable | High | Low | Implement retry logic with exponential backoff; cache cell capacity data; implement circuit breaker |
+| Credential rotation failure | Medium | Low | Implement credential rotation with overlap period (old + new credentials valid during rotation); Phase 2 automated rotation |
 
 ---
 
@@ -642,6 +688,7 @@ The following features are explicitly deferred to later phases:
 | **ClusterResourceSet** | CAPI mechanism for injecting manifests into newly provisioned clusters |
 | **Kyverno** | Kubernetes policy engine used to bridge CAPI and ArgoCD |
 | **Tenant Database** | A dedicated logical PostgreSQL database within the shared CNPG cluster, isolating a single tenant's data |
+| **Tenant Database User** | A dedicated PostgreSQL user per tenant with unique credentials, GRANT permissions only on their database |
 | **RLS** | Row-Level Security - PostgreSQL feature used within tenant databases to isolate end-users (not for platform-level tenant isolation) |
 | **App-of-Apps** | ArgoCD pattern where one Application generates multiple child Applications |
 | **Atlas** | SQL migration engine with Kubernetes Operator for GitOps-driven database management and drift detection |
@@ -659,7 +706,7 @@ The following features are explicitly deferred to later phases:
 | **Ory Hydra** | OAuth2/OIDC server deployed in Hub for token issuance |
 | **JWKS** | JSON Web Key Set - public keys used by Hub AgentGateway to validate JWT signatures |
 | **Tenant Routing** | Hub AgentGateway extracts `tenant_id` from JWT, routes to correct tenant's PostgREST instance |
-| **AINativeSaaS XR** | Crossplane Composite Resource that provisions per-tenant Database, Pooler, PostgREST |
+| **AINativeSaaS XR** | Crossplane Composite Resource that provisions per-tenant Database, User, Pooler, PostgREST |
 | **Composite Migrations** | Atlas merges tenant-baseline + tenant-specific migrations declaratively |
 
 ---

@@ -208,10 +208,13 @@ stringData:
 
 **Per-Tenant Pooler Configuration** (provisioned via AINativeSaaS XR):
 - Each tenant gets dedicated CNPG Pooler CR
-- Pooler connects only to tenant's database
+- Pooler connects only to tenant's database using tenant-specific credentials
+- Pooler credentials sourced from tenant-specific Secret: `<tenantId>-db-credentials`
+- Secret contains: `username: tenant_<id>_user`, `password: <random-32-char>`, `database: tenant_<id>_db`, `host: shared-cnpg-rw`, `port: 5432`
 - Transaction pooling mode (CRITICAL: not session pooling)
 - 5 concurrent connections per tenant pooler
 - Pooler deployed in tenant namespace
+- Shared cluster-wide `app` user is NOT used for tenant workloads
 
 ### 4.2 Tenant Database Model
 
@@ -228,6 +231,22 @@ CREATE DATABASE tenant_acme_db;
 - CNPG Pooler CR: Dedicated pooler connecting to tenant's database
 - PostgREST Deployment: Dedicated instance connecting via tenant's pooler
 - PostgREST Service: ClusterIP service in tenant namespace
+
+**Per-Tenant Database User**:
+- User naming: `tenant_<id>_user` (e.g., `tenant_acme_user`)
+- Password generation: 32-character random alphanumeric (via Crossplane function or provider-sql)
+- User creation SQL:
+  ```sql
+  CREATE USER tenant_acme_user WITH PASSWORD '<random-password>';
+  GRANT CONNECT ON DATABASE tenant_acme_db TO tenant_acme_user;
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tenant_acme_user;
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tenant_acme_user;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant_acme_user;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO tenant_acme_user;
+  ```
+- Revoke access to other databases (explicit REVOKE not needed - user has no default access)
+- Credentials stored in Secret: `<tenantId>-db-credentials` in tenant namespace
+- Secret fields: `username`, `password`, `database`, `host`, `port`
 
 **Baseline Tables** (adapted from Supabase, in `public` schema):
 - `public.users` (auth)
@@ -295,12 +314,20 @@ CREATE DATABASE tenant_acme_db;
 6. ArgoCD: Deploys generated CRs to Spoke Pool cluster (destination: cell_id)
 7. Crossplane: Reconciles AINativeSaaS XR:
    a. Creates CNPG Database CR: tenant_acme_db
-   b. Creates CNPG Pooler CR: connects to tenant_acme_db (transaction mode)
-   c. Creates PostgREST Deployment: connects via tenant's pooler
-   d. Creates PostgREST Service: ClusterIP in tenant-acme namespace
+   b. Generates random password (32 chars, alphanumeric)
+   c. Creates Kubernetes Secret: acme-db-credentials in tenant-acme namespace
+   d. Executes SQL via provider-sql: CREATE USER tenant_acme_user WITH PASSWORD '...'
+   e. Executes SQL: GRANT CONNECT ON DATABASE tenant_acme_db TO tenant_acme_user
+   f. Executes SQL: GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tenant_acme_user
+   g. Executes SQL: GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tenant_acme_user
+   h. Executes SQL: ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant_acme_user
+   i. Executes SQL: ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO tenant_acme_user
+   j. Creates CNPG Pooler CR: connects to tenant_acme_db using Secret acme-db-credentials (transaction mode)
+   k. Creates PostgREST Deployment: connects via tenant's pooler using Secret acme-db-credentials
+   l. Creates PostgREST Service: ClusterIP in tenant-acme namespace
 8. Atlas Operator: Reconciles AtlasMigration CR:
    a. Reads migrations from Git (tenant-baseline + tenant-specific via composite sources)
-   b. Connects to tenant_acme_db via tenant's pooler
+   b. Connects to tenant_acme_db via tenant's pooler using tenant_acme_user credentials
    c. Checks atlas_schema_revisions for tenant_acme_db
    d. Detects missing migrations
    e. Validates migrations in ephemeral dev database
@@ -433,11 +460,16 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 **Platform-Level Isolation** (Database-Level):
 - Deterministic database naming: `tenant_<id>_db`
 - Each tenant has dedicated logical database in shared CNPG cluster
-- Each tenant has dedicated pooler connecting only to their database
-- Each tenant has dedicated PostgREST instance connecting via their pooler
+- Each tenant has dedicated database user: `tenant_<id>_user` with unique password
+- User credentials stored in Secret: `<tenantId>-db-credentials` in tenant namespace
+- Each tenant user has GRANT permissions ONLY on their database
+- PostgreSQL prevents cross-tenant access (separate databases + separate users)
+- Each tenant has dedicated pooler connecting only to their database using tenant-specific credentials
+- Each tenant has dedicated PostgREST instance connecting via their pooler using tenant-specific credentials
 - Hub AgentGateway validates JWT, extracts `tenant_id`, routes to correct tenant's PostgREST
 - PgBouncer transaction pooling resets session state between transactions
-- No cross-tenant access possible (separate databases)
+- No cross-tenant access possible (separate databases + separate users + separate poolers)
+- Shared cluster-wide `app` user is NOT used for tenant workloads
 
 ### 6.4 End-User Isolation
 - PostgreSQL RLS policies within tenant schema
@@ -465,6 +497,41 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 
 ---
 
+## 6.6 Per-Tenant Database User Management
+
+### User Creation Approach
+
+**Option 1: Crossplane provider-sql** (RECOMMENDED):
+- Composition includes `ProviderConfig` pointing to shared CNPG cluster
+- Composition includes `User` resource with `name: tenant_<id>_user`, `passwordSecretRef: <tenantId>-db-credentials`
+- Composition includes `Grant` resource with `privileges: [CONNECT]`, `database: tenant_<id>_db`, `role: tenant_<id>_user`
+- Composition includes `Grant` resource with `privileges: [ALL]`, `schema: public`, `role: tenant_<id>_user`
+- Composition includes `Grant` resource with `privileges: [ALL]`, `objectType: sequences`, `schema: public`, `role: tenant_<id>_user`
+- Composition includes `Grant` resource for default privileges: `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant_<id>_user`
+
+**Option 2: CNPG native user management**:
+- CNPG Cluster spec includes `managed.roles` with per-tenant users
+- Requires dynamic Cluster CR updates (not idiomatic for Crossplane)
+- NOT RECOMMENDED (violates immutable infrastructure principle)
+
+### Password Generation
+- Crossplane function-patch-and-transform with `type: string`, `fmt: "random-32"`
+- 32-character random alphanumeric string
+- Stored in Kubernetes Secret: `<tenantId>-db-credentials`
+
+### Secret Creation
+- Crossplane Object resource wrapping Kubernetes Secret
+- Secret contains: `username: tenant_<id>_user`, `password: <random>`, `database: tenant_<id>_db`, `host: shared-cnpg-rw`, `port: 5432`
+- Secret created in tenant namespace
+- Referenced by Pooler and PostgREST via `secretRef`
+
+### Credential Rotation
+- Phase 2: External Secrets Operator + Vault integration
+- Rotation with overlap period (old + new credentials valid for 24 hours)
+- Automated rotation every 90 days
+
+---
+
 ## 7. Observability
 
 ### 7.1 Metrics Collection
@@ -483,6 +550,7 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 cnpg_pg_stat_database_numbackends{cell_id="spokepool-01"}
 cnpg_pg_replication_lag_seconds{cell_id="spokepool-01"}
 cnpg_pg_database_size_bytes{cell_id="spokepool-01"}
+cnpg_pg_stat_activity_count{user="tenant_<id>_user"}  # Per-tenant user connection tracking
 
 # NATS
 nats_leafnode_connected{cell_id="spokepool-01"}
@@ -598,6 +666,24 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Expected Result**: No data loss, events delivered after reconnection
 
+### 8.6 Per-Tenant User Isolation Test
+
+**Test Case**: Verify per-tenant database user isolation and credential security
+
+**Steps**:
+1. Create two tenants: tenant-acme, tenant-xyz
+2. Verify Secret exists: `kubectl get secret acme-db-credentials -n tenant-acme`
+3. Extract credentials: `kubectl get secret acme-db-credentials -n tenant-acme -o jsonpath='{.data.username}' | base64 -d`
+4. Verify username format: `tenant_acme_user`
+5. Verify password length: `kubectl get secret acme-db-credentials -n tenant-acme -o jsonpath='{.data.password}' | base64 -d | wc -c` (should be 32)
+6. Attempt cross-tenant access: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_xyz_db` (should fail with permission denied)
+7. Verify tenant can access own database: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_acme_db -c "SELECT 1"` (should succeed)
+8. Verify Pooler uses tenant credentials: `kubectl --context spokepool-01 logs -n tenant-acme pooler-<pod> | grep "tenant_acme_user"`
+9. Verify PostgREST uses tenant credentials: `kubectl --context spokepool-01 logs -n tenant-acme postgrest-<pod> | grep "tenant_acme_user"`
+10. Verify shared `app` user is NOT used: `kubectl --context spokepool-01 logs -n tenant-acme pooler-<pod> | grep "app"` (should return no results)
+
+**Expected Result**: Cross-tenant access denied, own database access succeeds, tenant-specific credentials used throughout
+
 ---
 
 ## 9. Implementation Phases
@@ -633,8 +719,14 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 - Tenant baseline migration files (Supabase-adapted) in `migrations/tenant-baseline/`
 - AtlasMigration CR template with composite sources
 - ArgoCD ApplicationSet (Git Generator for tenants) with cellId destination
+- Per-tenant database user creation via provider-sql
+- Credential Secret generation and storage
+- Pooler and PostgREST credential configuration
 
-**Validation**: Create tenant via MCP API, verify database + pooler + PostgREST provisioned in < 5 seconds
+**Validation**: 
+- Create tenant via MCP API, verify database + user + pooler + PostgREST provisioned in < 5 seconds
+- Verify user isolation (cross-tenant access denied)
+- Verify credentials stored in Secret and used by Pooler/PostgREST
 
 ### Phase 4: Observability and Monitoring (Week 7)
 
@@ -662,6 +754,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 - CAPI + CAPH (v1.6+)
 - Crossplane (v1.14+)
+- Crossplane provider-sql (v0.9+) for SQL user creation and GRANT management
 - ArgoCD (v2.10+)
 - Kyverno (v1.11+)
 - cert-manager (v1.13+)
@@ -732,6 +825,18 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 - NATS Leaf Node buffers events locally (JetStream persistence)
 - Automatic reconnection with exponential backoff
 - Eventual consistency guarantees (no data loss)
+
+### 11.6 Risk: Credential Rotation Failure
+
+**Impact**: Tenant cannot access database after rotation
+
+**Probability**: Low
+
+**Mitigation**:
+- Implement rotation with overlap period (old + new credentials valid for 24 hours)
+- Phase 2 automated rotation with External Secrets Operator
+- Monitor credential expiration via Prometheus alerts
+- Rollback mechanism to restore previous credentials
 
 ---
 

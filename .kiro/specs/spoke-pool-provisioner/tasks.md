@@ -599,6 +599,68 @@ After completing each phase, you MUST:
   - Verify ArgoCD detects and syncs XRD
   - _Requirements: FR-4.1, FR-5.2, AC-5_
 
+### 3.2.5 Per-Tenant Database User Implementation
+
+- [ ] 3.2.5.1 Install Crossplane provider-sql
+  - Install provider-sql to Hub cluster: `kubectl apply -f provider-sql.yaml`
+  - Verify provider installed: `kubectl get providers`
+  - Create file: `manifests/crossplane/providers/provider-sql.yaml`
+  - _Requirements: FR-4.6, NFR-4.10_
+
+- [ ] 3.2.5.2 Create ProviderConfig for shared CNPG cluster
+  - Define ProviderConfig pointing to shared CNPG cluster in each Spoke Pool
+  - Connection details: host=shared-cnpg-rw, port=5432, database=postgres
+  - Use postgres superuser credentials for user creation
+  - Create file: `xrds/compositions/ainativesaas-providerconfig.yaml`
+  - _Requirements: FR-4.6_
+
+- [ ] 3.2.5.3 Update AINativeSaaS Composition to generate password Secret
+  - Add Crossplane Object resource wrapping Kubernetes Secret
+  - Secret name: `<tenantId>-db-credentials`
+  - Secret namespace: `tenant-<tenantId>`
+  - Secret fields: `username: tenant_<id>_user`, `password: <random-32-char>`, `database: tenant_<id>_db`, `host: shared-cnpg-rw`, `port: 5432`
+  - Use Crossplane function-patch-and-transform for password generation: `type: string`, `fmt: "random-32"`
+  - _Requirements: FR-4.6, NFR-4.10_
+
+- [ ] 3.2.5.4 Update AINativeSaaS Composition to create database user
+  - Add provider-sql User resource
+  - User name: `tenant_<id>_user`
+  - Password from Secret: `passwordSecretRef: <tenantId>-db-credentials`
+  - Create file update: `xrds/compositions/ainativesaas-starter-hetzner.yaml`
+  - _Requirements: FR-4.6, NFR-4.10_
+
+- [ ] 3.2.5.5 Update AINativeSaaS Composition to grant database permissions
+  - Add provider-sql Grant resource for CONNECT privilege
+  - Grant: `GRANT CONNECT ON DATABASE tenant_<id>_db TO tenant_<id>_user`
+  - Add provider-sql Grant resource for table privileges
+  - Grant: `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tenant_<id>_user`
+  - Add provider-sql Grant resource for sequence privileges
+  - Grant: `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tenant_<id>_user`
+  - Add provider-sql Grant resource for default privileges (tables)
+  - Grant: `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant_<id>_user`
+  - Add provider-sql Grant resource for default privileges (sequences)
+  - Grant: `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO tenant_<id>_user`
+  - _Requirements: FR-4.6, NFR-4.12_
+
+- [ ] 3.2.5.6 Update AINativeSaaS Composition Pooler to use tenant credentials
+  - Update CNPG Pooler CR to reference Secret: `<tenantId>-db-credentials`
+  - Pooler connects using `username` and `password` from Secret
+  - Remove reference to shared `app` user credentials
+  - _Requirements: FR-4.6, NFR-4.13_
+
+- [ ] 3.2.5.7 Update AINativeSaaS Composition PostgREST to use tenant credentials
+  - Update PostgREST Deployment to reference Secret: `<tenantId>-db-credentials`
+  - PostgREST connects using `username` and `password` from Secret
+  - Environment variables: `PGRST_DB_URI` from Secret fields
+  - Remove reference to shared `app` user credentials
+  - _Requirements: FR-4.6, NFR-4.13_
+
+- [ ] 3.2.5.8 Commit AINativeSaaS Composition updates to Git
+  - Commit all Composition changes to feature branch
+  - Push to GitOps repository
+  - Verify ArgoCD detects and syncs Composition
+  - _Requirements: FR-4.6_
+
 ### 3.3 Universal Tenant Helm Chart Updates
 
 - [x] 3.3.1 Verify Universal Tenant Helm Chart structure
@@ -731,33 +793,78 @@ After completing each phase, you MUST:
   - Verify ClusterIP type (internal only)
   - _Requirements: FR-2.6, AC-5, AC-6_
 
-- [ ] 3.6.9 Verify AtlasMigration CR deployed
+- [ ] 3.6.9 Verify per-tenant database user created
+  - Verify user exists: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\du tenant_acme_user"`
+  - Verify user naming format: `tenant_<id>_user`
+  - _Requirements: FR-4.6, AC-5_
+
+- [ ] 3.6.10 Verify user credentials stored in Secret
+  - Verify Secret exists: `kubectl --context spokepool-01 get secret acme-db-credentials -n tenant-acme`
+  - Verify Secret contains fields: `username`, `password`, `database`, `host`, `port`
+  - Extract username: `kubectl get secret acme-db-credentials -n tenant-acme -o jsonpath='{.data.username}' | base64 -d`
+  - Verify username equals: `tenant_acme_user`
+  - Extract password: `kubectl get secret acme-db-credentials -n tenant-acme -o jsonpath='{.data.password}' | base64 -d`
+  - Verify password length: 32 characters
+  - _Requirements: FR-4.6, AC-5_
+
+- [ ] 3.6.11 Verify user can connect to own database
+  - Test connection: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_acme_db -c "SELECT 1"`
+  - Verify connection succeeds
+  - _Requirements: FR-4.6, AC-5_
+
+- [ ] 3.6.12 Verify user CANNOT connect to other tenant databases
+  - Create second tenant: tenant-xyz
+  - Attempt cross-tenant access: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_xyz_db`
+  - Verify connection fails with permission denied error
+  - _Requirements: FR-4.6, NFR-4.12, AC-5_
+
+- [ ] 3.6.13 Verify Pooler uses tenant-specific credentials
+  - Check Pooler logs: `kubectl --context spokepool-01 logs -n tenant-acme pooler-<pod>`
+  - Verify logs show connection with `tenant_acme_user`
+  - Verify logs do NOT show shared `app` user
+  - _Requirements: FR-4.6, NFR-4.13, AC-5_
+
+- [ ] 3.6.14 Verify PostgREST uses tenant-specific credentials
+  - Check PostgREST logs: `kubectl --context spokepool-01 logs -n tenant-acme postgrest-<pod>`
+  - Verify logs show connection with `tenant_acme_user`
+  - Verify logs do NOT show shared `app` user
+  - _Requirements: FR-4.6, NFR-4.13, AC-5_
+
+- [ ] 3.6.15 Verify user has correct permissions
+  - Test table creation: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_acme_db -c "CREATE TABLE test_table (id INT)"`
+  - Verify table created successfully
+  - Test table access: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_acme_db -c "INSERT INTO test_table VALUES (1)"`
+  - Verify insert succeeds
+  - Clean up: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user -d tenant_acme_db -c "DROP TABLE test_table"`
+  - _Requirements: FR-4.6, NFR-4.12, AC-5_
+
+- [ ] 3.6.16 Verify AtlasMigration CR deployed
   - Verify CR deployed: `kubectl --context spokepool-01 get atlasmigration tenant-acme`
   - Verify CR references database: `tenant_acme_db`
   - Verify CR uses composite sources (shared + tenant-specific)
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.10 Verify database created in CNPG
+- [ ] 3.6.17 Verify database created in CNPG
   - Verify database exists: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -c "\l tenant_acme_db"`
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.11 Verify baseline tables created
+- [ ] 3.6.18 Verify baseline tables created
   - Verify tables exist: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "\dt public.*"`
   - Verify RLS enabled on tables
   - Verify RLS policies exist
   - _Requirements: FR-4.1, FR-4.2, AC-5, AC-6_
 
-- [ ] 3.6.12 Verify AtlasMigration CR status
+- [ ] 3.6.19 Verify AtlasMigration CR status
   - Verify CR status: `kubectl --context spokepool-01 get atlasmigration tenant-acme -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`
   - Verify status is True
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.13 Verify database provisioning time
+- [ ] 3.6.20 Verify database provisioning time
   - Measure time from Git commit to AtlasMigration Ready
   - Verify < 5 seconds
   - _Requirements: NFR-1.3, AC-5, AC-6_
 
-- [ ] 3.6.14 Test authentication flow via Hub AgentGateway
+- [ ] 3.6.21 Test authentication flow via Hub AgentGateway
   - Obtain JWT from Hub Ory: `curl -X POST https://auth.hub.example.com/oauth2/token ...`
   - Make authenticated request: `curl -H "Authorization: Bearer $JWT" https://api.hub.example.com/tenant-acme/documents`
   - Verify Hub AgentGateway logs show JWT validation
@@ -767,7 +874,7 @@ After completing each phase, you MUST:
   - Verify response contains only tenant's data
   - _Requirements: FR-4.5, FR-2.6, AC-6_
 
-- [ ] 3.6.15 Test drift detection and recovery
+- [ ] 3.6.22 Test drift detection and recovery
   - Manually alter database: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U postgres -d tenant_acme_db -c "ALTER TABLE public.users ADD COLUMN test VARCHAR(20)"`
   - Wait 60 seconds (Atlas Operator reconciliation loop)
   - Verify Atlas Operator logs show drift detection
@@ -782,11 +889,12 @@ After completing each phase, you MUST:
 - [x] 3.7.1 **MANDATORY STOP - Phase 3 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 3 completion summary to user
-  - Demonstrate: Git commit → ApplicationSet → Helm → AINativeSaaS XR → Database + Pooler + PostgREST provisioned
-  - Show validation results from tasks 3.6.1-3.6.15
+  - Demonstrate: Git commit → ApplicationSet → Helm → AINativeSaaS XR → Database + User + Pooler + PostgREST provisioned
+  - Show validation results from tasks 3.6.1-3.6.22 (including new user isolation tests)
+  - Highlight: Per-tenant database users with isolated credentials (no shared `app` user)
   - **WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 4**
   - Document any issues or deviations from design
-  - _Requirements: All Phase 3 requirements_
+  - _Requirements: All Phase 3 requirements including FR-4.6, NFR-4.10-4.14_
 
 
 ---
