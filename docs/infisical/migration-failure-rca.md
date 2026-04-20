@@ -124,7 +124,7 @@ const db = knex({
 
 **Our Deployment Configuration:**
 ```yaml
-# manifests/platform-core-services/platform-infisical/values.yaml
+# manifests/hub-core-services/platform-infisical/values.yaml
 extraEnv:
 - name: DB_HOST
   value: platform-db-pooler.zero-ops-system.svc  # ← PgBouncer, not PostgreSQL
@@ -184,7 +184,7 @@ spec:
 
 **Change:**
 ```yaml
-# manifests/platform-core-services/platform-infisical/values.yaml
+# manifests/hub-core-services/platform-infisical/values.yaml
 extraEnv:
 - name: DB_HOST
   value: platform-db-rw.zero-ops-system.svc  # Direct connection for migrations
@@ -205,7 +205,7 @@ extraEnv:
 
 **Change:**
 ```yaml
-# manifests/platform-core-services/platform-infisical/values.yaml
+# manifests/hub-core-services/platform-infisical/values.yaml
 initContainers:
 - name: run-migrations
   image: infisical/infisical:v0.158.0

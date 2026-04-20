@@ -8,7 +8,7 @@ metadata:
 spec:
   project: platform-infrastructure
   source:
-    path: manifests/platform-core-services/cloudnative-pg
+    path: manifests/hub-core-services/cloudnative-pg
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
   destination:

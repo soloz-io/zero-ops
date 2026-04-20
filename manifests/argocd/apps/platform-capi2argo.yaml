@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-core-services/capi2argo
+    path: manifests/hub-core-services/capi2argo
     directory:
       recurse: false
   destination:

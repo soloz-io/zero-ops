@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-core-services/platform-argocd-github-auth
+    path: manifests/hub-core-services/platform-argocd-github-auth
     directory:
       recurse: true
   destination:

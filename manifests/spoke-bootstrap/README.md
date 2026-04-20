@@ -66,6 +66,6 @@ The ArgoCD Agent ConfigMap (`argocd-agent-config`) is dynamically generated per-
 ## Related Files
 
 - **Spoke Catalog**: `manifests/spoke-catalog/` (deployed via ArgoCD after bootstrap)
-- **Certificates**: `manifests/platform-core-services/security/`
+- **Certificates**: `manifests/hub-core-services/security/`
 - **Composition**: `xrds/compositions/spokepool-hetzner.yaml`
 - **ADR**: `docs/adr/0001-clusterresourceset-addon-template-management.md`

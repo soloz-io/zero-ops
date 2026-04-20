@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: main
-    path: manifests/platform-core-services/grafana-alloy
+    path: manifests/hub-core-services/grafana-alloy
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-observability

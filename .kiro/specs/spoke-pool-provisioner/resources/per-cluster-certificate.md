@@ -30,7 +30,7 @@ Based on the ADR, integration docs, and actual cluster state:
 
 ### **The Root Cause:**
 
-The file `manifests/platform-core-services/security/argocd-agent-cert.yaml` defines certificates in the **wrong namespace** (`argocd`) and uses a **template approach** that doesn't match the design.
+The file `manifests/hub-core-services/security/argocd-agent-cert.yaml` defines certificates in the **wrong namespace** (`argocd`) and uses a **template approach** that doesn't match the design.
 
 **What it currently does:**
 - Creates certificates in `argocd` namespace

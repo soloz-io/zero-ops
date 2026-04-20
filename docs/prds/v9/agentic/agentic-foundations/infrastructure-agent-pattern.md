@@ -300,7 +300,7 @@ func ListBackups(ctx context.Context, k8sClient client.Client, input ListBackups
 
 ### Directory Structure
 ```
-manifests/platform-core-services/platform-identity/ory-kratos/
+manifests/hub-core-services/platform-identity/ory-kratos/
 ├── kratos-deployment.yaml         # Kratos service
 ├── kratos-toolserver.yaml         # MCP server for identity ops
 ├── kratos-agent.yaml              # Kagent Agent CR
@@ -312,7 +312,7 @@ manifests/platform-core-services/platform-identity/ory-kratos/
 ```
 
 ### Kratos Agent CR
-**File**: `manifests/platform-core-services/platform-identity/ory-kratos/kratos-agent.yaml`
+**File**: `manifests/hub-core-services/platform-identity/ory-kratos/kratos-agent.yaml`
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -443,9 +443,9 @@ spec:
 | Component | Folder | Agent Name | Tool Server | Tools |
 |-----------|--------|------------|-------------|-------|
 | **CNPG** | `manifests/platform-database/` | `cnpg-ops-agent` | `cnpg-mcp-server` | get_cluster_status, list_backups, check_replication |
-| **Ory Kratos** | `manifests/platform-core-services/platform-identity/ory-kratos/` | `kratos-ops-agent` | `kratos-mcp-server` | list_users, get_identity, verify_session |
-| **Ory Keto** | `manifests/platform-core-services/platform-identity/ory-keto/` | `keto-ops-agent` | `keto-mcp-server` | check_permission, list_relations |
-| **Ory Hydra** | `manifests/platform-core-services/platform-identity/ory-hydra/` | `hydra-ops-agent` | `hydra-mcp-server` | list_clients, get_token_info |
+| **Ory Kratos** | `manifests/hub-core-services/platform-identity/ory-kratos/` | `kratos-ops-agent` | `kratos-mcp-server` | list_users, get_identity, verify_session |
+| **Ory Keto** | `manifests/hub-core-services/platform-identity/ory-keto/` | `keto-ops-agent` | `keto-mcp-server` | check_permission, list_relations |
+| **Ory Hydra** | `manifests/hub-core-services/platform-identity/ory-hydra/` | `hydra-ops-agent` | `hydra-mcp-server` | list_clients, get_token_info |
 | **AgentGateway** | `manifests/api-gateway/` | `agentgateway-ops-agent` | `agentgateway-mcp-server` | get_route_stats, check_auth_status |
 | **ArgoCD** | `manifests/argocd/` | `argocd-ops-agent` | `argocd-mcp-server` | get_app_status, sync_app, list_apps |
 | **VictoriaMetrics** | `manifests/observability/victoriametrics/` | `victoriametrics-ops-agent` | `victoriametrics-mcp-server` | query_metrics, list_targets |

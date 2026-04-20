@@ -105,7 +105,7 @@ They use [KUTTL](https://kuttl.dev/) (KUbernetes Test TooL). KUTTL allows you to
 You define a `00-install.yaml` (apply the CR) and a `00-assert.yaml` (what the cluster should look like after the operator runs).
 
 **How your team applies it to `hub-operator`:**
-Replace your `manifests/platform-core-services/platform-identity/verify-deployment.sh` with KUTTL.
+Replace your `manifests/hub-core-services/platform-identity/verify-deployment.sh` with KUTTL.
 Create a test: `tests/e2e/01-hub-bootstrap/`
 *   `00-apply.yaml`: Applies `HubEnvironment` CR.
 *   `00-assert.yaml`: Asserts that `Role: mcp_server` exists in Postgres, and `Secret: infisical-auth` exists in the `zero-ops-system` namespace.

@@ -624,7 +624,7 @@
 - [ ] 24.1 Delete manifests/platform-database/setup-platform-roles-job.yaml
 - [ ] 24.2 Delete manifests/platform-database/password-rotation-job.yaml
 - [ ] 24.3 Delete manifests/platform-database/setup-infisical-role-job.yaml
-- [ ] 24.4 Delete manifests/platform-core-services/nats/init-streams-job.yaml
+- [ ] 24.4 Delete manifests/hub-core-services/nats/init-streams-job.yaml
 - [ ] 24.5 Update ArgoCD Applications to remove deleted jobs
 - [ ] 24.6 Update sync-wave documentation
 

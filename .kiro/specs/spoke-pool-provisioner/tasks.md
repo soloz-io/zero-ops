@@ -44,7 +44,7 @@ After completing each phase, you MUST:
 - [x] 1.2.1 Create ArgoCD Agent mTLS Certificate manifest
   - Define Certificate CR for ArgoCD Agent (90-day validity, auto-renew at 83 days)
   - Create self-signed CA for ArgoCD
-  - Create file: `manifests/platform-core-services/security/argocd-agent-cert.yaml`
+  - Create file: `manifests/hub-core-services/security/argocd-agent-cert.yaml`
   - _Requirements: FR-1.2, NFR-4.1, NFR-4.2, AC-3_
 
 - [x] 1.2.2 Create NATS Leaf Node mTLS Certificate manifest
@@ -669,7 +669,7 @@ After completing each phase, you MUST:
 
 ### 3.5 ArgoCD ApplicationSet Updates
 
-- [ ] 3.5.1 Update ApplicationSet with cellId destination (Fix Issue #39)
+- [x] 3.5.1 Update ApplicationSet with cellId destination (Fix Issue #39)
   - Update file: `manifests/argocd/apps/platform-tenant-applicationset.yaml`
   - Verify Git Generator watches `fleet-registry/tenants/*/values.yaml`
   - Verify Helm Application generation for each tenant directory
@@ -686,7 +686,7 @@ After completing each phase, you MUST:
 
 ### 3.6 Phase 3 Manual Validation
 
-- [ ] 3.6.1 Create test tenant via GitOps flow
+- [-] 3.6.1 Create test tenant via GitOps flow
   - Create file: `fleet-registry/tenants/tenant-acme/values.yaml`
   - Content: `tenantId: acme`, `tier: starter`, `cellId: spokepool-01`, `database.name: tenant_acme_db`
   - Commit to main branch

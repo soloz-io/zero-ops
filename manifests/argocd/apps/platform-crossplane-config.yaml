@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-core-services/crossplane/config
+    path: manifests/hub-core-services/crossplane/config
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops

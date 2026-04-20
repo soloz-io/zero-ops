@@ -1433,13 +1433,13 @@ echo "=== Verification Complete ==="
 - `manifests/platform-database/migrations/*.yaml` - SQL migration files (embed in operator binary)
 
 **NATS Configuration:**
-- `manifests/platform-core-services/nats/` - NATS StatefulSet (watch for Ready status)
+- `manifests/hub-core-services/nats/` - NATS StatefulSet (watch for Ready status)
 
 **Hydra Configuration:**
-- `manifests/platform-core-services/platform-identity/ory-hydra/` - Hydra Deployment (watch for Ready status)
+- `manifests/hub-core-services/platform-identity/ory-hydra/` - Hydra Deployment (watch for Ready status)
 
 **Infisical Configuration:**
-- `manifests/platform-core-services/platform-infisical/` - Infisical Deployment (watch for Ready status)
+- `manifests/hub-core-services/platform-infisical/` - Infisical Deployment (watch for Ready status)
 
 ### Manifests to DELETE
 
@@ -1447,7 +1447,7 @@ echo "=== Verification Complete ==="
 - `manifests/platform-database/setup-platform-roles-job.yaml` → DELETE (operator creates roles via database/sql)
 - `manifests/platform-database/password-rotation-job.yaml` → DELETE (operator manages secrets)
 - `manifests/platform-database/setup-infisical-role-job.yaml` → DELETE (operator creates roles)
-- `manifests/platform-core-services/nats/init-streams-job.yaml` → DELETE (operator creates streams via NATS SDK)
+- `manifests/hub-core-services/nats/init-streams-job.yaml` → DELETE (operator creates streams via NATS SDK)
 
 ### Migration Checklist
 
@@ -2568,7 +2568,7 @@ subjects:
   namespace: hub-platform-ops
 ```
 
-### Example HubEnvironment CR Deployment (`manifests/platform-core-services/hub-environment.yaml`)
+### Example HubEnvironment CR Deployment (`manifests/hub-core-services/hub-environment.yaml`)
 
 ```yaml
 apiVersion: ops.nutgraf.in/v1alpha1

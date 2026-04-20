@@ -46,7 +46,7 @@ Spoke Cluster (Data Plane):
    - Add AtlasMigration CR wrapped in provider-kubernetes Object ✅
    - Add providerConfigRef patches (cellId → ProviderConfig name) ✅
 3. ✅ **ProviderConfig Management**:
-   - Kyverno policy deployed via GitOps (manifests/platform-core-services/security/) ✅
+   - Kyverno policy deployed via GitOps (manifests/hub-core-services/security/) ✅
    - Policy auto-generates ProviderConfig when CAPI Cluster becomes Ready ✅
    - Removed duplicate policy file from manifests/platform-ops/crossplane/ ✅
 4. ✅ **Update Universal Tenant Helm Chart**:
@@ -415,7 +415,7 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 4. Verify Agent authenticates with cluster-specific identity
 
 **Files to Modify**:
-- `manifests/platform-core-services/security/argocd-agent-cert.yaml` (Kyverno policy)
+- `manifests/hub-core-services/security/argocd-agent-cert.yaml` (Kyverno policy)
 - `xrds/compositions/spokepool-hetzner.yaml` (add Certificate resource)
 
 ---
@@ -453,7 +453,7 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 
 ### ✅ Issue #16: ArgoCD Agent mTLS CA Mismatch
 **Status**: RESOLVED (2026-04-11 16:38 UTC)  
-**Fix**: Unified CA definition - removed duplicate from manifests/argocd-principal/certificates.yaml, use manifests/platform-core-services/security/argocd-agent-cert.yaml only  
+**Fix**: Unified CA definition - removed duplicate from manifests/argocd-principal/certificates.yaml, use manifests/hub-core-services/security/argocd-agent-cert.yaml only  
 **Verified**: Both Agent and Principal now use same CA (fingerprint 69:E3:D9...)  
 **Architecture**: cert-manager → Kyverno → CRS → Spoke cluster (automated flow)
 

@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-core-services/platform-infisical
+    path: manifests/hub-core-services/platform-infisical
     directory:
       recurse: true
       exclude: "*.md"
@@ -45,7 +45,7 @@ spec:
     targetRevision: 1.7.5
     helm:
       valueFiles:
-      - $values/manifests/platform-core-services/platform-infisical/values.yaml
+      - $values/manifests/hub-core-services/platform-infisical/values.yaml
   - repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
     ref: values

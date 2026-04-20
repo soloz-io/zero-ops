@@ -82,7 +82,7 @@ spec:
 Currently, your codebase uses Kubernetes Jobs running bash scripts to initialize databases. 
 *   **Target 1:** `manifests/platform-database/setup-platform-roles-job.yaml`
 *   **Target 2:** `manifests/platform-database/password-rotation-job.yaml`
-*   **Target 3:** `manifests/platform-core-services/nats/init-streams-job.yaml`
+*   **Target 3:** `manifests/hub-core-services/nats/init-streams-job.yaml`
 
 **These jobs must be deleted.** They are brittle, hard to debug, and don't retry cleanly if the database crashes mid-execution. 
 
@@ -178,7 +178,7 @@ Move the `infisical.NewClient()` and `hydra.registerClient()` code out of the CL
 
 ### Step 5: Clean up GitOps Repo
 1. Delete `manifests/platform-database/*-job.yaml`.
-2. Delete `manifests/platform-core-services/nats/*-job.yaml`.
+2. Delete `manifests/hub-core-services/nats/*-job.yaml`.
 3. Add your new `hub-operator` Deployment and `HubEnvironment` CR to `manifests/argocd/apps/platform-core.yaml`.
 
 ## Conclusion

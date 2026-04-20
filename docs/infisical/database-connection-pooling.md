@@ -118,7 +118,7 @@ infisical:
 
 **Our Configuration:**
 ```yaml
-# File: manifests/platform-core-services/platform-infisical/values.yaml
+# File: manifests/hub-core-services/platform-infisical/values.yaml
 infisical:
   replicaCount: 1  # Reduced to 1 to limit connections
 ```
@@ -134,7 +134,7 @@ infisical:
 
 ### Attempt 1: Add Environment Variables (FAILED)
 ```yaml
-# Added to manifests/platform-core-services/platform-infisical/values.yaml
+# Added to manifests/hub-core-services/platform-infisical/values.yaml
 extraEnv:
   - name: DB_CONNECTION_POOL_MIN
     value: "2"
@@ -163,7 +163,7 @@ spec:
 
 ### Attempt 3: Increase Readiness Probe Timeout (INSUFFICIENT)
 ```yaml
-# manifests/platform-core-services/platform-infisical/values.yaml
+# manifests/hub-core-services/platform-infisical/values.yaml
 readinessProbe:
   timeoutSeconds: 3  # Increased from 1s
 ```
@@ -424,7 +424,7 @@ curl -k -s -o /dev/null -w "%{http_code}" https://infisical.nutgraf.in/api/statu
 
 **Test Horizontal Scaling:**
 ```yaml
-# File: manifests/platform-core-services/platform-infisical/values.yaml
+# File: manifests/hub-core-services/platform-infisical/values.yaml
 infisical:
   replicaCount: 2  # Scale to 2 replicas
 ```

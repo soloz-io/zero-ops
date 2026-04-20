@@ -555,7 +555,7 @@ The spec uses TWO distinct secret flow patterns depending on the origin of the c
 
 **Zero-Touch Credential Pattern (from Identity Setup):**
 
-All database credentials MUST follow the secure pattern established in `manifests/platform-core-services/platform-identity/databases/`:
+All database credentials MUST follow the secure pattern established in `manifests/hub-core-services/platform-identity/databases/`:
 
 1. **Secret Generation:** Credentials generated via Infisical or secure bootstrap script
 2. **Role Creation Job:** Kubernetes Job reads secrets via `secretKeyRef` and creates database roles
@@ -844,7 +844,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-core-services
+    path: manifests/hub-core-services
   destination:
     server: https://kubernetes.default.svc
   syncPolicy:

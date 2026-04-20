@@ -18,7 +18,7 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 **Goal:** Extend existing CNPG clusters with required schemas and routing
 
-**CRITICAL SECURITY REQUIREMENT:** All database credentials MUST follow the secure pattern from `manifests/platform-core-services/platform-identity/databases/setup-roles-job.yaml`. NO hardcoded passwords allowed.
+**CRITICAL SECURITY REQUIREMENT:** All database credentials MUST follow the secure pattern from `manifests/hub-core-services/platform-identity/databases/setup-roles-job.yaml`. NO hardcoded passwords allowed.
 
 ### Tasks
 
@@ -58,7 +58,7 @@ This implementation provides Day 0 core platform services required for agent-cor
 - [x] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
 - [x] NO hardcoded passwords in CNPG `postInitSQL` blocks
 - [x] NO plaintext passwords committed to Git
-- [x] Pattern matches `manifests/platform-core-services/platform-identity/databases/setup-roles-job.yaml`
+- [x] Pattern matches `manifests/hub-core-services/platform-identity/databases/setup-roles-job.yaml`
 - [x] All K8s secrets for platform infrastructure created via ESO `ExternalSecret` manifests (NOT manual kubectl create secret)
 - [x] CNPG `platform-db-app` credentials pre-created from Infisical for disaster recovery
 - [x] Password rotation mechanism implemented for Infisical-managed credentials
@@ -123,7 +123,7 @@ spec:
 ### Tasks
 
 - [-] 1.5.1 Deploy SPIRE Server (Hub Cluster - Highly Available)
-  - [ ] 1.5.1.1 Create `manifests/platform-core-services/spire/server-deployment.yaml` with 3 replicas
+  - [ ] 1.5.1.1 Create `manifests/hub-core-services/spire/server-deployment.yaml` with 3 replicas
   - [ ] 1.5.1.2 Configure SPIRE Server to use Kubernetes Datastore (CRDs) or Hub PostgreSQL for HA storage (NOT local SQLite)
   - [ ] 1.5.1.3 Set up SPIRE Server at `spire-server.zero-ops-system.svc.cluster.local:8081`
   - [ ] 1.5.1.4 Configure node attestation (Kubernetes PSAT) allowing spoke nodes to attest
@@ -136,7 +136,7 @@ spec:
   - [ ] 1.5.2.4 **FORBIDDEN:** Manual `spire-server entry create` commands are strictly prohibited
 
 - [ ] 1.5.3 Deploy SPIRE Agent & Metrics (Hub Cluster)
-  - [ ] 1.5.3.1 Create `manifests/platform-core-services/spire/agent-daemonset.yaml`
+  - [ ] 1.5.3.1 Create `manifests/hub-core-services/spire/agent-daemonset.yaml`
   - [ ] 1.5.3.2 Mount SPIRE Agent socket to workload pods (`/run/spire/sockets/agent.sock`)
   - [ ] 1.5.3.3 Configure ServiceMonitor CRDs to scrape SPIRE Server/Agent `/metrics` endpoints
   - [ ] 1.5.3.4 Set up alerts for certificate issuance failures and rotation issues
@@ -174,7 +174,7 @@ spec:
 ### Tasks
 
 - [x] 2.1 Deploy NATS cluster
-  - [x] 2.1.1 Create `manifests/platform-core-services/nats/cluster.yaml`
+  - [x] 2.1.1 Create `manifests/hub-core-services/nats/cluster.yaml`
   - [x] 2.1.2 Configure JetStream with persistent storage
   - [x] 2.1.3 Set up required subjects for agent lifecycle
   - [x] 2.1.4 Configure ACLs and subject permissions
@@ -257,7 +257,7 @@ NATS Leaf Nodes use **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. 
 ### Tasks
 
 - [x] 3.1 Deploy VictoriaMetrics cluster
-  - [x] 3.1.1 Create `manifests/platform-core-services/victoriametrics/cluster.yaml`
+  - [x] 3.1.1 Create `manifests/hub-core-services/victoriametrics/cluster.yaml`
   - [x] 3.1.2 Configure persistent storage for metrics data
   - [x] 3.1.3 Set up PromQL-compatible query API
   - [x] 3.1.4 Configure retention policies and storage limits
@@ -269,7 +269,7 @@ NATS Leaf Nodes use **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. 
   - [x] 3.2.4 Configure alerting rules (basic platform alerts)
 
 - [ ] 3.3 Deploy Grafana Alloy
-  - [x] 3.3.1 Create `manifests/platform-core-services/grafana-alloy/deployment.yaml`
+  - [x] 3.3.1 Create `manifests/hub-core-services/grafana-alloy/deployment.yaml`
   - [x] 3.3.2 Configure metrics collection from all namespaces
   - [x] 3.3.3 Set up remote_write to VictoriaMetrics
   - [x] 3.3.4 Configure service discovery for dynamic targets
@@ -297,7 +297,7 @@ NATS Leaf Nodes use **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. 
 ### Tasks
 
 - [ ] 4.1 Create AgentRegistry deployment
-  - [ ] 4.1.1 Create `manifests/platform-core-services/agentregistry/deployment.yaml`
+  - [ ] 4.1.1 Create `manifests/hub-core-services/agentregistry/deployment.yaml`
   - [ ] 4.1.2 Configure connection to Control Plane Shared DB (CRITICAL routing)
   - [ ] 4.1.3 Set up service at `agentregistry.platform-agentregistry.svc.cluster.local:8080`
   - [ ] 4.1.4 Configure health checks and readiness probes
@@ -337,7 +337,7 @@ NATS Leaf Nodes use **NATS Decentralized JWT Authentication**, NOT SPIFFE/mTLS. 
 ### Tasks
 
 - [ ] 5.1 Deploy Hub PostgREST
-  - [ ] 5.1.1 Create `manifests/platform-core-services/hub-postgrest/deployment.yaml`
+  - [ ] 5.1.1 Create `manifests/hub-core-services/hub-postgrest/deployment.yaml`
   - [ ] 5.1.2 Configure connection to Hub Centralised DB (CRITICAL routing)
   - [ ] 5.1.3 Set up internal service at `hub-postgrest.zero-ops-system.svc.cluster.local:3000`
   - [ ] 5.1.4 Configure external ingress at `postgrest.hub.nutgrat.in`
@@ -433,7 +433,7 @@ For AgentGateway to issue short-lived JWTs that PostgREST will accept, it needs 
 ### Tasks
 
 - [ ] 6.1 Create NATS Status Subscriber
-  - [ ] 6.1.1 Create `manifests/platform-core-services/nats-subscriber/deployment.yaml`
+  - [ ] 6.1.1 Create `manifests/hub-core-services/nats-subscriber/deployment.yaml`
   - [ ] 6.1.2 Configure NATS connection to `nats.zero-ops-system.svc.cluster.local:4222`
   - [ ] 6.1.3 Subscribe to `hub.platform.agent.infra_status` subject
   - [ ] 6.1.4 Configure AgentRegistry API client connection
@@ -473,7 +473,7 @@ For AgentGateway to issue short-lived JWTs that PostgREST will accept, it needs 
 ### Tasks
 
 - [ ] 7.1 Deploy OpenSearch cluster
-  - [ ] 7.1.1 Create `manifests/platform-core-services/opensearch/cluster.yaml`
+  - [ ] 7.1.1 Create `manifests/hub-core-services/opensearch/cluster.yaml`
   - [ ] 7.1.2 Configure 3-node cluster for high availability
   - [ ] 7.1.3 Set up persistent storage for log data
   - [ ] 7.1.4 Configure index templates for structured logs
@@ -513,7 +513,7 @@ For AgentGateway to issue short-lived JWTs that PostgREST will accept, it needs 
 ### Tasks
 
 - [ ] 8.1 Deploy Tempo
-  - [ ] 8.1.1 Create `manifests/platform-core-services/tempo/deployment.yaml`
+  - [ ] 8.1.1 Create `manifests/hub-core-services/tempo/deployment.yaml`
   - [ ] 8.1.2 Configure S3-compatible storage (Hetzner S3) for traces
   - [ ] 8.1.3 Set up OTLP endpoint for trace ingestion
   - [ ] 8.1.4 Configure trace retention policies

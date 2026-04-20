@@ -293,7 +293,7 @@ All wrapped in `kubernetes.crossplane.io/v1alpha2/Object` resources.
 
 3. **Update RBAC**
    - Change ClusterRoleBinding subject from `crossplane` to `provider-kubernetes`
-   - File: `manifests/platform-core-services/crossplane/crossplane-capi-rbac.yaml`
+   - File: `manifests/hub-core-services/crossplane/crossplane-capi-rbac.yaml`
 
 ### Phase 3: Test and Validate (2 hours)
 

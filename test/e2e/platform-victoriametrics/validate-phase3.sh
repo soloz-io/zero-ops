@@ -76,7 +76,7 @@ echo
 # Security Audit
 echo "=== Security Audit ==="
 echo "  Checking for hardcoded passwords..."
-if grep -r "password:" manifests/platform-core-services/victoriametrics/ 2>/dev/null | grep -v "PLACEHOLDER" | grep -v "#"; then
+if grep -r "password:" manifests/hub-core-services/victoriametrics/ 2>/dev/null | grep -v "PLACEHOLDER" | grep -v "#"; then
   echo "  ✗ SECURITY ISSUE: Hardcoded passwords found!"
   exit 1
 else

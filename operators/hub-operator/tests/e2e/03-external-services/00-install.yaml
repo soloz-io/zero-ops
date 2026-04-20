@@ -12,7 +12,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/platform-core-services/infisical
+    path: manifests/hub-core-services/infisical
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
@@ -36,7 +36,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/platform-core-services/hydra
+    path: manifests/hub-core-services/hydra
   destination:
     server: https://kubernetes.default.svc
     namespace: ory-system
@@ -60,7 +60,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/platform-core-services/nats
+    path: manifests/hub-core-services/nats
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-core
