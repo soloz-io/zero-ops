@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Generate ConfigMap from SQL migration files
+configMapGenerator:
+  - name: tenant-baseline-migrations
+    files:
+      - migrations/20240101000001_create_users_table.sql
+      - migrations/20240101000002_create_sessions_table.sql
+      - migrations/20240101000003_create_identities_table.sql
+      - migrations/20240101000004_create_buckets_table.sql
+      - migrations/20240101000005_create_objects_table.sql
+
+# Disable hash suffix for stable ConfigMap name
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app: tenant-migrations
+    migration-type: baseline
