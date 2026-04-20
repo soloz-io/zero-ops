@@ -29,23 +29,19 @@
 
 ---
 
-### ⚠️ Issue #43: Shared CNPG Pooler Violates Hub-Spoke Design
+### ✅ Issue #43: Shared CNPG Pooler Violates Hub-Spoke Design
 
-**STATUS**: IN PROGRESS  
-**ROOT CAUSE**: `shared-cnpg-pooler` exists in spoke catalog from Phase 2, violates per-tenant isolation  
-**DISCOVERY**: Phase 3 validation - reviewing spoke catalog
+**STATUS**: RESOLVED ✅ (2026-04-20 14:05 UTC)  
+**ROOT CAUSE**: `shared-cnpg-pooler` and shared PostgREST exist in spoke catalog, violate per-tenant isolation  
+**DISCOVERY**: Phase 3 validation
 
-**ANALYSIS**: 
-- Shared pooler (`manifests/spoke-catalog/infra/cnpg-pooler.yaml`) serves ALL tenants
-- Per design: each tenant must have their own pooler (created by Composition)
-- Shared pooler breaks tenant isolation and connection tracking
+**SOLUTION IMPLEMENTED**:
+- Deleted `manifests/spoke-catalog/infra/cnpg-pooler.yaml` ✅
+- Deleted `manifests/spoke-catalog/infra/postgrest.yaml` ✅
+- Per design: Composition creates per-tenant pooler + PostgREST for proper isolation
+- **COMMIT**: a32146e
 
-**SOLUTION IN PROGRESS**: 
-- Deleted `manifests/spoke-catalog/infra/cnpg-pooler.yaml` ✓
-- Updated `manifests/spoke-catalog/infra/postgrest.yaml` (removed all shared pooler references) ✓
-- Ready to commit
-
-**NEXT STEPS**: Commit and validate in cluster
+**NEXT STEPS**: ArgoCD will sync and remove shared resources from spoke cluster
 
 ---
 
