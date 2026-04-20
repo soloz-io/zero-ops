@@ -334,7 +334,7 @@ spec:
                   key: url
               dir:
                 configMapRef:
-                  name: tenant-baseline-migrations
+                  name: ""  # Patched from tenantId
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -368,4 +368,12 @@ spec:
       transforms:
       - type: string
         string:
+          fmt: "%s-pooler-app"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-migrations"
           fmt: "%s-pooler-app"
