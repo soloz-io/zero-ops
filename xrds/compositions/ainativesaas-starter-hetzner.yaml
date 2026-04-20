@@ -77,6 +77,13 @@ spec:
                 parameters:
                   max_client_conn: "100"
                   default_pool_size: "5"
+              template:
+                spec:
+                  containers:
+                  - name: pgbouncer
+                    env:
+                    - name: PGDATABASE
+                      value: ""  # Patched from database.name
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -99,11 +106,7 @@ spec:
           fmt: "%s-pooler"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
-      toFieldPath: spec.forProvider.manifest.spec.pgbouncer.parameters.databases
-      transforms:
-      - type: string
-        string:
-          fmt: "%s = host=shared-cnpg-rw port=5432 dbname=%s"
+      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].value
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']

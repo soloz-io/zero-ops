@@ -1,14 +1,46 @@
 # Remaining Issues - Spoke Pool Provisioner
 
 **Status**: Active  
-**Last Updated**: 2026-04-16 05:15 UTC  
-**Context**: Phase 3 Blocked - Fleet Registry Repository Missing
+**Last Updated**: 2026-04-20 13:00 UTC  
+**Context**: Phase 3 Validation - Issues #39, #40, #41 Resolved
 
 ---
 
 ## Current Issues
 
-### ✅ Issue #39: Tenant Application Deploying to Wrong Cluster
+### ✅ Issue #41: Naming Convention Inconsistency - Mixed Underscores and Hyphens
+
+**STATUS**: RESOLVED ✅ (2026-04-20 13:00 UTC)  
+**ROOT CAUSE**: Mixed naming convention using both underscores and hyphens (`tenant_app-creator_db`)  
+**DISCOVERY**: Phase 3 validation - K8s Object names generated from database names violated RFC 1123 (no underscores allowed)
+
+**ISSUES IDENTIFIED**:
+1. tenantId used underscore: `app_creator` → invalid K8s namespace `tenant-app_creator`
+2. Database name mixed conventions: `tenant_app-creator_db` → invalid Object name `tenant_app-creator_db-database`
+3. K8s RFC 1123 requires: `[a-z0-9]([-a-z0-9]*[a-z0-9])?` (hyphens only, no underscores)
+
+**SOLUTION IMPLEMENTED**:
+- Standardized on hyphen-based naming throughout
+- Updated XRD pattern: `tenant_<id>_db` → `tenant-<id>-db`
+- Updated tenantId: `app_creator` → `app-creator`
+- Updated database name: `tenant_app-creator_db` → `tenant-app-creator-db`
+- Simplified Composition (no regex transform needed)
+
+**CONSISTENT NAMING CONVENTION**:
+- tenantId: `app-creator` (RFC 1123 compliant)
+- namespace: `tenant-app-creator` (RFC 1123 compliant)
+- database: `tenant-app-creator-db` (RFC 1123 compliant)
+- Object names: `tenant-app-creator-db-database`, `tenant-app-creator-db-pooler` (RFC 1123 compliant)
+
+**CODE CHANGES**:
+- XRD validation pattern updated ✅
+- Composition simplified (removed regex transform) ✅
+- fleet-registry tenant values updated ✅
+- All changes committed to Git ✅
+
+**COMMITS**: e4fbce1 (zero-ops), 2de99fe (fleet-registry)
+
+---
 
 **STATUS**: RESOLVED ✅ (2026-04-17 06:43 UTC)  
 **ROOT CAUSE**: ApplicationSet destination hardcoded to `server: https://kubernetes.default.svc` (Hub cluster)  
@@ -455,8 +487,8 @@ Wave  2: Cluster (CR, SkipDryRunOnMissingResource)
 **Phase 1.8 Hub Infrastructure**: ✅ COMPLETE  
 **Phase 2 Spoke Catalog**: ✅ COMPLETE  
 **Phase 3 Implementation**: ✅ COMPLETE (code changes committed)  
-**Phase 3 Validation**: ⚠️ IN PROGRESS (Issue #39 RESOLVED, tenant schema validation needed)  
-**Total Issues Resolved**: 39  
+**Phase 3 Validation**: ⚠️ IN PROGRESS (Issues #39, #40, #41 RESOLVED, continuing validation)  
+**Total Issues Resolved**: 41  
 **Current Blockers**: 0 (Issue #39 validated and working)
 
 **Phase 3 Achievements**:
