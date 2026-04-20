@@ -16,4 +16,8 @@ data:
   {{ base $path }}: |-
 {{ $bytes | toString | indent 4 }}
 {{- end }}
+{{- if .Files.Get "files/migrations/atlas.sum" }}
+  atlas.sum: |-
+{{ .Files.Get "files/migrations/atlas.sum" | indent 4 }}
+{{- end }}
 {{- end }}
