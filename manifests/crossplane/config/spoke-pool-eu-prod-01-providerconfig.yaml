@@ -1,24 +1,6 @@
 ---
-# ExternalSecret to sync kubeconfig from CAPI Secret to Crossplane Secret
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: spoke-pool-eu-prod-01-kubeconfig
-  namespace: crossplane-system
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: kubernetes-secret-store
-    kind: ClusterSecretStore
-  target:
-    name: spoke-pool-eu-prod-01-kubeconfig
-    creationPolicy: Owner
-  data:
-    - secretKey: kubeconfig
-      remoteRef:
-        key: spoke-pool-eu-prod-01-kubeconfig
-        property: value
----
+# ProviderConfig for spoke-pool-eu-prod-01
+# References kubeconfig from CAPI Secret in hub-platform-ops
 apiVersion: kubernetes.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -28,5 +10,5 @@ spec:
     source: Secret
     secretRef:
       name: spoke-pool-eu-prod-01-kubeconfig
-      namespace: crossplane-system
-      key: kubeconfig
+      namespace: hub-platform-ops
+      key: value

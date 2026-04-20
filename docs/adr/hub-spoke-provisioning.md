@@ -242,7 +242,7 @@ spec:
     source: Secret
     secretRef:
       name: spoke-pool-eu-prod-01-kubeconfig
-      namespace: crossplane-system
+      namespace: hub-platform-ops
       key: kubeconfig
 ```
 

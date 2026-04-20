@@ -364,7 +364,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: crossplane
-  namespace: crossplane-system
+  namespace: hub-platform-ops
 spec:
   replicas: 1
   template:
@@ -738,7 +738,7 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 **Diagnosis**:
 ```bash
 # Check Crossplane controller logs
-kubectl logs -n crossplane-system deployment/crossplane | grep spokepool-01
+kubectl logs -n hub-platform-ops deployment/crossplane | grep spokepool-01
 
 # Check Composition selection
 kubectl get spokepool spokepool-01 -o yaml | grep composition
@@ -760,7 +760,7 @@ kubectl get cluster,hetznercluster,machinedeployment -n hub-platform-capi -l cel
 **Diagnosis**:
 ```bash
 # Check Crossplane function logs
-kubectl logs -n crossplane-system deployment/function-go-templating
+kubectl logs -n hub-platform-ops deployment/function-go-templating
 
 # Check Composition pipeline steps
 kubectl get composition spokepool-hetzner -o yaml | grep -A 20 pipeline
