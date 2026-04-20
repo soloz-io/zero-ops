@@ -1,22 +1,29 @@
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
   name: platform-tenant-baseline-migrations
   namespace: hub-platform-ops
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
-  project: default
-  source:
-    repoURL: https://github.com/soloz-io/zero-ops
-    targetRevision: HEAD
-    path: kustomize/tenant-baseline-migrations
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: spoke-pool-system
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{name}}-tenant-baseline-migrations'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/soloz-io/zero-ops
+        targetRevision: HEAD
+        path: kustomize/tenant-baseline-migrations
+      destination:
+        name: '{{name}}'
+        namespace: spoke-pool-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
