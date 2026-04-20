@@ -4,3 +4,4 @@ kind: Kustomization
 
 resources:
   - providerconfig.yaml
+  - spoke-pool-eu-prod-01-providerconfig.yaml

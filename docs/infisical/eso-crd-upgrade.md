@@ -37,7 +37,7 @@ helm template external-secrets external-secrets/external-secrets \
   --include-crds \
   --namespace external-secrets-system \
   | grep -A 10000 "kind: CustomResourceDefinition" \
-  > manifests/crds/external-secrets-crds.yaml
+  > manifests/platform-core-services/eso/crds/external-secrets-crds.yaml
 ```
 
 **2. Create ArgoCD Application for CRDs:**
@@ -77,7 +77,7 @@ The following CRDs are managed via GitOps:
 
 1. Commit CRD manifests to Git:
    ```bash
-   git add manifests/crds/external-secrets-crds.yaml
+   git add manifests/platform-core-services/eso/crds/external-secrets-crds.yaml
    git add manifests/argocd/apps/platform-external-secrets-crds.yaml
    git commit -m "feat: manage ESO CRDs via GitOps"
    git push
@@ -122,7 +122,7 @@ The following CRDs are managed via GitOps:
      --version 0.12.0 \
      --include-crds \
      | grep -A 10000 "kind: CustomResourceDefinition" \
-     > manifests/crds/external-secrets-crds.yaml
+     > manifests/platform-core-services/eso/crds/external-secrets-crds.yaml
    ```
 
 2. Update ESO chart version in `platform-external-secrets.yaml`

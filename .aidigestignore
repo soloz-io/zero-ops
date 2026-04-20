@@ -7,6 +7,6 @@ docs
 memory
 k8-secrets
 test
-manifests/crds/
+manifests/platform-core-services/eso/crds/
 scripts
 internal/assets/
