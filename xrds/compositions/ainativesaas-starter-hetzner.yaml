@@ -376,4 +376,3 @@ spec:
       - type: string
         string:
           fmt: "tenant-%s-migrations"
-          fmt: "%s-pooler-app"
