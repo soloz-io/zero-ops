@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-identity
+    path: manifests/platform-core-services/platform-identity
     directory:
       include: 'network-policies.yaml'
   destination:

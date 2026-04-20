@@ -1436,7 +1436,7 @@ echo "=== Verification Complete ==="
 - `manifests/platform-core-services/nats/` - NATS StatefulSet (watch for Ready status)
 
 **Hydra Configuration:**
-- `manifests/platform-identity/ory-hydra/` - Hydra Deployment (watch for Ready status)
+- `manifests/platform-core-services/platform-identity/ory-hydra/` - Hydra Deployment (watch for Ready status)
 
 **Infisical Configuration:**
 - `manifests/platform-core-services/platform-infisical/` - Infisical Deployment (watch for Ready status)

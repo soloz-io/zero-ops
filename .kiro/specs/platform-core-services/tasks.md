@@ -18,7 +18,7 @@ This implementation provides Day 0 core platform services required for agent-cor
 
 **Goal:** Extend existing CNPG clusters with required schemas and routing
 
-**CRITICAL SECURITY REQUIREMENT:** All database credentials MUST follow the secure pattern from `manifests/platform-identity/databases/setup-roles-job.yaml`. NO hardcoded passwords allowed.
+**CRITICAL SECURITY REQUIREMENT:** All database credentials MUST follow the secure pattern from `manifests/platform-core-services/platform-identity/databases/setup-roles-job.yaml`. NO hardcoded passwords allowed.
 
 ### Tasks
 
@@ -58,7 +58,7 @@ This implementation provides Day 0 core platform services required for agent-cor
 - [x] All database role creation uses Kubernetes Jobs with `secretKeyRef` environment variables
 - [x] NO hardcoded passwords in CNPG `postInitSQL` blocks
 - [x] NO plaintext passwords committed to Git
-- [x] Pattern matches `manifests/platform-identity/databases/setup-roles-job.yaml`
+- [x] Pattern matches `manifests/platform-core-services/platform-identity/databases/setup-roles-job.yaml`
 - [x] All K8s secrets for platform infrastructure created via ESO `ExternalSecret` manifests (NOT manual kubectl create secret)
 - [x] CNPG `platform-db-app` credentials pre-created from Infisical for disaster recovery
 - [x] Password rotation mechanism implemented for Infisical-managed credentials

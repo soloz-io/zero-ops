@@ -555,7 +555,7 @@ The spec uses TWO distinct secret flow patterns depending on the origin of the c
 
 **Zero-Touch Credential Pattern (from Identity Setup):**
 
-All database credentials MUST follow the secure pattern established in `manifests/platform-identity/databases/`:
+All database credentials MUST follow the secure pattern established in `manifests/platform-core-services/platform-identity/databases/`:
 
 1. **Secret Generation:** Credentials generated via Infisical or secure bootstrap script
 2. **Role Creation Job:** Kubernetes Job reads secrets via `secretKeyRef` and creates database roles

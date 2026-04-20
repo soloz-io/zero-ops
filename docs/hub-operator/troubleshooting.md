@@ -191,7 +191,7 @@ Several ArgoCD applications missing `sync-wave` annotations, causing them to dep
 ### Fix
 Added sync-wave annotations to ensure proper deployment order:
 
-**File:** `manifests/platform-identity/argocd/mcp-server.yaml`
+**File:** `manifests/platform-core-services/platform-identity/argocd/mcp-server.yaml`
 ```yaml
 metadata:
   name: mcp-server
@@ -200,7 +200,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "4"
 ```
 
-**File:** `manifests/platform-identity/argocd/kratos-ui.yaml`
+**File:** `manifests/platform-core-services/platform-identity/argocd/kratos-ui.yaml`
 ```yaml
 metadata:
   name: kratos-selfservice-ui
@@ -587,8 +587,8 @@ Code correctly defaults to `postgres` database when encountering `*` or empty st
 **Status:** ALREADY APPLIED
 
 Both applications already have sync-wave "4":
-- `manifests/platform-identity/argocd/mcp-server.yaml` (line 6)
-- `manifests/platform-identity/argocd/kratos-ui.yaml` (line 6)
+- `manifests/platform-core-services/platform-identity/argocd/mcp-server.yaml` (line 6)
+- `manifests/platform-core-services/platform-identity/argocd/kratos-ui.yaml` (line 6)
 
 ### ✅ OutOfSync Fix (ServerSideApply)
 **Status:** ALREADY APPLIED
