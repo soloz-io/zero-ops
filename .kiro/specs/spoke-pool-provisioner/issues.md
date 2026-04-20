@@ -8,6 +8,24 @@
 
 ## Current Issues
 
+### ⚠️ Issue #42: AtlasMigration Missing Pooler Connection Secret
+
+**STATUS**: BLOCKED  
+**ROOT CAUSE**: AtlasMigration references `app-creator-pooler-app` secret that doesn't exist  
+**DISCOVERY**: Phase 3 validation task 3.6.9
+
+**ERROR**: `Secret "app-creator-pooler-app" not found`
+
+**ANALYSIS**: CNPG Pooler doesn't auto-create application connection secrets for per-tenant databases in shared cluster model. Composition must create Secret with connection URL.
+
+**SOLUTION**: Add Secret resource to Composition with pooler connection string: `postgresql://postgres@app-creator-pooler-rw:5432/tenant-app-creator-db`
+
+**BLOCKED TASKS**: 3.6.9-3.6.15
+
+---
+
+## Resolved Issues
+
 ### ✅ Issue #41: Naming Convention Inconsistency - Mixed Underscores and Hyphens
 
 **STATUS**: RESOLVED ✅ (2026-04-20 13:00 UTC)  
@@ -62,10 +80,6 @@
 - [ ] Verify no "CRD not found" errors - BLOCKED
 **RESOLUTION**: Issue #39 fix is VALIDATED and WORKING. Applications now correctly route to Spoke clusters based on cellId from values.yaml.
 **NEXT STEPS**: Fix app-creator tenant values.yaml or use tenant-example for validation (tenant-example has correct schema)
-
----
-
-## Resolved Issues
 
 ### ✅ Issue #38: NATS Leafnode mTLS Connection
 

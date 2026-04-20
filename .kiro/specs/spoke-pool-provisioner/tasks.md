@@ -720,13 +720,13 @@ After completing each phase, you MUST:
   - Verify transaction pooling mode
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.7 Verify PostgREST Deployment created
+- [x] 3.6.7 Verify PostgREST Deployment created
   - Verify Deployment: `kubectl --context spokepool-01 get deployment -n tenant-acme postgrest`
   - Verify PostgREST connects via tenant's pooler
   - Verify `db-schema=public` configuration
   - _Requirements: FR-2.6, AC-5, AC-6_
 
-- [ ] 3.6.8 Verify PostgREST Service created
+- [-] 3.6.8 Verify PostgREST Service created
   - Verify Service: `kubectl --context spokepool-01 get service -n tenant-acme postgrest`
   - Verify ClusterIP type (internal only)
   - _Requirements: FR-2.6, AC-5, AC-6_

@@ -111,6 +111,60 @@ spec:
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
 
+  # 2.5. Pooler Connection Secret - Wrapped in provider-kubernetes Object
+  - name: pooler-secret
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              namespace: ""  # Patched
+            type: Opaque
+            stringData:
+              url: ""  # Patched
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-secret"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-app"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: CombineFromComposite
+      combine:
+        variables:
+        - fromFieldPath: spec.tenantId
+        - fromFieldPath: spec.database.name
+        strategy: string
+        string:
+          fmt: "postgresql://postgres@%s-pooler-rw.spoke-pool-system.svc:5432/%s"
+      toFieldPath: spec.forProvider.manifest.stringData.url
+
   # 3. PostgREST Deployment - Wrapped in provider-kubernetes Object
   - name: postgrest-deployment
     base:
