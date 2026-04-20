@@ -333,8 +333,11 @@ spec:
                   name: ""  # Patched
                   key: url
               dir:
-                configMapRef:
-                  name: ""  # Patched
+                remote:
+                  name: tenant-baseline
+                  url: https://github.com/soloz-io/zero-ops
+                  ref: main
+                  path: migrations/tenant-baseline
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -369,10 +372,3 @@ spec:
       - type: string
         string:
           fmt: "%s-pooler-app"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-migrations"
