@@ -1,3 +1,4 @@
+{{- if .Values.deployXR }}
 {{- $databaseName := .Values.database.name | default (printf "tenant_%s_db" .Values.tenantId) -}}
 {{- $poolerMaxConn := 5 -}}
 {{- $poolerMode := "transaction" -}}
@@ -41,3 +42,4 @@ spec:
   postgrest:
     dbSchema: {{ $dbSchema }}
     jwtCacheSize: {{ $jwtCacheSize }}
+{{- end }}

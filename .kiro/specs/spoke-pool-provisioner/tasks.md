@@ -709,12 +709,12 @@ After completing each phase, you MUST:
   - Verify XR provisions Database, Pooler, PostgREST
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.5 Verify CNPG Database CR created
+- [x] 3.6.5 Verify CNPG Database CR created
   - Verify Database CR: `kubectl --context spokepool-01 get database tenant-acme-db`
   - Verify database name: `tenant_acme_db`
   - _Requirements: FR-4.1, AC-5, AC-6_
 
-- [ ] 3.6.6 Verify CNPG Pooler CR created
+- [x] 3.6.6 Verify CNPG Pooler CR created
   - Verify Pooler CR: `kubectl --context spokepool-01 get pooler tenant-acme-pooler`
   - Verify pooler connects to `tenant_acme_db`
   - Verify transaction pooling mode
