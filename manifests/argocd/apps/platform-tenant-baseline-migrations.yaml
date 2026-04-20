@@ -13,7 +13,7 @@ spec:
     path: kustomize/tenant-baseline-migrations
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: spoke-pool-system
   syncPolicy:
     automated:
       prune: true
