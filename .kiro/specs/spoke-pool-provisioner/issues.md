@@ -8,9 +8,9 @@
 
 ## Current Issues
 
-### ✅ Issue #40: AINativeSaaS Architecture Incomplete - Missing provider-kubernetes Pattern
+### ⚠️ Issue #40: AINativeSaaS Architecture Incomplete - Missing provider-kubernetes Pattern
 
-**STATUS**: RESOLVED - IMPLEMENTATION COMPLETE (2026-04-20 11:45 UTC)  
+**STATUS**: IMPLEMENTATION COMPLETE - PENDING CLUSTER VALIDATION  
 **ROOT CAUSE**: AINativeSaaS Composition creates resources directly without provider-kubernetes Object wrappers, ApplicationSet deploys XR to Spoke instead of Hub  
 **DISCOVERY**: Phase 3 validation revealed "CRD not found" error when XR deployed to Spoke cluster where Crossplane doesn't run  
 
@@ -72,11 +72,15 @@ Spoke Cluster (Data Plane):
 - ✅ Kyverno ProviderConfig generator policy deployed via GitOps
 - ✅ Duplicate policy file removed
 
-**NEXT STEPS**:
-1. Wait for Kyverno policy to sync via ArgoCD
-2. Verify ProviderConfig auto-generated for spoke-pool-eu-prod-01
-3. Create test tenant (tenant-acme) in fleet-registry
-4. Proceed with Phase 3 validation tasks (3.6.1-3.6.15)
+**NEXT STEPS FOR CLUSTER VALIDATION**:
+1. Commit changes to Git
+2. Wait for ArgoCD to sync (ApplicationSet, Composition, Kyverno policy)
+3. Verify Kyverno policy deployed: `kubectl get clusterpolicy generate-spoke-providerconfig`
+4. Verify ProviderConfig auto-generated: `kubectl get providerconfig spoke-pool-eu-prod-01`
+5. Create test tenant in fleet-registry (tenant-acme)
+6. Verify XR created on Hub: `kubectl get ainativesaas tenant-acme`
+7. Verify resources provisioned to Spoke via provider-kubernetes
+8. Only mark as RESOLVED after successful cluster validation
 
 **REFERENCES**:
 - ADR: `docs/adr/hub-spoke-provisioning.md`

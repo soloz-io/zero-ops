@@ -669,7 +669,7 @@ After completing each phase, you MUST:
 
 ### 3.5 ArgoCD ApplicationSet Updates
 
-- [x] 3.5.1 Update ApplicationSet with cellId destination (Fix Issue #39)
+- [ ] 3.5.1 Update ApplicationSet with cellId destination (Fix Issue #39)
   - Update file: `manifests/argocd/apps/platform-tenant-applicationset.yaml`
   - Verify Git Generator watches `fleet-registry/tenants/*/values.yaml`
   - Verify Helm Application generation for each tenant directory
