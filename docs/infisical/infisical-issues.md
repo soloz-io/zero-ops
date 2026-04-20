@@ -31,7 +31,7 @@
 **Problem:** Infisical needed standalone Redis with password authentication
 
 **Solution:**
-- Created `manifests/platform-infisical/redis.yaml` (StatefulSet)
+- Created `manifests/platform-core-services/platform-infisical/redis.yaml` (StatefulSet)
 - Hub CLI generates Redis password and injects REDIS_URL into `infisical-secrets`
 - Helm chart uses `envFrom.secretRef.name=infisical-secrets` pattern
 
@@ -188,7 +188,7 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
    - Updated success message to indicate "individual DB params"
    - Removed unused `net/url` import
 
-3. **File:** `manifests/platform-infisical/values.yaml`
+3. **File:** `manifests/platform-core-services/platform-infisical/values.yaml`
    - Disabled `postgresql.useExistingPostgresSecret.enabled` (was `true`)
    - Added `envFrom` section to inject both secrets:
      - `infisical-secrets` (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL, DB_ROOT_CERT)
@@ -317,7 +317,7 @@ This allows PostgreSQL client to use SSL, and Knex will use `DB_ROOT_CERT` for c
 - Each variable references `infisical-postgres-connection` secret
 - Updated pod restart annotation to force recreation
 
-**File:** `manifests/platform-infisical/values.yaml`
+**File:** `manifests/platform-core-services/platform-infisical/values.yaml`
 
 ### Current Issue: Redis Authentication Failure
 
@@ -605,8 +605,8 @@ Commit to Git → ArgoCD syncs → Pods restart automatically
 
 ### GitOps Manifests
 - `manifests/argocd/apps/platform-victoriametrics.yaml` - Reduced memory requests
-- `manifests/platform-infisical/values.yaml` - Updated pod restart annotation, changed to envFrom pattern
-- `manifests/platform-infisical/redis.yaml` - Standalone Redis deployment
+- `manifests/platform-core-services/platform-infisical/values.yaml` - Updated pod restart annotation, changed to envFrom pattern
+- `manifests/platform-core-services/platform-infisical/redis.yaml` - Standalone Redis deployment
 - `manifests/platform-database/migrations/infisical-migrations.yaml` - Database wipe logic
 - `manifests/platform-database/setup-platform-roles-job.yaml` - Changed to mTLS authentication
 

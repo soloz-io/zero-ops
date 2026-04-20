@@ -1439,7 +1439,7 @@ echo "=== Verification Complete ==="
 - `manifests/platform-identity/ory-hydra/` - Hydra Deployment (watch for Ready status)
 
 **Infisical Configuration:**
-- `manifests/platform-infisical/` - Infisical Deployment (watch for Ready status)
+- `manifests/platform-core-services/platform-infisical/` - Infisical Deployment (watch for Ready status)
 
 ### Manifests to DELETE
 

@@ -55,7 +55,7 @@ This implements end-to-end encryption across all hops, following zero-trust netw
 - Fixes "bouncer config error" by enabling proper authentication mechanism
 
 ### 4. Helm Chart Configuration
-**File:** `manifests/platform-infisical/values.yaml`
+**File:** `manifests/platform-core-services/platform-infisical/values.yaml`
 - Uses `envFrom` to inject `infisical-secrets`
 - Uses `extraEnv` for individual DB connection params from `infisical-postgres-connection`
 - Added comments explaining TLS configuration strategy
