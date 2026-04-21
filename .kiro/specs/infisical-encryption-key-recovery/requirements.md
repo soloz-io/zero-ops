@@ -248,15 +248,15 @@ if !hubEnv.DeletionTimestamp.IsZero() {
 ### 3.3 AWS Integration
 **REQ-11**: AWS Secrets Manager integration with Hetzner cluster authentication
 
-**Authentication Strategy**: AWS IAM OIDC Federation (Production-Ready)
-- Configure AWS IAM OIDC Identity Provider for Hetzner cluster
-- Use Kubernetes Service Account Issuer URL
-- Annotate hub-operator ServiceAccount with IAM role ARN
-- No static credentials in cluster
-- Eliminates credential rotation burden
+**Authentication Strategy**: Static IAM Credentials via CLI Injection
+- Use AWS IAM user with restricted Secrets Manager permissions
+- Inject credentials via `hub configure-aws-secrets-manager` CLI command
+- Follow Secret Zero pattern (CLI → K8s → Infisical → ExternalSecret)
+- Environment variables injected via secretKeyRef in deployment
+- AWS SDK automatically picks up credentials from environment
 - Provides audit trail via CloudTrail
 
-**CRITICAL**: Hetzner clusters cannot use native AWS IRSA. Must implement OIDC Federation with custom Identity Provider configuration.
+**CRITICAL**: Hetzner clusters lack OIDC configuration required for IRSA. Static credentials follow established GitHub secrets pattern and are production-ready with proper IAM policies.
 
 **Storage Configuration**:
 - Path: `/hub-operator/{cluster-id}/infisical-master-keys`
@@ -317,8 +317,8 @@ if !hubEnv.DeletionTimestamp.IsZero() {
 
 ### 5.1 Security
 - Use AWS KMS encryption for Secrets Manager
-- Use AWS IAM OIDC Federation (no static credentials)
-- Annotate hub-operator ServiceAccount with IAM role ARN
+- Use static IAM credentials with restricted permissions
+- Inject credentials via CLI following Secret Zero pattern
 - Audit all backup/restore operations via CloudTrail
 - Restrict IAM policy to minimum required permissions:
   - `secretsmanager:GetSecretValue` on `/hub-operator/{cluster-id}/*`
@@ -326,6 +326,7 @@ if !hubEnv.DeletionTimestamp.IsZero() {
   - `secretsmanager:CreateSecret` on `/hub-operator/{cluster-id}/*`
 - Never log actual key values (only operations and metadata)
 - Validate all keys before use (format, length, non-zero)
+- Rotate credentials via Infisical (GitOps workflow)
 
 ### 5.2 Reliability
 - Backup must succeed before operator marks bootstrap complete
@@ -343,13 +344,13 @@ if !hubEnv.DeletionTimestamp.IsZero() {
 
 ### 6.1 AWS Resources
 - AWS Secrets Manager in same region as cluster
-- IAM OIDC Identity Provider configured for Hetzner cluster
-- IAM role with Secrets Manager permissions (trust policy allows hub-operator ServiceAccount)
+- IAM user with restricted Secrets Manager permissions
+- Access keys for IAM user (injected via CLI)
 - CloudTrail enabled for audit logging
 
 ### 6.2 Operator Changes
 - Update `internal/secrets/generator.go` (add validation functions)
-- Add `internal/aws/secrets_manager.go` (OIDC-based authentication)
+- Add `internal/aws/secrets_manager.go` (static credential authentication)
 - Add `internal/secrets/validator.go` (key validation logic)
 - Add `internal/controller/finalizer_controller.go`
 - Update `internal/controller/hubenvironment_controller.go`
@@ -357,7 +358,7 @@ if !hubEnv.DeletionTimestamp.IsZero() {
 ### 6.3 Kubernetes Resources
 - Update `infisical-secrets` manifest with finalizer
 - Update `infisical-redis-credentials` manifest with finalizer
-- Add IAM role annotation to hub-operator ServiceAccount
+- Add AWS credentials environment variables to hub-operator deployment
 
 ### 6.4 External Systems
 - ESO (External Secrets Operator) handles ongoing secret synchronization from Infisical
@@ -402,12 +403,14 @@ if !hubEnv.DeletionTimestamp.IsZero() {
 - Operator must recreate Machine Identity and Project
 - Document recovery procedure clearly in runbook
 
-### 7.6 Risk: OIDC Federation misconfiguration
+### 7.6 Risk: Invalid AWS credentials or API failures
 **Mitigation**:
-- Validate OIDC configuration during operator startup
+- Validate AWS credentials during operator startup
 - Test AWS API access before attempting backup/restore
-- Fail fast with clear error if OIDC authentication fails
-- Document OIDC setup procedure with validation steps
+- Fail fast with clear error if authentication fails
+- Document credential setup procedure with validation steps
+- Implement retry with exponential backoff for AWS API calls
+- Monitor CloudTrail for unauthorized access attempts
 
 ## 8. Out of Scope
 
