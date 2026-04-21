@@ -501,7 +501,17 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 
 ### User Creation Approach
 
-**Option 1: Crossplane provider-sql** (RECOMMENDED):
+**Default Implementation: Crossplane provider-sql**
+
+For a PaaS control plane managing 100+ tenants, provider-sql is the recommended approach:
+
+- **Per-tenant isolation**: Each AINativeSaaS XR independently manages its own user
+- **Clean ownership**: XR owns Database + User + Secret + Grants
+- **Horizontal scalability**: Pattern scales from 10 to 1000+ tenants without architectural changes
+- **Simple deletion**: Delete XR → all resources cleaned up automatically
+- **No shared mutation surface**: No contention on shared Cluster resource
+
+**Implementation:**
 - Composition includes `ProviderConfig` pointing to shared CNPG cluster
 - Composition includes `User` resource with `name: tenant_<id>_user`, `passwordSecretRef: <tenantId>-db-credentials`
 - Composition includes `Grant` resource with `privileges: [CONNECT]`, `database: tenant_<id>_db`, `role: tenant_<id>_user`
@@ -509,10 +519,15 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 - Composition includes `Grant` resource with `privileges: [ALL]`, `objectType: sequences`, `schema: public`, `role: tenant_<id>_user`
 - Composition includes `Grant` resource for default privileges: `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant_<id>_user`
 
-**Option 2: CNPG native user management**:
-- CNPG Cluster spec includes `managed.roles` with per-tenant users
-- Requires dynamic Cluster CR updates (not idiomatic for Crossplane)
-- NOT RECOMMENDED (violates immutable infrastructure principle)
+**Future Evolution: Custom Controller**
+
+If provider-sql hits real limits (scale, performance, complex workflows), consider building a custom controller. This is a future evolution path, not a parallel option. Start simple with provider-sql.
+
+**Why NOT CNPG Managed Roles for Multi-Tenant PaaS:**
+- CNPG `managed.roles` requires mutating shared `Cluster.spec.managed.roles` per tenant
+- Creates contention, reconciliation churn, and ownership ambiguity at scale
+- Good for DB admins managing a few roles, NOT for PaaS provisioning 100+ tenants programmatically
+- Violates per-tenant isolation principle in control plane design
 
 ### Password Generation
 - Crossplane function-patch-and-transform with `type: string`, `fmt: "random-32"`
@@ -525,10 +540,86 @@ agent.tls.secret-name: "argocd-agent-client-cert"
 - Secret created in tenant namespace
 - Referenced by Pooler and PostgREST via `secretRef`
 
-### Credential Rotation
-- Phase 2: External Secrets Operator + Vault integration
-- Rotation with overlap period (old + new credentials valid for 24 hours)
-- Automated rotation every 90 days
+### Credential Rotation Strategy
+
+**Implementation Approach**: Dual-user rotation pattern with overlap period for zero-downtime
+
+**Architecture**: Each tenant gets TWO database users that alternate during rotation:
+- Primary user: `tenant_<id>_user_a` (e.g., `tenant_acme_user_a`)
+- Secondary user: `tenant_<id>_user_b` (e.g., `tenant_acme_user_b`)
+- Both users have identical permissions on `tenant_<id>_db`
+- Only ONE user is active at a time (has valid password in Secret)
+- During rotation, BOTH users are temporarily active (overlap period)
+
+**Rotation Workflow** (90-day cycle):
+
+1. **Pre-Rotation State**:
+   - User A is active with password in Secret: `<tenantId>-db-credentials`
+   - User B exists but has expired/invalid password
+   - Pooler and PostgREST connect using User A credentials
+
+2. **Rotation Trigger** (Day 90):
+   - Crossplane provider-sql detects rotation schedule (via annotation or external trigger)
+   - OR: Manual trigger via updating XR annotation: `rotation.nutgraf.in/trigger: "2026-04-20T10:00:00Z"`
+
+3. **Generate New Password** (Step 1):
+   - Generate new 32-character random password for User B
+   - Execute SQL: `ALTER ROLE tenant_<id>_user_b WITH PASSWORD '<new-password>'`
+   - Update Secret: Add field `password_b: <new-password>` (User A password remains)
+   - Secret now contains BOTH passwords: `password_a` (old), `password_b` (new)
+
+4. **Overlap Period Begins** (Step 2 - Duration: 24 hours):
+   - Both User A and User B can authenticate
+   - Pooler continues using User A (no restart needed)
+   - PostgREST continues using User A (no restart needed)
+   - Applications have 24 hours to switch to User B
+
+5. **Switch Active User** (Step 3 - After 24 hours):
+   - Update Secret: Change `username: tenant_<id>_user_b`, `password: <new-password>` (remove `password_a`, `password_b` fields)
+   - Restart Pooler pod (triggers reconnection with User B)
+   - Restart PostgREST pod (triggers reconnection with User B)
+   - Pooler and PostgREST now connect using User B
+
+6. **Expire Old Password** (Step 4 - After successful switch):
+   - Execute SQL: `ALTER ROLE tenant_<id>_user_a WITH PASSWORD NULL` (invalidate old password)
+   - User A can no longer authenticate
+   - Next rotation (Day 180) will rotate User A password
+
+**Rollback Strategy**:
+- If User B connection fails during overlap period:
+  - Revert Secret to User A only: `username: tenant_<id>_user_a`, `password: <old-password>`
+  - Restart Pooler and PostgREST (reconnect with User A)
+  - Investigate User B connection failure
+  - Retry rotation after fix
+
+**Monitoring and Alerting**:
+- Metric: `tenant_credential_rotation_total{tenant_id, status="success|failure"}`
+- Metric: `tenant_credential_age_days{tenant_id, user="a|b"}` (alert at 85 days)
+- Metric: `tenant_credential_overlap_active{tenant_id}` (should be 0 outside rotation window)
+- Alert: Credential age > 85 days (warning)
+- Alert: Credential age > 95 days (critical - rotation overdue)
+- Alert: Rotation failure (critical - requires manual intervention)
+
+**Implementation Details**:
+
+**Phase 3 (Current)**: Manual rotation via XR annotation update
+- Platform Admin updates XR annotation to trigger rotation
+- Crossplane Composition detects annotation change
+- Composition executes rotation workflow via provider-sql resources
+- Overlap period: 24 hours (configurable via XR spec)
+
+**Phase 2 (Future)**: Automated rotation via External Secrets Operator
+- External Secrets Operator watches Secret age
+- Triggers rotation automatically at 90-day mark
+- Integrates with Vault for password generation and storage
+- Sends rotation notifications to monitoring system
+
+**Security Considerations**:
+- Passwords stored in Kubernetes Secrets (encrypted at rest in etcd)
+- Passwords never logged or exposed in CR status
+- Rotation events logged for audit trail
+- Failed rotations trigger alerts for manual intervention
+- Overlap period minimizes risk of connection failures during rotation
 
 ---
 

@@ -296,10 +296,13 @@ Automate the provisioning of Spoke Pool clusters (cells) that host multiple Star
 - **NFR-4.8**: PostgREST is NOT directly exposed - only accessible via Hub AgentGateway
 - **NFR-4.9**: Hub Ory identity database isolated from tenant data
 - **NFR-4.10**: Per-tenant database users with unique passwords (not shared cluster-wide user)
-- **NFR-4.11**: Tenant user credentials rotated every 90 days (Phase 2 - automated rotation)
+- **NFR-4.11**: Tenant user credentials rotated every 90 days with 24-hour overlap period (Phase 3 - manual trigger, Phase 2 - automated)
 - **NFR-4.12**: Tenant user has minimum required privileges (CONNECT, SELECT, INSERT, UPDATE, DELETE on their database only)
 - **NFR-4.13**: Shared cluster-wide `app` user is NOT used for tenant workloads
 - **NFR-4.14**: Credential secrets encrypted at rest in etcd (Kubernetes default encryption)
+- **NFR-4.15**: Dual-user rotation pattern (user_a and user_b alternate) for zero-downtime rotation
+- **NFR-4.16**: Credential rotation failures trigger alerts for manual intervention
+- **NFR-4.17**: Credential age monitored via metrics (alert at 85 days, critical at 95 days)
 
 ### 4.5 Observability
 - **NFR-5.1**: All Spoke Pool metrics are forwarded to Hub VictoriaMetrics
