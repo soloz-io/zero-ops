@@ -1,0 +1,9 @@
+https://pronteff.com/security-driver-operator-for-red-hat-openshift-secrets-store/
+
+https://oneuptime.com/blog/post/2026-01-30-security-secret-rotation-strategies/view
+
+https://oneuptime.com/blog/post/2026-02-26-argocd-rotate-git-credentials/view
+
+https://www.elydb.com/blog/postgresql-credential-rotation-production
+
+https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_lambda.html

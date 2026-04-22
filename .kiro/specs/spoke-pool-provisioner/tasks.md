@@ -657,43 +657,11 @@ After completing each phase, you MUST:
   - Remove reference to shared `app` user credentials
   - _Requirements: FR-4.6, NFR-4.13_
 
-- [ ] 3.2.5.8 Implement credential rotation logic in Composition
-  - Add rotation trigger annotation: `rotation.nutgraf.in/trigger` (timestamp)
-  - Add rotation state annotation: `rotation.nutgraf.in/active-user` (a or b)
-  - Composition detects annotation change and triggers rotation workflow
-  - Rotation workflow:
-    1. Generate new password for inactive user (User B if User A is active)
-    2. Execute SQL: `ALTER ROLE tenant_<id>_user_b WITH PASSWORD '<new-password>'`
-    3. Update Secret: Add `password_b` field (overlap period begins)
-    4. Wait 24 hours (overlap period)
-    5. Update Secret: Switch to User B (`username: tenant_<id>_user_b`, `password: <new-password>`)
-    6. Restart Pooler and PostgREST pods (trigger reconnection)
-    7. Invalidate User A password: `ALTER ROLE tenant_<id>_user_a WITH PASSWORD NULL`
-    8. Update annotation: `rotation.nutgraf.in/active-user: b`
-  - _Requirements: FR-4.6, NFR-4.11, NFR-4.15_
-
-- [ ] 3.2.5.9 Add rotation monitoring metrics
-  - Add metric: `tenant_credential_rotation_total{tenant_id, status}`
-  - Add metric: `tenant_credential_age_days{tenant_id, user}`
-  - Add metric: `tenant_credential_overlap_active{tenant_id}`
-  - Metrics exposed by Crossplane provider-sql or custom controller
-  - _Requirements: NFR-4.16, NFR-4.17_
-
-- [ ] 3.2.5.10 Create rotation runbook
-  - Document manual rotation trigger process
-  - Document rotation workflow steps
-  - Document rollback procedure
-  - Document monitoring and alerting
-  - Create file: `docs/runbooks/credential-rotation.md`
-  - _Requirements: NFR-4.11, NFR-4.16_
-
-- [ ] 3.2.5.11 Commit AINativeSaaS Composition updates to Git
+- [ ] 3.2.5.8 Commit AINativeSaaS Composition updates to Git
   - Commit all Composition changes to feature branch
   - Push to GitOps repository
   - Verify ArgoCD detects and syncs Composition
   - _Requirements: FR-4.6_
-
-### 3.3 Universal Tenant Helm Chart Updates
 
 - [x] 3.3.1 Verify Universal Tenant Helm Chart structure
   - Verify directory exists: `charts/universal-tenant/`
@@ -928,80 +896,17 @@ After completing each phase, you MUST:
   - Verify Secret does NOT contain `password_b` field (no overlap period)
   - _Requirements: FR-4.6, NFR-4.15_
 
-- [ ] 3.6.25 Test manual credential rotation trigger
-  - Update XR annotation: `kubectl annotate ainativesaas tenant-acme rotation.nutgraf.in/trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite`
-  - Wait for Crossplane reconciliation (30-60 seconds)
-  - Verify rotation workflow initiated
-  - _Requirements: NFR-4.11_
-
-- [ ] 3.6.26 Verify rotation Step 1: New password generated for User B
-  - Wait for rotation Step 1 completion (check Crossplane logs)
-  - Verify Secret contains `password_b` field: `kubectl get secret acme-db-credentials -n tenant-acme -o jsonpath='{.data.password_b}'`
-  - Verify Secret still contains original `username` and `password` fields (User A)
-  - Verify User B can authenticate: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user_b -d tenant_acme_db -c "SELECT 1"`
-  - _Requirements: NFR-4.11, NFR-4.15_
-
-- [ ] 3.6.27 Verify rotation Step 2: Overlap period active
-  - Verify both User A and User B can authenticate
-  - Test User A: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user_a -d tenant_acme_db -c "SELECT 1"`
-  - Test User B: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user_b -d tenant_acme_db -c "SELECT 1"`
-  - Verify Pooler still connects with User A (no restart yet)
-  - Verify PostgREST still connects with User A (no restart yet)
-  - _Requirements: NFR-4.11, NFR-4.15_
-
-- [ ] 3.6.28 Verify rotation Step 3: Active user switched to User B
-  - Wait for overlap period to complete (24 hours or configurable duration)
-  - Verify Secret updated: `username: tenant_acme_user_b`, `password: <new-password>`
-  - Verify Secret does NOT contain `password_a` or `password_b` fields (overlap ended)
-  - Verify Pooler pod restarted: `kubectl get pods -n tenant-acme -l app=pooler`
-  - Verify PostgREST pod restarted: `kubectl get pods -n tenant-acme -l app=postgrest`
-  - Verify Pooler connects with User B: `kubectl logs -n tenant-acme pooler-<pod> | grep tenant_acme_user_b`
-  - Verify PostgREST connects with User B: `kubectl logs -n tenant-acme postgrest-<pod> | grep tenant_acme_user_b`
-  - _Requirements: NFR-4.11, NFR-4.15_
-
-- [ ] 3.6.29 Verify rotation Step 4: Old password invalidated
-  - Verify User A password invalidated
-  - Test User A authentication fails: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user_a -d tenant_acme_db` (should fail)
-  - Verify User B authentication succeeds: `kubectl --context spokepool-01 exec -it cnpg-rw-0 -- psql -U tenant_acme_user_b -d tenant_acme_db -c "SELECT 1"`
-  - Verify rotation annotation updated: `kubectl get ainativesaas tenant-acme -o jsonpath='{.metadata.annotations.rotation\.nutgraf\.in/active-user}'` equals `b`
-  - _Requirements: NFR-4.11, NFR-4.15_
-
-- [ ] 3.6.30 Test rotation rollback scenario
-  - Trigger rotation again (User B → User A)
-  - During overlap period, simulate User A connection failure
-  - Manually revert Secret to User B only
-  - Restart Pooler and PostgREST pods
-  - Verify applications reconnect successfully with User B
-  - _Requirements: NFR-4.11, NFR-4.16_
-
-- [ ] 3.6.31 Verify rotation monitoring metrics
-  - Query metric: `tenant_credential_rotation_total{tenant_id="acme", status="success"}`
-  - Verify metric incremented after successful rotation
-  - Query metric: `tenant_credential_age_days{tenant_id="acme", user="a"}`
-  - Query metric: `tenant_credential_age_days{tenant_id="acme", user="b"}`
-  - Verify age metrics updated correctly
-  - _Requirements: NFR-4.16, NFR-4.17_
-
-- [ ] 3.6.32 Verify rotation alerts configured
-  - Verify alert exists: Credential age > 85 days (warning)
-  - Verify alert exists: Credential age > 95 days (critical)
-  - Verify alert exists: Rotation failure (critical)
-  - Test alert by simulating credential age > 85 days
-  - _Requirements: NFR-4.16, NFR-4.17_
-
 ### 3.7 PHASE 3 REVIEW CHECKPOINT
 
 - [x] 3.7.1 **MANDATORY STOP - Phase 3 Review**
   - **STOP ALL IMPLEMENTATION WORK**
   - Present Phase 3 completion summary to user
   - Demonstrate: Git commit → ApplicationSet → Helm → AINativeSaaS XR → Database + User + Pooler + PostgREST provisioned
-  - Show validation results from tasks 3.6.1-3.6.32 (including user isolation and rotation tests)
+  - Show validation results from tasks 3.6.1-3.6.24 (including user isolation tests)
   - Highlight: Per-tenant database users with isolated credentials (no shared `app` user)
-  - Highlight: Dual-user rotation pattern with 24-hour overlap period for zero-downtime
-  - Highlight: Manual rotation trigger via XR annotation (Phase 3), automated rotation deferred to Phase 2
   - **WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 4**
   - Document any issues or deviations from design
-  - _Requirements: All Phase 3 requirements including FR-4.6, NFR-4.10-4.17_
+  - _Requirements: All Phase 3 requirements including FR-4.6, NFR-4.10-4.14_
 
 
 ---
@@ -1034,15 +939,7 @@ After completing each phase, you MUST:
   - Create file: `observability/dashboards/drift-detection.json`
   - _Requirements: NFR-5.5_
 
-- [ ] 4.1.4 Create credential rotation dashboard
-  - Metrics: Credential age per tenant (user_a and user_b)
-  - Metrics: Rotation success/failure count
-  - Metrics: Active overlap periods
-  - Metrics: Last rotation timestamp per tenant
-  - Create file: `observability/dashboards/credential-rotation.json`
-  - _Requirements: NFR-4.16, NFR-4.17_
-
-- [ ] 4.1.5 Commit dashboards to Git
+- [ ] 4.1.4 Commit dashboards to Git
   - Commit to feature branch
   - Import dashboards to Grafana
   - _Requirements: NFR-5.1, NFR-5.2, NFR-5.3, NFR-5.5_
@@ -1086,18 +983,7 @@ After completing each phase, you MUST:
   - Create file: `observability/alerts/cell-capacity.yaml`
   - _Requirements: NFR-2.1_
 
-- [ ] 4.2.7 Create credential age alert
-  - Alert when credential age > 85 days (warning)
-  - Alert when credential age > 95 days (critical - rotation overdue)
-  - Create file: `observability/alerts/credential-age.yaml`
-  - _Requirements: NFR-4.17_
-
-- [ ] 4.2.8 Create credential rotation failure alert
-  - Alert when rotation fails (critical - requires manual intervention)
-  - Create file: `observability/alerts/credential-rotation-failure.yaml`
-  - _Requirements: NFR-4.16_
-
-- [ ] 4.2.9 Commit alerts to Git
+- [ ] 4.2.7 Commit alerts to Git
   - Commit to feature branch
   - Verify ArgoCD syncs alerts to VictoriaMetrics
   - _Requirements: NFR-5.1_
@@ -1231,19 +1117,7 @@ After completing each phase, you MUST:
   - Create file: `tests/manual/test-nats-buffering.sh`
   - _Requirements: NFR-3.3_
 
-- [ ] 5.1.6 Create credential rotation test script
-  - Script triggers rotation via XR annotation update
-  - Script verifies rotation Step 1: New password generated for inactive user
-  - Script verifies rotation Step 2: Overlap period active (both users can authenticate)
-  - Script waits for overlap period completion (24 hours or configurable)
-  - Script verifies rotation Step 3: Active user switched, pods restarted
-  - Script verifies rotation Step 4: Old password invalidated
-  - Script verifies rotation metrics updated
-  - Script tests rollback scenario
-  - Create file: `tests/manual/test-credential-rotation.sh`
-  - _Requirements: NFR-4.11, NFR-4.15, NFR-4.16_
-
-- [ ] 5.1.7 Commit test scripts to Git
+- [ ] 5.1.6 Commit test scripts to Git
   - Commit to main branch
   - _Requirements: AC-6_
 
@@ -1315,22 +1189,14 @@ After completing each phase, you MUST:
   - Verify events delivered after reconnection
   - _Requirements: NFR-3.3_
 
-- [ ] 5.3.6 Execute credential rotation test
-  - Run test script: `tests/manual/test-credential-rotation.sh`
-  - Verify rotation workflow completes successfully
-  - Verify zero-downtime during rotation (overlap period)
-  - Verify old password invalidated after rotation
-  - Verify rollback works correctly
-  - _Requirements: NFR-4.11, NFR-4.15, NFR-4.16_
-
-- [ ] 5.3.7 Execute capacity test
+- [ ] 5.3.6 Execute capacity test
   - Provision 10 tenant schemas in same cell
   - Verify all schemas provisioned successfully
   - Verify connection pool not exhausted
   - Verify PostgREST serves all tenants correctly
   - _Requirements: NFR-2.1, NFR-2.3_
 
-- [ ] 5.3.8 Execute certificate rotation test
+- [ ] 5.3.7 Execute certificate rotation test
   - Verify certificates auto-renew 7 days before expiration
   - Verify ArgoCD Agent and NATS Leaf Node continue working after renewal
   - _Requirements: NFR-4.2_
