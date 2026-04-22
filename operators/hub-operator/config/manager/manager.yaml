@@ -120,23 +120,22 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: DOMAIN
-        # AWS Credentials for Infisical backup (Phase 4 - Task 7.1)
-        # TODO: Uncomment after Phase 2 validation passes
-        # - name: AWS_ACCESS_KEY_ID
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: hub-operator-aws-credentials
-        #       key: aws-access-key-id
-        # - name: AWS_SECRET_ACCESS_KEY
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: hub-operator-aws-credentials
-        #       key: aws-secret-access-key
-        # - name: AWS_REGION
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: hub-operator-aws-credentials
-        #       key: aws-region
+        # AWS Credentials for Infisical backup/restore (REQ-11)
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_REGION
         volumeMounts: []
       volumes: []
       serviceAccountName: hub-operator
