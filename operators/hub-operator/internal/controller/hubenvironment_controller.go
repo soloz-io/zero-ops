@@ -24,7 +24,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
-	awsclient "github.com/soloz-io/zero-ops/internal/aws"
+	awsclient "github.com/soloz-io/zero-ops/internal/hub/aws"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
@@ -140,11 +140,23 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Phase 1: Generate Bootstrap Secrets Only
 	// Bootstrap secrets are required for infrastructure to start (CNPG, Infisical)
 	// Application secrets are created by ESO from Infisical
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated") {
-		logger.Info("Phase 1: Generating Bootstrap Secrets")
+	// REQ-7: Always check if infisical-secrets exists, even if BootstrapSecretsGenerated=true
+	// This handles the case where the secret was deleted and needs restoration from AWS
+	securityNamespace := infisical.InfisicalServiceNamespace
+	infisicalSecret := &corev1.Secret{}
+	infisicalSecretExists := true
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets", Namespace: securityNamespace}, infisicalSecret); err != nil {
+		infisicalSecretExists = false
+	}
+	
+	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated") || !infisicalSecretExists {
+		if !infisicalSecretExists {
+			logger.Info("Phase 1: infisical-secrets missing, attempting restore from AWS backup")
+		} else {
+			logger.Info("Phase 1: Generating Bootstrap Secrets")
+		}
 
 		dataNamespace := hubEnv.Spec.Database.Namespace
-		securityNamespace := "hub-platform-security" // Infisical pods run here
 		dbHost := fmt.Sprintf("platform-db-rw.%s.svc", dataNamespace)
 
 		// Create owner reference

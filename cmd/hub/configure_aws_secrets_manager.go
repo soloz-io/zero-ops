@@ -4,69 +4,62 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/soloz-io/zero-ops/internal/hub/aws"
 	"github.com/soloz-io/zero-ops/internal/hub/components"
 	"github.com/spf13/cobra"
 )
 
 var (
-	awsAccessKeyID     string
-	awsSecretAccessKey string
-	awsRegion          string
-	awsKubeconfig      string
+	awsRegion      string
+	awsKubeconfig  string
+	awsEnvironment string
 )
 
 func newConfigureAWSSecretsManagerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure-aws-secrets-manager",
 		Short: "Configure AWS Secrets Manager authentication for Infisical encryption key recovery",
-		Long: `Configure AWS Secrets Manager authentication for disaster recovery of Infisical master encryption keys.
+		Long: `Configure AWS Secrets Manager authentication for disaster recovery of Infisical master keys.
 
-This command injects Secret Zero credentials that enable the encryption key recovery system:
-1. AWS IAM credentials for Secrets Manager access (access-key-id, secret-access-key, region)
-2. Hub-operator will use these credentials to backup and restore ENCRYPTION_KEY and AUTH_SECRET
+This command will:
+1. Create IAM user: hub-operator-secrets-manager-{environment}
+2. Create and attach IAM policy with Secrets Manager permissions
+3. Generate access keys for the new IAM user
+4. Inject credentials into Kubernetes secret: hub-operator-aws-credentials
 
 Prerequisites:
-- AWS IAM user with restricted Secrets Manager permissions
-- IAM policy allowing secretsmanager:GetSecretValue, PutSecretValue, CreateSecret on /hub-operator/{cluster-id}/* paths
-- AWS region where Secrets Manager will store backups
+- AWS CLI configured with admin credentials (aws configure or AWS_PROFILE)
+- IAM permissions to create users, policies, and access keys
+- Kubernetes cluster access via kubeconfig
+
+Example:
+  hub configure-aws-secrets-manager \
+    --environment=production \
+    --aws-region=ap-south-1 \
+    --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
 
 After running this command:
-- Hub-operator deployment will have AWS credentials via environment variables
-- Operator will backup ENCRYPTION_KEY and AUTH_SECRET to AWS on first bootstrap
+- Hub-operator will backup ENCRYPTION_KEY and AUTH_SECRET to AWS on first bootstrap
 - Operator will restore keys from AWS if secrets are deleted
-- Future credential rotations happen via Infisical + ESO (GitOps)
 
 Security:
-- Credentials follow Secret Zero pattern (CLI → K8s → Infisical → ExternalSecret)
-- IAM policy restricts access to hub-operator paths only
+- Credentials follow Secret Zero pattern (CLI → K8s → Operator)
+- IAM policy restricts access to /hub-operator/* paths only
 - All backup/restore operations are logged via CloudTrail`,
 		PreRunE: validateConfigureAWSFlags,
 		RunE:    runConfigureAWSSecretsManager,
 	}
 
-	// Required flags
-	cmd.Flags().StringVar(&awsAccessKeyID, "aws-access-key-id", "", "AWS IAM Access Key ID")
-	cmd.Flags().StringVar(&awsSecretAccessKey, "aws-secret-access-key", "", "AWS IAM Secret Access Key")
+	cmd.Flags().StringVar(&awsEnvironment, "environment", "production", "Environment name for IAM user (e.g., production, staging, dev)")
 	cmd.Flags().StringVar(&awsRegion, "aws-region", "", "AWS region for Secrets Manager (e.g., ap-south-1)")
 	cmd.Flags().StringVar(&awsKubeconfig, "kubeconfig", "", "Path to kubeconfig file (default: ~/.kube/config)")
 
-	// Mark required flags
-	cmd.MarkFlagRequired("aws-access-key-id")
-	cmd.MarkFlagRequired("aws-secret-access-key")
 	cmd.MarkFlagRequired("aws-region")
 
 	return cmd
 }
 
 func validateConfigureAWSFlags(cmd *cobra.Command, args []string) error {
-	if awsAccessKeyID == "" {
-		return fmt.Errorf("--aws-access-key-id is required")
-	}
-
-	if awsSecretAccessKey == "" {
-		return fmt.Errorf("--aws-secret-access-key is required")
-	}
-
 	if awsRegion == "" {
 		return fmt.Errorf("--aws-region is required")
 	}
@@ -92,26 +85,59 @@ func runConfigureAWSSecretsManager(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	fmt.Println("🔐 Configuring AWS Secrets Manager for Infisical encryption key recovery...")
-	fmt.Println("   This will inject Secret Zero credentials for disaster recovery workflow")
+	fmt.Println()
+
+	// Step 1: Create IAM user with Secrets Manager permissions
+	fmt.Println("[1/2] Creating IAM user with Secrets Manager permissions...")
+	fmt.Println("      Using AWS credentials from environment (AWS_PROFILE or default credentials)")
+	fmt.Println()
+
+	iamClient, err := aws.NewIAMClient(ctx, awsRegion)
+	if err != nil {
+		return fmt.Errorf("failed to create IAM client: %w\nEnsure AWS CLI is configured: aws configure or export AWS_PROFILE=<profile>", err)
+	}
+
+	iamResult, err := iamClient.CreateHubOperatorUser(ctx, awsEnvironment)
+	if err != nil {
+		return fmt.Errorf("failed to create IAM user: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Println("✅ IAM Setup Complete!")
+	fmt.Printf("   User: %s\n", iamResult.UserName)
+	fmt.Printf("   Access Key ID: %s\n", iamResult.AccessKeyID)
+	fmt.Printf("   Policy: %s\n", iamResult.PolicyARN)
+	fmt.Println()
+	fmt.Println("⚠️  IMPORTANT: Save the Secret Access Key securely!")
+	fmt.Printf("   Secret Access Key: %s\n", iamResult.SecretAccessKey)
+	fmt.Println()
+
+	// Step 2: Inject credentials into Kubernetes
+	fmt.Println("[2/2] Injecting credentials into Kubernetes secret...")
 
 	installer := &components.Installer{
 		Kubeconfig: awsKubeconfig,
 	}
 
-	// Create AWS credentials secret for hub-operator
-	fmt.Println("\n[1/1] Creating AWS Secrets Manager authentication secret...")
-	if err := installer.InstallAWSSecretsManagerAuth(ctx, awsAccessKeyID, awsSecretAccessKey, awsRegion); err != nil {
-		return fmt.Errorf("failed to create AWS credentials secret: %w", err)
+	if err := installer.InstallAWSSecretsManagerAuth(ctx, iamResult.AccessKeyID, iamResult.SecretAccessKey, awsRegion); err != nil {
+		return fmt.Errorf("failed to create Kubernetes secret: %w", err)
 	}
 
-	fmt.Println("\n✅ Configuration complete!")
-	fmt.Println("\nNext steps:")
+	fmt.Println()
+	fmt.Println("✅ Configuration complete!")
+	fmt.Println()
+	fmt.Println("Next steps:")
 	fmt.Println("1. Hub-operator will use these credentials for ENCRYPTION_KEY backup/restore")
 	fmt.Println("2. On first bootstrap, operator will backup keys to AWS Secrets Manager")
 	fmt.Println("3. If infisical-secrets is deleted, operator will restore from AWS backup")
-	fmt.Println("4. Verify AWS credentials are working:")
-	fmt.Println("   kubectl get secret hub-operator-aws-credentials -n hub-platform-ops -o yaml")
-	fmt.Println("5. Check hub-operator logs for backup/restore operations")
+	fmt.Println()
+	fmt.Println("Verify:")
+	fmt.Println("  kubectl get secret hub-operator-aws-credentials -n hub-platform-ops -o yaml")
+	fmt.Println()
+	fmt.Println("Security reminders:")
+	fmt.Println("  - Store the Secret Access Key in a password manager")
+	fmt.Println("  - Enable CloudTrail for audit logging")
+	fmt.Println("  - Rotate access keys periodically")
 
 	return nil
 }
