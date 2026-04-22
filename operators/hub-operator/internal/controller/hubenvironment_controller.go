@@ -225,6 +225,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
 		isFirstTime := !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated")
+		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
 		
 		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
 		var awsClient secrets.AWSSecretsManagerClient
@@ -237,11 +238,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			awsClient = nil
 		} else {
 			awsClient = awsClientImpl
-			logger.Info("AWS Secrets Manager client initialized successfully")
+			logger.Info("AWS Secrets Manager client initialized successfully", "region", awsRegion)
 		}
 		
 		// REQ-7: Use HubEnvironment name as cluster ID for AWS backup path
 		clusterID := hubEnv.Name
+		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "awsEnabled", awsClient != nil)
 
 		// Generate Bootstrap Secrets with AWS backup/restore support
 		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, awsClient)
@@ -249,6 +251,8 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			logger.Error(err, "Failed to generate Bootstrap Secrets")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
+		
+		logger.Info("Bootstrap secrets generated successfully", "awsBackupEnabled", awsClient != nil)
 
 		// Create bootstrap secrets only
 		secretsToCreate := []*corev1.Secret{
@@ -273,11 +277,21 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			logger.Info("Created bootstrap secret", "secret", secret.Name, "namespace", secret.Namespace)
 		}
 
+		// Set status condition with appropriate message based on AWS backup status
+		statusMessage := "Bootstrap secrets generated successfully"
+		if awsClient != nil {
+			if isFirstTime {
+				statusMessage = "Bootstrap secrets generated and backed up to AWS Secrets Manager"
+			} else {
+				statusMessage = "Bootstrap secrets restored from AWS Secrets Manager backup"
+			}
+		}
+		
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 			Type:               "BootstrapSecretsGenerated",
 			Status:             metav1.ConditionTrue,
 			Reason:             "Generated",
-			Message:            "Bootstrap secrets generated successfully",
+			Message:            statusMessage,
 			ObservedGeneration: hubEnv.Generation,
 		})
 
@@ -285,7 +299,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 
-		logger.Info("Phase 1 complete: Bootstrap secrets generated")
+		logger.Info("Phase 1 complete: Bootstrap secrets generated", "awsBackup", awsClient != nil, "isFirstTime", isFirstTime)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
