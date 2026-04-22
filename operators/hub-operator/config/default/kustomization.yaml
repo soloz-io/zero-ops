@@ -69,6 +69,21 @@ patches:
           value: "https://hydra-admin.ory-system.svc"
         - name: NATS_URL
           value: "nats://nats.hub-platform-core.svc:4222"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-aws-credentials
+              key: AWS_REGION
     - op: replace
       path: /spec/template/spec/containers/0/resources/requests/cpu
       value: 100m
