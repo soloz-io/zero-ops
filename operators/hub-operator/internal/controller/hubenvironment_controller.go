@@ -224,8 +224,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
-		// TODO: After testing, change to: isFirstTime := !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated")
-		isFirstTime := true
+		isFirstTime := !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated")
 		
 		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
 		var awsClient secrets.AWSSecretsManagerClient
