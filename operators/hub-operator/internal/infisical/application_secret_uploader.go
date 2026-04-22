@@ -58,6 +58,9 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	// RFC 3986 unreserved characters - safe for URLs without encoding
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
 
+	successCount := 0
+	var failedKeys []string
+
 	for _, secretDef := range ApplicationSecretMappings {
 		logger.Info("Processing application secret", "description", secretDef.Description)
 
@@ -65,6 +68,7 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 		if secretDef.UsernameKey != "" {
 			if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.UsernameKey, secretDef.Username); err != nil {
 				logger.Error(err, "Failed to upload username to Infisical", "key", secretDef.UsernameKey)
+				failedKeys = append(failedKeys, secretDef.UsernameKey)
 				continue
 			}
 			logger.Info("Uploaded username to Infisical", "key", secretDef.UsernameKey, "value", secretDef.Username)
@@ -80,16 +84,24 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 		password, err := secrets.GenerateSecurePasswordWithCharset(length, charset)
 		if err != nil {
 			logger.Error(err, "Failed to generate password", "key", secretDef.PasswordKey)
+			failedKeys = append(failedKeys, secretDef.PasswordKey)
 			continue
 		}
 
 		if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.PasswordKey, password); err != nil {
 			logger.Error(err, "Failed to upload password to Infisical", "key", secretDef.PasswordKey)
+			failedKeys = append(failedKeys, secretDef.PasswordKey)
 			continue
 		}
 		logger.Info("Uploaded password to Infisical", "key", secretDef.PasswordKey)
+		successCount++
 	}
 
-	logger.Info("Application secrets upload complete")
+	logger.Info("Application secrets upload complete", "uploaded", successCount, "total", len(ApplicationSecretMappings), "failed", len(failedKeys))
+
+	if successCount == 0 && len(ApplicationSecretMappings) > 0 {
+		return fmt.Errorf("all %d application secret uploads failed, failed keys: %v", len(ApplicationSecretMappings), failedKeys)
+	}
+
 	return nil
 }

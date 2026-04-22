@@ -59,22 +59,29 @@ func (su *SecretUploader) UploadCLISecrets(ctx context.Context) error {
 	// See secret_mappings.go for the complete list
 	mappings := CLISecretMappings
 	successCount := 0
-	
+	var failedKeys []string
+
 	for _, mapping := range mappings {
 		if err := su.uploadSecret(ctx, infisicalClient, projectSlug, environmentSlug, secretPath, mapping); err != nil {
-			logger.Error(err, "Failed to upload secret", 
+			logger.Error(err, "Failed to upload secret",
 				"description", mapping.Description,
 				"source", fmt.Sprintf("%s/%s", mapping.SourceNamespace, mapping.SourceName),
 				"infisicalKey", mapping.InfisicalKey)
+			failedKeys = append(failedKeys, mapping.InfisicalKey)
 		} else {
 			successCount++
-			logger.Info("Uploaded secret to Infisical", 
+			logger.Info("Uploaded secret to Infisical",
 				"description", mapping.Description,
 				"infisicalKey", mapping.InfisicalKey)
 		}
 	}
 
-	logger.Info("CLI secrets upload complete", "uploaded", successCount, "total", len(mappings))
+	logger.Info("CLI secrets upload complete", "uploaded", successCount, "total", len(mappings), "failed", len(failedKeys))
+
+	if successCount == 0 && len(mappings) > 0 {
+		return fmt.Errorf("all %d secret uploads failed, first failure: %v", len(mappings), failedKeys)
+	}
+
 	return nil
 }
 
