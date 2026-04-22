@@ -18,6 +18,7 @@ func main() {
 	rootCmd.AddCommand(newTeardownCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
+	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
 	rootCmd.AddCommand(demo.NewDemoCmd())
 
 	if err := rootCmd.Execute(); err != nil {

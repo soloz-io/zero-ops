@@ -12,32 +12,32 @@ This implementation plan follows a 4-phase approach with manual validation check
 
 ## Tasks
 
-- [ ] 1. Phase 1: CLI Command Implementation
+- [-] 1. Phase 1: CLI Command Implementation
   - [ ] 1.1 Create AWS credentials injection CLI command
     - Create `cmd/hub/configure_aws_secrets_manager.go` with cobra command structure
     - Implement AWS credential validation and Kubernetes secret creation
     - Add command registration to `cmd/hub/main.go`
     - _Requirements: REQ-11 (AWS Integration), REQ-1 (Immediate Recovery)_
 
-  - [ ] 1.2 Implement Secret Zero pattern for AWS credentials
+  - [x] 1.2 Implement Secret Zero pattern for AWS credentials
     - Add `InstallAWSSecretsManagerAuth()` function to `internal/hub/components/secrets.go`
     - Create Kubernetes secret with proper labels and metadata
     - Follow existing GitHub secrets pattern for consistency
     - _Requirements: REQ-11 (AWS Integration)_
 
-  - [ ] 1.3 Add AWS credential mappings to Infisical uploader
+  - [x] 1.3 Add AWS credential mappings to Infisical uploader
     - Update `internal/infisical/secret_mappings.go` with AWS credential mappings
     - Add three mappings: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     - Include proper descriptions and source/target key mappings
     - _Requirements: REQ-11 (AWS Integration)_
 
-  - [ ] 1.4 Create ExternalSecret manifest for GitOps sync
+  - [x] 1.4 Create ExternalSecret manifest for GitOps sync
     - Create `manifests/hub-operator/aws-credentials-externalsecret.yaml`
     - Configure ArgoCD sync-wave and proper secret recreation
     - Enable GitOps management after initial CLI bootstrap
     - _Requirements: REQ-11 (AWS Integration)_
 
-- [ ] 2. Phase 1 Manual Validation Checkpoint
+- [x] 2. Phase 1 Manual Validation Checkpoint
   - **Manual Steps**:
     1. Run CLI command: `./bin/hub configure-aws-secrets-manager --aws-access-key-id="test" --aws-secret-access-key="test" --aws-region="ap-south-1"`
     2. Verify secret created: `kubectl get secret hub-operator-aws-credentials -n hub-platform-ops -o yaml`
@@ -47,36 +47,36 @@ This implementation plan follows a 4-phase approach with manual validation check
   - **Validation Criteria**: AWS credentials flow through Secret Zero pattern successfully
   - **User Approval Required**: Proceed to Phase 2 only after manual validation passes
 
-- [ ] 3. Phase 2: Operator Core Logic
-  - [ ] 3.1 Implement AWS Secrets Manager client
+- [x] 3. Phase 2: Operator Core Logic
+  - [x] 3.1 Implement AWS Secrets Manager client
     - Create `internal/aws/secrets_manager.go` with SecretsManagerClient struct
     - Implement BackupMasterKeys() and RestoreMasterKeys() functions
     - Add AWS SDK v2 dependency to go.mod
     - Configure retry logic with exponential backoff (max 5 attempts)
     - _Requirements: REQ-7 (Operator Changes), REQ-12 (Backup metadata)_
 
-  - [ ] 3.2 Create key validation functions
+  - [x] 3.2 Create key validation functions
     - Create `internal/secrets/validator.go` with validation logic
     - Implement validateEncryptionKey() - 32 hex chars, non-zero validation
     - Implement validateAuthSecret() - 32 hex chars, non-zero validation
     - Add comprehensive error messages for validation failures
     - _Requirements: REQ-7.2 (Key validation)_
 
-  - [ ] 3.3 Update secret generation with backup/restore logic
+  - [x] 3.3 Update secret generation with backup/restore logic
     - Modify `GenerateInfisicalSecrets()` in `internal/secrets/generator.go`
     - Add bootstrap detection using HubEnvironment.Status.Conditions
     - Implement AWS backup/restore priority logic
     - Add key validation before secret creation
     - _Requirements: REQ-7 (Operator Changes), REQ-3 (Never regenerate keys)_
 
-  - [ ] 3.4 Implement secret reconstruction logic
+  - [x] 3.4 Implement secret reconstruction logic
     - Add logic to read existing Redis password from `infisical-redis-credentials`
     - Add logic to read CA certificate from `platform-db-ca` secret
     - Use UncachedClient for reading secret data (CRITICAL)
     - Reconstruct complete infisical-secrets with all 4 fields
     - _Requirements: REQ-7.1 (Reconstruct complete payload)_
 
-- [ ] 4. Phase 2 Manual Validation Checkpoint
+- [x] 4. Phase 2 Manual Validation Checkpoint
   - **Manual Steps**:
     1. Deploy fresh cluster and verify new keys generated and backed up
     2. Check AWS Secrets Manager contains backup with correct JSON structure

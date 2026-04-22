@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -200,30 +201,122 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 	return secret, nil
 }
 
+// AWSSecretsManagerClient interface for backup/restore operations
+// This allows for dependency injection and testing
+type AWSSecretsManagerClient interface {
+	BackupMasterKeys(ctx context.Context, clusterID string, keys interface{}) error
+	RestoreMasterKeys(ctx context.Context, clusterID string) (interface{}, error)
+}
+
 // GenerateInfisicalSecretsResult contains both infisical-secrets and the extracted Redis password
 type GenerateInfisicalSecretsResult struct {
 	InfisicalSecrets *corev1.Secret
 	RedisPassword    string
 }
 
-// GenerateInfisicalSecrets creates the infisical-secrets Kubernetes secret
+// GenerateInfisicalSecrets creates the infisical-secrets Kubernetes secret with backup/restore logic
 // Required for Infisical bootstrap (encryption keys, Redis URL, DB cert)
 // Returns both the secret and the Redis password for creating infisical-redis-credentials
 // NOTE: This secret MUST be created in hub-platform-security namespace where Infisical pods run
-func GenerateInfisicalSecrets(securityNamespace, dataNamespace string, caCert []byte, owner metav1.OwnerReference) (*GenerateInfisicalSecretsResult, error) {
-	encryptionKey, err := GenerateSecurePassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ENCRYPTION_KEY: %w", err)
+//
+// Implements REQ-7: Backup/restore logic with bootstrap detection
+// - First-time bootstrap: Generate new keys, validate, backup to AWS
+// - Restore scenario: Restore from AWS, validate, reconstruct secret
+// - Error scenario: Fail if backup missing and cluster already bootstrapped
+//
+// Implements REQ-7.1: Secret reconstruction logic
+// - Reads existing Redis password from infisical-redis-credentials (if available)
+// - Reads CA certificate from platform-db-ca (passed as parameter)
+// - Reconstructs complete infisical-secrets with all 4 fields
+func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamespace string, caCert []byte, owner metav1.OwnerReference, isFirstTime bool, clusterID string, awsClient AWSSecretsManagerClient, existingRedisPassword string) (*GenerateInfisicalSecretsResult, error) {
+	var encryptionKey, authSecret string
+	var err error
+
+	// Try to restore from AWS Secrets Manager first
+	var backupData interface{}
+	if awsClient != nil {
+		backupData, err = awsClient.RestoreMasterKeys(ctx, clusterID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to restore from AWS: %w", err)
+		}
 	}
 
-	authSecret, err := GenerateSecurePassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate AUTH_SECRET: %w", err)
+	if backupData != nil {
+		// Backup exists - restore both keys
+		// Type assert to extract keys from backup (AWS client returns map[string]interface{})
+		if backupMap, ok := backupData.(map[string]interface{}); ok {
+			if ek, ok := backupMap["encryptionKey"].(string); ok {
+				encryptionKey = ek
+			} else {
+				return nil, fmt.Errorf("backup data missing encryptionKey field")
+			}
+			if as, ok := backupMap["authSecret"].(string); ok {
+				authSecret = as
+			} else {
+				return nil, fmt.Errorf("backup data missing authSecret field")
+			}
+		} else {
+			return nil, fmt.Errorf("invalid backup data format")
+		}
+
+		// REQ-7.2: Validate restored keys before use
+		if err := ValidateEncryptionKey(encryptionKey); err != nil {
+			return nil, fmt.Errorf("restored ENCRYPTION_KEY failed validation: %w", err)
+		}
+		if err := ValidateAuthSecret(authSecret); err != nil {
+			return nil, fmt.Errorf("restored AUTH_SECRET failed validation: %w", err)
+		}
+	} else if isFirstTime {
+		// First-time bootstrap - generate new keys
+		encryptionKey, err = GenerateSecurePassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ENCRYPTION_KEY: %w", err)
+		}
+
+		authSecret, err = GenerateSecurePassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate AUTH_SECRET: %w", err)
+		}
+
+		// REQ-7.2: Validate generated keys
+		if err := ValidateEncryptionKey(encryptionKey); err != nil {
+			return nil, fmt.Errorf("generated ENCRYPTION_KEY failed validation: %w", err)
+		}
+		if err := ValidateAuthSecret(authSecret); err != nil {
+			return nil, fmt.Errorf("generated AUTH_SECRET failed validation: %w", err)
+		}
+
+		// Backup immediately if AWS client is available
+		if awsClient != nil {
+			// Create backup data structure
+			backupKeys := map[string]interface{}{
+				"encryptionKey": encryptionKey,
+				"authSecret":    authSecret,
+				"createdAt":     time.Now().UTC(),
+				"clusterId":     clusterID,
+				"version":       "1",
+			}
+			if err := awsClient.BackupMasterKeys(ctx, clusterID, backupKeys); err != nil {
+				return nil, fmt.Errorf("failed to backup master keys to AWS, cannot proceed: %w", err)
+			}
+		}
+	} else {
+		// NOT first-time AND backup missing - CRITICAL ERROR
+		return nil, fmt.Errorf("ENCRYPTION_KEY backup not found in AWS and cluster already bootstrapped. Manual intervention required")
 	}
 
-	redisPassword, err := GenerateSecurePassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate Redis password: %w", err)
+	// REQ-7.1: Reconstruct Redis password from existing secret or generate new
+	// During restore scenario, preserve existing Redis password to avoid breaking connections
+	var redisPassword string
+	if existingRedisPassword != "" {
+		// Reuse existing Redis password (restore scenario)
+		redisPassword = existingRedisPassword
+	} else {
+		// Generate new Redis password (first-time bootstrap)
+		redisPassword, err = GenerateSecurePassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate Redis password: %w", err)
+		}
 	}
 
 	// Construct REDIS_URL - Redis runs in data namespace
@@ -320,7 +413,13 @@ type BootstrapSecretsResult struct {
 // Application secrets (control-plane-db-credentials, hub-db-credentials, etc.) are created by ESO
 // Implements idempotency by reusing existing passwords
 // Sets ownerReferences on all secrets
-func GenerateBootstrapSecrets(dataNamespace, securityNamespace, dbHost string, owner metav1.OwnerReference, existingSecrets map[string]*corev1.Secret) (*BootstrapSecretsResult, error) {
+//
+// REQ-7: Implements backup/restore logic for Infisical master keys
+// - Detects first-time bootstrap using HubEnvironment.Status.Conditions
+// - Restores keys from AWS if backup exists
+// - Generates and backs up new keys on first-time bootstrap
+// - Fails gracefully if backup missing and cluster already bootstrapped
+func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamespace, dbHost string, owner metav1.OwnerReference, existingSecrets map[string]*corev1.Secret, isFirstTime bool, clusterID string, awsClient AWSSecretsManagerClient) (*BootstrapSecretsResult, error) {
 	result := &BootstrapSecretsResult{}
 
 	// Step 1: Generate or reuse platform-db-ca (in data namespace)
@@ -366,14 +465,27 @@ func GenerateBootstrapSecrets(dataNamespace, securityNamespace, dbHost string, o
 		infisicalPassword = infisicalDBCreds.StringData["password"]
 	}
 
-	// Step 4: Generate or reuse infisical-secrets (in security namespace)
+	// Step 4: Generate or restore infisical-secrets with backup/restore logic (in security namespace)
 	var redisPassword string
 	if _, ok := existingSecrets["infisical-secrets"]; ok {
+		// Secret exists - check if we need to restore from AWS
+		// This handles the case where secret was deleted and needs restoration
 		result.InfisicalSecrets = nil
-		// Reuse existing redis credentials
-		result.InfisicalRedisCredentials = nil
+		
+		// Reuse existing redis credentials if available
+		if existing, ok := existingSecrets["infisical-redis-credentials"]; ok {
+			redisPassword = string(existing.Data["password"])
+			result.InfisicalRedisCredentials = nil
+		}
 	} else {
-		infisicalResult, err := GenerateInfisicalSecrets(securityNamespace, dataNamespace, caCert, owner)
+		// Secret doesn't exist - use backup/restore logic
+		// REQ-7.1: Read existing Redis password to preserve during restore
+		var existingRedisPassword string
+		if existing, ok := existingSecrets["infisical-redis-credentials"]; ok {
+			existingRedisPassword = string(existing.Data["password"])
+		}
+		
+		infisicalResult, err := GenerateInfisicalSecrets(ctx, securityNamespace, dataNamespace, caCert, owner, isFirstTime, clusterID, awsClient, existingRedisPassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate infisical-secrets: %w", err)
 		}
@@ -381,11 +493,14 @@ func GenerateBootstrapSecrets(dataNamespace, securityNamespace, dbHost string, o
 		redisPassword = infisicalResult.RedisPassword
 
 		// Generate infisical-redis-credentials using the Redis password (in data namespace)
-		redisSecret, err := GenerateInfisicalRedisCredentials(dataNamespace, redisPassword, owner)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate infisical-redis-credentials: %w", err)
+		// Only create if it doesn't already exist
+		if _, ok := existingSecrets["infisical-redis-credentials"]; !ok {
+			redisSecret, err := GenerateInfisicalRedisCredentials(dataNamespace, redisPassword, owner)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate infisical-redis-credentials: %w", err)
+			}
+			result.InfisicalRedisCredentials = redisSecret
 		}
-		result.InfisicalRedisCredentials = redisSecret
 	}
 
 	// Step 5: Generate infisical-postgres-connection (in security namespace)

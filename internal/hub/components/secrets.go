@@ -856,3 +856,78 @@ func (i *Installer) InstallGHCRPullSecret(ctx context.Context, username, token s
 
 	return nil
 }
+// InstallAWSSecretsManagerAuth creates the AWS credentials secret for hub-operator
+// This is Secret Zero - it enables hub-operator to backup/restore Infisical master keys.
+// CRITICAL: This secret MUST be injected via client-go, NEVER stored in Git.
+//
+// Production Workflow:
+// 1. Developer creates IAM user with restricted Secrets Manager permissions
+// 2. Developer runs: hub configure-aws-secrets-manager --aws-access-key-id=<id> --aws-secret-access-key=<secret> --aws-region=<region>
+// 3. This method uses client-go to inject the secret directly into the cluster
+// 4. Hub-operator deployment references this secret via secretKeyRef environment variables
+// 5. Operator uses AWS SDK to backup/restore ENCRYPTION_KEY and AUTH_SECRET
+// 6. Future credential rotations happen via Infisical + ESO (GitOps)
+func (i *Installer) InstallAWSSecretsManagerAuth(ctx context.Context, accessKeyID, secretAccessKey, region string) error {
+	fmt.Println("[bootstrap] Creating hub-operator-aws-credentials secret...")
+
+	// Load kubeconfig and create clientset
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create namespace if it doesn't exist
+	namespace := constants.NamespaceOps
+	_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		// Namespace doesn't exist, create it
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: namespace,
+			},
+		}
+		_, err = clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create namespace %s: %w", namespace, err)
+		}
+		fmt.Printf("[bootstrap] Created namespace %s\n", namespace)
+	}
+
+	// Create the secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "hub-operator-aws-credentials",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"AWS_ACCESS_KEY_ID":     accessKeyID,
+			"AWS_SECRET_ACCESS_KEY": secretAccessKey,
+			"AWS_REGION":            region,
+		},
+	}
+
+	// Try to create, if exists then update
+	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		// Secret might already exist, try to update
+		_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create or update hub-operator-aws-credentials secret: %w", err)
+		}
+		fmt.Println("[bootstrap] ✓ hub-operator-aws-credentials secret updated")
+	} else {
+		fmt.Println("[bootstrap] ✓ hub-operator-aws-credentials secret created")
+	}
+
+	return nil
+}

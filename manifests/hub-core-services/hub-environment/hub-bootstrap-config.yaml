@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-bootstrap-config
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  # Cluster Identity
+  CLUSTER_ID: "hub-production"
+  CLUSTER_REGION: "ap-south-1"
+  
+  # Infisical Configuration
+  INFISICAL_PROJECT_SLUG: "hub-platform"
+  INFISICAL_ENVIRONMENT_SLUG: "dev"
+  
+  # Domain Configuration
+  DOMAIN: "nutgraf.in"

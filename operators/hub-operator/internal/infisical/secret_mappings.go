@@ -191,6 +191,45 @@ var CLISecretMappings = []SecretMapping{
 	// ========================================================================
 	// ADD NEW BOOTSTRAP/CLI SECRETS BELOW THIS LINE
 	// ========================================================================
+
+	// ========================================================================
+	// 9. AWS ACCESS KEY ID (for Infisical encryption key recovery)
+	// ========================================================================
+	// Purpose: AWS Secrets Manager authentication for ENCRYPTION_KEY backup/restore
+	// Source: hub-operator-aws-credentials (deployed by CLI)
+	// Consumers: hub-operator
+	// ExternalSecret: manifests/hub-operator/aws-credentials-externalsecret.yaml
+	{
+		SourceNamespace: NamespaceOps,                    // hub-platform-ops
+		SourceName:      "hub-operator-aws-credentials",  // hub-operator-aws-credentials
+		SourceKey:       "AWS_ACCESS_KEY_ID",             // AWS_ACCESS_KEY_ID
+		InfisicalKey:    "AWS_ACCESS_KEY_ID",             // AWS_ACCESS_KEY_ID
+		Description:     "AWS Access Key ID for Secrets Manager",
+	},
+
+	// ========================================================================
+	// 10. AWS SECRET ACCESS KEY (for Infisical encryption key recovery)
+	// ========================================================================
+	{
+		SourceNamespace: NamespaceOps,                    // hub-platform-ops
+		SourceName:      "hub-operator-aws-credentials",  // hub-operator-aws-credentials
+		SourceKey:       "AWS_SECRET_ACCESS_KEY",         // AWS_SECRET_ACCESS_KEY
+		InfisicalKey:    "AWS_SECRET_ACCESS_KEY",         // AWS_SECRET_ACCESS_KEY
+		Description:     "AWS Secret Access Key for Secrets Manager",
+	},
+
+	// ========================================================================
+	// 11. AWS REGION (for Infisical encryption key recovery)
+	// ========================================================================
+	{
+		SourceNamespace: NamespaceOps,                    // hub-platform-ops
+		SourceName:      "hub-operator-aws-credentials",  // hub-operator-aws-credentials
+		SourceKey:       "AWS_REGION",                    // AWS_REGION
+		InfisicalKey:    "AWS_REGION",                    // AWS_REGION
+		Description:     "AWS Region for Secrets Manager",
+	},
+
+	// ========================================================================
 	// Template:
 	// {
 	//     SourceNamespace: "namespace-where-secret-exists",

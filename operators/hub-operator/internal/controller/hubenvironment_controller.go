@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	awsclient "github.com/soloz-io/zero-ops/internal/aws"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
@@ -187,8 +189,29 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		// Generate Bootstrap Secrets only (no application secrets)
-		result, err := secrets.GenerateBootstrapSecrets(dataNamespace, securityNamespace, dbHost, owner, existingSecrets)
+		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
+		// TODO: After testing, change to: isFirstTime := !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated")
+		isFirstTime := true
+		
+		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
+		var awsClient secrets.AWSSecretsManagerClient
+		awsRegion := "ap-south-1" // Default region, can be made configurable
+		
+		// Try to initialize AWS client (optional - if credentials not available, backup/restore will be skipped)
+		awsClientImpl, err := r.initializeAWSClient(ctx, awsRegion)
+		if err != nil {
+			logger.Info("AWS Secrets Manager not available, backup/restore disabled", "error", err.Error())
+			awsClient = nil
+		} else {
+			awsClient = awsClientImpl
+			logger.Info("AWS Secrets Manager client initialized successfully")
+		}
+		
+		// REQ-7: Use HubEnvironment name as cluster ID for AWS backup path
+		clusterID := hubEnv.Name
+
+		// Generate Bootstrap Secrets with AWS backup/restore support
+		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, awsClient)
 		if err != nil {
 			logger.Error(err, "Failed to generate Bootstrap Secrets")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
@@ -991,6 +1014,38 @@ func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name,
 	statefulSet.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
 
 	return r.Update(ctx, statefulSet)
+}
+
+// initializeAWSClient creates an AWS Secrets Manager client for backup/restore operations
+// REQ-11: AWS Secrets Manager integration with static IAM credentials
+// Returns nil if AWS credentials are not available (backup/restore will be disabled)
+func (r *HubEnvironmentReconciler) initializeAWSClient(ctx context.Context, region string) (*awsclient.SecretsManagerClient, error) {
+	logger := log.FromContext(ctx)
+	
+	// Check if AWS credentials are available in environment variables
+	// These are injected from hub-operator-aws-credentials secret
+	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsRegion := os.Getenv("AWS_REGION")
+	
+	if accessKeyID == "" || secretAccessKey == "" {
+		return nil, fmt.Errorf("AWS credentials not found in environment variables")
+	}
+	
+	// Use provided region or fall back to environment variable
+	if awsRegion != "" {
+		region = awsRegion
+	}
+	
+	logger.Info("Initializing AWS Secrets Manager client", "region", region)
+	
+	// Create AWS Secrets Manager client
+	client, err := awsclient.NewSecretsManagerClient(ctx, region)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
+	}
+	
+	return client, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

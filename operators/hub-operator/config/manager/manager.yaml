@@ -93,6 +93,50 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        env:
+        # Bootstrap Configuration from ConfigMap
+        - name: CLUSTER_ID
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: CLUSTER_ID
+        - name: CLUSTER_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: CLUSTER_REGION
+        - name: INFISICAL_PROJECT_SLUG
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_PROJECT_SLUG
+        - name: INFISICAL_ENVIRONMENT_SLUG
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_ENVIRONMENT_SLUG
+        - name: DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: DOMAIN
+        # AWS Credentials for Infisical backup (Phase 4 - Task 7.1)
+        # TODO: Uncomment after Phase 2 validation passes
+        # - name: AWS_ACCESS_KEY_ID
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: hub-operator-aws-credentials
+        #       key: aws-access-key-id
+        # - name: AWS_SECRET_ACCESS_KEY
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: hub-operator-aws-credentials
+        #       key: aws-secret-access-key
+        # - name: AWS_REGION
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: hub-operator-aws-credentials
+        #       key: aws-region
         volumeMounts: []
       volumes: []
       serviceAccountName: hub-operator

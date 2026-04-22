@@ -2,7 +2,7 @@
 
 ## Elevator Pitch:
 
-**Zero-Ops** is an MCP-first, Gitops platform that provisions production-grade, multi-tenant AI-native SaaS environments for building products like replit, Lovable, Emergent. 
+**Zero-Ops** is an MCP-first, Gitops PAAS platform that provisions production-grade, multi-tenant environments for building AI-native SAAS products like replit, Lovable, Emergent. 
 
 ## Elevator Pitch Extended
 
@@ -11,6 +11,43 @@
 Zero-Ops is an MCP-first platform that provisions production-grade, multi-tenant SaaS environments in a single declarative command. Speak to your IDE: "Create my enterprise environment" — get a complete stack: Kubernetes cluster (Crossplane + CAPI), HA PostgreSQL with pgvector, GitOps (ArgoCD), secrets management (Infisical), observability (VictoriaMetrics + Grafana), and privileged access (Teleport). 
 
 **BYOC model** — runs in your cloud account. **GitOps-first** — all changes via Git, zero imperative mutations. **Agentic-native** — AI agents propose infrastructure changes via PRs, you approve. From zero to production in 15 minutes, with full Kubernetes control and eject capability.
+
+## Platform Structure
+
+Zero-Ops Platform (PaaS)
+└── Tenant: "App Builder" (THE SAAS tenant - One product)
+    └── Users: alice, bob, charlie (your customers)
+        └── Applications: Each user builds their own apps
+            └── Forms: Each app contains multiple forms
+                └── Tables: Each form has dynamic schema
+
+Zero-Ops Platform: PaaS Platform
+│
+└── Tenant: app-builder (single SAAS tenant for the PAAS - One product)
+    │
+    ├── User: alice@construction.com
+    │   └── Application: "Construction Management System"
+    │       ├── Form: "Order Management"
+    │       │   ├── Table: orders
+    │       │   ├── Table: projects
+    │       │   └── Table: materials
+    │       └── Form: "Equipment Tracking"
+    │           ├── Table: equipment
+    │           └── Table: maintenance_logs
+    │
+    ├── User: bob@recruiting.com
+    │   └── Application: "Applicant Tracking System"
+    │       ├── Form: "Candidates"
+    │       │   ├── Table: candidates
+    │       │   ├── Table: job_openings
+    │       │   └── Table: interview_invitations
+    │       └── Form: "Job Portal"
+    │           └── Table: job_portal_links
+    │
+    └── User: charlie@retail.com
+        └── Application: "Inventory Management"
+            └── Forms: ...
+
 
 ## Architecture
 
@@ -46,15 +83,61 @@ go build -o bin/hub ./cmd/hub
 
 **Usage:**
 ```bash
-# Bootstrap Hub Cluster with Ubuntu (default, production-ready)
+# Step 1: Bootstrap Hub Cluster with Ubuntu (default, production-ready)
 export HCLOUD_TOKEN=<your-hetzner-token>
 ./bin/hub bootstrap \
   --name=mothership \
   --region=fsn1
 
+# Step 2: Configure AWS Secrets Manager for Infisical encryption key recovery (REQUIRED)
+# This must be done BEFORE init-secrets to enable disaster recovery
+./bin/hub configure-aws-secrets-manager \
+  --aws-access-key-id=<your-aws-access-key-id> \
+  --aws-secret-access-key=<your-aws-secret-access-key> \
+  --aws-region=ap-south-1 \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 3: Initialize bootstrap secrets (Secret Zero)
+# This generates Infisical master keys and backs them up to AWS
+./bin/hub init-secrets \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 4: Wait for Infisical to be ready (check pods are running)
+kubectl get pods -n hub-platform-security --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 5: Create Machine Identity in Infisical UI
+# 1. Access Infisical UI (port-forward or ingress)
+# 2. Go to Access Control -> Machine Identities
+# 3. Create "eso-operator" identity
+# 4. Copy Client ID and Client Secret
+
+# Step 6: Configure ESO authentication to Infisical and ArgoCD GitHub access
+./bin/hub configure-eso \
+  --infisical-client-id=<client-id-from-infisical-ui> \
+  --infisical-client-secret=<client-secret-from-infisical-ui> \
+  --ghcr-username=<your-github-username> \
+  --ghcr-pat=<your-github-personal-access-token> \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
 # Teardown cluster
 ./bin/hub teardown --name=mothership
 ```
+
+**Command Execution Order (CRITICAL):**
+
+1. **`hub bootstrap`** - Creates Kubernetes cluster and deploys ArgoCD
+2. **`hub configure-aws-secrets-manager`** - Injects AWS credentials for disaster recovery (MUST run before init-secrets)
+3. **`hub init-secrets`** - Generates Infisical master keys, backs them up to AWS, starts Infisical pods
+4. **Wait for Infisical** - Verify Infisical pods are running and healthy
+5. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials
+6. **`hub configure-eso`** - Injects ESO auth to Infisical + ArgoCD GitHub access + GHCR pull secret
+
+**Why this order matters:**
+- AWS credentials must exist BEFORE `init-secrets` runs (operator needs them for backup)
+- `init-secrets` must run BEFORE `configure-eso` (Infisical must be running to create Machine Identity)
+- `configure-eso` enables GitOps workflow (ArgoCD syncs ESO manifests, ESO syncs secrets from Infisical)
+- If you skip `configure-aws-secrets-manager`, disaster recovery will not work
+- If you run `configure-eso` before Infisical is ready, you cannot create Machine Identity
 
 ### 2. OpenSBT (`opensbt`)
 SaaS Builder Toolkit control plane for multi-tenant application management.
