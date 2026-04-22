@@ -326,11 +326,13 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 	dbRootCert := base64.StdEncoding.EncodeToString(caCert)
 
 	// Create secret in security namespace where Infisical pods run
+	// REQ-9: Add finalizer to prevent accidental deletion
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            "infisical-secrets",
 			Namespace:       securityNamespace,
 			OwnerReferences: []metav1.OwnerReference{owner},
+			Finalizers:      []string{EncryptionKeyProtectionFinalizer},
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
@@ -349,12 +351,14 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 
 // GenerateInfisicalRedisCredentials creates the infisical-redis-credentials secret
 // Required for Redis bootstrap
+// REQ-9: Add finalizer to prevent accidental deletion
 func GenerateInfisicalRedisCredentials(namespace, redisPassword string, owner metav1.OwnerReference) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            "infisical-redis-credentials",
 			Namespace:       namespace,
 			OwnerReferences: []metav1.OwnerReference{owner},
+			Finalizers:      []string{EncryptionKeyProtectionFinalizer},
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "hub-operator",
 				"app.kubernetes.io/component":  "bootstrap-secret",

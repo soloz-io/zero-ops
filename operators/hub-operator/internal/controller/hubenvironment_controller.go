@@ -62,6 +62,28 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// REQ-10: Handle finalizer for graceful teardown
+	// REQ-13: Remove finalizers from secrets when HubEnvironment is being deleted
+	if !hubEnv.DeletionTimestamp.IsZero() {
+		logger.Info("HubEnvironment is being deleted, removing finalizers from secrets")
+		
+		// Remove finalizers from infisical-secrets
+		if err := r.removeFinalizer(ctx, "infisical-secrets", infisical.InfisicalServiceNamespace); err != nil {
+			logger.Error(err, "Failed to remove finalizer from infisical-secrets")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+		
+		// Remove finalizers from infisical-redis-credentials
+		dataNamespace := hubEnv.Spec.Database.Namespace
+		if err := r.removeFinalizer(ctx, "infisical-redis-credentials", dataNamespace); err != nil {
+			logger.Error(err, "Failed to remove finalizer from infisical-redis-credentials")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+		
+		logger.Info("Successfully removed finalizers from secrets, allowing deletion to proceed")
+		return ctrl.Result{}, nil
+	}
+
 	// Requirement 9.4: Handle reconcile-trigger annotation
 	if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok {
 		logger.Info("Manual reconciliation triggered", "timestamp", triggerTime)
@@ -1232,4 +1254,50 @@ func (r *HubEnvironmentReconciler) findHubEnvironmentForStatefulSet(ctx context.
 	}
 
 	return requests
+}
+
+// removeFinalizer removes the encryption key protection finalizer from a secret
+// REQ-10: Implement finalizer controller for graceful teardown
+// REQ-13: Graceful teardown support - remove finalizers when HubEnvironment is deleted
+func (r *HubEnvironmentReconciler) removeFinalizer(ctx context.Context, secretName, namespace string) error {
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Secret doesn't exist, nothing to do
+			return nil
+		}
+		return fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	// Check if finalizer exists
+	finalizerExists := false
+	for _, f := range secret.Finalizers {
+		if f == secrets.EncryptionKeyProtectionFinalizer {
+			finalizerExists = true
+			break
+		}
+	}
+
+	if !finalizerExists {
+		// Finalizer doesn't exist, nothing to do
+		return nil
+	}
+
+	// Remove the finalizer
+	var newFinalizers []string
+	for _, f := range secret.Finalizers {
+		if f != secrets.EncryptionKeyProtectionFinalizer {
+			newFinalizers = append(newFinalizers, f)
+		}
+	}
+	secret.Finalizers = newFinalizers
+
+	// Update the secret
+	if err := r.Update(ctx, secret); err != nil {
+		return fmt.Errorf("failed to remove finalizer from secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	log.FromContext(ctx).Info("Removed finalizer from secret", "secret", secretName, "namespace", namespace)
+	return nil
 }
