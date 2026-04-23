@@ -317,5 +317,11 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "leafnode",
 		Description: "NATS Leaf Node credentials for spoke clusters",
 	},
+	{
+		UsernameKey: "",
+		PasswordKey: "crossplane-admin-password",
+		Username:    "",
+		Description: "Crossplane admin role password for spoke CNPG clusters",
+	},
 }
 

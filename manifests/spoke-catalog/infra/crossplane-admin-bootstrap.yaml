@@ -23,8 +23,7 @@ spec:
   data:
     - secretKey: password
       remoteRef:
-        key: /spoke-pool/CELL_ID/crossplane-admin-credentials
-        property: password
+        key: crossplane-admin-password
 ---
 apiVersion: batch/v1
 kind: Job
