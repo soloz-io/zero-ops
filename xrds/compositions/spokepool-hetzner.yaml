@@ -704,7 +704,7 @@ spec:
                   - type: string
                     string:
                       type: Convert
-                      convert: "sha256sum"
+                      convert: "base64"
                   - type: string
                     string:
                       type: Regexp
