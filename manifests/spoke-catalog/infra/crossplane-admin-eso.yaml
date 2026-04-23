@@ -4,7 +4,7 @@ metadata:
   name: crossplane-admin-credentials
   namespace: spoke-platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   refreshInterval: 1h
   secretStoreRef:
