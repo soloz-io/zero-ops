@@ -329,17 +329,17 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        - name: argocd-agent-client-cert
+                        - name: ""
                           kind: Secret
                         - name: argocd-agent-ca-secret
                           kind: Secret
                         # Observability mTLS certificates
-                        - name: alloy-client-cert
+                        - name: ""
                           kind: Secret
                         - name: observability-ca-secret
                           kind: Secret
                         # NATS Leafnode mTLS certificates
-                        - name: nats-leafnode-client-cert
+                        - name: ""
                           kind: Secret
                         - name: nats-leafnode-ca
                           kind: Secret
@@ -387,37 +387,37 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[11].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
-              # Patch for ArgoCD Agent client certificate (resources[13])
+              # Patch for ArgoCD Agent client certificate (resources[12])
               # References the Kyverno-generated CRS secret (with -crs suffix)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[13].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-client-cert-crs"
-              # Patch for Alloy client certificate (resources[15])
+              # Patch for Alloy client certificate (resources[14])
               # References the Kyverno-generated CRS secret (with -crs suffix)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "%s-alloy-client-cert-crs"
-              # Patch for NATS leafnode client certificate (resources[17])
+              # Patch for NATS leafnode client certificate (resources[16])
               # References the Kyverno-generated CRS secret (with -crs suffix)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
                 transforms:
                   - type: string
                     string:
