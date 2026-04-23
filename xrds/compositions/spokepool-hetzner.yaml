@@ -343,6 +343,9 @@ spec:
                           kind: Secret
                         - name: nats-leafnode-ca
                           kind: Secret
+                        # Infisical auth for ESO ClusterSecretStore on Spoke
+                        - name: infisical-auth-crs
+                          kind: Secret
                       strategy: Reconcile
                 providerConfigRef:
                   name: kubernetes-provider

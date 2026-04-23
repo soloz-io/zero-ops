@@ -1,0 +1,57 @@
+---
+# Kyverno Policy: Transform infisical-auth secret for ClusterResourceSet
+# Watches the infisical-auth Secret on the Hub and packages it for injection into Spokes.
+# Injects infisical-auth into spoke-platform-ops so ESO ClusterSecretStore can authenticate.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: infisical-auth-crs-transform
+  annotations:
+    policies.kyverno.io/title: Transform Infisical Auth Secret for ClusterResourceSet
+    policies.kyverno.io/category: ClusterResourceSet Integration
+    policies.kyverno.io/description: |
+      Automatically transforms infisical-auth secret to ClusterResourceSet format.
+      Injects infisical-auth into spoke-platform-ops on every Spoke at bootstrap time.
+spec:
+  generateExisting: true
+  rules:
+    - name: generate-crs-infisical-auth
+      match:
+        any:
+          - resources:
+              kinds:
+                - Secret
+              names:
+                - infisical-auth
+              namespaces:
+                - hub-platform-ops
+      context:
+        - name: clientId
+          variable:
+            jmesPath: 'request.object.data."client-id"'
+        - name: clientSecret
+          variable:
+            jmesPath: 'request.object.data."client-secret"'
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: infisical-auth-crs
+        namespace: hub-platform-ops
+        synchronize: true
+        data:
+          type: addons.cluster.x-k8s.io/resource-set
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+              crs-type: infisical-auth
+          stringData:
+            secret.yaml: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: infisical-auth
+                namespace: spoke-platform-ops
+              type: Opaque
+              data:
+                client-id: "{{clientId}}"
+                client-secret: "{{clientSecret}}"
