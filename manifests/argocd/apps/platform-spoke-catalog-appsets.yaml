@@ -334,7 +334,7 @@ spec:
                 cpu: "1000m"
       destination:
         name: '{{.name}}'
-        namespace: crossplane-system
+        namespace: spoke-platform-ops
       syncPolicy:
         automated:
           prune: true
