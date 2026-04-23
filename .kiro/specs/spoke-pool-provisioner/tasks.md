@@ -601,20 +601,20 @@ After completing each phase, you MUST:
 
 ### 3.2.5 Per-Tenant Database User Implementation
 
-- [ ] 3.2.5.1 Install Crossplane provider-sql
+- [x] 3.2.5.1 Install Crossplane provider-sql
   - Install provider-sql to Hub cluster: `kubectl apply -f provider-sql.yaml`
   - Verify provider installed: `kubectl get providers`
   - Create file: `manifests/crossplane/providers/provider-sql.yaml`
   - _Requirements: FR-4.6, NFR-4.10_
 
-- [ ] 3.2.5.2 Create ProviderConfig for shared CNPG cluster
+- [x] 3.2.5.2 Create ProviderConfig for shared CNPG cluster
   - Define ProviderConfig pointing to shared CNPG cluster in each Spoke Pool
   - Connection details: host=shared-cnpg-rw, port=5432, database=postgres
   - Use postgres superuser credentials for user creation
   - Create file: `xrds/compositions/ainativesaas-providerconfig.yaml`
   - _Requirements: FR-4.6_
 
-- [ ] 3.2.5.3 Update AINativeSaaS Composition to create dual database users
+- [x] 3.2.5.3 Update AINativeSaaS Composition to create dual database users
   - Add provider-sql User resource for User A: `tenant_<id>_user_a`
   - Add provider-sql User resource for User B: `tenant_<id>_user_b`
   - Both users created with initial random passwords (32 characters)
@@ -622,7 +622,7 @@ After completing each phase, you MUST:
   - Create file update: `xrds/compositions/ainativesaas-starter-hetzner.yaml`
   - _Requirements: FR-4.6, NFR-4.10, NFR-4.15_
 
-- [ ] 3.2.5.4 Update AINativeSaaS Composition to generate password Secret
+- [x] 3.2.5.4 Update AINativeSaaS Composition to generate password Secret
   - Add Crossplane Object resource wrapping Kubernetes Secret
   - Secret name: `<tenantId>-db-credentials`
   - Secret namespace: `tenant-<tenantId>`
@@ -630,7 +630,7 @@ After completing each phase, you MUST:
   - Use Crossplane function-patch-and-transform for password generation: `type: string`, `fmt: "random-32"`
   - _Requirements: FR-4.6, NFR-4.10_
 
-- [ ] 3.2.5.5 Update AINativeSaaS Composition to grant database permissions to both users
+- [x] 3.2.5.5 Update AINativeSaaS Composition to grant database permissions to both users
   - Add provider-sql Grant resource for User A CONNECT privilege
   - Grant: `GRANT CONNECT ON DATABASE tenant_<id>_db TO tenant_<id>_user_a`
   - Add provider-sql Grant resource for User A table privileges
@@ -644,13 +644,13 @@ After completing each phase, you MUST:
   - Repeat all grants for User B: `tenant_<id>_user_b`
   - _Requirements: FR-4.6, NFR-4.12, NFR-4.15_
 
-- [ ] 3.2.5.6 Update AINativeSaaS Composition Pooler to use tenant credentials
+- [x] 3.2.5.6 Update AINativeSaaS Composition Pooler to use tenant credentials
   - Update CNPG Pooler CR to reference Secret: `<tenantId>-db-credentials`
   - Pooler connects using `username` and `password` from Secret
   - Remove reference to shared `app` user credentials
   - _Requirements: FR-4.6, NFR-4.13_
 
-- [ ] 3.2.5.7 Update AINativeSaaS Composition PostgREST to use tenant credentials
+- [x] 3.2.5.7 Update AINativeSaaS Composition PostgREST to use tenant credentials
   - Update PostgREST Deployment to reference Secret: `<tenantId>-db-credentials`
   - PostgREST connects using `username` and `password` from Secret
   - Environment variables: `PGRST_DB_URI` from Secret fields

@@ -1,0 +1,25 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: crossplane-admin-credentials
+  namespace: spoke-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: crossplane-admin-credentials
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        password: "{{ .password }}"
+        uri: "postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /spoke-pool/CELL_ID/crossplane-admin-credentials
+        property: password

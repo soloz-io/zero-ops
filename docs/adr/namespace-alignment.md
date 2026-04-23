@@ -23,12 +23,20 @@
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
 
-## Spoke Cluster Namespaces
+## Spoke Pool Namespaces
 
 | Namespace | Components | Notes |
 |-----------|------------|-------|
 | `kube-system` | Hetzner CCM, Hetzner CSI, Cilium CNI, CoreDNS, kube-proxy | Standard Kubernetes system namespace for spoke clusters |
-| `argocd` | ArgoCD Agent | GitOps agent for spoke cluster management |
+
+
+| Namespace | Components | Notes |
+|-----------|------------|-------|
+| `spoke-platform-ops` | ArgoCD Agent, Crossplane (local), provider-sql, provider-kubernetes | Platform operators for the cell |
+| `spoke-platform-data` | Shared CNPG Cluster, CNPG Operator, per-tenant Poolers | Database layer for the cell |
+| `spoke-platform-messaging` | NATS Leaf Node | Event messaging for the cell |
+| `spoke-platform-observability` | Grafana Alloy, metrics collection | Observability for the cell |
+| `spoke-tenant-<id>` | AINativeSaaS XR, PostgREST, AtlasMigration, tenant credentials Secret | One namespace per tenant; e.g. `spoke-tenant-app-creator` |
 
 ## Notes
 

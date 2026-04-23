@@ -24,7 +24,7 @@ spec:
             apiVersion: postgresql.cnpg.io/v1
             kind: Database
             metadata:
-              namespace: spoke-pool-system
+              namespace: spoke-platform-data
             spec:
               cluster:
                 name: shared-cnpg
@@ -74,7 +74,7 @@ spec:
               username: ""      # Patched: tenant-<tenantId>-user
               password: ""      # Patched: random 32-char (function-patch-and-transform)
               database: ""      # Patched: database.name
-              host: "shared-cnpg-rw.spoke-pool-system.svc.cluster.local"
+              host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
               port: "5432"
         providerConfigRef:
           name: ""  # Patched from cellId
@@ -290,7 +290,7 @@ spec:
             apiVersion: postgresql.cnpg.io/v1
             kind: Pooler
             metadata:
-              namespace: spoke-pool-system
+              namespace: spoke-platform-data
             spec:
               cluster:
                 name: shared-cnpg
@@ -363,7 +363,7 @@ spec:
               namespace: ""  # Patched
             type: Opaque
             stringData:
-              url: ""  # Patched: postgresql://tenant-<id>-user:<password>@<tenantId>-pooler.spoke-pool-system.svc:5432/<db>
+              url: ""  # Patched: postgresql://tenant-<id>-user:<password>@<tenantId>-pooler.spoke-platform-data.svc:5432/<db>
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -402,7 +402,7 @@ spec:
         - fromFieldPath: spec.database.name
         strategy: string
         string:
-          fmt: "postgresql://tenant-%s-user@%s-pooler.spoke-pool-system.svc:5432/%s"
+          fmt: "postgresql://tenant-%s-user@%s-pooler.spoke-platform-data.svc:5432/%s"
       toFieldPath: spec.forProvider.manifest.stringData.url
 
   # 9. PostgREST Deployment - Wrapped in provider-kubernetes Object

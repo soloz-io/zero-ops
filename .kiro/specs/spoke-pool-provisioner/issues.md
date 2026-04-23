@@ -10,27 +10,25 @@
 
 ### ⚠️ Issue #44: AtlasMigration Authentication - Shared Cluster User Violates Isolation
 
-**STATUS**: IN PROGRESS  
+FIX: zero-ops/.kiro/specs/spoke-pool-provisioner/resources/per-tenant-user-design.md
+
+**STATUS**: IN PROGRESS — provider-sql approach blocked (Hub cannot reach Spoke CNPG)
 **ROOT CAUSE**: All tenants share cluster-wide `app` user, violating security isolation  
 **DISCOVERY**: Phase 3 validation - AtlasMigration password authentication failed
 
-**ARCHITECTURE ISSUE**:
-- Current: All tenants use `shared-cnpg-app` credentials (cluster-wide `app` user)
-- Problem: Single password compromise = all tenant data exposed
-- Required: Per-tenant database users with isolated credentials
+**IMPLEMENTATION ATTEMPT** (commit 854258c, 2026-04-22):
+- provider-sql v0.9.0 installed on Hub: `INSTALLED=True, HEALTHY=True` ✅
+- Composition updated with db-credentials-secret, db-user, grant-connect/tables/sequences ✅
+- **BLOCKED**: provider-sql runs on Hub, Spoke CNPG is ClusterIP-only (not reachable cross-cluster)
+- Error on Role CR: `cannot get ProviderConfig: ProviderConfig.postgresql.sql.crossplane.io "spoke-pool-eu-prod-01" not found`
+- Root cause: Even with ProviderConfig, Hub cannot reach `shared-cnpg-rw.spoke-pool-system:5432`
 
-**PROPOSED SOLUTION**: 
-- Option A (Recommended): CNPG User CR for per-tenant user management
-- Option B (Fallback): SQL Job to create users if CNPG doesn't support User CRD
-- Verify CNPG v1.29 User CRD support in archived codebase
+**OPTIONS TO EVALUATE**:
+1. **CNPG managed roles** — add `spec.managed.roles` to shared CNPG Cluster CR per tenant (Hub-side via provider-kubernetes, no network issue)
+2. **Atlas migration SQL** — add `CREATE USER` + `GRANT` to tenant baseline migrations (Atlas runs on Spoke, has direct DB access)
+3. **Expose CNPG via LoadBalancer** — security concern, adds external surface
 
-**NEXT STEPS**: 
-1. Check `archived/cloud-native/cloudnative-pg/` for User CRD examples
-2. Implement per-tenant user creation in Composition
-3. Update pooler-secret to use tenant-specific credentials
-4. Validate AtlasMigration connects with isolated user
-
-**BLOCKED TASKS**: 3.6.9-3.6.15
+**BLOCKED TASKS**: 3.6.9-3.6.15, 3.6.23-3.6.24
 
 ---
 

@@ -4,5 +4,4 @@ kind: Kustomization
 
 resources:
   - provider-kubernetes/provider.yaml
-  - provider-sql/provider.yaml
   - function/function.yaml

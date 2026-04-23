@@ -109,7 +109,7 @@ spec:
               kind: Secret
               metadata:
                 name: observability-ca
-                namespace: spoke-pool-system
+                namespace: spoke-platform-observability
               type: Opaque
               data:
                 ca.crt: "{{caCrt}}"
@@ -172,7 +172,7 @@ spec:
               kind: Secret
               metadata:
                 name: alloy-client-cert
-                namespace: spoke-pool-system
+                namespace: spoke-platform-observability
               type: kubernetes.io/tls
               data:
                 tls.crt: "{{tlsCrt}}"

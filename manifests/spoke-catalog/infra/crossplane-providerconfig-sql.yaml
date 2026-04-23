@@ -1,0 +1,12 @@
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  credentials:
+    source: PostgreSQLConnectionString
+    connectionSecretRef:
+      namespace: spoke-platform-ops
+      name: crossplane-admin-credentials

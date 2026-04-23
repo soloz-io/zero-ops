@@ -1,7 +1,7 @@
 # ESO-Infisical Integration Pattern
 
 ## Status
-Active - Updated to reflect hub-operator pattern
+Active - Updated to reflect hub-operator pattern and dual-phase rotation
 
 See also: [Bootstrap vs Application Secrets](./bootstrap-vs-application-secrets.md)
 
@@ -52,14 +52,17 @@ Sync to K8s Secrets (Hub + Spokes)
    ↓
 [ Application Workloads ]
    ↓
-Consume secrets
+Consume secrets at runtime
    ↓
 [ PostgreSQL / Services ]
 ```
 
 **Purpose:** Infisical is the source of truth. ESO creates and owns the K8s secrets.
+**ESO role:** Runtime delivery only — syncing the current active credential to K8s for application consumption. ESO does NOT drive rotation.
 
 **Secrets:** control-plane-db-credentials, hub-db-credentials, spire-server-db-credentials, hydra-db-credentials, kratos-db-credentials, keto-db-credentials, ghcr-pull-secret, hetzner-dns, hub-platform-git-secret
+
+---
 
 ## Password Lifecycle
 
@@ -69,21 +72,87 @@ Consume secrets
 2. **K8s Secret Created:** Operator creates secret in cluster
 3. **Upload to Infisical:** Operator uploads to Infisical (backup/audit)
 4. **ESO Sync:** ESO keeps K8s secret in sync with Infisical (Merge mode)
-5. **Rotation:** Update in Infisical → ESO syncs → Operator detects change → Updates database
+5. **Rotation:** See Rotation section below
 
 ### Application Secrets Lifecycle
 
 1. **Creation in Infisical:** Secret created via Infisical UI/API/CLI
 2. **ESO Sync:** ESO pulls from Infisical and creates K8s secret
-3. **App Consumption:** Application reads from K8s secret
-4. **Rotation:** Update in Infisical → ESO syncs → Operator detects change → Updates database
+3. **App Consumption:** Application reads from K8s secret at runtime
+4. **Rotation:** See Rotation section below
+
+---
+
+## Password Rotation
+
+### Critical Distinction
+
+**ESO sync is for runtime consumption, NOT rotation.**
+
+ESO's job is to deliver the current active credential from Infisical to K8s so applications can consume it. It does not initiate or drive rotation. Rotation is a separate, ordered process that must alter the database credential first before updating Infisical.
+
+Doing it the other way (update Infisical first → ESO syncs → app picks up new password → DB still has old password) causes an authentication failure window.
+
+### Dual-Phase Rotation Pattern
+
+Rotation follows Infisical's dual-phase (secret rotation) model:
+- Reference: https://infisical.com/docs/documentation/platform/secret-rotation/overview
+
+```
+Phase 1 — Prepare new credential (zero-downtime window opens)
+   ↓
+ALTER ROLE <user> WITH PASSWORD '<new-password>'  ← DB altered FIRST
+   ↓
+Both old and new passwords valid simultaneously (overlap period)
+   ↓
+Update Infisical with new password  ← SOURCE OF TRUTH updated
+   ↓
+ESO detects change, syncs new password to K8s Secret
+   ↓
+Applications pick up new credential (via pod restart or secret reload)
+   ↓
+Phase 2 — Expire old credential (overlap period ends)
+   ↓
+Confirm all connections using new password
+   ↓
+Invalidate old password in DB
+   ↓
+Zero-downtime rotation complete
+```
+
+### Why DB is altered first
+
+The database is the authoritative source for whether a credential works. Updating Infisical before altering the DB creates a window where:
+- ESO has synced the new password to K8s
+- Applications attempt to connect with the new password
+- DB still has the old password → authentication failure
+
+Altering the DB first ensures the new password is valid before any application attempts to use it.
+
+### Overlap period
+
+During the overlap period both the old and new passwords are valid in the DB. This gives:
+- Time for ESO to sync the new password to K8s
+- Time for applications to pick up the new credential (pod restart / secret reload)
+- A safe rollback window if the new credential has issues
+
+### Rotation trigger
+
+Rotation is triggered externally (not by ESO):
+- Infisical's built-in secret rotation scheduler
+- Manual trigger via Infisical UI/API
+- Platform operator annotation (e.g., `rotation.nutgraf.in/trigger`)
+
+ESO is only involved in the final step: delivering the updated credential to K8s after Infisical has been updated.
+
+---
 
 ## Spoke Cluster Pattern
 
 ```
 [ Hub Infisical ]
      ↓
-Tenant credentials stored
+Tenant credentials stored  ← SOURCE OF TRUTH
      ↓
 -----------------------------------
      ↓
@@ -91,20 +160,29 @@ Tenant credentials stored
      ↓
 Pulls from Hub Infisical
      ↓
-Creates K8s Secrets locally
+Creates K8s Secrets locally (runtime delivery)
      ↓
 [ Spoke Applications ]
      ↓
 Consume secrets
 ```
 
+---
+
 ## Boundary Rules
 
 - ✅ Use Infisical for secrets (passwords, tokens, API keys)
+- ✅ ESO syncs Infisical → K8s for runtime consumption only
+- ✅ Rotation always alters the DB credential first, then updates Infisical
+- ✅ Dual-phase rotation (overlap period) for zero-downtime
+- ❌ Do NOT update Infisical before altering the DB (causes auth failure window)
+- ❌ Do NOT use ESO sync as the rotation trigger
 - ❌ Do NOT use Infisical for service discovery
 - ❌ Do NOT use Infisical for configuration management
 - ✅ Use ConfigMaps for non-sensitive configuration
 - ✅ Use Service DNS for service discovery
+
+---
 
 ## ESO Configuration Patterns
 
@@ -134,7 +212,10 @@ spec:
     creationPolicy: Owner  # ESO creates and owns
 ```
 
+---
+
 ## References
 
 - [Bootstrap vs Application Secrets ADR](./bootstrap-vs-application-secrets.md)
 - [Sync Wave Order ADR](./sync-wave-order.md)
+- [Infisical Secret Rotation](https://infisical.com/docs/documentation/platform/secret-rotation/overview)

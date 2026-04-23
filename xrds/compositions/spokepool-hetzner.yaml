@@ -620,7 +620,7 @@ spec:
                               kind: Secret
                               metadata:
                                 name: nats-leaf-creds
-                                namespace: spoke-pool-system
+                                namespace: spoke-platform-messaging
                               type: Opaque
                               stringData:
                                 password: "{{ .password | trim }}"

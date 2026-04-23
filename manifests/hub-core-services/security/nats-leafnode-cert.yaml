@@ -97,7 +97,7 @@ spec:
             kind: Secret
             metadata:
               name: nats-leafnode-ca
-              namespace: spoke-pool-system
+              namespace: spoke-platform-messaging
             type: Opaque
             data:
               ca.crt: "{{caCrt}}"
@@ -152,7 +152,7 @@ spec:
             kind: Secret
             metadata:
               name: nats-leafnode-client-cert
-              namespace: spoke-pool-system
+              namespace: spoke-platform-messaging
             type: kubernetes.io/tls
             data:
               tls.crt: "{{tlsCrt}}"

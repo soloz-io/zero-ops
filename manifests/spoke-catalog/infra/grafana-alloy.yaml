@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: alloy-config
-  namespace: spoke-pool-system
+  namespace: spoke-platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 data:
@@ -19,7 +19,7 @@ data:
     // CNPG metrics scraping
     prometheus.scrape "cnpg" {
       targets = [{
-        __address__ = "shared-cnpg-rw.spoke-pool-system.svc:9187",
+        __address__ = "shared-cnpg-rw.spoke-platform-data.svc:9187",
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
@@ -27,7 +27,7 @@ data:
     // NATS metrics scraping
     prometheus.scrape "nats" {
       targets = [{
-        __address__ = "nats.spoke-pool-system.svc:8222",
+        __address__ = "nats.spoke-platform-messaging.svc:8222",
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
@@ -35,7 +35,7 @@ data:
     // PostgREST metrics scraping
     prometheus.scrape "postgrest" {
       targets = [{
-        __address__ = "postgrest.spoke-pool-system.svc:3000",
+        __address__ = "postgrest.spoke-platform-data.svc:3000",
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
@@ -68,7 +68,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: grafana-alloy
-  namespace: spoke-pool-system
+  namespace: spoke-platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 spec:
@@ -126,7 +126,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: grafana-alloy
-  namespace: spoke-pool-system
+  namespace: spoke-platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 ---
@@ -165,4 +165,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: grafana-alloy
-    namespace: spoke-pool-system
+    namespace: spoke-platform-observability

@@ -1,0 +1,71 @@
+---
+# Copies crossplane-admin password into spoke-platform-data so the bootstrap
+# Job can reference both it and shared-cnpg-superuser in the same namespace.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: crossplane-admin-credentials
+  namespace: spoke-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: crossplane-admin-credentials
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        password: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /spoke-pool/CELL_ID/crossplane-admin-credentials
+        property: password
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crossplane-admin-bootstrap
+  namespace: spoke-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              psql "$SUPERUSER_URI" <<EOF
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'crossplane_admin') THEN
+                  EXECUTE format(
+                    'CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD %L',
+                    '$CROSSPLANE_ADMIN_PASSWORD'
+                  );
+                END IF;
+              END
+              \$\$;
+              EOF
+          env:
+            - name: SUPERUSER_URI
+              valueFrom:
+                secretKeyRef:
+                  name: shared-cnpg-superuser
+                  key: uri
+            - name: CROSSPLANE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: crossplane-admin-credentials
+                  key: password

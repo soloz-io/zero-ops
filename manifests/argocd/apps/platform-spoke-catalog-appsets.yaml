@@ -160,12 +160,73 @@ spec:
                 value: ""
       destination:
         name: '{{.name}}'
-        namespace: spoke-pool-system
+        namespace: spoke-platform-ops
       ignoreDifferences:
         - group: apps
           kind: Deployment
           jsonPointers:
             - /spec/replicas
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+---
+# Crossplane Operator (Spoke-local — required for TenantDatabase XRD + provider-sql)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-crossplane
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-crossplane'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://charts.crossplane.io/stable
+        chart: crossplane
+        targetRevision: 1.20.5
+        helm:
+          releaseName: crossplane
+          values: |
+            webhooks:
+              enabled: true
+            args:
+              - '--enable-composition-functions'
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "1000m"
+      destination:
+        name: '{{.name}}'
+        namespace: crossplane-system
       syncPolicy:
         automated:
           prune: true
@@ -212,7 +273,7 @@ spec:
         path: manifests/spoke-catalog/infra
       destination:
         name: '{{.name}}'
-        namespace: spoke-pool-system
+        namespace: spoke-platform-ops
       syncPolicy:
         automated:
           prune: true
