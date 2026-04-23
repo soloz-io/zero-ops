@@ -34,7 +34,7 @@ spec:
                     apiVersion: cluster.x-k8s.io/v1beta1
                     kind: Cluster
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: hub-platform-capi
                       labels:
                         spoke-type: pool
                         take-along-label.capi-to-argocd.spoke-type: ""
@@ -291,7 +291,7 @@ spec:
                     apiVersion: addons.cluster.x-k8s.io/v1beta1
                     kind: ClusterResourceSet
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: hub-platform-capi
                     spec:
                       clusterSelector:
                         matchLabels:
@@ -658,4 +658,121 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
+
+          # Crossplane Admin Password Secret (per-spoke, generated on Hub)
+          # Wrapped in provider-kubernetes Object
+          - name: crossplane-admin-secret
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: hub-platform-ops
+                    type: Opaque
+                    stringData:
+                      password: ""  # Patched with generated password
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin-secret"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin"
+              # Generate random 32-character password using metadata.uid
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.uid
+                toFieldPath: spec.forProvider.manifest.stringData.password
+                transforms:
+                  - type: string
+                    string:
+                      type: Convert
+                      convert: "sha256sum"
+                  - type: string
+                    string:
+                      type: Regexp
+                      regexp:
+                        match: '^(.{32}).*'
+                        group: 1
+
+          # Crossplane Admin Password PushSecret (per-spoke, pushes to Infisical)
+          # Wrapped in provider-kubernetes Object
+          - name: crossplane-admin-pushsecret
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1alpha1
+                    kind: PushSecret
+                    metadata:
+                      namespace: hub-platform-ops
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRef:
+                        name: infisical-backend
+                        kind: ClusterSecretStore
+                      selector:
+                        secret:
+                          name: ""  # Patched to secret name
+                      data:
+                        - match:
+                            secretKey: password
+                          remoteRef:
+                            remoteKey: ""  # Patched to Infisical key
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin-push"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin-push"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.selector.secret.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.remoteKey
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-crossplane-admin-password"
 

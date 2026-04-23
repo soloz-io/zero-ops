@@ -1,6 +1,6 @@
 ---
-# Copies crossplane-admin password into spoke-platform-data so the bootstrap
-# Job can reference both it and shared-cnpg-superuser in the same namespace.
+# ExternalSecret: crossplane-admin-credentials in spoke-platform-data
+# Used by the bootstrap Job to CREATE ROLE crossplane_admin in CNPG
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -23,7 +23,7 @@ spec:
   data:
     - secretKey: password
       remoteRef:
-        key: crossplane-admin-password
+        key: PLACEHOLDER-crossplane-admin-password
 ---
 apiVersion: batch/v1
 kind: Job
