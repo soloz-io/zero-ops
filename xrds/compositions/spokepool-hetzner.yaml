@@ -696,21 +696,10 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-crossplane-admin"
-              # Generate random 32-character password using metadata.uid
+              # Generate password using metadata.uid (36 chars, alphanumeric + hyphens)
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.uid
                 toFieldPath: spec.forProvider.manifest.stringData.password
-                transforms:
-                  - type: string
-                    string:
-                      type: Convert
-                      convert: "base64"
-                  - type: string
-                    string:
-                      type: Regexp
-                      regexp:
-                        match: '^(.{32}).*'
-                        group: 1
 
           # Crossplane Admin Password PushSecret (per-spoke, pushes to Infisical)
           # Wrapped in provider-kubernetes Object
