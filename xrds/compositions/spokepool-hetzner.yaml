@@ -718,17 +718,17 @@ spec:
                       namespace: hub-platform-ops
                     spec:
                       refreshInterval: 1h
-                      secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
+                      secretStoreRefs:
+                        - name: infisical-backend
+                          kind: ClusterSecretStore
                       selector:
                         secret:
                           name: ""  # Patched to secret name
                       data:
                         - match:
                             secretKey: password
-                          remoteRef:
-                            remoteKey: ""  # Patched to Infisical key
+                            remoteRef:
+                              remoteKey: ""  # Patched to Infisical key
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -758,7 +758,7 @@ spec:
                       fmt: "%s-crossplane-admin"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[0].match.remoteRef.remoteKey
                 transforms:
                   - type: string
                     string:
