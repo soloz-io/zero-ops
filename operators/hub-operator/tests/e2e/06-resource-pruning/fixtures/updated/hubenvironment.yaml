@@ -60,4 +60,4 @@ spec:
   secrets:
     infisical:
       projectSlug: zero-ops-hub
-      environmentSlug: production
+      environmentSlug: dev

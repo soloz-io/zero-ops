@@ -180,6 +180,114 @@ spec:
             maxDuration: 3m
 
 ---
+# ESO CRDs (Spoke)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-eso-crds
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-eso-crds'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://github.com/soloz-io/zero-ops
+        targetRevision: HEAD
+        path: manifests/hub-core-services/eso/crds
+      destination:
+        name: '{{.name}}'
+        namespace: spoke-platform-ops
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            maxDuration: 3m
+
+---
+# ESO Operator (Spoke)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-eso
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-eso'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://charts.external-secrets.io
+        chart: external-secrets
+        targetRevision: 2.2.0
+        helm:
+          values: |
+            installCRDs: false
+            replicaCount: 1
+            processClusterPushSecret: true
+            processPushSecret: true
+            processClusterExternalSecret: true
+            processClusterStore: true
+            processSecretStore: true
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+      destination:
+        name: '{{.name}}'
+        namespace: spoke-platform-ops
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            maxDuration: 3m
+
+---
 # Crossplane Operator (Spoke-local — required for TenantDatabase XRD + provider-sql)
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet

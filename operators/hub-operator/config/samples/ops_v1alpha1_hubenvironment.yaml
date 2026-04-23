@@ -98,4 +98,4 @@ spec:
   secrets:
     infisical:
       projectSlug: hub-platform
-      environmentSlug: prod
+      environmentSlug: dev
