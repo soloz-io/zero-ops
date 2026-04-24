@@ -59,4 +59,3 @@ spec:
             secretKeyRef:
               name: crossplane-admin-credentials
               key: password
-              key: password
