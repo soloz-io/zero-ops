@@ -1,0 +1,73 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: tenantdatabases.nutgraf.in
+spec:
+  group: nutgraf.in
+  names:
+    kind: TenantDatabase
+    plural: tenantdatabases
+  claimNames:
+    kind: TenantDatabaseClaim
+    plural: tenantdatabaseclaims
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required:
+              - tenantId
+              - databaseName
+            properties:
+              tenantId:
+                type: string
+                description: "Tenant identifier (RFC 1123 compliant, e.g., 'app-creator')"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 63
+              databaseName:
+                type: string
+                description: "Database name (e.g., 'tenant-app-creator-db')"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 63
+              cellId:
+                type: string
+                description: "Spoke Pool cluster name for Infisical path (e.g., 'spoke-pool-eu-prod-01')"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 63
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+              databaseReady:
+                type: boolean
+                description: "True when CNPG Database CR is Ready"
+              roleReady:
+                type: boolean
+                description: "True when provider-sql Role is Ready"
+              grantsReady:
+                type: boolean
+                description: "True when all Grant CRs are Ready"
+              credentialsBackedUp:
+                type: boolean
+                description: "True when credentials are mirrored to Infisical"

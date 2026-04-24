@@ -447,58 +447,6 @@ spec:
 
 ---
 
-## Migration Path
-
-### Phase 1: Update Composition (4 hours)
-
-1. **Wrap Resources in provider-kubernetes Object**
-   - Database, Pooler, PostgREST, AtlasMigration
-   - Add providerConfigRef patches
-
-2. **Add AtlasMigration CR to Composition**
-   - Composite sources (baseline + tenant-specific)
-   - Connection via tenant pooler
-
-3. **Test Composition**
-   - Create test XR on Hub
-   - Verify resources provisioned to Spoke
-
-### Phase 2: Split ApplicationSet (2 hours)
-
-1. **Create tenant-xr-provisioning ApplicationSet**
-   - Destination: Hub (server: https://kubernetes.default.svc)
-   - Deploys only AINativeSaaS XR
-
-2. **Create tenant-spoke-provisioning ApplicationSet**
-   - Destination: Spoke (name: {{.cellId}})
-   - Deploys Namespace, RBAC, ResourceQuota
-
-3. **Delete old ApplicationSet**
-   - Remove single ApplicationSet pattern
-
-### Phase 3: ProviderConfig Management (2 hours)
-
-1. **Create ProviderConfig per Spoke**
-   - Extract kubeconfig from CAPI Secret
-   - Create Crossplane Secret with kubeconfig
-   - Create ProviderConfig referencing Secret
-
-2. **Automate ProviderConfig Creation**
-   - Kyverno policy watches CAPI Cluster Ready
-   - Generates ProviderConfig automatically
-
-**Total Effort**: 8 hours  
-**Risk**: Low (proven pattern, clear migration path)
-
----
-
-## Related Decisions
-
-- **ADR: Crossplane + CAPI Ownership Pattern** - Establishes provider-kubernetes pattern
-- **ADR: CNPG Database Migration Pattern** - Defines Atlas Operator usage
-- **Spec: Spoke Pool Provisioner** - Implements this pattern for tenant provisioning
-
----
 
 ## References
 
