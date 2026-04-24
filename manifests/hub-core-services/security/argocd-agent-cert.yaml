@@ -57,9 +57,6 @@ spec:
   issuerRef:
     name: argocd-agent-issuer
     kind: Issuer
-  secretTemplate:
-    labels:
-      cert-type: argocd-agent-client
 ---
 # Kyverno Policy: Transform cert-manager CA secret to ClusterResourceSet format
 # Watches for cert-manager secret (type: kubernetes.io/tls)

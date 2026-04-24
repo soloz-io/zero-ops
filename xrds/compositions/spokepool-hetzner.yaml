@@ -117,9 +117,7 @@ spec:
                       issuerRef:
                         name: argocd-agent-issuer
                         kind: Issuer
-                      secretTemplate:
-                        labels:
-                          cert-type: argocd-agent-client
+
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -180,9 +178,7 @@ spec:
                       issuerRef:
                         name: observability-issuer
                         kind: Issuer
-                      secretTemplate:
-                        labels:
-                          cert-type: alloy-client
+
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -243,9 +239,7 @@ spec:
                       issuerRef:
                         name: nats-leafnode-issuer
                         kind: Issuer
-                      secretTemplate:
-                        labels:
-                          cert-type: nats-leafnode-client
+
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
