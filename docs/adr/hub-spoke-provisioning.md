@@ -164,103 +164,145 @@ Behind the scenes:
 
 ### 6. mTLS Certificate Delivery Pattern
 
-#### Industry Context
+#### Pattern Overview
 
-Enterprise hub-spoke platforms require reliable mTLS certificate distribution for secure communication between Hub and Spoke clusters. Research into Red Hat Advanced Cluster Management (RHACM) and Open Cluster Management (OCM) reveals the canonical pattern.
+Zero-Ops uses Crossplane Objects with `references.patchesFrom` to distribute mTLS certificates from Hub to Spoke clusters. This pattern provides continuous reconciliation, automatic rotation, and status tracking without requiring custom agents or bootstrap-only mechanisms.
 
-#### Red Hat ACM/OCM Pattern: ManifestWork
+#### Architecture
 
-**Architecture:**
-- Hub cluster runs control plane with cert-manager
-- Spoke clusters run work-agent that watches Hub
-- ManifestWork CR defines resources to distribute
-- work-agent applies manifests and reports status
+**Components:**
+- **Hub Cluster**: cert-manager generates certificates, Crossplane distributes them
+- **Spoke Clusters**: Receive certificates via provider-kubernetes
+- **Crossplane Object**: Defines certificate distribution with source reference
+- **provider-kubernetes**: Applies manifests to target Spoke cluster
+
+**Certificate Types:**
+1. **CA Certificates** (bootstrap-only, via ClusterResourceSet)
+   - Distributed once during cluster creation
+   - Static, long-lived (10 years)
+   - Used by workloads to verify server/client certificates
+
+2. **Client Certificates** (continuous reconciliation, via Crossplane Object)
+   - Distributed and updated continuously
+   - Short-lived (90 days), auto-renewed
+   - Used by workloads for mTLS authentication
+
+#### Certificate Generation Flow
+
+**Per-Spoke Certificate Generation:**
+```
+1. SpokePool XR created on Hub
+   ↓
+2. Crossplane Composition creates Certificate Objects
+   - ArgoCD Agent client cert (hub-platform-ops namespace)
+   - Alloy client cert (hub-platform-observability namespace)
+   - NATS Leafnode client cert (hub-platform-messaging namespace)
+   ↓
+3. cert-manager generates certificates
+   - CN matches cluster name (e.g., "spoke-pool-eu-prod-01")
+   - Stored in kubernetes.io/tls Secrets
+   - Duration: 90 days, renewBefore: 7 days
+```
 
 **Key Properties:**
-- Continuous reconciliation (work-agent watches Hub namespace)
-- Status tracking (Applied/Available conditions)
-- Automatic rotation (update ManifestWork → work-agent applies)
-- Garbage collection (AppliedManifestWork anchor on spoke)
-- RBAC enforcement (executor subject + execute-as permissions)
+- One certificate per Spoke cluster (not shared)
+- CN matches cluster name for identity verification
+- Certificates generated dynamically via Composition
 
-**Real-World Example (RHACM Observability):**
-- Hub generates CA and client/server certificates
-- ManifestWork distributes certificates to managed clusters
-- Certificates auto-renewed when <73 days remaining (non-CA) or <1 year (CA)
-- Old CA co-exists with renewed CA until expiration
-- Traffic not interrupted during renewal
-
-#### Zero-Ops Pattern: Crossplane Object
-
-**Architecture:**
-- Hub cluster runs control plane with cert-manager and Crossplane
-- Spoke clusters receive resources via provider-kubernetes
-- Crossplane Object CR defines resources to distribute
-- provider-kubernetes applies manifests and reports status
-
-**Key Properties:**
-- Continuous reconciliation (Crossplane watches XR/Composition)
-- Status tracking (Object readiness conditions)
-- Automatic rotation (update Secret → Crossplane pushes)
-- Garbage collection (owner references)
-- Blast radius isolation (per-spoke ProviderConfig)
-
-**Functional Equivalence:**
-
-| Capability | Red Hat ManifestWork | Zero-Ops Crossplane Object |
-|------------|---------------------|---------------------------|
-| Hub-based control plane | ✅ work-agent watches Hub | ✅ provider-kubernetes reconciles |
-| Continuous reconciliation | ✅ Not bootstrap-only | ✅ Not bootstrap-only |
-| Status propagation | ✅ Applied/Available | ✅ Object readiness |
-| Certificate rotation | ✅ Update ManifestWork | ✅ Update Secret → Object |
-| Per-cluster isolation | ✅ Namespace per cluster | ✅ ProviderConfig per spoke |
-| Observability | ✅ Feedback rules | ✅ Readiness checks |
-
-#### Why Crossplane Object is Idiomatic
-
-**Industry Validation:**
-- Red Hat ACM uses ManifestWork (custom CRD + work-agent)
-- AWS multi-cluster GitOps uses Crossplane + Flux
-- Rancher Fleet uses custom operator + Bundle distribution
-- All patterns share: Hub control plane + continuous reconciliation + status tracking
-
-**Zero-Ops Choice:**
-- Crossplane Object is standard Kubernetes API (no custom agent)
-- provider-kubernetes is CNCF project (proven at scale)
-- Aligns with existing SpokePool provisioning pattern
-- Reduces operational complexity (one control plane tool)
-
-#### Certificate Flow
+#### Certificate Distribution Flow
 
 **Distribution Path:**
 ```
-Hub: cert-manager → Secret (hub-platform-observability)
+Hub: cert-manager → Secret (hub-platform-observability/spoke-pool-eu-prod-01-alloy-client-cert)
      ↓
-Hub: Crossplane Composition → Object (references Hub secret)
+Hub: Crossplane Object references Hub Secret via patchesFrom
      ↓
-Hub: provider-kubernetes applies to Spoke
+Hub: provider-kubernetes reads Secret data and applies to Spoke
      ↓
-Spoke: Secret (spoke-platform-observability)
+Spoke: Secret created (spoke-platform-observability/alloy-client-cert)
      ↓
-Spoke: Alloy DaemonSet mounts certificate
+Spoke: Alloy DaemonSet mounts certificate via volumeMount
 ```
 
-**Rotation Behavior:**
-- cert-manager rotates certificate on Hub
-- Crossplane detects Secret change
-- provider-kubernetes pushes updated Secret to Spoke
-- Spoke workload reloads certificate (via volume mount watch)
-- No manual intervention required
+#### Continuous Reconciliation
+
+**Automatic Certificate Rotation:**
+1. cert-manager rotates certificate on Hub (7 days before expiration)
+2. Hub Secret updated with new certificate data
+3. Crossplane detects Secret change (watches source Secret)
+4. provider-kubernetes pushes updated Secret to Spoke
+5. Spoke workload reloads certificate (via volume mount watch)
+6. No manual intervention or service restart required
+
+**Reconciliation Guarantees:**
+- Crossplane continuously watches source Secrets
+- Changes propagate within reconciliation interval (~30s)
+- Failed deliveries retry with exponential backoff
+- Status conditions reflect delivery state
+
+#### Status Tracking
+
+**Object Readiness Conditions:**
+```yaml
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: ReconcileSuccess
+    - type: Synced
+      status: "True"
+      reason: ReconcileSuccess
+```
+
+**XR Status Propagation:**
+- Certificate distribution Objects report readiness to parent XR
+- Failed deliveries visible in XR status conditions
+- Operators can monitor fleet-wide certificate health
 
 **Traceability:**
-- Owner labels link Spoke secret to Hub source (source-cluster, source-namespace)
-- Crossplane Object status shows delivery state
-- Failed deliveries visible in XR status conditions
+- Labels link Spoke Secret to Hub source (`source-cluster`, `source-namespace`)
+- Object name includes cluster ID for easy identification
+- Crossplane logs show distribution events
 
-**Blast Radius Isolation:**
+#### Blast Radius Isolation
+
+**Per-Spoke ProviderConfig:**
 - One ProviderConfig per Spoke cluster
+- Separate kubeconfig Secret per Spoke
 - Credential compromise affects single Spoke only
-- Hub maintains separate kubeconfig secrets per Spoke
+- Hub maintains isolation between Spoke clusters
+
+**Security Properties:**
+- Certificates never transit through Git
+- Hub-to-Spoke communication uses kubeconfig credentials
+- Spoke workloads mount certificates from local Secrets
+- No shared credentials across Spoke clusters
+
+**Key Patterns:**
+- Certificate generation and distribution are separate Objects
+- `references.patchesFrom` copies Secret data from Hub to Spoke
+- Static secret names on Spoke (no dynamic naming)
+- ProviderConfig patched from XR metadata.name (cluster ID)
+
+#### Operational Characteristics
+
+**Advantages:**
+- ✅ Continuous reconciliation (not bootstrap-only)
+- ✅ Automatic rotation (no manual intervention)
+- ✅ Status tracking (visibility into delivery state)
+- ✅ Standard Kubernetes API (no custom agents)
+- ✅ Aligns with SpokePool provisioning pattern
+- ✅ Single control plane tool (Crossplane)
+
+**Limitations:**
+- ⚠️ Requires ProviderConfig per Spoke cluster
+- ⚠️ Composition verbosity (Object wrappers)
+- ⚠️ Debugging requires Crossplane + provider-kubernetes logs
+
+**Operational Requirements:**
+- Hub must have network access to Spoke API servers
+- Spoke kubeconfig Secrets must be kept up-to-date
+- provider-kubernetes needs RBAC for Secret creation on Spoke
 
 ---
 
