@@ -763,8 +763,6 @@ spec:
                     type: kubernetes.io/tls
                 providerConfigRef:
                   name: ""  # Patched to spoke-specific provider
-                readinessChecks:
-                  - type: None
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -823,8 +821,6 @@ spec:
                     type: kubernetes.io/tls
                 providerConfigRef:
                   name: ""  # Patched to spoke-specific provider
-                readinessChecks:
-                  - type: None
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -883,8 +879,6 @@ spec:
                     type: kubernetes.io/tls
                 providerConfigRef:
                   name: ""  # Patched to spoke-specific provider
-                readinessChecks:
-                  - type: None
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
