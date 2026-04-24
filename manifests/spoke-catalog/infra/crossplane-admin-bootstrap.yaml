@@ -39,7 +39,7 @@ spec:
             -d app \
             -c "DO \$\$ BEGIN
                   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'crossplane_admin') THEN
-                    CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '${CROSSPLANE_ADMIN_PASSWORD}';
+                    CREATE ROLE crossplane_admin WITH LOGIN CREATEROLE PASSWORD '${CROSSPLANE_ADMIN_PASSWORD}';
                     RAISE NOTICE 'Role crossplane_admin created successfully';
                   ELSE
                     RAISE NOTICE 'Role crossplane_admin already exists, skipping creation';
