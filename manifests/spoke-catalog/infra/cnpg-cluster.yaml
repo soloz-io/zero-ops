@@ -38,9 +38,7 @@ spec:
       postInitSQL:
         - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-  
-  superuserSecret:
-    name: shared-cnpg-superuser
+        - ALTER ROLE app WITH CREATEROLE;
   
   storage:
     size: 100Gi

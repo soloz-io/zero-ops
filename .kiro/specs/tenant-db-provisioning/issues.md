@@ -312,3 +312,161 @@ spec:
 - ESO Infisical Provider: `archived/identity-auth/external-secrets/providers/v1/infisical/`
 - Infisical Native Operator: `archived/identity-auth/kubernetes-operator/`
 - Hub Operator: `operators/hub-operator/`
+
+---
+
+## Issue 2: Bootstrap Job Secret Reference Error
+
+### Problem
+Bootstrap Job failed with `CreateContainerConfigError: secret "shared-cnpg-superuser" not found`
+
+### Root Cause
+CNPG doesn't create superuser secret by default for existing clusters. Only `shared-cnpg-app` secret exists.
+
+### Solution
+- Updated bootstrap Job to use `shared-cnpg-app` secret (app user with CREATEROLE privilege)
+- Changed connection from `postgres` superuser to `app` user
+- Removed unused `superuserSecret` configuration from CNPG Cluster
+
+### Status
+- **Fixed**: 2026-04-24
+- **Files Modified**: 
+  - `manifests/spoke-catalog/infra/crossplane-admin-bootstrap.yaml`
+  - `manifests/spoke-catalog/infra/cnpg-cluster.yaml`
+
+---
+
+## Issue 2: Bootstrap Job Fails - CNPG Superuser Secret Not Created
+
+### Problem
+Bootstrap Job (`crossplane-admin-bootstrap`) fails with `CreateContainerConfigError: secret "shared-cnpg-superuser" not found`.
+
+**Evidence from spoke cluster events**:
+```
+Warning   Failed             pod/crossplane-admin-bootstrap-sj7gt   
+Error: secret "shared-cnpg-superuser" not found
+```
+
+### Impact
+- Bootstrap Job cannot create `crossplane_admin` role
+- provider-sql ProviderConfig cannot connect to database
+- Blocks Phase 1 completion (Application stuck at OutOfSync/Missing)
+
+### Root Cause
+1. CNPG Cluster was created without `superuserSecret` configuration initially
+2. Adding `superuserSecret` to existing cluster doesn't retroactively create the secret
+3. CNPG only creates `shared-cnpg-app` secret (for app user, not postgres superuser)
+4. Bootstrap Job was referencing non-existent `shared-cnpg-superuser` secret
+
+**Available secrets**:
+```bash
+$ kubectl get secrets -n spoke-platform-data | grep cnpg
+shared-cnpg-app           kubernetes.io/basic-auth   11     29h
+shared-cnpg-ca            Opaque                     2      29h
+shared-cnpg-replication   kubernetes.io/tls          2      29h
+shared-cnpg-server        kubernetes.io/tls          2      29h
+```
+
+### Solution
+Use `app` user instead of `postgres` superuser for bootstrap operations.
+
+**Rationale**:
+- CNPG creates `shared-cnpg-app` secret by default
+- `app` user can be granted `CREATEROLE` privilege via `postInitSQL`
+- `CREATEROLE` privilege allows creating other roles (including `crossplane_admin`)
+- No need for superuser access for this operation
+
+### Implementation
+
+**Step 1: Update CNPG Cluster postInitSQL**
+
+File: `manifests/spoke-catalog/infra/cnpg-cluster.yaml`
+
+```yaml
+bootstrap:
+  initdb:
+    database: app
+    owner: app
+    postInitSQL:
+      - CREATE EXTENSION IF NOT EXISTS vector;
+      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+      - ALTER ROLE app WITH CREATEROLE;  # Grant role creation privilege
+```
+
+**Step 2: Update Bootstrap Job**
+
+File: `manifests/spoke-catalog/infra/crossplane-admin-bootstrap.yaml`
+
+Changes:
+- User: `postgres` → `app`
+- Database: `postgres` → `app`
+- Secret: `shared-cnpg-superuser` → `shared-cnpg-app`
+- Env var: `POSTGRES_PASSWORD` → `APP_PASSWORD`
+
+```yaml
+command:
+  - /bin/sh
+  - -c
+  - |
+    set -e
+    echo "Waiting for CNPG cluster to be ready..."
+    until pg_isready -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local -p 5432 -U app; do
+      echo "Waiting for PostgreSQL..."
+      sleep 5
+    done
+    
+    echo "Creating crossplane_admin role..."
+    PGPASSWORD="${APP_PASSWORD}" psql \
+      -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local \
+      -p 5432 \
+      -U app \
+      -d app \
+      -c "DO \$\$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'crossplane_admin') THEN
+              CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '${CROSSPLANE_ADMIN_PASSWORD}';
+              RAISE NOTICE 'Role crossplane_admin created successfully';
+            ELSE
+              RAISE NOTICE 'Role crossplane_admin already exists, skipping creation';
+            END IF;
+          END \$\$;"
+    
+    echo "Bootstrap complete"
+env:
+  - name: APP_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: shared-cnpg-app
+        key: password
+  - name: CROSSPLANE_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: crossplane-admin-credentials
+        key: password
+```
+
+**Step 3: Remove superuserSecret from CNPG Cluster**
+
+Remove the following lines from `manifests/spoke-catalog/infra/cnpg-cluster.yaml`:
+
+```yaml
+superuserSecret:
+  name: shared-cnpg-superuser
+```
+
+### Recovery Steps
+
+1. Commit changes to Git
+2. Delete existing failed Job: `kubectl delete job crossplane-admin-bootstrap -n spoke-platform-data --kubeconfig k8-secrets/kubeconfig/spoke-pool-eu-prod-01.kubeconfig`
+3. Trigger ArgoCD sync to recreate Job with correct configuration
+4. Verify Job completes successfully
+5. Verify Application reaches `Synced/Healthy` status
+
+### Status
+- **Current**: Fixed in manifests, ready to commit
+- **Next**: GitOps deployment and validation
+- **Completion Criteria**: `status.sync.status=Synced` AND `status.health.status=Healthy`
+
+### References
+- CNPG Cluster: `manifests/spoke-catalog/infra/cnpg-cluster.yaml`
+- Bootstrap Job: `manifests/spoke-catalog/infra/crossplane-admin-bootstrap.yaml`
+- CNPG Documentation: https://cloudnative-pg.io/documentation/

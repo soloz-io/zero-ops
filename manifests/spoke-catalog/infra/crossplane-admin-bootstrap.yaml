@@ -27,17 +27,17 @@ spec:
         - |
           set -e
           echo "Waiting for CNPG cluster to be ready..."
-          until pg_isready -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local -p 5432 -U postgres; do
+          until pg_isready -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local -p 5432 -U app; do
             echo "Waiting for PostgreSQL..."
             sleep 5
           done
           
           echo "Creating crossplane_admin role..."
-          PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+          PGPASSWORD="${APP_PASSWORD}" psql \
             -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local \
             -p 5432 \
-            -U postgres \
-            -d postgres \
+            -U app \
+            -d app \
             -c "DO \$\$ BEGIN
                   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'crossplane_admin') THEN
                     CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '${CROSSPLANE_ADMIN_PASSWORD}';
@@ -49,10 +49,10 @@ spec:
           
           echo "Bootstrap complete"
         env:
-        - name: POSTGRES_PASSWORD
+        - name: APP_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: shared-cnpg-superuser
+              name: shared-cnpg-app
               key: password
         - name: CROSSPLANE_ADMIN_PASSWORD
           valueFrom:
