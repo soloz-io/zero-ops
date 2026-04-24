@@ -262,7 +262,7 @@ Consume secrets
 ### Bootstrap Secrets (Operator Creates - Pattern A)
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: platform-db-app-credentials
@@ -275,7 +275,7 @@ spec:
 ### Per-Spoke Secrets (Operator Uploads, ESO Creates - Pattern A2)
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
@@ -298,7 +298,7 @@ spec:
 ### Application Secrets (ESO Creates - Pattern B)
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: control-plane-db-credentials

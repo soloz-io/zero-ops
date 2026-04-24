@@ -384,7 +384,7 @@ cert-manager automatically renews certificates 7 days before expiration (NFR-4.2
 **Phase 2 Configuration** (deferred):
 ```yaml
 # Spoke Pool cluster
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: SecretStore
 metadata:
   name: hub-cert-store
@@ -404,7 +404,7 @@ spec:
           name: spoke-cert-sync
 
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: argocd-agent-tls

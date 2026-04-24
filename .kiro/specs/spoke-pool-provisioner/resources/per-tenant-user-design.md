@@ -172,7 +172,7 @@ spec:
 ### ESO ExternalSecret (pull from Infisical on rebuild)
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: tenant-<id>-db-credentials-pull

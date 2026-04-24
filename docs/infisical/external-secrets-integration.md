@@ -93,9 +93,9 @@ This document describes the integration between Infisical (secret storage backen
 ### Issue 2: API Version Mismatch
 
 **Problem:**  
-- ESO v0.11.0 controller expected `external-secrets.io/v1beta1` API
+- ESO v0.11.0 controller expected `external-secrets.io/v1` API
 - CRDs only provided `external-secrets.io/v1` API
-- Error: `no matches for kind "ExternalSecret" in version "external-secrets.io/v1beta1"`
+- Error: `no matches for kind "ExternalSecret" in version "external-secrets.io/v1"`
 
 **Solution:**  
 - Upgraded Helm chart from v0.11.0 to v0.14.2
@@ -308,7 +308,7 @@ Expected output:
 
 **Symptom:**
 ```
-Error: no matches for kind "ExternalSecret" in version "external-secrets.io/v1beta1"
+Error: no matches for kind "ExternalSecret" in version "external-secrets.io/v1"
 ```
 
 **Cause:** Controller version doesn't match CRD API version
