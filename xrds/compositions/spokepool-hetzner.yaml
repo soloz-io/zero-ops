@@ -749,6 +749,7 @@ spec:
                     apiVersion: v1
                     kind: Secret
                     metadata:
+                      name: alloy-client-cert
                       namespace: spoke-platform-observability
                       labels:
                         managed-by: crossplane
@@ -777,14 +778,6 @@ spec:
                       fmt: "%s-alloy-client-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "alloy-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
                 toFieldPath: spec.providerConfigRef.name
           
           # NATS Leafnode Client Certificate Distribution
@@ -807,6 +800,7 @@ spec:
                     apiVersion: v1
                     kind: Secret
                     metadata:
+                      name: nats-leafnode-client-cert
                       namespace: spoke-platform-messaging
                       labels:
                         managed-by: crossplane
@@ -835,14 +829,6 @@ spec:
                       fmt: "%s-nats-leafnode-client-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "nats-leafnode-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
                 toFieldPath: spec.providerConfigRef.name
           
           # ArgoCD Agent Client Certificate Distribution
@@ -865,6 +851,7 @@ spec:
                     apiVersion: v1
                     kind: Secret
                     metadata:
+                      name: argocd-agent-client-cert
                       namespace: argocd
                       labels:
                         managed-by: crossplane
@@ -891,14 +878,6 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "argocd-agent-client-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.providerConfigRef.name
