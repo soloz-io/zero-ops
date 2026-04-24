@@ -384,7 +384,7 @@ spec:
             - target:
                 kind: ExternalSecret
                 name: crossplane-admin-credentials
-                namespace: spoke-platform-ops
+                namespace: spoke-platform-data
               patch: |
                 - op: replace
                   path: /spec/data/0/remoteRef/key

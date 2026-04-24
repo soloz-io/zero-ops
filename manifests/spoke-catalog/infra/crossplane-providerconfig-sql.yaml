@@ -11,7 +11,7 @@ spec:
   credentials:
     source: PostgreSQLConnectionString
     connectionSecretRef:
-      namespace: spoke-platform-ops
+      namespace: spoke-platform-data
       name: crossplane-admin-credentials
       key: connectionString
   sslMode: require

@@ -6,7 +6,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
-  namespace: spoke-platform-ops
+  namespace: spoke-platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "-1"  # Before CNPG operator
 spec:
