@@ -78,8 +78,19 @@ The current implementation uses a single shared `app` user for all tenant Pooler
 - `crossplane_admin` role created once per Spoke Pool during cell bootstrap
 - `CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '<from-infisical>'`
 - `crossplane_admin` cannot read tenant data
-- Credentials stored in Infisical at `/spoke-pool/<cell-id>/crossplane-admin-credentials`
-- ESO syncs to `crossplane-admin-credentials` Secret in `spoke-platform-ops` namespace
+- **Password Generation (CR Reconciliation Only):**
+  - Hub Operator (SpokePool controller) watches SpokePool XRs on Hub
+  - On CR reconciliation, controller checks status condition: first-time creation?
+  - **Infisical Key Naming:** Password key MUST be derived from SpokePool CR name: `<spokepool-cr-name>-crossplane-admin-password`
+    - Example: SpokePool CR `spoke-pool-eu-prod-01` → Infisical key `spoke-pool-eu-prod-01-crossplane-admin-password`
+    - This ensures each SpokePool has a unique, identifiable password in Infisical
+  - Controller queries Infisical API for existing password using the derived key (idempotency check)
+  - If password exists in Infisical → skip generation (idempotent)
+  - If password missing AND first-time creation → generate 32-char hex password using `secrets.GenerateSecurePassword()` and upload to Infisical at `/spoke-pool/<spokepool-cr-name>-crossplane-admin-password`
+  - If password missing AND NOT first-time → FAIL reconciliation with error (requires manual intervention)
+  - **Operator does NOT create Hub K8s secret**
+  - **Operator does NOT manage secret lifecycle post-creation**
+- ESO syncs from Infisical to `crossplane-admin-credentials` Secret in `spoke-platform-ops` namespace
 
 ### FR-3: Credential Secret
 

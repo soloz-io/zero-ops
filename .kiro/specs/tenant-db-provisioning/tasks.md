@@ -14,7 +14,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 1.0 Deploy Crossplane to Spoke Clusters
 
-- [x] 1.0.1 Add Crossplane ApplicationSet to Spoke Catalog
+- [ ] 1.0.1 Add Crossplane ApplicationSet to Spoke Catalog
   - Edit `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
   - Add `ApplicationSet` for `spoke-crossplane` using `charts.crossplane.io/stable` v1.20.5
   - Destination namespace: `crossplane-system`
@@ -24,45 +24,68 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 1.1 crossplane_admin Bootstrap
 
-- [x] 1.1.1 Create crossplane_admin bootstrap manifest
+- [ ] 1.1.1 Implement Hub Operator SpokePool controller
+  - Create `operators/hub-operator/internal/controller/spokepool_controller.go`
+  - Watches SpokePool XRs on Hub
+  - **On CR reconciliation:**
+    - Extracts SpokePool CR name (e.g., `spoke-pool-eu-prod-01`)
+    - **Derives Infisical key:** `<spokepool-cr-name>-crossplane-admin-password`
+      - Example: `spoke-pool-eu-prod-01-crossplane-admin-password`
+      - Implementation: `infisicalKey := fmt.Sprintf("%s-crossplane-admin-password", spokeName)`
+    - Checks status condition to determine if first-time creation
+    - Queries Infisical API for existing password using derived key (idempotency via `SecretExists()` API call)
+    - **If password exists** → skip generation (idempotent)
+    - **If password missing AND first-time** → generate 32-char hex password using `secrets.GenerateSecurePassword()` and upload to Infisical at derived key path
+    - **If password missing AND NOT first-time** → FAIL reconciliation with error (requires manual intervention to prevent breaking Spoke CNPG connection)
+  - **Does NOT create Hub K8s secret**
+  - **Does NOT manage secret lifecycle post-creation** (ESO handles syncing)
+  - Register controller in `operators/hub-operator/cmd/main.go`
+  - Add RBAC for spokepools in `operators/hub-operator/config/rbac/role.yaml`
+  - Add `SecretExists()` public method to `operators/hub-operator/internal/client/infisical.go`
+  - _Requirements: FR-2.3_
+
+- [ ] 1.1.2 Create ESO ExternalSecret for Spoke
+  - Create file: `manifests/spoke-catalog/infra/crossplane-admin-eso.yaml`
+  - **Infisical Key Pattern:** `<spokepool-cr-name>-crossplane-admin-password`
+    - Example: `spoke-pool-eu-prod-01-crossplane-admin-password`
+    - Key MUST match the SpokePool CR name to ensure correct password retrieval
+  - Syncs from Infisical path `/spoke-pool/<spokepool-cr-name>-crossplane-admin-password`
+  - Creates `crossplane-admin-credentials` Secret in `crossplane-system` namespace
+  - _Requirements: FR-2.3_
+
+- [ ] 1.1.3 Create crossplane_admin bootstrap manifest
   - Create SQL init manifest for `crossplane_admin` role
   - `CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '<from-infisical>'`
   - Create file: `manifests/spoke-catalog/infra/crossplane-admin-bootstrap.yaml`
   - Sync wave: -1 (before CNPG operator)
   - _Requirements: FR-2.3_
 
-- [x] 1.1.2 Add crossplane_admin credentials to Infisical
-  - Store at `/spoke-pool/<cell-id>/crossplane-admin-credentials`
-  - Create ESO ExternalSecret to sync to `crossplane-admin-credentials` in `crossplane-system`
-  - Create file: `manifests/spoke-catalog/infra/crossplane-admin-eso.yaml`
-  - _Requirements: FR-2.3_
-
-- [x] 1.1.3 Commit bootstrap manifests to Git
+- [ ] 1.1.4 Commit bootstrap manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs to Spoke
   - _Requirements: FR-2.3_
 
 ### 1.2 provider-sql on Spoke
 
-- [x] 1.2.1 Create provider-sql manifest for Spoke edge catalog
+- [ ] 1.2.1 Create provider-sql manifest for Spoke edge catalog
   - Provider: `xpkg.upbound.io/crossplane-contrib/provider-sql:v0.9.0`
   - Create file: `manifests/spoke-catalog/infra/crossplane-provider-sql.yaml`
   - Sync wave: -1
   - _Requirements: FR-5.1_
 
-- [x] 1.2.2 Create provider-sql ProviderConfig for Spoke
+- [ ] 1.2.2 Create provider-sql ProviderConfig for Spoke
   - Points to `shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432`
   - Uses `crossplane-admin-credentials` Secret
   - ProviderConfig name: `default`
   - Create file: `manifests/spoke-catalog/infra/crossplane-providerconfig-sql.yaml`
   - _Requirements: FR-5.1_
 
-- [x] 1.2.3 Remove provider-sql from Hub
+- [ ] 1.2.3 Remove provider-sql from Hub
   - Remove `provider-sql/provider.yaml` from `manifests/hub-core-services/crossplane/providers/kustomization.yaml`
   - Delete `manifests/hub-core-services/crossplane/providers/provider-sql/` directory
   - _Requirements: FR-5.2_
 
-- [x] 1.2.4 Commit provider-sql edge catalog changes to Git
+- [ ] 1.2.4 Commit provider-sql edge catalog changes to Git
   - Commit to feature branch
   - Verify ArgoCD syncs provider-sql to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get providers.pkg.crossplane.io provider-sql`

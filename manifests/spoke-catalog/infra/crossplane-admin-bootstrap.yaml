@@ -1,70 +1,63 @@
----
-# ExternalSecret: crossplane-admin-credentials in spoke-platform-data
-# Used by the bootstrap Job to CREATE ROLE crossplane_admin in CNPG
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: crossplane-admin-credentials
-  namespace: spoke-platform-data
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: infisical-backend
-    kind: ClusterSecretStore
-  target:
-    name: crossplane-admin-credentials
-    creationPolicy: Owner
-    template:
-      type: Opaque
-      data:
-        password: "{{ .password }}"
-  data:
-    - secretKey: password
-      remoteRef:
-        key: PLACEHOLDER-crossplane-admin-password
----
+# Bootstrap Job to create crossplane_admin role in CNPG
+# Runs once per Spoke Pool during cell bootstrap
+# Sync wave: -1 (before CNPG operator)
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: crossplane-admin-bootstrap
   namespace: spoke-platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "-1"
     argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 5
   template:
+    metadata:
+      labels:
+        app: crossplane-admin-bootstrap
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: default
       containers:
-        - name: bootstrap
-          image: postgres:16-alpine
-          command:
-            - sh
-            - -c
-            - |
-              psql "$SUPERUSER_URI" <<EOF
-              DO \$\$
-              BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'crossplane_admin') THEN
-                  EXECUTE format(
-                    'CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD %L',
-                    '$CROSSPLANE_ADMIN_PASSWORD'
-                  );
-                END IF;
-              END
-              \$\$;
-              EOF
-          env:
-            - name: SUPERUSER_URI
-              valueFrom:
-                secretKeyRef:
-                  name: shared-cnpg-superuser
-                  key: uri
-            - name: CROSSPLANE_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: crossplane-admin-credentials
-                  key: password
+      - name: bootstrap
+        image: postgres:16-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Waiting for CNPG cluster to be ready..."
+          until pg_isready -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local -p 5432 -U postgres; do
+            echo "Waiting for PostgreSQL..."
+            sleep 5
+          done
+          
+          echo "Creating crossplane_admin role..."
+          PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+            -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local \
+            -p 5432 \
+            -U postgres \
+            -d postgres \
+            -c "DO \$\$ BEGIN
+                  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'crossplane_admin') THEN
+                    CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '${CROSSPLANE_ADMIN_PASSWORD}';
+                    RAISE NOTICE 'Role crossplane_admin created successfully';
+                  ELSE
+                    RAISE NOTICE 'Role crossplane_admin already exists, skipping creation';
+                  END IF;
+                END \$\$;"
+          
+          echo "Bootstrap complete"
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-app
+              key: password
+        - name: CROSSPLANE_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: crossplane-admin-credentials
+              key: password

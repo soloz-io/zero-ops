@@ -1,24 +1,37 @@
-apiVersion: external-secrets.io/v1
+# ESO ExternalSecret for crossplane_admin credentials
+# Syncs password from Infisical to Spoke cluster
+# Pattern: <spokepool-cr-name>-crossplane-admin-password
+# Example: spoke-pool-eu-prod-01-crossplane-admin-password
+apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
-  namespace: spoke-platform-ops
+  namespace: crossplane-system
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "-1"  # Before CNPG operator
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: infisical-backend
-    kind: ClusterSecretStore
+    name: infisical-secret-store
+    kind: SecretStore
   target:
     name: crossplane-admin-credentials
-    creationPolicy: Owner
+    creationPolicy: Owner  # ESO creates and owns (no Hub K8s secret)
     template:
-      type: Opaque
+      engineVersion: v2
       data:
+        # PostgreSQL connection string for provider-sql ProviderConfig
+        connectionString: |
+          postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres?sslmode=require
+        # Individual fields for bootstrap Job
+        username: crossplane_admin
         password: "{{ .password }}"
-        uri: "postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres"
+        host: shared-cnpg-rw.spoke-platform-data.svc.cluster.local
+        port: "5432"
+        database: postgres
   data:
-    - secretKey: password
-      remoteRef:
-        key: PLACEHOLDER-crossplane-admin-password
+  - secretKey: password
+    remoteRef:
+      # Key MUST match SpokePool CR name pattern
+      # This will be injected by ApplicationSet: {{.name}}-crossplane-admin-password
+      key: PLACEHOLDER-crossplane-admin-password

@@ -76,3 +76,19 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - spokepools
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - spokepools/status
+  verbs:
+  - get
+  - patch
+  - update

@@ -1,14 +1,17 @@
+# ProviderConfig for provider-sql on Spoke
+# Points to shared-cnpg-rw via crossplane-admin credentials
+# Sync wave: 0 (after provider-sql installation)
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
   name: default
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   credentials:
-    source: PostgreSQLConnectionSecret
+    source: PostgreSQLConnectionString
     connectionSecretRef:
-      namespace: spoke-platform-ops
+      namespace: crossplane-system
       name: crossplane-admin-credentials
-      key: uri
+      key: connectionString
+  sslMode: require

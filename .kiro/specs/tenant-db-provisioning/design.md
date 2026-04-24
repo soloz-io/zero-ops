@@ -136,9 +136,26 @@ CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '<from-infi
 - `CREATEROLE` — creates `tenant-<id>-user` roles and executes GRANTs
 - No SELECT/INSERT/UPDATE/DELETE on any tenant table
 
-Credentials stored in Infisical at `/spoke-pool/<cell-id>/crossplane-admin-credentials`.
-ESO syncs to `crossplane-admin-credentials` Secret in `crossplane-system` namespace (where Crossplane runs).
-A copy is also synced to `spoke-platform-data` for the bootstrap Job (which needs `shared-cnpg-superuser` in the same namespace).
+**Password Generation Flow (CR Reconciliation Only)**:
+1. SpokePool CR created on Hub (e.g., `spoke-pool-eu-prod-01`)
+2. Hub Operator (SpokePool controller) reconciles the CR
+3. Controller extracts SpokePool CR name (e.g., `spoke-pool-eu-prod-01`)
+4. **Controller derives Infisical key:** `<spokepool-cr-name>-crossplane-admin-password`
+   - Example: `spoke-pool-eu-prod-01-crossplane-admin-password`
+   - This ensures each SpokePool has a unique, identifiable password
+5. Controller checks status condition: is this first-time creation?
+6. Controller queries Infisical API for existing password using the derived key (idempotency via API query)
+7. **If password exists in Infisical** → skip generation (idempotent)
+8. **If password missing AND first-time creation** → generate 32-char hex password using `secrets.GenerateSecurePassword()` and upload to Infisical at `/spoke-pool/<spokepool-cr-name>-crossplane-admin-password`
+9. **If password missing AND NOT first-time** → FAIL reconciliation with error "Password missing from Infisical for already-provisioned SpokePool - manual recovery required"
+10. Spoke ESO ExternalSecret syncs from Infisical to `crossplane-admin-credentials` Secret in `crossplane-system` namespace
+11. Bootstrap Job reads Secret and creates `crossplane_admin` role
+
+**No Hub K8s Secret**: Hub Operator queries Infisical directly for idempotency, does not create K8s secret on Hub.
+
+**Operator Role**: Operator generates password ONLY during first-time CR reconciliation. Operator does NOT manage secret lifecycle post-creation. ESO handles all subsequent secret syncing.
+
+**Manual Intervention Required**: If password is accidentally deleted from Infisical after initial provisioning, the controller will fail and require manual password restoration to prevent breaking Spoke's CNPG connection.
 
 ---
 

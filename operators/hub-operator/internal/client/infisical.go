@@ -272,6 +272,22 @@ func (c *InfisicalClient) secretExists(ctx context.Context, workspaceId, environ
 	return false, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
+// SecretExists checks if a secret exists in Infisical (public method for controllers)
+func (c *InfisicalClient) SecretExists(ctx context.Context, projectSlug, environmentSlug, secretPath, key string) (bool, error) {
+	// Ensure we have a valid token
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return false, fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	// Convert projectSlug to workspaceId
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return false, fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	return c.secretExists(ctx, workspaceId, environmentSlug, secretPath, key)
+}
+
 // createSecret creates a new secret in Infisical using v3 API
 func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	logger := log.FromContext(ctx)
