@@ -431,7 +431,6 @@ spec:
                 transforms:
                   - type: string
                     string:
-                      type: Format
                       fmt: |
                         apiVersion: v1
                         kind: ConfigMap
