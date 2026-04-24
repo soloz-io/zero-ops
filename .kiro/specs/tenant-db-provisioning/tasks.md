@@ -97,7 +97,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 2.1 TenantDatabase XRD
 
-- [ ] 2.1.1 Create TenantDatabase XRD
+- [x] 2.1.1 Create TenantDatabase XRD
   - Schema: `tenantId`, `databaseName`, `cellId`
   - Cluster-scoped
   - Create file: `xrds/definitions/tenantdatabase-v1.yaml`
