@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -89,7 +87,7 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(nil, "CRITICAL: Password missing from Infisical but SpokePool was already provisioned. Manual intervention required.", 
 			"spoke", spokeName, "key", infisicalKey)
 		
-		if err := r.updateStatusCondition(ctx, spokePool, spokeName, false); err != nil {
+		if err := r.updateStatusCondition(ctx, spokePool, spokeName, false, false); err != nil {
 			return ctrl.Result{}, nil
 		}
 		
