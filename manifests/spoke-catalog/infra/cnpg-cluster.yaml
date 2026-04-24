@@ -39,6 +39,9 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
   
+  superuserSecret:
+    name: shared-cnpg-superuser
+  
   storage:
     size: 100Gi
     storageClass: hcloud-volumes
