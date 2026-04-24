@@ -2,7 +2,7 @@
 # Syncs password from Infisical to Spoke cluster
 # Pattern: <spokepool-cr-name>-crossplane-admin-password
 # Example: spoke-pool-eu-prod-01-crossplane-admin-password
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
