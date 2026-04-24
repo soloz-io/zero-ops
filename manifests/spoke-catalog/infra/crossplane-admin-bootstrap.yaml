@@ -52,10 +52,11 @@ spec:
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: platform-db-app
+              name: shared-cnpg-superuser
               key: password
         - name: CROSSPLANE_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
               name: crossplane-admin-credentials
+              key: password
               key: password
