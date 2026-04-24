@@ -55,6 +55,7 @@ spec:
     kind: Issuer
 ---
 # Kyverno Policy: Transform CA Secret for CRS
+# KEPT: CA certificates are static and bootstrap-only
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -100,61 +101,4 @@ spec:
               namespace: spoke-platform-messaging
             type: Opaque
             data:
-              ca.crt: "{{caCrt}}"
----
-# Kyverno Policy: Transform Client Certs for CRS
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: nats-leafnode-client-crs-transform
-  annotations:
-    policies.kyverno.io/title: Transform NATS Leafnode Client Certificate for ClusterResourceSet
-    policies.kyverno.io/category: ClusterResourceSet Integration
-spec:
-  generateExisting: true
-  rules:
-  - name: generate-crs-client-cert
-    match:
-      any:
-      - resources:
-          kinds:
-          - Secret
-          namespaces:
-          - hub-platform-messaging
-          selector:
-            matchLabels:
-              cert-type: nats-leafnode-client
-    context:
-      - name: tlsCrt
-        variable:
-          jmesPath: 'request.object.data."tls.crt"'
-      - name: tlsKey
-        variable:
-          jmesPath: 'request.object.data."tls.key"'
-      - name: caCrt
-        variable:
-          jmesPath: 'request.object.data."ca.crt"'
-    generate:
-      apiVersion: v1
-      kind: Secret
-      name: "{{request.object.metadata.name}}-crs"
-      namespace: hub-platform-ops
-      synchronize: true
-      data:
-        type: addons.cluster.x-k8s.io/resource-set
-        metadata:
-          labels:
-            app.kubernetes.io/managed-by: kyverno
-            cert-type: nats-leafnode-client-crs
-        stringData:
-          client-cert.yaml: |
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              name: nats-leafnode-client-cert
-              namespace: spoke-platform-messaging
-            type: kubernetes.io/tls
-            data:
-              tls.crt: "{{tlsCrt}}"
-              tls.key: "{{tlsKey}}"
               ca.crt: "{{caCrt}}"

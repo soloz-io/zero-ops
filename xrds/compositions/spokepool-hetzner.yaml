@@ -279,6 +279,8 @@ spec:
           
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
+          # NOTE: Certificate distribution moved to Crossplane Objects (v2.0 pattern)
+          # CRS now only contains static bootstrap resources
           - name: cluster-resource-set
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -329,19 +331,12 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        - name: ""
-                          kind: Secret
+                        # CA certificates (static, bootstrap-only)
                         - name: argocd-agent-ca-secret
-                          kind: Secret
-                        # Observability mTLS certificates
-                        - name: ""
                           kind: Secret
                         - name: observability-ca-secret
                           kind: Secret
-                        # NATS Leafnode mTLS certificates
-                        - name: ""
-                          kind: Secret
-                        - name: nats-leafnode-ca
+                        - name: nats-leafnode-ca-secret
                           kind: Secret
                         # Infisical auth for ESO ClusterSecretStore on Spoke
                         - name: infisical-auth-crs
@@ -393,36 +388,6 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
-              # Patch for ArgoCD Agent client certificate (resources[12])
-              # References the Kyverno-generated CRS secret (with -crs suffix)
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-client-cert-crs"
-              # Patch for Alloy client certificate (resources[14])
-              # References the Kyverno-generated CRS secret (with -crs suffix)
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-client-cert-crs"
-              # Patch for NATS leafnode client certificate (resources[16])
-              # References the Kyverno-generated CRS secret (with -crs suffix)
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leafnode-client-cert-crs"
           
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object

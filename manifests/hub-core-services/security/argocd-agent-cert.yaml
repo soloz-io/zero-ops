@@ -64,6 +64,7 @@ spec:
 # Kyverno Policy: Transform cert-manager CA secret to ClusterResourceSet format
 # Watches for cert-manager secret (type: kubernetes.io/tls)
 # Generates ClusterResourceSet-compatible secret (type: addons.cluster.x-k8s.io/resource-set)
+# KEPT: CA certificates are static and bootstrap-only
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -112,69 +113,4 @@ spec:
                 namespace: argocd
               type: Opaque
               data:
-                ca.crt: "{{caCrt}}"
----
-# Kyverno Policy: Transform cert-manager client cert secret to ClusterResourceSet format
-# Phase 2: Watches for ANY cert-manager secret with label cert-type: argocd-agent-client
-# Generates ClusterResourceSet-compatible secret (type: addons.cluster.x-k8s.io/resource-set)
-# Dynamically names the CRS secret based on the source secret name
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: transform-argocd-agent-client-cert
-  annotations:
-    policies.kyverno.io/title: Transform ArgoCD Agent Client Certificate for ClusterResourceSet
-    policies.kyverno.io/category: ClusterResourceSet Integration
-    policies.kyverno.io/description: |
-      Automatically transforms cert-manager client certificate secrets to ClusterResourceSet format.
-      Watches for secrets with label cert-type: argocd-agent-client (supports multiple spoke pools).
-      ClusterResourceSet requires type: addons.cluster.x-k8s.io/resource-set with YAML manifest in stringData.
-spec:
-  generateExisting: true
-  rules:
-    - name: generate-crs-client-cert
-      match:
-        any:
-          - resources:
-              kinds:
-                - Secret
-              selector:
-                matchLabels:
-                  cert-type: argocd-agent-client
-              namespaces:
-                - hub-platform-ops
-      context:
-        - name: tlsCrt
-          variable:
-            jmesPath: 'request.object.data."tls.crt"'
-        - name: tlsKey
-          variable:
-            jmesPath: 'request.object.data."tls.key"'
-        - name: caCrt
-          variable:
-            jmesPath: 'request.object.data."ca.crt"'
-      generate:
-        apiVersion: v1
-        kind: Secret
-        # Dynamically name the CRS secret based on the cert-manager generated secret
-        name: "{{request.object.metadata.name}}-crs"
-        namespace: hub-platform-ops
-        synchronize: true
-        data:
-          type: addons.cluster.x-k8s.io/resource-set
-          metadata:
-            labels:
-              app.kubernetes.io/managed-by: kyverno
-              cert-type: argocd-agent-client-crs
-          stringData:
-            client-cert.yaml: |
-              apiVersion: v1
-              kind: Secret
-              metadata:
-                name: argocd-agent-client-cert
-                namespace: argocd
-              type: kubernetes.io/tls
-              data:
-                tls.crt: "{{tlsCrt}}"
-                tls.key: "{{tlsKey}}"
                 ca.crt: "{{caCrt}}"
