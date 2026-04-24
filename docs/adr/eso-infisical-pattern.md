@@ -279,7 +279,7 @@ apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
-  namespace: crossplane-system
+  namespace: spoke-platform-ops
 spec:
   secretStoreRef:
     name: infisical-secret-store
