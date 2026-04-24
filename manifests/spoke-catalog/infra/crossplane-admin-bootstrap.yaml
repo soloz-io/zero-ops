@@ -1,11 +1,11 @@
 # Bootstrap Job to create crossplane_admin role in CNPG
 # Runs once per Spoke Pool during cell bootstrap
-# Sync wave: -1 (before CNPG operator)
+# Sync wave: 3 (after CNPG cluster is ready)
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: crossplane-admin-bootstrap
-  namespace: spoke-platform-data
+  namespace: spoke-platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -17,7 +17,7 @@ spec:
         app: crossplane-admin-bootstrap
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: default
+      serviceAccountName: crossplane-admin-bootstrap
       containers:
       - name: bootstrap
         image: postgres:16-alpine

@@ -5,6 +5,7 @@ resources:
   - namespaces.yaml
   - cluster-secret-store.yaml
   - crossplane-admin-eso.yaml
+  - crossplane-admin-rbac.yaml
   - crossplane-admin-bootstrap.yaml
   - crossplane-provider-sql.yaml
   - crossplane-providerconfig-sql.yaml
