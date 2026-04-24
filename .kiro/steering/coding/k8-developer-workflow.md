@@ -6,6 +6,8 @@ scope: Developement, testing guide
 
 # K8 development guide
 
+- During debugging, never use sleep commands more than 30 seconds.
+
 ### **Avoid works on my machine trap** of Kubernetes development:
 
 **The Danger of Manual `kubectl apply`**

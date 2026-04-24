@@ -162,6 +162,106 @@ Behind the scenes:
 3. PostgREST exposes API
 4. Tenant ready in < 5 seconds
 
+### 6. mTLS Certificate Delivery Pattern
+
+#### Industry Context
+
+Enterprise hub-spoke platforms require reliable mTLS certificate distribution for secure communication between Hub and Spoke clusters. Research into Red Hat Advanced Cluster Management (RHACM) and Open Cluster Management (OCM) reveals the canonical pattern.
+
+#### Red Hat ACM/OCM Pattern: ManifestWork
+
+**Architecture:**
+- Hub cluster runs control plane with cert-manager
+- Spoke clusters run work-agent that watches Hub
+- ManifestWork CR defines resources to distribute
+- work-agent applies manifests and reports status
+
+**Key Properties:**
+- Continuous reconciliation (work-agent watches Hub namespace)
+- Status tracking (Applied/Available conditions)
+- Automatic rotation (update ManifestWork → work-agent applies)
+- Garbage collection (AppliedManifestWork anchor on spoke)
+- RBAC enforcement (executor subject + execute-as permissions)
+
+**Real-World Example (RHACM Observability):**
+- Hub generates CA and client/server certificates
+- ManifestWork distributes certificates to managed clusters
+- Certificates auto-renewed when <73 days remaining (non-CA) or <1 year (CA)
+- Old CA co-exists with renewed CA until expiration
+- Traffic not interrupted during renewal
+
+#### Zero-Ops Pattern: Crossplane Object
+
+**Architecture:**
+- Hub cluster runs control plane with cert-manager and Crossplane
+- Spoke clusters receive resources via provider-kubernetes
+- Crossplane Object CR defines resources to distribute
+- provider-kubernetes applies manifests and reports status
+
+**Key Properties:**
+- Continuous reconciliation (Crossplane watches XR/Composition)
+- Status tracking (Object readiness conditions)
+- Automatic rotation (update Secret → Crossplane pushes)
+- Garbage collection (owner references)
+- Blast radius isolation (per-spoke ProviderConfig)
+
+**Functional Equivalence:**
+
+| Capability | Red Hat ManifestWork | Zero-Ops Crossplane Object |
+|------------|---------------------|---------------------------|
+| Hub-based control plane | ✅ work-agent watches Hub | ✅ provider-kubernetes reconciles |
+| Continuous reconciliation | ✅ Not bootstrap-only | ✅ Not bootstrap-only |
+| Status propagation | ✅ Applied/Available | ✅ Object readiness |
+| Certificate rotation | ✅ Update ManifestWork | ✅ Update Secret → Object |
+| Per-cluster isolation | ✅ Namespace per cluster | ✅ ProviderConfig per spoke |
+| Observability | ✅ Feedback rules | ✅ Readiness checks |
+
+#### Why Crossplane Object is Idiomatic
+
+**Industry Validation:**
+- Red Hat ACM uses ManifestWork (custom CRD + work-agent)
+- AWS multi-cluster GitOps uses Crossplane + Flux
+- Rancher Fleet uses custom operator + Bundle distribution
+- All patterns share: Hub control plane + continuous reconciliation + status tracking
+
+**Zero-Ops Choice:**
+- Crossplane Object is standard Kubernetes API (no custom agent)
+- provider-kubernetes is CNCF project (proven at scale)
+- Aligns with existing SpokePool provisioning pattern
+- Reduces operational complexity (one control plane tool)
+
+#### Certificate Flow
+
+**Distribution Path:**
+```
+Hub: cert-manager → Secret (hub-platform-observability)
+     ↓
+Hub: Crossplane Composition → Object (references Hub secret)
+     ↓
+Hub: provider-kubernetes applies to Spoke
+     ↓
+Spoke: Secret (spoke-platform-observability)
+     ↓
+Spoke: Alloy DaemonSet mounts certificate
+```
+
+**Rotation Behavior:**
+- cert-manager rotates certificate on Hub
+- Crossplane detects Secret change
+- provider-kubernetes pushes updated Secret to Spoke
+- Spoke workload reloads certificate (via volume mount watch)
+- No manual intervention required
+
+**Traceability:**
+- Owner labels link Spoke secret to Hub source (source-cluster, source-namespace)
+- Crossplane Object status shows delivery state
+- Failed deliveries visible in XR status conditions
+
+**Blast Radius Isolation:**
+- One ProviderConfig per Spoke cluster
+- Credential compromise affects single Spoke only
+- Hub maintains separate kubeconfig secrets per Spoke
+
 ---
 
 ## Implementation

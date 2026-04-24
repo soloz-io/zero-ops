@@ -764,4 +764,186 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-crossplane-admin-password"
+          
+          # ========================================================================
+          # mTLS Certificate Distribution via Crossplane Objects (v2.0 Pattern)
+          # Replaces Kyverno+CRS hybrid with pure continuous reconciliation
+          # ========================================================================
+          
+          # Alloy Client Certificate Distribution
+          # Copies cert-manager generated secret from Hub to Spoke
+          - name: alloy-client-cert-distribution
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                references:
+                  - patchesFrom:
+                      apiVersion: v1
+                      kind: Secret
+                      namespace: hub-platform-observability
+                      fieldPath: data
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: spoke-platform-observability
+                      labels:
+                        managed-by: crossplane
+                        source-cluster: hub
+                        source-namespace: hub-platform-observability
+                        cert-type: alloy-client
+                    type: kubernetes.io/tls
+                providerConfigRef:
+                  name: ""  # Patched to spoke-specific provider
+                readinessChecks:
+                  - type: None
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-alloy-cert-dist"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.references[0].patchesFrom.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-alloy-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "alloy-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.providerConfigRef.name
+          
+          # NATS Leafnode Client Certificate Distribution
+          # Copies cert-manager generated secret from Hub to Spoke
+          - name: nats-leafnode-cert-distribution
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                references:
+                  - patchesFrom:
+                      apiVersion: v1
+                      kind: Secret
+                      namespace: hub-platform-messaging
+                      fieldPath: data
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: spoke-platform-messaging
+                      labels:
+                        managed-by: crossplane
+                        source-cluster: hub
+                        source-namespace: hub-platform-messaging
+                        cert-type: nats-leafnode-client
+                    type: kubernetes.io/tls
+                providerConfigRef:
+                  name: ""  # Patched to spoke-specific provider
+                readinessChecks:
+                  - type: None
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-cert-dist"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.references[0].patchesFrom.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-nats-leafnode-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "nats-leafnode-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.providerConfigRef.name
+          
+          # ArgoCD Agent Client Certificate Distribution
+          # Copies cert-manager generated secret from Hub to Spoke
+          - name: argocd-agent-cert-distribution
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                references:
+                  - patchesFrom:
+                      apiVersion: v1
+                      kind: Secret
+                      namespace: hub-platform-ops
+                      fieldPath: data
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: argocd
+                      labels:
+                        managed-by: crossplane
+                        source-cluster: hub
+                        source-namespace: hub-platform-ops
+                        cert-type: argocd-agent-client
+                    type: kubernetes.io/tls
+                providerConfigRef:
+                  name: ""  # Patched to spoke-specific provider
+                readinessChecks:
+                  - type: None
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-cert-dist"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.references[0].patchesFrom.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-argocd-agent-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "argocd-agent-client-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.providerConfigRef.name
 
