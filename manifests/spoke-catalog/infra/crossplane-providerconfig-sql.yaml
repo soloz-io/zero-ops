@@ -10,7 +10,7 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   credentials:
-    source: PostgreSQLConnectionString
+    source: PostgreSQLConnectionSecret
     connectionSecretRef:
       namespace: spoke-platform-data
       name: crossplane-admin-credentials
