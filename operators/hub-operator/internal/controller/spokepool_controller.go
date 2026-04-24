@@ -166,11 +166,21 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 	var metaConditions []metav1.Condition
 	for _, c := range conditions {
 		if condMap, ok := c.(map[string]interface{}); ok {
+			// Skip conditions with missing required fields
+			typeVal, typeOk := condMap["type"].(string)
+			statusVal, statusOk := condMap["status"].(string)
+			reasonVal, reasonOk := condMap["reason"].(string)
+			messageVal, messageOk := condMap["message"].(string)
+			
+			if !typeOk || !statusOk || !reasonOk || !messageOk {
+				continue
+			}
+			
 			cond := metav1.Condition{
-				Type:               condMap["type"].(string),
-				Status:             metav1.ConditionStatus(condMap["status"].(string)),
-				Reason:             condMap["reason"].(string),
-				Message:            condMap["message"].(string),
+				Type:               typeVal,
+				Status:             metav1.ConditionStatus(statusVal),
+				Reason:             reasonVal,
+				Message:            messageVal,
 				ObservedGeneration: spokePool.GetGeneration(),
 			}
 			metaConditions = append(metaConditions, cond)
