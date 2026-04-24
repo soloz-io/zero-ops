@@ -12,8 +12,8 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: infisical-secret-store
-    kind: SecretStore
+    name: infisical-backend
+    kind: ClusterSecretStore
   target:
     name: crossplane-admin-credentials
     creationPolicy: Owner  # ESO creates and owns (no Hub K8s secret)
