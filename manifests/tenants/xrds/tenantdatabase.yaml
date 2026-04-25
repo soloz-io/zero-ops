@@ -69,21 +69,10 @@ spec:
                       type: string
               resourceRefs:
                 type: array
+                x-kubernetes-preserve-unknown-fields: true
                 items:
                   type: object
-                  properties:
-                    apiVersion:
-                      type: string
-                    kind:
-                      type: string
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                    - apiVersion
-                    - kind
-                    - name
+                  x-kubernetes-preserve-unknown-fields: true
           status:
             type: object
             properties:
