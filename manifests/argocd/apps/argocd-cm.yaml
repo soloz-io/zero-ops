@@ -10,3 +10,17 @@ data:
   server.rbac.log.enforce.enable: "false"
   timeout.hard.reconciliation: "0s"
   timeout.reconciliation: "60s"
+  
+  # CNPG Cluster health check
+  resource.customizations.health.postgresql.cnpg.io_Cluster: |
+    hs = {}
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      if obj.status.phase == "Cluster in healthy state" then
+        hs.status = "Healthy"
+        hs.message = obj.status.phase
+        return hs
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "Waiting for cluster to be healthy"
+    return hs
