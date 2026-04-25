@@ -33,29 +33,37 @@ spec:
           # Resource 1: ESO ExternalSecret (restore credentials from Infisical on cluster rebuild)
           - name: db-credentials-restore
             base:
-              apiVersion: external-secrets.io/v1beta1
-              kind: ExternalSecret
-              metadata:
-                namespace: ""  # Patched to tenant-<id>
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
               spec:
-                refreshInterval: 1h
-                secretStoreRef:
-                  name: infisical-backend
-                  kind: ClusterSecretStore
-                target:
-                  name: ""  # Patched to tenant-<id>-db-credentials
-                  creationPolicy: Merge  # CRITICAL: Merge with existing Secret, don't overwrite
-                  template:
-                    type: Opaque
-                    data:
-                      username: "{{ .username }}"
-                      password: "{{ .password }}"
-                      database: "{{ .database }}"
-                      host: "{{ .host }}"
-                      port: "{{ .port }}"
-                dataFrom:
-                  - extract:
-                      key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1beta1
+                    kind: ExternalSecret
+                    metadata:
+                      namespace: ""  # Patched to tenant-<id>
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRef:
+                        name: infisical-backend
+                        kind: ClusterSecretStore
+                      target:
+                        name: ""  # Patched to tenant-<id>-db-credentials
+                        creationPolicy: Merge  # CRITICAL: Merge with existing Secret, don't overwrite
+                        template:
+                          type: Opaque
+                          data:
+                            username: "{{ .username }}"
+                            password: "{{ .password }}"
+                            database: "{{ .database }}"
+                            host: "{{ .host }}"
+                            port: "{{ .port }}"
+                      dataFrom:
+                        - extract:
+                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
@@ -67,7 +75,15 @@ spec:
                       fmt: "%s-db-credentials-restore"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: metadata.namespace
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-credentials-restore"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
                     string:
@@ -75,7 +91,7 @@ spec:
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.target.name
+                toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
                     string:
@@ -89,46 +105,78 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.dataFrom[0].extract.key
+                toFieldPath: spec.forProvider.manifest.spec.dataFrom[0].extract.key
           
           # Resource 2: CNPG Database CR
           - name: database
             base:
-              apiVersion: postgresql.cnpg.io/v1
-              kind: Database
-              metadata:
-                namespace: spoke-platform-data
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
               spec:
-                cluster:
-                  name: shared-cnpg
-                owner: crossplane_admin
-                ensure: present
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: postgresql.cnpg.io/v1
+                    kind: Database
+                    metadata:
+                      namespace: spoke-platform-data
+                    spec:
+                      cluster:
+                        name: shared-cnpg
+                      owner: crossplane_admin
+                      ensure: present
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-database"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
-                toFieldPath: spec.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.spec.name
           
           # Resource 3: Kubernetes Secret (generated by Crossplane with random password)
           - name: db-credentials-secret
             base:
-              apiVersion: v1
-              kind: Secret
-              metadata:
-                namespace: ""  # Patched to tenant-<id>
-              type: Opaque
-              stringData:
-                username: ""  # Patched to tenant-<id>-user
-                password: ""  # Patched with generated 32-char password
-                database: ""  # Patched to tenant-<id>-db
-                host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
-                port: "5432"
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: ""  # Patched to tenant-<id>
+                    type: Opaque
+                    stringData:
+                      username: ""  # Patched to tenant-<id>-user
+                      password: ""  # Patched with generated 32-char password
+                      database: ""  # Patched to tenant-<id>-db
+                      host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
+                      port: "5432"
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-db-credentials-secret"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
                     string:
@@ -136,7 +184,7 @@ spec:
                       fmt: "tenant-%s-db-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: metadata.namespace
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
                     string:
@@ -144,7 +192,7 @@ spec:
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: stringData.username
+                toFieldPath: spec.forProvider.manifest.stringData.username
                 transforms:
                   - type: string
                     string:
@@ -152,10 +200,10 @@ spec:
                       fmt: "tenant_%s_user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
-                toFieldPath: stringData.database
+                toFieldPath: spec.forProvider.manifest.stringData.database
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.uid
-                toFieldPath: stringData.password
+                toFieldPath: spec.forProvider.manifest.stringData.password
                 transforms:
                   - type: string
                     string:
@@ -163,6 +211,7 @@ spec:
                       fmt: "%.32s"  # Truncate UID to 32 chars for password
           
           # Resource 4: provider-sql Role (tenant user)
+          # NOT wrapped in Object, because it's already a Crossplane MR
           - name: db-user
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
@@ -321,44 +370,52 @@ spec:
           # Resource 8: ESO PushSecret (backup credentials to Infisical)
           - name: db-credentials-backup
             base:
-              apiVersion: external-secrets.io/v1alpha1
-              kind: PushSecret
-              metadata:
-                namespace: ""  # Patched to tenant-<id>
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
               spec:
-                refreshInterval: 1h
-                secretStoreRefs:
-                  - name: infisical-backend
-                    kind: ClusterSecretStore
-                selector:
-                  secret:
-                    name: ""  # Patched to tenant-<id>-db-credentials
-                data:
-                  - match:
-                      secretKey: username
-                      remoteRef:
-                        remoteKey: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
-                        property: username
-                  - match:
-                      secretKey: password
-                      remoteRef:
-                        remoteKey: ""  # Patched
-                        property: password
-                  - match:
-                      secretKey: database
-                      remoteRef:
-                        remoteKey: ""  # Patched
-                        property: database
-                  - match:
-                      secretKey: host
-                      remoteRef:
-                        remoteKey: ""  # Patched
-                        property: host
-                  - match:
-                      secretKey: port
-                      remoteRef:
-                        remoteKey: ""  # Patched
-                        property: port
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1alpha1
+                    kind: PushSecret
+                    metadata:
+                      namespace: ""  # Patched to tenant-<id>
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRefs:
+                        - name: infisical-backend
+                          kind: ClusterSecretStore
+                      selector:
+                        secret:
+                          name: ""  # Patched to tenant-<id>-db-credentials
+                      data:
+                        - match:
+                            secretKey: username
+                            remoteRef:
+                              remoteKey: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                              property: username
+                        - match:
+                            secretKey: password
+                            remoteRef:
+                              remoteKey: ""  # Patched
+                              property: password
+                        - match:
+                            secretKey: database
+                            remoteRef:
+                              remoteKey: ""  # Patched
+                              property: database
+                        - match:
+                            secretKey: host
+                            remoteRef:
+                              remoteKey: ""  # Patched
+                              property: host
+                        - match:
+                            secretKey: port
+                            remoteRef:
+                              remoteKey: ""  # Patched
+                              property: port
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
@@ -370,7 +427,15 @@ spec:
                       fmt: "%s-db-credentials-backup"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: metadata.namespace
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-credentials-backup"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
                     string:
@@ -378,7 +443,7 @@ spec:
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.selector.secret.name
+                toFieldPath: spec.forProvider.manifest.spec.selector.secret.name
                 transforms:
                   - type: string
                     string:
@@ -392,7 +457,7 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.data[0].match.remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[0].match.remoteRef.remoteKey
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -401,7 +466,7 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.data[1].match.remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[1].match.remoteRef.remoteKey
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -410,7 +475,7 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.data[2].match.remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[2].match.remoteRef.remoteKey
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -419,7 +484,7 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.data[3].match.remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[3].match.remoteRef.remoteKey
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -428,4 +493,4 @@ spec:
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.data[4].match.remoteRef.remoteKey
+                toFieldPath: spec.forProvider.manifest.spec.data[4].match.remoteRef.remoteKey

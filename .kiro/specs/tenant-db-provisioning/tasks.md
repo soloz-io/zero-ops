@@ -171,25 +171,25 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
     - `grant-sequences`
   - _Requirements: FR-4.1_
 
-- [ ] 3.1.2 Add TenantDatabase provider-kubernetes Object to Hub Composition
+- [x] 3.1.2 Add TenantDatabase provider-kubernetes Object to Hub Composition
   - Single `provider-kubernetes Object` wrapping `TenantDatabase` CR
   - Patches: `tenantId`, `databaseName` (from `spec.database.name`), `cellId`
   - `readinessChecks: MatchCondition type=Ready status=True`
   - `providerConfigRef.name` patched from `spec.cellId`
   - _Requirements: FR-4.1_
 
-- [ ] 3.1.3 Update Pooler to use tenant credentials
+- [x] 3.1.3 Update Pooler to use tenant credentials
   - `spec.pgbouncer.authQueryUser.secretRef.name`: `tenant-<id>-db-credentials`
   - Remove shared `app` user reference
   - _Requirements: FR-4.2_
 
-- [ ] 3.1.4 Update PostgREST to use tenant credentials
+- [x] 3.1.4 Update PostgREST to use tenant credentials
   - `PGRST_DB_URI`: from `tenant-<id>-db-credentials` Secret (key: `url` via pooler-secret)
   - `PGRST_DB_ANON_ROLE`: `tenant-<id>-user`
   - Remove shared `app` user reference
   - _Requirements: FR-4.3_
 
-- [ ] 3.1.5 Commit Hub Composition changes to Git
+- [x] 3.1.5 Commit Hub Composition changes to Git
   - Commit to feature branch
   - Verify ArgoCD syncs updated Composition to Hub
   - _Requirements: FR-4.1, FR-4.2, FR-4.3_
