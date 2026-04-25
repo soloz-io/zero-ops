@@ -100,10 +100,10 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 - [x] 2.1.1 Create TenantDatabase XRD
   - Schema: `tenantId`, `databaseName`, `cellId`
   - Cluster-scoped
-  - Create file: `xrds/definitions/tenantdatabase-v1.yaml`
+  - Create file: `manifests/tenants/xrds/tenantdatabase.yaml`
   - _Requirements: FR-1.1_
 
-- [x] 2.1.2 Commit XRD to Git
+- [ ] 2.1.2 Commit XRD to Git
   - Commit to feature branch
   - Verify ArgoCD syncs XRD to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get xrd tenantdatabases.nutgraf.in`
