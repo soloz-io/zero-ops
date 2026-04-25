@@ -15,4 +15,5 @@ spec:
       namespace: spoke-platform-data
       name: crossplane-admin-credentials
       key: connectionString
+  defaultDatabase: postgres
   sslMode: require
