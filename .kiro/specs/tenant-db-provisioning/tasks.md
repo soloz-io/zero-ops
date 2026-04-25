@@ -14,7 +14,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 1.0 Deploy Crossplane to Spoke Clusters
 
-- [ ] 1.0.1 Add Crossplane ApplicationSet to Spoke Catalog
+- [x] 1.0.1 Add Crossplane ApplicationSet to Spoke Catalog
   - Edit `manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
   - Add `ApplicationSet` for `spoke-crossplane` using `charts.crossplane.io/stable` v1.20.5
   - Destination namespace: `crossplane-system`
@@ -24,7 +24,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 1.1 crossplane_admin Bootstrap
 
-- [ ] 1.1.1 Implement Hub Operator SpokePool controller
+- [x] 1.1.1 Implement Hub Operator SpokePool controller
   - Create `operators/hub-operator/internal/controller/spokepool_controller.go`
   - Watches SpokePool XRs on Hub
   - **On CR reconciliation:**
@@ -44,7 +44,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - Add `SecretExists()` public method to `operators/hub-operator/internal/client/infisical.go`
   - _Requirements: FR-2.3_
 
-- [ ] 1.1.2 Create ESO ExternalSecret for Spoke
+- [x] 1.1.2 Create ESO ExternalSecret for Spoke
   - Create file: `manifests/spoke-catalog/infra/crossplane-admin-eso.yaml`
   - **Infisical Key Pattern:** `<spokepool-cr-name>-crossplane-admin-password`
     - Example: `spoke-pool-eu-prod-01-crossplane-admin-password`
@@ -53,39 +53,39 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - Creates `crossplane-admin-credentials` Secret in `crossplane-system` namespace
   - _Requirements: FR-2.3_
 
-- [ ] 1.1.3 Create crossplane_admin bootstrap manifest
+- [x] 1.1.3 Create crossplane_admin bootstrap manifest
   - Create SQL init manifest for `crossplane_admin` role
   - `CREATE ROLE crossplane_admin WITH LOGIN CREATEDB CREATEROLE PASSWORD '<from-infisical>'`
   - Create file: `manifests/spoke-catalog/infra/crossplane-admin-bootstrap.yaml`
   - Sync wave: -1 (before CNPG operator)
   - _Requirements: FR-2.3_
 
-- [ ] 1.1.4 Commit bootstrap manifests to Git
+- [x] 1.1.4 Commit bootstrap manifests to Git
   - Commit to feature branch
   - Verify ArgoCD syncs to Spoke
   - _Requirements: FR-2.3_
 
 ### 1.2 provider-sql on Spoke
 
-- [ ] 1.2.1 Create provider-sql manifest for Spoke edge catalog
+- [x] 1.2.1 Create provider-sql manifest for Spoke edge catalog
   - Provider: `xpkg.upbound.io/crossplane-contrib/provider-sql:v0.9.0`
   - Create file: `manifests/spoke-catalog/infra/crossplane-provider-sql.yaml`
   - Sync wave: -1
   - _Requirements: FR-5.1_
 
-- [ ] 1.2.2 Create provider-sql ProviderConfig for Spoke
+- [x] 1.2.2 Create provider-sql ProviderConfig for Spoke
   - Points to `shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432`
   - Uses `crossplane-admin-credentials` Secret
   - ProviderConfig name: `default`
   - Create file: `manifests/spoke-catalog/infra/crossplane-providerconfig-sql.yaml`
   - _Requirements: FR-5.1_
 
-- [ ] 1.2.3 Remove provider-sql from Hub
+- [x] 1.2.3 Remove provider-sql from Hub
   - Remove `provider-sql/provider.yaml` from `manifests/hub-core-services/crossplane/providers/kustomization.yaml`
   - Delete `manifests/hub-core-services/crossplane/providers/provider-sql/` directory
   - _Requirements: FR-5.2_
 
-- [ ] 1.2.4 Commit provider-sql edge catalog changes to Git
+- [x] 1.2.4 Commit provider-sql edge catalog changes to Git
   - Commit to feature branch
   - Verify ArgoCD syncs provider-sql to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get providers.pkg.crossplane.io provider-sql`
