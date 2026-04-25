@@ -103,7 +103,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - Create file: `xrds/definitions/tenantdatabase-v1.yaml`
   - _Requirements: FR-1.1_
 
-- [ ] 2.1.2 Commit XRD to Git
+- [x] 2.1.2 Commit XRD to Git
   - Commit to feature branch
   - Verify ArgoCD syncs XRD to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get xrd tenantdatabases.nutgraf.in`

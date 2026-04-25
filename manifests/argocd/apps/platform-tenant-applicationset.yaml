@@ -34,7 +34,7 @@ spec:
         # Source 1: Universal Tenant Helm Chart (only XR template)
         - repoURL: https://github.com/soloz-io/zero-ops
           targetRevision: main
-          path: charts/universal-tenant
+          path: manifests/tenants/charts/universal-tenant
           helm:
             valueFiles:
               - $values/{{.path.path}}/values.yaml
@@ -111,7 +111,7 @@ spec:
         # Source 1: Universal Tenant Helm Chart (namespace, RBAC, AtlasMigration)
         - repoURL: https://github.com/soloz-io/zero-ops
           targetRevision: main
-          path: charts/universal-tenant
+          path: manifests/tenants/charts/universal-tenant
           helm:
             valueFiles:
               - $values/{{.path.path}}/values.yaml
