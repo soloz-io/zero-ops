@@ -266,7 +266,7 @@ spec:
                     - CONNECT
                   role: ""  # Patched to tenant-<id>-user
                   database: ""  # Patched to tenant-<id>-db
-                  withOption: false
+                  withOption: "false"
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
@@ -304,7 +304,7 @@ spec:
                   database: ""  # Patched to tenant-<id>-db
                   schema: public
                   objectType: table
-                  withOption: false
+                  withOption: "false"
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
@@ -342,7 +342,7 @@ spec:
                   database: ""  # Patched to tenant-<id>-db
                   schema: public
                   objectType: sequence
-                  withOption: false
+                  withOption: "false"
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
