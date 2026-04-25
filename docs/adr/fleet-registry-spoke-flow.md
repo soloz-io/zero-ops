@@ -1,0 +1,62 @@
+### **Fleet Registry Spoke Flow Architecture (With TenantDatabase XRD)**
+
+**Fleet Registry** → **AINativeSaaS XR (Hub)** → **TenantDatabase XR (Spoke)** → **DB Resources (Spoke)**
+
+**Flow**:
+
+1. **Same tenant definition** in fleet-registry (no changes needed)
+
+2. **Same AINativeSaaS CR** created by Universal Tenant Chart
+
+3. **Updated Hub Composition** (`ainativesaas-starter-hetzner.yaml`) creates **ONE resource**:
+   ```yaml
+   - name: tenant-database-remote
+     base:
+       apiVersion: kubernetes.crossplane.io/v1alpha2
+       kind: Object
+       spec:
+         forProvider:
+           manifest:
+             apiVersion: nutgraf.in/v1alpha1
+             kind: TenantDatabase  # ← NEW abstraction
+             spec:
+               tenantId: app-creator
+               databaseName: tenant-app-creator-db
+               cellId: spoke-pool-eu-prod-01
+         providerConfigRef:
+           name: spoke-pool-eu-prod-01  # ← provider-kubernetes config
+   ```
+
+4. **Hub provider-kubernetes** pushes `TenantDatabase` CR to **Spoke API server**
+
+5. **Spoke Crossplane** reconciles `TenantDatabase` using `tenantdatabase-spoke` Composition
+
+6. **Spoke Composition** creates:
+   - ESO ExternalSecret (restore from Infisical)
+   - CNPG Database CR
+   - Secret (db-credentials with random password)
+   - provider-sql Role
+   - provider-sql Grants (CONNECT, tables, sequences)
+   - ESO PushSecret (backup to Infisical)
+
+---
+
+### **Key Alignment Points**
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Fleet Registry** | `archived/zero/fleet-registry/` | Tenant values (no changes) |
+| **Universal Tenant Chart** | `manifests/tenants/charts/` | Renders AINativeSaaS CR (no changes) |
+| **AINativeSaaS XRD** | `xrds/definitions/` (Hub) | Tenant abstraction (no changes) |
+| **AINativeSaaS Composition** | `xrds/compositions/` (Hub) | **UPDATED**: Creates TenantDatabase instead of direct DB resources |
+| **TenantDatabase XRD** | `manifests/tenants/xrds/` (Spoke) | **NEW**: Database abstraction |
+| **TenantDatabase Composition** | `manifests/tenants/compositions/` (Spoke) | **NEW**: Creates DB + Role + Grants |
+
+---
+
+### **Why This Matters**
+
+**Before**: Hub knows about PostgreSQL roles, grants, CNPG specifics
+**After**: Hub only knows "tenant needs a database" (platform abstraction)
+
+**Benefit**: Swap CNPG → Aurora → CockroachDB by changing **only Spoke Composition**, zero Hub changes.

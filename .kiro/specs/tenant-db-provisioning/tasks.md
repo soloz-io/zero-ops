@@ -103,7 +103,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - Create file: `manifests/tenants/xrds/tenantdatabase.yaml`
   - _Requirements: FR-1.1_
 
-- [ ] 2.1.2 Commit XRD to Git
+- [x] 2.1.2 Commit XRD to Git
   - Commit to feature branch
   - Verify ArgoCD syncs XRD to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get xrd tenantdatabases.nutgraf.in`
@@ -111,20 +111,20 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 2.2 TenantDatabase Composition
 
-- [ ] 2.2.1 Create TenantDatabase Composition — ESO ExternalSecret (restore)
+- [x] 2.2.1 Create TenantDatabase Composition — ESO ExternalSecret (restore)
   - Resource 1: ESO ExternalSecret with `creationPolicy: Merge`
   - Pulls `password` from Infisical path `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`
   - Restores `tenant-<id>-db-credentials` Secret on cluster rebuild
   - Create file: `xrds/compositions/tenantdatabase-spoke.yaml` (initial)
   - _Requirements: FR-3.3_
 
-- [ ] 2.2.2 Add CNPG Database resource to Composition
+- [x] 2.2.2 Add CNPG Database resource to Composition
   - Resource 2: CNPG Database CR via provider-kubernetes Object
   - Database name: `tenant-<id>-db` in `spoke-platform-data` namespace
   - Owner: `crossplane_admin`
   - _Requirements: FR-1.2_
 
-- [ ] 2.2.3 Add provider-sql Role resource to Composition
+- [x] 2.2.3 Add provider-sql Role resource to Composition
   - Resource 3: provider-sql Role CR
   - Role name: `tenant-<id>-user`
   - `privileges.login: true`, `privileges.createDb: false`, `privileges.superUser: false`
@@ -132,25 +132,25 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - `providerConfigRef.name: default`
   - _Requirements: FR-2.1_
 
-- [ ] 2.2.4 Add Grant resources to Composition
+- [x] 2.2.4 Add Grant resources to Composition
   - Resource 4: Grant CONNECT on `tenant-<id>-db`
   - Resource 5: Grant ALL on public tables
   - Resource 6: Grant ALL on public sequences
   - All grants scoped to `tenant-<id>-user` on `tenant-<id>-db` only
   - _Requirements: FR-2.2_
 
-- [ ] 2.2.5 Add ESO PushSecret resource to Composition
+- [x] 2.2.5 Add ESO PushSecret resource to Composition
   - Resource 7: ESO PushSecret
   - Mirrors `tenant-<id>-db-credentials` Secret to Infisical
   - Path: `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`
   - `refreshInterval: 1h`
   - _Requirements: FR-3.2_
 
-- [ ] 2.2.6 Set deletionPolicy: Delete on all composed resources
+- [x] 2.2.6 Set deletionPolicy: Delete on all composed resources
   - Ensures clean cascade: Grants revoked → Role dropped → Database deleted → Secret removed
   - _Requirements: FR-1.2_
 
-- [ ] 2.2.7 Commit TenantDatabase Composition to Git
+- [x] 2.2.7 Commit TenantDatabase Composition to Git
   - Commit to feature branch
   - Verify ArgoCD syncs Composition to Spoke
   - Verify: `kubectl --context spoke-pool-eu-prod-01 get composition tenantdatabase-spoke`
@@ -162,7 +162,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 3.1 AINativeSaaS Composition
 
-- [ ] 3.1.1 Remove direct provider-sql resources from Hub Composition
+- [x] 3.1.1 Remove direct provider-sql resources from Hub Composition
   - Remove from `xrds/compositions/ainativesaas-starter-hetzner.yaml`:
     - `db-credentials-secret`
     - `db-user`
