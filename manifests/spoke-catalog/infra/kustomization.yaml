@@ -8,6 +8,7 @@ resources:
   - crossplane-admin-bootstrap.yaml
   - crossplane-provider-sql.yaml
   - crossplane-providerconfig-sql.yaml
+  - crossplane-function-patch-and-transform.yaml
   - cnpg-cluster.yaml
   - nats-leaf-node.yaml
   - grafana-alloy.yaml
