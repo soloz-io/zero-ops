@@ -68,11 +68,10 @@ The current implementation uses a single shared `app` user for all tenant Pooler
 
 **FR-2.2: Isolated Permissions**
 - `GRANT CONNECT ON DATABASE tenant-<id>-db TO tenant-<id>-user`
-- `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tenant-<id>-user`
-- `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tenant-<id>-user`
-- `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO tenant-<id>-user`
-- `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO tenant-<id>-user`
+- `ALTER DEFAULT PRIVILEGES FOR ROLE crossplane_admin IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO tenant-<id>-user`
+- `ALTER DEFAULT PRIVILEGES FOR ROLE crossplane_admin IN SCHEMA public GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO tenant-<id>-user`
 - User has NO access to other tenant databases
+- **LIMITATION**: DefaultPrivileges only affects future objects created by crossplane_admin. Existing tables require explicit GRANT statements in migrations.
 
 **FR-2.3: Dedicated ProviderConfig (Least Privilege)**
 - `crossplane_admin` role created once per Spoke Pool during cell bootstrap

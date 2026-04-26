@@ -93,11 +93,37 @@ Resources in order (sync wave enforced via Crossplane readiness dependencies):
 | 2 | `database` | CNPG Database (via provider-kubernetes Object) | Create `tenant-<id>-db` in shared CNPG |
 | 3 | `db-user` | provider-sql Role | Create `tenant-<id>-user` with password from Secret |
 | 4 | `grant-connect` | provider-sql Grant | CONNECT on `tenant-<id>-db` |
-| 5 | `grant-tables` | provider-sql Grant | ALL on public tables |
-| 6 | `grant-sequences` | provider-sql Grant | ALL on public sequences |
+| 5 | `default-privileges-tables` | provider-sql DefaultPrivileges | Future table privileges (crossplane_admin → tenant user) |
+| 6 | `default-privileges-sequences` | provider-sql DefaultPrivileges | Future sequence privileges (crossplane_admin → tenant user) |
 | 7 | `db-credentials-backup` | ESO PushSecret | Mirror Secret to Infisical |
 
 **ProviderConfig reference**: `default` (points to `shared-cnpg-rw` via `crossplane-admin-credentials`)
+
+**CRITICAL FINDING**: provider-sql Grant resource only supports database-level privileges (CONNECT, CREATE, TEMPORARY). For table/sequence privileges, must use DefaultPrivileges resource which handles `ALTER DEFAULT PRIVILEGES` statements for future objects created by `crossplane_admin`.
+
+### 2.2.1 provider-sql Limitations and Solutions
+
+**Issue**: The original design assumed provider-sql Grant could handle schema-level privileges like `GRANT ALL ON ALL TABLES IN SCHEMA public TO tenant_user`. However, analysis of provider-sql v0.9.0 API reveals:
+
+1. **Grant resource limitations**:
+   - Only supports database-level privileges: CONNECT, CREATE, TEMPORARY
+   - No `schema` or `objectType` fields in the API
+   - Cannot grant privileges on existing tables/sequences
+
+2. **Solution: DefaultPrivileges resource**:
+   - Handles `ALTER DEFAULT PRIVILEGES FOR ROLE crossplane_admin IN SCHEMA public GRANT ... TO tenant_user`
+   - Only affects **future objects** created by `crossplane_admin`
+   - Does NOT grant privileges on existing tables/sequences
+
+3. **Implications for existing objects**:
+   - Baseline migration tables created by Atlas Operator will NOT have tenant user privileges
+   - Atlas Operator runs as `crossplane_admin`, so DefaultPrivileges will apply to new tables
+   - **Workaround**: Atlas migrations must include explicit GRANT statements for existing tables
+
+**Recommended approach**:
+- Use DefaultPrivileges for future objects (automated)
+- Include GRANT statements in baseline migrations for existing tables (manual)
+- Document this limitation for operational teams
 
 ### 2.3 provider-sql ProviderConfig (Spoke)
 
@@ -340,3 +366,49 @@ Rotation is out of scope for this implementation. Two patterns are documented fo
 Create `v2` role → switch apps → confirm 0 `v1` connections → drop `v1`
 
 See design doc Section 9 for full details.
+
+---
+
+## 8. Known Limitations and Operational Considerations
+
+### 8.1 Existing Table Privileges
+
+**Issue**: DefaultPrivileges only affects future objects created by `crossplane_admin`. Existing tables created by Atlas migrations will NOT automatically have tenant user privileges.
+
+**Impact**: 
+- Baseline migration tables (users, sessions, identities, buckets, objects) will be inaccessible to tenant user
+- Tenant applications will fail with permission denied errors
+
+**Solutions**:
+
+**Option A (Recommended): Include GRANT statements in baseline migrations**
+```sql
+-- Add to end of each baseline migration file
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO tenant_${tenant_id}_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sessions TO tenant_${tenant_id}_user;
+-- etc. for all tables
+```
+
+**Option B: Post-migration GRANT via Atlas Operator**
+- Atlas Operator could run additional SQL after migrations complete
+- Requires custom Atlas Operator configuration
+- More complex but automated
+
+**Option C: Manual GRANT via provider-sql (Not Recommended)**
+- Create Grant resources for each existing table
+- Requires knowing table names in advance
+- Does not scale with dynamic table creation
+
+### 8.2 Operational Runbook
+
+**When adding new baseline migrations**:
+1. Add table/sequence creation SQL
+2. Add explicit GRANT statements for tenant user template
+3. Test with actual tenant user credentials
+4. Document any new privileges required
+
+**When troubleshooting tenant permission issues**:
+1. Check DefaultPrivileges are applied: `\ddp` in psql
+2. Check existing table privileges: `\dp table_name`
+3. Verify tenant user exists: `\du tenant_*_user`
+4. Test connection with tenant credentials
