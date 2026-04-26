@@ -200,39 +200,39 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 4.1 Spoke Infrastructure Validation
 
-- [ ] 4.1.1 Verify provider-sql installed on Spoke
+- [x] 4.1.1 Verify provider-sql installed on Spoke
   - `kubectl --context spoke-pool-eu-prod-01 get providers.pkg.crossplane.io provider-sql`
   - Verify: `INSTALLED=True, HEALTHY=True`
   - _Requirements: FR-5.1_
 
-- [ ] 4.1.2 Verify crossplane_admin role exists in CNPG
+- [x] 4.1.2 Verify crossplane_admin role exists in CNPG
   - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du crossplane_admin"`
   - Verify: role exists with CREATEDB + CREATEROLE attributes
   - _Requirements: FR-2.3_
 
-- [ ] 4.1.3 Verify ProviderConfig is healthy
+- [x] 4.1.3 Verify ProviderConfig is healthy
   - `kubectl --context spoke-pool-eu-prod-01 get providerconfigs.postgresql.sql.crossplane.io default`
   - Verify: `READY=True`
   - _Requirements: FR-5.1_
 
 ### 4.2 TenantDatabase Provisioning Validation
 
-- [ ] 4.2.1 Apply test TenantDatabase XR
+- [x] 4.2.1 Apply test TenantDatabase XR
   - Create test manifest for `tenant-app-creator`
   - Commit to fleet registry
   - Verify `TenantDatabase` XR reaches `Ready=True`
   - _Requirements: FR-1.1, FR-1.2_
 
-- [ ] 4.2.2 Verify CNPG Database CR created
+- [x] 4.2.2 Verify CNPG Database CR created
   - `kubectl --context spoke-pool-eu-prod-01 get database tenant-app-creator-db -n spoke-platform-data`
   - _Requirements: FR-1.2_
 
-- [ ] 4.2.3 Verify per-tenant user created
+- [x] 4.2.3 Verify per-tenant user created
   - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant-app-creator-user"`
   - Verify user exists with login privilege
   - _Requirements: FR-2.1, AC-3_
 
-- [ ] 4.2.4 Verify tenant credentials Secret exists
+- [x] 4.2.4 Verify tenant credentials Secret exists
   - `kubectl --context spoke-pool-eu-prod-01 get secret tenant-app-creator-db-credentials -n tenant-app-creator`
   - Verify fields: `username`, `password`, `database`, `host`, `port`
   - Verify `username` = `tenant-app-creator-user`
@@ -244,36 +244,36 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - Verify password matches K8s Secret
   - _Requirements: FR-3.2, AC-6_
 
-- [ ] 4.2.6 Verify tenant user can connect to own database
+- [x] 4.2.6 Verify tenant user can connect to own database
   - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d tenant-app-creator-db -c "SELECT 1"`
   - Verify: connection succeeds
   - _Requirements: FR-2.2, AC-3_
 
-- [ ] 4.2.7 Verify tenant user CANNOT connect to other databases
+- [x] 4.2.7 Verify tenant user CANNOT connect to other databases
   - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d postgres`
   - Verify: connection fails with permission denied
   - _Requirements: FR-2.2, AC-4_
 
 ### 4.3 Hub Composition Validation
 
-- [ ] 4.3.1 Verify AINativeSaaS XR waits for TenantDatabase Ready
+- [x] 4.3.1 Verify AINativeSaaS XR waits for TenantDatabase Ready
   - Apply `AINativeSaaS` XR for test tenant
   - Verify Hub XR stays `Ready=False` until Spoke's `TenantDatabase` is `Ready=True`
   - _Requirements: FR-4.1, NFR-4.1, AC-8_
 
-- [ ] 4.3.2 Verify AtlasMigration connects as tenant user
+- [x] 4.3.2 Verify AtlasMigration connects as tenant user
   - Check AtlasMigration logs: `kubectl --context spoke-pool-eu-prod-01 logs -n tenant-app-creator atlasmigration-<pod>`
   - Verify: connection uses `tenant-app-creator-user`
   - Verify: no `app` user in logs
   - _Requirements: FR-4.1, AC-9_
 
-- [ ] 4.3.3 Verify Pooler uses tenant credentials
+- [x] 4.3.3 Verify Pooler uses tenant credentials
   - `kubectl --context spoke-pool-eu-prod-01 logs -n spoke-platform-data app-creator-pooler-<pod>`
   - Verify: `tenant-app-creator-user` in connection logs
   - Verify: no `app` user references
   - _Requirements: FR-4.2, AC-10_
 
-- [ ] 4.3.4 Verify PostgREST uses tenant credentials
+- [x] 4.3.4 Verify PostgREST uses tenant credentials
   - `kubectl --context spoke-pool-eu-prod-01 logs -n tenant-app-creator postgrest-app-creator-<pod>`
   - Verify: `tenant-app-creator-user` in connection logs
   - Verify: no `app` user references
@@ -281,7 +281,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 4.4 Disaster Recovery Validation
 
-- [ ] 4.4.1 Simulate cluster rebuild (Secret deletion)
+- [x] 4.4.1 Simulate cluster rebuild (Secret deletion)
   - Delete `tenant-app-creator-db-credentials` Secret manually
   - Wait for ESO ExternalSecret to restore it from Infisical
   - Verify: Secret restored with same password
@@ -290,7 +290,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 ### 4.5 Lifecycle Validation
 
-- [ ] 4.5.1 Verify tenant deletion cleans up all resources
+- [x] 4.5.1 Verify tenant deletion cleans up all resources
   - Delete `AINativeSaaS` XR for test tenant
   - Verify: `TenantDatabase` XR deleted from Spoke
   - Verify: Role dropped: `\du tenant-app-creator-user` returns nothing
