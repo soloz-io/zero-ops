@@ -12,6 +12,17 @@ spec:
   
   imageName: ghcr.io/cloudnative-pg/postgresql:16.2
   
+  # Declaratively manage crossplane_admin role
+  managed:
+    roles:
+      - name: crossplane_admin
+        ensure: present
+        login: true
+        createdb: true
+        createrole: true
+        passwordSecret:
+          name: crossplane-admin-credentials
+  
   postgresql:
     parameters:
       max_connections: "500"
