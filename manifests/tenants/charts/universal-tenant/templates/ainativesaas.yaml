@@ -42,4 +42,16 @@ spec:
   postgrest:
     dbSchema: {{ $dbSchema }}
     jwtCacheSize: {{ $jwtCacheSize }}
+  
+  {{- if .Values.resourceQuota }}
+  resourceQuota:
+    cpu: {{ .Values.resourceQuota.cpu | default "1000m" }}
+    memory: {{ .Values.resourceQuota.memory | default "2Gi" }}
+    storage: {{ .Values.resourceQuota.storage | default "10Gi" }}
+    pods: {{ .Values.resourceQuota.pods | default "10" | quote }}
+  {{- end }}
+  
+  {{- if .Values.ownerEmail }}
+  ownerEmail: {{ .Values.ownerEmail }}
+  {{- end }}
 {{- end }}
