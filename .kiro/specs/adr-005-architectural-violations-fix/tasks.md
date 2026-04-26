@@ -23,14 +23,14 @@
 
 ## Phase 2: Helm Template Updates
 
-- [ ] 2.1 Update Helm template to map resourceQuota values
+- [x] 2.1 Update Helm template to map resourceQuota values
   - Open `manifests/tenants/charts/universal-tenant/templates/ainativesaas.yaml`
   - Add resourceQuota mapping block after postgrest spec
   - Add ownerEmail mapping block after resourceQuota
   - Commit changes to feature branch
   - _Requirements: 2.7_
 
-- [ ] 2.2 Delete obsolete Helm templates
+- [-] 2.2 Delete obsolete Helm templates
   - Delete `manifests/tenants/charts/universal-tenant/templates/namespace.yaml`
   - Delete `manifests/tenants/charts/universal-tenant/templates/resourcequota.yaml`
   - Delete `manifests/tenants/charts/universal-tenant/templates/rbac.yaml`
