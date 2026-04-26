@@ -552,3 +552,75 @@ spec:
       - type: string
         string:
           fmt: "tenant-%s"
+
+  # 10. RoleBinding - Wrapped in provider-kubernetes Object
+  - name: role-binding
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: ""  # Patched from tenantId
+              namespace: ""  # Patched from tenantId
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: ""  # Patched from tenantId
+            subjects:
+            - kind: ServiceAccount
+              name: ""  # Patched from tenantId
+              namespace: ""  # Patched from tenantId
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-rolebinding"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-binding"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.roleRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-role"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.subjects[0].name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.subjects[0].namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
