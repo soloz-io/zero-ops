@@ -352,6 +352,7 @@ spec:
 
   # 6. AtlasMigration CR - Wrapped in provider-kubernetes Object
   #     Uses pooler-app secret (tenant user credentials) for database connection.
+  #     Pulls migrations from Git URL with GitHub PAT credentials.
   - name: atlasmigration
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -371,8 +372,18 @@ spec:
                   name: ""  # Patched: <tenantId>-pooler-app
                   key: url
               dir:
-                configMapRef:
-                  name: ""  # Patched from tenantId
+                url: "https://github.com/soloz-io/zero-ops.git"
+                ref: "main"
+                path: ""  # Patched from database.migrations.baseline
+                credentials:
+                  secretRef:
+                    name: github-migrations-pat
+                    key: token
+        readinessChecks:
+          - type: MatchCondition
+            matchCondition:
+              type: Ready
+              status: "True"
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -408,12 +419,17 @@ spec:
         string:
           fmt: "%s-pooler-app"
     - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
+      fromFieldPath: spec.database.migrations.baseline
+      toFieldPath: spec.forProvider.manifest.spec.dir.path
+    # CRITICAL: Extract ACTUAL AtlasMigration status from Spoke back to XR
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
+      toFieldPath: status.migrationsApplied
       transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s-migrations"
+        - type: map
+          map:
+            "True": "true"
+            "False": "false"
 
   # 7. Namespace - Wrapped in provider-kubernetes Object
   - name: namespace
@@ -686,33 +702,31 @@ spec:
       fromFieldPath: spec.resourceQuota.pods
       toFieldPath: spec.forProvider.manifest.spec.hard['pods']
 
-  # 12. GitHub PAT ExternalSecret - For Atlas migrations from private repo
-  - name: github-migrations-pat
+  # 12. GitHub Credentials Secret - Copy from Hub to Spoke tenant namespace
+  #     Uses existing hub-platform-git-secret from Hub
+  - name: github-credentials
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
       kind: Object
       spec:
         managementPolicies:
           - "*"
+        references:
+          - patchesFrom:
+              apiVersion: v1
+              kind: Secret
+              name: hub-platform-git-secret
+              namespace: hub-platform-ops
+              fieldPath: data.password
+            toFieldPath: stringData.token
         forProvider:
           manifest:
-            apiVersion: external-secrets.io/v1
-            kind: ExternalSecret
+            apiVersion: v1
+            kind: Secret
             metadata:
               name: github-migrations-pat
               namespace: ""  # Patched from tenantId
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: infisical-backend
-                kind: ClusterSecretStore
-              target:
-                name: github-migrations-pat
-                creationPolicy: Owner
-              data:
-                - secretKey: token
-                  remoteRef:
-                    key: github-token
+            type: Opaque
         providerConfigRef:
           name: ""  # Patched from cellId
     patches:
@@ -725,7 +739,7 @@ spec:
       transforms:
       - type: string
         string:
-          fmt: "%s-github-pat"
+          fmt: "%s-github-credentials"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.metadata.namespace
