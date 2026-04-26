@@ -293,7 +293,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "tenant_%s_user"
+                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
