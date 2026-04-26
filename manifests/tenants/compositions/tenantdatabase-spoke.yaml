@@ -266,7 +266,6 @@ spec:
                     - CONNECT
                   role: ""  # Patched to tenant-<id>-user
                   database: ""  # Patched to tenant-<id>-db
-                  withOption: "false"
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
@@ -291,83 +290,18 @@ spec:
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
           
-          # Resource 6: provider-sql Grant (ALL on tables in public schema)
-          - name: grant-tables
-            base:
-              apiVersion: postgresql.sql.crossplane.io/v1alpha1
-              kind: Grant
-              spec:
-                forProvider:
-                  privileges:
-                    - ALL
-                  role: ""  # Patched to tenant-<id>-user
-                  database: ""  # Patched to tenant-<id>-db
-                  schema: public
-                  objectType: table
-                  withOption: "false"
-                providerConfigRef:
-                  name: default
-                deletionPolicy: Delete
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-grant-tables"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant_%s_user"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.databaseName
-                toFieldPath: spec.forProvider.database
+          # NOTE: Schema-level privileges (tables, sequences, functions) are NOT managed by provider-sql Grant.
+          # These should be handled via:
+          # 1. ALTER DEFAULT PRIVILEGES in CNPG Database init SQL (for future objects)
+          # 2. Direct GRANT statements in application migrations (for existing objects)
+          # 
+          # Example SQL for crossplane_admin to grant to tenant user:
+          # ALTER DEFAULT PRIVILEGES FOR ROLE crossplane_admin IN SCHEMA public 
+          #   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tenant_<id>_user;
+          # ALTER DEFAULT PRIVILEGES FOR ROLE crossplane_admin IN SCHEMA public 
+          #   GRANT USAGE, SELECT ON SEQUENCES TO tenant_<id>_user;
           
-          # Resource 7: provider-sql Grant (ALL on sequences in public schema)
-          - name: grant-sequences
-            base:
-              apiVersion: postgresql.sql.crossplane.io/v1alpha1
-              kind: Grant
-              spec:
-                forProvider:
-                  privileges:
-                    - ALL
-                  role: ""  # Patched to tenant-<id>-user
-                  database: ""  # Patched to tenant-<id>-db
-                  schema: public
-                  objectType: sequence
-                  withOption: "false"
-                providerConfigRef:
-                  name: default
-                deletionPolicy: Delete
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-grant-sequences"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant_%s_user"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.databaseName
-                toFieldPath: spec.forProvider.database
-          
-          # Resource 8: ESO PushSecret (backup credentials to Infisical)
+          # Resource 6: ESO PushSecret (backup credentials to Infisical)
           - name: db-credentials-backup
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
