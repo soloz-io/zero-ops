@@ -685,3 +685,51 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.resourceQuota.pods
       toFieldPath: spec.forProvider.manifest.spec.hard['pods']
+
+  # 12. GitHub PAT ExternalSecret - For Atlas migrations from private repo
+  - name: github-migrations-pat
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: github-migrations-pat
+              namespace: ""  # Patched from tenantId
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: infisical-backend
+                kind: ClusterSecretStore
+              target:
+                name: github-migrations-pat
+                creationPolicy: Owner
+              data:
+                - secretKey: token
+                  remoteRef:
+                    key: github-token
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-github-pat"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
