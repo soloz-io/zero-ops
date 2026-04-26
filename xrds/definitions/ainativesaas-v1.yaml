@@ -92,6 +92,34 @@ spec:
                     default: 10000
                     minimum: 1000
                     maximum: 100000
+              resourceQuota:
+                type: object
+                description: "Namespace resource quota limits"
+                properties:
+                  cpu:
+                    type: string
+                    description: "CPU limit (e.g., '1000m', '2')"
+                    pattern: '^[0-9]+m?$'
+                    default: "1000m"
+                  memory:
+                    type: string
+                    description: "Memory limit (e.g., '2Gi', '512Mi')"
+                    pattern: '^[0-9]+[EPTGMK]i?$'
+                    default: "2Gi"
+                  storage:
+                    type: string
+                    description: "Storage limit (e.g., '10Gi')"
+                    pattern: '^[0-9]+[EPTGMK]i?$'
+                    default: "10Gi"
+                  pods:
+                    type: string
+                    description: "Max pods (e.g., '10')"
+                    pattern: '^[0-9]+$'
+                    default: "10"
+              ownerEmail:
+                type: string
+                description: "Tenant owner email for notifications"
+                pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
           status:
             type: object
             properties:
