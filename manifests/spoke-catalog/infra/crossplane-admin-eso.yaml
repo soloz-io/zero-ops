@@ -23,9 +23,10 @@ spec:
         # PostgreSQL connection string for provider-sql ProviderConfig
         connectionString: |
           postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres?sslmode=require
-        # Individual fields for bootstrap Job
+        # Individual fields for bootstrap Job and provider-sql
         username: crossplane_admin
         password: "{{ .password }}"
+        endpoint: shared-cnpg-rw.spoke-platform-data.svc.cluster.local  # provider-sql uses 'endpoint' not 'host'
         host: shared-cnpg-rw.spoke-platform-data.svc.cluster.local
         port: "5432"
         database: postgres
