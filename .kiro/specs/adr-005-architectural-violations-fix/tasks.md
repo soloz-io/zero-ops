@@ -30,7 +30,7 @@
   - Commit changes to feature branch
   - _Requirements: 2.7_
 
-- [-] 2.2 Delete obsolete Helm templates
+- [x] 2.2 Delete obsolete Helm templates
   - Delete `manifests/tenants/charts/universal-tenant/templates/namespace.yaml`
   - Delete `manifests/tenants/charts/universal-tenant/templates/resourcequota.yaml`
   - Delete `manifests/tenants/charts/universal-tenant/templates/rbac.yaml`
@@ -38,7 +38,7 @@
   - Commit deletions to feature branch
   - _Requirements: 2.5, 2.6_
 
-- [ ] 2.3 Manual Validation - Helm Template Rendering
+- [x] 2.3 Manual Validation - Helm Template Rendering
   - **What to verify**: Helm template renders XR with resourceQuota mapped correctly
   - **How to verify**:
     - `helm template test-tenant manifests/tenants/charts/universal-tenant --set tenantId=test-001 --set resourceQuota.cpu=2000m --set resourceQuota.memory=4Gi`
