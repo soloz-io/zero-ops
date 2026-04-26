@@ -773,7 +773,7 @@ After completing each phase, you MUST:
   - Verify Application destination: `spokepool-01` (from cellId in values.yaml)
   - _Requirements: FR-5.2, AC-5, AC-6_
 
-- [ ] 3.6.3 Verify Helm renders CRs correctly
+- [x] 3.6.3 Verify Helm renders CRs correctly
   - Test Helm rendering: `helm template charts/universal-tenant -f fleet-registry/tenants/tenant-acme/values.yaml`
   - Verify AINativeSaaS XR, AtlasMigration CR, namespace, RBAC generated
   - _Requirements: FR-5.2, AC-5, AC-6_

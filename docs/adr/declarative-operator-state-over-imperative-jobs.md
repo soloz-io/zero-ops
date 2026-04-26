@@ -84,3 +84,11 @@ spec:
         passwordSecret:
           name: admin-credentials 
 ```
+
+## Implementation Note: Crossplane Delivery (See ADR 005)
+
+While this ADR mandates the use of declarative Custom Resources (like `provider-sql` Roles and Grants) over imperative Jobs, care must be taken in how these resources are delivered from the Hub to the Spoke.
+
+As per **ADR 005 (Unified Abstraction Layers in Crossplane)**, when composing these declarative resources via Crossplane Pipeline mode for remote Spoke clusters, they MUST be wrapped in `kubernetes.crossplane.io/v1alpha2/Object` Managed Resources to prevent Hub-side schema resolution race conditions.
+
+**Key Principle:** Declarative CRs are the correct pattern (ADR 004), but their delivery mechanism must account for Hub-Spoke topology constraints (ADR 005).

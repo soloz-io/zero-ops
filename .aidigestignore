@@ -3,6 +3,7 @@
 .zero-ops
 archived
 bin
+docs
 !docs/adr
 memory
 k8-secrets
