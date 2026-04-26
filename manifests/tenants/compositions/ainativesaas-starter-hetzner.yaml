@@ -502,3 +502,53 @@ spec:
       - type: string
         string:
           fmt: "tenant-%s"
+
+  # 9. Role - Wrapped in provider-kubernetes Object
+  - name: role
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              name: ""  # Patched from tenantId
+              namespace: ""  # Patched from tenantId
+            rules:
+            - apiGroups: [""]
+              resources: ["pods", "services", "configmaps", "secrets"]
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+            - apiGroups: ["apps"]
+              resources: ["deployments", "statefulsets"]
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-role"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-role"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
