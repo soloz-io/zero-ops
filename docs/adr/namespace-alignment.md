@@ -36,7 +36,7 @@
 | `spoke-platform-data` | Shared CNPG Cluster, CNPG Operator, per-tenant Poolers, crossplane-admin-credentials Secret, bootstrap Job | Database layer for the cell. Includes Crossplane DB credentials (exception: colocated with workloads due to K8s secretKeyRef namespace boundary) |
 | `spoke-platform-messaging` | NATS Leaf Node | Event messaging for the cell |
 | `spoke-platform-observability` | Grafana Alloy, metrics collection | Observability for the cell |
-| `spoke-tenant-<id>` | AINativeSaaS XR, PostgREST, AtlasMigration, tenant credentials Secret | One namespace per tenant; e.g. `spoke-tenant-app-creator` |
+| `tenant-<id>` | AINativeSaaS XR, PostgREST, AtlasMigration, tenant credentials Secret | One namespace per tenant; e.g. `tenant-app-creator` |
 
 ## Notes
 

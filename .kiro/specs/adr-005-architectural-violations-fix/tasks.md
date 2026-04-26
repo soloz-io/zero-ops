@@ -51,7 +51,7 @@
 
 ## Phase 3: Composition Updates
 
-- [ ] 3.1 Add Namespace Object MR to Composition
+- [x] 3.1 Add Namespace Object MR to Composition
   - Open `xrds/compositions/ainativesaas-starter-hetzner.yaml`
   - Add namespace Object MR as resource #7 (after atlasmigration)
   - Configure patches for tenantId → namespace name transformation
@@ -59,14 +59,14 @@
   - Commit changes to feature branch
   - _Requirements: 2.2_
 
-- [ ] 3.2 Add ServiceAccount Object MR to Composition
+- [x] 3.2 Add ServiceAccount Object MR to Composition
   - Add service-account Object MR as resource #8
   - Configure patches for tenantId → ServiceAccount name/namespace
   - Configure providerConfigRef patch from cellId
   - Commit changes to feature branch
   - _Requirements: 2.2_
 
-- [ ] 3.3 Add Role Object MR to Composition
+- [x] 3.3 Add Role Object MR to Composition
   - Add role Object MR as resource #9
   - Define RBAC rules (pods, services, configmaps, secrets, deployments, statefulsets)
   - Configure patches for tenantId → Role name/namespace
@@ -74,21 +74,21 @@
   - Commit changes to feature branch
   - _Requirements: 2.2_
 
-- [ ] 3.4 Add RoleBinding Object MR to Composition
+- [x] 3.4 Add RoleBinding Object MR to Composition
   - Add role-binding Object MR as resource #10
   - Configure roleRef and subjects patches from tenantId
   - Configure providerConfigRef patch from cellId
   - Commit changes to feature branch
   - _Requirements: 2.2_
 
-- [ ] 3.5 Add ResourceQuota Object MR to Composition
+- [x] 3.5 Add ResourceQuota Object MR to Composition
   - Add resource-quota Object MR as resource #11
   - Configure patches from spec.resourceQuota fields to manifest.spec.hard
   - Configure providerConfigRef patch from cellId
   - Commit changes to feature branch
   - _Requirements: 2.2, 2.7_
 
-- [ ] 3.6 Create GitHub PAT ExternalSecret for Atlas migrations
+- [x] 3.6 Create GitHub PAT ExternalSecret for Atlas migrations
   - **CRITICAL**: zero-ops repository is PRIVATE. Atlas needs GitHub PAT to pull migrations from Git
   - **Why this is needed**: Currently works because ArgoCD globs SQL files into ConfigMap. After switching to Git-native, Atlas needs credentials
   - Add github-migrations-pat ExternalSecret as resource #12 in Composition
@@ -97,7 +97,7 @@
   - Commit changes to feature branch
   - _Design: Feedback GAP 2 - Atlas Git Authentication_
 
-- [ ] 3.7 Update AtlasMigration to use Git URL with credentials AND add status mapping
+- [x] 3.7 Update AtlasMigration to use Git URL with credentials AND add status mapping
   - Replace existing atlasmigration resource (resource #6)
   - Change spec.dir from configMapRef to url-based Git pull
   - Set url: "https://github.com/soloz-io/zero-ops.git"
@@ -111,13 +111,13 @@
   - Commit changes to feature branch
   - _Requirements: 2.6, Design: Feedback GAP 2, Design: Status Aggregation Strategy_
 
-- [ ] 3.8 Add readinessChecks and ToCompositeFieldPath status mappings to Object MRs
+- [x] 3.8 Add readinessChecks and ToCompositeFieldPath status mappings to Object MRs
   - **CRITICAL - Object MR Readiness Caveat**: Object MR `Ready=True` means "Crossplane applied YAML to Spoke", NOT "underlying resource finished reconciling"
   - **Solution**: Add `ToCompositeFieldPath` patches to extract ACTUAL resource status from Spoke manifests back to XR
   - Add readinessChecks to github-migrations-pat ExternalSecret (wait for secret sync from Infisical)
   - Add readinessChecks to pooler Object MR (depends on TenantDatabase secret)
   - Add readinessChecks to postgrest-deployment Object MR (depends on pooler secret)
-  - Add readinessChecks to atlasmigration Object MR (depends on pooler secret AND github-migrations-pat secret)
+  - Add readinessChecks to atlasmigration Object MR (depends on pooler secret AND github secret)
   - **Add ToCompositeFieldPath patches**:
     - Pooler: Extract `status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status` → `status.poolerReady`
     - PostgREST: Extract `status.atProvider.manifest.status.conditions[?(@.type=="Available")].status` → `status.postgrestReady`
@@ -126,10 +126,10 @@
   - Commit changes to feature branch
   - _Design: Dependency Handling section, Design: Status Aggregation Strategy_
 
-- [ ] 3.9 Manual Validation - Composition Resources
+- [-] 3.9 Manual Validation - Composition Resources
   - **What to verify**: Composition provisions all 12 Spoke resources correctly with proper status aggregation and GitHub PAT credentials
   - **How to verify**:
-    - **PREREQUISITE**: Ensure GitHub PAT exists in Infisical secret store with key `github-migrations-pat`
+    - **PREREQUISITE**: Ensure GitHub PAT exists in Infisical secret store with key 
     - Deploy test tenant XR to Hub cluster
     - Wait for Crossplane reconciliation (check `kubectl get ainativesaas test-tenant-001 -o yaml` for Ready condition)
     - **Verify XR Status Aggregation**:
