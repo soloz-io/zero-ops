@@ -131,6 +131,15 @@ spec:
       - type: string
         string:
           fmt: "%s-db-credentials"
+    # Extract ACTUAL Pooler status from Spoke back to XR
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
+      toFieldPath: status.poolerReady
+      transforms:
+        - type: map
+          map:
+            "True": "true"
+            "False": "false"
 
   # 3. Pooler Connection Secret - Wrapped in provider-kubernetes Object
   #    URL uses tenant-specific user credentials (not shared postgres user).
@@ -295,6 +304,15 @@ spec:
       - type: string
         string:
           fmt: "tenant-%s-user"
+    # Extract ACTUAL Deployment status from Spoke back to XR
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Available")].status
+      toFieldPath: status.postgrestReady
+      transforms:
+        - type: map
+          map:
+            "True": "true"
+            "False": "false"
 
   # 5. PostgREST Service - Wrapped in provider-kubernetes Object
   - name: postgrest-service
