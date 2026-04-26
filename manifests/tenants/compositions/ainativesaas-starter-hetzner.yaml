@@ -1,0 +1,461 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ainativesaas-starter-hetzner
+  labels:
+    provider: hetzner
+    tier: starter
+spec:
+  compositeTypeRef:
+    apiVersion: nutgraf.in/v1alpha1
+    kind: AINativeSaaS
+
+  resources:
+  # 1. TenantDatabase XR - Remote Provider Pattern
+  #    Hub pushes TenantDatabase CR to Spoke, Spoke Crossplane reconciles it.
+  #    Replaces: database, db-credentials-secret, db-user, grant-connect, grant-tables, grant-sequences
+  - name: tenant-database-remote
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: nutgraf.in/v1alpha1
+            kind: TenantDatabase
+            metadata:
+              name: ""  # Patched: tenantId
+            spec:
+              tenantId: ""       # Patched
+              databaseName: ""   # Patched: database.name
+              cellId: ""         # Patched: cellId
+        readinessChecks:
+          - type: MatchCondition
+            matchCondition:
+              type: Ready
+              status: "True"
+        providerConfigRef:
+          name: ""  # Patched: cellId (provider-kubernetes ProviderConfig for Spoke)
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-tenant-database"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.tenantId
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.manifest.spec.databaseName
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.forProvider.manifest.spec.cellId
+
+  # 2. CNPG Pooler CR - Wrapped in provider-kubernetes Object
+  #    Uses tenant-specific credentials from tenant-<id>-db-credentials Secret (created by TenantDatabase Composition on Spoke).
+  - name: pooler
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Pooler
+            metadata:
+              namespace: spoke-platform-data
+            spec:
+              cluster:
+                name: shared-cnpg
+              type: rw
+              instances: 1
+              pgbouncer:
+                poolMode: transaction
+                parameters:
+                  max_client_conn: "100"
+                  default_pool_size: "5"
+                authQueryUser:
+                  secretRef:
+                    name: ""   # Patched: <tenantId>-db-credentials
+              template:
+                spec:
+                  containers:
+                  - name: pgbouncer
+                    env:
+                    - name: PGDATABASE
+                      value: ""  # Patched from database.name
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.database.name
+      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].value
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
+    # Reference tenant-specific credentials secret (not shared app user)
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.pgbouncer.authQueryUser.secretRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-db-credentials"
+
+  # 3. Pooler Connection Secret - Wrapped in provider-kubernetes Object
+  #    URL uses tenant-specific user credentials (not shared postgres user).
+  - name: pooler-secret
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              namespace: ""  # Patched
+            type: Opaque
+            stringData:
+              url: ""  # Patched: postgresql://tenant-<id>-user:<password>@<tenantId>-pooler.spoke-platform-data.svc:5432/<db>
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-secret"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-app"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    # NOTE: URL uses tenant-specific user (tenant-<id>-user) not shared postgres user.
+    # Password is read from the db-credentials-secret at runtime by the pooler.
+    # The URL here uses the tenant user for Atlas migrations; pooler auth uses secretRef.
+    - type: CombineFromComposite
+      combine:
+        variables:
+        - fromFieldPath: spec.tenantId
+        - fromFieldPath: spec.tenantId
+        - fromFieldPath: spec.database.name
+        strategy: string
+        string:
+          fmt: "postgresql://tenant-%s-user@%s-pooler.spoke-platform-data.svc:5432/%s"
+      toFieldPath: spec.forProvider.manifest.stringData.url
+
+  # 4. PostgREST Deployment - Wrapped in provider-kubernetes Object
+  #    Uses tenant-specific credentials from db-credentials-secret.
+  - name: postgrest-deployment
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: postgrest
+              template:
+                metadata:
+                  labels:
+                    app: postgrest
+                spec:
+                  containers:
+                  - name: postgrest
+                    image: postgrest/postgrest:v12.0.2
+                    ports:
+                    - containerPort: 3000
+                      name: http
+                    env:
+                    - name: PGRST_DB_URI
+                      valueFrom:
+                        secretKeyRef:
+                          name: ""   # Patched: <tenantId>-db-credentials
+                          key: url
+                    - name: PGRST_DB_SCHEMA
+                      value: "public"
+                    - name: PGRST_DB_ANON_ROLE
+                      value: ""  # Patched: tenant-<tenantId>-user
+                    - name: PGRST_JWT_SECRET
+                      valueFrom:
+                        secretKeyRef:
+                          name: hub-ory-jwt-secret
+                          key: secret
+                    - name: PGRST_JWT_CACHE_MAX_LIFETIME
+                      value: "3600"
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels['tenant-id']
+    # PGRST_DB_URI sourced from tenant-specific credentials secret (not shared postgres user)
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-app"
+    # PGRST_DB_ANON_ROLE set to tenant user (not shared postgres)
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[2].value
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-user"
+
+  # 5. PostgREST Service - Wrapped in provider-kubernetes Object
+  - name: postgrest-service
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              type: ClusterIP
+              ports:
+              - port: 3000
+                targetPort: 3000
+                protocol: TCP
+                name: http
+              selector:
+                app: postgrest
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s-service"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "postgrest-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.selector['tenant-id']
+
+  # 6. AtlasMigration CR - Wrapped in provider-kubernetes Object
+  #     Uses pooler-app secret (tenant user credentials) for database connection.
+  - name: atlasmigration
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: db.atlasgo.io/v1alpha1
+            kind: AtlasMigration
+            metadata:
+              namespace: ""  # Patched
+            spec:
+              urlFrom:
+                secretKeyRef:
+                  name: ""  # Patched: <tenantId>-pooler-app
+                  key: url
+              dir:
+                configMapRef:
+                  name: ""  # Patched from tenantId
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-atlasmigration"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-migrations"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.urlFrom.secretKeyRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-pooler-app"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-migrations"
+
+  # 7. Namespace - Wrapped in provider-kubernetes Object
+  - name: namespace
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: ""  # Patched from tenantId
+              labels:
+                tenant-id: ""
+                tier: ""
+                managed-by: crossplane
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-namespace"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tier
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tier']
