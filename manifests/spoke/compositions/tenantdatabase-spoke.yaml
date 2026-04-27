@@ -170,7 +170,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "crossplane_admin"
+                      fmt: "tenant-%s-user"
           
           # Resource 3b: Pooler App Secret (for AtlasMigration)
           # Uses ESO to read credentials from Infisical and construct connection URL
