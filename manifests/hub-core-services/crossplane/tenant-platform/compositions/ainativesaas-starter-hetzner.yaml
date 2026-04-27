@@ -370,7 +370,7 @@ spec:
 
   # 6. AtlasMigration CR - Wrapped in provider-kubernetes Object
   #     Uses pooler-app secret (tenant user credentials) for database connection.
-  #     Pulls migrations from Git URL with GitHub PAT credentials.
+  #     Pulls migrations from ConfigMap (created by ArgoCD from Helm chart).
   - name: atlasmigration
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -390,13 +390,8 @@ spec:
                   name: ""  # Patched: <tenantId>-pooler-app
                   key: url
               dir:
-                url: ""  # Patched from database.migrations.baseline.gitRepo
-                ref: ""  # Patched from database.migrations.baseline.gitRevision
-                path: ""  # Patched from database.migrations.baseline.gitPath
-                credentials:
-                  secretRef:
-                    name: github-migrations-pat
-                    key: token
+                configMapRef:
+                  name: ""  # Patched: tenant-<tenantId>-migrations
         readinessChecks:
           - type: MatchCondition
             matchCondition:
@@ -437,14 +432,12 @@ spec:
         string:
           fmt: "%s-pooler-app"
     - type: FromCompositeFieldPath
-      fromFieldPath: spec.database.migrations.baseline.gitRepo
-      toFieldPath: spec.forProvider.manifest.spec.dir.url
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.database.migrations.baseline.gitRevision
-      toFieldPath: spec.forProvider.manifest.spec.dir.ref
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.database.migrations.baseline.gitPath
-      toFieldPath: spec.forProvider.manifest.spec.dir.path
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s-migrations"
     # CRITICAL: Extract ACTUAL AtlasMigration status from Spoke back to XR
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
@@ -725,49 +718,3 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.resourceQuota.pods
       toFieldPath: spec.forProvider.manifest.spec.hard['pods']
-
-  # 12. GitHub Credentials Secret - Copy from Hub to Spoke tenant namespace
-  #     Uses existing hub-platform-git-secret from Hub
-  - name: github-credentials
-    base:
-      apiVersion: kubernetes.crossplane.io/v1alpha2
-      kind: Object
-      spec:
-        managementPolicies:
-          - "*"
-        references:
-          - patchesFrom:
-              apiVersion: v1
-              kind: Secret
-              name: hub-platform-git-secret
-              namespace: hub-platform-ops
-              fieldPath: data.password
-            toFieldPath: stringData.token
-        forProvider:
-          manifest:
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              name: github-migrations-pat
-              namespace: ""  # Patched from tenantId
-            type: Opaque
-        providerConfigRef:
-          name: ""  # Patched from cellId
-    patches:
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.cellId
-      toFieldPath: spec.providerConfigRef.name
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-github-credentials"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.namespace
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s"
