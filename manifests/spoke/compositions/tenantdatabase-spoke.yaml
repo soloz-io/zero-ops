@@ -300,6 +300,7 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: Role
+              metadata: {}
               spec:
                 forProvider:
                   privileges:
@@ -344,6 +345,7 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: Grant
+              metadata: {}
               spec:
                 forProvider:
                   privileges:
@@ -379,6 +381,7 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: DefaultPrivileges
+              metadata: {}
               spec:
                 forProvider:
                   privileges:
@@ -423,6 +426,7 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: DefaultPrivileges
+              metadata: {}
               spec:
                 forProvider:
                   privileges:
