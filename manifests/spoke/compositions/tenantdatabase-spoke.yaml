@@ -240,7 +240,9 @@ spec:
                     fmt: "postgresql://tenant_%s_user:%.32s@%s-pooler.spoke-platform-data.svc:5432/%s"
                 toFieldPath: spec.forProvider.manifest.stringData.url
           
-          # Resource 3b: Pooler App Secret (symlink to db-credentials for AtlasMigration)
+          # Resource 3b: Pooler App Secret (for AtlasMigration)
+          # Uses ESO to read credentials from Infisical and construct connection URL
+          # Follows Pattern B: Application Secrets (Infisical → ESO → Apps)
           - name: pooler-app-secret
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -251,13 +253,38 @@ spec:
                   name: default
                 forProvider:
                   manifest:
-                    apiVersion: v1
-                    kind: Secret
+                    apiVersion: external-secrets.io/v1beta1
+                    kind: ExternalSecret
                     metadata:
                       namespace: ""  # Patched to tenant-<id>
-                    type: Opaque
-                    stringData:
-                      url: ""  # Patched: postgresql://tenant_<id>_user:PASSWORD@<pooler-host>:5432/<db>
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRef:
+                        name: infisical-backend
+                        kind: ClusterSecretStore
+                      target:
+                        name: ""  # Patched to <tenantId>-pooler-app
+                        creationPolicy: Owner
+                        template:
+                          type: Opaque
+                          engineVersion: v2
+                          data:
+                            # Construct URL from Infisical credentials + computed pooler-host
+                            # pooler-host is configuration (not secret), so hardcoded in template
+                            url: "postgresql://{{ .username }}:{{ .password }}@POOLER_HOST_PLACEHOLDER:5432/{{ .database }}"
+                      data:
+                        - secretKey: username
+                          remoteRef:
+                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            property: username
+                        - secretKey: password
+                          remoteRef:
+                            key: ""  # Patched
+                            property: password
+                        - secretKey: database
+                          remoteRef:
+                            key: ""  # Patched
+                            property: database
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
@@ -274,7 +301,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-pooler-app"
+                      fmt: "%s-pooler-app-externalsecret"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
@@ -283,17 +310,50 @@ spec:
                     string:
                       type: Format
                       fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-pooler-app"
               - type: CombineFromComposite
                 combine:
                   variables:
+                    - fromFieldPath: spec.cellId
                     - fromFieldPath: spec.tenantId
-                    - fromFieldPath: metadata.uid
-                    - fromFieldPath: spec.tenantId
-                    - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://tenant_%s_user:%.32s@%s-pooler.spoke-platform-data.svc:5432/%s"
-                toFieldPath: spec.forProvider.manifest.stringData.url
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[2].remoteRef.key
+              # Replace POOLER_HOST_PLACEHOLDER with actual pooler host
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "postgresql://{{ .username }}:{{ .password }}@%s-pooler.spoke-platform-data.svc:5432/{{ .database }}"
           
           # Resource 4: provider-sql Role (tenant user)
           # NOT wrapped in Object, because it's already a Crossplane MR
@@ -586,143 +646,3 @@ spec:
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[4].match.remoteRef.remoteKey
-          
-          # Resource 9: Pooler Connection Secret (for AtlasMigration)
-          # Uses ESO to read from tenant-<id>-db-credentials and construct URL with password
-          - name: pooler-app-secret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies: ["*"]
-                providerConfigRef:
-                  name: default
-                forProvider:
-                  manifest:
-                    apiVersion: external-secrets.io/v1beta1
-                    kind: ExternalSecret
-                    metadata:
-                      namespace: ""  # Patched to tenant-<id>
-                    spec:
-                      refreshInterval: 1h
-                      secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
-                      target:
-                        name: ""  # Patched to <tenantId>-pooler-app
-                        creationPolicy: Owner
-                        template:
-                          type: Opaque
-                          engineVersion: v2
-                          data:
-                            url: "postgresql://{{ .username }}:{{ .password }}@{{ .pooler_host }}:5432/{{ .database }}"
-                      data:
-                        - secretKey: username
-                          sourceRef:
-                            storeRef:
-                              name: infisical-backend
-                              kind: ClusterSecretStore
-                          remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
-                            property: username
-                        - secretKey: password
-                          sourceRef:
-                            storeRef:
-                              name: infisical-backend
-                              kind: ClusterSecretStore
-                          remoteRef:
-                            key: ""  # Patched
-                            property: password
-                        - secretKey: database
-                          sourceRef:
-                            storeRef:
-                              name: infisical-backend
-                              kind: ClusterSecretStore
-                          remoteRef:
-                            key: ""  # Patched
-                            property: database
-                        - secretKey: pooler_host
-                          sourceRef:
-                            storeRef:
-                              name: infisical-backend
-                              kind: ClusterSecretStore
-                          remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/config/pooler-host-template
-                            property: ""  # Patched to <tenantId>
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-pooler-app-secret"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-pooler-app-externalsecret"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.metadata.namespace
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.target.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-pooler-app"
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[2].remoteRef.key
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.data[3].remoteRef.property
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-pooler.spoke-platform-data.svc"
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/pooler-host"
-                toFieldPath: spec.forProvider.manifest.spec.data[3].remoteRef.key
