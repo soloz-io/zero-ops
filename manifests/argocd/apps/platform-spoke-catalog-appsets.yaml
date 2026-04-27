@@ -378,7 +378,7 @@ spec:
       source:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: HEAD
-        path: manifests/spoke-catalog/infra
+        path: manifests/spoke/spoke-catalog/infra
         kustomize:
           patches:
             - target:

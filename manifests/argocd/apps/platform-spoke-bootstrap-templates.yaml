@@ -20,7 +20,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
-    path: manifests/spoke-bootstrap
+    path: manifests/spoke/spoke-bootstrap
     directory:
       recurse: true
   destination:

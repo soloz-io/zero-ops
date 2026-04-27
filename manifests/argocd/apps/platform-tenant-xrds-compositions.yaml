@@ -28,7 +28,7 @@ spec:
       source:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: HEAD
-        path: manifests/tenants
+        path: manifests/spoke
         directory:
           recurse: true
       destination:
