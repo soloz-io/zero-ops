@@ -139,7 +139,7 @@ spec:
       transforms:
         - type: math
           math:
-            type: clampMin
+            type: ClampMin
             clampMin: 1
         - type: convert
           convert:
@@ -259,7 +259,7 @@ spec:
       transforms:
         - type: math
           math:
-            type: clampMin
+            type: ClampMin
             clampMin: 1
         - type: convert
           convert:
@@ -397,7 +397,7 @@ spec:
       transforms:
         - type: math
           math:
-            type: clampMin
+            type: ClampMin
             clampMin: 1
         - type: convert
           convert:
