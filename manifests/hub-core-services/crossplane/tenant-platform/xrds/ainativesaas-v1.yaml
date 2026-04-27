@@ -55,9 +55,20 @@ spec:
                     type: object
                     properties:
                       baseline:
-                        type: string
-                        description: "Path to tenant baseline migrations in Git"
-                        default: "migrations/tenant-baseline/"
+                        type: object
+                        description: "Git source for tenant baseline migrations"
+                        properties:
+                          gitRepo:
+                            type: string
+                            description: "Git repository URL"
+                          gitRevision:
+                            type: string
+                            description: "Git branch or tag"
+                            default: "main"
+                          gitPath:
+                            type: string
+                            description: "Path to migrations directory in repo"
+                            default: "migrations/tenant-baseline"
                       tenant:
                         type: string
                         description: "Path to tenant-specific migrations in Git"
