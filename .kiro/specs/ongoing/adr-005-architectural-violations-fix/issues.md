@@ -101,7 +101,40 @@ kubectl get ainativesaas app-creator -o jsonpath='{.status.conditions[?(@.type==
 
 ## Required Actions (GitOps-Compliant)
 
-### 1. Fix ArgoCD Sync Issue
+### 1. CRITICAL: Composition Not Syncing from Git
+**Owner:** Platform Team  
+**Priority:** CRITICAL
+
+**Problem:**
+- Composition file in Git (commit `fb88a4e`) has the fix
+- ArgoCD reports sync successful
+- Composition in cluster does NOT have the fix
+- Deleting and recreating composition still doesn't apply the fix
+
+**Evidence:**
+```bash
+# Git has the fix
+$ git show fb88a4e:manifests/.../ainativesaas-starter-hetzner.yaml | grep -A 5 "toFieldPath: status.poolerReady"
+      toFieldPath: status.poolerReady
+      policy:
+        fromFieldPath: Optional  # <-- FIX IS HERE
+
+# Cluster missing the fix
+$ kubectl get composition ainativesaas-starter-hetzner -o yaml | grep -A 5 "toFieldPath: status.poolerReady"
+      toFieldPath: status.poolerReady
+      transforms:  # <-- NO POLICY FIELD
+```
+
+**Root Cause Hypothesis:**
+ArgoCD may be caching the composition or there's a sync hook preventing updates to existing Composition resources.
+
+**Required Investigation:**
+1. Check ArgoCD sync logs for composition
+2. Check if Crossplane has admission webhooks blocking updates
+3. Check if there's a sync policy preventing Composition updates
+4. Try syncing with `--force` and `--replace` flags
+
+### 2. Fix ArgoCD Sync Issue
 **Owner:** Platform Team  
 **Priority:** HIGH
 

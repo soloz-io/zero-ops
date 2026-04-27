@@ -1,9 +1,11 @@
 # ADR 005: Hub-Spoke Crossplane Composition Pattern
 
 **Date:** 2026-04-26  
-**Status:** Accepted  
+**Status:** Accepted (Amended by [ADR 008](./008-federated-api-boundary-crossplane.md))  
 **Authors:** Platform Engineering Team  
 **Crossplane Version:** v2.0+
+
+**Amendment Note:** This ADR established the principle of using Crossplane as the unified abstraction layer. [ADR 008: Federated API Boundary Pattern](./008-federated-api-boundary-crossplane.md) amends the implementation details to use distributed API boundaries instead of Hub-managed primitives.
 
 ## Context
 
