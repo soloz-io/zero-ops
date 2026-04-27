@@ -142,65 +142,8 @@ spec:
             "False": "false"
 
   # 3. Pooler Connection Secret - Wrapped in provider-kubernetes Object
-  #    URL uses tenant-specific user credentials (not shared postgres user).
-  - name: pooler-secret
-    base:
-      apiVersion: kubernetes.crossplane.io/v1alpha2
-      kind: Object
-      spec:
-        managementPolicies:
-          - "*"
-        forProvider:
-          manifest:
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              namespace: ""  # Patched
-            type: Opaque
-            stringData:
-              url: ""  # Patched: postgresql://tenant-<id>-user:<password>@<tenantId>-pooler.spoke-platform-data.svc:5432/<db>
-        providerConfigRef:
-          name: ""  # Patched from cellId
-    patches:
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.cellId
-      toFieldPath: spec.providerConfigRef.name
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-pooler-secret"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-pooler-app"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.namespace
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s"
-    # NOTE: URL uses tenant-specific user (tenant-<id>-user) not shared postgres user.
-    # Password is read from the db-credentials-secret at runtime by the pooler.
-    # The URL here uses the tenant user for Atlas migrations; pooler auth uses secretRef.
-    - type: CombineFromComposite
-      combine:
-        variables:
-        - fromFieldPath: spec.tenantId
-        - fromFieldPath: spec.tenantId
-        - fromFieldPath: spec.database.name
-        strategy: string
-        string:
-          fmt: "postgresql://tenant-%s-user@%s-pooler.spoke-platform-data.svc:5432/%s"
-      toFieldPath: spec.forProvider.manifest.stringData.url
 
-  # 4. PostgREST Deployment - Wrapped in provider-kubernetes Object
+  # 3. PostgREST Deployment - Wrapped in provider-kubernetes Object
   #    Uses tenant-specific credentials from db-credentials-secret.
   - name: postgrest-deployment
     base:
@@ -314,7 +257,7 @@ spec:
             "True": "true"
             "False": "false"
 
-  # 5. PostgREST Service - Wrapped in provider-kubernetes Object
+  # 4. PostgREST Service - Wrapped in provider-kubernetes Object
   - name: postgrest-service
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -368,7 +311,7 @@ spec:
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.spec.selector['tenant-id']
 
-  # 6. AtlasMigration CR - Wrapped in provider-kubernetes Object
+  # 5. AtlasMigration CR - Wrapped in provider-kubernetes Object
   #     Uses pooler-app secret (tenant user credentials) for database connection.
   #     Pulls migrations from ConfigMap (created by ArgoCD from Helm chart).
   - name: atlasmigration
@@ -448,7 +391,7 @@ spec:
             "True": "true"
             "False": "false"
 
-  # 7. Namespace - Wrapped in provider-kubernetes Object
+  # 6. Namespace - Wrapped in provider-kubernetes Object
   - name: namespace
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -493,7 +436,7 @@ spec:
       fromFieldPath: spec.tier
       toFieldPath: spec.forProvider.manifest.metadata.labels['tier']
 
-  # 8. ServiceAccount - Wrapped in provider-kubernetes Object
+  # 7. ServiceAccount - Wrapped in provider-kubernetes Object
   - name: service-account
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -536,7 +479,7 @@ spec:
         string:
           fmt: "tenant-%s"
 
-  # 9. Role - Wrapped in provider-kubernetes Object
+  # 8. Role - Wrapped in provider-kubernetes Object
   - name: role
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -586,7 +529,7 @@ spec:
         string:
           fmt: "tenant-%s"
 
-  # 10. RoleBinding - Wrapped in provider-kubernetes Object
+  # 9. RoleBinding - Wrapped in provider-kubernetes Object
   - name: role-binding
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -658,7 +601,7 @@ spec:
         string:
           fmt: "tenant-%s"
 
-  # 11. ResourceQuota - Wrapped in provider-kubernetes Object
+  # 10. ResourceQuota - Wrapped in provider-kubernetes Object
   - name: resource-quota
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
