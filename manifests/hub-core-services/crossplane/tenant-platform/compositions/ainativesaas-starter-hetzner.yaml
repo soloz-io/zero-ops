@@ -132,16 +132,14 @@ spec:
         string:
           fmt: "%s-db-credentials"
     # Extract ACTUAL Pooler status from Spoke back to XR
+    # Pooler CRs don't have status.conditions - they have status.instances
     - type: ToCompositeFieldPath
-      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
+      fromFieldPath: status.atProvider.manifest.status.instances
       toFieldPath: status.poolerReady
-      policy:
-        fromFieldPath: Optional
       transforms:
-        - type: map
-          map:
-            "True": "true"
-            "False": "false"
+        - type: convert
+          convert:
+            toType: string
 
   # 3. Pooler Connection Secret - Wrapped in provider-kubernetes Object
 
@@ -253,8 +251,6 @@ spec:
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Available")].status
       toFieldPath: status.postgrestReady
-      policy:
-        fromFieldPath: Optional
       transforms:
         - type: map
           map:
@@ -389,8 +385,6 @@ spec:
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
       toFieldPath: status.migrationsApplied
-      policy:
-        fromFieldPath: Optional
       transforms:
         - type: map
           map:
