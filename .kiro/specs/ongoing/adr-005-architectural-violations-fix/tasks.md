@@ -4,7 +4,7 @@
 
 **Context**: Before implementing ADR 005 fixes, we must resolve the PostgreSQL Role creation failure in the TenantDatabase composition. This is blocking tenant database provisioning.
 
-- [ ] 0.1 Delete Resource 3 (Crossplane-generated secret) from TenantDatabase composition
+- [x] 0.1 Delete Resource 3 (Crossplane-generated secret) from TenantDatabase composition
   - Open `manifests/spoke/compositions/tenantdatabase-spoke.yaml`
   - Locate Resource 3 with `name: db-credentials-secret`
   - Delete the entire resource block (Object MR that creates Secret with `metadata.uid` password)
@@ -12,7 +12,7 @@
   - Commit changes to feature branch
   - _ADR: 006 (Multi-Tenant Database Pattern)_
 
-- [ ] 0.2 Update Resource 1 to use creationPolicy: Owner
+- [x] 0.2 Update Resource 1 to use creationPolicy: Owner
   - In `manifests/spoke/compositions/tenantdatabase-spoke.yaml`
   - Locate Resource 1 with `name: db-credentials-restore`
   - Change `creationPolicy: Merge` to `creationPolicy: Owner`
@@ -23,7 +23,7 @@
   - Commit changes to feature branch
   - _ADR: 006 (Multi-Tenant Database Pattern)_
 
-- [ ] 0.3 Manual Validation - TenantDatabase Fix
+- [x] 0.3 Manual Validation - TenantDatabase Fix
   - **What to verify**: ESO creates secret, provider-sql Role created, AtlasMigration succeeds
   - **How to verify**:
     - Push changes, wait for ArgoCD sync
