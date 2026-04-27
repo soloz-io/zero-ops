@@ -101,63 +101,47 @@ kubectl get ainativesaas app-creator -o jsonpath='{.status.conditions[?(@.type==
 
 ## Required Actions (GitOps-Compliant)
 
-### 1. CRITICAL: Composition Not Syncing from Git
+### 1. CRITICAL: Invalid Patch Configuration - policy field not supported for ToCompositeFieldPath
 **Owner:** Platform Team  
-**Priority:** CRITICAL
+**Priority:** CRITICAL - RESOLVED
 
 **Problem:**
-- Composition file in Git (commit `fb88a4e`) has the fix
-- ArgoCD reports sync successful
-- Composition in cluster does NOT have the fix
-- Deleting and recreating composition still doesn't apply the fix
+- Composition in Git has `policy: {fromFieldPath: Optional}` on ToCompositeFieldPath patches
+- Crossplane strips this field during reconciliation
+- This is CORRECT behavior - the field is invalid for this patch type
 
-**Evidence:**
-```bash
-# Git has the fix
-$ git show fb88a4e:manifests/.../ainativesaas-starter-hetzner.yaml | grep -A 5 "toFieldPath: status.poolerReady"
-      toFieldPath: status.poolerReady
-      policy:
-        fromFieldPath: Optional  # <-- FIX IS HERE
+**Root Cause (CONFIRMED):**
+The `policy.fromFieldPath` field is ONLY supported for `FromCompositeFieldPath` patches, NOT `ToCompositeFieldPath` patches.
 
-# Cluster missing the fix
-$ kubectl get composition ainativesaas-starter-hetzner -o yaml | grep -A 5 "toFieldPath: status.poolerReady"
-      toFieldPath: status.poolerReady
-      transforms:  # <-- NO POLICY FIELD
-```
+From Crossplane documentation:
+- **fromFieldPath policy**: Controls whether source field must exist (Required/Optional)
+- **toFieldPath policy**: Controls merge behavior (Replace/MergeObjects/etc.)
 
-**Root Cause Hypothesis:**
-ArgoCD may be caching the composition or there's a sync hook preventing updates to existing Composition resources.
+**Why the original error occurred:**
+The ToCompositeFieldPath patches were trying to extract `status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status` from Object MRs, but:
+1. Pooler CRs don't have `status.conditions` - they only have `status.instances` and `status.secrets`
+2. The field path was incorrect for the actual Pooler status structure
 
-**Required Investigation:**
-1. Check ArgoCD sync logs for composition
-2. Check if Crossplane has admission webhooks blocking updates
-3. Check if there's a sync policy preventing Composition updates
-4. Try syncing with `--force` and `--replace` flags
+**Solution:**
+Remove `policy: {fromFieldPath: Optional}` from ToCompositeFieldPath patches and fix the field paths to match actual resource status structures:
+- **Pooler**: Extract `status.atProvider.manifest.status.instances` (check if > 0)
+- **PostgREST**: Extract `status.atProvider.manifest.status.conditions[?(@.type=="Available")].status`
+- **AtlasMigration**: Extract `status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status`
 
-### 2. Fix ArgoCD Sync Issue
+### 2. Fix Composition ToCompositeFieldPath Patches
 **Owner:** Platform Team  
 **Priority:** HIGH
 
-**Options:**
-- **Option A:** Investigate why `platform-tenant-platform` is OutOfSync
-  - Check ArgoCD Application spec
-  - Check source repo/branch configuration
-  - Check sync policies
-- **Option B:** Force sync via ArgoCD UI/CLI
-  - `argocd app sync platform-tenant-platform`
-- **Option C:** Delete and recreate ArgoCD Application
-  - Only if sync is permanently broken
+**Required Changes:**
+1. Remove invalid `policy: {fromFieldPath: Optional}` from all ToCompositeFieldPath patches
+2. Fix field paths to match actual resource status structures:
+   - **Pooler patch**: Change from `status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status` to `status.atProvider.manifest.status.instances`
+   - **PostgREST patch**: Keep `status.atProvider.manifest.status.conditions[?(@.type=="Available")].status` (Deployments have conditions)
+   - **AtlasMigration patch**: Keep `status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status` (AtlasMigration CRs have conditions)
+3. Update transforms to handle integer (Pooler instances) vs string (condition status) values
 
-### 2. Validate Fix After Sync
-**Owner:** Validation Team  
-**Prerequisites:** ArgoCD sync working
-
-**Steps:**
-1. Verify new CompositionRevision contains `policy: {fromFieldPath: Optional}`
-2. Verify XR transitions to `Synced=True`
-3. Wait for Object MRs to populate status
-4. Verify ToCompositeFieldPath patches extract status correctly
-5. Verify XR transitions to `Ready=True`
+**File to update:**
+`manifests/hub-core-services/crossplane/tenant-platform/compositions/ainativesaas-starter-hetzner.yaml`
 
 ### 3. Complete Phase 3 Validation (Task 3.9)
 **Owner:** Validation Team  

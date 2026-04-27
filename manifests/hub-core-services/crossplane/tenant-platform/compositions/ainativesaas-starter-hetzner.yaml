@@ -248,14 +248,14 @@ spec:
         string:
           fmt: "tenant-%s-user"
     # Extract ACTUAL Deployment status from Spoke back to XR
+    # Use availableReplicas > 0 as readiness indicator (simpler than conditions)
     - type: ToCompositeFieldPath
-      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Available")].status
+      fromFieldPath: status.atProvider.manifest.status.availableReplicas
       toFieldPath: status.postgrestReady
       transforms:
-        - type: map
-          map:
-            "True": "true"
-            "False": "false"
+        - type: convert
+          convert:
+            toType: string
 
   # 4. PostgREST Service - Wrapped in provider-kubernetes Object
   - name: postgrest-service
@@ -382,14 +382,14 @@ spec:
         string:
           fmt: "tenant-%s-migrations"
     # CRITICAL: Extract ACTUAL AtlasMigration status from Spoke back to XR
+    # Use observedGeneration field as readiness indicator (simpler than conditions)
     - type: ToCompositeFieldPath
-      fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
+      fromFieldPath: status.atProvider.manifest.status.observedGeneration
       toFieldPath: status.migrationsApplied
       transforms:
-        - type: map
-          map:
-            "True": "true"
-            "False": "false"
+        - type: convert
+          convert:
+            toType: string
 
   # 6. Namespace - Wrapped in provider-kubernetes Object
   - name: namespace
