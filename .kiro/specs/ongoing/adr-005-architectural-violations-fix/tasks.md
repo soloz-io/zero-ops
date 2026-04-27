@@ -1,5 +1,42 @@
 # Implementation Plan
 
+## Phase 0: Fix TenantDatabase Composition (ADR 006 Prerequisite)
+
+**Context**: Before implementing ADR 005 fixes, we must resolve the PostgreSQL Role creation failure in the TenantDatabase composition. This is blocking tenant database provisioning.
+
+- [ ] 0.1 Delete Resource 3 (Crossplane-generated secret) from TenantDatabase composition
+  - Open `manifests/spoke/compositions/tenantdatabase-spoke.yaml`
+  - Locate Resource 3 with `name: db-credentials-secret`
+  - Delete the entire resource block (Object MR that creates Secret with `metadata.uid` password)
+  - **Why**: Violates ADR 006 by generating credentials via Crossplane patches instead of Infisical
+  - Commit changes to feature branch
+  - _ADR: 006 (Multi-Tenant Database Pattern)_
+
+- [ ] 0.2 Update Resource 1 to use creationPolicy: Owner
+  - In `manifests/spoke/compositions/tenantdatabase-spoke.yaml`
+  - Locate Resource 1 with `name: db-credentials-restore`
+  - Change `creationPolicy: Merge` to `creationPolicy: Owner`
+  - Add template section with computed fields (database, host, port)
+  - Change `dataFrom.extract` to explicit `data` array (username, password properties)
+  - Add patch to inject database name dynamically
+  - **Why**: ESO should create and own the secret (Infisical → ESO → provider-sql pattern)
+  - Commit changes to feature branch
+  - _ADR: 006 (Multi-Tenant Database Pattern)_
+
+- [ ] 0.3 Manual Validation - TenantDatabase Fix
+  - **What to verify**: ESO creates secret, provider-sql Role created, AtlasMigration succeeds
+  - **How to verify**:
+    - Push changes, wait for ArgoCD sync
+    - `kubectl get externalsecret tenant-app-creator-db-credentials-restore -n tenant-app-creator` - verify Ready=True
+    - `kubectl get secret tenant-app-creator-db-credentials -n tenant-app-creator` - verify exists with username/password from Infisical
+    - `kubectl get role.postgresql.sql.crossplane.io tenant_app-creator_user` - verify Ready=True
+    - `kubectl exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant_app_creator_user"` - verify user exists
+    - `kubectl get atlasmigration -n tenant-app-creator` - verify Ready=True, no "no such user" error
+  - **Expected outcome**: PostgreSQL Role created successfully, AtlasMigration works, database provisioning unblocked
+  - **Approval gate**: Proceed to Phase 1 only after TenantDatabase fix verified
+
+---
+
 ## Phase 1: XRD Schema Updates
 
 - [x] 1.1 Update XRD to add resourceQuota and ownerEmail fields

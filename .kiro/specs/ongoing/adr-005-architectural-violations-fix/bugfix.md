@@ -20,9 +20,9 @@ The current Crossplane implementation violates ADR 005 (Hub-Spoke Crossplane Com
 
 1.5 WHEN cluster-wide certificates are garbage-collected THEN observability (Grafana Alloy), messaging (NATS), and GitOps (ArgoCD Agent) break for ALL other tenants on that Spoke cluster
 
-1.6 WHEN the `universal-tenant` Helm chart is deployed THEN it globs raw SQL migration files into a ConfigMap requiring ArgoCD to push massive ConfigMaps to Spokes
+1.6 WHEN the `universal-tenant` Helm chart is deployed THEN it globs raw SQL migration files into a ConfigMap and ArgoCD pushes it to Spoke
 
-1.7 WHEN `AtlasMigration` CR is provisioned THEN it reads migrations from ConfigMap instead of pulling natively from Git repository URL
+1.7 WHEN `AtlasMigration` CR is provisioned THEN it reads migrations from ConfigMap via `spec.dir.configMapRef`
 
 ### Expected Behavior (Correct)
 
@@ -34,9 +34,9 @@ The current Crossplane implementation violates ADR 005 (Hub-Spoke Crossplane Com
 
 2.4 WHEN a tenant is deleted from a Spoke Pool cluster THEN cluster-wide certificates SHALL remain intact because they are owned by the `SpokePool` XR, not the tenant's XR
 
-2.5 WHEN the `universal-tenant` Helm chart is deployed THEN it SHALL contain ONLY the `AINativeSaaS` XR manifest with tenant values mapped to XR spec fields
+2.5 WHEN the `universal-tenant` Helm chart is deployed THEN it SHALL contain the `AINativeSaaS` XR manifest with tenant values mapped to XR spec fields AND a ConfigMap with SQL migration files
 
-2.6 WHEN `AtlasMigration` CR is provisioned THEN it SHALL pull migrations natively from Git repository URL using `spec.dir.url` instead of reading from ConfigMap
+2.6 WHEN `AtlasMigration` CR is provisioned THEN it SHALL read migrations from ConfigMap using `spec.dir.configMapRef` (Atlas operator v0.3.8 does NOT support Git URL-based migrations)
 
 2.7 WHEN the `AINativeSaaS` XRD is updated THEN it SHALL include fields for `resourceQuota`, `ownerEmail`, and `argocdAgent` configuration to support Composition-based provisioning
 
@@ -68,8 +68,7 @@ FUNCTION isBugCondition(X)
   // Returns true when architectural violations are present
   RETURN (
     X.hasSecondApplicationSet = true OR
-    X.tenantCompositionContainsClusterScopedResources = true OR
-    X.migrationsDeliveredViaConfigMap = true
+    X.tenantCompositionContainsClusterScopedResources = true
   )
 END FUNCTION
 ```
@@ -84,7 +83,6 @@ FOR ALL X WHERE isBugCondition(X) DO
     result.argocdDeploysOnlyXR = true AND
     result.crossplaneProvisionsSpokeResources = true AND
     result.clusterScopedResourcesInSpokePoolComposition = true AND
-    result.migrationsFromGitURL = true AND
     no_duplicate_cert_provisioning(result) AND
     no_garbage_collection_of_shared_resources(result)
   )
