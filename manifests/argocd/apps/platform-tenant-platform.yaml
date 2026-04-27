@@ -32,3 +32,9 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: kubernetes.crossplane.io
+      kind: Object
+      jqPathExpressions:
+        - .metadata.annotations["crossplane.io/external-name"]
+        - .spec.readiness
