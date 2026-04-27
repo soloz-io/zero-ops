@@ -35,10 +35,14 @@ Consume secrets to bootstrap
 
 **Secrets:** platform-db-app, infisical-db-credentials, platform-db-ca, infisical-secrets, infisical-redis-credentials
 
-### Pattern A2: Per-Spoke Secrets (Operator → Infisical Only → ESO)
+### Pattern A2: Dynamic Tenant/Spoke Secrets
+
+This pattern has two sub-patterns based on the resource type:
+
+#### Pattern A2a: Tenant Resources (Kube-SBT → Infisical Only → ESO)
 
 ```
-[ hub-operator SpokePool controller ]
+[ Kube-SBT / open-sbt Application Plane ]
    ↓
 Check Infisical: does password exist?
    ↓
@@ -56,35 +60,77 @@ Upload to Infisical ONLY  ← SOURCE OF TRUTH (no Hub K8s secret)
    ↓
 Sync from Infisical to create K8s Secret on Spoke
    ↓
-[ Spoke Crossplane provider-sql ]
+[ Spoke Crossplane provider-sql OR Application ]
    ↓
-Consume secret to provision tenant databases
+Consume secret to provision tenant databases or connect to applications
 ```
 
-**Purpose:** Generate per-spoke credentials on Hub, deliver to Spoke via Infisical. No Hub K8s secret duplication.
+**Purpose:** Generate tenant resource credentials (databases, apps) via Kube-SBT, deliver to Spoke via Infisical. No Hub K8s secret duplication.
 
-**Key Difference from Pattern A:** 
-- Hub Operator does NOT create K8s secret on Hub
+**Use Cases:**
+- Tenant database credentials
+- Tenant application secrets
+- Per-tenant service credentials
+
+**Secrets:** 
+- Tenant database credentials: `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`
+- Properties stored: `username`, `password`
+
+**Key Characteristics:**
+- Kube-SBT/open-sbt does NOT create K8s secret on Hub
 - Infisical is queried directly for idempotency (via API)
-- Password generated ONLY on first-time SpokePool creation
-- If password missing later → controller FAILS (prevents accidental regeneration that would break Spoke CNPG)
+- Password generated ONLY on first-time tenant onboarding
+- If password missing later → controller FAILS (prevents accidental regeneration)
 
-**Secrets:** `<spokepool-cr-name>-crossplane-admin-password` (per SpokePool)
+**Key Naming Convention:**
+- Pattern: `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`
+- Example: Tenant `app-creator` in cell `spoke-pool-eu-prod-01` → `/spoke-pool/spoke-pool-eu-prod-01/tenants/app-creator/db-credentials`
+- Implementation: `infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellId, tenantId)`
 
-**Key Naming Convention:** The Infisical key MUST be derived from the SpokePool CR name to ensure uniqueness and traceability:
+#### Pattern A2b: Spoke Infrastructure (Crossplane → K8s Secret → PushSecret → Infisical → ESO)
+
+```
+[ Crossplane SpokePool Composition ]
+   ↓
+Generate password (from metadata.uid)
+   ↓
+Create K8s Secret on Hub
+   ↓
+[ ESO PushSecret ]
+   ↓
+Push to Infisical  ← SOURCE OF TRUTH
+   ↓
+----------------------------------------
+   ↓
+[ Spoke ESO with creationPolicy: Owner ]
+   ↓
+Sync from Infisical to create K8s Secret on Spoke
+   ↓
+[ Spoke Crossplane provider-sql ]
+   ↓
+Consume secret to provision spoke infrastructure
+```
+
+**Purpose:** Generate spoke infrastructure credentials via Crossplane Composition, backup to Infisical, deliver to Spoke via ESO.
+
+**Use Cases:**
+- Spoke crossplane-admin database credentials
+- Spoke infrastructure service accounts
+- Per-spoke system credentials
+
+**Secrets:**
+- SpokePool credentials: `<spokepool-cr-name>-crossplane-admin-password`
+
+**Key Characteristics:**
+- Crossplane Composition creates K8s secret on Hub (using metadata.uid for password)
+- PushSecret backs up to Infisical (source of truth for disaster recovery)
+- Spoke ESO pulls from Infisical to create spoke-local secret
+- Idempotency via Crossplane's declarative reconciliation
+
+**Key Naming Convention:**
 - Pattern: `<spokepool-cr-name>-crossplane-admin-password`
 - Example: SpokePool CR `spoke-pool-eu-prod-01` → Infisical key `spoke-pool-eu-prod-01-crossplane-admin-password`
 - Implementation: `infisicalKey := fmt.Sprintf("%s-crossplane-admin-password", spokeName)`
-
-**Idempotency Logic:**
-1. Check status condition: `CrossplaneAdminSecretGenerated=True`?
-2. Query Infisical API: does secret exist?
-3. Decision matrix:
-   - Exists in Infisical → Skip generation (idempotent)
-   - Missing + first-time (status=False) → Generate and upload
-   - Missing + NOT first-time (status=True) → FAIL with error
-
-**Manual Intervention Required:** If password is accidentally deleted from Infisical after initial provisioning, the controller will fail reconciliation with error: `"Password missing from Infisical for already-provisioned SpokePool - manual recovery required"`. This prevents breaking the Spoke's CNPG connection by generating a new password that doesn't match the database.
 
 ### Pattern B: Application Secrets (Infisical → ESO → Apps)
 
@@ -125,24 +171,40 @@ Consume secrets at runtime
 4. **ESO Sync:** ESO keeps K8s secret in sync with Infisical (Merge mode)
 5. **Rotation:** See Rotation section below
 
-### Per-Spoke Secrets Lifecycle (Pattern A2)
+### Per-Spoke/Tenant Secrets Lifecycle (Pattern A2)
+
+#### Pattern A2a: Tenant Resources (Kube-SBT)
 
 1. **CR Reconciliation (First-Time):** 
-   - SpokePool CR created on Hub
-   - hub-operator SpokePool controller reconciles
-   - Controller checks status condition: `CrossplaneAdminSecretGenerated=True`?
+   - Tenant CR created (via Kube-SBT API)
+   - Kube-SBT Application Plane controller reconciles
    - Controller queries Infisical API: does password exist?
    - If missing AND first-time → Generate secure random password and upload to Infisical
-   - Controller sets status condition to True
-   - **Operator does NOT create Hub K8s secret**
+   - **Controller does NOT create Hub K8s secret**
 2. **ESO Sync (Spoke):** Spoke ESO pulls from Infisical and creates K8s secret on Spoke (Owner mode)
 3. **Subsequent Reconciles:** 
    - Controller checks Infisical API for password existence
    - If password exists → Skip generation (idempotent)
-   - If password missing AND status=True → FAIL reconciliation (manual intervention required)
-4. **Rotation:** Not supported - requires manual password update in Infisical + Spoke CNPG role update
+   - If password missing → FAIL reconciliation (manual intervention required)
+4. **Rotation:** Requires manual password update in Infisical + Spoke database role update
 
-**Critical:** Password is generated ONLY during first-time CR reconciliation. Operator does not manage secret lifecycle post-creation. If password is accidentally deleted from Infisical after initial provisioning, controller will fail to prevent breaking Spoke's CNPG connection.
+**Critical:** Password is generated ONLY during first-time tenant onboarding. Controller does not manage secret lifecycle post-creation.
+
+#### Pattern A2b: Spoke Infrastructure (Crossplane)
+
+1. **Initial Creation:** 
+   - Crossplane SpokePool Composition reconciles
+   - Composition generates password from metadata.uid
+   - Creates K8s Secret on Hub
+   - PushSecret uploads to Infisical (backup/audit)
+2. **ESO Sync (Spoke):** Spoke ESO pulls from Infisical and creates K8s secret on Spoke (Owner mode)
+3. **Subsequent Reconciles:**
+   - Crossplane maintains K8s Secret on Hub (declarative reconciliation)
+   - PushSecret keeps Infisical in sync
+   - Spoke ESO keeps spoke secret in sync
+4. **Rotation:** See Rotation section below
+
+**Critical:** Hub K8s Secret is the working copy, Infisical is the backup/source-of-truth for disaster recovery.
 
 ### Application Secrets Lifecycle (Pattern B)
 
@@ -245,11 +307,13 @@ Consume secrets
 - ✅ ESO syncs Infisical → K8s for runtime consumption only
 - ✅ Rotation always alters the DB credential first, then updates Infisical
 - ✅ Dual-phase rotation (overlap period) for zero-downtime
-- ✅ Per-spoke secrets: generate ONLY on first-time creation, fail if missing later
-- ✅ Query Infisical API directly for idempotency when Hub K8s secret not needed
+- ✅ **Tenant resources**: Kube-SBT generates and uploads to Infisical ONLY (Pattern A2a)
+- ✅ **Spoke infrastructure**: Crossplane generates K8s Secret + PushSecret to Infisical (Pattern A2b)
+- ✅ Query Infisical API directly for idempotency when Hub K8s secret not needed (Pattern A2a)
 - ❌ Do NOT update Infisical before altering the DB (causes auth failure window)
 - ❌ Do NOT use ESO sync as the rotation trigger
-- ❌ Do NOT regenerate per-spoke passwords if missing from Infisical (requires manual intervention)
+- ❌ Do NOT regenerate tenant passwords if missing from Infisical (requires manual intervention)
+- ❌ Do NOT use PushSecret for tenant resources (Kube-SBT uploads directly)
 - ❌ Do NOT use Infisical for service discovery
 - ❌ Do NOT use Infisical for configuration management
 - ✅ Use ConfigMaps for non-sensitive configuration
@@ -272,8 +336,70 @@ spec:
     creationPolicy: Merge  # Operator creates, ESO updates
 ```
 
-### Per-Spoke Secrets (Operator Uploads, ESO Creates - Pattern A2)
+### Tenant Resource Secrets (Kube-SBT Uploads, ESO Creates - Pattern A2a)
 
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tenant-app-creator-db-credentials-restore
+  namespace: tenant-app-creator
+spec:
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: tenant-app-creator-db-credentials
+    creationPolicy: Owner  # ESO creates and owns (no Hub K8s secret)
+  data:
+  - secretKey: username
+    remoteRef:
+      key: /spoke-pool/${CELL_ID}/tenants/${TENANT_ID}/db-credentials
+      property: username
+  - secretKey: password
+    remoteRef:
+      key: /spoke-pool/${CELL_ID}/tenants/${TENANT_ID}/db-credentials
+      property: password
+```
+
+**Note:** Kube-SBT uploads to Infisical only. Spoke ESO creates the K8s secret.
+
+### Spoke Infrastructure Secrets (Crossplane + PushSecret - Pattern A2b)
+
+**Hub K8s Secret (created by Crossplane):**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spoke-pool-eu-prod-01-crossplane-admin
+  namespace: hub-platform-ops
+type: Opaque
+stringData:
+  password: "<generated-from-metadata-uid>"
+```
+
+**PushSecret (pushes to Infisical):**
+```yaml
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: spoke-pool-eu-prod-01-crossplane-admin-push
+  namespace: hub-platform-ops
+spec:
+  secretStoreRefs:
+    - name: infisical-backend
+      kind: ClusterSecretStore
+  selector:
+    secret:
+      name: spoke-pool-eu-prod-01-crossplane-admin
+  data:
+    - match:
+        secretKey: password
+        remoteRef:
+          remoteKey: spoke-pool-eu-prod-01-crossplane-admin-password
+```
+
+**Spoke ExternalSecret (pulls from Infisical):**
 ```yaml
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -286,14 +412,14 @@ spec:
     kind: SecretStore
   target:
     name: crossplane-admin-credentials
-    creationPolicy: Owner  # ESO creates and owns (no Hub K8s secret)
+    creationPolicy: Owner  # ESO creates and owns on Spoke
   data:
   - secretKey: password
     remoteRef:
-      key: ${SPOKE_NAME}-crossplane-admin-password
+      key: spoke-pool-eu-prod-01-crossplane-admin-password
 ```
 
-**Note:** Hub Operator uploads to Infisical only. Spoke ESO creates the K8s secret.
+**Note:** Crossplane creates Hub K8s secret, PushSecret backs up to Infisical, Spoke ESO creates spoke secret.
 
 ### Application Secrets (ESO Creates - Pattern B)
 

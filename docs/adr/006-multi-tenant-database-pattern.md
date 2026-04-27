@@ -75,9 +75,9 @@ Tenant credentials are stored in Infisical with dynamic paths:
 ```
 
 **Creation Method:**
-- Hub Operator generates password during tenant onboarding
+- Kube-SBT/open-sbt Application Plane generates password during tenant onboarding
 - Uploads to Infisical via API (Go SDK)
-- Follows Pattern A2 from ESO-Infisical ADR (Operator → Infisical Only → ESO)
+- Follows Pattern A2a from ESO-Infisical ADR (Kube-SBT → Infisical Only → ESO)
 
 #### Layer 2: ESO (Secret Delivery)
 
@@ -359,7 +359,7 @@ spec:
 ## Deployment Sequence
 
 ```
-1. Hub Operator Phase 1
+1. Kube-SBT Application Plane (Tenant Onboarding)
    ↓
    Generate tenant password
    ↓
@@ -479,7 +479,7 @@ spec:
 ### Neutral
 
 1. **Not Suitable for Bootstrap**: Cannot use this pattern for users needed during cluster bootstrap (use postInitSQL for those)
-2. **Requires Hub Operator**: Password generation and Infisical upload must happen before Crossplane reconciles
+2. **Requires Kube-SBT**: Password generation and Infisical upload must happen before Crossplane reconciles
 
 ## Troubleshooting
 
@@ -543,13 +543,13 @@ kubectl logs -n external-secrets-system -l app.kubernetes.io/name=external-secre
 ## Summary
 
 **The Pattern:**
-1. **Hub Operator** generates password → uploads to Infisical
+1. **Kube-SBT/open-sbt** generates password → uploads to Infisical
 2. **ESO** pulls from Infisical → creates K8s secret
 3. **Crossplane provider-sql** references secret → creates PostgreSQL user
 4. **Application** uses credentials → connects to database
 
 **Why It Works:**
-- **Externalized Identity**: Infisical is source of truth (ESO-Infisical ADR)
+- **Externalized Identity**: Infisical is source of truth (ESO-Infisical ADR Pattern A2a)
 - **Declarative**: Crossplane provider-sql manages user lifecycle (ADR 004)
 - **Self-Healing**: User recreated if deleted (Kubernetes control loop)
 - **Scalable**: Supports dynamic tenant creation (multi-tenant SaaS)
