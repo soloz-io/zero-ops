@@ -163,7 +163,7 @@
   - Commit changes to feature branch
   - _Design: Dependency Handling section, Design: Status Aggregation Strategy_
 
-- [-] 3.9 Manual Validation - Composition Resources
+- [ ] 3.9 Manual Validation - Composition Resources
   - **What to verify**: Composition provisions all 12 Spoke resources correctly with proper status aggregation and GitHub PAT credentials
   - **How to verify**:
     - **PREREQUISITE**: Ensure GitHub PAT exists in Infisical secret store with key 
