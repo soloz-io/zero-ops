@@ -137,9 +137,13 @@ spec:
       fromFieldPath: status.atProvider.manifest.status.instances
       toFieldPath: status.poolerReady
       transforms:
+        - type: math
+          math:
+            type: clampMin
+            clampMin: 1
         - type: convert
           convert:
-            toType: string
+            toType: bool
 
   # 3. Pooler Connection Secret - Wrapped in provider-kubernetes Object
 
@@ -253,9 +257,13 @@ spec:
       fromFieldPath: status.atProvider.manifest.status.availableReplicas
       toFieldPath: status.postgrestReady
       transforms:
+        - type: math
+          math:
+            type: clampMin
+            clampMin: 1
         - type: convert
           convert:
-            toType: string
+            toType: bool
 
   # 4. PostgREST Service - Wrapped in provider-kubernetes Object
   - name: postgrest-service
@@ -387,9 +395,13 @@ spec:
       fromFieldPath: status.atProvider.manifest.status.observedGeneration
       toFieldPath: status.migrationsApplied
       transforms:
+        - type: math
+          math:
+            type: clampMin
+            clampMin: 1
         - type: convert
           convert:
-            toType: string
+            toType: bool
 
   # 6. Namespace - Wrapped in provider-kubernetes Object
   - name: namespace
