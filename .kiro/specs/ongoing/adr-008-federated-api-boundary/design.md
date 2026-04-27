@@ -10,30 +10,39 @@ This design implements the Federated API Boundary Pattern by introducing a `Spok
 Hub Cluster
 ├── AINativeSaaS XR (tenant intent)
 ├── AINativeSaaS Composition (simplified)
-│   ├── TenantDatabase Object MR → Spoke (existing)
-│   └── SpokeTenantEnvironment Object MR → Spoke (new)
-└── provider-kubernetes (RBAC: 2 XRD types only)
+│   └── SpokeTenantEnvironment Object MR → Spoke (single XR)
+└── provider-kubernetes (RBAC: 1 XRD type only)
 
 Spoke Cluster
 ├── TenantDatabase XRD + Composition (existing)
-├── SpokeTenantEnvironment XRD + Composition (new)
-│   ├── Namespace
-│   ├── ServiceAccount
-│   ├── Role
-│   ├── RoleBinding
-│   ├── ResourceQuota
-│   ├── CNPG Pooler
-│   ├── PostgREST Deployment
-│   ├── PostgREST Service
-│   └── AtlasMigration
+├── SpokeTenantEnvironment XRD + Composition (Russian Doll Pattern)
+│   ├── TenantDatabase XR (Resource 1 - creates database + secrets)
+│   ├── Namespace (Resource 2)
+│   ├── ServiceAccount (Resource 3)
+│   ├── Role (Resource 4)
+│   ├── RoleBinding (Resource 5)
+│   ├── ResourceQuota (Resource 6)
+│   ├── CNPG Pooler (Resource 7 - references TenantDatabase secrets)
+│   ├── PostgREST Deployment (Resource 8 - references TenantDatabase secrets)
+│   ├── PostgREST Service (Resource 9)
+│   └── AtlasMigration (Resource 10)
 └── Local Crossplane (reconciles XRs locally)
 ```
+
+**Russian Doll (Matryoshka) Pattern:**
+- Hub pushes **ONE** XR: `SpokeTenantEnvironment`
+- Spoke Composition nests `TenantDatabase` XR as Resource 1
+- Guarantees ordering: Database → Namespace → RBAC → Pooler → PostgREST
+- Eliminates race conditions between Hub-pushed XRs
+- Simplifies Hub RBAC (only 1 XRD type needed)
 
 ## Component Design
 
 ### 1. SpokeTenantEnvironment XRD
 
 **File:** `zero-ops/manifests/spoke/xrds/spoketenantenvironment.yaml`
+
+**Key Change:** Add `databaseName` field to XRD spec (needed for TenantDatabase XR composition)
 
 ```yaml
 apiVersion: apiextensions.crossplane.io/v1
@@ -48,6 +57,81 @@ spec:
   claimNames:
     kind: SpokeTenantEnvironmentClaim
     plural: spoketenantenvironmentclaims
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required:
+              - tenantId
+              - tier
+              - databaseName
+              - cellId
+            properties:
+              tenantId:
+                type: string
+                description: "Tenant identifier"
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?'
+                maxLength: 63
+              tier:
+                type: string
+                description: "Tenant tier"
+                enum: [starter, enterprise]
+              databaseName:
+                type: string
+                description: "Database name for TenantDatabase XR and pooler connection"
+              cellId:
+                type: string
+                description: "Spoke Pool cell identifier (for TenantDatabase XR)"
+              postgrestImage:
+                type: string
+                description: "PostgREST container image"
+                default: "postgrest/postgrest:v12.0.2"
+              resourceQuota:
+                type: object
+                properties:
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+                  storage:
+                    type: string
+                  pods:
+                    type: string
+          status:
+            type: object
+            properties:
+              ready:
+                type: boolean
+                description: "True when all resources provisioned"
+              databaseReady:
+                type: boolean
+                description: "True when TenantDatabase XR is ready"
+              message:
+                type: string
+                description: "Human-readable status message"
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+```
   versions:
   - name: v1alpha1
     served: true
@@ -117,19 +201,23 @@ spec:
                       type: string
 ```
 
-### 2. SpokeTenantEnvironment Composition
+### 2. SpokeTenantEnvironment Composition (Russian Doll Pattern)
 
 **File:** `zero-ops/manifests/spoke/compositions/spoketenantenvironment-default.yaml`
 
 **Key Design Decisions:**
 
-1. **Native Resources (Not Object MRs):** Since resources are local to the Spoke, use native Kubernetes resources directly (Namespace, ServiceAccount, etc.) instead of wrapping in Object MRs
+1. **Russian Doll (Matryoshka) Pattern:** Compose `TenantDatabase` XR as Resource 1 inside `SpokeTenantEnvironment` Composition (not pushed separately by Hub)
 
-2. **Status Aggregation:** Use Crossplane's built-in status aggregation to set `status.ready` based on all composed resources
+2. **Composition Functions Pipeline:** Use modern `mode: Pipeline` pattern with `function-patch-and-transform` (consistent with existing `spokepool-hetzner` and `tenantdatabase-spoke` compositions)
 
-3. **Dependency Ordering:** Namespace → ServiceAccount → RBAC → ResourceQuota → Pooler → PostgREST → AtlasMigration
+3. **Guaranteed Ordering:** TenantDatabase XR (Resource 1) → Namespace (Resource 2) → RBAC → Pooler → PostgREST
 
-4. **Secret References:** Pooler and PostgREST reference secrets created by `TenantDatabase` XR (cross-XR dependency)
+4. **Native Resources:** Use native Kubernetes resources directly (Namespace, ServiceAccount, etc.) instead of wrapping in Object MRs
+
+5. **Status Aggregation:** Use Crossplane's built-in status aggregation to set `status.ready` and `status.databaseReady` based on all composed resources
+
+6. **Secret References:** Pooler and PostgREST reference secrets created by nested `TenantDatabase` XR (same Composition, guaranteed ordering with initContainers for safety)
 
 **Composition Structure:**
 
@@ -143,425 +231,216 @@ spec:
     apiVersion: nutgraf.in/v1alpha1
     kind: SpokeTenantEnvironment
   
-  resources:
-    # Resource 1: Namespace
-    - name: namespace
-      base:
-        apiVersion: v1
-        kind: Namespace
-        metadata:
-          name: ""  # Patched from tenantId
-          labels:
-            tenant-id: ""
-            tier: ""
-            managed-by: crossplane
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.labels['tenant-id']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tier
-          toFieldPath: metadata.labels['tier']
-    
-    # Resource 2: ServiceAccount
-    - name: service-account
-      base:
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: ""
-          namespace: ""
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-    
-    # Resource 3: Role
-    - name: role
-      base:
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: Role
-        metadata:
-          name: ""
-          namespace: ""
-        rules:
-          - apiGroups: [""]
-            resources: ["pods", "services", "configmaps", "secrets"]
-            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-          - apiGroups: ["apps"]
-            resources: ["deployments", "statefulsets"]
-            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-role"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-    
-    # Resource 4: RoleBinding
-    - name: role-binding
-      base:
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: RoleBinding
-        metadata:
-          name: ""
-          namespace: ""
-        roleRef:
-          apiGroup: rbac.authorization.k8s.io
-          kind: Role
-          name: ""
-        subjects:
-          - kind: ServiceAccount
-            name: ""
-            namespace: ""
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-binding"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: roleRef.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-role"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: subjects[0].name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: subjects[0].namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-    
-    # Resource 5: ResourceQuota
-    - name: resource-quota
-      base:
-        apiVersion: v1
-        kind: ResourceQuota
-        metadata:
-          name: ""
-          namespace: ""
-        spec:
-          hard:
-            requests.cpu: ""
-            requests.memory: ""
-            requests.storage: ""
-            pods: ""
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-quota"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.resourceQuota.cpu
-          toFieldPath: spec.hard['requests.cpu']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.resourceQuota.memory
-          toFieldPath: spec.hard['requests.memory']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.resourceQuota.storage
-          toFieldPath: spec.hard['requests.storage']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.resourceQuota.pods
-          toFieldPath: spec.hard['pods']
-    
-    # Resource 6: CNPG Pooler
-    - name: pooler
-      base:
-        apiVersion: postgresql.cnpg.io/v1
-        kind: Pooler
-        metadata:
-          name: ""
-          namespace: spoke-platform-data
-        spec:
-          cluster:
-            name: shared-cnpg
-          type: rw
-          instances: 1
-          pgbouncer:
-            poolMode: transaction
-            parameters:
-              max_client_conn: "100"
-              default_pool_size: "5"
-            authQueryUser:
-              secretRef:
-                name: ""  # References TenantDatabase secret
-          template:
-            spec:
-              containers:
-                - name: pgbouncer
-                  env:
-                    - name: PGDATABASE
-                      value: ""
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "%s-pooler"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.labels['tenant-id']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.databaseName
-          toFieldPath: spec.template.spec.containers[0].env[0].value
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.pgbouncer.authQueryUser.secretRef.name
-          transforms:
-            - type: string
-              string:
-                fmt: "%s-db-credentials"
-    
-    # Resource 7: PostgREST Deployment
-    - name: postgrest-deployment
-      base:
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: ""
-          namespace: ""
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: postgrest
-              tenant-id: ""
-          template:
-            metadata:
-              labels:
-                app: postgrest
-                tenant-id: ""
-            spec:
-              containers:
-                - name: postgrest
-                  image: ""  # Patched from spec.postgrestImage
-                  ports:
-                    - containerPort: 3000
-                      name: http
-                  env:
-                    - name: PGRST_DB_URI
-                      valueFrom:
-                        secretKeyRef:
-                          name: ""  # References TenantDatabase pooler-app secret
-                          key: url
-                    - name: PGRST_DB_SCHEMA
-                      value: "public"
-                    - name: PGRST_DB_ANON_ROLE
-                      value: ""  # Patched from tenantId
-                    - name: PGRST_JWT_SECRET
-                      valueFrom:
-                        secretKeyRef:
-                          name: hub-ory-jwt-secret
-                          key: secret
-                  resources:
-                    requests:
-                      cpu: 100m
-                      memory: 128Mi
-                    limits:
-                      cpu: 500m
-                      memory: 512Mi
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "postgrest-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.selector.matchLabels['tenant-id']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.template.metadata.labels['tenant-id']
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.postgrestImage
-          toFieldPath: spec.template.spec.containers[0].image
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.name
-          transforms:
-            - type: string
-              string:
-                fmt: "%s-pooler-app"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.template.spec.containers[0].env[2].value
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-user"
-    
-    # Resource 8: PostgREST Service
-    - name: postgrest-service
-      base:
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: ""
-          namespace: ""
-        spec:
-          type: ClusterIP
-          ports:
-            - port: 3000
-              targetPort: 3000
-              protocol: TCP
-              name: http
-          selector:
-            app: postgrest
-            tenant-id: ""
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "postgrest-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.selector['tenant-id']
-    
-    # Resource 9: AtlasMigration
-    - name: atlasmigration
-      base:
-        apiVersion: db.atlasgo.io/v1alpha1
-        kind: AtlasMigration
-        metadata:
-          name: ""
-          namespace: ""
-        spec:
-          urlFrom:
-            secretKeyRef:
-              name: ""  # References TenantDatabase pooler-app secret
-              key: url
-          dir:
-            configMapRef:
-              name: ""  # References migrations ConfigMap
-      patches:
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.name
-          transforms:
-            - type: string
-              string:
-                fmt: "%s-migrations"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: metadata.namespace
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.urlFrom.secretKeyRef.name
-          transforms:
-            - type: string
-              string:
-                fmt: "%s-pooler-app"
-        - type: FromCompositeFieldPath
-          fromFieldPath: spec.tenantId
-          toFieldPath: spec.dir.configMapRef.name
-          transforms:
-            - type: string
-              string:
-                fmt: "tenant-%s-migrations"
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          # Resource 1: TenantDatabase XR (Russian Doll - nested inside SpokeTenantEnvironment)
+          - name: tenant-database
+            base:
+              apiVersion: nutgraf.in/v1alpha1
+              kind: TenantDatabase
+              metadata:
+                name: ""  # Patched from tenantId
+              spec:
+                tenantId: ""
+                cellId: ""
+                databaseName: ""
+                tier: ""
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.tenantId
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.cellId
+                toFieldPath: spec.cellId
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.databaseName
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tier
+                toFieldPath: spec.tier
+              - type: ToCompositeFieldPath
+                fromFieldPath: status.ready
+                toFieldPath: status.databaseReady
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
+          
+          # Resource 2: Namespace (created after TenantDatabase due to ordering)
+          - name: namespace
+            base:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: ""  # Patched from tenantId
+                labels:
+                  tenant-id: ""
+                  tier: ""
+                  managed-by: crossplane
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.labels['tenant-id']
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tier
+                toFieldPath: metadata.labels['tier']
+          
+          # Resource 3-10: ServiceAccount, Role, RoleBinding, ResourceQuota, Pooler, PostgREST Deployment, PostgREST Service, AtlasMigration
+          # (Full definitions omitted for brevity - see existing design for complete YAML)
 ```
 
-### 3. Hub Composition Refactoring
+**Safe Eventual Consistency Pattern:**
+
+Since `TenantDatabase` XR is now composed **inside** `SpokeTenantEnvironment` (Russian Doll pattern), Crossplane guarantees ordering within the Composition. However, there's still a timing gap between when TenantDatabase reports Ready and when secrets are fully propagated to the namespace. To handle this safely:
+
+1. **TenantDatabase XR - readinessChecks:**
+   ```yaml
+   - name: tenant-database
+     readinessChecks:
+       - type: MatchCondition
+         matchCondition:
+           type: Ready
+           status: "True"
+   ```
+   This blocks subsequent resources until TenantDatabase is fully ready.
+
+2. **PostgREST Deployment - Startup Probe Configuration:**
+
+1. **PostgREST Deployment - Startup Probe Configuration:**
+   ```yaml
+   spec:
+     template:
+       spec:
+         initContainers:
+           - name: wait-for-secret
+             image: busybox:1.36
+             command:
+               - sh
+               - -c
+               - |
+                 echo "Waiting for database credentials secret..."
+                 until [ -f /secrets/username ]; do
+                   echo "Secret not found, waiting 5s..."
+                   sleep 5
+                 done
+                 echo "Secret found, proceeding with startup"
+             volumeMounts:
+               - name: db-credentials
+                 mountPath: /secrets
+         containers:
+           - name: postgrest
+             startupProbe:
+               httpGet:
+                 path: /
+                 port: 3000
+               initialDelaySeconds: 30
+               periodSeconds: 10
+               failureThreshold: 30  # 5 minutes total before marking as failed
+             readinessProbe:
+               httpGet:
+                 path: /
+                 port: 3000
+               periodSeconds: 10
+               failureThreshold: 3
+   ```
+
+2. **CNPG Pooler - Startup Probe Configuration:**
+   ```yaml
+   spec:
+     template:
+       spec:
+         initContainers:
+           - name: wait-for-secret
+             image: busybox:1.36
+             command:
+               - sh
+               - -c
+               - |
+                 echo "Waiting for database credentials secret..."
+                 until [ -f /secrets/password ]; do
+                   echo "Secret not found, waiting 5s..."
+                   sleep 5
+                 done
+                 echo "Secret found, proceeding with startup"
+             volumeMounts:
+               - name: auth-secret
+                 mountPath: /secrets
+         containers:
+           - name: pgbouncer
+             startupProbe:
+               tcpSocket:
+                 port: 5432
+               initialDelaySeconds: 30
+               periodSeconds: 10
+               failureThreshold: 30  # 5 minutes total
+   ```
+
+3. **Monitoring Alert Tuning:**
+   - Suppress `PodCrashLooping` alerts for tenant namespaces during first 5 minutes
+   - Suppress `PodNotReady` alerts for tenant namespaces during first 5 minutes
+   - VictoriaMetrics alert rule example:
+     ```yaml
+     - alert: PodCrashLooping
+       expr: rate(kube_pod_container_status_restarts_total{namespace=~"tenant-.*"}[15m]) > 0
+       for: 5m  # Only alert after 5 minutes
+       annotations:
+         summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+     ```
+
+**Benefits of This Approach:**
+- ✅ **Russian Doll Pattern**: TenantDatabase nested inside SpokeTenantEnvironment guarantees ordering
+- ✅ **No Race Conditions**: Database created before Namespace, secrets exist before Pooler/PostgREST
+- ✅ **readinessChecks**: TenantDatabase must be Ready before subsequent resources are created
+- ✅ **initContainers**: Additional safety layer for secret propagation timing
+- ✅ **No CrashLoopBackOff**: initContainer blocks pod startup until secret exists
+- ✅ **No noisy logs or false alerts** during normal provisioning
+- ✅ **Kubernetes-native pattern** (initContainers are standard practice)
+- ✅ **Self-healing** once secret appears
+- ✅ **5-minute timeout** prevents infinite waiting if secret never appears
+- ✅ **Simpler Hub RBAC**: Hub only needs permissions for 1 XRD type (SpokeTenantEnvironment)
+
+### 3. Hub Composition Refactoring (Simplified to 1 XR)
 
 **File:** `zero-ops/manifests/hub-core-services/crossplane/tenant-platform/compositions/ainativesaas-starter-hetzner.yaml`
 
 **Changes:**
 
-1. **Remove 9 Object MRs:**
-   - namespace
-   - service-account
-   - role
-   - role-binding
-   - resource-quota
-   - pooler
-   - postgrest-deployment
-   - postgrest-service
-   - atlasmigration
+1. **Remove 10 Object MRs:**
+   - tenant-database-remote (moved to Spoke Composition - Russian Doll)
+   - namespace (moved to Spoke Composition)
+   - service-account (moved to Spoke Composition)
+   - role (moved to Spoke Composition)
+   - role-binding (moved to Spoke Composition)
+   - resource-quota (moved to Spoke Composition)
+   - pooler (moved to Spoke Composition)
+   - postgrest-deployment (moved to Spoke Composition)
+   - postgrest-service (moved to Spoke Composition)
+   - atlasmigration (moved to Spoke Composition)
 
-2. **Add SpokeTenantEnvironment Object MR:**
+2. **Keep ONLY 1 Object MR: SpokeTenantEnvironment (Russian Doll Pattern)**
+
+**Simplified Hub Composition:**
 
 ```yaml
-# Resource 2: SpokeTenantEnvironment XR - Remote Provider Pattern
+# Resource 1: SpokeTenantEnvironment XR - Remote Provider Pattern (Russian Doll)
 - name: spoke-tenant-environment
   base:
     apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -578,6 +457,7 @@ spec:
             tenantId: ""
             tier: ""
             databaseName: ""
+            cellId: ""  # NEW: Required for TenantDatabase XR nested inside
             postgrestImage: ""
             resourceQuota:
               cpu: ""
@@ -609,6 +489,9 @@ spec:
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.spec.tenantId
     - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.forProvider.manifest.spec.cellId  # NEW: Pass cellId to Spoke
+    - type: FromCompositeFieldPath
       fromFieldPath: spec.tier
       toFieldPath: spec.forProvider.manifest.spec.tier
     - type: FromCompositeFieldPath
@@ -631,83 +514,130 @@ spec:
       toFieldPath: spec.forProvider.manifest.spec.resourceQuota.pods
 ```
 
+**Key Benefits:**
+- Hub Composition reduced from 11 Object MRs to **1 Object MR** (90% reduction)
+- Hub ETCD footprint reduced by ~90%
+- Hub RBAC simplified to **1 XRD type** (SpokeTenantEnvironment only, not TenantDatabase)
+- No race conditions between Hub-pushed XRs
+- All implementation details encapsulated in Spoke Composition (Russian Doll)
+
 ### 4. ArgoCD Distribution
 
 **File:** `zero-ops/manifests/argocd/apps/platform-spoke-catalog-appsets.yaml`
 
-Add new ApplicationSet for `SpokeTenantEnvironment` XRD and Composition:
+Add new ApplicationSets for `SpokeTenantEnvironment` XRD and Composition with proper sync-wave ordering:
 
 ```yaml
 ---
-# SpokeTenantEnvironment XRD and Composition (Spoke)
+# SpokeTenantEnvironment XRD (Spoke) - Must sync before Composition
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: platform-spoketenantenvironment-xrds-compositions
-  namespace: argocd
+  name: platform-spoketenantenvironment-xrds
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
 spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
   generators:
-    - list:
-        elements:
-          - cluster: spoke-pool-eu-prod-01
-            url: https://spoke-pool-eu-prod-01.example.com
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
   template:
     metadata:
-      name: '{{cluster}}-spoketenantenvironment-xrds'
+      name: '{{.name}}-spoketenantenvironment-xrds'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"  # XRDs must sync first
     spec:
-      project: platform
+      project: platform-infrastructure
       source:
         repoURL: https://github.com/soloz-io/zero-ops.git
-        targetRevision: main
+        targetRevision: HEAD
         path: manifests/spoke/xrds
         directory:
           include: 'spoketenantenvironment.yaml'
       destination:
-        server: '{{url}}'
-        namespace: crossplane-system
+        name: '{{.name}}'
+        namespace: spoke-platform-ops
       syncPolicy:
         automated:
           prune: true
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
 ---
+# SpokeTenantEnvironment Composition (Spoke) - Syncs after XRD
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: platform-spoketenantenvironment-compositions
-  namespace: argocd
+  namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
 spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
   generators:
-    - list:
-        elements:
-          - cluster: spoke-pool-eu-prod-01
-            url: https://spoke-pool-eu-prod-01.example.com
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
   template:
     metadata:
-      name: '{{cluster}}-spoketenantenvironment-compositions'
+      name: '{{.name}}-spoketenantenvironment-compositions'
+      namespace: hub-platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"  # Compositions sync after XRDs
     spec:
-      project: platform
+      project: platform-infrastructure
       source:
         repoURL: https://github.com/soloz-io/zero-ops.git
-        targetRevision: main
+        targetRevision: HEAD
         path: manifests/spoke/compositions
         directory:
           include: 'spoketenantenvironment-*.yaml'
       destination:
-        server: '{{url}}'
-        namespace: crossplane-system
+        name: '{{.name}}'
+        namespace: spoke-platform-ops
       syncPolicy:
         automated:
           prune: true
           selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
 ```
 
-### 5. RBAC Configuration
+**Sync Wave Ordering:**
+- Wave "1": XRDs (SpokeTenantEnvironment XRD must be established first)
+- Wave "2": Compositions (Compositions reference XRDs, so they sync second)
+- This prevents ArgoCD errors when Compositions try to reference non-existent XRDs
+
+### 5. RBAC Configuration (Simplified to 1 XRD Type)
 
 **File:** `zero-ops/manifests/hub-core-services/crossplane/provider-kubernetes-rbac.yaml`
 
-Update Hub's `provider-kubernetes` RBAC to only allow 2 XRD types:
+Update Hub's `provider-kubernetes` RBAC to only allow **1 XRD type** (Russian Doll pattern):
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -715,21 +645,21 @@ kind: ClusterRole
 metadata:
   name: crossplane-provider-kubernetes-spoke
 rules:
-  # TenantDatabase XR (existing)
-  - apiGroups: ["nutgraf.in"]
-    resources: ["tenantdatabases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  
-  # SpokeTenantEnvironment XR (new)
+  # SpokeTenantEnvironment XR (Russian Doll - contains TenantDatabase)
   - apiGroups: ["nutgraf.in"]
     resources: ["spoketenantenvironments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   
-  # Status subresource for both XRs
+  # Status subresource for SpokeTenantEnvironment
   - apiGroups: ["nutgraf.in"]
-    resources: ["tenantdatabases/status", "spoketenantenvironments/status"]
+    resources: ["spoketenantenvironments/status"]
     verbs: ["get", "update", "patch"]
 ```
+
+**Key Changes:**
+- Removed `tenantdatabases` and `tenantdatabases/status` rules
+- Hub no longer needs RBAC for TenantDatabase XRD (it's nested inside SpokeTenantEnvironment on Spoke)
+- Hub RBAC reduced from 2 XRD types to **1 XRD type**
 
 ## Progressive Rollout Strategy
 

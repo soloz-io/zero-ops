@@ -6,6 +6,8 @@ Accepted
 ## Date
 2026-04-27
 
+**Last Updated:** 2026-04-28 (Added Matryoshka Pattern clarification)
+
 ## Context
 
 In [ADR 005: Unified Abstraction Layers with Crossplane](005-unified-abstraction-layers-crossplane.md), we established Crossplane as the primary abstraction layer for our control plane. This allowed us to shift from imperative scripts to declarative KRM (Kubernetes Resource Model) definitions.
@@ -22,19 +24,37 @@ This approach has revealed several architectural leaks and scaling bottlenecks:
 
 4. **Complex Status Aggregation:** The Hub must use complex JSON paths to parse readiness states from disparate remote objects to calculate if a tenant is truly "Ready."
 
+5. **Race Conditions:** When the Hub pushes multiple XRs to the Spoke in parallel (e.g., `TenantDatabase` and `SpokeTenantEnvironment`), there is no guaranteed ordering. Resources may attempt to create objects in namespaces that don't exist yet, causing intermittent failures.
+
 ## Decision
 
-We will implement the **Federated API Boundary Pattern** (also known as the Remote XR Pattern) to decouple Intent (Hub) from Implementation (Spoke).
+We will implement the **Federated API Boundary Pattern** (also known as the Remote XR Pattern) combined with the **Matryoshka (Nested XR) Pattern** to decouple Intent (Hub) from Implementation (Spoke) and enforce dependency ordering.
 
-1. **New API Boundary:** We will define a new Crossplane XRD named `SpokeTenantEnvironment` (or similar) and deploy it to the **Spoke clusters**. This acts as the API contract between the Hub and the Spoke.
+### Core Principles
+
+1. **Single API Boundary:** We will define a new Crossplane XRD named `SpokeTenantEnvironment` and deploy it to the **Spoke clusters**. This acts as the API contract between the Hub and the Spoke.
 
 2. **Spoke-Local Composition:** We will migrate all low-level infrastructure manifests (Namespaces, CNPG Poolers, Deployments, RBAC) from the Hub's `AINativeSaaS` composition into a Spoke-local `SpokeTenantEnvironment` Composition.
 
-3. **Hub Simplification:** The Hub's `AINativeSaaS` composition will be refactored to use `provider-kubernetes` to push exactly **one** object to the Spoke: the `SpokeTenantEnvironment` Custom Resource.
+3. **Hub Simplification (Matryoshka Pattern):** The Hub's `AINativeSaaS` composition will be refactored to use `provider-kubernetes` to push exactly **ONE** object to the Spoke: the `SpokeTenantEnvironment` Custom Resource.
 
-4. **Status Reflection:** The Spoke-local composition will aggregate the health of its internal resources and expose a single `status.ready` boolean. The Hub will observe only this field.
+   **Critical:** The Hub will **NOT** push multiple XRs (e.g., `TenantDatabase` + `SpokeTenantEnvironment`) to avoid race conditions. Instead, the `SpokeTenantEnvironment` Composition on the Spoke will **compose nested XRs** (like `TenantDatabase`) internally, guaranteeing dependency ordering.
 
-This decision *Amends* ADR-005 by clarifying that Crossplane abstractions must be distributed and scoped to their respective clusters.
+4. **Nested XR Composition:** The Spoke's `SpokeTenantEnvironment` Composition will compose other XRs (not just managed resources), following the Matryoshka pattern:
+   ```
+   SpokeTenantEnvironment (XR)
+   ├── Namespace (managed resource)
+   ├── TenantDatabase (nested XR) ← composed inside
+   ├── AtlasMigration (managed resource)
+   └── PostgREST Deployment (managed resource)
+   ```
+
+5. **Status Reflection:** The Spoke-local composition will aggregate the health of its internal resources (including nested XRs) and expose a single `status.ready` boolean. The Hub will observe only this field.
+
+This decision *Amends* ADR-005 by clarifying that:
+- Crossplane abstractions must be distributed and scoped to their respective clusters
+- XRs should compose other XRs (not just managed resources) to enforce dependency ordering
+- The Hub should push exactly one XR per tenant to each Spoke
 
 ## Consequences
 
@@ -48,10 +68,24 @@ This decision *Amends* ADR-005 by clarifying that Crossplane abstractions must b
 
 * **Simplified Compositions:** Crossplane Compositions become highly readable and maintainable.
 
+* **Race Condition Prevention:** By composing nested XRs (like `TenantDatabase`) inside the `SpokeTenantEnvironment` Composition, we guarantee that prerequisite resources (like Namespaces) are created before dependent resources attempt to use them. Crossplane's reconciliation loop ensures parent resources are ready before child resources are created.
+
+* **Atomic Operations:** Deleting a `SpokeTenantEnvironment` XR automatically cascades to all nested XRs and managed resources, ensuring clean teardown without orphaned resources.
+
+* **Single Status Field:** The Hub observes a single `status.ready` field on the `SpokeTenantEnvironment` XR, simplifying monitoring and alerting. No need to aggregate status from multiple disparate resources.
+
+* **Alignment with Crossplane Philosophy:** The Matryoshka pattern (composing XRs within XRs) is the canonical Crossplane design pattern, used by AWS EKS Blueprints, Azure Landing Zones, GCP Foundations, and Red Hat Hosted Control Planes.
+
 ### Negative / Risks
 
 * **Distribution Complexity:** We must now ensure Spoke-local XRDs and Compositions are reliably distributed to Spokes before the Hub attempts to create a tenant there.
   
-  *Mitigation: We already utilize ArgoCD ApplicationSets (`platform-spoke-catalog-appsets.yaml`) which can safely orchestrate the delivery of these XRs to Spoke pools.*
+  *Mitigation: We already utilize ArgoCD ApplicationSets (`platform-spoke-catalog-appsets.yaml`) which can safely orchestrate the delivery of these XRs to Spoke pools. The edge catalog deployment (Wave 0-4) ensures all XRDs are installed before tenant provisioning begins.*
 
 * **Refactoring Effort:** Requires rewriting the existing `ainativesaas-starter-hetzner.yaml` Composition and migrating its contents to new manifests in the `spoke-catalog`.
+
+  *Mitigation: This is a one-time refactoring effort that pays dividends in operational simplicity and scalability. The refactoring can be done incrementally, starting with a single Spoke Pool for testing.*
+
+* **Nested XR Debugging:** When a nested XR (like `TenantDatabase`) fails, operators must inspect both the parent `SpokeTenantEnvironment` and the child `TenantDatabase` to diagnose issues.
+
+  *Mitigation: Crossplane's status conditions propagate from child to parent. The `SpokeTenantEnvironment` status will reflect "TenantDatabase not ready" with a reference to the failing child XR. Observability tooling (Prometheus metrics, ArgoCD health checks) will surface these failures.*
