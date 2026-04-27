@@ -29,6 +29,8 @@ spec:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: HEAD
         path: manifests/tenants
+        directory:
+          recurse: true
       destination:
         name: '{{.name}}'
         namespace: spoke-platform-ops
