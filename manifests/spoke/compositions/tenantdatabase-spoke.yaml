@@ -322,7 +322,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "tenant_%s_user"
+                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.passwordSecretRef.namespace
@@ -371,7 +371,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "tenant_%s_user"
+                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
@@ -416,7 +416,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "tenant_%s_user"
+                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
@@ -457,7 +457,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "tenant_%s_user"
+                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
