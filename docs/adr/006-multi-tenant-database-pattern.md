@@ -96,6 +96,14 @@ spec:
   target:
     name: tenant-app-creator-db-credentials
     creationPolicy: Owner  # ESO creates and owns the secret
+    template:
+      type: Opaque
+      data:
+        username: "{{ .username }}"
+        password: "{{ .password }}"
+        database: "tenant-app-creator-db"  # Computed (patched from spec.databaseName)
+        host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"  # Computed
+        port: "5432"  # Computed
   data:
     - secretKey: username
       remoteRef:
@@ -109,6 +117,9 @@ spec:
 
 **Key Points:**
 - `creationPolicy: Owner` - ESO creates the secret from scratch
+- **Only secrets (username, password) pulled from Infisical**
+- **Configuration fields (database, host, port) computed dynamically in template**
+- Database name patched via Crossplane from `spec.databaseName`
 - Dynamic path construction via Crossplane patches (cellId + tenantId)
 - Follows Pattern B from ESO-Infisical ADR (Application Secrets)
 
@@ -225,7 +236,35 @@ spec:
                   manifest:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
-                    # ... (pulls from Infisical)
+                    spec:
+                      secretStoreRef:
+                        name: infisical-backend
+                        kind: ClusterSecretStore
+                      target:
+                        name: tenant-<id>-db-credentials
+                        creationPolicy: Owner
+                        template:
+                          type: Opaque
+                          data:
+                            username: "{{ .username }}"
+                            password: "{{ .password }}"
+                            database: ""  # Patched from spec.databaseName
+                            host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
+                            port: "5432"
+                      data:
+                        - secretKey: username
+                          remoteRef:
+                            key: /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            property: username
+                        - secretKey: password
+                          remoteRef:
+                            key: /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            property: password
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              # ... (other patches for tenantId, cellId)
           
           # Resource 2: CNPG Database CR
           - name: database
