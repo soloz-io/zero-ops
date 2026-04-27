@@ -135,6 +135,8 @@ spec:
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
       toFieldPath: status.poolerReady
+      policy:
+        fromFieldPath: Optional
       transforms:
         - type: map
           map:
@@ -251,6 +253,8 @@ spec:
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Available")].status
       toFieldPath: status.postgrestReady
+      policy:
+        fromFieldPath: Optional
       transforms:
         - type: map
           map:
@@ -385,6 +389,8 @@ spec:
     - type: ToCompositeFieldPath
       fromFieldPath: status.atProvider.manifest.status.conditions[?(@.type=="Ready")].status
       toFieldPath: status.migrationsApplied
+      policy:
+        fromFieldPath: Optional
       transforms:
         - type: map
           map:
