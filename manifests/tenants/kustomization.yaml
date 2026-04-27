@@ -4,3 +4,5 @@ kind: Kustomization
 resources:
   - xrds/tenantdatabase.yaml
   - compositions/tenantdatabase-spoke.yaml
+  - compositions/ainativesaas-starter-hetzner.yaml
+  - compositions/ainativesaas-providerconfig.yaml
