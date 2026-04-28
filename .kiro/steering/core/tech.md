@@ -2,7 +2,7 @@
 inclusion: always
 purpose: Technology stack, tools, frameworks, and technical constraints
 scope: Languages, infrastructure, data storage, security, development tools, constraints
-topics: [tech-stack, infrastructure-tools, development-tools, technical-constraints, gitops-research]
+topics: [tech-stack, infrastructure-tools, development-tools, technical-constraints, gitops-research, service-mesh, zero-trust, observability, usage-metering]
 update_criteria: Technology choices, tool updates, constraint changes, research findings
 ---
 
@@ -26,6 +26,12 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Kagents**: Agentic workflows
 - **Argo Agents**: Edge gitops
 
+## Service Mesh & Zero-Trust Networking
+- **Istio**: Service mesh for zero-trust networking
+- **SPIFFE/SPIRE**: Workload identity and cryptographic authentication
+- **Envoy**: Service proxy (part of Istio data plane)
+- **mTLS**: Mutual TLS for service-to-service communication
+
 ## Data & Storage
 - **PostgreSQL**: Primary database with CNPG operator
 - **pgvector**: Vector similarity search for AI features
@@ -37,6 +43,7 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Ory Hydra**: OAuth2/OIDC token issuer
 - **Ory Keto**: Relationship-based authorization
 - **JWT**: Authentication tokens with JWKS validation
+- **JWKS**: JSON Web Key Set for JWT signature validation
 - **cert-manager**: TLS certificate management
 - **Infisical**: Secret manager
 - **Teleport**: PAM
@@ -49,6 +56,12 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **postgresai**: Custom CNPG monitoring operator
 - **K8sGPT**: AI-powered cluster diagnostics
 - **ClickHouse**: Log aggregation and search
+- **Jaeger**: Distributed tracing backend
+- **OpenTelemetry**: Observability framework (traces, metrics, logs)
+
+## Usage Metering & Billing
+- **OpenMeter**: Real-time usage metering and billing engine
+- **CloudEvents**: Event format for usage tracking
 
 ## Development Tools
 - **sqlc**: Type-safe SQL code generation for Go APIs
