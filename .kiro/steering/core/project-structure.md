@@ -86,11 +86,11 @@ To understand this structure, you must understand the v9.0 hub-spoke deployment 
 
 3. **Spoke Pool Cluster (Shared Tenants):** Runs:
    - ArgoCD Agent (pulls from Hub OCI registry)
-   - Spoke Controller (watches Crossplane claims → writes status to Hub via PostgREST)
+   - Spoke Controller (watches Crossplane claims → writes status to Hub via AgentGateway/PostgREST)
    - NATS Leaf Node (billing events → Hub)
    - KSM + Grafana Alloy (metrics scrape → remote_write → VictoriaMetrics on Hub)
    - Tenant workloads (namespaced isolation)
-   - Uses HubStore (direct connection to Control Plane Shared DB)
+   - Uses HubStore (PostgREST API via AgentGateway)
 
 4. **Spoke Silo Cluster (Dedicated Tenants):** Runs:
    - Local Ory stack (Kratos + Hydra)
@@ -113,7 +113,7 @@ Spoke Controller → Hub-side PostgREST → Hub Centralised DB
 - Controller-runtime native retry with exponential backoff
 
 **Control Plane State (Dual Path):**
-- Spoke Pool: Direct PgSQL connection to Control Plane Shared DB (HubStore)
+- Spoke Pool: PostgREST API via AgentGateway (HubStore)
 - Spoke Silo: Local Tenant Control Plane DB → NATS Leaf Node → Hub Event Router → Control Plane Shared DB (LocalStore)
 
 **Billing/Lifecycle Events (Asynchronous):**
@@ -161,7 +161,7 @@ You should start with a Monorepo. You should **only** split (Polyrepo) if:
 **ClickHouse Deferral:** ClickHouse is deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows). Until then, billing records are stored in Hub Centralised DB.
 
 **IControlPlaneStore Pattern:** The same interface, two implementations injected at spoke bootstrap:
-- HubStore (Spoke Pool): Direct synchronous writes to Hub
+- HubStore (Spoke Pool): PostgREST API via AgentGateway
 - LocalStore (Spoke Silo): Local writes with eventual consistency via NATS
 
 **PostgREST Dual Deployment:**
