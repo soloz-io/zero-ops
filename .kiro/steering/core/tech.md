@@ -60,8 +60,10 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **OpenTelemetry**: Observability framework (traces, metrics, logs)
 
 ## Usage Metering & Billing
-- **OpenMeter**: Real-time usage metering and billing engine
-- **CloudEvents**: Event format for usage tracking
+- **OpenMeter**: Real-time usage metering and billing engine (Hub cluster)
+- **OTLP**: OpenTelemetry Protocol for usage event emission from AgentGateway to OpenMeter
+- **CloudEvents**: Event format for usage tracking metadata
+- **kube-sbt Metering**: Go abstractions for tenant/user-scoped usage queries and entitlements
 
 ## Development Tools
 - **sqlc**: Type-safe SQL code generation for Go APIs
@@ -104,7 +106,7 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Event-Driven Provisioning**: Tenant creation MUST emit NATS events (`opensbt_onboardingRequest`) and return immediately. Application Plane handles async provisioning and emits success/failure events
 - **Two-Step Onboarding**: Use TenantRegistration (pending) → Event → Provisioning → Tenant (active) flow, not direct tenant creation
 
-## open-sbt Abstraction Layer
+## kube-sbt Abstraction Layer
 
 **Purpose**: Reusable Go library for multi-tenant SaaS backends (Kubernetes-native alternative to AWS SBT)
 
@@ -116,6 +118,8 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **IProvisioner**: Infrastructure provisioning (Crossplane implementation)
 - **IStorage**: Data persistence (PostgreSQL implementation)
 - **ISecretManager**: Secret management (Infisical implementation)
+- **IMetering**: Usage metering and entitlements (OpenMeter implementation)
+- **IUserManager**: Tenant user management (PostgREST + RLS implementation)
 
 ### Default Providers
 - **Ory Stack**: Auth provider (Kratos + Hydra + Keto)
@@ -123,6 +127,8 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **PostgreSQL + sqlc**: Storage provider (replaces DynamoDB)
 - **Infisical**: Secret manager (replaces AWS Secrets Manager)
 - **Crossplane + ArgoCD**: Provisioning provider (replaces CloudFormation)
+- **OpenMeter + OTLP**: Metering provider (replaces AWS CloudWatch + Cost Explorer)
+- **PostgREST + RLS**: User management provider (tenant database access)
 
 ### Architecture Separation
 - **Control Plane**: Tenant management, billing, provisioning, identity, MCP server

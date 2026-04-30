@@ -86,11 +86,13 @@ To understand this structure, you must understand the v9.0 hub-spoke deployment 
 
 3. **Spoke Pool Cluster (Shared Tenants):** Runs:
    - ArgoCD Agent (pulls from Hub OCI registry)
-   - Spoke Controller (watches Crossplane claims → writes status to Hub via AgentGateway/PostgREST)
+   - Spoke Controller (watches Crossplane claims → writes status to Hub via PostgREST)
    - NATS Leaf Node (billing events → Hub)
    - KSM + Grafana Alloy (metrics scrape → remote_write → VictoriaMetrics on Hub)
    - Tenant workloads (namespaced isolation)
-   - Uses HubStore (PostgREST API via AgentGateway)
+   - Per-tenant PostgREST (exposes tenant's app plane logical DB with RLS)
+   - AgentGateway (routes MCP requests, emits OTLP events to OpenMeter)
+   - Uses HubStore (PostgREST API via AgentGateway for user management)
 
 4. **Spoke Silo Cluster (Dedicated Tenants):** Runs:
    - Local Ory stack (Kratos + Hydra)
@@ -113,8 +115,15 @@ Spoke Controller → Hub-side PostgREST → Hub Centralised DB
 - Controller-runtime native retry with exponential backoff
 
 **Control Plane State (Dual Path):**
-- Spoke Pool: PostgREST API via AgentGateway (HubStore)
+- Spoke Pool: Per-tenant PostgREST (app plane logical DB) accessed via AgentGateway for user management
 - Spoke Silo: Local Tenant Control Plane DB → NATS Leaf Node → Hub Event Router → Control Plane Shared DB (LocalStore)
+
+**Usage Metering (OTLP):**
+AgentGateway (all spokes) → OTLP traces → OpenMeter (Hub)
+- Emits usage events for: api_calls, storage_operations, custom_api_calls, developer_api_calls
+- Includes tenant_id, user_id, meter_id in span attributes
+- Batched emission (max 100 events), async non-blocking
+- Local buffering (1-hour retention) when OpenMeter unreachable
 
 **Billing/Lifecycle Events (Asynchronous):**
 Spoke → NATS Leaf Node → Hub JetStream → Hub Event Router → Hub Centralised DB
@@ -161,11 +170,12 @@ You should start with a Monorepo. You should **only** split (Polyrepo) if:
 **ClickHouse Deferral:** ClickHouse is deferred until PostgreSQL billing queries become a bottleneck (typically 10M+ rows). Until then, billing records are stored in Hub Centralised DB.
 
 **IControlPlaneStore Pattern:** The same interface, two implementations injected at spoke bootstrap:
-- HubStore (Spoke Pool): PostgREST API via AgentGateway
+- HubStore (Spoke Pool): Per-tenant PostgREST API via AgentGateway for user management
 - LocalStore (Spoke Silo): Local writes with eventual consistency via NATS
 
-**PostgREST Dual Deployment:**
+**PostgREST Deployment Patterns:**
 - Hub-side PostgREST: Exposes Hub Centralised DB (resource status writes from Spoke Controllers)
-- Spoke-side PostgREST: Exposes Control Plane Shared DB (Pool) or local Tenant Control Plane DB (Silo)
+- Spoke Pool PostgREST: Per-tenant instances exposing app plane logical DB with RLS (user management)
+- Spoke Silo PostgREST: Exposes local Tenant Control Plane DB
 
-These are never merged and serve different databases with different access patterns.
+These serve different databases with different access patterns and security boundaries.

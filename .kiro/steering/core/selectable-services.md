@@ -165,11 +165,24 @@ The platform uses **two distinct delivery mechanisms** for different types of co
 - Uses per-spoke JWT (Hydra client_credentials grant)
 - Controller-runtime native retry with exponential backoff
 
+**User Management (Spoke Pool):**
+- kube-sbt User_Manager connects to per-tenant PostgREST in Spoke Pool
+- PostgREST exposes tenant's app plane logical DB with RLS
+- JWT claims enforce user_id isolation (request.jwt.claims->>'user_id')
+- Accessed via AgentGateway for mTLS and routing
+
 **Asynchronous Event Flow (NATS):**
 - Billing events: `spoke.{tenant-id}.billing.usage` → Hub Event Router → Hub Centralised DB
 - Lifecycle events: `spoke.{tenant-id}.lifecycle.>` → Hub workflows
 - Notifications: `spoke.{tenant-id}.notifications.>` → notification service
 - Spoke Silo state sync: Local Tenant Control Plane DB → NATS Leaf Node → Hub Event Router → Control Plane Shared DB
+
+**Usage Metering (OTLP):**
+- AgentGateway emits OTLP traces to OpenMeter (Hub) for every authenticated request
+- Meters: api_calls, storage_operations, custom_api_calls, developer_api_calls
+- Span attributes: tenant_id, user_id, meter_id
+- Batched emission (max 100 events), async non-blocking
+- Local buffering (1-hour retention) when OpenMeter unreachable
 
 **Observability Push (Alloy):**
 - All spokes run Grafana Alloy

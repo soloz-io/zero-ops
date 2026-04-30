@@ -2,51 +2,44 @@
 
 ## Introduction
 
-This document specifies requirements for the kube-sbt metering and user management system. The system provides Go-based abstractions for multi-tenant SaaS platforms to manage users and query usage metrics from OpenMeter. It supports both tenant-scoped and user-scoped usage queries, integrates with PostgreSQL-based tenant databases using Row-Level Security (RLS), and provides dynamic entitlements checking against tier quotas.
+This document specifies requirements for the kube-sbt metering and billing system. The system provides Go-based abstractions (IMetering, IBilling) for multi-tenant SaaS platforms, wrapping OpenMeter for usage metering, subscriptions, and invoicing. It runs in the Hub cluster as a secure Backend-For-Frontend (BFF), enforcing tenant isolation via namespace injection and providing subject management for usage attribution.
 
 ## Glossary
 
-- **kube-sbt**: Kubernetes-based SaaS Builder Toolkit providing abstractions for multi-tenant platforms
-- **Tenant**: An isolated customer environment with dedicated database and resources
-- **User**: An individual identity within a tenant stored in the tenant database
-- **OpenMeter**: Real-time usage metering and billing engine using OTLP protocol
+- **kube-sbt**: Kubernetes-based SaaS Builder Toolkit providing abstractions for multi-tenant platforms (CNCF equivalent of AWS SBT)
+- **Tenant**: A SaaS builder using the Zero-Ops platform, isolated via OpenMeter namespace
+- **Subject**: An end-user of a tenant's application, identified by `{tenant_id}#{user_id}` in OpenMeter
+- **OpenMeter**: Real-time usage metering and billing engine with subscription/invoice management
+- **Namespace**: OpenMeter's tenant isolation mechanism, maps 1:1 with tenant_id
 - **Meter**: A usage metric definition (e.g., "api_calls", "storage_mb")
-- **Entitlement**: A quota limit associated with a meter for a specific tier
-- **RLS**: Row-Level Security enforcing data isolation via JWT claims
-- **PostgREST**: Auto-generated REST API layer over PostgreSQL
-- **AgentGateway**: Service that sends usage events directly to OpenMeter via OTLP
-- **Spoke_Pool**: Shared multi-tenant cluster for Starter tier
-- **Hub**: Management cluster running control plane services
+- **Feature**: A billable capability mapped to one or more meters
+- **Plan**: A pricing tier with rate cards defining usage-based or flat pricing
+- **Entitlement**: A quota limit associated with a meter for a specific plan
+- **Subscription**: A subject's active plan assignment with billing lifecycle
+- **AgentGateway**: External Rust service emitting OTLP traces to OpenMeter (configured, not implemented by kube-sbt)
+- **Hub**: Management cluster running kube-sbt, OpenMeter, Ory, NATS, Crossplane
+- **Spoke**: Application cluster running tenant workloads (no kube-sbt code)
 - **OTLP**: OpenTelemetry Protocol for telemetry data transmission
+- **IMetering**: kube-sbt interface for meter/feature/plan CRUD and usage queries
+- **IBilling**: kube-sbt interface for subscription/invoice operations and Stripe integration
 
 ## Requirements
 
-### Requirement 1: Framework Renaming
+### Requirement 1: User Identity and Subject Registration
 
-**User Story:** As a platform developer, I want all `opensbt` references renamed to `kube-sbt`, so that the codebase reflects the correct project naming.
-
-#### Acceptance Criteria
-
-1. THE Renaming_Process SHALL update all package paths from `internal/opensbt` to `internal/kubesbt`
-2. THE Renaming_Process SHALL update all import statements referencing `opensbt` packages
-3. THE Renaming_Process SHALL update the binary path from `cmd/opensbt` to `cmd/kubesbt`
-4. THE Renaming_Process SHALL update all documentation files containing `opensbt` references
-5. THE Renaming_Process SHALL update all configuration files containing `opensbt` references
-
-### Requirement 2: User Management Interface
-
-**User Story:** As a tenant administrator, I want to manage users in my tenant database, so that I can control access to my SaaS application.
+**User Story:** As a platform operator, I want user identities managed via Ory Kratos and synced to OpenMeter as subjects, so that usage can be attributed to individual users.
 
 #### Acceptance Criteria
 
-1. THE User_Manager SHALL provide an IUserManager interface for user operations
-2. WHEN a user creation request is received, THE User_Manager SHALL insert a record into the tenant's public.users table
-3. THE User_Manager SHALL enforce RLS policies using JWT claims (request.jwt.claims->>'user_id')
-4. THE User_Manager SHALL support CRUD operations (Create, Read, Update, Delete) for users
-5. THE User_Manager SHALL store user data with schema: id (UUID), email (VARCHAR), email_verified (BOOLEAN), created_at (TIMESTAMPTZ), updated_at (TIMESTAMPTZ), metadata (JSONB)
-6. WHEN a user record is updated, THE User_Manager SHALL automatically update the updated_at timestamp
+1. THE User_Manager SHALL integrate with Ory Kratos (IAuth) for identity management
+2. WHEN a user is created via Ory Kratos, THE User_Manager SHALL register the user as an OpenMeter subject
+3. THE Subject_ID SHALL use format `{tenant_id}#{user_id}` where both are UUIDs
+4. THE User_Manager SHALL provide a GenerateSubjectID(tenantID, userID) helper method
+5. THE Subject registration SHALL include tenant namespace in OpenMeter API call
+6. WHEN subject registration fails, THE User_Manager SHALL rollback the Ory Kratos user creation
+7. THE User_Manager SHALL support querying subjects by tenant namespace
 
-### Requirement 3: Tenant-Scoped Usage Metrics
+### Requirement 2: Tenant-Scoped Usage Metrics
 
 **User Story:** As a tenant administrator, I want to view aggregate usage metrics for my entire tenant, so that I can monitor overall consumption against my plan limits.
 
@@ -59,7 +52,7 @@ This document specifies requirements for the kube-sbt metering and user manageme
 5. THE Metering_Service SHALL return usage data paired with limits from tier configuration
 6. WHEN OpenMeter API is unreachable, THE Metering_Service SHALL return an error with retry guidance
 
-### Requirement 4: User-Scoped Usage Metrics
+### Requirement 3: User-Scoped Usage Metrics
 
 **User Story:** As a tenant administrator, I want to view usage metrics for individual users, so that I can track per-user consumption and identify high-usage accounts.
 
@@ -72,9 +65,23 @@ This document specifies requirements for the kube-sbt metering and user manageme
 5. THE Metering_Service SHALL return usage data paired with limits from tier configuration
 6. WHEN a userID does not exist in the tenant, THE Metering_Service SHALL return an empty usage report
 
-### Requirement 5: OpenMeter Integration
+### Requirement 4: AgentGateway OTLP Configuration
 
-**User Story:** As a platform operator, I want the metering service to integrate with OpenMeter, so that usage data is centrally tracked and queryable.
+**User Story:** As a platform operator, I want AgentGateway configured to emit OTLP traces to OpenMeter, so that all tenant API traffic is automatically metered.
+
+#### Acceptance Criteria
+
+1. THE Platform_Configuration SHALL configure AgentGateway (external Rust binary) to emit OTLP to OpenMeter endpoint
+2. THE AgentGateway_Config SHALL specify OpenMeter ingestion endpoint URL in Hub cluster
+3. THE AgentGateway SHALL extract tenant_id and user_id from JWT claims and include in OTLP span attributes
+4. THE AgentGateway SHALL format subject as `{tenant_id}#{user_id}` in span attributes
+5. THE AgentGateway SHALL emit meter events for: api_calls, storage_operations, custom_api_calls, developer_api_calls
+6. THE kube-sbt documentation SHALL provide OTLP span attribute format specification
+7. THE kube-sbt SHALL NOT implement OTLP emission (AgentGateway responsibility)
+
+### Requirement 5: OpenMeter Integration for Queries
+
+**User Story:** As a platform operator, I want the metering service to query OpenMeter, so that usage data is centrally tracked and queryable.
 
 #### Acceptance Criteria
 
@@ -140,18 +147,19 @@ This document specifies requirements for the kube-sbt metering and user manageme
 6. THE API_Server SHALL document all endpoints in OpenAPI 3.0 specification format
 7. WHEN usage data is unavailable, THE API_Server SHALL return HTTP 503 with retry-after header
 
-### Requirement 10: Hub-Spoke Architecture Compliance
+### Requirement 10: Hub-Only Deployment Architecture
 
-**User Story:** As a platform architect, I want the metering system to comply with hub-spoke architecture, so that it operates correctly in distributed deployments.
+**User Story:** As a platform architect, I want kube-sbt to run exclusively in the Hub cluster, so that it provides secure multi-tenant abstractions over OpenMeter and Ory.
 
 #### Acceptance Criteria
 
-1. THE Metering_Service SHALL run in the Hub cluster as part of the mcp-server process
-2. THE Metering_Service SHALL query OpenMeter running in the Hub cluster
-3. THE User_Manager SHALL connect to tenant databases in Spoke_Pool clusters via PostgREST
-4. THE User_Manager SHALL use per-tenant JWT tokens for authentication to PostgREST
-5. WHEN Spoke_Pool is unreachable, THE User_Manager SHALL return errors without blocking other tenants
-6. THE Metering_Service SHALL support querying usage for tenants across multiple Spoke_Pool clusters
+1. THE kube-sbt SHALL run exclusively in the Hub cluster as part of the control plane
+2. THE kube-sbt SHALL wrap Ory Kratos (IAuth) for identity management in the Hub
+3. THE kube-sbt SHALL wrap OpenMeter SDK (IMetering, IBilling) for metering/billing operations
+4. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls
+5. THE kube-sbt SHALL validate tenant JWT before proxying requests to OpenMeter
+6. THE Spoke clusters SHALL run zero kube-sbt code (only tenant workloads, AgentGateway, PostgREST)
+7. THE kube-sbt SHALL act as Backend-For-Frontend (BFF) preventing direct OpenMeter access from sbt-sdk
 
 ### Requirement 11: Zero-Trust Security Compliance
 
@@ -159,10 +167,10 @@ This document specifies requirements for the kube-sbt metering and user manageme
 
 #### Acceptance Criteria
 
-1. THE User_Manager SHALL use mTLS when connecting to PostgREST endpoints
-2. THE User_Manager SHALL validate SPIFFE IDs for PostgREST service identities
-3. THE Metering_Service SHALL use mTLS when connecting to OpenMeter API
-4. THE Metering_Service SHALL validate SPIFFE IDs for OpenMeter service identity
+1. THE kube-sbt SHALL use mTLS when connecting to Ory Kratos endpoints
+2. THE kube-sbt SHALL validate SPIFFE IDs for Ory service identities
+3. THE kube-sbt SHALL use mTLS when connecting to OpenMeter API
+4. THE kube-sbt SHALL validate SPIFFE IDs for OpenMeter service identity
 5. WHEN certificate validation fails, THE Service SHALL reject the connection and log security events
 6. THE Service SHALL rotate certificates automatically via cert-manager integration
 
@@ -192,3 +200,73 @@ This document specifies requirements for the kube-sbt metering and user manageme
 5. THE API_Documentation SHALL provide example curl commands for each endpoint
 6. THE Manual_Validation SHALL use the OpenAPI spec to test all endpoints manually
 7. THE Manual_Validation SHALL verify responses match documented schemas
+
+### Requirement 14: Meter and Feature Management (IMetering)
+
+**User Story:** As a SaaS builder, I want to define meters and features via kube-sbt APIs, so that I can configure usage-based billing without directly accessing OpenMeter.
+
+#### Acceptance Criteria
+
+1. THE IMetering interface SHALL provide CreateMeter(namespace, meterSpec) method
+2. THE IMetering interface SHALL provide CreateFeature(namespace, featureSpec) method mapping features to meters
+3. THE IMetering interface SHALL provide ListMeters(namespace) and GetMeter(namespace, meterID) methods
+4. THE IMetering interface SHALL provide UpdateMeter and DeleteMeter methods
+5. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls
+6. THE kube-sbt SHALL validate tenant JWT before proxying meter/feature requests to OpenMeter
+7. WHEN namespace mismatch detected, THE kube-sbt SHALL return 403 Forbidden error
+
+### Requirement 15: Plan and Rate Card Management (IMetering)
+
+**User Story:** As a SaaS builder, I want to define pricing plans and rate cards via kube-sbt APIs, so that I can configure subscription tiers.
+
+#### Acceptance Criteria
+
+1. THE IMetering interface SHALL provide CreatePlan(namespace, planSpec) method
+2. THE Plan specification SHALL support billing cadence (monthly, annual), currency, and rate cards
+3. THE Rate card specification SHALL support pricing models: flat, usage-based, tiered-volume, tiered-graduated
+4. THE IMetering interface SHALL provide ListPlans(namespace) and GetPlan(namespace, planID) methods
+5. THE IMetering interface SHALL provide UpdatePlan and DeletePlan methods
+6. THE kube-sbt SHALL enforce namespace isolation for all plan operations
+7. WHEN plan references non-existent features, THE kube-sbt SHALL return validation error
+
+### Requirement 16: Subscription Management (IBilling)
+
+**User Story:** As a SaaS builder, I want to manage user subscriptions via kube-sbt APIs, so that I can assign plans to users and track billing lifecycle.
+
+#### Acceptance Criteria
+
+1. THE IBilling interface SHALL provide CreateSubscription(namespace, subjectID, planID) method
+2. THE Subscription creation SHALL use GenerateSubjectID() helper for subject formatting
+3. THE IBilling interface SHALL provide UpdateSubscription (plan changes, quantity updates) method
+4. THE IBilling interface SHALL provide CancelSubscription(namespace, subscriptionID) method
+5. THE IBilling interface SHALL provide GetSubscription and ListSubscriptions methods filtered by namespace
+6. THE kube-sbt SHALL delegate subscription state management to OpenMeter
+7. WHEN subscription creation fails, THE kube-sbt SHALL return OpenMeter error with context
+
+### Requirement 17: Invoice Operations (IBilling)
+
+**User Story:** As a SaaS builder, I want to preview and retrieve invoices via kube-sbt APIs, so that I can display billing information to end-users.
+
+#### Acceptance Criteria
+
+1. THE IBilling interface SHALL provide PreviewInvoice(namespace, subjectID) method
+2. THE IBilling interface SHALL provide GetInvoice(namespace, invoiceID) method
+3. THE IBilling interface SHALL provide ListInvoices(namespace, filters) method with pagination
+4. THE Invoice response SHALL include line items, totals, tax, discounts, and payment status
+5. THE kube-sbt SHALL query OpenMeter API with namespace and subject filters
+6. THE kube-sbt SHALL format OpenMeter invoice data for sbt-sdk consumption
+7. WHEN invoice not found, THE kube-sbt SHALL return 404 with clear error message
+
+### Requirement 18: Stripe Integration via OpenMeter
+
+**User Story:** As a platform operator, I want Stripe payment integration handled via OpenMeter's native Stripe App, so that kube-sbt delegates payment processing.
+
+#### Acceptance Criteria
+
+1. THE IBilling interface SHALL provide ConfigureStripeApp(namespace, stripeConfig) method
+2. THE Stripe configuration SHALL include API keys, webhook secrets, and payment settings
+3. THE kube-sbt SHALL expose webhook endpoint POST /api/v1/billing/stripe/webhook
+4. WHEN Stripe webhook received, THE kube-sbt SHALL validate signature and translate to NATS event
+5. THE kube-sbt SHALL publish `opensbt_billingSuccess` event to NATS JetStream on successful payment
+6. THE kube-sbt SHALL NOT directly create Stripe subscriptions (delegated to OpenMeter)
+7. THE kube-sbt SHALL query OpenMeter for Stripe sync status and payment details
