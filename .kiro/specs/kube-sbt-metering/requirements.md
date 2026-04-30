@@ -4,6 +4,8 @@
 
 This document specifies requirements for the kube-sbt metering and billing system. The system provides Go-based abstractions (IMetering, IBilling) for multi-tenant SaaS platforms, wrapping OpenMeter for usage metering, subscriptions, and invoicing. It runs in the Hub cluster as a secure Backend-For-Frontend (BFF), enforcing tenant isolation via namespace injection and providing subject management for usage attribution.
 
+**Scope:** This is a complete rewrite of the existing Postgres-backed IMetering implementation, following AWS SBT patterns but targeting OpenMeter as the backend. The existing implementation is deprecated.
+
 ## Glossary
 
 - **kube-sbt**: Kubernetes-based SaaS Builder Toolkit providing abstractions for multi-tenant platforms (CNCF equivalent of AWS SBT)
@@ -27,12 +29,12 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 1: User Identity and Subject Registration
 
-**User Story:** As a platform operator, I want user identities managed via Ory Kratos and synced to OpenMeter as subjects, so that usage can be attributed to individual users.
+**User Story:** As a SaaS admin, I want to create users via REST API, so that I can manage my application's end-users programmatically.
 
 #### Acceptance Criteria
 
 1. THE User_Manager SHALL integrate with Ory Kratos (IAuth) for identity management
-2. WHEN a user is created via Ory Kratos, THE User_Manager SHALL register the user as an OpenMeter subject
+2. WHEN a user is created via REST API, THE User_Manager SHALL register the user as an OpenMeter subject
 3. THE Subject_ID SHALL use format `{tenant_id}#{user_id}` where both are UUIDs
 4. THE User_Manager SHALL provide a GenerateSubjectID(tenantID, userID) helper method
 5. THE Subject registration SHALL include tenant namespace in OpenMeter API call
@@ -94,16 +96,17 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 6: Dynamic Entitlements System
 
-**User Story:** As a platform developer, I want tier quotas to be dynamically configurable, so that I can add new meters without code changes.
+**User Story:** As a SaaS builder, I want quota enforcement via OpenMeter's native Entitlement API, so that each namespace maintains independent tier configuration.
 
 #### Acceptance Criteria
 
-1. THE Tier_Config SHALL replace hardcoded TierQuotas fields with a dynamic map[string]int64 structure
-2. THE Tier_Config SHALL map meter IDs (string keys) to quota limits (int64 values)
-3. THE Entitlement_Checker SHALL compare current usage against configured limits
-4. THE Entitlement_Checker SHALL support unlimited quotas represented by -1 value
-5. WHEN a meter has no configured limit, THE Entitlement_Checker SHALL treat it as unlimited
-6. THE Entitlement_Checker SHALL return entitlement status: hasAccess (bool), used (int64), limit (int64)
+1. THE kube-sbt SHALL delegate ALL entitlement checking to OpenMeter's Entitlement API (no local quota logic)
+2. THE IMetering interface SHALL provide CheckEntitlement(namespace, subjectID, featureKey) method
+3. THE Entitlement check SHALL query OpenMeter API with namespace and subject filters
+4. THE OpenMeter namespace SHALL maintain independent plans, features, and entitlements
+5. THE kube-sbt SHALL support eventual consistency (users may slightly exceed quotas due to async OTLP processing)
+6. THE Entitlement response SHALL return: hasAccess (bool), used (int64), limit (int64), resetTime (timestamp)
+7. WHEN OpenMeter API is unreachable, THE kube-sbt SHALL fail-open with logged warning (allow access)
 
 ### Requirement 7: Manual Validation with Demo Tenant
 
@@ -163,16 +166,19 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 11: Zero-Trust Security Compliance
 
-**User Story:** As a security engineer, I want all inter-service communication to use mTLS, so that the system maintains zero-trust security posture.
+**User Story:** As a security engineer, I want all inter-service communication to use mTLS with SPIFFE workload identity via Istio service mesh, so that the system maintains zero-trust security posture.
 
 #### Acceptance Criteria
 
-1. THE kube-sbt SHALL use mTLS when connecting to Ory Kratos endpoints
-2. THE kube-sbt SHALL validate SPIFFE IDs for Ory service identities
-3. THE kube-sbt SHALL use mTLS when connecting to OpenMeter API
-4. THE kube-sbt SHALL validate SPIFFE IDs for OpenMeter service identity
-5. WHEN certificate validation fails, THE Service SHALL reject the connection and log security events
-6. THE Service SHALL rotate certificates automatically via cert-manager integration
+1. THE kube-sbt pod SHALL have Envoy sidecar injected automatically via Istio service mesh
+2. THE SPIRE agent SHALL deliver X.509 certificates (SPIFFE SVID) to Envoy sidecar (not application container)
+3. THE Envoy sidecar SHALL handle TLS origination/termination transparently
+4. THE kube-sbt application code SHALL make plain HTTP calls to localhost (no TLS config in Go code)
+5. THE Envoy SHALL intercept outbound calls, upgrade to mTLS, and validate peer SPIFFE IDs
+6. THE Istio PeerAuthentication SHALL enforce STRICT mTLS mode for kube-sbt pods
+7. THE Istio AuthorizationPolicy SHALL restrict kube-sbt access to authorized principals only
+8. THE SPIFFE SVID SHALL auto-rotate every 60 minutes via SPIRE integration
+9. WHEN certificate validation fails, THE Envoy SHALL reject the connection and log security events
 
 ### Requirement 12: Database Migration for Users Table
 
@@ -231,17 +237,21 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 16: Subscription Management (IBilling)
 
-**User Story:** As a SaaS builder, I want to manage user subscriptions via kube-sbt APIs, so that I can assign plans to users and track billing lifecycle.
+**User Story:** As a SaaS builder, I want to manage user subscriptions via kube-sbt APIs with automatic proration, so that plan changes are billed fairly.
 
 #### Acceptance Criteria
 
 1. THE IBilling interface SHALL provide CreateSubscription(namespace, subjectID, planID) method
 2. THE Subscription creation SHALL use GenerateSubjectID() helper for subject formatting
 3. THE IBilling interface SHALL provide UpdateSubscription (plan changes, quantity updates) method
-4. THE IBilling interface SHALL provide CancelSubscription(namespace, subscriptionID) method
-5. THE IBilling interface SHALL provide GetSubscription and ListSubscriptions methods filtered by namespace
-6. THE kube-sbt SHALL delegate subscription state management to OpenMeter
-7. WHEN subscription creation fails, THE kube-sbt SHALL return OpenMeter error with context
+4. WHEN subscription plan is updated, THE OpenMeter SHALL calculate prorated amounts internally
+5. THE OpenMeter Stripe App SHALL automatically sync prorated invoices to Stripe for payment collection
+6. THE kube-sbt SHALL NOT implement proration logic (delegated to OpenMeter)
+7. THE IBilling interface SHALL provide CancelSubscription(namespace, subscriptionID) method
+8. WHEN subscription is cancelled, THE kube-sbt SHALL mark subscription as "inactive" (preserve historical data)
+9. THE IBilling interface SHALL provide GetSubscription and ListSubscriptions methods filtered by namespace
+10. THE kube-sbt SHALL delegate subscription state management to OpenMeter
+11. WHEN subscription creation fails, THE kube-sbt SHALL return OpenMeter error with context
 
 ### Requirement 17: Invoice Operations (IBilling)
 
@@ -259,14 +269,59 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 18: Stripe Integration via OpenMeter
 
-**User Story:** As a platform operator, I want Stripe payment integration handled via OpenMeter's native Stripe App, so that kube-sbt delegates payment processing.
+**User Story:** As a platform operator, I want Stripe payment integration with secure secret storage, so that payment credentials are never exposed in Git.
 
 #### Acceptance Criteria
 
 1. THE IBilling interface SHALL provide ConfigureStripeApp(namespace, stripeConfig) method
-2. THE Stripe configuration SHALL include API keys, webhook secrets, and payment settings
-3. THE kube-sbt SHALL expose webhook endpoint POST /api/v1/billing/stripe/webhook
-4. WHEN Stripe webhook received, THE kube-sbt SHALL validate signature and translate to NATS event
-5. THE kube-sbt SHALL publish `opensbt_billingSuccess` event to NATS JetStream on successful payment
-6. THE kube-sbt SHALL NOT directly create Stripe subscriptions (delegated to OpenMeter)
-7. THE kube-sbt SHALL query OpenMeter for Stripe sync status and payment details
+2. THE Stripe API keys and webhook secrets SHALL be stored in Infisical (not Git, not ConfigMaps)
+3. THE kube-sbt SHALL retrieve Stripe secrets from Infisical via External Secrets Operator
+4. THE kube-sbt SHALL expose webhook endpoint POST /api/v1/billing/stripe/webhook
+5. WHEN Stripe webhook received, THE kube-sbt SHALL validate signature and translate to NATS event
+6. THE kube-sbt SHALL publish `opensbt_billingSuccess` event to NATS JetStream on successful payment
+7. THE kube-sbt SHALL NOT directly create Stripe subscriptions (delegated to OpenMeter)
+8. THE kube-sbt SHALL query OpenMeter for Stripe sync status and payment details
+
+### Requirement 19: OpenMeter Namespace Provisioning via Crossplane
+
+**User Story:** As a platform operator, I want OpenMeter namespaces automatically provisioned when tenants are created, so that tenant isolation is enforced from Day 0.
+
+#### Acceptance Criteria
+
+1. THE Crossplane Composition SHALL provision OpenMeter namespace when AINativeSaaS XR is created
+2. THE OpenMeter namespace SHALL use tenant_id as the namespace identifier
+3. THE Crossplane SHALL use provider-http (crossplane-contrib/provider-http) to create namespace via OpenMeter REST API
+4. THE provider-http Request resource SHALL define POST (create), GET (reconcile), DELETE (cleanup) mappings
+5. THE Namespace provisioning SHALL complete before kube-sbt attempts any metering operations
+6. THE kube-sbt SHALL assume namespace exists for all Day-2 operations (no namespace creation logic)
+7. WHEN namespace provisioning fails, THE Crossplane SHALL report failure in XR status conditions
+8. THE Namespace deletion SHALL be handled by Crossplane during tenant offboarding
+
+### Requirement 20: OpenMeter Hub Deployment
+
+**User Story:** As a platform architect, I want OpenMeter deployed in Hub cluster using official Helm chart, so that metering infrastructure is centralized and production-ready.
+
+#### Acceptance Criteria
+
+1. THE OpenMeter deployment SHALL use official open-source Helm chart from OpenMeter project
+2. THE OpenMeter deployment SHALL run exclusively in Hub cluster
+3. THE OpenMeter pods SHALL be scheduled on Hub managed workload nodes (not control plane nodes)
+4. THE OpenMeter deployment SHALL use node selectors: `node-role.kubernetes.io/worker=true`
+5. THE OpenMeter deployment SHALL use tolerations for Hub workload taints
+6. THE OpenMeter SHALL expose OTLP ingestion endpoint accessible from all Spoke clusters
+7. THE OpenMeter SHALL expose REST API endpoint accessible only from kube-sbt (Hub internal)
+8. THE OpenMeter deployment SHALL include HA configuration (3+ replicas, PodDisruptionBudget)
+
+### Requirement 21: Orphaned Subject Reconciliation
+
+**User Story:** As a platform operator, I want automated cleanup of orphaned OpenMeter subjects when Kratos rollback fails, so that data consistency is maintained without manual intervention.
+
+#### Acceptance Criteria
+
+1. WHEN OpenMeter subject creation succeeds but Kratos user rollback fails, THE User_Manager SHALL retry rollback 3 times with exponential backoff (1s, 2s, 4s)
+2. WHEN all rollback retries fail, THE User_Manager SHALL publish event to NATS topic `opensbt_orphanedSubjects` with subject_id and tenant_id
+3. THE Reconciliation_Controller SHALL subscribe to `opensbt_orphanedSubjects` topic
+4. THE Reconciliation_Controller SHALL attempt to delete orphaned OpenMeter subjects every 5 minutes
+5. WHEN reconciliation succeeds, THE Reconciliation_Controller SHALL remove event from DLQ
+6. WHEN reconciliation fails 3 times, THE Reconciliation_Controller SHALL publish alert to NATS topic `opensbt_notifications` for ops team
+7. THE Manual_Cleanup_Dashboard SHALL display orphaned subjects requiring manual intervention
