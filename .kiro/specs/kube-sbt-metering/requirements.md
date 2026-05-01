@@ -161,8 +161,9 @@ This document specifies requirements for the kube-sbt metering and billing syste
 3. THE kube-sbt SHALL wrap OpenMeter SDK (IMetering, IBilling) for metering/billing operations
 4. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls
 5. THE kube-sbt SHALL validate tenant JWT before proxying requests to OpenMeter
-6. THE Spoke clusters SHALL run zero kube-sbt code (only tenant workloads, AgentGateway, PostgREST)
-7. THE kube-sbt SHALL act as Backend-For-Frontend (BFF) preventing direct OpenMeter access from sbt-sdk
+6. THE Spoke clusters SHALL run zero kube-sbt code (only tenant workloads, PostgREST)
+7. THE AgentGateway SHALL run exclusively in Hub cluster (centralized gateway pattern)
+8. THE kube-sbt SHALL act as Backend-For-Frontend (BFF) preventing direct OpenMeter access from sbt-sdk
 
 ### Requirement 11: Zero-Trust Security Compliance
 
@@ -276,26 +277,28 @@ This document specifies requirements for the kube-sbt metering and billing syste
 1. THE IBilling interface SHALL provide ConfigureStripeApp(namespace, stripeConfig) method
 2. THE Stripe API keys and webhook secrets SHALL be stored in Infisical (not Git, not ConfigMaps)
 3. THE kube-sbt SHALL retrieve Stripe secrets from Infisical via External Secrets Operator
-4. THE kube-sbt SHALL expose webhook endpoint POST /api/v1/billing/stripe/webhook
-5. WHEN Stripe webhook received, THE kube-sbt SHALL validate signature and translate to NATS event
-6. THE kube-sbt SHALL publish `opensbt_billingSuccess` event to NATS JetStream on successful payment
-7. THE kube-sbt SHALL NOT directly create Stripe subscriptions (delegated to OpenMeter)
-8. THE kube-sbt SHALL query OpenMeter for Stripe sync status and payment details
+4. THE Stripe webhooks SHALL be routed directly to OpenMeter endpoint POST /api/v1/apps/{appId}/stripe/webhook
+5. THE OpenMeter SHALL validate Stripe webhook signatures using app-specific webhook secret
+6. THE OpenMeter SHALL update internal invoice state (paid/failed/voided) based on Stripe webhook events
+7. THE kube-sbt SHALL NOT intercept Stripe webhooks (OpenMeter handles webhook processing)
+8. THE kube-sbt SHALL query OpenMeter API for invoice status and payment details
+9. THE kube-sbt MAY subscribe to OpenMeter notification events for billing alerts (optional)
 
-### Requirement 19: OpenMeter Namespace Provisioning via Crossplane
+### Requirement 19: OpenMeter Namespace Provisioning via hub-operator
 
 **User Story:** As a platform operator, I want OpenMeter namespaces automatically provisioned when tenants are created, so that tenant isolation is enforced from Day 0.
 
 #### Acceptance Criteria
 
-1. THE Crossplane Composition SHALL provision OpenMeter namespace when AINativeSaaS XR is created
+1. THE hub-operator SHALL provision OpenMeter namespace when HubEnvironment CR is reconciled
 2. THE OpenMeter namespace SHALL use tenant_id as the namespace identifier
-3. THE Crossplane SHALL use provider-http (crossplane-contrib/provider-http) to create namespace via OpenMeter REST API
-4. THE provider-http Request resource SHALL define POST (create), GET (reconcile), DELETE (cleanup) mappings
+3. THE hub-operator SHALL use OpenMeter's `namespace.Manager` Go API (not REST API) for namespace lifecycle
+4. THE Namespace provisioning SHALL occur in Phase 0 (before database migrations and role creation)
 5. THE Namespace provisioning SHALL complete before kube-sbt attempts any metering operations
 6. THE kube-sbt SHALL assume namespace exists for all Day-2 operations (no namespace creation logic)
-7. WHEN namespace provisioning fails, THE Crossplane SHALL report failure in XR status conditions
-8. THE Namespace deletion SHALL be handled by Crossplane during tenant offboarding
+7. WHEN namespace provisioning fails, THE hub-operator SHALL report failure in HubEnvironment status conditions
+8. THE Namespace deletion SHALL be handled by hub-operator during tenant offboarding
+9. THE hub-operator SHALL add OpenMeterNamespaceConfigured condition to HubEnvironment status
 
 ### Requirement 20: OpenMeter Hub Deployment
 

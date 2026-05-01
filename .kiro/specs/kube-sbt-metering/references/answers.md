@@ -1,3 +1,86 @@
+
+Here is the rigorous GAP analysis of your updated `requirements.md` specification against the provided `codebase.md`.
+
+```markdown
+# GAP Analysis: Kube-SBT Metering & Billing Requirements
+
+## Executive Summary
+The requirements document outlines a robust, OpenMeter-backed metering and billing abstraction (`kube-sbt`). However, a rigorous comparison against the existing codebase (`codebase.md`) reveals a **massive divergence between what the requirements presume and what is currently implemented.** 
+
+The current codebase utilizes custom PostgreSQL-backed implementations for metering, mock implementations for billing, and internal middleware for entitlements. Additionally, critical infrastructure components (like OpenMeter itself and its Crossplane provider) are entirely missing from the deployment manifests.
+
+---
+
+## 1. Presumed Resources vs. Codebase Reality (Major Gaps)
+
+The requirements assume the existence of several components that are currently **not implemented or are implemented completely differently** in the codebase.
+
+### Gap 1.1: `IMetering` Implementation (Req 5, 14)
+* **Requirement:** States `IMetering` wraps the OpenMeter SDK and communicates with the OpenMeter API.
+* **Codebase Reality:** `internal/opensbt/providers/metering/metering.go` is currently backed by **PostgreSQL**. It relies on `INSERT INTO usage_events` and aggregates usage via raw SQL (`SELECT COALESCE(SUM(value),0)`). It has no knowledge of OpenMeter.
+* **Impact:** The entire `metering.go` provider must be rewritten to use the OpenMeter Go SDK. 
+
+### Gap 1.2: Entitlements Enforcement (Req 6)
+* **Requirement:** (Req 6.1) "kube-sbt SHALL delegate ALL entitlement checking to OpenMeter's Entitlement API (no local quota logic)".
+* **Codebase Reality:** The codebase currently handles quotas internally via `internal/opensbt/providers/tiermanager/tiermanager.go` (reading from `tier_configs` in Postgres) and enforces them via `internal/opensbt/controlplane/middleware/tier.go` (`TierQuotaMiddleware`).
+* **Impact:** The existing `ITierManager` and `TierQuotaMiddleware` components conflict directly with this requirement and must be deprecated or entirely re-engineered to query OpenMeter instead.
+
+### Gap 1.3: `IBilling` and Stripe Integration (Req 16, 17, 18)
+* **Requirement:** `IBilling` interfaces with OpenMeter to handle Stripe subscriptions, invoices, and payment webhooks.
+* **Codebase Reality:** `internal/opensbt/providers/billing/billing.go` is currently a `MockBilling` struct using in-memory maps (`map[string]*models.Subscription`). There is no Stripe or OpenMeter webhook code present.
+
+### Gap 1.4: Crossplane OpenMeter Provider (Req 19)
+* **Requirement:** Crossplane Composition provisions the OpenMeter namespace when `AINativeSaaS` XR is created.
+* **Codebase Reality:** Looking at `manifests/hub-core-services/crossplane/tenant-platform/compositions/ainativesaas-starter-hetzner.yaml` and the providers list, there is **no Crossplane provider for OpenMeter installed**, nor are there any OpenMeter resources defined in the composition.
+* **Impact:** A custom Crossplane Provider for OpenMeter might need to be built, or an existing one evaluated, as it currently does not exist in the platform.
+
+### Gap 1.5: OpenMeter Hub Deployment (Req 20)
+* **Requirement:** OpenMeter is deployed in the Hub cluster on managed workload nodes.
+* **Codebase Reality:** There are no OpenMeter manifests under `manifests/hub-core-services/`. Only ArgoCD, CNPG, Hydra, Kratos, Keto, NATS, Spire, and VictoriaMetrics exist.
+
+### Gap 1.6: mTLS / Zero-Trust (Req 11)
+* **Requirement:** `kube-sbt` uses mTLS to connect to Ory Kratos and OpenMeter.
+* **Codebase Reality:** `internal/opensbt/providers/ory/auth.go` uses standard HTTP clients connecting to plain-text internal service addresses (e.g., `http://ory-kratos-admin:4434`). SPIFFE/SPIRE certificates are not currently mounted or utilized by the `opensbt` Go binary.
+
+---
+
+## 2. Logical Inconsistencies & Edge Cases
+
+### 2.1 Distributed Transactions (Req 1.6)
+* **The Gap:** "WHEN subject registration fails, THE User_Manager SHALL rollback the Ory Kratos user creation."
+* **Edge Case:** Kratos user creation succeeds, but OpenMeter subject creation times out. `kube-sbt` attempts to rollback (delete) the Kratos user, but *that* request also fails due to a network partition. 
+* **Missing Spec:** How does the system handle orphaned Kratos users? Does it require a background reconciliation job or a DLQ (Dead Letter Queue)?
+
+### 2.2 Stripe Webhook Idempotency (Req 18.5)
+* **The Gap:** The spec requires validating Stripe signatures and publishing NATS events.
+* **Edge Case:** Stripe guarantees "at least once" delivery. If a webhook times out and Stripe resends it, `kube-sbt` could emit duplicate `opensbt_billingSuccess` events.
+* **Missing Spec:** The `IBilling` webhook handler must explicitly state how it deduplicates incoming Stripe event IDs (e.g., using the existing `processed_events` table in Postgres).
+
+### 2.3 Subject Deletion / Data Retention (Req 8.4)
+* **The Gap:** Req 8.4 outlines an endpoint for user deletion.
+* **Edge Case:** If a user is deleted from `kube-sbt` (and Ory), what happens to their OpenMeter Subject? If the subject is hard-deleted, you may lose historical usage data required for accounting and tax compliance.
+* **Missing Spec:** Define if OpenMeter Subjects should be "archived/disabled" rather than deleted when a user is deleted.
+
+### 2.4 AgentGateway JWT Validation Race Condition (Req 4.3)
+* **The Gap:** AgentGateway extracts `user_id` and `tenant_id` from the JWT to emit OTLP.
+* **Edge Case:** A user is created in Kratos and instantly fires an API request through AgentGateway. AgentGateway emits OTLP to OpenMeter. However, the asynchronous NATS event (`opensbt_tenantUserCreated`) hasn't finished registering the Subject in OpenMeter yet.
+* **Missing Spec:** How does OpenMeter handle OTLP metrics for a `Subject` that does not exist *yet*? Will it drop the metrics, or create the subject lazily?
+
+---
+
+## 3. Actionable Questions for the Product & Engineering Teams
+
+To ensure this specification is "Development Ready", please clarify:
+
+1. **Codebase Overhaul:** Do we officially deprecate the existing Postgres-backed `IMetering` (`usage_events` table) and `TierManager` implementations in favor of a complete rewrite targeting OpenMeter? 
+2. **Crossplane Provider:** Does an official Crossplane provider for OpenMeter exist, or do we need to build a custom `ProviderConfig` to fulfill Req 19?
+3. **mTLS Implementation:** Req 11 states mTLS is required for Ory and OpenMeter. Are we planning to inject SPIRE agent certificates into the `opensbt` pod via CSI driver, or use a sidecar proxy (like Envoy) to handle the TLS origination?
+4. **Stripe Proration:** Req 16.4 states OpenMeter applies automatic proration. Does OpenMeter natively support pushing prorated adjustments directly to Stripe subscriptions, or does `kube-sbt` need to calculate the prorated amounts and update Stripe?
+5. **Orphaned Subjects:** If Kratos user rollback fails (Req 1.6), should we implement an automated reconciliation loop, or rely on manual cleanup via the Dashboard?
+6. **OpenMeter Deployment:** Are we using the OpenMeter open-source Helm chart for Hub deployment, or are we subscribing to OpenMeter Cloud? (This affects how the Crossplane provider authenticates).
+```
+
+-----------------------
 I'll help answer these questions based on the architecture and codebase context:
 
 
