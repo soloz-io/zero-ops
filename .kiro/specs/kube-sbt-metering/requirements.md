@@ -6,6 +6,45 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 **Scope:** This is a complete rewrite of the existing Postgres-backed IMetering implementation, following AWS SBT patterns but targeting OpenMeter as the backend. The existing implementation is deprecated.
 
+## Architectural Approach: Operator Pattern (ADR 012)
+
+**CRITICAL DESIGN DECISION:** The billing catalog (Meters, Features, Plans) is managed via **GitOps + Kubernetes Operators**, NOT via REST API.
+
+### Static Catalog (GitOps + hub-operator)
+
+**Managed via Kubernetes Custom Resources:**
+- `Meter` (billing.nutgraf.in/v1alpha1) - Usage metric definitions
+- `Feature` (billing.nutgraf.in/v1alpha1) - Billable capabilities
+- `Plan` (billing.nutgraf.in/v1alpha1) - Pricing tiers and rate cards
+
+**Lifecycle:**
+1. SaaS Builder defines billing configuration in `fleet-registry/tenants/<tenant-id>/values.yaml`
+2. ArgoCD renders `universal-tenant` Helm chart, creating CRs in Hub cluster
+3. `hub-operator` reconciles CRs, syncing to OpenMeter via Go SDK
+4. Changes tracked in Git with full audit trail
+
+**Rationale:**
+- Billing catalog is infrastructure configuration, not runtime data
+- GitOps provides version control, audit trail, and rollback safety
+- Consistent with platform patterns (Crossplane, Operators)
+- Eliminates complex saga patterns for catalog mutations
+
+### Dynamic Runtime Data (kube-sbt REST API)
+
+**Managed via REST API:**
+- User/Subject registration and deletion
+- Subscription creation, updates, and cancellation
+- Usage queries and entitlement checks
+- Invoice operations
+
+**Lifecycle:**
+1. End-users interact with SaaS application
+2. Application calls `kube-sbt` REST API
+3. `kube-sbt` performs runtime operations against OpenMeter
+4. No Git involvement (ephemeral runtime state)
+
+**See ADR 012 for complete architectural rationale and implementation details.**
+
 ## Glossary
 
 - **kube-sbt**: Kubernetes-based SaaS Builder Toolkit providing abstractions for multi-tenant platforms (CNCF equivalent of AWS SBT)
@@ -22,8 +61,10 @@ This document specifies requirements for the kube-sbt metering and billing syste
 - **Hub**: Management cluster running kube-sbt, OpenMeter, Ory, NATS, Crossplane
 - **Spoke**: Application cluster running tenant workloads (no kube-sbt code)
 - **OTLP**: OpenTelemetry Protocol for telemetry data transmission
-- **IMetering**: kube-sbt interface for meter/feature/plan CRUD and usage queries
-- **IBilling**: kube-sbt interface for subscription/invoice operations and Stripe integration
+- **IMetering**: kube-sbt interface for usage queries and read-only catalog access
+- **IBilling**: kube-sbt interface for subscription/invoice operations
+- **hub-operator**: Kubernetes operator managing billing catalog CRs and syncing to OpenMeter
+- **GitOps**: Declarative infrastructure management via Git as single source of truth
 
 ## Requirements
 
@@ -67,9 +108,9 @@ This document specifies requirements for the kube-sbt metering and billing syste
 5. THE Metering_Service SHALL return usage data paired with limits from tier configuration
 6. WHEN a userID does not exist in the tenant, THE Metering_Service SHALL return an empty usage report
 
-### Requirement 4: AgentGateway OTLP Configuration
+### Requirement 4: AgentGateway OTLP Configuration and Spoke-Side Metric Collection
 
-**User Story:** As a platform operator, I want AgentGateway configured to emit OTLP traces to OpenMeter, so that all tenant API traffic is automatically metered.
+**User Story:** As a platform operator, I want AgentGateway to emit OTLP traces for HTTP requests and spoke-side metric collectors to emit stateful metrics (database rows, storage, workspaces), so that both API usage and domain-specific quotas are automatically metered.
 
 #### Acceptance Criteria
 
@@ -80,6 +121,12 @@ This document specifies requirements for the kube-sbt metering and billing syste
 5. THE AgentGateway SHALL emit meter events for: api_calls, storage_operations, custom_api_calls, developer_api_calls
 6. THE kube-sbt documentation SHALL provide OTLP span attribute format specification
 7. THE kube-sbt SHALL NOT implement OTLP emission (AgentGateway responsibility)
+8. THE universal-tenant Helm chart SHALL provision per-tenant metric collector CronJobs in Spoke clusters
+9. THE Metric collectors SHALL query tenant databases for stateful metrics: database_rows, storage_bytes, workspace_count, form_count, table_count
+10. THE Metric collectors SHALL emit OTLP gauge metrics to local OpenTelemetry Collector with tenant_id and meter_id attributes
+11. THE OpenTelemetry Collector (Spoke) SHALL forward metrics to OpenMeter (Hub) via mTLS
+12. THE Metric collector schedule SHALL be configurable per tenant (default: */5 * * * * - every 5 minutes)
+13. THE Metric collector SHALL support tenant-specific metric selection via Helm values (metering.metrics array)
 
 ### Requirement 5: OpenMeter Integration for Queries
 
@@ -208,33 +255,53 @@ This document specifies requirements for the kube-sbt metering and billing syste
 6. THE Manual_Validation SHALL use the OpenAPI spec to test all endpoints manually
 7. THE Manual_Validation SHALL verify responses match documented schemas
 
-### Requirement 14: Meter and Feature Management (IMetering)
+### Requirement 14: Meter and Feature Management (Declarative GitOps)
 
-**User Story:** As a SaaS builder, I want to define meters and features via kube-sbt APIs, so that I can configure usage-based billing without directly accessing OpenMeter.
-
-#### Acceptance Criteria
-
-1. THE IMetering interface SHALL provide CreateMeter(namespace, meterSpec) method
-2. THE IMetering interface SHALL provide CreateFeature(namespace, featureSpec) method mapping features to meters
-3. THE IMetering interface SHALL provide ListMeters(namespace) and GetMeter(namespace, meterID) methods
-4. THE IMetering interface SHALL provide UpdateMeter and DeleteMeter methods
-5. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls
-6. THE kube-sbt SHALL validate tenant JWT before proxying meter/feature requests to OpenMeter
-7. WHEN namespace mismatch detected, THE kube-sbt SHALL return 403 Forbidden error
-
-### Requirement 15: Plan and Rate Card Management (IMetering)
-
-**User Story:** As a SaaS builder, I want to define pricing plans and rate cards via kube-sbt APIs, so that I can configure subscription tiers.
+**User Story:** As a SaaS builder, I want to define meters and features declaratively via GitOps, so that billing catalog configuration is version-controlled and auditable.
 
 #### Acceptance Criteria
 
-1. THE IMetering interface SHALL provide CreatePlan(namespace, planSpec) method
-2. THE Plan specification SHALL support billing cadence (monthly, annual), currency, and rate cards
-3. THE Rate card specification SHALL support pricing models: flat, usage-based, tiered-volume, tiered-graduated
-4. THE IMetering interface SHALL provide ListPlans(namespace) and GetPlan(namespace, planID) methods
-5. THE IMetering interface SHALL provide UpdatePlan and DeletePlan methods
-6. THE kube-sbt SHALL enforce namespace isolation for all plan operations
-7. WHEN plan references non-existent features, THE kube-sbt SHALL return validation error
+1. THE hub-operator SHALL define Custom Resource Definitions (CRDs) for `Meter` and `Feature` under the `billing.nutgraf.in/v1alpha1` API group
+2. THE SaaS builder SHALL define Meters and Features declaratively via the `universal-tenant` Helm chart `values.yaml` (billing.meters and billing.features sections)
+3. THE hub-operator SHALL reconcile `Meter` and `Feature` CRs by making idempotent API calls to OpenMeter using the Go SDK
+4. THE hub-operator SHALL update CR `Status.Conditions` with sync status (Synced: True/False)
+5. THE hub-operator SHALL extract `tenantId` from CR spec and inject as OpenMeter namespace parameter
+6. THE kube-sbt REST API SHALL ONLY provide read-only endpoints (`GET /api/v1/meters`, `GET /api/v1/features`) for UI display
+7. WHEN Meter CR is deleted, THE hub-operator SHALL delete the corresponding meter from OpenMeter
+8. WHEN reconciliation fails, THE hub-operator SHALL retry with exponential backoff and update Status.Conditions with error message
+
+### Requirement 15: Plan and Rate Card Management (Declarative GitOps)
+
+**User Story:** As a SaaS builder, I want to define pricing plans and rate cards declaratively via GitOps, so that pricing configuration is version-controlled and auditable.
+
+#### Acceptance Criteria
+
+1. THE hub-operator SHALL define a Custom Resource Definition (CRD) for `Plan` under the `billing.nutgraf.in/v1alpha1` API group
+2. THE SaaS builder SHALL define Pricing Plans and Rate Cards declaratively via the `universal-tenant` Helm chart `values.yaml` (billing.plans section)
+3. THE Plan specification SHALL support billing cadence (monthly, annual), currency, phases, and rate cards
+4. THE Rate card specification SHALL support pricing models: flat, usage_based, tiered_volume, tiered_graduated
+5. THE hub-operator SHALL reconcile `Plan` CRs by making idempotent API calls to OpenMeter using the Go SDK
+6. THE hub-operator SHALL update CR `Status.Conditions` with sync status (Synced: True/False)
+7. THE kube-sbt REST API SHALL ONLY provide read-only endpoints (`GET /api/v1/plans`) for UI display
+8. WHEN Plan CR references non-existent features, THE hub-operator SHALL update Status.Conditions with validation error
+9. WHEN Plan CR is deleted, THE hub-operator SHALL delete the corresponding plan from OpenMeter
+
+### Requirement 15.1: GitOps Workflow for Billing Catalog
+
+**User Story:** As a SaaS builder, I want to manage billing catalog (Meters, Features, Plans) through Git commits, so that all pricing changes are auditable and rollback-safe.
+
+#### Acceptance Criteria
+
+1. THE SaaS builder SHALL define billing configuration in `fleet-registry/tenants/<tenant-id>/values.yaml` under the `billing` section
+2. THE `universal-tenant` Helm chart SHALL render `Meter`, `Feature`, and `Plan` CRs from `values.yaml`
+3. THE ArgoCD SHALL sync rendered CRs to Hub cluster namespace `hub-platform-ops`
+4. THE hub-operator reconcilers SHALL detect CR changes and sync to OpenMeter within 30 seconds
+5. THE CR Status.Conditions SHALL reflect sync status (Synced: True/False) with error messages
+6. WHEN SaaS builder commits billing changes to Git, THE changes SHALL be applied to OpenMeter automatically via GitOps pipeline
+7. WHEN SaaS builder reverts Git commit, THE billing catalog SHALL rollback to previous state via ArgoCD sync
+8. THE billing catalog changes SHALL have full Git audit trail (author, timestamp, commit message)
+9. THE hub-operator SHALL use exponential backoff for failed reconciliation attempts (1s, 2s, 4s, 8s, 16s, max 5min)
+10. THE hub-operator SHALL emit Kubernetes Events for reconciliation failures visible via `kubectl describe`
 
 ### Requirement 16: Subscription Management (IBilling)
 
@@ -274,15 +341,16 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 #### Acceptance Criteria
 
-1. THE IBilling interface SHALL provide ConfigureStripeApp(namespace, stripeConfig) method
+1. THE OpenMeter Stripe App configuration SHALL be managed via OpenMeter's native UI/API or via a declarative `StripeApp` CRD managed by hub-operator (if GitOps pattern is extended to secrets)
 2. THE Stripe API keys and webhook secrets SHALL be stored in Infisical (not Git, not ConfigMaps)
-3. THE kube-sbt SHALL retrieve Stripe secrets from Infisical via External Secrets Operator
+3. THE hub-operator SHALL retrieve Stripe secrets from Infisical via External Secrets Operator when configuring Stripe App
 4. THE Stripe webhooks SHALL be routed directly to OpenMeter endpoint POST /api/v1/apps/{appId}/stripe/webhook
 5. THE OpenMeter SHALL validate Stripe webhook signatures using app-specific webhook secret
 6. THE OpenMeter SHALL update internal invoice state (paid/failed/voided) based on Stripe webhook events
 7. THE kube-sbt SHALL NOT intercept Stripe webhooks (OpenMeter handles webhook processing)
-8. THE kube-sbt SHALL query OpenMeter API for invoice status and payment details
+8. THE kube-sbt SHALL query OpenMeter API for invoice status and payment details via read-only methods
 9. THE kube-sbt MAY subscribe to OpenMeter notification events for billing alerts (optional)
+10. THE IBilling interface SHALL NOT provide ConfigureStripeApp method (deprecated in favor of declarative approach)
 
 ### Requirement 19: OpenMeter Namespace Provisioning via hub-operator
 

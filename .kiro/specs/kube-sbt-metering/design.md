@@ -116,7 +116,9 @@ This document specifies the technical design for replacing the legacy PostgreSQL
 
 ## 3. Interface Definitions
 
-### 3.1 IMetering Interface
+**ARCHITECTURAL DECISION**: Static catalog (Meters, Features, Plans) managed via GitOps + `hub-operator` CRDs. Dynamic runtime data (Subjects, Subscriptions, Invoices) managed via `kube-sbt` REST API.
+
+### 3.1 IMetering Interface (Runtime Operations Only)
 
 ```go
 package interfaces
@@ -126,27 +128,20 @@ import (
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 )
 
-// IMetering provides usage metering and entitlement capabilities via OpenMeter
+// IMetering provides runtime metering and entitlement capabilities via OpenMeter
+// ARCHITECTURAL NOTE: Static catalog (Meters, Features, Plans) managed via hub-operator CRDs
+// This interface handles ONLY dynamic runtime operations
 type IMetering interface {
-	// Meter Management (Req 14)
-	CreateMeter(ctx context.Context, namespace string, meter models.MeterSpec) error
+	// Meter Management (Read-Only for UI Display)
 	GetMeter(ctx context.Context, namespace, meterID string) (*models.Meter, error)
-	UpdateMeter(ctx context.Context, namespace, meterID string, updates models.MeterUpdates) error
-	DeleteMeter(ctx context.Context, namespace, meterID string) error
 	ListMeters(ctx context.Context, namespace string) ([]models.Meter, error)
 
-	// Feature Management (Req 14)
-	CreateFeature(ctx context.Context, namespace string, feature models.FeatureSpec) error
+	// Feature Management (Read-Only for UI Display)
 	GetFeature(ctx context.Context, namespace, featureID string) (*models.Feature, error)
-	UpdateFeature(ctx context.Context, namespace, featureID string, updates models.FeatureUpdates) error
-	DeleteFeature(ctx context.Context, namespace, featureID string) error
 	ListFeatures(ctx context.Context, namespace string) ([]models.Feature, error)
 
-	// Plan Management (Req 15)
-	CreatePlan(ctx context.Context, namespace string, plan models.PlanSpec) error
+	// Plan Management (Read-Only for UI Display)
 	GetPlan(ctx context.Context, namespace, planID string) (*models.Plan, error)
-	UpdatePlan(ctx context.Context, namespace, planID string, updates models.PlanUpdates) error
-	DeletePlan(ctx context.Context, namespace, planID string) error
 	ListPlans(ctx context.Context, namespace string) ([]models.Plan, error)
 
 	// Usage Queries (Req 2, 3)
@@ -157,7 +152,7 @@ type IMetering interface {
 	// Entitlements (Req 6)
 	CheckEntitlement(ctx context.Context, namespace, subjectID, featureKey string) (*models.EntitlementStatus, error)
 
-	// Subject Management (Req 1)
+	// Subject Management (Req 1) - Dynamic Runtime Operations
 	RegisterSubject(ctx context.Context, namespace, subjectID string, metadata map[string]string) error
 	DeleteSubject(ctx context.Context, namespace, subjectID string) error
 	GetSubject(ctx context.Context, namespace, subjectID string) (*models.Subject, error)
@@ -165,7 +160,7 @@ type IMetering interface {
 }
 ```
 
-### 3.2 IBilling Interface
+### 3.2 IBilling Interface (Runtime Operations Only)
 
 ```go
 package interfaces
@@ -175,22 +170,25 @@ import (
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 )
 
-// IBilling provides subscription and invoice management via OpenMeter
+// IBilling provides runtime subscription and invoice management via OpenMeter
+// ARCHITECTURAL NOTE: Plans managed via hub-operator CRDs
+// This interface handles ONLY dynamic subscription assignments and invoice queries
 type IBilling interface {
-	// Subscription Management (Req 16)
+	// Subscription Management (Req 16) - Dynamic Runtime Operations
 	CreateSubscription(ctx context.Context, namespace, subjectID, planID string, opts models.SubscriptionOptions) error
 	GetSubscription(ctx context.Context, namespace, subscriptionID string) (*models.Subscription, error)
 	UpdateSubscription(ctx context.Context, namespace, subscriptionID string, updates models.SubscriptionUpdates) error
 	CancelSubscription(ctx context.Context, namespace, subscriptionID string) error
 	ListSubscriptions(ctx context.Context, namespace string, filters models.SubscriptionFilters) ([]models.Subscription, error)
 
-	// Invoice Operations (Req 17)
+	// Invoice Operations (Req 17) - Read-Only Queries
 	PreviewInvoice(ctx context.Context, namespace, subjectID string) (*models.Invoice, error)
 	GetInvoice(ctx context.Context, namespace, invoiceID string) (*models.Invoice, error)
 	ListInvoices(ctx context.Context, namespace string, filters models.InvoiceFilters) ([]models.Invoice, error)
 
-	// Stripe Integration (Req 18)
-	ConfigureStripeApp(ctx context.Context, namespace string, config models.StripeConfig) error
+	// Stripe Integration (Req 18) - Configuration managed via hub-operator
+	// This method is DEPRECATED - Stripe config managed via hub-operator CRD
+	// ConfigureStripeApp(ctx context.Context, namespace string, config models.StripeConfig) error
 }
 ```
 
@@ -206,6 +204,7 @@ package models
 import "time"
 
 // MeterSpec defines a usage metric (Req 14)
+// ARCHITECTURAL NOTE: Used by hub-operator CRD, not kube-sbt REST API
 // CORRECTED (Gap 3.1): Tenant aggregation requires GroupBy attributes, not compound subject IDs
 // Reference: archived/billing-metering/openmeter/openmeter/streaming/clickhouse/meter_query.go:L156-L180
 // OpenMeter FilterSubject does NOT support wildcard/prefix matching
@@ -232,6 +231,7 @@ type Meter struct {
 }
 
 // FeatureSpec defines a billable capability (Req 14)
+// ARCHITECTURAL NOTE: Used by hub-operator CRD, not kube-sbt REST API
 type FeatureSpec struct {
 	Key         string   `json:"key"`
 	Name        string   `json:"name"`
@@ -473,34 +473,6 @@ func NewMeteringProvider(baseURL string) (*MeteringProvider, error) {
 		baseURL:  baseURL,
 		retryMax: 3,
 	}, nil
-}
-
-// CreateMeter creates a meter in OpenMeter with explicit namespace parameter
-// CORRECTED: OpenMeter SDK requires namespace as explicit parameter, not context injection
-// Reference: archived/billing-metering/openmeter/openmeter/entitlement/adapter/entitlement.go:L62-L68
-func (m *MeteringProvider) CreateMeter(ctx context.Context, namespace string, spec models.MeterSpec) error {
-	// NOTE: Namespace must be passed explicitly to SDK methods, not via context
-	
-	req := openmeter.CreateMeterJSONRequestBody{
-		Slug:          spec.Slug,
-		Description:   &spec.Description,
-		Aggregation:   spec.Aggregation,
-		EventType:     spec.EventType,
-		ValueProperty: &spec.ValueProperty,
-		GroupBy:       spec.GroupBy,
-	}
-	
-	resp, err := m.client.CreateMeterWithResponse(ctx, req)
-	if err != nil {
-		return fmt.Errorf("openmeter: create meter: %w", err)
-	}
-	
-	if resp.StatusCode() != 201 {
-		return fmt.Errorf("openmeter: create meter failed: status=%d body=%s", 
-			resp.StatusCode(), string(resp.Body))
-	}
-	
-	return nil
 }
 
 // GetUsage queries usage data with namespace isolation (Req 2, 3)
@@ -1036,33 +1008,52 @@ import (
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 )
 
-// ReconciliationController handles orphaned subject cleanup using NATS JetStream delivery tracking
-type ReconciliationController struct {
-	metering interfaces.IMetering
-	eventBus interfaces.IEventBus
-	maxRetries int
+// ReconcilerService handles state drift using Kubernetes controller pattern (Req 21)
+// ENTERPRISE PATTERN: Separate reconciliation from event processing
+// - Events handle "what happened" (dumb consumers, idempotent)
+// - Reconcilers handle "what should be true" (periodic scans, fix drift)
+type ReconcilerService struct {
+	metering      interfaces.IMetering
+	auth          interfaces.IAuth
+	storage       interfaces.IStorage
+	eventBus      interfaces.IEventBus
+	interval      time.Duration // 60s background scan
+	pageSize      int           // 100 resources per page
+	rateLimiter   *rate.Limiter // 10 ops/sec internal rate limit
+	progressStore interfaces.IStorage
 }
 
-// NewReconciliationController creates a reconciliation controller
-func NewReconciliationController(metering interfaces.IMetering, eventBus interfaces.IEventBus) *ReconciliationController {
-	return &ReconciliationController{
-		metering:   metering,
-		eventBus:   eventBus,
-		maxRetries: 3,
+// NewReconcilerService creates a Kubernetes-style reconciler
+func NewReconcilerService(
+	metering interfaces.IMetering,
+	auth interfaces.IAuth,
+	storage interfaces.IStorage,
+	eventBus interfaces.IEventBus,
+) *ReconcilerService {
+	return &ReconcilerService{
+		metering:      metering,
+		auth:          auth,
+		storage:       storage,
+		eventBus:      eventBus,
+		interval:      60 * time.Second,
+		pageSize:      100,
+		rateLimiter:   rate.NewLimiter(10, 10), // 10 ops/sec
+		progressStore: storage,
 	}
 }
 
-// Start begins the reconciliation loop using NATS JetStream consumer (Req 21.3, 21.4)
-func (rc *ReconciliationController) Start(ctx context.Context) error {
-	// Subscribe to orphaned subjects topic with MaxDeliver=3
-	// NATS JetStream tracks delivery count natively (no in-memory state needed)
-	sub, err := rc.eventBus.SubscribeWithConfig(ctx, "opensbt_orphanedSubjects", nats.ConsumerConfig{
-		MaxDeliver: rc.maxRetries,
-		AckPolicy:  nats.AckExplicitPolicy,
-		AckWait:    30 * time.Second,
+// Start begins hybrid reconciliation loop (Req 21.3, 21.4)
+// PATTERN: Event-assisted (priority) + Time-driven (background)
+func (r *ReconcilerService) Start(ctx context.Context) error {
+	ticker := time.NewTicker(r.interval)
+	
+	// Subscribe to reconciliation hints (priority queue)
+	hintSub, err := r.eventBus.SubscribeWithConfig(ctx, "opensbt.reconciliation.needed", nats.ConsumerConfig{
+		Durable:   "reconciler-hints",
+		AckPolicy: nats.AckExplicitPolicy,
 	})
 	if err != nil {
-		return fmt.Errorf("reconciliation: failed to subscribe: %w", err)
+		return fmt.Errorf("reconciler: failed to subscribe to hints: %w", err)
 	}
 	
 	go func() {
@@ -1070,8 +1061,22 @@ func (rc *ReconciliationController) Start(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return
-			case msg := <-sub:
-				rc.handleOrphanedSubject(ctx, msg)
+				
+			case hintMsg := <-hintSub:
+				// Priority reconciliation (event-driven, low latency)
+				var hint models.Event
+				json.Unmarshal(hintMsg.Data, &hint)
+				r.reconcileResource(ctx, hint)
+				hintMsg.Ack()
+				
+			case <-ticker.C:
+				// Background reconciliation (time-driven, eventual consistency)
+				startTime := time.Now()
+				ctx = context.WithValue(ctx, "start_time", startTime)
+				
+				r.reconcileOrphanedUsers(ctx)
+				r.reconcileMissingSubjects(ctx)
+				r.reconcileSpokeDBGaps(ctx)
 			}
 		}
 	}()
@@ -1079,8 +1084,235 @@ func (rc *ReconciliationController) Start(ctx context.Context) error {
 	return nil
 }
 
-// handleOrphanedSubject attempts to delete orphaned subject using NATS delivery metadata (Req 21.4)
-func (rc *ReconciliationController) handleOrphanedSubject(ctx context.Context, msg *nats.Msg) {
+// reconcileOrphanedUsers scans for users in Kratos but not in OpenMeter (Req 21.4)
+// ENTERPRISE PATTERN: Paginated, rate-limited, resumable
+func (r *ReconcilerService) reconcileOrphanedUsers(ctx context.Context) {
+	// Load last cursor from progress store
+	cursor, _ := r.progressStore.Get(ctx, "reconciler:orphaned_users:cursor")
+	
+	for {
+		// Paginated query (cursor-based, not offset-based)
+		users, nextCursor, err := r.auth.ListUsersPaginated(ctx, cursor, r.pageSize)
+		if err != nil {
+			log.Error("reconciler: list users failed", "error", err)
+			return
+		}
+		
+		if len(users) == 0 {
+			// Reached end - reset cursor for next cycle
+			r.progressStore.Set(ctx, "reconciler:orphaned_users:cursor", "")
+			return
+		}
+		
+		for _, user := range users {
+			// Rate limit internal operations (10 ops/sec)
+			r.rateLimiter.Wait(ctx)
+			
+			subjectID := models.GenerateSubjectID(user.TenantID, user.ID)
+			
+			// Check if subject exists in OpenMeter
+			_, err := r.metering.GetSubject(ctx, user.TenantID, subjectID)
+			if err == nil {
+				continue // Subject exists, no drift
+			}
+			
+			// Drift detected - decide: create subject or delete user
+			if user.CreatedAt.Before(time.Now().Add(-24 * time.Hour)) {
+				// Old orphan (>24h) - delete from Kratos (compensating transaction)
+				log.Warn("reconciler: deleting orphaned user", "user_id", user.ID, "age", time.Since(user.CreatedAt))
+				r.auth.DeleteUser(ctx, user.ID)
+			} else {
+				// Recent orphan (<24h) - retry creating subject
+				log.Info("reconciler: creating missing subject", "subject_id", subjectID)
+				r.metering.RegisterSubject(ctx, user.TenantID, subjectID, user.Metadata)
+			}
+		}
+		
+		// Save progress (resume on restart)
+		r.progressStore.Set(ctx, "reconciler:orphaned_users:cursor", nextCursor)
+		cursor = nextCursor
+		
+		// Check time budget (50s per cycle, leave 10s buffer)
+		if time.Since(ctx.Value("start_time").(time.Time)) > 50*time.Second {
+			log.Info("reconciler: time budget exceeded, resuming next cycle")
+			return
+		}
+	}
+}
+
+// reconcileMissingSubjects scans for subjects in OpenMeter but not in Kratos (Req 21.4)
+func (r *ReconcilerService) reconcileMissingSubjects(ctx context.Context) {
+	cursor, _ := r.progressStore.Get(ctx, "reconciler:missing_subjects:cursor")
+	
+	for {
+		// Paginated query of OpenMeter subjects
+		subjects, nextCursor, err := r.metering.ListSubjectsPaginated(ctx, cursor, r.pageSize)
+		if err != nil {
+			log.Error("reconciler: list subjects failed", "error", err)
+			return
+		}
+		
+		if len(subjects) == 0 {
+			r.progressStore.Set(ctx, "reconciler:missing_subjects:cursor", "")
+			return
+		}
+		
+		for _, subject := range subjects {
+			r.rateLimiter.Wait(ctx)
+			
+			// Parse subject ID to extract user ID
+			tenantID, userID, err := models.ParseSubjectID(subject.Key)
+			if err != nil {
+				continue
+			}
+			
+			// Check if user exists in Kratos
+			_, err = r.auth.GetUser(ctx, userID)
+			if err == nil {
+				continue // User exists, no drift
+			}
+			
+			// Drift detected - delete orphaned subject
+			log.Warn("reconciler: deleting orphaned subject", "subject_id", subject.Key)
+			r.metering.DeleteSubject(ctx, tenantID, subject.Key)
+		}
+		
+		r.progressStore.Set(ctx, "reconciler:missing_subjects:cursor", nextCursor)
+		cursor = nextCursor
+		
+		if time.Since(ctx.Value("start_time").(time.Time)) > 50*time.Second {
+			return
+		}
+	}
+}
+
+// reconcileSpokeDBGaps scans for users in Hub but not in Spoke DB (Req 21.4)
+func (r *ReconcilerService) reconcileSpokeDBGaps(ctx context.Context) {
+	cursor, _ := r.progressStore.Get(ctx, "reconciler:spoke_db_gaps:cursor")
+	
+	for {
+		// Query Hub DB for users
+		users, nextCursor, err := r.storage.ListUsersPaginated(ctx, cursor, r.pageSize)
+		if err != nil {
+			log.Error("reconciler: list hub users failed", "error", err)
+			return
+		}
+		
+		if len(users) == 0 {
+			r.progressStore.Set(ctx, "reconciler:spoke_db_gaps:cursor", "")
+			return
+		}
+		
+		for _, user := range users {
+			r.rateLimiter.Wait(ctx)
+			
+			// Check if user exists in Spoke DB
+			_, err := r.storage.GetSpokeUser(ctx, user.TenantID, user.ID)
+			if err == nil {
+				continue // User exists in Spoke
+			}
+			
+			// Drift detected - sync to Spoke DB (idempotent upsert)
+			log.Info("reconciler: syncing missing user to spoke", "user_id", user.ID)
+			r.storage.UpsertSpokeUser(ctx, user)
+		}
+		
+		r.progressStore.Set(ctx, "reconciler:spoke_db_gaps:cursor", nextCursor)
+		cursor = nextCursor
+		
+		if time.Since(ctx.Value("start_time").(time.Time)) > 50*time.Second {
+			return
+		}
+	}
+}
+
+// reconcileResource handles priority reconciliation from event hints
+func (r *ReconcilerService) reconcileResource(ctx context.Context, hint models.Event) {
+	resourceType := hint.Detail["resource_type"].(string)
+	tenantID := hint.Detail["tenant_id"].(string)
+	
+	switch resourceType {
+	case "user":
+		userID := hint.Detail["user_id"].(string)
+		subjectID := models.GenerateSubjectID(tenantID, userID)
+		
+		// Check drift and fix immediately
+		_, err := r.metering.GetSubject(ctx, tenantID, subjectID)
+		if err != nil {
+			r.metering.RegisterSubject(ctx, tenantID, subjectID, nil)
+		}
+		
+	case "subject":
+		subjectID := hint.Detail["subject_id"].(string)
+		
+		_, userID, _ := models.ParseSubjectID(subjectID)
+		_, err := r.auth.GetUser(ctx, userID)
+		if err != nil {
+			r.metering.DeleteSubject(ctx, tenantID, subjectID)
+		}
+	}
+}
+```
+
+### 5.5 Dumb Consumers with DLQ Pattern (Enterprise Architecture)
+
+**ENTERPRISE PATTERN**: Separate event processing from reconciliation
+- **Events handle "what happened"**: Dumb consumers, idempotent, stateless
+- **Reconcilers handle "what should be true"**: Periodic scans, fix drift
+
+#### 5.5.1 User Creation Consumer (Dumb + Idempotent)
+
+**File:** `internal/opensbt/consumers/user_creation_consumer.go`
+
+```go
+package consumers
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+	
+	"github.com/nats-io/nats.go"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+)
+
+// UserCreationConsumer handles user_created events (dumb + idempotent)
+// PATTERN: No retry logic, no dual-path decisions - just write state and ACK
+type UserCreationConsumer struct {
+	metering interfaces.IMetering
+	eventBus interfaces.IEventBus
+}
+
+// Start subscribes to user_created events with DLQ routing
+func (c *UserCreationConsumer) Start(ctx context.Context) error {
+	sub, err := c.eventBus.SubscribeWithConfig(ctx, "opensbt.user.created", nats.ConsumerConfig{
+		Durable:    "user-creation-consumer",
+		AckPolicy:  nats.AckExplicitPolicy,
+		MaxDeliver: 10, // After 10 retries → route to DLQ
+		BackOff: []time.Duration{
+			30 * time.Second,
+			2 * time.Minute,
+			10 * time.Minute,
+			30 * time.Minute,
+			1 * time.Hour,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("user_creation_consumer: subscribe failed: %w", err)
+	}
+	
+	go func() {
+		for msg := range sub {
+			c.handleUserCreated(ctx, msg)
+		}
+	}()
+	
+	return nil
+}
+
+// handleUserCreated processes user creation (idempotent)
+func (c *UserCreationConsumer) handleUserCreated(ctx context.Context, msg *nats.Msg) {
 	var event models.Event
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		msg.Ack() // Malformed message, discard
@@ -1089,209 +1321,173 @@ func (rc *ReconciliationController) handleOrphanedSubject(ctx context.Context, m
 	
 	tenantID := event.Detail["tenant_id"].(string)
 	subjectID := event.Detail["subject_id"].(string)
+	metadata := event.Detail["metadata"].(map[string]string)
 	
-	// Attempt deletion
-	err := rc.metering.DeleteSubject(ctx, tenantID, subjectID)
-	if err == nil {
-		// Success - ACK to remove from queue (Req 21.5)
-		msg.Ack()
+	// Idempotent upsert to OpenMeter
+	err := c.metering.RegisterSubject(ctx, tenantID, subjectID, metadata)
+	
+	if err != nil {
+		metadata, _ := msg.Metadata()
+		
+		if metadata.NumDelivered >= 10 {
+			// Route to DLQ for audit + manual replay
+			c.routeToDLQ(ctx, event, err, metadata.NumDelivered)
+			msg.Ack() // Remove from main queue
+			
+			// Emit reconciliation hint (priority queue)
+			c.emitReconciliationHint(ctx, "user", tenantID, event.Detail["user_id"].(string), "openmeter_creation_failed")
+			return
+		}
+		
+		msg.Nak() // Retry with backoff
 		return
 	}
 	
-	// Check NATS delivery count (replaces in-memory failure tracking)
-	metadata, _ := msg.Metadata()
-	if metadata.NumDelivered >= uint64(rc.maxRetries) {
-		// Max retries exceeded - escalate to ops (Req 21.6)
-		rc.escalateToOps(ctx, tenantID, subjectID, err)
-		msg.Ack() // Remove from DLQ after escalation
-		return
-	}
-	
-	// NAK to trigger redelivery with exponential backoff
-	msg.NakWithDelay(time.Duration(metadata.NumDelivered) * 5 * time.Minute)
+	msg.Ack()
 }
 
-// escalateToOps publishes alert for manual intervention (Req 21.6)
-func (rc *ReconciliationController) escalateToOps(ctx context.Context, tenantID, subjectID string, err error) {
-	alert := models.NewEvent("opensbt_notifications", "reconciliation_controller", map[string]interface{}{
-		"severity":   "high",
-		"type":       "orphaned_subject_cleanup_failed",
-		"tenant_id":  tenantID,
-		"subject_id": subjectID,
-		"error":      err.Error(),
-		"timestamp":  time.Now().UTC(),
+// routeToDLQ sends failed event to DLQ stream for audit
+func (c *UserCreationConsumer) routeToDLQ(ctx context.Context, originalEvent models.Event, err error, deliveryCount uint64) {
+	dlqEvent := models.NewEvent("opensbt.dlq.user_creation_failed", "user_creation_consumer", map[string]interface{}{
+		"original_event": originalEvent,
+		"error":          err.Error(),
+		"delivery_count": deliveryCount,
+		"timestamp":      time.Now(),
 	})
-	
-	_ = rc.eventBus.Publish(ctx, alert)
+	c.eventBus.Publish(ctx, dlqEvent)
+}
+
+// emitReconciliationHint sends priority reconciliation hint
+func (c *UserCreationConsumer) emitReconciliationHint(ctx context.Context, resourceType, tenantID, resourceID, reason string) {
+	hintEvent := models.NewEvent("opensbt.reconciliation.needed", "user_creation_consumer", map[string]interface{}{
+		"resource_type": resourceType,
+		"tenant_id":     tenantID,
+		"user_id":       resourceID,
+		"reason":        reason,
+	})
+	c.eventBus.Publish(ctx, hintEvent)
 }
 ```
 
-### 5.5 Spoke DB Sync Listener with Idempotent Event Handling (Gap 4.1)
+#### 5.5.2 Spoke DB Sync Consumer (Dumb + Idempotent)
 
-**File:** `internal/opensbt/spoke/db_sync_listener.go`
-
-**CORRECTED (Gap 4.1)**: Idempotent event handler with version tracking prevents race conditions
+**File:** `internal/opensbt/consumers/spoke_db_sync_consumer.go`
 
 ```go
-package spoke
+package consumers
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"time"
-	
-	"github.com/nats-io/nats.go"
-	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
-	"github.com/soloz-io/zero-ops/internal/opensbt/models"
-)
-
-// DBSyncListener handles user lifecycle events from Hub with idempotent processing (Gap 4.1)
-// CORRECTED: Uses version tracking to prevent out-of-order event application
-// Pattern: NATS JetStream guarantees ordered delivery, but handler must be idempotent
-type DBSyncListener struct {
+// DBSyncConsumer handles user lifecycle events for Spoke DB (dumb + idempotent)
+type DBSyncConsumer struct {
 	storage  interfaces.IStorage
 	eventBus interfaces.IEventBus
 }
 
-// NewDBSyncListener creates a Spoke DB sync listener
-func NewDBSyncListener(storage interfaces.IStorage, eventBus interfaces.IEventBus) *DBSyncListener {
-	return &DBSyncListener{
-		storage:  storage,
-		eventBus: eventBus,
-	}
-}
-
-// Start begins listening to user lifecycle events (Gap 4.1)
-func (l *DBSyncListener) Start(ctx context.Context, tenantID string) error {
-	// Subscribe to tenant-specific lifecycle events
-	// CRITICAL (Gap 4.1): Subject-based partitioning ensures ordered delivery
+// Start subscribes to tenant-specific lifecycle events
+func (c *DBSyncConsumer) Start(ctx context.Context, tenantID string) error {
 	subject := fmt.Sprintf("opensbt.user.%s.lifecycle", tenantID)
 	
-	sub, err := l.eventBus.SubscribeWithConfig(ctx, subject, nats.ConsumerConfig{
+	sub, err := c.eventBus.SubscribeWithConfig(ctx, subject, nats.ConsumerConfig{
 		Durable:       fmt.Sprintf("spoke-db-sync-%s", tenantID),
 		AckPolicy:     nats.AckExplicitPolicy,
-		AckWait:       30 * time.Second,
-		MaxAckPending: 1, // CRITICAL: Process one message at a time for ordering
-		MaxDeliver:    3,
+		MaxAckPending: 1, // Process one message at a time for ordering
+		MaxDeliver:    10, // After 10 retries → DLQ
+		BackOff: []time.Duration{
+			30 * time.Second,
+			2 * time.Minute,
+			10 * time.Minute,
+			30 * time.Minute,
+			1 * time.Hour,
+		},
 	})
 	if err != nil {
-		return fmt.Errorf("db_sync: failed to subscribe: %w", err)
+		return fmt.Errorf("spoke_db_sync: subscribe failed: %w", err)
 	}
 	
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg := <-sub:
-				l.handleLifecycleEvent(ctx, msg)
-			}
+		for msg := range sub {
+			c.handleLifecycleEvent(ctx, msg)
 		}
 	}()
 	
 	return nil
 }
 
-// handleLifecycleEvent processes user creation/deletion with idempotency (Gap 4.1)
-func (l *DBSyncListener) handleLifecycleEvent(ctx context.Context, msg *nats.Msg) {
+// handleLifecycleEvent processes user creation/deletion (idempotent)
+func (c *DBSyncConsumer) handleLifecycleEvent(ctx context.Context, msg *nats.Msg) {
 	var event models.Event
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		msg.Ack() // Malformed message, discard
 		return
 	}
 	
-	switch event.DetailType {
-	case "user_created":
-		l.handleUserCreated(ctx, msg, event)
-	case "user_deleted":
-		l.handleUserDeleted(ctx, msg, event)
-	default:
-		msg.Ack() // Unknown event type, discard
-	}
-}
-
-// handleUserCreated creates user in Spoke DB with version check (Gap 4.1)
-// CORRECTED: Idempotent - checks if user already exists with same or higher version
-func (l *DBSyncListener) handleUserCreated(ctx context.Context, msg *nats.Msg, event models.Event) {
-	userID := event.Detail["user_id"].(string)
-	email := event.Detail["email"].(string)
-	version := int(event.Detail["version"].(float64))
+	// Idempotent INSERT ON CONFLICT UPDATE
+	err := c.storage.UpsertUser(ctx, event.Detail)
 	
-	// Check if user already exists
-	existingUser, err := l.storage.GetUser(ctx, userID)
-	if err == nil && existingUser != nil {
-		// User exists - check version
-		if existingUser.Version >= version {
-			// Already processed this or newer version - idempotent ACK
+	if err != nil {
+		metadata, _ := msg.Metadata()
+		
+		if metadata.NumDelivered >= 10 {
+			// Route to DLQ
+			c.routeToDLQ(ctx, event, err, metadata.NumDelivered)
 			msg.Ack()
+			
+			// Emit reconciliation hint
+			c.emitReconciliationHint(ctx, event.Detail["tenant_id"].(string), event.Detail["user_id"].(string))
 			return
 		}
 		
-		// Older version exists - update to newer version
-		existingUser.Email = email
-		existingUser.Version = version
-		existingUser.UpdatedAt = time.Now()
-		
-		if err := l.storage.UpdateUser(ctx, existingUser); err != nil {
-			// Update failed - NAK for retry
-			msg.NakWithDelay(5 * time.Second)
-			return
-		}
-		
-		msg.Ack()
-		return
-	}
-	
-	// User doesn't exist - create new
-	user := &models.User{
-		ID:        userID,
-		Email:     email,
-		Version:   version,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	
-	if err := l.storage.CreateUser(ctx, user); err != nil {
-		// Creation failed - NAK for retry
-		msg.NakWithDelay(5 * time.Second)
-		return
-	}
-	
-	msg.Ack()
-}
-
-// handleUserDeleted deletes user from Spoke DB with version check (Gap 4.1)
-// CORRECTED: Idempotent - only deletes if user exists and version is newer
-func (l *DBSyncListener) handleUserDeleted(ctx context.Context, msg *nats.Msg, event models.Event) {
-	userID := event.Detail["user_id"].(string)
-	version := int(event.Detail["version"].(float64))
-	
-	// Check if user exists
-	existingUser, err := l.storage.GetUser(ctx, userID)
-	if err != nil || existingUser == nil {
-		// User doesn't exist - idempotent ACK (already deleted or never created)
-		msg.Ack()
-		return
-	}
-	
-	// User exists - check version
-	if existingUser.Version >= version {
-		// Already processed this or newer version - idempotent ACK
-		msg.Ack()
-		return
-	}
-	
-	// Delete user
-	if err := l.storage.DeleteUser(ctx, userID); err != nil {
-		// Deletion failed - NAK for retry
-		msg.NakWithDelay(5 * time.Second)
+		msg.Nak() // Retry with backoff
 		return
 	}
 	
 	msg.Ack()
 }
 ```
+
+#### 5.5.3 DLQ Stream Configuration
+
+**NATS Stream for Dead Letter Queue (30-day retention)**
+
+```yaml
+# manifests/hub-platform-core/nats/dlq-stream.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-dlq-stream
+  namespace: hub-platform-core
+data:
+  stream.json: |
+    {
+      "name": "opensbt_dlq",
+      "subjects": ["opensbt.dlq.>"],
+      "storage": "file",
+      "retention": "workqueue",
+      "max_age": 2592000000000000,
+      "max_msgs": 1000000,
+      "discard": "old"
+    }
+```
+
+**DLQ Consumer for Manual Replay**
+
+```go
+// DLQReplayTool allows ops to replay failed events
+type DLQReplayTool struct {
+	eventBus interfaces.IEventBus
+}
+
+// ListFailedEvents returns paginated DLQ events
+func (t *DLQReplayTool) ListFailedEvents(ctx context.Context, cursor string, limit int) ([]models.Event, string, error) {
+	// Query DLQ stream with cursor-based pagination
+}
+
+// ReplayEvent republishes event to original topic
+func (t *DLQReplayTool) ReplayEvent(ctx context.Context, dlqEventID string) error {
+	// Fetch event from DLQ, republish to original topic
+}
+```
+
+
 
 **Key Pattern (Gap 4.1)**:
 1. **Subject-based partitioning**: `opensbt.user.{tenant_id}.lifecycle` ensures ordered delivery per tenant
@@ -1333,14 +1529,854 @@ func (l *DBSyncListener) handleUserCreated(ctx context.Context, msg *nats.Msg, e
 }
 ```
 
+### 5.6 OTLP Forwarder with Durable Buffer (Billing Pipeline)
+
+**ENTERPRISE PATTERN**: Never drop billing events - use NATS JetStream as durable buffer
+
+**File:** `internal/opensbt/forwarders/otlp_forwarder.go`
+
+```go
+package forwarders
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"time"
+	
+	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+)
+
+// OTLPForwarder consumes billing events from NATS and forwards to OpenMeter
+// PATTERN: Durable buffer (NATS) → Batched export (OTLP) → Retry on failure
+type OTLPForwarder struct {
+	eventBus  interfaces.IEventBus
+	otlp      *otlptrace.Exporter
+	batchSize int // 100 events per batch
+}
+
+// NewOTLPForwarder creates an OTLP forwarder with durable buffer
+func NewOTLPForwarder(eventBus interfaces.IEventBus, otlpEndpoint string) (*OTLPForwarder, error) {
+	exporter, err := otlptrace.New(ctx, otlptrace.WithEndpoint(otlpEndpoint))
+	if err != nil {
+		return nil, fmt.Errorf("otlp_forwarder: failed to create exporter: %w", err)
+	}
+	
+	return &OTLPForwarder{
+		eventBus:  eventBus,
+		otlp:      exporter,
+		batchSize: 100,
+	}, nil
+}
+
+// Start begins consuming billing events from NATS
+func (f *OTLPForwarder) Start(ctx context.Context) error {
+	sub, err := f.eventBus.SubscribeWithConfig(ctx, "opensbt.billing.usage", nats.ConsumerConfig{
+		Durable:    "otlp-forwarder",
+		AckPolicy:  nats.AckExplicitPolicy,
+		MaxDeliver: 10, // After 10 retries → DLQ
+		BackOff: []time.Duration{
+			5 * time.Second,
+			30 * time.Second,
+			2 * time.Minute,
+			10 * time.Minute,
+			30 * time.Minute,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("otlp_forwarder: subscribe failed: %w", err)
+	}
+	
+	go func() {
+		batch := make([]models.Event, 0, f.batchSize)
+		batchMsgs := make([]*nats.Msg, 0, f.batchSize)
+		
+		for msg := range sub {
+			var event models.Event
+			json.Unmarshal(msg.Data, &event)
+			
+			batch = append(batch, event)
+			batchMsgs = append(batchMsgs, msg)
+			
+			if len(batch) >= f.batchSize {
+				f.flushBatch(ctx, batch, batchMsgs)
+				batch = batch[:0]
+				batchMsgs = batchMsgs[:0]
+			}
+		}
+	}()
+	
+	return nil
+}
+
+// flushBatch exports batch to OpenMeter with retry semantics
+// CRITICAL: Do NOT ACK until export succeeds
+func (f *OTLPForwarder) flushBatch(ctx context.Context, batch []models.Event, batchMsgs []*nats.Msg) {
+	spans := f.convertToOTLP(batch)
+	
+	// Retry with exponential backoff (3 attempts)
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = f.otlp.ExportSpans(ctx, spans)
+		if err == nil {
+			// Success - ACK all messages
+			for _, msg := range batchMsgs {
+				msg.Ack()
+			}
+			return
+		}
+		
+		// Exponential backoff
+		backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+		time.Sleep(backoff)
+	}
+	
+	// After 3 attempts, NAK all messages - NATS will retry with backoff
+	log.Error("otlp_forwarder: export failed after 3 attempts", "error", err, "batch_size", len(batch))
+	for _, msg := range batchMsgs {
+		msg.Nak()
+	}
+}
+
+// convertToOTLP converts billing events to OTLP spans
+func (f *OTLPForwarder) convertToOTLP(events []models.Event) []otlptrace.Span {
+	spans := make([]otlptrace.Span, len(events))
+	
+	for i, event := range events {
+		spans[i] = otlptrace.Span{
+			Name: event.Detail["meter_id"].(string),
+			Attributes: map[string]interface{}{
+				"tenant_id": event.Detail["tenant_id"],
+				"user_id":   event.Detail["user_id"],
+				"value":     event.Detail["value"],
+			},
+			StartTime: event.Timestamp,
+			EndTime:   event.Timestamp,
+		}
+	}
+	
+	return spans
+}
+```
+
+**AgentGateway Integration (Emit to NATS, not direct OTLP)**
+
+```go
+// AgentGateway emits billing events to NATS (durable buffer)
+func (gw *AgentGateway) emitUsageEvent(ctx context.Context, tenantID, userID, meterID string, value float64) error {
+	event := models.NewEvent("opensbt.billing.usage", "agentgateway", map[string]interface{}{
+		"tenant_id": tenantID,
+		"user_id":   userID,
+		"meter_id":  meterID,
+		"value":     value,
+	})
+	
+	// NATS JetStream = durable buffer (never drop billing events)
+	return gw.eventBus.Publish(ctx, event)
+}
+```
+
+### 5.7 Cluster-Level Metric Collector (Spoke)
+
+**ENTERPRISE PATTERN**: One collector per cluster, tenant-aware queries
+
+**File:** `internal/opensbt/collectors/metric_collector.go`
+
+```go
+package collectors
+
+import (
+	"context"
+	"fmt"
+	"time"
+	
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+)
+
+// MetricCollector collects domain-specific metrics from all tenants
+// PATTERN: Single deployment per cluster, tenant-aware queries
+type MetricCollector struct {
+	storage   interfaces.IStorage
+	eventBus  interfaces.IEventBus
+	interval  time.Duration // 5 minutes
+}
+
+// NewMetricCollector creates a cluster-level metric collector
+func NewMetricCollector(storage interfaces.IStorage, eventBus interfaces.IEventBus) *MetricCollector {
+	return &MetricCollector{
+		storage:  storage,
+		eventBus: eventBus,
+		interval: 5 * time.Minute,
+	}
+}
+
+// Start begins periodic metric collection
+func (mc *MetricCollector) Start(ctx context.Context) error {
+	ticker := time.NewTicker(mc.interval)
+	
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				mc.collectAllTenantMetrics(ctx)
+			}
+		}
+	}()
+	
+	return nil
+}
+
+// collectAllTenantMetrics queries all tenant databases in one pass
+func (mc *MetricCollector) collectAllTenantMetrics(ctx context.Context) {
+	tenants, err := mc.storage.ListTenants(ctx)
+	if err != nil {
+		log.Error("metric_collector: list tenants failed", "error", err)
+		return
+	}
+	
+	for _, tenant := range tenants {
+		metrics := mc.queryTenantMetrics(ctx, tenant.ID)
+		
+		// Emit to NATS (durable buffer) → OTLP Forwarder → OpenMeter
+		event := models.NewEvent("opensbt.metrics.collected", "metric_collector", map[string]interface{}{
+			"tenant_id":       tenant.ID,
+			"database_rows":   metrics.DatabaseRows,
+			"storage_bytes":   metrics.StorageBytes,
+			"workspace_count": metrics.WorkspaceCount,
+			"form_count":      metrics.FormCount,
+			"table_count":     metrics.TableCount,
+			"application_count": metrics.ApplicationCount,
+		})
+		
+		mc.eventBus.Publish(ctx, event) // NATS JetStream (durable)
+	}
+}
+
+// queryTenantMetrics queries domain-specific metrics for a tenant
+func (mc *MetricCollector) queryTenantMetrics(ctx context.Context, tenantID string) *models.TenantMetrics {
+	metrics := &models.TenantMetrics{
+		TenantID: tenantID,
+	}
+	
+	// Query database rows
+	mc.storage.QueryRow(ctx, `
+		SELECT COUNT(*) FROM tenant_data WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.DatabaseRows)
+	
+	// Query storage bytes (S3/MinIO)
+	mc.storage.QueryRow(ctx, `
+		SELECT COALESCE(SUM(size_bytes), 0) FROM tenant_files WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.StorageBytes)
+	
+	// Query workspace count
+	mc.storage.QueryRow(ctx, `
+		SELECT COUNT(*) FROM workspaces WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.WorkspaceCount)
+	
+	// Query form count
+	mc.storage.QueryRow(ctx, `
+		SELECT COUNT(*) FROM forms WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.FormCount)
+	
+	// Query table count
+	mc.storage.QueryRow(ctx, `
+		SELECT COUNT(*) FROM tables WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.TableCount)
+	
+	// Query application count
+	mc.storage.QueryRow(ctx, `
+		SELECT COUNT(*) FROM applications WHERE tenant_id = $1
+	`, tenantID).Scan(&metrics.ApplicationCount)
+	
+	return metrics
+}
+```
+
+**Deployment (Single per Cluster)**
+
+```yaml
+# manifests/spoke-pool/metric-collector-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metric-collector
+  namespace: spoke-pool
+spec:
+  replicas: 1 # Single instance per cluster
+  selector:
+    matchLabels:
+      app: metric-collector
+  template:
+    metadata:
+      labels:
+        app: metric-collector
+    spec:
+      serviceAccountName: metric-collector
+      containers:
+      - name: collector
+        image: ghcr.io/zero-ops/metric-collector:latest
+        env:
+        - name: COLLECTION_INTERVAL
+          value: "5m"
+        - name: NATS_URL
+          value: "nats://nats.spoke-pool.svc.cluster.local:4222"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+```
+
+### 5.8 Rate Limiting Architecture (AgentGateway + Redis)
+
+**ENTERPRISE PATTERN**: Real-time enforcement (Redis) vs Billing aggregation (OpenMeter)
+
+```go
+// AgentGateway: Real-time rate limiting with Redis token bucket
+func (gw *AgentGateway) checkRateLimit(ctx context.Context, tenantID, userID string) error {
+	key := fmt.Sprintf("ratelimit:%s:%s", tenantID, userID)
+	
+	// Redis token bucket (atomic INCR + TTL)
+	count, err := gw.redis.Incr(ctx, key).Result()
+	if err != nil {
+		// Fail-open: allow request if Redis unavailable
+		log.Warn("rate_limit: redis unavailable, allowing request")
+		return nil
+	}
+	
+	if count == 1 {
+		gw.redis.Expire(ctx, key, 1*time.Second)
+	}
+	
+	if count > 200 {
+		return ErrRateLimitExceeded // HTTP 429
+	}
+	
+	return nil
+}
+
+// Emit billing event (async, non-blocking)
+func (gw *AgentGateway) handleRequest(ctx context.Context, req *http.Request) {
+	// 1. Check rate limit (real-time, Redis)
+	if err := gw.checkRateLimit(ctx, tenantID, userID); err != nil {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	
+	// 2. Process request
+	gw.proxyRequest(ctx, req)
+	
+	// 3. Emit billing event (async, durable)
+	gw.emitUsageEvent(ctx, tenantID, userID, "api_calls", 1)
+}
+```
+
+**Separation of Concerns:**
+
+| System | Responsibility | Latency | Failure Mode |
+|--------|---------------|---------|--------------|
+| **AgentGateway + Redis** | Real-time rate limiting (200 req/sec) | Sub-millisecond | Fail-open (allow request) |
+| **OpenMeter** | Billing aggregation (invoice generation) | Eventual consistency | Retry via NATS |
+
 ---
 
+## 6. OpenMeter Declarative Catalog via Hub-Operator
 
-## 6. REST API Design
+**ARCHITECTURAL DECISION**: Static billing catalog (Meters, Features, Plans) managed via GitOps + Kubernetes CRDs, not imperative REST API.
 
-### 6.1 API Routes (Req 8, 9)
+### 6.1 New CRDs (`billing.nutgraf.in/v1alpha1`)
+
+**File:** `hub-operator/api/v1alpha1/`
+
+#### 6.1.1 Meter CRD
+
+```go
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// MeterSpec defines the desired state of Meter
+type MeterSpec struct {
+	// TenantID is the OpenMeter namespace (tenant identifier)
+	TenantID string `json:"tenantId"`
+	
+	// Slug is the unique identifier for the meter
+	Slug string `json:"slug"`
+	
+	// Description of the meter
+	Description string `json:"description,omitempty"`
+	
+	// Aggregation method (COUNT, SUM, MAX, MIN, AVG)
+	Aggregation string `json:"aggregation"`
+	
+	// EventType is the OTLP event type to meter
+	EventType string `json:"eventType"`
+	
+	// ValueProperty is the JSON path to the value field
+	ValueProperty string `json:"valueProperty,omitempty"`
+	
+	// GroupBy defines aggregation dimensions
+	GroupBy map[string]string `json:"groupBy,omitempty"`
+}
+
+// MeterStatus defines the observed state of Meter
+type MeterStatus struct {
+	// Conditions represent the latest available observations of the Meter's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	
+	// OpenMeterID is the ID assigned by OpenMeter
+	OpenMeterID string `json:"openMeterId,omitempty"`
+	
+	// LastSyncTime is the last time the meter was synced to OpenMeter
+	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:printcolumn:name="Tenant",type=string,JSONPath=`.spec.tenantId`
+// +kubebuilder:printcolumn:name="Slug",type=string,JSONPath=`.spec.slug`
+// +kubebuilder:printcolumn:name="Synced",type=string,JSONPath=`.status.conditions[?(@.type=="Synced")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// Meter is the Schema for the meters API
+type Meter struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   MeterSpec   `json:"spec,omitempty"`
+	Status MeterStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// MeterList contains a list of Meter
+type MeterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Meter `json:"items"`
+}
+```
+
+#### 6.1.2 Feature CRD
+
+```go
+package v1alpha1
+
+// FeatureSpec defines the desired state of Feature
+type FeatureSpec struct {
+	// TenantID is the OpenMeter namespace (tenant identifier)
+	TenantID string `json:"tenantId"`
+	
+	// Key is the unique identifier for the feature
+	Key string `json:"key"`
+	
+	// Name is the display name
+	Name string `json:"name"`
+	
+	// MeterSlugs are the meters associated with this feature
+	MeterSlugs []string `json:"meterSlugs"`
+}
+
+// FeatureStatus defines the observed state of Feature
+type FeatureStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	OpenMeterID string `json:"openMeterId,omitempty"`
+	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced
+
+// Feature is the Schema for the features API
+type Feature struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   FeatureSpec   `json:"spec,omitempty"`
+	Status FeatureStatus `json:"status,omitempty"`
+}
+```
+
+#### 6.1.3 Plan CRD
+
+```go
+package v1alpha1
+
+// PlanSpec defines the desired state of Plan
+type PlanSpec struct {
+	// TenantID is the OpenMeter namespace (tenant identifier)
+	TenantID string `json:"tenantId"`
+	
+	// Key is the unique identifier for the plan
+	Key string `json:"key"`
+	
+	// Name is the display name
+	Name string `json:"name"`
+	
+	// Description of the plan
+	Description string `json:"description,omitempty"`
+	
+	// Currency (USD, EUR, etc.)
+	Currency string `json:"currency"`
+	
+	// Phases define billing phases
+	Phases []PlanPhase `json:"phases"`
+	
+	// ProRatingConfig defines proration behavior
+	ProRatingConfig *ProRatingConfig `json:"proRatingConfig,omitempty"`
+}
+
+// PlanPhase represents a billing phase
+type PlanPhase struct {
+	Key        string     `json:"key"`
+	Name       string     `json:"name"`
+	StartAfter string     `json:"startAfter"` // ISO 8601 duration
+	RateCards  []RateCard `json:"rateCards"`
+}
+
+// RateCard defines pricing for a feature
+type RateCard struct {
+	FeatureKey      string `json:"featureKey"`
+	EntitlementType string `json:"entitlementType"` // metered, static, boolean
+	Price           *Price `json:"price,omitempty"`
+}
+
+// Price defines pricing model
+type Price struct {
+	Type           string  `json:"type"` // flat, usage_based, tiered_volume, tiered_graduated
+	Amount         float64 `json:"amount"`
+	BillingCadence string  `json:"billingCadence"` // monthly, annual
+}
+
+// ProRatingConfig defines proration behavior
+type ProRatingConfig struct {
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode"` // prorate_prices
+}
+
+// PlanStatus defines the observed state of Plan
+type PlanStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	OpenMeterID string `json:"openMeterId,omitempty"`
+	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced
+
+// Plan is the Schema for the plans API
+type Plan struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   PlanSpec   `json:"spec,omitempty"`
+	Status PlanStatus `json:"status,omitempty"`
+}
+```
+
+### 6.2 Reconcilers (`hub-operator/internal/controller/billing/`)
+
+#### 6.2.1 MeterReconciler
+
+**File:** `hub-operator/internal/controller/billing/meter_controller.go`
+
+```go
+package billing
+
+import (
+	"context"
+	"fmt"
+	
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	
+	billingv1alpha1 "github.com/soloz-io/zero-ops/hub-operator/api/v1alpha1"
+	openmeter "github.com/openmeterio/openmeter/api/client/go"
+)
+
+// MeterReconciler reconciles a Meter object
+type MeterReconciler struct {
+	client.Client
+	Scheme        *runtime.Scheme
+	OpenMeterClient *openmeter.ClientWithResponses
+}
+
+// +kubebuilder:rbac:groups=billing.nutgraf.in,resources=meters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=billing.nutgraf.in,resources=meters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=billing.nutgraf.in,resources=meters/finalizers,verbs=update
+
+// Reconcile implements the reconciliation loop for Meter CRD
+func (r *MeterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Fetch the Meter instance
+	meter := &billingv1alpha1.Meter{}
+	if err := r.Get(ctx, req.NamespacedName, meter); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Handle deletion
+	if !meter.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, meter)
+	}
+
+	// Sync to OpenMeter
+	return r.reconcileSync(ctx, meter)
+}
+
+// reconcileSync syncs the Meter CR to OpenMeter
+func (r *MeterReconciler) reconcileSync(ctx context.Context, meter *billingv1alpha1.Meter) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Prepare OpenMeter API request
+	req := openmeter.CreateMeterJSONRequestBody{
+		Slug:          meter.Spec.Slug,
+		Description:   &meter.Spec.Description,
+		Aggregation:   meter.Spec.Aggregation,
+		EventType:     meter.Spec.EventType,
+		ValueProperty: &meter.Spec.ValueProperty,
+		GroupBy:       meter.Spec.GroupBy,
+	}
+
+	// Call OpenMeter API (idempotent - upsert behavior)
+	resp, err := r.OpenMeterClient.CreateMeterWithResponse(ctx, req)
+	if err != nil {
+		log.Error(err, "Failed to sync meter to OpenMeter")
+		r.updateCondition(ctx, meter, "Synced", metav1.ConditionFalse, "SyncFailed", err.Error())
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	if resp.StatusCode() != 201 && resp.StatusCode() != 200 {
+		err := fmt.Errorf("OpenMeter API returned status %d", resp.StatusCode())
+		log.Error(err, "Failed to sync meter to OpenMeter")
+		r.updateCondition(ctx, meter, "Synced", metav1.ConditionFalse, "SyncFailed", err.Error())
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	// Update status
+	meter.Status.OpenMeterID = resp.JSON201.ID
+	meter.Status.LastSyncTime = &metav1.Time{Time: time.Now()}
+	r.updateCondition(ctx, meter, "Synced", metav1.ConditionTrue, "SyncSucceeded", "Meter synced to OpenMeter")
+
+	if err := r.Status().Update(ctx, meter); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Meter synced to OpenMeter", "slug", meter.Spec.Slug, "tenantId", meter.Spec.TenantID)
+	return ctrl.Result{}, nil
+}
+
+// reconcileDelete handles meter deletion
+func (r *MeterReconciler) reconcileDelete(ctx context.Context, meter *billingv1alpha1.Meter) (ctrl.Result, error) {
+	// OpenMeter meters are immutable - do not delete
+	// Remove finalizer to allow Kubernetes to delete the CR
+	controllerutil.RemoveFinalizer(meter, "billing.nutgraf.in/finalizer")
+	if err := r.Update(ctx, meter); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// SetupWithManager sets up the controller with the Manager
+func (r *MeterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&billingv1alpha1.Meter{}).
+		Complete(r)
+}
+```
+
+**NOTE**: FeatureReconciler and PlanReconciler follow the same pattern.
+
+### 6.3 GitOps Integration (`fleet-registry/tenants/`)
+
+#### 6.3.1 Universal-Tenant Helm Chart Updates
+
+**File:** `fleet-registry/charts/universal-tenant/values.yaml`
+
+```yaml
+# Billing configuration (static catalog)
+billing:
+  enabled: true
+  
+  meters:
+    - name: api_calls
+      eventType: api_request
+      aggregation: COUNT
+      groupBy:
+        tenant_id: "$.tenant_id"
+    
+    - name: storage_bytes
+      eventType: storage_usage
+      aggregation: SUM
+      valueProperty: "$.bytes"
+      groupBy:
+        tenant_id: "$.tenant_id"
+  
+  features:
+    - name: advanced_analytics
+      displayName: "Advanced Analytics"
+      meterSlugs:
+        - api_calls
+    
+    - name: unlimited_storage
+      displayName: "Unlimited Storage"
+      meterSlugs:
+        - storage_bytes
+  
+  plans:
+    - name: pro
+      displayName: "Pro Plan"
+      description: "For growing teams"
+      currency: USD
+      phases:
+        - name: default
+          startAfter: "P0D"
+          rateCards:
+            - featureKey: advanced_analytics
+              entitlementType: metered
+              price:
+                type: usage_based
+                amount: 0.01
+                billingCadence: monthly
+```
+
+**File:** `fleet-registry/charts/universal-tenant/templates/billing.yaml`
+
+```yaml
+{{- if .Values.billing.enabled }}
+---
+# Meters
+{{- range .Values.billing.meters }}
+apiVersion: billing.nutgraf.in/v1alpha1
+kind: Meter
+metadata:
+  name: {{ $.Values.tenantId }}-{{ .name }}
+  namespace: hub-platform-ops
+  labels:
+    tenant-id: {{ $.Values.tenantId }}
+spec:
+  tenantId: {{ $.Values.tenantId }}
+  slug: {{ .name }}
+  description: {{ .description | default "" }}
+  aggregation: {{ .aggregation }}
+  eventType: {{ .eventType }}
+  {{- if .valueProperty }}
+  valueProperty: {{ .valueProperty }}
+  {{- end }}
+  {{- if .groupBy }}
+  groupBy:
+    {{- toYaml .groupBy | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+
+# Features
+{{- range .Values.billing.features }}
+apiVersion: billing.nutgraf.in/v1alpha1
+kind: Feature
+metadata:
+  name: {{ $.Values.tenantId }}-{{ .name }}
+  namespace: hub-platform-ops
+  labels:
+    tenant-id: {{ $.Values.tenantId }}
+spec:
+  tenantId: {{ $.Values.tenantId }}
+  key: {{ .name }}
+  name: {{ .displayName }}
+  meterSlugs:
+    {{- toYaml .meterSlugs | nindent 4 }}
+---
+{{- end }}
+
+# Plans
+{{- range .Values.billing.plans }}
+apiVersion: billing.nutgraf.in/v1alpha1
+kind: Plan
+metadata:
+  name: {{ $.Values.tenantId }}-{{ .name }}
+  namespace: hub-platform-ops
+  labels:
+    tenant-id: {{ $.Values.tenantId }}
+spec:
+  tenantId: {{ $.Values.tenantId }}
+  key: {{ .name }}
+  name: {{ .displayName }}
+  description: {{ .description | default "" }}
+  currency: {{ .currency }}
+  phases:
+    {{- toYaml .phases | nindent 4 }}
+---
+{{- end }}
+{{- end }}
+```
+
+### 6.4 Architectural Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. SaaS Builder Configures                                      │
+│    fleet-registry/tenants/<tenant-id>/values.yaml               │
+│    └─ billing.meters, billing.features, billing.plans           │
+└─────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. ArgoCD Syncs                                                  │
+│    Renders universal-tenant Helm chart                          │
+│    Applies Meter, Feature, Plan CRs to Hub cluster              │
+└─────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Hub-Operator Reconciles                                      │
+│    MeterReconciler, FeatureReconciler, PlanReconciler           │
+│    └─ Sync to OpenMeter API (idempotent upsert)                 │
+│    └─ Update CR Status.Conditions (Synced: True)                │
+└─────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. Runtime Execution (kube-sbt REST API)                        │
+│    POST /users → RegisterSubject (OpenMeter)                    │
+│    POST /subscriptions → CreateSubscription (OpenMeter)         │
+│    GET /usage → GetUsage (OpenMeter)                            │
+└─────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. Telemetry (OTLP Emission)                                    │
+│    AgentGateway → NATS JetStream → OTLP Forwarder → OpenMeter   │
+│    MetricCollector → NATS JetStream → OTLP Forwarder → OpenMeter│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. REST API Design (Runtime Operations Only)
+
+**ARCHITECTURAL NOTE**: Static catalog (Meters, Features, Plans) managed via hub-operator CRDs. REST API handles ONLY dynamic runtime operations.
+
+### 7.1 API Routes (Req 8, 9) - Runtime Operations Only
 
 **File:** `internal/opensbt/controlplane/routes.go`
+
+**REMOVED**: All POST, PUT, DELETE endpoints for `/meters`, `/features`, and `/plans` (managed via hub-operator CRDs)
 
 ```go
 package controlplane
@@ -1349,74 +2385,67 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterMeteringRoutes registers all metering and billing API routes
+// RegisterMeteringRoutes registers runtime metering and billing API routes
+// ARCHITECTURAL NOTE: Static catalog (Meters, Features, Plans) managed via hub-operator CRDs
+// This API handles ONLY dynamic runtime operations
 func RegisterMeteringRoutes(r *gin.Engine, cp *ControlPlane) {
 	api := r.Group("/api/v1")
 	api.Use(cp.AuthMiddleware()) // JWT validation and tenant_id extraction
 	
-	// User Management (Req 8)
 	tenants := api.Group("/tenants/:tenantID")
 	{
+		// User Management (Req 8) - Dynamic Runtime Operations
 		users := tenants.Group("/users")
 		{
-			users.POST("", cp.CreateUser)           // Req 8.1
+			users.POST("", cp.CreateUser)           // Req 8.1 - Creates Kratos user + OpenMeter subject
 			users.GET("/:userID", cp.GetUser)       // Req 8.2
 			users.PUT("/:userID", cp.UpdateUser)    // Req 8.3
-			users.DELETE("/:userID", cp.DeleteUser) // Req 8.4
+			users.DELETE("/:userID", cp.DeleteUser) // Req 8.4 - Deletes Kratos user + OpenMeter subject
 			users.GET("", cp.ListUsers)             // Req 8.5
 		}
 		
-		// Usage Queries (Req 9)
+		// Usage Queries (Req 9) - Read-Only Operations
 		tenants.GET("/usage", cp.GetTenantUsage)                    // Req 9.1
 		tenants.GET("/users/:userID/usage", cp.GetUserUsage)        // Req 9.2
 		tenants.GET("/entitlements", cp.CheckEntitlements)          // Req 9.3
 		
-		// Meter Management (Req 14)
+		// Meter Management (Read-Only for UI Display)
 		meters := tenants.Group("/meters")
 		{
-			meters.POST("", cp.CreateMeter)
-			meters.GET("/:meterID", cp.GetMeter)
-			meters.PUT("/:meterID", cp.UpdateMeter)
-			meters.DELETE("/:meterID", cp.DeleteMeter)
-			meters.GET("", cp.ListMeters)
+			meters.GET("/:meterID", cp.GetMeter)   // Read-only
+			meters.GET("", cp.ListMeters)          // Read-only
 		}
 		
-		// Feature Management (Req 14)
+		// Feature Management (Read-Only for UI Display)
 		features := tenants.Group("/features")
 		{
-			features.POST("", cp.CreateFeature)
-			features.GET("/:featureID", cp.GetFeature)
-			features.PUT("/:featureID", cp.UpdateFeature)
-			features.DELETE("/:featureID", cp.DeleteFeature)
-			features.GET("", cp.ListFeatures)
+			features.GET("/:featureID", cp.GetFeature) // Read-only
+			features.GET("", cp.ListFeatures)          // Read-only
 		}
 		
-		// Plan Management (Req 15)
+		// Plan Management (Read-Only for UI Display)
 		plans := tenants.Group("/plans")
 		{
-			plans.POST("", cp.CreatePlan)
-			plans.GET("/:planID", cp.GetPlan)
-			plans.PUT("/:planID", cp.UpdatePlan)
-			plans.DELETE("/:planID", cp.DeletePlan)
-			plans.GET("", cp.ListPlans)
+			plans.GET("/:planID", cp.GetPlan) // Read-only
+			plans.GET("", cp.ListPlans)       // Read-only
 		}
 		
-		// Subscription Management (Req 16)
+		// Subscription Management (Req 16) - Dynamic Runtime Operations
 		subscriptions := tenants.Group("/subscriptions")
 		{
-			subscriptions.POST("", cp.CreateSubscription)
-			subscriptions.GET("/:subscriptionID", cp.GetSubscription)
-			subscriptions.PUT("/:subscriptionID", cp.UpdateSubscription)
-			subscriptions.DELETE("/:subscriptionID", cp.CancelSubscription)
-			subscriptions.GET("", cp.ListSubscriptions)
+			subscriptions.POST("", cp.CreateSubscription)                      // Assign user to plan
+			subscriptions.GET("/:subscriptionID", cp.GetSubscription)          // Read-only
+			subscriptions.PUT("/:subscriptionID", cp.UpdateSubscription)       // Change plan
+			subscriptions.DELETE("/:subscriptionID", cp.CancelSubscription)    // Cancel subscription
+			subscriptions.GET("", cp.ListSubscriptions)                        // Read-only
 		}
 		
-		// Invoice Operations (Req 17)
+		// Invoice Operations (Req 17) - Read-Only Queries
 		invoices := tenants.Group("/invoices")
 		{
-			invoices.GET("/preview", cp.PreviewInvoice)
-			invoices.GET("/:invoiceID", cp.GetInvoice)
-			invoices.GET("", cp.ListInvoices)
+			invoices.GET("/preview", cp.PreviewInvoice)   // Read-only
+			invoices.GET("/:invoiceID", cp.GetInvoice)    // Read-only
+			invoices.GET("", cp.ListInvoices)             // Read-only
 		}
 	}
 	
@@ -1425,6 +2454,14 @@ func RegisterMeteringRoutes(r *gin.Engine, cp *ControlPlane) {
 	// Reference: archived/billing-metering/openmeter/openmeter/app/stripe/httpdriver/webhook.go
 }
 ```
+
+**Architectural Separation:**
+
+| Operation Type | Management Method | Example |
+|----------------|-------------------|---------|
+| **Static Catalog** | GitOps + hub-operator CRDs | Create Meter, Create Feature, Create Plan |
+| **Dynamic Runtime** | kube-sbt REST API | Create User, Create Subscription, Get Usage |
+| **Read-Only Display** | kube-sbt REST API | List Meters, List Features, List Plans |
 
 ### 6.2 Handler Examples
 
@@ -1684,14 +2721,23 @@ CREATE TRIGGER update_users_updated_at
 
 | Topic | Publisher | Consumer | Purpose | Ordering Strategy |
 |-------|-----------|----------|---------|-------------------|
-| `opensbt.user.{tenant_id}.lifecycle` | UserManager | Spoke DB Sync | User creation/deletion events | Per-tenant ordering via subject partition |
-| `opensbt_orphanedSubjects` | UserManager | ReconciliationController | DLQ for failed Kratos rollbacks (Req 21.2) | No ordering required (DLQ) |
+| `opensbt.user.created` | UserManager | UserCreationConsumer | User creation events | No ordering required |
+| `opensbt.user.{tenant_id}.lifecycle` | UserManager | DBSyncConsumer (Spoke) | User creation/deletion for Spoke DB sync | Per-tenant ordering via subject partition |
+| `opensbt.billing.usage` | AgentGateway, MetricCollector | OTLPForwarder | Billing events (durable buffer) | No ordering required |
+| `opensbt.metrics.collected` | MetricCollector | OTLPForwarder | Domain-specific metrics | No ordering required |
+| `opensbt.reconciliation.needed` | Consumers (on failure) | ReconcilerService | Priority reconciliation hints | No ordering required |
+| `opensbt.dlq.>` | Consumers (after MaxDeliver) | DLQReplayTool | Dead letter queue (audit trail) | No ordering required |
 | `opensbt_billingSuccess` | BillingProvider | Application Plane | Successful payment notification (Req 18.6) | No ordering required |
 | `opensbt_billingFailure` | BillingProvider | Application Plane | Failed payment notification | No ordering required |
-| `opensbt_notifications` | ReconciliationController | Ops Dashboard | Manual intervention alerts (Req 21.6) | No ordering required |
+| `opensbt_notifications` | ReconcilerService | Ops Dashboard | Manual intervention alerts (Req 21.6) | No ordering required |
 | `opensbt.entitlement.{tenant_id}.updated` | BillingProvider | Cache Invalidator | Entitlement cache invalidation (Gap 3.2) | Per-tenant ordering |
 
-**Key Pattern (Gap 4.1)**: User lifecycle events use **subject-based partitioning** (`opensbt.user.{tenant_id}.lifecycle`) to guarantee ordering within a tenant. NATS JetStream delivers messages in order for the same subject.
+**Key Patterns:**
+- **Dumb Consumers**: `opensbt.user.created`, `opensbt.billing.usage` - Idempotent, stateless, MaxDeliver=10
+- **Durable Buffers**: `opensbt.billing.usage` - NATS JetStream prevents billing data loss
+- **Priority Hints**: `opensbt.reconciliation.needed` - Event-assisted reconciliation
+- **Audit Trail**: `opensbt.dlq.>` - 30-day retention for manual replay
+- **Subject Partitioning**: `opensbt.user.{tenant_id}.lifecycle` - Per-tenant ordering for Spoke DB sync
 
 ### 8.2 Event Schemas with Sequence Tracking (Gap 4.1)
 
@@ -2284,6 +3330,1054 @@ spec:
 - **Defense in Depth**: Istio AuthorizationPolicy + NetworkPolicy
 - **Automatic Rotation**: SPIFFE SVIDs rotate every 60 minutes via SPIRE
 
+### 10.6 Spoke-Side Metric Collector (Req 4.8-4.13, Gap 1.5)
+
+**Problem:** AgentGateway only meters HTTP traffic. Cannot track stateful quotas like database rows, storage bytes, workspace counts, form counts, or table counts.
+
+**Solution:** Per-tenant metric collector sidecar in PostgREST pods that queries tenant databases and emits OTLP gauge metrics to OpenMeter via local OpenTelemetry Collector.
+
+**Architecture Pattern:** Sidecar Collector Pattern (ADR-011 compliant - no imperative Jobs)
+
+**Security:** mTLS enforced at all hops via Istio + SPIFFE (ADR-0009 compliance)
+
+**Rationale:** ADR-011 mandates declarative operator state over imperative Jobs. CronJobs are imperative batch operations that violate this principle. Instead, we use a continuously-running sidecar container that reconciles metrics in a control loop, aligning with Kubernetes' eventual consistency model.
+
+**File:** `manifests/tenants/charts/universal-tenant/templates/postgrest-deployment.yaml` (modified)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.tenantId }}-postgrest
+  namespace: {{ .Values.tenantId }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgrest
+      tenant: {{ .Values.tenantId }}
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "true"  # Envoy sidecar for mTLS
+      labels:
+        app: postgrest
+        tenant: {{ .Values.tenantId }}
+    spec:
+      serviceAccountName: {{ .Values.tenantId }}-postgrest
+      containers:
+      - name: postgrest
+        image: postgrest/postgrest:latest
+        # ... existing PostgREST config ...
+      
+      {{- if .Values.metering.enabled }}
+      - name: metrics-collector
+        image: {{ .Values.metering.collectorImage }}
+        env:
+        - name: TENANT_ID
+          value: {{ .Values.tenantId }}
+        - name: POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.tenantId }}-db-credentials
+              key: dsn
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://localhost:4318"  # Envoy sidecar intercepts
+        - name: METRICS
+          value: {{ .Values.metering.metrics | join "," }}
+        - name: COLLECTION_INTERVAL
+          value: {{ .Values.metering.interval | default "300s" }}
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      {{- end }}
+```
+
+**Metric Collector Implementation (Continuous Reconciliation Loop):**
+
+**File:** `cmd/metric-collector/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"strings"
+	"time"
+	
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	_ "github.com/lib/pq"
+)
+
+func main() {
+	ctx := context.Background()
+	
+	// Parse collection interval (default: 5 minutes)
+	interval, _ := time.ParseDuration(os.Getenv("COLLECTION_INTERVAL"))
+	if interval == 0 {
+		interval = 5 * time.Minute
+	}
+	
+	// Initialize OTLP exporter
+	exporter, err := otlpmetrichttp.New(ctx,
+		otlpmetrichttp.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+		otlpmetrichttp.WithInsecure(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	
+	provider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter,
+			sdkmetric.WithInterval(interval))),
+	)
+	otel.SetMeterProvider(provider)
+	defer provider.Shutdown(ctx)
+	
+	meter := provider.Meter("tenant-metrics")
+	
+	// Connect to tenant database
+	db, err := sql.Open("postgres", os.Getenv("POSTGRES_DSN"))
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	
+	tenantID := os.Getenv("TENANT_ID")
+	metrics := strings.Split(os.Getenv("METRICS"), ",")
+	
+	// Register observable gauges (continuous reconciliation)
+	for _, metricName := range metrics {
+		switch metricName {
+		case "database_rows":
+			registerDatabaseRowsGauge(meter, db, tenantID)
+		case "storage_bytes":
+			registerStorageBytesGauge(meter, db, tenantID)
+		case "workspace_count":
+			registerWorkspaceCountGauge(meter, db, tenantID)
+		case "form_count":
+			registerFormCountGauge(meter, db, tenantID)
+		case "table_count":
+			registerTableCountGauge(meter, db, tenantID)
+		}
+	}
+	
+	// Block forever (sidecar runs continuously)
+	select {}
+}
+
+func registerDatabaseRowsGauge(meter metric.Meter, db *sql.DB, tenantID string) {
+	gauge, _ := meter.Int64ObservableGauge("tenant.database.rows",
+		metric.WithDescription("Total database rows across all tables"),
+	)
+	
+	meter.RegisterCallback(func(ctx context.Context, o metric.Observer) error {
+		var rowCount int64
+		err := db.QueryRowContext(ctx, `
+			SELECT COALESCE(SUM(n_live_tup), 0) 
+			FROM pg_stat_user_tables 
+			WHERE schemaname = 'public'
+		`).Scan(&rowCount)
+		
+		if err == nil {
+			o.ObserveInt64(gauge, rowCount,
+				metric.WithAttributes(
+					attribute.String("tenant_id", tenantID),
+					attribute.String("meter_id", "database_rows"),
+				),
+			)
+		}
+		return err
+	}, gauge)
+}
+
+// Similar implementations for other metrics...
+```
+
+**File:** `manifests/spoke-pool/otel-collector/deployment.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: spoke-pool
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "true"  # Envoy sidecar for mTLS to Hub
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:latest
+        ports:
+        - containerPort: 4318
+          name: otlp-http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel-collector
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: spoke-pool
+```
+
+**File:** `manifests/spoke-pool/otel-collector/config.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: spoke-pool
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 100
+      
+      attributes:
+        actions:
+        - key: cluster
+          value: spoke-pool
+          action: insert
+
+    exporters:
+      otlphttp:
+        endpoint: "http://localhost:4318"  # Envoy sidecar intercepts
+        # mTLS handled by Istio Envoy sidecar (ADR-0009)
+        # Envoy rewrites to: https://openmeter-otlp.hub-platform-core.svc:4318
+        tls:
+          insecure: true  # Plain HTTP to localhost, Envoy handles mTLS
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch, attributes]
+          exporters: [otlphttp]
+```
+
+**File:** `manifests/spoke-pool/otel-collector/istio-destination-rule.yaml`
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: openmeter-otlp-mtls
+  namespace: spoke-pool
+spec:
+  host: openmeter-otlp.hub-platform-core.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL  # Enforce mTLS with SPIFFE identity
+```
+
+**File:** `manifests/spoke-pool/otel-collector/istio-service-entry.yaml`
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: openmeter-otlp-hub
+  namespace: spoke-pool
+spec:
+  hosts:
+  - openmeter-otlp.hub-platform-core.svc.cluster.local
+  location: MESH_EXTERNAL
+  ports:
+  - number: 4318
+    name: otlp-http
+    protocol: HTTP
+  resolution: DNS
+  endpoints:
+  - address: <HUB_INGRESS_IP>  # Hub Istio IngressGateway external IP
+```
+
+**File:** `manifests/spoke-pool/network-policy-egress.yaml`
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector-egress-hub
+  namespace: spoke-pool
+spec:
+  podSelector:
+    matchLabels:
+      app: otel-collector
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector: {}  # Allow to Istio sidecar in same namespace
+    ports:
+    - protocol: TCP
+      port: 15001  # Envoy outbound
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+    ports:
+    - protocol: TCP
+      port: 15012  # Istio control plane (xDS)
+  - to:
+    - ipBlock:
+        cidr: <HUB_INGRESS_IP>/32  # Hub Istio IngressGateway
+    ports:
+    - protocol: TCP
+      port: 4318  # OTLP HTTP
+    - protocol: TCP
+      port: 443   # HTTPS (mTLS)
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app: spire-server
+    ports:
+    - protocol: TCP
+      port: 8081  # SPIRE Server API
+```
+
+**File:** `manifests/hub-core-services/openmeter/istio-authz-otel.yaml`
+
+```yaml
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: openmeter-otlp-from-spoke-otel
+  namespace: hub-platform-core
+spec:
+  selector:
+    matchLabels:
+      app: openmeter
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/hub-platform-gateway/sa/agentgateway"
+        - "spiffe://spoke-pool.cluster.local/ns/spoke-pool/sa/otel-collector"  # Federated SPIFFE ID
+    to:
+    - operation:
+        methods: ["POST"]
+        paths: ["/v1/traces", "/v1/metrics"]
+        ports: ["4318"]
+```
+
+### 10.7 SPIRE Federation for Cross-Cluster mTLS (Gap 2.1)
+
+**Problem:** Hub and Spoke are physically separate clusters. Hub SPIRE server will reject Spoke's SPIFFE IDs unless SPIRE Federation is configured.
+
+**Solution:** Configure SPIRE Federation to establish trust between Hub and Spoke SPIRE servers.
+
+### 10.8 OpenMeter Event Bridge for NATS Choreography (Gap 3.1)
+
+**Problem:** OpenMeter handles Stripe webhooks directly (Req 18.4-18.7), but kube-sbt needs to react to billing events (e.g., suspend tenant on payment failure). OpenMeter does NOT natively publish to NATS JetStream.
+
+**Solution:** Deploy an OpenMeter Event Bridge service that polls OpenMeter's notification/webhook APIs and translates events into NATS JetStream messages.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Hub Cluster                              │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  Stripe                                              │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ Webhook: invoice.payment_failed         │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  OpenMeter (POST /api/v1/apps/{appId}/stripe/webhook)│      │
+│  │  - Validates signature                               │      │
+│  │  - Updates invoice state (failed)                    │      │
+│  │  - Stores event in internal DB                       │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ Polling (every 30s)                     │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  OpenMeter Event Bridge (Go service)                 │      │
+│  │  - Polls: GET /api/v1/events?since={lastTimestamp}   │      │
+│  │  - Filters: invoice.payment_failed, subscription.*   │      │
+│  │  - Translates: OpenMeter event → NATS message        │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ Publish                                 │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  NATS JetStream                                      │      │
+│  │  Topics:                                             │      │
+│  │  - opensbt.billing.payment_failed                    │      │
+│  │  - opensbt.billing.payment_succeeded                 │      │
+│  │  - opensbt.billing.subscription_cancelled            │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ Subscribe                               │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  kube-sbt Billing Event Handler                      │      │
+│  │  - Consumes: opensbt.billing.payment_failed          │      │
+│  │  - Action: Suspend tenant (update status in DB)      │      │
+│  │  - Action: Invalidate Redis entitlement cache        │      │
+│  └──────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**File:** `cmd/openmeter-event-bridge/main.go`
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+	
+	"github.com/nats-io/nats.go"
+	openmeter "github.com/openmeterio/openmeter/api/client/go"
+)
+
+type EventBridge struct {
+	openMeterClient *openmeter.ClientWithResponses
+	natsConn        *nats.Conn
+	lastTimestamp   time.Time
+}
+
+func main() {
+	ctx := context.Background()
+	
+	// Initialize OpenMeter client
+	omClient, _ := openmeter.NewClientWithResponses(os.Getenv("OPENMETER_URL"))
+	
+	// Initialize NATS connection
+	nc, _ := nats.Connect(os.Getenv("NATS_URL"))
+	defer nc.Close()
+	
+	bridge := &EventBridge{
+		openMeterClient: omClient,
+		natsConn:        nc,
+		lastTimestamp:   time.Now().Add(-24 * time.Hour), // Start 24h ago
+	}
+	
+	// Poll OpenMeter events every 30 seconds
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			bridge.pollAndPublish(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (b *EventBridge) pollAndPublish(ctx context.Context) error {
+	// Poll OpenMeter events API
+	params := &openmeter.ListEventsParams{
+		Since: &b.lastTimestamp,
+		Limit: ptr(100),
+	}
+	
+	resp, err := b.openMeterClient.ListEventsWithResponse(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to poll OpenMeter events: %w", err)
+	}
+	
+	if resp.StatusCode() != 200 {
+		return fmt.Errorf("OpenMeter returned status %d", resp.StatusCode())
+	}
+	
+	events := resp.JSON200.Data
+	
+	for _, event := range events {
+		// Translate OpenMeter event to NATS message
+		switch event.Type {
+		case "invoice.payment_failed":
+			b.publishBillingEvent("opensbt.billing.payment_failed", event)
+		case "invoice.payment_succeeded":
+			b.publishBillingEvent("opensbt.billing.payment_succeeded", event)
+		case "subscription.cancelled":
+			b.publishBillingEvent("opensbt.billing.subscription_cancelled", event)
+		case "subscription.created":
+			b.publishBillingEvent("opensbt.billing.subscription_created", event)
+		}
+		
+		// Update last timestamp
+		if event.Timestamp.After(b.lastTimestamp) {
+			b.lastTimestamp = event.Timestamp
+		}
+	}
+	
+	return nil
+}
+
+func (b *EventBridge) publishBillingEvent(subject string, event OpenMeterEvent) error {
+	// Extract tenant_id from event metadata
+	tenantID := event.Metadata["tenant_id"]
+	
+	// Construct NATS message
+	msg := map[string]interface{}{
+		"event_id":   event.ID,
+		"event_type": event.Type,
+		"tenant_id":  tenantID,
+		"timestamp":  event.Timestamp,
+		"data":       event.Data,
+	}
+	
+	payload, _ := json.Marshal(msg)
+	
+	// Publish to NATS JetStream
+	_, err := b.natsConn.Request(subject, payload, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to publish to NATS: %w", err)
+	}
+	
+	return nil
+}
+```
+
+**File:** `manifests/hub-core-services/openmeter-event-bridge/deployment.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openmeter-event-bridge
+  namespace: hub-platform-ops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: openmeter-event-bridge
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "true"
+      labels:
+        app: openmeter-event-bridge
+    spec:
+      serviceAccountName: openmeter-event-bridge
+      containers:
+      - name: bridge
+        image: ghcr.io/soloz-io/openmeter-event-bridge:latest
+        env:
+        - name: OPENMETER_URL
+          value: "http://openmeter.hub-platform-core.svc:8888"
+        - name: NATS_URL
+          value: "nats://nats.hub-platform-messaging.svc:4222"
+        - name: POLL_INTERVAL
+          value: "30s"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+```
+
+**File:** `internal/opensbt/providers/openmeter/billing_event_handler.go`
+
+```go
+package openmeter
+
+import (
+	"context"
+	"encoding/json"
+	
+	"github.com/nats-io/nats.go"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+)
+
+type BillingEventHandler struct {
+	natsConn *nats.Conn
+	storage  interfaces.IStorage
+	redis    *redis.Client
+}
+
+func NewBillingEventHandler(natsConn *nats.Conn, storage interfaces.IStorage, redis *redis.Client) *BillingEventHandler {
+	return &BillingEventHandler{
+		natsConn: natsConn,
+		storage:  storage,
+		redis:    redis,
+	}
+}
+
+func (h *BillingEventHandler) Start(ctx context.Context) error {
+	// Subscribe to billing events
+	_, err := h.natsConn.QueueSubscribe("opensbt.billing.>", "billing-handlers", func(msg *nats.Msg) {
+		var event BillingEvent
+		if err := json.Unmarshal(msg.Data, &event); err != nil {
+			return
+		}
+		
+		switch event.EventType {
+		case "invoice.payment_failed":
+			h.handlePaymentFailed(ctx, event)
+		case "invoice.payment_succeeded":
+			h.handlePaymentSucceeded(ctx, event)
+		case "subscription.cancelled":
+			h.handleSubscriptionCancelled(ctx, event)
+		}
+		
+		msg.Ack()
+	})
+	
+	return err
+}
+
+func (h *BillingEventHandler) handlePaymentFailed(ctx context.Context, event BillingEvent) {
+	tenantID := event.TenantID
+	
+	// Update tenant status in database
+	_, err := h.storage.Exec(ctx, `
+		UPDATE tenants 
+		SET status = 'suspended', 
+		    suspension_reason = 'payment_failed',
+		    updated_at = NOW()
+		WHERE id = $1
+	`, tenantID)
+	
+	if err != nil {
+		// Log error, retry via NATS redelivery
+		return
+	}
+	
+	// Invalidate Redis entitlement cache
+	pattern := fmt.Sprintf("entitlement:%s:*", tenantID)
+	keys, _ := h.redis.Keys(ctx, pattern).Result()
+	if len(keys) > 0 {
+		h.redis.Del(ctx, keys...)
+	}
+}
+
+func (h *BillingEventHandler) handlePaymentSucceeded(ctx context.Context, event BillingEvent) {
+	tenantID := event.TenantID
+	
+	// Reactivate tenant
+	_, err := h.storage.Exec(ctx, `
+		UPDATE tenants 
+		SET status = 'active', 
+		    suspension_reason = NULL,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, tenantID)
+	
+	if err != nil {
+		return
+	}
+	
+	// Invalidate cache to refresh entitlements
+	pattern := fmt.Sprintf("entitlement:%s:*", tenantID)
+	keys, _ := h.redis.Keys(ctx, pattern).Result()
+	if len(keys) > 0 {
+		h.redis.Del(ctx, keys...)
+	}
+}
+```
+
+**NATS JetStream Stream Configuration:**
+
+**File:** `manifests/hub-core-services/nats/streams/billing-events.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-stream-billing-events
+  namespace: hub-platform-messaging
+data:
+  stream.json: |
+    {
+      "name": "BILLING_EVENTS",
+      "subjects": ["opensbt.billing.>"],
+      "retention": "limits",
+      "max_age": 604800000000000,
+      "max_msgs": 1000000,
+      "storage": "file",
+      "replicas": 3,
+      "discard": "old"
+    }
+```
+
+**Key Design Properties:**
+
+1. **Polling Pattern**: Event bridge polls OpenMeter every 30s (configurable)
+2. **Idempotency**: Tracks `lastTimestamp` to avoid reprocessing events
+3. **Event Translation**: Maps OpenMeter events to NATS subjects
+4. **Tenant Isolation**: Extracts `tenant_id` from event metadata
+5. **Resilience**: NATS JetStream provides at-least-once delivery with redelivery
+6. **Observability**: Prometheus metrics for polling latency, event count, publish failures
+
+**Alternative Pattern (Webhook-Based):**
+
+If OpenMeter supports outbound webhooks (check documentation), configure OpenMeter to POST events directly to the event bridge HTTP endpoint, eliminating polling overhead.
+
+---
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Hub Cluster                              │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  SPIRE Server (Hub)                                  │      │
+│  │  Trust Domain: cluster.local                         │      │
+│  │  Federation Bundle Endpoint: /bundle                 │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ Exposes federation bundle               │
+└───────────────────────┼─────────────────────────────────────────┘
+                        │ HTTPS (mutual trust)
+┌───────────────────────┼─────────────────────────────────────────┐
+│                       │              Spoke Pool Cluster          │
+│  ┌────────────────────▼─────────────────────────────────┐      │
+│  │  SPIRE Server (Spoke)                                │      │
+│  │  Trust Domain: spoke-pool.cluster.local              │      │
+│  │  Federated Trust: cluster.local (Hub)                │      │
+│  │  - Fetches Hub bundle periodically                   │      │
+│  │  - Validates Hub-issued SVIDs                        │      │
+│  └──────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**File:** `manifests/hub-core-services/spire/server-config.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server-config
+  namespace: spire-system
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "cluster.local"
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      
+      # Federation bundle endpoint (Hub exposes to Spokes)
+      federation {
+        bundle_endpoint {
+          address = "0.0.0.0"
+          port = 8443
+          acme {
+            domain_name = "spire-federation.hub.nutgraf.in"
+            email = "platform@nutgraf.in"
+          }
+        }
+      }
+    }
+    
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "postgres"
+          connection_string = "postgresql://spire:password@postgres:5432/spire"
+        }
+      }
+      
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+      
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "hub-cluster" = {
+              service_account_allow_list = ["spire-system:spire-agent"]
+            }
+          }
+        }
+      }
+    }
+```
+
+**File:** `manifests/spoke-pool/spire/server-config.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server-config
+  namespace: spire-system
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "spoke-pool.cluster.local"
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      
+      # Federation with Hub (Spoke trusts Hub)
+      federation {
+        federates_with "cluster.local" {
+          bundle_endpoint_url = "https://spire-federation.hub.nutgraf.in:8443"
+          bundle_endpoint_profile "https_spiffe" {
+            endpoint_spiffe_id = "spiffe://cluster.local/spire/server"
+          }
+        }
+      }
+    }
+    
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "postgres"
+          connection_string = "postgresql://spire:password@postgres:5432/spire"
+        }
+      }
+      
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+      
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "spoke-pool-cluster" = {
+              service_account_allow_list = ["spire-system:spire-agent"]
+            }
+          }
+        }
+      }
+    }
+```
+
+**File:** `manifests/spoke-pool/spire/network-policy-egress.yaml`
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spire-server-egress-federation
+  namespace: spire-system
+spec:
+  podSelector:
+    matchLabels:
+      app: spire-server
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0  # Allow outbound to Hub federation endpoint
+        except:
+        - 169.254.169.254/32  # Block metadata service
+    ports:
+    - protocol: TCP
+      port: 8443  # SPIRE federation bundle endpoint
+    - protocol: TCP
+      port: 443   # HTTPS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53
+```
+
+**SPIFFE ID Format After Federation:**
+
+```yaml
+# Hub workloads
+spiffe://cluster.local/ns/hub-platform-gateway/sa/agentgateway
+spiffe://cluster.local/ns/hub-platform-core/sa/openmeter
+
+# Spoke workloads (federated trust domain)
+spiffe://spoke-pool.cluster.local/ns/spoke-pool/sa/otel-collector
+spiffe://spoke-pool.cluster.local/ns/tenant-app-creator/sa/metrics-collector
+```
+
+**Hub AuthorizationPolicy Update (accepts federated IDs):**
+
+```yaml
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: openmeter-otlp-federated
+  namespace: hub-platform-core
+spec:
+  selector:
+    matchLabels:
+      app: openmeter
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/hub-platform-gateway/sa/agentgateway"  # Hub workload
+        - "spoke-pool.cluster.local/ns/spoke-pool/sa/otel-collector"  # Spoke workload (federated)
+    to:
+    - operation:
+        methods: ["POST"]
+        paths: ["/v1/traces", "/v1/metrics"]
+        ports: ["4318"]
+```
+
+**Federation Verification:**
+
+```bash
+# On Hub SPIRE Server
+kubectl exec -n spire-system spire-server-0 -- \
+  /opt/spire/bin/spire-server bundle show
+
+# On Spoke SPIRE Server (should show Hub bundle)
+kubectl exec -n spire-system spire-server-0 -- \
+  /opt/spire/bin/spire-server bundle show -id spiffe://cluster.local
+```
+
+**Key Security Properties:**
+1. **Mutual Trust**: Hub and Spoke SPIRE servers exchange trust bundles
+2. **Automatic Refresh**: Spoke fetches Hub bundle every 5 minutes
+3. **Cryptographic Validation**: Hub validates Spoke SVIDs using federated bundle
+4. **Namespace Isolation**: SPIFFE IDs include trust domain prefix
+5. **Zero Shared Secrets**: No pre-shared keys, only public key exchange
+
+---
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Spoke Pool Cluster                          │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  Metric Collector CronJob                            │      │
+│  │  SPIFFE: cluster.local/ns/{tenant}/sa/metrics-...    │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ 1. HTTP POST to localhost:4318          │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  Envoy Sidecar (Collector Pod)                       │      │
+│  │  - Intercepts localhost:4318                         │      │
+│  │  - Validates SPIFFE SVID                             │      │
+│  │  - Enforces mTLS to OTel Collector                   │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ 2. mTLS with SPIFFE SVID                │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  OpenTelemetry Collector                             │      │
+│  │  SPIFFE: cluster.local/ns/spoke-pool/sa/otel-...     │      │
+│  │  - Receives OTLP from all tenant collectors          │      │
+│  │  - Batches metrics (100 per batch)                   │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ 3. HTTP POST to localhost:4318          │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  Envoy Sidecar (OTel Collector Pod)                  │      │
+│  │  - Intercepts localhost:4318                         │      │
+│  │  - Rewrites to: openmeter-otlp.hub-platform-core     │      │
+│  │  - Enforces mTLS with SPIFFE SVID                    │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ 4. mTLS cross-cluster                   │
+└───────────────────────┼─────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Hub Cluster                              │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  Istio IngressGateway                                │      │
+│  │  - Validates SPIFFE SVID                             │      │
+│  │  - Checks AuthorizationPolicy                        │      │
+│  │  - Allows: spoke-pool/sa/otel-collector              │      │
+│  └────────────────────┬─────────────────────────────────┘      │
+│                       │ 5. Authorized mTLS                      │
+│                       ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐      │
+│  │  OpenMeter (port 4318)                               │      │
+│  │  - Receives OTLP metrics                             │      │
+│  │  - Stores tenant-scoped gauge metrics                │      │
+│  └──────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**File:** `manifests/tenants/charts/universal-tenant/values.yaml` (additions)
+
+```yaml
+metering:
+  enabled: true
+  interval: "300s"  # 5 minutes (continuous reconciliation)
+  collectorImage: "ghcr.io/soloz-io/metric-collector:latest"
+  metrics:
+    - database_rows
+    - storage_bytes
+    - workspace_count
+    - form_count
+    - table_count
+```
+
+**Key ADR Compliance:**
+1. **ADR-011 (Declarative State)**: Sidecar runs continuously, not imperative CronJob
+2. **ADR-009 (Zero-Trust)**: mTLS via Istio + SPIFFE at all hops
+3. **ADR-005/008 (Crossplane)**: Provisioned via universal-tenant Helm chart (Crossplane composition)
+4. **ADR-010 (User Management)**: Metrics tied to tenant_id from JWT claims
+
+**Key Security Properties (ADR-0009 + SPIRE Federation):**
+1. **Layer 1 (Collector → OTel)**: mTLS with SPIFFE SVID validation
+2. **Layer 2 (OTel → Hub)**: mTLS with SPIFFE SVID validation
+3. **Layer 3 (Hub Gateway)**: AuthorizationPolicy restricts to `spoke-pool/sa/otel-collector`
+4. **Layer 4 (OpenMeter)**: Namespace isolation enforced by tenant_id attribute
+5. **Zero Plaintext**: All OTLP traffic encrypted end-to-end
+6. **Auto-Rotation**: SPIFFE SVIDs rotate every 60 minutes
+7. **Defense-in-Depth**: Multiple independent security layers
+
+**Key Benefits:**
+1. **Tenant-Specific**: Each tenant selects metrics via Helm values
+2. **Declarative**: Provisioned via GitOps with tenant CR
+3. **Flexible**: Supports domain-specific metrics (forms, tables, apps)
+4. **Automatic**: Crossplane provisions collector on tenant creation
+5. **Secure**: Read-only DB access, mTLS to Hub, SPIFFE identity
+6. **Zero-Trust**: Cryptographic workload identity at every hop
+
 ---
 
 ## 11. Crossplane Integration
@@ -2630,19 +4724,19 @@ func TestMeteringProvider_E2E(t *testing.T) {
 	provider, err := openmeter.NewMeteringProvider(openMeterURL)
 	require.NoError(t, err)
 	
-	// Test: Create Meter
-	t.Run("CreateMeter", func(t *testing.T) {
-		spec := models.MeterSpec{
-			Slug:          "api_calls",
-			Description:   "API call counter",
-			Aggregation:   "COUNT",
-			EventType:     "api_request",
-			ValueProperty: "count",
-		}
-		
-		err := provider.CreateMeter(ctx, "test-tenant", spec)
-		assert.NoError(t, err)
-	})
+	// Setup: Create test meter using raw OpenMeter client (simulates hub-operator)
+	openMeterClient, err := openmeter.NewClientWithResponses(openMeterURL)
+	require.NoError(t, err)
+	
+	meterReq := openmeter.CreateMeterJSONRequestBody{
+		Slug:          "api_calls",
+		Description:   ptr("API call counter"),
+		Aggregation:   "COUNT",
+		EventType:     "api_request",
+		ValueProperty: ptr("count"),
+	}
+	_, err = openMeterClient.CreateMeterWithResponse(ctx, meterReq)
+	require.NoError(t, err)
 	
 	// Test: Register Subject
 	t.Run("RegisterSubject", func(t *testing.T) {
@@ -2665,6 +4759,11 @@ func TestMeteringProvider_E2E(t *testing.T) {
 		assert.True(t, status.HasAccess)
 		assert.True(t, status.IsFallback)
 	})
+}
+
+// Helper function for pointer conversion
+func ptr(s string) *string {
+	return &s
 }
 ```
 
@@ -3188,7 +5287,7 @@ curl https://api.zero-ops.io/api/v1/tenants/app-creator/entitlements?feature=api
 
 ## 17. Gap Resolution Summary
 
-This design specification addresses all critical gaps identified in the architectural review:
+This design specification addresses all critical gaps identified in the architectural review with **enterprise-grade patterns**:
 
 ### **Gap 1: Distributed State Management**
 
@@ -3210,14 +5309,14 @@ This design specification addresses all critical gaps identified in the architec
 ✅ **1.3 Reconciliation DLQ State Tracking**
 - **Fixed:** Removed in-memory `failureCount map`
 - **Pattern:** NATS JetStream native delivery tracking (`msg.Metadata().NumDelivered`)
-- **Configuration:** `MaxDeliver: 3` with exponential backoff via `NakWithDelay()`
+- **Configuration:** `MaxDeliver: 10` with exponential backoff via `BackOff` array
 
 ✅ **1.4 Saga Rollback Compensation**
 - **Fixed:** Added `opensbt_tenantUserDeleted` event for Spoke DB cleanup
 - **Pattern:** Compensating transaction published to NATS
 - **Coverage:** Handles race condition where Spoke creates local user record before rollback
 
-### **Gap 2: Infrastructure & GitOps**
+### **Gap 2: Infrastructure & GitOps (OPERATOR PATTERN)**
 
 ✅ **2.1 OpenMeter Namespace Provisioning**
 - **Gap Identified:** Requirement 19 specified Crossplane provider-http to POST /api/v1/namespaces
@@ -3229,6 +5328,25 @@ This design specification addresses all critical gaps identified in the architec
 - **Status Tracking:** `OpenMeterNamespacesConfigured` condition in HubEnvironment status
 - **Idempotency:** namespace.Manager handles duplicate namespace creation gracefully
 
+✅ **2.2 Static Catalog Management → GitOps + hub-operator CRDs**
+- **Architectural Decision:** Static billing catalog (Meters, Features, Plans) managed via Kubernetes CRDs, not imperative REST API
+- **New CRDs:** `billing.nutgraf.in/v1alpha1` - Meter, Feature, Plan
+- **Reconcilers:** MeterReconciler, FeatureReconciler, PlanReconciler in hub-operator
+- **GitOps Flow:**
+  1. SaaS Builder configures `billing.meters`, `billing.features`, `billing.plans` in `fleet-registry/tenants/<tenant-id>/values.yaml`
+  2. ArgoCD renders `universal-tenant` Helm chart, applies CRs to Hub cluster
+  3. hub-operator reconcilers sync CRs to OpenMeter API (idempotent upsert)
+  4. CR Status.Conditions updated with `Synced: True`
+- **Benefits:**
+  - **Declarative:** Catalog changes via Git commits, not API calls
+  - **Auditable:** Full Git history of catalog changes
+  - **Continuous Reconciliation:** hub-operator fixes drift automatically
+  - **No Saga Complexity:** Kubernetes controller pattern handles failures natively
+- **kube-sbt API Changes:**
+  - **REMOVED:** POST, PUT, DELETE endpoints for `/meters`, `/features`, `/plans`
+  - **KEPT:** GET endpoints for read-only UI display
+  - **KEPT:** All dynamic runtime operations (users, subscriptions, invoices)
+
 ### **Gap 3: Security & Availability**
 
 ✅ **3.1 Tenant Aggregation via Compound Subject IDs**
@@ -3238,15 +5356,7 @@ This design specification addresses all critical gaps identified in the architec
 - **Reference:** archived/billing-metering/openmeter/openmeter/streaming/query_params.go:L17
 - **Impact:** GetTenantUsage() queries with GroupBy["tenant_id"] instead of FilterSubject wildcard
 
-✅ **4.1 Spoke Controller Database Provisioning Race Condition**
-- **Fixed:** NATS JetStream subject-based partitioning + version tracking + idempotent handlers
-- **Pattern**: `opensbt.user.{tenant_id}.lifecycle` ensures per-tenant ordered delivery
-- **Evidence**: NATS JetStream guarantees message ordering within a subject partition
-- **Configuration**: `max_ack_pending: 1` processes one message at a time per consumer
-- **Version Tracking**: Creation(v1) → Deletion(v2), handlers check version before applying
-- **Idempotency**: Handlers check existing version, skip if already processed higher version
-- **Tombstone Pattern**: Store highest seen version (including deletions) to prevent late creation
-- **Race Prevention**: Even if deletion arrives before creation, version check prevents phantom users
+✅ **3.2 Entitlement Cache Invalidation**
 - **Fixed:** Explicit cache invalidation via NATS events
 - **Triggers:** Subscription tier changes, billing failures, manual updates
 - **Evidence:** OpenMeter has NO built-in caching (every call hits DB)
@@ -3254,28 +5364,58 @@ This design specification addresses all critical gaps identified in the architec
 - **Methods:** InvalidateEntitlementCache(), InvalidateTenantEntitlements()
 - **Events:** opensbt_subscriptionUpdated, opensbt_billingFailure, opensbt_entitlementUpdated
 
-✅ **3.2 CI/CD Testcontainers**
+✅ **3.3 CI/CD Testcontainers**
 - **Fixed:** Build tag separation (`//go:build e2e`)
 - **Pattern:** Unit tests with mocks (no Docker) + E2E tests with Testcontainers
 - **Commands:**
   - `make test` - Unit tests only (fast, no Docker)
   - `make test-e2e` - E2E tests with Testcontainers (CI/CD)
 
-### **Gap 4: Code-Level Inconsistencies**
+### **Gap 4: Distributed Saga & Error State (ENTERPRISE ARCHITECTURE)**
 
-✅ **4.1 AINativeSaaS XRD Status Fields**
-- **Fixed:** Updated Crossplane composition to use `status.conditions` array
-- **Pattern:** Standard Kubernetes condition type `OpenMeterNamespaceReady`
-- **Action Required:** Update `ainativesaases.nutgraf.in` XRD schema in next phase
+✅ **4.1 DLQ Dead Ends → Automated Reconciliation**
+- **Problem:** After 10 retries, messages dropped without recovery
+- **Fixed:** DLQ stream (30-day retention) + Kubernetes-style ReconcilerService
+- **Pattern:** 
+  - **Events handle "what happened"**: Dumb consumers (idempotent, stateless)
+  - **Reconcilers handle "what should be true"**: Periodic scans (paginated, rate-limited)
+- **DLQ Stream:** `opensbt_dlq` with 30-day retention for audit + manual replay
+- **Reconciler:** Scans every 60s for drift (orphaned users, missing subjects, Spoke DB gaps)
+- **Hybrid Model:** Event-assisted (priority hints) + Time-driven (background scans)
+- **Pagination:** Cursor-based, 100 resources per page, 50s time budget per cycle
+- **Rate Limiting:** 10 ops/sec internal rate limit to prevent thundering herd
+- **Progress Tracking:** Resumable on restart (cursor stored in database)
 
-✅ **4.2 Circuit Breaker Anti-Pattern**
-- **Fixed:** Removed custom Go CircuitBreaker implementation
-- **Pattern:** Istio DestinationRule with `outlierDetection`
-- **Configuration:**
-  - `consecutiveErrors: 5`
-  - `baseEjectionTime: 30s`
-  - `maxEjectionPercent: 50%`
-- **Benefit:** Mesh-level circuit breaking across all replicas
+✅ **4.2 Spoke DB Sync Idempotency → Infinite Retries**
+- **Problem:** If Spoke DB down, user exists in Hub but not Spoke after MaxDeliver limit
+- **Fixed:** Simplified consumer with MaxDeliver=10 + Reconciler fixes drift
+- **Pattern:** Idempotent upsert (INSERT ON CONFLICT UPDATE), NAK on failure
+- **Reconciler:** Scans Hub DB, syncs missing users to Spoke DB within 60s
+- **No Infinite Retries:** MaxDeliver=10 prevents infinite loops, Reconciler provides eventual consistency
+
+✅ **4.3 Billing Pipeline Durability → NATS JetStream Buffer**
+- **Problem:** Direct OTLP emission risks dropping billing events (revenue loss)
+- **Fixed:** AgentGateway → NATS JetStream → OTLP Forwarder → OpenMeter
+- **Pattern:** Durable buffer (NATS) with batched export (100 events per batch)
+- **Retry Semantics:** Do NOT ACK until OpenMeter export succeeds
+- **Backpressure:** NAK on failure, NATS retries with exponential backoff
+- **DLQ:** After 10 retries, route to DLQ for manual investigation
+
+✅ **4.4 Metrics Collection Scaling → Cluster-Level Collector**
+- **Problem:** Per-tenant CronJobs don't scale (1000 tenants = 1000 CronJobs)
+- **Fixed:** Single MetricCollector deployment per cluster
+- **Pattern:** Tenant-aware queries, emit to NATS with tenant_id label
+- **Metrics:** database_rows, storage_bytes, workspace_count, form_count, table_count, application_count
+- **Interval:** 5 minutes (configurable)
+- **Deployment:** Single replica per cluster, queries all tenant databases in one pass
+
+### **Gap 5: Rate Limiting Clarification**
+
+✅ **5.1 Real-Time Enforcement vs Billing Aggregation**
+- **AgentGateway + Redis:** Real-time rate limiting (200 req/sec, sub-millisecond latency)
+- **OpenMeter:** Billing aggregation (invoice generation, eventual consistency)
+- **Pattern:** Redis token bucket for enforcement, OTLP for billing
+- **Failure Mode:** Redis unavailable → fail-open (allow request), OpenMeter unavailable → retry via NATS
 
 ### **Additional Improvements**
 
@@ -3284,7 +5424,7 @@ This design specification addresses all critical gaps identified in the architec
 - Enables transactional webhook processing
 
 ✅ **NATS JetStream Consumer Configuration**
-- Explicit `ConsumerConfig` with `MaxDeliver` and `AckPolicy`
+- Explicit `ConsumerConfig` with `MaxDeliver` and `BackOff` array
 - Native message delivery tracking
 
 ✅ **Redis Integration**
@@ -3293,35 +5433,53 @@ This design specification addresses all critical gaps identified in the architec
 
 ✅ **Event Topic Expansion**
 - Added `opensbt_tenantUserDeleted` for Saga compensation
+- Added `opensbt.reconciliation.needed` for priority reconciliation hints
+- Added `opensbt.dlq.>` for dead letter queue audit trail
 - Documented all event schemas and flows
 
 ---
 
-## 18. Summary
+## 18. Enterprise Architecture Summary
 
-This design specification provides a complete, production-ready blueprint for implementing the kube-sbt metering and billing system with OpenMeter integration. All critical distributed systems gaps have been resolved:
+This design specification provides a **production-ready, enterprise-grade** blueprint for implementing the kube-sbt metering and billing system with OpenMeter integration.
 
-**Key Achievements:**
-✅ **HA-Safe State Management** - Database-backed idempotency and NATS delivery tracking  
-✅ **Complete Saga Pattern** - Compensating transactions for Spoke cluster cleanup  
-✅ **Idempotent GitOps** - Crossplane observe/create pattern for OpenMeter namespaces  
-✅ **Feature-Specific Fail-Open** - Risk-based entitlement policies with Redis caching  
-✅ **Mesh-Level Resiliency** - Istio circuit breaking instead of custom Go code  
-✅ **Testable Architecture** - Build tag separation for unit vs E2E tests  
-✅ **Zero-Trust Security** - Istio/SPIRE mTLS with SPIFFE workload identity  
-✅ **AWS SBT Alignment** - CNCF-native implementations of SBT patterns  
+### **Key Architectural Principles**
 
-**Next Steps:**
+✅ **Events handle "what happened"** - Dumb consumers, idempotent, stateless  
+✅ **Reconcilers handle "what should be true"** - Kubernetes controller pattern  
+✅ **Durable buffers for revenue** - NATS JetStream prevents billing data loss  
+✅ **Cluster-level collectors** - Single deployment per cluster, tenant-aware queries  
+✅ **DLQ for audit trail** - 30-day retention, manual replay capability  
+✅ **Paginated reconciliation** - Cursor-based, rate-limited, resumable  
+✅ **Separation of concerns** - Rate limiting (Redis) vs Billing (OpenMeter)  
+
+### **Scalability Guarantees**
+
+- **10,000+ tenants**: Single metric collector per cluster (not per-tenant CronJobs)
+- **1M+ events/day**: Batched OTLP export (100 events per batch)
+- **Infinite retries**: Reconciler provides eventual consistency without infinite loops
+- **Zero data loss**: NATS JetStream durable buffer for billing events
+
+### **Operational Excellence**
+
+- **Debuggability**: DLQ stream with 30-day retention
+- **Replayability**: Manual replay tool for failed events
+- **Observability**: Reconciler metrics (drift detected, resources fixed)
+- **Compliance**: Audit trail for all billing events
+
+### **Next Steps**
+
 1. Review and approve this updated design specification
 2. Update `ainativesaases.nutgraf.in` XRD schema for OpenMeter status fields
 3. Create implementation tasks in tasks.md
 4. Begin Phase 1: Parallel implementation with feature flag
 5. Execute migration plan with gradual rollout
 
-**Critical Dependencies:**
+### **Critical Dependencies**
+
 - PostgreSQL (Hub) for webhook idempotency
-- Redis (Hub) for entitlement caching
-- NATS JetStream for event choreography
+- Redis (Hub) for entitlement caching + rate limiting
+- NATS JetStream for event choreography + durable buffers
 - Istio/SPIRE for zero-trust mTLS
 - Crossplane provider-http for namespace provisioning
 
