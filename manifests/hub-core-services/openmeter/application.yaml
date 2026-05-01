@@ -14,7 +14,7 @@ spec:
     # Reference: https://openmeter.io/docs/deploy/kubernetes
     repoURL: ghcr.io/openmeterio/helm-charts
     chart: openmeter
-    targetRevision: 1.0.0-beta.213
+    targetRevision: 1.0.0-beta.227
     helm:
       values: |
         # Official OpenMeter Helm chart values (Req 20)
@@ -22,7 +22,7 @@ spec:
         
         image:
           repository: ghcr.io/openmeterio/openmeter
-          tag: v1.0.0-beta.213
+          tag: v1.0.0-beta.227
         
         # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
         nodeSelector:
