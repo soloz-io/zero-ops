@@ -456,4 +456,56 @@ This document specifies requirements for the kube-sbt metering and billing syste
 10. WHEN 100% alert fires, THE kube-sbt SHALL call Crossplane API to update AINativeSaaS CR status to `SUSPENDED`
 11. THE Crossplane Composition SHALL scale tenant workloads to 0 replicas when status is `SUSPENDED`
 12. THE Platform SHALL emit Prometheus metric `opensbt_dropped_spans_total` with labels: tenant_id, meter_id, reason
-13. THE AgentGateway SHALL enforce per-tenant rate limits via Redis to prevent sudden cost spikes
+13. THE AgentGateway SHALL enforce per-tenant rate limits via Redis to prevent sudden cost overruns
+
+### Requirement 25: W3C Trace Context Propagation
+
+**User Story:** As a platform operator, I want end-to-end distributed tracing from HTTP requests through NATS to OpenMeter, so that I can debug billing issues and track request flows.
+
+#### Acceptance Criteria
+
+1. THE AgentGateway SHALL generate W3C `traceparent` headers for all incoming HTTP requests via Envoy
+2. WHEN publishing events to NATS, THE AgentGateway SHALL inject W3C trace context into NATS message headers using `otel.GetTextMapPropagator().Inject()`
+3. THE NATS message headers SHALL include `traceparent` and `tracestate` fields following W3C Trace Context specification
+4. THE OTLPForwarder consumer SHALL extract trace context from NATS message headers using `otel.GetTextMapPropagator().Extract()`
+5. THE OTLPForwarder SHALL assign extracted trace context to OpenMeter OTLP spans
+6. THE kube-sbt API SHALL propagate trace context through all internal service calls
+7. THE Trace context SHALL be preserved across: HTTP request → AgentGateway → NATS → OTLPForwarder → OpenMeter
+8. THE Platform SHALL emit a single trace ID visible in Jaeger/Grafana spanning the entire request lifecycle
+9. WHEN trace context extraction fails, THE consumer SHALL generate a new trace context and log a warning
+10. THE Platform documentation SHALL provide trace context propagation examples for all NATS publishers and consumers
+
+### Requirement 26: Cascading Subscription Cleanup Choreography
+
+**User Story:** As a platform operator, I want automatic subscription cancellation when subjects are deleted, so that billing stops immediately and revenue leakage is prevented.
+
+#### Acceptance Criteria
+
+1. WHEN a subject is deleted via DELETE /api/v1/tenants/{tenantID}/users/{userID}, THE User_Manager SHALL publish event to NATS topic `opensbt.subject.deleted`
+2. THE SubscriptionCleanupConsumer SHALL subscribe to `opensbt.subject.deleted` topic
+3. WHEN receiving subject deletion event, THE SubscriptionCleanupConsumer SHALL query OpenMeter for all active subscriptions tied to that subjectID
+4. THE SubscriptionCleanupConsumer SHALL execute CancelSubscription for each active subscription found
+5. WHEN all subscriptions are cancelled, THE SubscriptionCleanupConsumer SHALL execute DeleteSubject in OpenMeter
+6. WHEN subscription cancellation fails, THE SubscriptionCleanupConsumer SHALL retry 3 times with exponential backoff (1s, 2s, 4s)
+7. WHEN all retries fail, THE SubscriptionCleanupConsumer SHALL publish event to NATS topic `opensbt.reconciliation.needed` with subscription details
+8. THE ReconcilerService SHALL attempt cleanup of failed subscription cancellations every 5 minutes
+9. THE SubscriptionCleanupConsumer SHALL be idempotent (safe to replay deletion events)
+10. THE Platform SHALL emit Prometheus metric `opensbt_subscription_cleanup_total` with labels: tenant_id, status (success/failed)
+
+### Requirement 27: Tenant Isolation Security Testing
+
+**User Story:** As a security engineer, I want automated tests proving cross-tenant data leakage is prevented, so that multi-tenant isolation guarantees are continuously verified.
+
+#### Acceptance Criteria
+
+1. THE Test suite SHALL include BDD-style tenant isolation tests in `tests/e2e/tenant_isolation_test.go`
+2. THE Test SHALL provision two tenants (Tenant A and Tenant B) with separate databases and namespaces
+3. THE Test SHALL generate valid JWTs for both Tenant A and Tenant B users
+4. THE Test SHALL attempt to access Tenant B's usage data using Tenant A's JWT via GET /api/v1/tenants/B/usage
+5. THE Test SHALL assert HTTP 403 Forbidden response when cross-tenant access is attempted
+6. THE Test SHALL attempt to query Tenant B's Spoke database using Tenant A's PostgREST endpoint
+7. THE Test SHALL assert 0 rows returned due to Row-Level Security policy enforcement
+8. THE Test SHALL verify OpenMeter namespace isolation by attempting cross-namespace subject queries
+9. THE Test SHALL verify Redis entitlement cache isolation by checking cache keys include tenant_id
+10. THE Test SHALL run as part of CI/CD pipeline before any deployment to production
+11. WHEN isolation test fails, THE CI/CD pipeline SHALL block deployment and alert security team

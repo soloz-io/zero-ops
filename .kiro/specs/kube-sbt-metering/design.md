@@ -5562,6 +5562,463 @@ This design specification provides a **production-ready, enterprise-grade** blue
 - **Observability**: Reconciler metrics (drift detected, resources fixed)
 - **Compliance**: Audit trail for all billing events
 
+---
+
+## 14. W3C Trace Context Propagation (Req 25)
+
+### 14.1 Architecture Overview
+
+**End-to-End Trace Flow:**
+```
+HTTP Request → AgentGateway (Envoy) → NATS Message → OTLPForwarder → OpenMeter
+     ↓              ↓                      ↓               ↓              ↓
+  trace-id      traceparent           NATS header      Extract        OTLP span
+```
+
+### 14.2 Implementation Pattern
+
+**File:** `internal/opensbt/providers/nats/publisher.go`
+
+```go
+package nats
+
+import (
+	"context"
+	"encoding/json"
+	
+	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+)
+
+// PublishWithTraceContext publishes event to NATS with W3C trace propagation (Req 25.2)
+func (p *NATSPublisher) PublishWithTraceContext(ctx context.Context, subject string, event interface{}) error {
+	// Serialize event payload
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("nats: marshal event: %w", err)
+	}
+	
+	// Create NATS message with headers
+	msg := nats.NewMsg(subject)
+	msg.Data = data
+	
+	// Inject W3C trace context into NATS headers (Req 25.2, 25.3)
+	propagator := otel.GetTextMapPropagator()
+	propagator.Inject(ctx, &NATSHeaderCarrier{msg.Header})
+	
+	// Publish with trace context
+	return p.conn.PublishMsg(msg)
+}
+
+// NATSHeaderCarrier adapts nats.Header to propagation.TextMapCarrier
+type NATSHeaderCarrier struct {
+	header nats.Header
+}
+
+func (c *NATSHeaderCarrier) Get(key string) string {
+	return c.header.Get(key)
+}
+
+func (c *NATSHeaderCarrier) Set(key, value string) {
+	c.header.Set(key, value)
+}
+
+func (c *NATSHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(c.header))
+	for k := range c.header {
+		keys = append(keys, k)
+	}
+	return keys
+}
+```
+
+**File:** `internal/opensbt/consumers/otlp_forwarder.go`
+
+```go
+// ProcessMessage extracts trace context and forwards to OpenMeter (Req 25.4, 25.5)
+func (f *OTLPForwarder) ProcessMessage(ctx context.Context, msg *nats.Msg) error {
+	// Extract W3C trace context from NATS headers (Req 25.4)
+	propagator := otel.GetTextMapPropagator()
+	ctx = propagator.Extract(ctx, &NATSHeaderCarrier{msg.Header})
+	
+	// Parse event
+	var event models.UsageEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		return fmt.Errorf("otlp: unmarshal event: %w", err)
+	}
+	
+	// Create OTLP span with extracted trace context (Req 25.5)
+	tracer := otel.Tracer("otlp-forwarder")
+	ctx, span := tracer.Start(ctx, "forward_to_openmeter")
+	defer span.End()
+	
+	// Forward to OpenMeter with trace context
+	return f.openMeterClient.IngestEvent(ctx, event)
+}
+```
+
+### 14.3 AgentGateway Configuration
+
+**File:** `manifests/spoke/agentgateway/envoy-config.yaml`
+
+```yaml
+# Envoy automatically generates W3C traceparent headers (Req 25.1)
+tracing:
+  http:
+    name: envoy.tracers.opentelemetry
+    typed_config:
+      "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+      grpc_service:
+        envoy_grpc:
+          cluster_name: jaeger
+      service_name: agentgateway
+```
+
+### 14.4 Verification
+
+**Trace Context Flow Validation:**
+1. HTTP request arrives at AgentGateway with `traceparent: 00-{trace-id}-{span-id}-01`
+2. NATS message published with header: `traceparent: 00-{trace-id}-{new-span-id}-01`
+3. OTLPForwarder extracts trace context and creates child span
+4. OpenMeter receives OTLP span with original `trace-id`
+5. Jaeger/Grafana displays single trace spanning all components
+
+---
+
+## 15. Cascading Subscription Cleanup Choreography (Req 26)
+
+### 15.1 Event Flow
+
+```
+User Deletion → subject.deleted event → SubscriptionCleanupConsumer
+                                              ↓
+                                    Query active subscriptions
+                                              ↓
+                                    Cancel each subscription
+                                              ↓
+                                    Delete subject from OpenMeter
+```
+
+### 15.2 Implementation
+
+**File:** `internal/opensbt/consumers/subscription_cleanup.go`
+
+```go
+package consumers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+	
+	"github.com/nats-io/nats.go"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+)
+
+// SubscriptionCleanupConsumer handles cascading subscription cancellation (Req 26)
+type SubscriptionCleanupConsumer struct {
+	eventBus interfaces.IEventBus
+	billing  interfaces.IBilling
+	metering interfaces.IMetering
+	logger   interfaces.ILogger
+}
+
+// Start subscribes to subject deletion events (Req 26.2)
+func (c *SubscriptionCleanupConsumer) Start(ctx context.Context) error {
+	sub, err := c.eventBus.SubscribeWithConfig(ctx, "opensbt.subject.deleted", nats.ConsumerConfig{
+		Durable:       "subscription-cleanup",
+		AckPolicy:     nats.AckExplicitPolicy,
+		MaxDeliver:    10,
+		AckWait:       30 * time.Second,
+		FilterSubject: "opensbt.subject.deleted",
+	})
+	if err != nil {
+		return fmt.Errorf("subscription-cleanup: subscribe failed: %w", err)
+	}
+	
+	go c.processMessages(ctx, sub)
+	return nil
+}
+
+// processMessages handles subject deletion events (Req 26.3-26.10)
+func (c *SubscriptionCleanupConsumer) processMessages(ctx context.Context, sub <-chan *nats.Msg) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-sub:
+			if err := c.handleSubjectDeletion(ctx, msg); err != nil {
+				c.logger.Error("subscription-cleanup: failed", "error", err)
+				
+				// Check retry count
+				metadata, _ := msg.Metadata()
+				if metadata.NumDelivered >= 10 {
+					// Emit reconciliation hint (Req 26.7)
+					c.emitReconciliationHint(ctx, msg)
+					msg.Ack()
+				} else {
+					msg.Nak() // Retry with exponential backoff
+				}
+			} else {
+				msg.Ack()
+			}
+		}
+	}
+}
+
+// handleSubjectDeletion cancels all subscriptions and deletes subject (Req 26.3-26.5)
+func (c *SubscriptionCleanupConsumer) handleSubjectDeletion(ctx context.Context, msg *nats.Msg) error {
+	var event models.Event
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		return fmt.Errorf("unmarshal event: %w", err)
+	}
+	
+	namespace := event.Detail["namespace"].(string)
+	subjectID := event.Detail["subject_id"].(string)
+	
+	// Query all active subscriptions (Req 26.3)
+	subscriptions, err := c.billing.ListSubscriptions(ctx, namespace, models.SubscriptionFilters{
+		SubjectID: subjectID,
+		Status:    "active",
+	})
+	if err != nil {
+		return fmt.Errorf("list subscriptions: %w", err)
+	}
+	
+	// Cancel each subscription with retry (Req 26.4, 26.6)
+	for _, sub := range subscriptions {
+		if err := c.cancelWithRetry(ctx, namespace, sub.ID); err != nil {
+			return fmt.Errorf("cancel subscription %s: %w", sub.ID, err)
+		}
+		
+		// Emit metric (Req 26.10)
+		c.emitMetric("opensbt_subscription_cleanup_total", map[string]string{
+			"tenant_id": namespace,
+			"status":    "success",
+		})
+	}
+	
+	// Delete subject from OpenMeter (Req 26.5)
+	if err := c.metering.DeleteSubject(ctx, namespace, subjectID); err != nil {
+		return fmt.Errorf("delete subject: %w", err)
+	}
+	
+	return nil
+}
+
+// cancelWithRetry implements exponential backoff (Req 26.6)
+func (c *SubscriptionCleanupConsumer) cancelWithRetry(ctx context.Context, namespace, subscriptionID string) error {
+	backoff := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	
+	for i, delay := range backoff {
+		err := c.billing.CancelSubscription(ctx, namespace, subscriptionID)
+		if err == nil {
+			return nil
+		}
+		
+		if i < len(backoff)-1 {
+			time.Sleep(delay)
+		}
+	}
+	
+	return fmt.Errorf("all retries exhausted")
+}
+
+// emitReconciliationHint publishes to reconciliation topic (Req 26.7)
+func (c *SubscriptionCleanupConsumer) emitReconciliationHint(ctx context.Context, msg *nats.Msg) {
+	var event models.Event
+	json.Unmarshal(msg.Data, &event)
+	
+	hint := models.NewEvent("opensbt.reconciliation.needed", "subscription_cleanup_consumer", map[string]interface{}{
+		"resource_type": "subscription",
+		"namespace":     event.Detail["namespace"],
+		"subject_id":    event.Detail["subject_id"],
+		"reason":        "subscription_cancellation_failed",
+	})
+	
+	c.eventBus.Publish(ctx, "opensbt.reconciliation.needed", hint)
+}
+```
+
+### 15.3 User Manager Integration
+
+**File:** `internal/opensbt/controlplane/user_manager.go`
+
+```go
+// DeleteUser deletes user from Kratos and publishes subject deletion event (Req 26.1)
+func (um *UserManager) DeleteUser(ctx context.Context, tenantID, userID string) error {
+	// Delete from Ory Kratos
+	if err := um.auth.DeleteUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete kratos user: %w", err)
+	}
+	
+	// Publish subject deletion event (Req 26.1)
+	subjectID := models.GenerateSubjectID(tenantID, userID)
+	event := models.NewEvent("opensbt.subject.deleted", "user_manager", map[string]interface{}{
+		"namespace":  tenantID,
+		"subject_id": subjectID,
+		"user_id":    userID,
+		"deleted_at": time.Now().UTC(),
+	})
+	
+	if err := um.eventBus.Publish(ctx, "opensbt.subject.deleted", event); err != nil {
+		um.logger.Error("failed to publish subject deletion event", "error", err)
+		// Continue - reconciler will fix drift
+	}
+	
+	return nil
+}
+```
+
+---
+
+## 16. Tenant Isolation Security Testing (Req 27)
+
+### 16.1 Test Suite Structure
+
+**File:** `tests/e2e/tenant_isolation_test.go`
+
+```go
+package e2e
+
+import (
+	"context"
+	"testing"
+	
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestCrossTenantAPIIsolation verifies API-level tenant isolation (Req 27.2-27.5)
+func TestCrossTenantAPIIsolation(t *testing.T) {
+	ctx := context.Background()
+	
+	// Provision two tenants (Req 27.2)
+	tenantA := provisionTenant(t, "tenant-a")
+	tenantB := provisionTenant(t, "tenant-b")
+	
+	// Generate JWTs (Req 27.3)
+	jwtA := generateJWT(t, tenantA.ID, "user-a")
+	jwtB := generateJWT(t, tenantB.ID, "user-b")
+	
+	// Attempt cross-tenant access (Req 27.4)
+	resp, err := httpClient.Get(
+		fmt.Sprintf("/api/v1/tenants/%s/usage", tenantB.ID),
+		withJWT(jwtA),
+	)
+	require.NoError(t, err)
+	
+	// Assert 403 Forbidden (Req 27.5)
+	assert.Equal(t, 403, resp.StatusCode)
+	assert.Contains(t, resp.Body, "insufficient permissions")
+}
+
+// TestCrossTenantDatabaseIsolation verifies RLS policy enforcement (Req 27.6-27.7)
+func TestCrossTenantDatabaseIsolation(t *testing.T) {
+	ctx := context.Background()
+	
+	// Provision two tenants
+	tenantA := provisionTenant(t, "tenant-a")
+	tenantB := provisionTenant(t, "tenant-b")
+	
+	// Insert data into Tenant B's database
+	insertTestData(t, tenantB.DatabaseURL, "test-record-b")
+	
+	// Attempt to query Tenant B's data using Tenant A's PostgREST endpoint (Req 27.6)
+	jwtA := generateJWT(t, tenantA.ID, "user-a")
+	rows, err := postgrestClient.Query(
+		tenantA.PostgRESTURL,
+		"SELECT * FROM records",
+		withJWT(jwtA),
+	)
+	require.NoError(t, err)
+	
+	// Assert 0 rows returned due to RLS (Req 27.7)
+	assert.Equal(t, 0, len(rows))
+}
+
+// TestCrossTenantOpenMeterIsolation verifies namespace isolation (Req 27.8)
+func TestCrossTenantOpenMeterIsolation(t *testing.T) {
+	ctx := context.Background()
+	
+	// Provision two tenants
+	tenantA := provisionTenant(t, "tenant-a")
+	tenantB := provisionTenant(t, "tenant-b")
+	
+	// Create subject in Tenant B
+	subjectB := createSubject(t, tenantB.ID, "user-b")
+	
+	// Attempt to query Tenant B's subject using Tenant A's namespace (Req 27.8)
+	subject, err := meteringClient.GetSubject(ctx, tenantA.ID, subjectB.ID)
+	
+	// Assert subject not found (namespace isolation)
+	assert.Error(t, err)
+	assert.Nil(t, subject)
+}
+
+// TestCrossTenantRedisCacheIsolation verifies cache key isolation (Req 27.9)
+func TestCrossTenantRedisCacheIsolation(t *testing.T) {
+	ctx := context.Background()
+	
+	// Provision two tenants
+	tenantA := provisionTenant(t, "tenant-a")
+	tenantB := provisionTenant(t, "tenant-b")
+	
+	// Cache entitlement for Tenant B
+	cacheEntitlement(t, tenantB.ID, "user-b", "api_calls", 1000)
+	
+	// Attempt to read Tenant B's cache using Tenant A's key pattern
+	cacheKey := fmt.Sprintf("entitlement:%s:user-b:api_calls", tenantA.ID)
+	value, err := redisClient.Get(ctx, cacheKey).Result()
+	
+	// Assert cache miss (Req 27.9)
+	assert.Error(t, err)
+	assert.Equal(t, redis.Nil, err)
+}
+```
+
+### 16.2 CI/CD Integration
+
+**File:** `.github/workflows/security-tests.yml`
+
+```yaml
+name: Tenant Isolation Security Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  isolation-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Run Tenant Isolation Tests
+        run: |
+          go test -v ./tests/e2e/tenant_isolation_test.go \
+            -tags=security \
+            -timeout=30m
+      
+      - name: Block Deployment on Failure
+        if: failure()
+        run: |
+          echo "::error::Tenant isolation tests failed - blocking deployment"
+          exit 1
+```
+
+---
+
 ### **Next Steps**
 
 1. Review and approve this updated design specification
@@ -5577,4 +6034,6 @@ This design specification provides a **production-ready, enterprise-grade** blue
 - NATS JetStream for event choreography + durable buffers
 - Istio/SPIRE for zero-trust mTLS
 - hub-operator for OpenMeter namespace provisioning via `namespace.Manager` Go API (ADR 012)
+- OpenTelemetry SDK for W3C trace context propagation (Req 25)
+- Jaeger/Grafana for distributed tracing visualization
 
