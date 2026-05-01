@@ -6,4 +6,3 @@ namespace: hub-platform-billing
 resources:
   - namespace.yaml
   - application.yaml
-  - secrets.yaml

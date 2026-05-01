@@ -317,5 +317,11 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "leafnode",
 		Description: "NATS Leaf Node credentials for spoke clusters",
 	},
+	{
+		UsernameKey: "openmeter-postgresql-username",
+		PasswordKey: "openmeter-postgresql-password",
+		Username:    "openmeter",
+		Description: "OpenMeter PostgreSQL credentials",
+	},
 }
 
