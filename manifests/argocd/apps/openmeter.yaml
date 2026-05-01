@@ -4,20 +4,128 @@ kind: Application
 metadata:
   name: openmeter
   namespace: hub-platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
   source:
-    repoURL: https://github.com/soloz-io/zero-ops.git
-    targetRevision: main
-    path: manifests/hub-core-services/openmeter
-    directory:
-      recurse: true
+    repoURL: ghcr.io/openmeterio/helm-charts
+    chart: openmeter
+    targetRevision: 1.0.0-beta.227
+    helm:
+      values: |
+        # Official OpenMeter Helm chart values (Req 20)
+        replicaCount: 3
+        
+        image:
+          repository: ghcr.io/openmeterio/openmeter
+          tag: v1.0.0-beta.227
+        
+        # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
+        nodeSelector:
+          node-role.kubernetes.io/worker: "true"
+        
+        tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "platform"
+          effect: "NoSchedule"
+        
+        # Service configuration
+        service:
+          type: ClusterIP
+          port: 80
+        
+        # PostgreSQL backend (Req 20)
+        postgresql:
+          enabled: true
+          auth:
+            existingSecret: openmeter-postgresql
+            secretKeys:
+              adminPasswordKey: postgres-password
+              userPasswordKey: password
+          primary:
+            nodeSelector:
+              node-role.kubernetes.io/worker: "true"
+            persistence:
+              enabled: true
+              size: 20Gi
+        
+        # ClickHouse backend (deferred until scale requirements)
+        clickhouse:
+          enabled: false
+        
+        # Kafka (disabled - not needed for Phase 1-2)
+        kafka:
+          enabled: false
+        
+        # Redis for caching
+        redis:
+          enabled: true
+          auth:
+            enabled: false
+          master:
+            nodeSelector:
+              node-role.kubernetes.io/worker: "true"
+            persistence:
+              enabled: true
+              size: 5Gi
+        
+        # Svix for webhooks
+        svix:
+          enabled: true
+          replicaCount: 1
+          signingSecret: "CeRc6WK8KjzRXrKkd9YFnSWcNyqLSIY8JwiaCeRc6WK4UkM"
+          signedJwt: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdml4LXNlcnZlciIsImlhdCI6MTczMDk4NzU0MywiZXhwIjoyMjM1OTA5MDAwLCJhdWQiOiIiLCJzdWIiOiJvcmdfMjNyYjhZZEdxTVQwcUl6cGdHd2RYZkhpck11In0.J90SzVuNwecyCtWAQlOoWplJaK4rnIb3rCWXrHQPqJY"
+        
+        # HA configuration (Req 20.8)
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 2
+        
+        # Resource limits
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+        
+        # Component replicas
+        api:
+          replicaCount: 3
+        
+        balanceWorker:
+          replicaCount: 1
+        
+        notificationService:
+          replicaCount: 1
+        
+        sinkWorker:
+          replicaCount: 2
+        
+        billingWorker:
+          replicaCount: 1
+        
+        # Istio service mesh integration
+        podAnnotations:
+          sidecar.istio.io/inject: "true"
+  
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-billing
+  
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
