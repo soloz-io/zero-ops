@@ -23,7 +23,7 @@ Proceed with tasks.md creation.
 - **Sequential**: Each checkpoint task must be completed before starting the next checkpoint’s tasks.
 - **Structure**: Model checkpoints as regular tasks, e.g. `- [ ] 2. **CHECKPOINT 1: Title**`.
 - **Numbering**: Use clean sequential numbering within each phase (see section 3).
-- **Validation scope**: Validation scripts must **not** do unit testing. They must perform real cluster-level (or equivalent) environment validation. State this clearly in each task.
+- **Validation scope**: They must perform real cluster-level (or equivalent) environment validation. State this clearly in each task. Do not create any unit/integration/e2e automation testing tasks. Create only manual testing tasks with clear instructions for testing.
 
 ---
 

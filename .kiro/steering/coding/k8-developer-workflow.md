@@ -7,6 +7,8 @@ scope: Developement, testing guide
 # K8 development guide
 
 - During debugging, never use sleep commands more than 30 seconds.
+- Provide the idiomatic enterprise grade widely adopted proven solutions to all the gaps respecting the platform principles.
+
 
 ### **Avoid works on my machine trap** of Kubernetes development:
 

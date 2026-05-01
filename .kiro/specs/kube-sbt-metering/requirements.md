@@ -154,6 +154,9 @@ This document specifies requirements for the kube-sbt metering and billing syste
 5. THE kube-sbt SHALL support eventual consistency (users may slightly exceed quotas due to async OTLP processing)
 6. THE Entitlement response SHALL return: hasAccess (bool), used (int64), limit (int64), resetTime (timestamp)
 7. WHEN OpenMeter API is unreachable, THE kube-sbt SHALL fail-open with logged warning (allow access)
+8. THE Entitlement cache (Redis) SHALL enforce a strict maximum Time-To-Live (TTL) of 10 minutes to prevent silent drift
+9. WHEN a cache miss occurs and OpenMeter is unreachable, THE AgentGateway SHALL execute a synchronous fallback to the `kube-sbt` API before applying the fail-open/fail-closed policy
+10. THE kube-sbt SHALL run a background worker to perform a full synchronization of all active tenant entitlements from OpenMeter to the Redis cache every 5 minutes
 
 ### Requirement 7: Manual Validation with Demo Tenant
 
@@ -182,6 +185,8 @@ This document specifies requirements for the kube-sbt metering and billing syste
 5. THE API_Server SHALL expose GET /api/v1/tenants/{tenantID}/users endpoint for user listing with pagination
 6. THE API_Server SHALL document all endpoints in OpenAPI 3.0 specification format
 7. WHEN API execution fails, THE API_Server SHALL return RFC 7807 Problem Details error responses
+8. THE API_Server SHALL expose a highly privileged `POST /api/v1/admin/dlq/replay` endpoint for Dead Letter Queue recovery
+9. THE DLQ Replay API SHALL require `platform_admin` RBAC authorization, enforce a strict rate limit of 50 req/sec, and preserve the original OTLP Event ID to guarantee idempotency
 
 ### Requirement 9: REST API for Usage Queries
 
@@ -320,6 +325,10 @@ This document specifies requirements for the kube-sbt metering and billing syste
 9. THE IBilling interface SHALL provide GetSubscription and ListSubscriptions methods filtered by namespace
 10. THE kube-sbt SHALL delegate subscription state management to OpenMeter
 11. WHEN subscription creation fails, THE kube-sbt SHALL return OpenMeter error with context
+12. THE IBilling interface SHALL provide a `MigrateSubscription` method to transition tenants across immutable Plan versions
+13. THE Subscription Migration SHALL enforce billing cycle continuity by inheriting the canceled subscription's billing anchor date
+14. THE API_Server SHALL accept explicit `proration_behavior` parameters (`create_prorated_invoice`, `none`, `credit_next_invoice`) during plan migrations
+15. WHEN a Subject is deleted, a Choreography Consumer SHALL automatically trigger `CancelSubscription` for all active subscriptions tied to that Subject to prevent revenue leakage
 
 ### Requirement 17: Invoice Operations (IBilling)
 
@@ -396,3 +405,55 @@ This document specifies requirements for the kube-sbt metering and billing syste
 5. WHEN reconciliation succeeds, THE Reconciliation_Controller SHALL remove event from DLQ
 6. WHEN reconciliation fails 3 times, THE Reconciliation_Controller SHALL publish alert to NATS topic `opensbt_notifications` for ops team
 7. THE Manual_Cleanup_Dashboard SHALL display orphaned subjects requiring manual intervention
+
+### Requirement 22: Out-of-Band Billing Reconciliation
+
+**User Story:** As a platform finance operator, I want automated double-entry bookkeeping, so that I can prove billed usage matches actual database states without risking double-billing.
+
+#### Acceptance Criteria
+
+1. THE Reconciliation_Controller SHALL execute a daily true-up job comparing Spoke stateful metrics against OpenMeter records
+2. THE Reconciliation_Controller SHALL ONLY evaluate usage within a strict delay window of `[NOW - 48h, NOW - 24h]` to ensure upstream buffers have flushed
+3. THE Reconciliation_Controller SHALL abort adjustments if the NATS billing stream has a pending backlog exceeding 1,000 messages
+4. THE Reconciliation_Controller SHALL ignore discrepancies falling below a 1% variance threshold OR below 10 units (configurable per meter)
+5. THE Reconciliation_Controller SHALL query NATS JetStream `ConsumerInfo` API for `num_pending` before emitting correction events
+6. THE Reconciliation_Controller SHALL emit Prometheus metric `opensbt_billing_discrepancy_amount` measuring variance amounts
+7. WHEN reconciliation detects variance above threshold, THE Reconciliation_Controller SHALL emit correction event to OpenMeter with idempotency key
+8. THE Reconciliation_Controller SHALL preserve audit trail of all reconciliation adjustments in WORM storage
+
+### Requirement 23: Data Compliance and Time Semantics
+
+**User Story:** As a compliance officer, I need guaranteed audit immutability and strict time semantics for financial accuracy.
+
+#### Acceptance Criteria
+
+1. THE Platform SHALL export all financial and system audit logs to an S3-compatible Object Store with WORM (Write Once Read Many) Object Lock enabled
+2. THE Platform SHALL process billing rules strictly based on "Event Time" (client-generated), not "Processing Time"
+3. THE Platform SHALL reject incoming usage events with an Event Time skewed by more than `+5m` into the future or `-48h` into the past
+4. THE WORM Object Lock SHALL be configured with Compliance mode retention for 7 years minimum
+5. THE Audit log export pipeline SHALL use Grafana Alloy or Vector to ship logs directly to S3 bucket
+6. THE Platform SHALL validate Event Time on OTLP ingestion: `if event.Timestamp > time.Now().Add(5*time.Minute)` reject with 400 error
+7. THE Platform SHALL validate Event Time on OTLP ingestion: `if event.Timestamp < time.Now().Add(-48*time.Hour)` reject with 400 error
+8. THE OpenMeter SHALL use Event Time for all billing calculations (proration, tier limits, aggregations)
+9. THE Audit logs SHALL include: user_id, tenant_id, action, timestamp, request_id, response_status for all API calls
+10. THE Platform SHALL NOT allow deletion or modification of audit logs after WORM retention period begins
+
+### Requirement 24: Backpressure and Cost Ceilings
+
+**User Story:** As a platform operator, I want the system to protect itself from cascading failures and infinite cost overruns.
+
+#### Acceptance Criteria
+
+1. THE Spoke OTel Collector SHALL implement local disk buffering (up to 1GB) if the Hub NATS cluster is unreachable
+2. WHEN the local buffer is full, THE OTel Collector SHALL shed load by dropping new telemetry and incrementing a `dropped_spans_total` metric
+3. WHEN a tenant reaches 100% of their billing threshold alert, THE Platform SHALL automatically update the tenant status to `SUSPENDED` and scale their Spoke workloads to 0
+4. THE NATS JetStream SHALL be configured with `max_bytes` based on PVC size to prevent unbounded memory growth
+5. THE OTel Collector configuration SHALL include `sending_queue` with `storage: file_storage` for disk-based buffering
+6. THE OTel Collector configuration SHALL include `retry_on_failure` with exponential backoff (initial: 5s, max: 5m)
+7. THE OTel Collector configuration SHALL set `drop_on_queue_full: true` to prefer availability over accuracy
+8. THE OpenMeter SHALL emit usage alert events at 80% and 100% of predefined billing thresholds
+9. THE kube-sbt SHALL subscribe to OpenMeter alert events via NATS topic `opensbt.billing.alerts`
+10. WHEN 100% alert fires, THE kube-sbt SHALL call Crossplane API to update AINativeSaaS CR status to `SUSPENDED`
+11. THE Crossplane Composition SHALL scale tenant workloads to 0 replicas when status is `SUSPENDED`
+12. THE Platform SHALL emit Prometheus metric `opensbt_dropped_spans_total` with labels: tenant_id, meter_id, reason
+13. THE AgentGateway SHALL enforce per-tenant rate limits via Redis to prevent sudden cost spikes

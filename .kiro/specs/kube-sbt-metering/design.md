@@ -62,10 +62,16 @@ This document specifies the technical design for replacing the legacy PostgreSQL
 **Scope:**
 - Complete rewrite of `internal/opensbt/providers/metering/` (deprecated)
 - New `internal/opensbt/providers/openmeter/` implementing `IMetering` and `IBilling`
-- OpenMeter namespace provisioning via Crossplane `provider-http`
+- OpenMeter namespace provisioning via hub-operator using `namespace.Manager` Go API (ADR 012)
 - User-to-Subject mapping with Saga/DLQ rollback pattern
 - Stripe integration via OpenMeter's native Stripe App
 - Tenant and user-scoped usage queries with entitlement checking
+
+**ADR Alignment:**
+- **ADR 012**: Static catalog (Meters, Features, Plans) via GitOps CRDs in `fleet-registry/tenants/<tenant-id>/billing/`
+- **ADR 008**: Hub provisions via `SpokeTenantEnvironment` XR, not direct DB resources
+- **ADR 013**: OTel Collector → NATS JetStream → OpenMeter with 3-tier backpressure
+- **ADR 004**: Declarative CRs only, no imperative Jobs for billing operations
 
 ---
 
@@ -110,7 +116,7 @@ This document specifies the technical design for replacing the legacy PostgreSQL
 | **NATS JetStream** | Hub | Event choreography, DLQ for orphaned subjects |
 | **AgentGateway** | Spoke | OTLP emission to OpenMeter (hot path, bypasses kube-sbt) |
 | **PostgREST** | Spoke | Tenant app data access with RLS enforcement |
-| **Crossplane** | Hub | Infrastructure provisioning (OpenMeter namespaces via provider-http) |
+| **hub-operator** | Hub | OpenMeter namespace provisioning via `namespace.Manager` Go API (ADR 012) |
 
 ---
 
@@ -1893,6 +1899,13 @@ func (gw *AgentGateway) handleRequest(ctx context.Context, req *http.Request) {
 
 **ARCHITECTURAL DECISION**: Static billing catalog (Meters, Features, Plans) managed via GitOps + Kubernetes CRDs, not imperative REST API.
 
+**ADR 012 Alignment:**
+- ✅ Static catalog managed via GitOps in `fleet-registry/tenants/<tenant-id>/billing/`
+- ✅ Meter, Feature, Plan CRDs rendered from tenant `values.yaml`
+- ✅ hub-operator reconciles CRDs to OpenMeter via Go SDK
+- ✅ Dynamic runtime data (Subjects, Subscriptions, Invoices) via kube-sbt REST API
+- ✅ No imperative Jobs (ADR 004), only declarative CRs
+
 ### 6.1 New CRDs (`billing.nutgraf.in/v1alpha1`)
 
 **File:** `hub-operator/api/v1alpha1/`
@@ -3082,7 +3095,7 @@ spec:
     - CreateNamespace=true
 ```
 
-### 10.4 OpenMeter Deployment (Req 20)
+### 10.4 OpenMeter Deployment (Req 20, Req 20.8 HA)
 
 **File:** `manifests/hub-core-services/openmeter/values.yaml`
 
@@ -4380,24 +4393,30 @@ metering:
 
 ---
 
-## 11. Crossplane Integration
+## 11. Hub-Operator Integration (ADR 008, ADR 012)
 
 ### 11.1 OpenMeter Namespace Provisioning (Req 19)
 
 **CORRECTED: hub-operator Pattern (NOT Crossplane provider-http)**
+
+**ADR Alignment:**
+- ✅ **ADR 012**: Static billing catalog via GitOps CRDs in `fleet-registry/tenants/<tenant-id>/billing/`
+- ✅ **ADR 008**: Hub provisions via `SpokeTenantEnvironment` XR (federated boundary)
+- ✅ **ADR 004**: Declarative operator state, no imperative Jobs
+- ✅ **ADR 000**: provider-kubernetes for Spoke delivery, hub-operator for Hub-local services
 
 **Gap Analysis Result:**
 - ❌ OpenMeter OSS does NOT expose `/api/v1/namespaces` REST API endpoint
 - ❌ Crossplane provider-http approach WILL FAIL (404 errors)
 - ✅ OpenMeter uses `namespace.Manager` Go API for programmatic namespace management
 - ✅ hub-operator already manages external services (Hydra, NATS, Infisical)
-- ✅ Aligns with ADR 004 (declarative operator state), ADR 005 (Crossplane abstraction)
 
 **Reference Files:**
 - `archived/billing-metering/openmeter/openmeter/namespace/namespace.go` - namespace.Manager API
 - `operators/hub-operator/api/v1alpha1/hubenvironment_types.go` - HubEnvironment CRD
 - `operators/hub-operator/internal/controller/hubenvironment_controller.go` - Reconciler
-- `docs/adr/011-declarative-operator-state-over-imperative-jobs.md` - ADR 004
+- `docs/adr/012-billing-operator-pattern.md` - ADR 012
+- `docs/adr/008-federated-api-boundary-crossplane.md` - ADR 008
 
 **Implementation:**
 
@@ -4638,17 +4657,20 @@ status:
 
 **Why This Approach Works:**
 1. ✅ Uses OpenMeter's native `namespace.Manager` Go API (not non-existent REST API)
-2. ✅ Follows ADR 004 (declarative operator state, no imperative Jobs)
-3. ✅ Follows ADR 005 (Crossplane abstraction layer for infrastructure)
-4. ✅ Aligns with existing hub-operator pattern (Hydra, NATS, Infisical)
-5. ✅ OpenMeter runs on Hub (same cluster as hub-operator)
-6. ✅ Namespace creation happens before database migrations (Phase 0b)
-7. ✅ Idempotent (namespace.Manager handles duplicate creation)
-8. ✅ Status tracking via HubEnvironment conditions
+2. ✅ Follows ADR 012 (billing operator pattern for static catalog)
+3. ✅ Follows ADR 008 (federated XR boundary - Hub provisions via SpokeTenantEnvironment)
+4. ✅ Follows ADR 004 (declarative operator state, no imperative Jobs)
+5. ✅ Aligns with existing hub-operator pattern (Hydra, NATS, Infisical)
+6. ✅ OpenMeter runs on Hub (same cluster as hub-operator)
+7. ✅ Namespace creation happens before database migrations (Phase 0b)
+8. ✅ Idempotent (namespace.Manager handles duplicate creation)
+9. ✅ Status tracking via HubEnvironment conditions
 
-**Integration with AINativeSaaS XR:**
-- AINativeSaaS Composition does NOT create OpenMeter namespace
-- HubEnvironment CR (created during Hub bootstrap) provisions namespaces
+**Integration with SpokeTenantEnvironment XR (ADR 008):**
+- Hub pushes ONE `SpokeTenantEnvironment` XR to Spoke (not multiple XRs)
+- Spoke Composition internally composes TenantDatabase, PostgREST, AtlasMigration CRs
+- Hub no longer manages Spoke DB primitives directly (federated boundary)
+- OpenMeter namespace provisioned on Hub via hub-operator (not Crossplane)
 - Tenant provisioning assumes namespace exists (kube-sbt validates namespace on first use)
 
 ---
@@ -5321,12 +5343,13 @@ This design specification addresses all critical gaps identified in the architec
 ✅ **2.1 OpenMeter Namespace Provisioning**
 - **Gap Identified:** Requirement 19 specified Crossplane provider-http to POST /api/v1/namespaces
 - **Root Cause:** OpenMeter OSS does NOT expose /api/v1/namespaces REST API endpoint
-- **Fixed:** Use hub-operator with OpenMeter `namespace.Manager` Go API (not REST API)
+- **Fixed:** Use hub-operator with OpenMeter `namespace.Manager` Go API (not REST API, not Crossplane)
 - **Pattern:** HubEnvironment CR → hub-operator Phase 0b → namespace.Manager.CreateNamespace()
 - **Reference:** `archived/billing-metering/openmeter/openmeter/namespace/namespace.go:L42-L48`
-- **Alignment:** ADR 004 (declarative operator), ADR 005 (Crossplane abstraction), existing hub-operator pattern
+- **Alignment:** ADR 004 (declarative operator), ADR 005 (Crossplane abstraction), ADR 012 (billing operator pattern)
 - **Status Tracking:** `OpenMeterNamespacesConfigured` condition in HubEnvironment status
 - **Idempotency:** namespace.Manager handles duplicate namespace creation gracefully
+- **Note:** Crossplane provider-http approach was rejected - hub-operator is the correct pattern
 
 ✅ **2.2 Static Catalog Management → GitOps + hub-operator CRDs**
 - **Architectural Decision:** Static billing catalog (Meters, Features, Plans) managed via Kubernetes CRDs, not imperative REST API
@@ -5417,6 +5440,78 @@ This design specification addresses all critical gaps identified in the architec
 - **Pattern:** Redis token bucket for enforcement, OTLP for billing
 - **Failure Mode:** Redis unavailable → fail-open (allow request), OpenMeter unavailable → retry via NATS
 
+### **Gap 6: Enterprise Guardrails (PRODUCTION READINESS)**
+
+✅ **6.1 Reconciliation Guardrails (Preventing Double-Billing)**
+- **Contract:** Eventual Correctness via Out-Of-Band Reconciliation, not perfect real-time accuracy
+- **Delay Window:** Reconciliation ONLY evaluates data in `[NOW - 48h, NOW - 24h]` window
+- **Variance Threshold:** Discrepancies ignored if variance `< 1%` OR `< 10 units` (configurable per meter)
+- **Duplicate Protection:** Query NATS JetStream `ConsumerInfo` API for `num_pending` before emitting corrections
+- **Abort Condition:** If billing stream backlog > 1,000 messages, abort reconciliation
+- **Pattern:** Safe double-entry bookkeeping with explicit delay guarantees
+- **Implementation:** BillingReconciliationJob in ReconciliationController
+
+✅ **6.2 Entitlement Cache Safety (Preventing Silent Drift)**
+- **Contract:** Redis is strictly ephemeral performance optimization; OpenMeter is absolute source of truth
+- **TTL Enforcement:** All Redis entitlement keys hard-coded with 10-minute TTL
+- **Fallback Behavior:** Cache miss → synchronous HTTP call to kube-sbt API → fail-open/fail-closed policy
+- **Periodic Full Sync:** Background worker syncs all active tenant limits from OpenMeter to Redis every 5 minutes
+- **Pattern:** Cache-Aside with active synchronization
+- **Implementation:** EntitlementSyncWorker in MeteringProvider
+
+✅ **6.3 DLQ Replay Controls (Operational Safety)**
+- **Contract:** Replay operations are highly privileged, destructive, and fully audited
+- **RBAC Enforcement:** `POST /api/v1/admin/dlq/replay` requires `platform_admin` role via Ory Keto
+- **Rate Limiting:** Replay throughput hard-capped at 50 req/sec
+- **Bulk Support:** Accepts `{"event_ids": [...]}`, `{"time_range": {...}}`, or `{"tenant_id": ""}` payloads
+- **Observability:** Emits `opensbt_dlq_replay_total`, `opensbt_dlq_replay_failed` Prometheus metrics
+- **Audit Trail:** Generates explicit Audit Log entry for all replay operations
+- **Implementation:** DLQReplayHandler in AdminController
+
+✅ **6.4 Plan Migration Semantics (Billing Consistency)**
+- **Contract:** Plan migrations preserve billing cycle continuity and accurately prorate usage
+- **Migration API:** `POST /api/v1/tenants/{id}/subscriptions/migrate` with `proration_behavior` field
+- **Proration Options:** `create_prorated_invoice`, `none`, `credit_next_invoice`
+- **Billing Cycle Anchor:** New subscription inherits canceled subscription's billing anchor date
+- **OpenMeter Delegation:** Passes proration flags directly to OpenMeter SDK for millisecond-based proration
+- **Implementation:** MigrateSubscription method in BillingProvider
+
+✅ **6.5 Audit Log Durability (Compliance & WORM)**
+- **Contract:** Audit logs meet SOC2/GDPR compliance for immutability and non-repudiation
+- **Immutability Strategy:** OpenSearch for querying only; true audit trail routed to S3 with Object Lock (WORM)
+- **Retention:** Object Lock configured at bucket level (7 years), prevents deletion by admins or compromised credentials
+- **Export Pipeline:** Grafana Alloy or Vector ships logs directly to S3 bucket
+- **Pattern:** Write Once Read Many (WORM) compliance storage
+- **Configuration:** `manifests/hub-core-services/audit-log-exporter/config.yaml`
+
+✅ **6.6 Time Semantics & Cross-System Drift**
+- **Contract:** Time must be strictly deterministic across geographically distributed Spokes and Hub
+- **Time Definition:** "Event Time" (user action) vs "Processing Time" (OpenMeter ingestion)
+- **Billing Rules:** OpenMeter uses Event Time (RFC3339 in OTLP payload) for proration, tier limits, aggregations
+- **Skew Tolerance:** Reject events with Event Time > `NOW + 5m` or < `NOW - 48h`
+- **Validation:** `if event.Timestamp > time.Now().Add(5*time.Minute)` → 400 error
+- **Pattern:** Strict clock skew policies with explicit rejection boundaries
+- **Implementation:** ValidateEventTime middleware in OTLP ingestion pipeline
+
+✅ **6.7 Backpressure & Load Shedding**
+- **Contract:** Platform survives catastrophic downstream outage without cascading failure
+- **Tier 1 (NATS Buffer):** JetStream configured with `max_bytes` based on PVC size
+- **Tier 2 (Agent Local Buffer):** Spoke OTel Collector buffers to disk (up to 1GB) if NATS unreachable
+- **Tier 3 (Load Shedding):** OTel Collector drops new telemetry (oldest first) when buffer full
+- **System Guarantee:** Prefers surviving outage and keeping SaaS apps online over perfect billing accuracy
+- **Observability:** `dropped_spans_total` Prometheus metric estimates financial impact
+- **Pattern:** Multi-tiered load shedding with explicit availability-over-accuracy tradeoff
+- **Configuration:** `manifests/spoke-pool/otel-collector/config.yaml`
+
+✅ **6.8 Cost Control Strategy**
+- **Contract:** Tenants cannot accidentally or maliciously incur infinite infrastructure costs
+- **Concurrency Limits:** AgentGateway enforces hard rate limit per tenant via Redis
+- **Billing Ceilings:** OpenMeter configured with usage alerts at 80% and 100% of predefined thresholds
+- **Automated Suspension:** When 100% alert fires, kube-sbt updates Tenant Status to `SUSPENDED`
+- **Crossplane Integration:** Suspended status triggers Crossplane to scale tenant Spoke deployments to 0
+- **Pattern:** Hard ceilings with automated enforcement
+- **Implementation:** BillingAlertConsumer subscribes to `opensbt.billing.alerts` NATS topic
+
 ### **Additional Improvements**
 
 ✅ **IStorage Interface Injection**
@@ -5478,8 +5573,8 @@ This design specification provides a **production-ready, enterprise-grade** blue
 ### **Critical Dependencies**
 
 - PostgreSQL (Hub) for webhook idempotency
-- Redis (Hub) for entitlement caching + rate limiting
+- Redis (Hub) for entitlement caching (10-minute TTL) + rate limiting
 - NATS JetStream for event choreography + durable buffers
 - Istio/SPIRE for zero-trust mTLS
-- Crossplane provider-http for namespace provisioning
+- hub-operator for OpenMeter namespace provisioning via `namespace.Manager` Go API (ADR 012)
 
