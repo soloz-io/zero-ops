@@ -24,7 +24,7 @@ inclusion: manual
 - This ensures maximum code coverage and validates actual production behavior
 - Tests must not hold any core or business logics in it. It should hold testing and asserting logics. Production flow should not require re-implementation of logics from test case.
 - you should validate the task completion in actual cluster or in local execution and approve. Do not just check the implementaion and approve.
-- No unit test cases be written by builder. Only accept e2e test cases. Reject if you find unit test cases written.
+- No unit test cases be written by builder. Reject if you find unit test cases written.
 - For Manual testing, you should always follow gitops. Dont create infra by applying kubectrl commands directly. 
 
 Each review should complete below checklist:

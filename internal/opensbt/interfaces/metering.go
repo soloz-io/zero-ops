@@ -2,28 +2,36 @@ package interfaces
 
 import (
 	"context"
-
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 )
 
-// IMetering provides usage metering and tracking capabilities
+// IMetering provides runtime metering and entitlement capabilities via OpenMeter
+// ARCHITECTURAL NOTE: Static catalog (Meters, Features, Plans) managed via hub-operator CRDs
+// This interface handles ONLY dynamic runtime operations
 type IMetering interface {
-	// Meter Management
-	CreateMeter(ctx context.Context, meter models.Meter) error
-	GetMeter(ctx context.Context, meterID string) (*models.Meter, error)
-	UpdateMeter(ctx context.Context, meterID string, updates models.MeterUpdates) error
-	DeleteMeter(ctx context.Context, meterID string) error
-	ListMeters(ctx context.Context, filters models.MeterFilters) ([]models.Meter, error)
+	// Meter Management (Read-Only for UI Display)
+	GetMeter(ctx context.Context, namespace, meterID string) (*models.Meter, error)
+	ListMeters(ctx context.Context, namespace string) ([]models.Meter, error)
 
-	// Usage Ingestion
-	IngestUsageEvent(ctx context.Context, event models.UsageEvent) error
-	IngestUsageEventBatch(ctx context.Context, events []models.UsageEvent) error
+	// Feature Management (Read-Only for UI Display)
+	GetFeature(ctx context.Context, namespace, featureID string) (*models.Feature, error)
+	ListFeatures(ctx context.Context, namespace string) ([]models.Feature, error)
 
-	// Usage Queries
-	GetUsage(ctx context.Context, meterID string, period models.TimePeriod) (*models.UsageData, error)
-	GetTenantUsage(ctx context.Context, tenantID string, period models.TimePeriod) (*models.TenantUsageData, error)
-	AggregateUsage(ctx context.Context, req models.AggregationRequest) (*models.AggregationResult, error)
+	// Plan Management (Read-Only for UI Display)
+	GetPlan(ctx context.Context, namespace, planID string) (*models.Plan, error)
+	ListPlans(ctx context.Context, namespace string) ([]models.Plan, error)
 
-	// Usage Management
-	CancelUsageEvents(ctx context.Context, eventIDs []string) error
+	// Usage Queries (Req 2, 3)
+	GetUsage(ctx context.Context, namespace string, filter models.UsageFilter) (*models.UsageReport, error)
+	GetTenantUsage(ctx context.Context, namespace string, period models.TimePeriod) (*models.TenantUsageData, error)
+	GetUserUsage(ctx context.Context, namespace, subjectID string, period models.TimePeriod) (*models.UserUsageData, error)
+
+	// Entitlements (Req 6)
+	CheckEntitlement(ctx context.Context, namespace, subjectID, featureKey string) (*models.EntitlementStatus, error)
+
+	// Subject Management (Req 1) - Dynamic Runtime Operations
+	RegisterSubject(ctx context.Context, namespace, subjectID string, metadata map[string]string) error
+	DeleteSubject(ctx context.Context, namespace, subjectID string) error
+	GetSubject(ctx context.Context, namespace, subjectID string) (*models.Subject, error)
+	ListSubjects(ctx context.Context, namespace string) ([]models.Subject, error)
 }

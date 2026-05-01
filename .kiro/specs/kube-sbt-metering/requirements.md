@@ -299,7 +299,7 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 1. THE SaaS builder SHALL define billing configuration in `fleet-registry/tenants/<tenant-id>/values.yaml` under the `billing` section
 2. THE `universal-tenant` Helm chart SHALL render `Meter`, `Feature`, and `Plan` CRs from `values.yaml`
-3. THE ArgoCD SHALL sync rendered CRs to Hub cluster namespace `hub-platform-ops`
+3. THE ArgoCD SHALL sync rendered CRs to Hub cluster namespace `hub-platform-billing`
 4. THE hub-operator reconcilers SHALL detect CR changes and sync to OpenMeter within 30 seconds
 5. THE CR Status.Conditions SHALL reflect sync status (Synced: True/False) with error messages
 6. WHEN SaaS builder commits billing changes to Git, THE changes SHALL be applied to OpenMeter automatically via GitOps pipeline

@@ -2,35 +2,35 @@
 
 ## Phase 1: Foundation - OpenMeter Provider & Core Interfaces
 
-- [ ] 1. Implement IMetering and IBilling interface definitions
-  - [ ] Create `internal/opensbt/interfaces/metering.go` with IMetering interface
-  - [ ] Create `internal/opensbt/interfaces/billing.go` with IBilling interface
-  - [ ] Add interface documentation with architectural notes about GitOps vs REST API separation
+- [x] 1. Implement IMetering and IBilling interface definitions
+  - [x] Create `internal/opensbt/interfaces/metering.go` with IMetering interface
+  - [x] Create `internal/opensbt/interfaces/billing.go` with IBilling interface
+  - [x] Add interface documentation with architectural notes about GitOps vs REST API separation
 
-- [ ] 2. Implement core domain models for metering and billing
-  - [ ] Create `internal/opensbt/models/metering.go` with Meter, Feature, Plan, Subject models
-  - [ ] Create `internal/opensbt/models/billing.go` with Subscription, Invoice, EntitlementStatus models
-  - [ ] Implement GenerateSubjectID and ParseSubjectID helper functions
-  - [ ] Add model validation logic
+- [x] 2. Implement core domain models for metering and billing
+  - [x] Create `internal/opensbt/models/metering.go` with Meter, Feature, Plan, Subject models
+  - [x] Create `internal/opensbt/models/billing.go` with Subscription, Invoice, EntitlementStatus models
+  - [x] Implement GenerateSubjectID and ParseSubjectID helper functions
+  - [x] Add model validation logic
 
-- [ ] 3. Implement OpenMeter MeteringProvider with namespace isolation
-  - [ ] Create `internal/opensbt/providers/openmeter/metering.go`
-  - [ ] Implement NewMeteringProvider with OpenMeter Go SDK client initialization
-  - [ ] Implement RegisterSubject and DeleteSubject methods with explicit namespace parameters
-  - [ ] Implement GetSubject and ListSubjects methods
-  - [ ] Implement read-only catalog methods: GetMeter, ListMeters, GetFeature, ListFeatures, GetPlan, ListPlans
+- [x] 3. Implement OpenMeter MeteringProvider with namespace isolation
+  - [x] Create `internal/opensbt/providers/openmeter/metering.go`
+  - [x] Implement NewMeteringProvider with OpenMeter Go SDK client initialization
+  - [x] Implement RegisterSubject and DeleteSubject methods with explicit namespace parameters
+  - [x] Implement GetSubject and ListSubjects methods
+  - [x] Implement read-only catalog methods: GetMeter, ListMeters, GetFeature, ListFeatures, GetPlan, ListPlans
 
-- [ ] 4. Implement usage query methods with tenant aggregation
-  - [ ] Implement GetUsage method with GroupBy support for tenant-level aggregation
-  - [ ] Implement GetTenantUsage method using GroupBy["tenant_id"] pattern
-  - [ ] Implement GetUserUsage method with subject-scoped filtering
-  - [ ] Add exponential backoff retry logic for rate limit errors
+- [x] 4. Implement usage query methods with tenant aggregation
+  - [x] Implement GetUsage method with GroupBy support for tenant-level aggregation
+  - [x] Implement GetTenantUsage method using GroupBy["tenant_id"] pattern
+  - [x] Implement GetUserUsage method with subject-scoped filtering
+  - [x] Add exponential backoff retry logic for rate limit errors
 
-- [ ] 5. Implement entitlement checking with fail-open pattern
-  - [ ] Implement CheckEntitlement method querying OpenMeter Entitlement API
-  - [ ] Add fail-open logic when OpenMeter is unreachable
-  - [ ] Return EntitlementStatus with IsFallback flag
-  - [ ] Add logging for fallback scenarios
+- [x] 5. Implement entitlement checking with fail-open pattern
+  - [x] Implement CheckEntitlement method querying OpenMeter Entitlement API
+  - [x] Add fail-open logic when OpenMeter is unreachable
+  - [x] Return EntitlementStatus with IsFallback flag
+  - [x] Add logging for fallback scenarios
 
 - [ ] 6. **CHECKPOINT 1: OpenMeter Provider Foundation**
   - **Deliverable**: Functional OpenMeter provider implementing IMetering interface with subject management, usage queries, and entitlement checking
@@ -39,31 +39,28 @@
     - Usage queries return aggregated metrics for tenant-level and user-level scopes
     - Entitlement checking returns correct hasAccess, used, limit values
     - Fail-open behavior activates when OpenMeter is unreachable
-  - **Test Script**:
-    - Validate OpenMeter provider by running `/scripts/test-openmeter-provider.sh` in a real Hub cluster environment with OpenMeter deployed
-    - Script must verify subject CRUD operations, usage query responses, and entitlement API responses
-    - Test fail-open behavior by temporarily blocking OpenMeter connectivity
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: All OpenMeter provider methods functional, namespace isolation enforced, fail-open pattern working
 
 ## Phase 2: Billing Provider & Subscription Management
 
-- [ ] 7. Implement OpenMeter BillingProvider for subscription management
-  - [ ] Create `internal/opensbt/providers/openmeter/billing.go`
-  - [ ] Implement NewBillingProvider with OpenMeter Go SDK client initialization
-  - [ ] Implement CreateSubscription method with namespace and subject parameters
-  - [ ] Implement GetSubscription and ListSubscriptions methods with namespace filtering
+- [x] 7. Implement OpenMeter BillingProvider for subscription management
+  - [x] Create `internal/opensbt/providers/openmeter/billing.go`
+  - [x] Implement NewBillingProvider with OpenMeter Go SDK client initialization
+  - [x] Implement CreateSubscription method with namespace and subject parameters
+  - [x] Implement GetSubscription and ListSubscriptions methods with namespace filtering
 
-- [ ] 8. Implement subscription lifecycle operations
-  - [ ] Implement UpdateSubscription method supporting plan changes and metadata updates
-  - [ ] Implement CancelSubscription method marking subscriptions as inactive
-  - [ ] Add proration support via ProRatingConfig in subscription updates
-  - [ ] Implement MigrateSubscription method for plan version transitions
+- [x] 8. Implement subscription lifecycle operations
+  - [x] Implement UpdateSubscription method supporting plan changes and metadata updates
+  - [x] Implement CancelSubscription method marking subscriptions as inactive
+  - [x] Add proration support via ProRatingConfig in subscription updates
+  - [x] Implement MigrateSubscription method for plan version transitions
 
-- [ ] 9. Implement invoice operations
-  - [ ] Implement PreviewInvoice method for draft invoice generation
-  - [ ] Implement GetInvoice method for retrieving invoices by ID
-  - [ ] Implement ListInvoices method with pagination and filtering
-  - [ ] Add invoice response mapping from OpenMeter format to internal models
+- [x] 9. Implement invoice operations
+  - [x] Implement PreviewInvoice method for draft invoice generation
+  - [x] Implement GetInvoice method for retrieving invoices by ID
+  - [x] Implement ListInvoices method with pagination and filtering
+  - [x] Add invoice response mapping from OpenMeter format to internal models
 
 - [ ] 10. **CHECKPOINT 2: Billing Provider Complete**
   - **Deliverable**: Functional billing provider implementing IBilling interface with subscription lifecycle and invoice operations
@@ -72,10 +69,7 @@
     - Subscription updates handle plan changes with proration
     - Subscription cancellation marks subscriptions as inactive without data loss
     - Invoice operations return correct line items, totals, and payment status
-  - **Test Script**:
-    - Validate billing provider by running `/scripts/test-billing-provider.sh` in Hub cluster with OpenMeter
-    - Script must verify subscription CRUD operations, plan migrations, and invoice queries
-    - Test proration calculations by changing subscription plans mid-cycle
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: All billing operations functional, proration working, invoice data accurate
 
 ## Phase 3: REST API Layer & User Management
@@ -121,10 +115,7 @@
     - Usage query endpoints return correct tenant and user metrics
     - Catalog endpoints return read-only meter, feature, and plan data
     - Saga rollback works when subject registration fails
-  - **Test Script**:
-    - Validate REST API by running `/scripts/test-kube-sbt-api.sh` against deployed API in Hub cluster
-    - Script must test user CRUD operations, usage queries, entitlement checks, and catalog reads
-    - Test Saga rollback by simulating OpenMeter failures during user creation
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: All API endpoints functional, Saga pattern working, error handling correct
 
 ## Phase 4: hub-operator CRDs & GitOps Catalog Management
@@ -174,14 +165,11 @@
   - **Deliverable**: Functional hub-operator with Meter, Feature, Plan CRDs and reconcilers syncing to OpenMeter
   - **Verification Criteria**:
     - Meter CRs render from universal-tenant Helm chart values.yaml
-    - ArgoCD syncs rendered CRs to Hub cluster namespace hub-platform-ops
+    - ArgoCD syncs rendered CRs to Hub cluster namespace hub-platform-billing
     - hub-operator reconcilers detect CR changes and sync to OpenMeter within 30 seconds
     - CR Status.Conditions reflect sync status with error messages
     - Git commits trigger automatic OpenMeter updates via GitOps pipeline
-  - **Test Script**:
-    - Validate GitOps catalog by running `/scripts/test-billing-catalog-gitops.sh` in Hub cluster
-    - Script must commit billing config changes to fleet-registry, verify ArgoCD sync, check OpenMeter state
-    - Test rollback by reverting Git commit and verifying OpenMeter state reverts
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: GitOps workflow functional, CRs sync to OpenMeter, rollback works, audit trail in Git
 
 ## Phase 5: OpenMeter Namespace Provisioning & Hub Deployment
@@ -193,19 +181,19 @@
   - [ ] Add OpenMeterNamespaceConfigured condition to HubEnvironment status
   - [ ] Handle namespace deletion during tenant offboarding
 
-- [ ] 25. Create OpenMeter Helm deployment manifests
-  - [ ] Create `manifests/hub/openmeter/` directory
-  - [ ] Add Helm values for OpenMeter official chart
-  - [ ] Configure node selectors: `node-role.kubernetes.io/worker=true`
-  - [ ] Configure HA settings (3+ replicas, PodDisruptionBudget)
-  - [ ] Configure OTLP ingestion endpoint accessible from Spoke clusters
-  - [ ] Configure REST API endpoint accessible only from kube-sbt (Hub internal)
+- [x] 25. Create OpenMeter Helm deployment manifests
+  - [x] Create `manifests/hub/openmeter/` directory
+  - [x] Add Helm values for OpenMeter official chart
+  - [x] Configure node selectors: `node-role.kubernetes.io/worker=true`
+  - [x] Configure HA settings (3+ replicas, PodDisruptionBudget)
+  - [x] Configure OTLP ingestion endpoint accessible from Spoke clusters
+  - [x] Configure REST API endpoint accessible only from kube-sbt (Hub internal)
 
 - [ ] 26. Create ArgoCD Application for OpenMeter deployment
-  - [ ] Create `manifests/hub/argocd-apps/openmeter.yaml`
-  - [ ] Configure sync policy and sync waves
-  - [ ] Add health checks for OpenMeter pods
-  - [ ] Configure namespace: hub-platform-ops
+  - [x] Create `manifests/hub/argocd-apps/openmeter.yaml`
+  - [x] Configure sync policy and sync waves
+  - [x] Add health checks for OpenMeter pods
+  - [x] Configure namespace: hub-platform-billing
 
 - [ ] 27. **CHECKPOINT 5: OpenMeter Deployed & Namespace Provisioning**
   - **Deliverable**: OpenMeter deployed in Hub cluster with automatic namespace provisioning for tenants
@@ -215,10 +203,7 @@
     - REST API endpoint accessible from kube-sbt pods
     - HubEnvironment reconciliation creates OpenMeter namespaces
     - OpenMeterNamespaceConfigured condition appears in HubEnvironment status
-  - **Test Script**:
-    - Validate OpenMeter deployment by running `/scripts/test-openmeter-deployment.sh` in Hub cluster
-    - Script must verify pod readiness, endpoint accessibility, namespace provisioning
-    - Test namespace creation by creating HubEnvironment CR and checking OpenMeter namespace exists
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: OpenMeter operational, namespaces auto-provisioned, endpoints accessible
 
 ## Phase 6: AgentGateway OTLP Configuration & Metric Collection
@@ -255,10 +240,7 @@
     - Metric collector CronJobs run on schedule in Spoke clusters
     - Stateful metrics (database_rows, storage_bytes, etc.) appear in OpenMeter
     - OpenTelemetry Collector forwards metrics to Hub via mTLS
-  - **Test Script**:
-    - Validate OTLP emission by running `/scripts/test-otlp-metering.sh` in Spoke cluster
-    - Script must verify AgentGateway span emission, metric collector execution, OpenMeter ingestion
-    - Check OpenMeter UI for received metrics with correct tenant_id and meter_id attributes
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: OTLP traces flowing to OpenMeter, stateful metrics collected, mTLS working
 
 ## Phase 7: Entitlement Caching & Background Sync
@@ -287,10 +269,7 @@
     - Background worker syncs all tenant entitlements every 5 minutes
     - Cache misses trigger synchronous fallback to kube-sbt API
     - Fail-open policy activates only after fallback fails
-  - **Test Script**:
-    - Validate entitlement caching by running `/scripts/test-entitlement-cache.sh` in Hub cluster
-    - Script must verify cache hit/miss behavior, background sync execution, fallback logic
-    - Test fail-open by blocking OpenMeter and verifying access granted with IsFallback=true
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Caching working, background sync operational, fallback functional
 
 ## Phase 8: Reconciliation & DLQ Handling
@@ -326,11 +305,7 @@
     - DLQ replay API functional with RBAC and rate limiting
     - Billing reconciliation detects and corrects discrepancies daily
     - Audit trail preserved for all reconciliation actions
-  - **Test Script**:
-    - Validate reconciliation by running `/scripts/test-reconciliation.sh` in Hub cluster
-    - Script must simulate orphaned subjects, trigger reconciliation, verify cleanup
-    - Test DLQ replay by manually triggering replay and verifying idempotency
-    - Test billing reconciliation by injecting discrepancies and verifying corrections
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Reconciliation working, DLQ replay functional, billing accurate
 
 ## Phase 9: Stripe Integration & Subscription Choreography
@@ -360,11 +335,7 @@
     - Invoice state updates (paid/failed/voided) reflected in OpenMeter
     - Subject deletion triggers automatic subscription cancellation
     - Subscription migration preserves billing cycle continuity
-  - **Test Script**:
-    - Validate Stripe integration by running `/scripts/test-stripe-integration.sh` in Hub cluster
-    - Script must simulate Stripe webhook events, verify invoice state updates
-    - Test choreography by deleting subject and verifying subscriptions cancelled
-    - Test migration by transitioning subscription across plan versions
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Stripe webhooks working, choreography functional, migration correct
 
 ## Phase 10: Security, Compliance & Backpressure
@@ -403,12 +374,7 @@
     - OTLP ingestion rejects events outside Event Time window
     - OTel Collector sheds load when buffer full
     - Tenant auto-suspension triggers at 100% billing threshold
-  - **Test Script**:
-    - Validate security by running `/scripts/test-security-compliance.sh` in Hub cluster
-    - Script must verify mTLS enforcement, SVID rotation, audit log export, WORM retention
-    - Test Event Time validation by submitting invalid timestamps
-    - Test backpressure by flooding OTel Collector and verifying load shedding
-    - Test auto-suspension by triggering 100% billing alert
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: mTLS enforced, audit logs immutable, backpressure working, auto-suspension functional
 
 ## Phase 11: OpenAPI Documentation & Manual Validation
@@ -437,11 +403,7 @@
     - Manual validation confirms user-scoped queries return correct per-user metrics
     - Manual validation confirms tenant-scoped queries return aggregated metrics
     - Manual validation confirms entitlement checking returns correct used vs limit values
-  - **Test Script**:
-    - Validate API documentation by running manual tests using Postman or curl against deployed API
-    - Use OpenAPI spec to test all endpoints documented in `api/openapi/kube-sbt-metering.yaml`
-    - Verify responses match documented schemas
-    - Test demo tenant by querying usage and entitlements for "app-creator"
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: OpenAPI spec complete, demo tenant functional, manual validation passes
 
 ## Phase 12: W3C Trace Propagation & Observability
@@ -476,11 +438,7 @@
     - OTLPForwarder extracts and propagates trace context to OpenMeter
     - Single trace ID visible in Jaeger spanning entire request lifecycle
     - Trace context extraction failures logged with warnings
-  - **Test Script**:
-    - Validate trace propagation by running `/scripts/test-trace-propagation.sh` in Hub cluster
-    - Script must send HTTP request to AgentGateway, verify NATS message headers, check Jaeger for complete trace
-    - Test trace context extraction failure by corrupting NATS headers
-    - Verify new trace context generated on extraction failure
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Traces flow end-to-end, Jaeger displays complete request paths, fallback working
 
 ## Phase 13: Cascading Subscription Cleanup
@@ -516,11 +474,7 @@
     - All active subscriptions cancelled before subject deleted
     - Failed cleanups emit reconciliation hints
     - Idempotent replay of deletion events works correctly
-  - **Test Script**:
-    - Validate subscription cleanup by running `/scripts/test-subscription-cleanup.sh` in Hub cluster
-    - Script must create subject with active subscriptions, delete subject, verify all subscriptions cancelled
-    - Test retry logic by simulating OpenMeter failures
-    - Verify reconciliation hints emitted after max retries
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Subscriptions auto-cancelled, revenue leakage prevented, reconciliation working
 
 ## Phase 14: Tenant Isolation Security Testing
@@ -552,11 +506,7 @@
     - OpenMeter namespace isolation prevents cross-namespace subject access
     - Redis cache keys include tenant_id preventing cache leakage
     - CI/CD pipeline blocks deployment on test failures
-  - **Test Script**:
-    - Validate tenant isolation by running `go test ./tests/e2e/tenant_isolation_test.go` locally
-    - Verify tests run automatically in CI/CD pipeline
-    - Test deployment blocking by intentionally failing isolation test
-    - Verify security team receives alerts on failures
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: All isolation tests pass, CI/CD integration working, deployment blocking functional
 
 ## Phase 15: Database Migrations & Final Integration
@@ -585,12 +535,5 @@
     - W3C trace propagation working across all components
     - Subscription cleanup choreography operational
     - Tenant isolation tests passing in CI/CD
-  - **Test Script**:
-    - Validate end-to-end integration by running `/scripts/test-e2e-metering.sh` in Hub cluster
-    - Script must execute complete user journey: create user, emit usage events, check entitlements, create subscription, generate invoice
-    - Verify all components communicate correctly via service mesh
-    - Verify GitOps catalog changes propagate to OpenMeter
-    - Verify distributed traces visible in Jaeger
-    - Verify subscription cleanup on user deletion
-    - Verify tenant isolation tests pass
+  - **Manual Testing**: This checkpoint requires manual validation in the Hub cluster. No automated test scripts will be created.
   - **Success Criteria**: Complete system operational, all integrations working, end-to-end flow functional, observability complete, security validated

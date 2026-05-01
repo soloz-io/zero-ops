@@ -1,0 +1,96 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: openmeter
+  namespace: hub-platform-billing
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: openmeter
+      version: ">=1.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: openmeter
+        namespace: hub-platform-billing
+      interval: 1h
+  values:
+    # HA configuration (Req 20.8)
+    replicaCount: 3
+    
+    # Node placement (Req 20.4, 20.5)
+    nodeSelector:
+      node-role.kubernetes.io/worker: "true"
+    
+    tolerations:
+      - key: "workload"
+        operator: "Equal"
+        value: "platform"
+        effect: "NoSchedule"
+    
+    # Pod disruption budget for HA
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 2
+    
+    # OTLP ingestion endpoint (Req 20.6)
+    # Accessible from all Spoke clusters
+    otlp:
+      enabled: true
+      service:
+        type: ClusterIP
+        port: 4318
+    
+    # REST API endpoint (Req 20.7)
+    # Accessible only from kube-sbt (Hub internal)
+    api:
+      service:
+        type: ClusterIP
+        port: 8080
+    
+    # PostgreSQL backend
+    postgresql:
+      enabled: true
+      auth:
+        existingSecret: openmeter-postgresql
+        secretKeys:
+          adminPasswordKey: postgres-password
+          userPasswordKey: password
+      primary:
+        nodeSelector:
+          node-role.kubernetes.io/worker: "true"
+        persistence:
+          enabled: true
+          size: 20Gi
+    
+    # ClickHouse for usage data
+    clickhouse:
+      enabled: true
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      persistence:
+        enabled: true
+        size: 50Gi
+    
+    # Redis for caching
+    redis:
+      enabled: true
+      master:
+        nodeSelector:
+          node-role.kubernetes.io/worker: "true"
+        persistence:
+          enabled: true
+          size: 5Gi
+    
+    # Resource limits
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    
+    # Istio service mesh integration
+    podAnnotations:
+      sidecar.istio.io/inject: "true"

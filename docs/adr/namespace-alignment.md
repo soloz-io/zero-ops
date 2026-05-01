@@ -14,6 +14,7 @@
 | `hub-platform-network` | Cilium |
 | `hub-platform-observability` | VictoriaMetrics (Operator & Cluster), Grafana Alloy, VictoriaMetrics Alerts/Rules, Prometheus Operator |
 | `hub-platform-apps` | MCP Server, AgentRegistry |
+| `hub-platform-billing` | OpenMeter (metering & billing engine), kube-sbt API |
 | `hub-cloud-system` | Hetzner CCM (Cloud Controller Manager), Hetzner CSI (Container Storage Interface) |
 
 ## Upstream Namespaces

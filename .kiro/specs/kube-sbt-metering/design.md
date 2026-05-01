@@ -2280,7 +2280,7 @@ apiVersion: billing.nutgraf.in/v1alpha1
 kind: Meter
 metadata:
   name: {{ $.Values.tenantId }}-{{ .name }}
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
   labels:
     tenant-id: {{ $.Values.tenantId }}
 spec:
@@ -2305,7 +2305,7 @@ apiVersion: billing.nutgraf.in/v1alpha1
 kind: Feature
 metadata:
   name: {{ $.Values.tenantId }}-{{ .name }}
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
   labels:
     tenant-id: {{ $.Values.tenantId }}
 spec:
@@ -2323,7 +2323,7 @@ apiVersion: billing.nutgraf.in/v1alpha1
 kind: Plan
 metadata:
   name: {{ $.Values.tenantId }}-{{ .name }}
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
   labels:
     tenant-id: {{ $.Values.tenantId }}
 spec:
@@ -2893,7 +2893,7 @@ apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
   name: opensbt-mtls
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
 spec:
   selector:
     matchLabels:
@@ -2906,7 +2906,7 @@ apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
   name: opensbt-authz
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
 spec:
   selector:
     matchLabels:
@@ -2917,7 +2917,7 @@ spec:
     - source:
         principals:
         - "cluster.local/ns/hub-platform-identity/sa/ory-kratos"
-        - "cluster.local/ns/hub-platform-core/sa/openmeter"
+        - "cluster.local/ns/hub-platform-billing/sa/openmeter"
         - "cluster.local/ns/hub-platform-messaging/sa/nats"
     to:
     - operation:
@@ -3086,7 +3086,7 @@ spec:
     path: manifests/hub-core-services/opensbt
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: hub-platform-billing
   syncPolicy:
     automated:
       prune: true
@@ -3893,7 +3893,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: openmeter-event-bridge
-  namespace: hub-platform-ops
+  namespace: hub-platform-billing
 spec:
   replicas: 2
   selector:
@@ -4851,7 +4851,7 @@ test-all: test test-e2e
 1. **Provision "app-creator" tenant** (Req 7.1):
    ```bash
    # Tenant already exists in fleet-registry
-   kubectl get ainativesaas app-creator -n hub-platform-ops
+   kubectl get ainativesaas app-creator -n hub-platform-billing
    ```
 
 2. **Create sample users** (Req 7.1):

@@ -189,12 +189,12 @@ type IBilling interface {
 
 ### 5.3 Istio & mTLS (Req 11)
 *   **No Go Code Changes:** The `open-sbt` HTTP clients (e.g., to Ory or OpenMeter) will use plain HTTP (`http://ory-kratos:80`).
-*   **Envoy Sidecar:** Add the `istio-injection: enabled` label to the `hub-platform-ops` namespace where `open-sbt` runs.
+*   **Envoy Sidecar:** Add the `istio-injection: enabled` label to the `hub-platform-billing` namespace where `open-sbt` runs.
 *   **PeerAuthentication:** Ensure STRICT mTLS is enforced in the namespace via Istio CRDs. SPIRE will deliver the SVID directly to the Envoy sidecar.
 
 ### 5.4 Secret Management (Req 18)
 *   **Infisical:** Store the `STRIPE_WEBHOOK_SECRET`.
-*   **ESO:** Create an `ExternalSecret` targeting `hub-platform-ops` to mount this as an environment variable in the `hub-operator` / `open-sbt` deployment.
+*   **ESO:** Create an `ExternalSecret` targeting `hub-platform-billing` to mount this as an environment variable in the `hub-operator` / `open-sbt` deployment.
 
 ---
 

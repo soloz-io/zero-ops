@@ -2,29 +2,23 @@ package interfaces
 
 import (
 	"context"
-
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
 )
 
-// IBilling provides billing system integration capabilities
+// IBilling provides runtime subscription and invoice management via OpenMeter
+// ARCHITECTURAL NOTE: Plans managed via hub-operator CRDs
+// This interface handles ONLY dynamic subscription assignments and invoice queries
 type IBilling interface {
-	// Customer Management
-	CreateCustomer(ctx context.Context, customer models.BillingCustomer) error
-	GetCustomer(ctx context.Context, customerID string) (*models.BillingCustomer, error)
-	UpdateCustomer(ctx context.Context, customerID string, updates models.CustomerUpdates) error
-	DeleteCustomer(ctx context.Context, customerID string) error
+	// Subscription Management (Req 16) - Dynamic Runtime Operations
+	CreateSubscription(ctx context.Context, namespace, subjectID, planID string, opts models.SubscriptionOptions) error
+	GetSubscription(ctx context.Context, namespace, subscriptionID string) (*models.Subscription, error)
+	UpdateSubscription(ctx context.Context, namespace, subscriptionID string, updates models.SubscriptionUpdates) error
+	CancelSubscription(ctx context.Context, namespace, subscriptionID string) error
+	ListSubscriptions(ctx context.Context, namespace string, filters models.SubscriptionFilters) ([]models.Subscription, error)
+	MigrateSubscription(ctx context.Context, namespace, subscriptionID, newPlanID string, prorationBehavior string) error
 
-	// Subscription Management
-	CreateSubscription(ctx context.Context, subscription models.Subscription) error
-	GetSubscription(ctx context.Context, subscriptionID string) (*models.Subscription, error)
-	UpdateSubscription(ctx context.Context, subscriptionID string, updates models.SubscriptionUpdates) error
-	CancelSubscription(ctx context.Context, subscriptionID string) error
-
-	// Usage and Billing
-	RecordUsage(ctx context.Context, usage models.UsageRecord) error
-	GetUsage(ctx context.Context, customerID string, period models.TimePeriod) (*models.UsageReport, error)
-	GenerateInvoice(ctx context.Context, customerID string, period models.TimePeriod) (*models.Invoice, error)
-
-	// Webhook Handling
-	HandleWebhook(ctx context.Context, payload []byte) error
+	// Invoice Operations (Req 17) - Read-Only Queries
+	PreviewInvoice(ctx context.Context, namespace, subjectID string) (*models.Invoice, error)
+	GetInvoice(ctx context.Context, namespace, invoiceID string) (*models.Invoice, error)
+	ListInvoices(ctx context.Context, namespace string, filters models.InvoiceFilters) ([]models.Invoice, error)
 }
