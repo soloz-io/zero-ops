@@ -58,17 +58,9 @@ spec:
         clickhouse:
           enabled: false
         
-        # Kafka (required for OpenMeter)
+        # Kafka (disabled - not needed for Phase 1-2)
         kafka:
-          enabled: true
-          listeners:
-            client:
-              protocol: PLAINTEXT
-          nodeSelector:
-            node-role.kubernetes.io/worker: "true"
-          persistence:
-            enabled: true
-            size: 10Gi
+          enabled: false
         
         # Redis for caching
         redis:
