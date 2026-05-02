@@ -63,23 +63,23 @@ spec:
           signingSecret: "CeRc6WK8KjzRXrKkd9YFnSWcNyqLSIY8JwiaCeRc6WK4UkM"
           signedJwt: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdml4LXNlcnZlciIsImlhdCI6MTczMDk4NzU0MywiZXhwIjoyMjM1OTA5MDAwLCJhdWQiOiIiLCJzdWIiOiJvcmdfMjNyYjhZZEdxTVQwcUl6cGdHd2RYZkhpck11In0.J90SzVuNwecyCtWAQlOoWplJaK4rnIb3rCWXrHQPqJY"
         
-        # HA configuration (Req 20.8)
+        # HA configuration (adjusted for 2 replicas)
         podDisruptionBudget:
           enabled: true
-          minAvailable: 2
+          minAvailable: 1
         
-        # Resource limits
+        # Resource limits (reduced for Hub cluster constraints)
         resources:
           limits:
-            cpu: 2000m
-            memory: 4Gi
-          requests:
-            cpu: 1000m
+            cpu: 500m
             memory: 2Gi
+          requests:
+            cpu: 200m
+            memory: 1Gi
         
-        # Component replicas
+        # Component replicas (reduced for Hub cluster constraints)
         api:
-          replicaCount: 3
+          replicaCount: 2
         
         balanceWorker:
           replicaCount: 1
