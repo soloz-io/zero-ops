@@ -2,6 +2,13 @@
 # Job to initialize OpenMeter database in ClickHouse
 # Runs after ClickHouse service is ready (PostSync hook)
 # Pattern: Similar to CNPG setup-platform-roles-job.yaml
+# Enterprise patterns applied:
+# - Uses service DNS (not pod hostname) for stability
+# - Uses dedicated clickhouse_admin user (not default) for auditability
+# - Timeout with explicit error (prevents infinite hangs)
+# - Resource limits (prevents node starvation)
+# - Idempotent CREATE DATABASE IF NOT EXISTS
+# - Internal cluster communication (TLS disabled intentionally)
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -32,7 +39,7 @@ spec:
               # Timeout after 5 minutes (60 attempts * 5s)
               for i in $(seq 1 60); do
                 if clickhouse-client \
-                  --host=clickhouse-platform-ch-cls.hub-platform-data.svc.cluster.local \
+                  --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
                   --port=9000 \
                   --user=clickhouse_admin \
                   --password="${CLICKHOUSE_PASSWORD}" \
@@ -51,7 +58,7 @@ spec:
               
               echo "Creating openmeter database (idempotent)..."
               clickhouse-client \
-                --host=clickhouse-platform-ch-cls.hub-platform-data.svc.cluster.local \
+                --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
                 --port=9000 \
                 --user=clickhouse_admin \
                 --password="${CLICKHOUSE_PASSWORD}" \
