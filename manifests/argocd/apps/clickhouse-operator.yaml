@@ -14,10 +14,13 @@ spec:
     targetRevision: 0.26.3
     helm:
       releaseName: clickhouse-operator
-      values: |
-        watch:
-          namespaces:
-            - hub-platform-data
+      valuesObject:
+        configs:
+          files:
+            config.yaml:
+              watch:
+                namespaces:
+                  - hub-platform-data
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
