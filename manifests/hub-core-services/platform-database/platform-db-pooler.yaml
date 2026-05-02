@@ -9,7 +9,7 @@ spec:
   cluster:
     name: platform-db
   
-  instances: 3
+  instances: 1
   type: rw
   
   pgbouncer:

@@ -243,7 +243,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				SubnetCIDR:              subnetCIDR,
 				ControlPlaneMachineType: "cx23",
 				WorkerMachineType:       "cx33",
-				ControlPlaneReplicas:    3,
+				ControlPlaneReplicas:    2,
 				WorkerReplicas:          2,
 				HCloudToken:             o.HCloudToken,
 				CiliumManifest:          string(ciliumRaw),

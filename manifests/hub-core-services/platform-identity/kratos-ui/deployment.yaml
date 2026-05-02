@@ -4,7 +4,7 @@ metadata:
   name: kratos-selfservice-ui-node
   namespace: hub-platform-identity
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: kratos-selfservice-ui-node

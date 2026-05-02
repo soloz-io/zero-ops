@@ -28,7 +28,7 @@ spec:
         # Enable background controller for generate policies
         backgroundController:
           enabled: true
-          replicas: 2
+          replicas: 1
           resources:
             limits:
               memory: 512Mi
@@ -58,7 +58,7 @@ spec:
         
         # Admission controller configuration
         admissionController:
-          replicas: 3
+          replicas: 2
           resources:
             limits:
               memory: 512Mi

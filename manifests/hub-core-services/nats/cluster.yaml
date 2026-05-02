@@ -74,7 +74,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "5"
 spec:
   serviceName: nats
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: nats
