@@ -13,6 +13,7 @@ spec:
     chart: openmeter
     targetRevision: 1.0.0-beta.227
     helm:
+      skipCrds: false
       values: |
         # Official OpenMeter Helm chart values (Req 20)
         replicaCount: 3
