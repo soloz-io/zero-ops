@@ -53,6 +53,10 @@ spec:
         # Kafka - required for OpenMeter event streaming (minimal config)
         kafka:
           enabled: true
+          image:
+            registry: docker.io
+            repository: bitnami/kafka
+            tag: 4.0.0-debian-12-r10
           controller:
             replicaCount: 1
             resources:
