@@ -47,10 +47,31 @@ spec:
         # ClickHouse - deferred until scale requirements (ADR 014)
         clickhouse:
           enabled: false
+          operator:
+            install: false
         
-        # Kafka - not needed for Phase 1-2
+        # Kafka - required for OpenMeter event streaming (minimal config)
         kafka:
-          enabled: false
+          enabled: true
+          controller:
+            replicaCount: 1
+            resources:
+              limits:
+                cpu: 200m
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+          listeners:
+            client:
+              name: plain
+              containerPort: 9092
+              protocol: PLAINTEXT
+          listeners:
+            client:
+              protocol: PLAINTEXT
+            controller:
+              protocol: SASL_PLAINTEXT
         
         # External database configuration
         extraEnvVars:
