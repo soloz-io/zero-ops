@@ -46,11 +46,11 @@ spec:
           value: "yes"
         resources:
           limits:
-            cpu: 500m
-            memory: 512Mi
-          requests:
-            cpu: 250m
+            cpu: 200m
             memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
         volumeMounts:
         - name: data
           mountPath: /bitnami/redis/data
