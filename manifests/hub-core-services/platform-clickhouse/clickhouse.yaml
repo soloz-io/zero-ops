@@ -23,14 +23,13 @@ spec:
           replicasCount: 1
     users:
       # Default user - restricted to localhost, read-only for security
-      # TEMPORARY: Using platform-clickhouse-admin secret until hub-operator rebuilt
       default/networks/ip:
         - "127.0.0.1"  # Localhost only
       default/profile: readonly
       default/password_sha256_hex:
         valueFrom:
           secretKeyRef:
-            name: platform-clickhouse-admin
+            name: platform-clickhouse-admin-password
             key: password
       # clickhouse_admin - dedicated admin user for automation (bootstrap jobs, migrations)
       # Enterprise pattern: separate from default for auditability and rotation independence
@@ -46,7 +45,7 @@ spec:
       clickhouse_admin/password_sha256_hex:
         valueFrom:
           secretKeyRef:
-            name: platform-clickhouse-admin
+            name: platform-clickhouse-admin-password
             key: password
       clickhouse_admin/access_management: 1  # Can create databases and users
       # OpenMeter user with database-level isolation and resource limits
