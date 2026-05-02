@@ -53,8 +53,6 @@ spec:
         # Kafka - required for OpenMeter event streaming (minimal config)
         kafka:
           enabled: true
-          image:
-            tag: latest
           controller:
             replicaCount: 1
             resources:
@@ -64,15 +62,6 @@ spec:
               requests:
                 cpu: 100m
                 memory: 256Mi
-          listeners:
-            client:
-              name: plain
-              containerPort: 9092
-              protocol: PLAINTEXT
-            controller:
-              name: CONTROLLER
-              containerPort: 9093
-              protocol: SASL_PLAINTEXT
         
         # External database configuration
         extraEnvVars:
