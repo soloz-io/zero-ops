@@ -32,8 +32,23 @@ The platform provides centralized stateful services. Applications consume them v
 - No authentication required (internal cluster network)
 
 ### ClickHouse
-- Deferred until scale requirements justify deployment
-- When deployed, follows same platform-owned pattern
+- Platform provides ClickHouseInstallation (Altinity operator) in `hub-platform-data` namespace
+- Shared cluster with database-level isolation per service (e.g., `openmeter` database)
+- Hub-operator generates credentials and uploads to Infisical
+- Applications consume via external connection strings with database-specific access
+- User-level access control: each service user granted access only to their database
+
+**Production Readiness Checklist:**
+- [ ] HA configuration (≥ 2 replicas) - deferred until staging/production
+- [ ] Network access restricted to Pod CIDR (not `::/0`)
+- [ ] User-level quotas and query limits enforced
+- [ ] Storage sizing based on workload projections (current: 10Gi for dev/MVP)
+- [ ] Replication strategy defined for durability
+- [ ] Backup and restore procedures documented
+- [ ] Monitoring and alerting configured
+- [ ] Resource controls to prevent noisy neighbor issues
+- [ ] Implement query monitoring and slow query alerts
+- [ ] Configure distributed tables for horizontal scaling
 
 ### Application Configuration
 - Applications set `postgresql.enabled: false` and `redis.enabled: false` in Helm values
@@ -43,11 +58,13 @@ The platform provides centralized stateful services. Applications consume them v
 ## Consequences
 
 ### Positive
-- Unified backup strategy via CNPG continuous archiving
-- Centralized monitoring via cnpg2monitor operator
+- Unified backup strategy via CNPG continuous archiving (PostgreSQL)
+- Centralized monitoring via cnpg2monitor operator (PostgreSQL)
 - Consistent upgrade procedures across all applications
 - Resource efficiency through shared clusters
 - Single team owns all stateful infrastructure operations
+- Database-level isolation provides strong security boundaries
+- Scalable pattern: add new databases without new clusters
 
 ### Negative
 - Database cluster failure affects multiple applications
@@ -55,7 +72,14 @@ The platform provides centralized stateful services. Applications consume them v
 - Applications cannot choose their own database versions
 
 ### Mitigations
-- CNPG HA (3 replicas) with automated failover
-- Connection pooling (PgBouncer) prevents noisy neighbor issues
+- CNPG HA (3 replicas) with automated failover (PostgreSQL)
+- Connection pooling (PgBouncer) prevents noisy neighbor issues (PostgreSQL)
+- Database-level isolation in ClickHouse prevents cross-service data access
+- User-level access control enforces least-privilege principle
 - Maintenance windows communicated via platform calendar
-- Move metering and billing to seperate HA cluster in future
+- Move metering and billing to separate HA cluster in future
+
+## References
+
+- **ADR 003**: ESO-Infisical Integration Pattern
+- **ADR-0009**: Zero-Trust Multi-Layer Authentication with JWKS and Service Mesh

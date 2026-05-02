@@ -1,0 +1,40 @@
+---
+# NetworkPolicy for ClickHouse namespace-level isolation
+# Pod CIDR (10.244.0.0/16) is baseline filter
+# NetworkPolicy is the real security boundary
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-clickhouse-access
+  namespace: hub-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: clickhouse
+      clickhouse.altinity.com/chi: platform-clickhouse
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from hub-platform-billing namespace (OpenMeter)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hub-platform-billing
+      ports:
+        - protocol: TCP
+          port: 9000  # ClickHouse native protocol
+        - protocol: TCP
+          port: 8123  # ClickHouse HTTP interface
+    # Allow from hub-platform-data namespace (same namespace, for operator)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hub-platform-data
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 8123
+    # Deny all other ingress traffic (implicit)

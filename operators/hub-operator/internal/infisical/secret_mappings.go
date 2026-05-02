@@ -323,5 +323,17 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "openmeter",
 		Description: "OpenMeter PostgreSQL credentials",
 	},
+	{
+		UsernameKey: "",
+		PasswordKey: "platform-clickhouse-admin-password",
+		Username:    "",
+		Description: "Platform ClickHouse admin/default user password (cluster bootstrap)",
+	},
+	{
+		UsernameKey: "",
+		PasswordKey: "openmeter-clickhouse-password",
+		Username:    "",
+		Description: "OpenMeter ClickHouse user password (logical database access)",
+	},
 }
 

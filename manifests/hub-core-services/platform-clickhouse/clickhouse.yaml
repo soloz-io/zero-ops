@@ -1,0 +1,125 @@
+---
+# Platform-owned ClickHouse for all services (ADR 014)
+# Follows idiomatic enterprise pattern: shared cluster with database-level isolation
+# Similar to platform-db CNPG cluster pattern
+#
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: platform-clickhouse
+  namespace: hub-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  defaults:
+    templates:
+      podTemplate: pod-template-with-volumes
+      serviceTemplate: svc-template
+  configuration:
+    clusters:
+      - name: platform-clickhouse
+        layout:
+          shardsCount: 1
+          replicasCount: 1
+    users:
+      # Default user - cluster bootstrap/admin user (like platform-db-app for CNPG)
+      # Restricted to localhost + password auth for security
+      default/networks/ip:
+        - "127.0.0.1"  # Localhost only - operator and admin access
+      default/profile: default
+      default/password_sha256_hex:
+        valueFrom:
+          secretKeyRef:
+            name: platform-clickhouse-admin
+            key: password
+      # OpenMeter user with database-level isolation and resource limits
+      openmeter/networks/ip:
+        - "10.244.0.0/16"  # Pod CIDR (baseline filter, NetworkPolicy enforces namespace)
+      openmeter/profile: openmeter_profile
+      openmeter/quota: openmeter_quota  # ❗ CRITICAL: Attach quota to user
+      # Password authentication (Secret Zero pattern - hub-operator generates)
+      # Password injected via ExternalSecret from Infisical using valueFrom syntax
+      openmeter/password_sha256_hex:
+        valueFrom:
+          secretKeyRef:
+            name: openmeter-clickhouse
+            key: password
+      # Grant OpenMeter user access only to openmeter database
+      openmeter/access_management: 1
+      openmeter/databases: openmeter  # Database-level isolation
+    profiles:
+      # Read-only profile for default user (security)
+      readonly/readonly: 1
+      # OpenMeter profile with resource limits
+      openmeter_profile/max_memory_usage: 536870912  # 512GB per query
+      openmeter_profile/max_execution_time: 60  # 60 seconds max
+      openmeter_profile/max_rows_to_read: 10000000  # 10M rows max
+      openmeter_profile/max_bytes_to_read: 10737418240  # 10GB max
+      openmeter_profile/readonly: 0  # Allow writes
+    quotas:
+      # OpenMeter quota limits (per 1 hour interval)
+      openmeter_quota/interval/duration: 3600
+      openmeter_quota/interval/queries: 1000  # Max 1000 queries per hour
+      openmeter_quota/interval/errors: 100  # Max 100 errors per hour
+      openmeter_quota/interval/result_rows: 100000000  # Max 100M result rows per hour
+      openmeter_quota/interval/read_rows: 1000000000  # Max 1B read rows per hour
+      openmeter_quota/interval/execution_time: 3600  # Max 1 hour total execution time per hour
+  templates:
+    podTemplates:
+      - name: pod-template-with-volumes
+        spec:
+          # Anti-affinity for future HA readiness (even with 1 replica)
+          # Ensures replicas spread across nodes when scaling up
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app: clickhouse
+                        clickhouse.altinity.com/chi: platform-clickhouse
+                    topologyKey: kubernetes.io/hostname
+          nodeSelector:
+            node-role.kubernetes.io/worker: "true"
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:25.12.3-alpine
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+              volumeMounts:
+                - name: data-storage-vc-template
+                  mountPath: /var/lib/clickhouse
+                - name: log-storage-vc-template
+                  mountPath: /var/log/clickhouse-server
+    serviceTemplates:
+      - name: svc-template
+        spec:
+          ports:
+            - name: http
+              port: 8123
+            - name: tcp
+              port: 9000
+          type: ClusterIP
+    volumeClaimTemplates:
+      - name: data-storage-vc-template
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: hcloud-volumes
+          resources:
+            requests:
+              storage: 10Gi
+      - name: log-storage-vc-template
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: hcloud-volumes
+          resources:
+            requests:
+              storage: 2Gi

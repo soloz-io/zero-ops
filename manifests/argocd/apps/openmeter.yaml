@@ -16,7 +16,7 @@ spec:
       skipCrds: false
       values: |
         # Official OpenMeter Helm chart values (Req 20)
-        replicaCount: 3
+        replicaCount: 1
         
         image:
           repository: ghcr.io/openmeterio/openmeter
@@ -45,11 +45,25 @@ spec:
         redis:
           enabled: false
         
-        # ClickHouse - deferred until scale requirements (ADR 014)
+        # ClickHouse - use platform-clickhouse (ADR 014)
         clickhouse:
           enabled: false
           operator:
             install: false
+        
+        # External ClickHouse configuration (ADR 014)
+        # Source: openmeterio/openmeter/app/config/aggregation.go (ConfigureAggregation)
+        # OpenMeter uses nested config.aggregation.clickhouse structure
+        # Password injected via OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD environment variable
+        config:
+          aggregation:
+            clickhouse:
+              address: platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+              database: openmeter
+              username: openmeter
+              tls: false
+          postgres:
+            url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
         
         # Kafka - required for OpenMeter event streaming (ADR 015)
         # Using Bitnami legacy image (working version found in bitnamilegacy registry)
@@ -76,16 +90,20 @@ spec:
                 memory: 256Mi
         
         # External database configuration
+        # Source: openmeterio/openmeter/app/config/aggregation.go
+        # Password injected via OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD env var
+        # which overrides config.aggregation.clickhouse.password
         extraEnvVars:
-          - name: OPENMETER_DB_PASSWORD
+          - name: OPENMETER_POSTGRES_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: openmeter-postgresql
                 key: password
-          - name: POSTGRES_URL
-            value: "postgres://openmeter:$(OPENMETER_DB_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-          - name: REDIS_ADDR
-            value: "platform-redis.hub-platform-data.svc.cluster.local:6379"
+          - name: OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: openmeter-clickhouse
+                key: password
         
         # Svix for webhooks
         svix:
