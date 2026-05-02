@@ -44,6 +44,14 @@ spec:
         redis:
           enabled: false
         
+        # ClickHouse - deferred until scale requirements (ADR 014)
+        clickhouse:
+          enabled: false
+        
+        # Kafka - not needed for Phase 1-2
+        kafka:
+          enabled: false
+        
         # External database configuration
         extraEnvVars:
           - name: OPENMETER_DB_PASSWORD
@@ -63,23 +71,22 @@ spec:
           signingSecret: "CeRc6WK8KjzRXrKkd9YFnSWcNyqLSIY8JwiaCeRc6WK4UkM"
           signedJwt: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdml4LXNlcnZlciIsImlhdCI6MTczMDk4NzU0MywiZXhwIjoyMjM1OTA5MDAwLCJhdWQiOiIiLCJzdWIiOiJvcmdfMjNyYjhZZEdxTVQwcUl6cGdHd2RYZkhpck11In0.J90SzVuNwecyCtWAQlOoWplJaK4rnIb3rCWXrHQPqJY"
         
-        # HA configuration (adjusted for 2 replicas)
+        # HA configuration (disabled for single replica)
         podDisruptionBudget:
-          enabled: true
-          minAvailable: 1
+          enabled: false
         
-        # Resource limits (reduced for Hub cluster constraints)
+        # Resource limits (minimal for Hub cluster constraints)
         resources:
           limits:
-            cpu: 500m
-            memory: 2Gi
-          requests:
-            cpu: 200m
+            cpu: 300m
             memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
         
-        # Component replicas (reduced for Hub cluster constraints)
+        # Component replicas (minimal for Hub cluster constraints)
         api:
-          replicaCount: 2
+          replicaCount: 1
         
         balanceWorker:
           replicaCount: 1
@@ -88,7 +95,7 @@ spec:
           replicaCount: 1
         
         sinkWorker:
-          replicaCount: 2
+          replicaCount: 1
         
         billingWorker:
           replicaCount: 1
