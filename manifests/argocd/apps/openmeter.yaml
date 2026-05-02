@@ -53,6 +53,8 @@ spec:
         # Kafka - required for OpenMeter event streaming (minimal config)
         kafka:
           enabled: true
+          image:
+            tag: 4.0.2
           controller:
             replicaCount: 1
             resources:
