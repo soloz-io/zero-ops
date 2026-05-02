@@ -51,9 +51,15 @@ spec:
           operator:
             install: false
         
-        # Kafka - required for OpenMeter event streaming (minimal config)
+        # Kafka - required for OpenMeter event streaming (ADR 015)
+        # Using Bitnami legacy image (working version found in bitnamilegacy registry)
         kafka:
           enabled: true
+          # Override the default Bitnami image with working legacy version
+          image:
+            registry: docker.io
+            repository: bitnamilegacy/kafka
+            tag: "4.0.0-debian-12-r10"
           controller:
             replicaCount: 1
             resources:
