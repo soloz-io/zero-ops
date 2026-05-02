@@ -60,8 +60,13 @@ spec:
             registry: docker.io
             repository: bitnamilegacy/kafka
             tag: "4.0.0-debian-12-r10"
+          # Override image for all Kafka components
           controller:
             replicaCount: 1
+            image:
+              registry: docker.io
+              repository: bitnamilegacy/kafka
+              tag: "4.0.0-debian-12-r10"
             resources:
               limits:
                 cpu: 200m
