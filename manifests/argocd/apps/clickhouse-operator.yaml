@@ -15,11 +15,9 @@ spec:
     helm:
       releaseName: clickhouse-operator
       values: |
-        clickhouse:
-          configuration:
-            watch:
-              namespaces:
-                - hub-platform-data
+        watch:
+          namespaces:
+            - hub-platform-data
   destination:
     server: https://kubernetes.default.svc
     namespace: hub-platform-ops
