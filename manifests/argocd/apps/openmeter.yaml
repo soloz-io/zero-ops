@@ -54,7 +54,7 @@ spec:
         kafka:
           enabled: true
           image:
-            tag: 4.0.2
+            tag: latest
           controller:
             replicaCount: 1
             resources:
@@ -69,10 +69,9 @@ spec:
               name: plain
               containerPort: 9092
               protocol: PLAINTEXT
-          listeners:
-            client:
-              protocol: PLAINTEXT
             controller:
+              name: CONTROLLER
+              containerPort: 9093
               protocol: SASL_PLAINTEXT
         
         # External database configuration
