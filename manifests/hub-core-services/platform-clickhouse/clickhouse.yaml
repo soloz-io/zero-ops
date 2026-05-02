@@ -22,16 +22,26 @@ spec:
           shardsCount: 1
           replicasCount: 1
     users:
-      # Default user - cluster bootstrap/admin user (like platform-db-app for CNPG)
-      # Restricted to localhost + password auth for security
+      # Default user - restricted to localhost, read-only for security
       default/networks/ip:
-        - "127.0.0.1"  # Localhost only - operator and admin access
-      default/profile: default
+        - "127.0.0.1"  # Localhost only
+      default/profile: readonly
       default/password_sha256_hex:
         valueFrom:
           secretKeyRef:
             name: platform-clickhouse-admin
             key: password
+      # clickhouse_admin - dedicated admin user for automation (bootstrap jobs, migrations)
+      # Enterprise pattern: separate from default for auditability and rotation independence
+      clickhouse_admin/networks/ip:
+        - "10.244.0.0/16"  # Pod CIDR - allows K8s Jobs to connect
+      clickhouse_admin/profile: default
+      clickhouse_admin/password_sha256_hex:
+        valueFrom:
+          secretKeyRef:
+            name: platform-clickhouse-admin
+            key: password
+      clickhouse_admin/access_management: 1  # Can create databases and users
       # OpenMeter user with database-level isolation and resource limits
       openmeter/networks/ip:
         - "10.244.0.0/16"  # Pod CIDR (baseline filter, NetworkPolicy enforces namespace)

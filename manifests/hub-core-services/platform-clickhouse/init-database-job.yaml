@@ -1,0 +1,73 @@
+---
+# Job to initialize OpenMeter database in ClickHouse
+# Runs after ClickHouse service is ready (PostSync hook)
+# Pattern: Similar to CNPG setup-platform-roles-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-init-openmeter-db
+  namespace: hub-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: clickhouse-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-database
+          image: clickhouse/clickhouse-client:25.12.3-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for ClickHouse service to be ready..."
+              
+              # Timeout after 5 minutes (60 attempts * 5s)
+              for i in $(seq 1 60); do
+                if clickhouse-client \
+                  --host=clickhouse-platform-ch-cls.hub-platform-data.svc.cluster.local \
+                  --port=9000 \
+                  --user=clickhouse_admin \
+                  --password="${CLICKHOUSE_PASSWORD}" \
+                  --query="SELECT 1" > /dev/null 2>&1; then
+                  echo "ClickHouse is ready"
+                  break
+                fi
+                echo "ClickHouse not ready, retrying in 5s... (attempt $i/60)"
+                sleep 5
+              done
+              
+              if [ "$i" -eq 60 ]; then
+                echo "ERROR: ClickHouse not ready after 5 minutes timeout"
+                exit 1
+              fi
+              
+              echo "Creating openmeter database (idempotent)..."
+              clickhouse-client \
+                --host=clickhouse-platform-ch-cls.hub-platform-data.svc.cluster.local \
+                --port=9000 \
+                --user=clickhouse_admin \
+                --password="${CLICKHOUSE_PASSWORD}" \
+                --query="CREATE DATABASE IF NOT EXISTS openmeter"
+              
+              echo "Database openmeter created successfully"
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-clickhouse-admin
+                  key: password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
