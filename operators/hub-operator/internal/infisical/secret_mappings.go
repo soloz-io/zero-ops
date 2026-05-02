@@ -325,12 +325,6 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	},
 	{
 		UsernameKey: "",
-		PasswordKey: "platform-clickhouse-default-password",
-		Username:    "",
-		Description: "Platform ClickHouse default user password (localhost read-only)",
-	},
-	{
-		UsernameKey: "",
 		PasswordKey: "platform-clickhouse-admin-password",
 		Username:    "",
 		Description: "Platform ClickHouse admin user password (bootstrap jobs, separate for rotation independence)",
