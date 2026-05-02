@@ -31,3 +31,4 @@ spec:
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
         - CREATE DATABASE infisical;
+        - CREATE DATABASE openmeter;

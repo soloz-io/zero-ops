@@ -36,40 +36,25 @@ spec:
           type: ClusterIP
           port: 80
         
-        # PostgreSQL backend (Req 20)
+        # PostgreSQL backend - use platform-db CNPG cluster
         postgresql:
-          enabled: true
-          auth:
-            existingSecret: openmeter-postgresql
-            secretKeys:
-              adminPasswordKey: postgres-password
-              userPasswordKey: password
-          primary:
-            nodeSelector:
-              node-role.kubernetes.io/worker: "true"
-            persistence:
-              enabled: true
-              size: 20Gi
-        
-        # ClickHouse backend (deferred until scale requirements)
-        clickhouse:
           enabled: false
         
-        # Kafka (disabled - not needed for Phase 1-2)
-        kafka:
-          enabled: false
-        
-        # Redis for caching
+        # Redis - use platform-redis
         redis:
-          enabled: true
-          auth:
-            enabled: false
-          master:
-            nodeSelector:
-              node-role.kubernetes.io/worker: "true"
-            persistence:
-              enabled: true
-              size: 5Gi
+          enabled: false
+        
+        # External database configuration
+        extraEnvVars:
+          - name: OPENMETER_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: openmeter-postgresql
+                key: password
+          - name: POSTGRES_URL
+            value: "postgres://openmeter:$(OPENMETER_DB_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+          - name: REDIS_ADDR
+            value: "platform-redis.hub-platform-data.svc.cluster.local:6379"
         
         # Svix for webhooks
         svix:

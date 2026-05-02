@@ -1,3 +1,7 @@
-- keelings pattern
-- no assumptions and alternatives
-- no config or code
+- Keelings pattern
+- Dont add any assumptions.
+- Dont add any alternatives considered.
+- No config or code
+- Focus only the final decision.
+- Keep it to the point 
+- Dont add any summary

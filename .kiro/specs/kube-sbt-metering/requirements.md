@@ -379,7 +379,7 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 ### Requirement 20: OpenMeter Hub Deployment
 
-**User Story:** As a platform architect, I want OpenMeter deployed in Hub cluster using official Helm chart, so that metering infrastructure is centralized and production-ready.
+**User Story:** As a platform architect, I want OpenMeter deployed in Hub cluster using official Helm chart with platform-owned stateful infrastructure, so that metering infrastructure is centralized and production-ready.
 
 #### Acceptance Criteria
 
@@ -391,6 +391,13 @@ This document specifies requirements for the kube-sbt metering and billing syste
 6. THE OpenMeter SHALL expose OTLP ingestion endpoint accessible from all Spoke clusters
 7. THE OpenMeter SHALL expose REST API endpoint accessible only from kube-sbt (Hub internal)
 8. THE OpenMeter deployment SHALL include HA configuration (3+ replicas, PodDisruptionBudget)
+9. THE OpenMeter SHALL use platform-db CNPG cluster for PostgreSQL (not embedded Bitnami PostgreSQL)
+10. THE OpenMeter SHALL use platform-redis StatefulSet for caching (not embedded Bitnami Redis)
+11. THE OpenMeter Helm chart SHALL disable embedded PostgreSQL (`postgresql.enabled: false`)
+12. THE OpenMeter Helm chart SHALL disable embedded Redis (`redis.enabled: false`)
+13. THE OpenMeter SHALL connect to `platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter`
+14. THE OpenMeter SHALL connect to `platform-redis.hub-platform-data.svc.cluster.local:6379`
+15. THE hub-operator SHALL generate `openmeter` database user credentials and upload to Infisical
 
 ### Requirement 21: Orphaned Subject Reconciliation
 
