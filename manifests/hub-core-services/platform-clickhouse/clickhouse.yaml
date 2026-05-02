@@ -17,7 +17,7 @@ spec:
       serviceTemplate: svc-template
   configuration:
     clusters:
-      - name: platform-clickhouse
+      - name: platform-ch-cls
         layout:
           shardsCount: 1
           replicasCount: 1
