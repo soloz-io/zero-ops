@@ -29,22 +29,30 @@ spec:
       default/password_sha256_hex:
         valueFrom:
           secretKeyRef:
-            name: platform-clickhouse-admin
+            name: platform-clickhouse-default-password
             key: password
       # clickhouse_admin - dedicated admin user for automation (bootstrap jobs, migrations)
       # Enterprise pattern: separate from default for auditability and rotation independence
+      # Security model (defense-in-depth):
+      #   Layer 1: networks/ip → coarse filter (RFC1918 private ranges)
+      #   Layer 2: NetworkPolicy → primary enforcement (namespace-level isolation)
+      #   Layer 3: Authentication → password (separate from default for rotation independence)
+      #   Layer 4: Authorization → profile + access_management
       clickhouse_admin/networks/ip:
-        - "10.244.0.0/16"  # Pod CIDR - allows K8s Jobs to connect
+        - "10.0.0.0/8"      # RFC1918 private range (portable across K8s environments)
+        - "172.16.0.0/12"   # RFC1918 private range
       clickhouse_admin/profile: default
       clickhouse_admin/password_sha256_hex:
         valueFrom:
           secretKeyRef:
-            name: platform-clickhouse-admin
+            name: platform-clickhouse-admin-password
             key: password
       clickhouse_admin/access_management: 1  # Can create databases and users
       # OpenMeter user with database-level isolation and resource limits
+      # Security: Same RFC1918 coarse filter, NetworkPolicy enforces namespace isolation
       openmeter/networks/ip:
-        - "10.244.0.0/16"  # Pod CIDR (baseline filter, NetworkPolicy enforces namespace)
+        - "10.0.0.0/8"      # RFC1918 private range (portable across K8s environments)
+        - "172.16.0.0/12"   # RFC1918 private range
       openmeter/profile: openmeter_profile
       openmeter/quota: openmeter_quota  # ❗ CRITICAL: Attach quota to user
       # Password authentication (Secret Zero pattern - hub-operator generates)
@@ -55,7 +63,7 @@ spec:
             name: openmeter-clickhouse
             key: password
       # Grant OpenMeter user access only to openmeter database
-      openmeter/access_management: 1
+      openmeter/access_management: 0  # Application users NEVER get access management rights
       openmeter/databases: openmeter  # Database-level isolation
     profiles:
       # Read-only profile for default user (security)
