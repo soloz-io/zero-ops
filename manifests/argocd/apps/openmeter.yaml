@@ -14,175 +14,156 @@ spec:
       chart: openmeter
       targetRevision: 1.0.0-beta.227
       helm:
-      skipCrds: false
-      values: |
-        # Official OpenMeter Helm chart values (Req 20)
-        replicaCount: 1
-        
-        image:
-          repository: ghcr.io/openmeterio/openmeter
-          tag: v1.0.0-beta.227
-        
-        # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
-        nodeSelector:
-          node-role.kubernetes.io/worker: "true"
-        
-        tolerations:
-        - key: "workload"
-          operator: "Equal"
-          value: "platform"
-          effect: "NoSchedule"
-        
-        # Service configuration
-        service:
-          type: ClusterIP
-          port: 80
-        
-        # PostgreSQL backend - use platform-db CNPG cluster
-        postgresql:
-          enabled: false
-        
-        # Redis - use platform-redis
-        redis:
-          enabled: false
-        
-        # ClickHouse - use platform-clickhouse (ADR 014)
-        clickhouse:
-          enabled: false
-          operator:
-            install: false
-        
-        # External ClickHouse configuration (ADR 014)
-        # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
-        config:
-          aggregation:
-            clickhouse:
-              address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
-              database: openmeter
-              username: openmeter
-              tls: false
-          postgres:
-            url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
-        
-        # Kafka - required for OpenMeter event streaming (ADR 015)
-        # Using Bitnami legacy image (working version found in bitnamilegacy registry)
-        # Production considerations:
-        # - Persistence enabled for data durability
-        # - PLAINTEXT protocol for internal cluster (TLS deferred to Phase 6 security hardening)
-        # - Single controller for MVP (scale to 3+ for production HA)
-        kafka:
-          enabled: true
-          # Override the default Bitnami image with working legacy version
+        skipCrds: false
+        values: |
+          # Official OpenMeter Helm chart values (Req 20)
+          replicaCount: 1
+          
           image:
-            registry: docker.io
-            repository: bitnamilegacy/kafka
-            tag: "4.0.0-debian-12-r10"
-          # Disable SASL authentication for internal cluster communication (MVP)
-          # TODO Phase 6: Enable SASL + TLS for production
-          sasl:
-            client:
-              users: []
-            interbroker:
-              user: ""
-          listeners:
-            client:
-              protocol: PLAINTEXT
-            controller:
-              protocol: PLAINTEXT
-            interbroker:
-              protocol: PLAINTEXT
-          # Persistence for data durability
-          persistence:
+            repository: ghcr.io/openmeterio/openmeter
+            tag: v1.0.0-beta.227
+          
+          # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
+          nodeSelector:
+            node-role.kubernetes.io/worker: "true"
+          
+          tolerations:
+          - key: "workload"
+            operator: "Equal"
+            value: "platform"
+            effect: "NoSchedule"
+          
+          # Service configuration
+          service:
+            type: ClusterIP
+            port: 80
+          
+          # PostgreSQL backend - use platform-db CNPG cluster
+          postgresql:
+            enabled: false
+          
+          # Redis - use platform-redis
+          redis:
+            enabled: false
+          
+          # ClickHouse - use platform-clickhouse (ADR 014)
+          clickhouse:
+            enabled: false
+            operator:
+              install: false
+          
+          # External ClickHouse configuration (ADR 014)
+          # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
+          config:
+            aggregation:
+              clickhouse:
+                address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+                database: openmeter
+                username: openmeter
+                tls: false
+            postgres:
+              url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
+          
+          # Kafka - required for OpenMeter event streaming (ADR 015)
+          kafka:
             enabled: true
-            size: 10Gi
-            storageClass: hcloud-volumes
-          # Override image for all Kafka components
-          controller:
-            replicaCount: 1
             image:
               registry: docker.io
               repository: bitnamilegacy/kafka
               tag: "4.0.0-debian-12-r10"
-            resources:
-              limits:
-                cpu: 200m
-                memory: 512Mi
-              requests:
-                cpu: 100m
-                memory: 256Mi
-            # Readiness/liveness tuning for slow startup
-            livenessProbe:
-              initialDelaySeconds: 60
-              periodSeconds: 10
-              timeoutSeconds: 5
-              failureThreshold: 6
-            readinessProbe:
-              initialDelaySeconds: 30
-              periodSeconds: 10
-              timeoutSeconds: 5
-              failureThreshold: 6
-        
-        # External database configuration
-        # ESO Pattern: Secrets created in Wave 1, mounted as env vars in Wave 3
-        # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
-        # OpenMeter reads passwords from environment variables via Viper
-        api:
-          replicaCount: 1
-        
-        balanceWorker:
-          replicaCount: 1
-        
-        balanceWorker:
-          replicaCount: 1
-        
-        notificationService:
-          replicaCount: 1
-        
-        sinkWorker:
-          replicaCount: 1
-        
-        billingWorker:
-          replicaCount: 1
-        
-        # Svix for webhooks - credentials from Infisical (ADR 003)
-        svix:
-          enabled: true
-          replicaCount: 1
-          existingSecret: openmeter-svix
-          signingSecretKey: signing-secret
-          jwtSecretKey: jwt
-        
-        # HA configuration (disabled for single replica)
-        podDisruptionBudget:
-          enabled: false
-        
-        # Resource limits (minimal for Hub cluster constraints)
-        # Readiness/liveness tuning for slow startup with external dependencies
-        resources:
-          limits:
-            cpu: 300m
-            memory: 1Gi
-          requests:
-            cpu: 100m
-            memory: 512Mi
-        
-        livenessProbe:
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 6
-        
-        readinessProbe:
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 6
-
-          replicaCount: 1
-        
-        # Istio service mesh integration
-        podAnnotations:
-          sidecar.istio.io/inject: "true"
+            sasl:
+              client:
+                users: []
+              interbroker:
+                user: ""
+            listeners:
+              client:
+                protocol: PLAINTEXT
+              controller:
+                protocol: PLAINTEXT
+              interbroker:
+                protocol: PLAINTEXT
+            persistence:
+              enabled: true
+              size: 10Gi
+              storageClass: hcloud-volumes
+            controller:
+              replicaCount: 1
+              image:
+                registry: docker.io
+                repository: bitnamilegacy/kafka
+                tag: "4.0.0-debian-12-r10"
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 512Mi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+              livenessProbe:
+                initialDelaySeconds: 60
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 6
+              readinessProbe:
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 6
+          
+          # Component replicas (minimal for Hub cluster constraints)
+          # Passwords injected via Kustomize strategic merge patch
+          api:
+            replicaCount: 1
+          
+          balanceWorker:
+            replicaCount: 1
+          
+          notificationService:
+            replicaCount: 1
+          
+          sinkWorker:
+            replicaCount: 1
+          
+          billingWorker:
+            replicaCount: 1
+          
+          # Svix for webhooks - credentials from Infisical (ADR 003)
+          svix:
+            enabled: true
+            replicaCount: 1
+            existingSecret: openmeter-svix
+            signingSecretKey: signing-secret
+            jwtSecretKey: jwt
+          
+          # HA configuration (disabled for single replica)
+          podDisruptionBudget:
+            enabled: false
+          
+          # Resource limits (minimal for Hub cluster constraints)
+          resources:
+            limits:
+              cpu: 300m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          
+          readinessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          
+          # Istio service mesh integration
+          podAnnotations:
+            sidecar.istio.io/inject: "true"
     
     # Source 2: Kustomize patches for environment variable injection
     - repoURL: https://github.com/soloz-io/zero-ops.git
@@ -200,7 +181,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true  # Only apply resources that are out of sync
+      - ApplyOutOfSyncOnly=true
     retry:
       limit: 5
       backoff:
