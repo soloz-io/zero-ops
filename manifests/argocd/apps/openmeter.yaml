@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: ghcr.io/openmeterio/helm-charts
     chart: openmeter
-    targetRevision: 1.0.0-beta.227
+    targetRevision: 1.0.0  # Stable release (not beta)
     helm:
       skipCrds: false
       values: |
@@ -20,7 +20,7 @@ spec:
         
         image:
           repository: ghcr.io/openmeterio/openmeter
-          tag: v1.0.0-beta.227
+          tag: v1.0.0  # Stable release (not beta)
         
         # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
         nodeSelector:
@@ -67,6 +67,10 @@ spec:
         
         # Kafka - required for OpenMeter event streaming (ADR 015)
         # Using Bitnami legacy image (working version found in bitnamilegacy registry)
+        # Production considerations:
+        # - Persistence enabled for data durability
+        # - PLAINTEXT protocol for internal cluster (TLS deferred to Phase 6 security hardening)
+        # - Single controller for MVP (scale to 3+ for production HA)
         kafka:
           enabled: true
           # Override the default Bitnami image with working legacy version
@@ -74,6 +78,25 @@ spec:
             registry: docker.io
             repository: bitnamilegacy/kafka
             tag: "4.0.0-debian-12-r10"
+          # Disable SASL authentication for internal cluster communication (MVP)
+          # TODO Phase 6: Enable SASL + TLS for production
+          sasl:
+            client:
+              users: []
+            interbroker:
+              user: ""
+          listeners:
+            client:
+              protocol: PLAINTEXT
+            controller:
+              protocol: PLAINTEXT
+            interbroker:
+              protocol: PLAINTEXT
+          # Persistence for data durability
+          persistence:
+            enabled: true
+            size: 10Gi
+            storageClass: hcloud-volumes
           # Override image for all Kafka components
           controller:
             replicaCount: 1
@@ -88,6 +111,17 @@ spec:
               requests:
                 cpu: 100m
                 memory: 256Mi
+            # Readiness/liveness tuning for slow startup
+            livenessProbe:
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 6
+            readinessProbe:
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 6
         
         # External database configuration
         # Source: openmeterio/openmeter/app/config/aggregation.go
@@ -105,18 +139,20 @@ spec:
                 name: openmeter-clickhouse
                 key: password
         
-        # Svix for webhooks
+        # Svix for webhooks - credentials from Infisical (ADR 003)
         svix:
           enabled: true
           replicaCount: 1
-          signingSecret: "CeRc6WK8KjzRXrKkd9YFnSWcNyqLSIY8JwiaCeRc6WK4UkM"
-          signedJwt: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdml4LXNlcnZlciIsImlhdCI6MTczMDk4NzU0MywiZXhwIjoyMjM1OTA5MDAwLCJhdWQiOiIiLCJzdWIiOiJvcmdfMjNyYjhZZEdxTVQwcUl6cGdHd2RYZkhpck11In0.J90SzVuNwecyCtWAQlOoWplJaK4rnIb3rCWXrHQPqJY"
+          existingSecret: openmeter-svix
+          signingSecretKey: signing-secret
+          jwtSecretKey: jwt
         
         # HA configuration (disabled for single replica)
         podDisruptionBudget:
           enabled: false
         
         # Resource limits (minimal for Hub cluster constraints)
+        # Readiness/liveness tuning for slow startup with external dependencies
         resources:
           limits:
             cpu: 300m
@@ -124,6 +160,18 @@ spec:
           requests:
             cpu: 100m
             memory: 512Mi
+        
+        livenessProbe:
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        
+        readinessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
         
         # Component replicas (minimal for Hub cluster constraints)
         api:
@@ -156,6 +204,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true  # Only apply resources that are out of sync
     retry:
       limit: 5
       backoff:

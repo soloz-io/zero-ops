@@ -18,7 +18,7 @@ spec:
       serviceTemplate: svc-template
   configuration:
     clusters:
-      - name: platform-ch-cls
+      - name: platform-ch-cls # Keep it short as ch-cls as it should not exceed 15 chars
         layout:
           shardsCount: 1
           replicasCount: 1

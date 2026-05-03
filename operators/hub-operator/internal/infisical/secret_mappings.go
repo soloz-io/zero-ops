@@ -335,5 +335,17 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		Description: "OpenMeter ClickHouse user password (logical database access)",
 	},
+	{
+		UsernameKey: "",
+		PasswordKey: "openmeter-svix-signing-secret",
+		Username:    "",
+		Description: "OpenMeter Svix webhook signing secret",
+	},
+	{
+		UsernameKey: "",
+		PasswordKey: "openmeter-svix-jwt",
+		Username:    "",
+		Description: "OpenMeter Svix JWT token for authentication",
+	},
 }
 
