@@ -8,11 +8,12 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  source:
-    repoURL: ghcr.io/openmeterio/helm-charts
-    chart: openmeter
-    targetRevision: 1.0.0-beta.227
-    helm:
+  sources:
+    # Source 1: Helm chart from OCI registry
+    - repoURL: ghcr.io/openmeterio/helm-charts
+      chart: openmeter
+      targetRevision: 1.0.0-beta.227
+      helm:
       skipCrds: false
       values: |
         # Official OpenMeter Helm chart values (Req 20)
@@ -52,9 +53,7 @@ spec:
             install: false
         
         # External ClickHouse configuration (ADR 014)
-        # Source: openmeterio/openmeter/app/config/aggregation.go (ConfigureAggregation)
-        # OpenMeter uses nested config.aggregation.clickhouse structure
-        # Password injected via OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD environment variable
+        # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
         config:
           aggregation:
             clickhouse:
@@ -125,41 +124,25 @@ spec:
         
         # External database configuration
         # ESO Pattern: Secrets created in Wave 1, mounted as env vars in Wave 3
-        # OpenMeter reads passwords from environment variables
+        # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
+        # OpenMeter reads passwords from environment variables via Viper
         api:
-          extraEnvFrom:
-            - secretRef:
-                name: openmeter-postgresql
-            - secretRef:
-                name: openmeter-clickhouse
+          replicaCount: 1
         
         balanceWorker:
-          extraEnvFrom:
-            - secretRef:
-                name: openmeter-postgresql
-            - secretRef:
-                name: openmeter-clickhouse
+          replicaCount: 1
         
-        billingWorker:
-          extraEnvFrom:
-            - secretRef:
-                name: openmeter-postgresql
-            - secretRef:
-                name: openmeter-clickhouse
+        balanceWorker:
+          replicaCount: 1
         
         notificationService:
-          extraEnvFrom:
-            - secretRef:
-                name: openmeter-postgresql
-            - secretRef:
-                name: openmeter-clickhouse
+          replicaCount: 1
         
         sinkWorker:
-          extraEnvFrom:
-            - secretRef:
-                name: openmeter-postgresql
-            - secretRef:
-                name: openmeter-clickhouse
+          replicaCount: 1
+        
+        billingWorker:
+          replicaCount: 1
         
         # Svix for webhooks - credentials from Infisical (ADR 003)
         svix:
@@ -194,26 +177,17 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 6
-        
-        # Component replicas (minimal for Hub cluster constraints)
-        api:
-          replicaCount: 1
-        
-        balanceWorker:
-          replicaCount: 1
-        
-        notificationService:
-          replicaCount: 1
-        
-        sinkWorker:
-          replicaCount: 1
-        
-        billingWorker:
+
           replicaCount: 1
         
         # Istio service mesh integration
         podAnnotations:
           sidecar.istio.io/inject: "true"
+    
+    # Source 2: Kustomize patches for environment variable injection
+    - repoURL: https://github.com/soloz-io/zero-ops.git
+      targetRevision: HEAD
+      path: manifests/hub-core-services/openmeter
   
   destination:
     server: https://kubernetes.default.svc
