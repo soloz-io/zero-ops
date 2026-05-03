@@ -12,7 +12,6 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: clickhouse
       clickhouse.altinity.com/chi: platform-clickhouse
   policyTypes:
     - Ingress
