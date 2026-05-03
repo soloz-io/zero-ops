@@ -8,167 +8,260 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  sources:
-    # Source 1: Helm chart from OCI registry
-    - repoURL: ghcr.io/openmeterio/helm-charts
-      chart: openmeter
-      targetRevision: 1.0.0-beta.227
-      helm:
-        skipCrds: false
-        values: |
-          # Official OpenMeter Helm chart values (Req 20)
-          replicaCount: 1
-          
+  source:
+    repoURL: ghcr.io/openmeterio/helm-charts
+    chart: openmeter
+    targetRevision: 1.0.0-beta.227
+    helm:
+      skipCrds: false
+      values: |
+        # Official OpenMeter Helm chart values (Req 20)
+        replicaCount: 1
+        
+        image:
+          repository: ghcr.io/openmeterio/openmeter
+          tag: v1.0.0-beta.227
+        
+        # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
+        nodeSelector:
+          node-role.kubernetes.io/worker: "true"
+        
+        tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "platform"
+          effect: "NoSchedule"
+        
+        # Service configuration
+        service:
+          type: ClusterIP
+          port: 80
+        
+        # PostgreSQL backend - use platform-db CNPG cluster
+        postgresql:
+          enabled: false
+        
+        # Redis - use platform-redis
+        redis:
+          enabled: false
+        
+        # ClickHouse - use platform-clickhouse (ADR 014)
+        clickhouse:
+          enabled: false
+          operator:
+            install: false
+        
+        # External ClickHouse configuration (ADR 014)
+        # Passwords injected via Kustomize post-renderer
+        config:
+          aggregation:
+            clickhouse:
+              address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+              database: openmeter
+              username: openmeter
+              tls: false
+          postgres:
+            url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
+        
+        # Kafka - required for OpenMeter event streaming (ADR 015)
+        kafka:
+          enabled: true
           image:
-            repository: ghcr.io/openmeterio/openmeter
-            tag: v1.0.0-beta.227
-          
-          # Node affinity for Hub workload nodes (Req 20.3, 20.4, 20.5)
-          nodeSelector:
-            node-role.kubernetes.io/worker: "true"
-          
-          tolerations:
-          - key: "workload"
-            operator: "Equal"
-            value: "platform"
-            effect: "NoSchedule"
-          
-          # Service configuration
-          service:
-            type: ClusterIP
-            port: 80
-          
-          # PostgreSQL backend - use platform-db CNPG cluster
-          postgresql:
-            enabled: false
-          
-          # Redis - use platform-redis
-          redis:
-            enabled: false
-          
-          # ClickHouse - use platform-clickhouse (ADR 014)
-          clickhouse:
-            enabled: false
-            operator:
-              install: false
-          
-          # External ClickHouse configuration (ADR 014)
-          # Passwords injected via Kustomize strategic merge patch (see kustomization.yaml)
-          config:
-            aggregation:
-              clickhouse:
-                address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
-                database: openmeter
-                username: openmeter
-                tls: false
-            postgres:
-              url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
-          
-          # Kafka - required for OpenMeter event streaming (ADR 015)
-          kafka:
+            registry: docker.io
+            repository: bitnamilegacy/kafka
+            tag: "4.0.0-debian-12-r10"
+          sasl:
+            client:
+              users: []
+            interbroker:
+              user: ""
+          listeners:
+            client:
+              protocol: PLAINTEXT
+            controller:
+              protocol: PLAINTEXT
+            interbroker:
+              protocol: PLAINTEXT
+          persistence:
             enabled: true
+            size: 10Gi
+            storageClass: hcloud-volumes
+          controller:
+            replicaCount: 1
             image:
               registry: docker.io
               repository: bitnamilegacy/kafka
               tag: "4.0.0-debian-12-r10"
-            sasl:
-              client:
-                users: []
-              interbroker:
-                user: ""
-            listeners:
-              client:
-                protocol: PLAINTEXT
-              controller:
-                protocol: PLAINTEXT
-              interbroker:
-                protocol: PLAINTEXT
-            persistence:
-              enabled: true
-              size: 10Gi
-              storageClass: hcloud-volumes
-            controller:
-              replicaCount: 1
-              image:
-                registry: docker.io
-                repository: bitnamilegacy/kafka
-                tag: "4.0.0-debian-12-r10"
-              resources:
-                limits:
-                  cpu: 200m
-                  memory: 512Mi
-                requests:
-                  cpu: 100m
-                  memory: 256Mi
-              livenessProbe:
-                initialDelaySeconds: 60
-                periodSeconds: 10
-                timeoutSeconds: 5
-                failureThreshold: 6
-              readinessProbe:
-                initialDelaySeconds: 30
-                periodSeconds: 10
-                timeoutSeconds: 5
-                failureThreshold: 6
-          
-          # Component replicas (minimal for Hub cluster constraints)
-          # Passwords injected via Kustomize strategic merge patch
-          api:
-            replicaCount: 1
-          
-          balanceWorker:
-            replicaCount: 1
-          
-          notificationService:
-            replicaCount: 1
-          
-          sinkWorker:
-            replicaCount: 1
-          
-          billingWorker:
-            replicaCount: 1
-          
-          # Svix for webhooks - credentials from Infisical (ADR 003)
-          svix:
-            enabled: true
-            replicaCount: 1
-            existingSecret: openmeter-svix
-            signingSecretKey: signing-secret
-            jwtSecretKey: jwt
-          
-          # HA configuration (disabled for single replica)
-          podDisruptionBudget:
-            enabled: false
-          
-          # Resource limits (minimal for Hub cluster constraints)
-          resources:
-            limits:
-              cpu: 300m
-              memory: 1Gi
-            requests:
-              cpu: 100m
-              memory: 512Mi
-          
-          livenessProbe:
-            initialDelaySeconds: 60
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
-          
-          readinessProbe:
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
-          
-          # Istio service mesh integration
-          podAnnotations:
-            sidecar.istio.io/inject: "true"
-    
-    # Source 2: Kustomize patches for environment variable injection
-    - repoURL: https://github.com/soloz-io/zero-ops.git
-      targetRevision: HEAD
-      path: manifests/hub-core-services/openmeter
+            resources:
+              limits:
+                cpu: 200m
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            livenessProbe:
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 6
+            readinessProbe:
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 6
+        
+        # Component replicas (minimal for Hub cluster constraints)
+        api:
+          replicaCount: 1
+        
+        balanceWorker:
+          replicaCount: 1
+        
+        notificationService:
+          replicaCount: 1
+        
+        sinkWorker:
+          replicaCount: 1
+        
+        billingWorker:
+          replicaCount: 1
+        
+        # Svix for webhooks - credentials from Infisical (ADR 003)
+        svix:
+          enabled: true
+          replicaCount: 1
+          existingSecret: openmeter-svix
+          signingSecretKey: signing-secret
+          jwtSecretKey: jwt
+        
+        # HA configuration (disabled for single replica)
+        podDisruptionBudget:
+          enabled: false
+        
+        # Resource limits (minimal for Hub cluster constraints)
+        resources:
+          limits:
+            cpu: 300m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        
+        livenessProbe:
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        
+        readinessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        
+        # Istio service mesh integration
+        podAnnotations:
+          sidecar.istio.io/inject: "true"
+      
+      # Kustomize post-renderer to inject environment variables
+      # Pattern: Helm renders → Kustomize patches → ArgoCD applies
+      postRenderers:
+        - kustomize:
+            patches:
+              # Patch openmeter-api deployment
+              - target:
+                  kind: Deployment
+                  name: openmeter-api
+                patch: |-
+                  - op: add
+                    path: /spec/template/spec/containers/0/env
+                    value:
+                      - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-clickhouse
+                            key: AGGREGATION_CLICKHOUSE_PASSWORD
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-postgresql
+                            key: POSTGRES_PASSWORD
+              
+              # Patch openmeter-balance-worker deployment
+              - target:
+                  kind: Deployment
+                  name: openmeter-balance-worker
+                patch: |-
+                  - op: add
+                    path: /spec/template/spec/containers/0/env
+                    value:
+                      - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-clickhouse
+                            key: AGGREGATION_CLICKHOUSE_PASSWORD
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-postgresql
+                            key: POSTGRES_PASSWORD
+              
+              # Patch openmeter-billing-worker deployment
+              - target:
+                  kind: Deployment
+                  name: openmeter-billing-worker
+                patch: |-
+                  - op: add
+                    path: /spec/template/spec/containers/0/env
+                    value:
+                      - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-clickhouse
+                            key: AGGREGATION_CLICKHOUSE_PASSWORD
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-postgresql
+                            key: POSTGRES_PASSWORD
+              
+              # Patch openmeter-notification-service deployment
+              - target:
+                  kind: Deployment
+                  name: openmeter-notification-service
+                patch: |-
+                  - op: add
+                    path: /spec/template/spec/containers/0/env
+                    value:
+                      - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-clickhouse
+                            key: AGGREGATION_CLICKHOUSE_PASSWORD
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-postgresql
+                            key: POSTGRES_PASSWORD
+              
+              # Patch openmeter-sink-worker deployment
+              - target:
+                  kind: Deployment
+                  name: openmeter-sink-worker
+                patch: |-
+                  - op: add
+                    path: /spec/template/spec/containers/0/env
+                    value:
+                      - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-clickhouse
+                            key: AGGREGATION_CLICKHOUSE_PASSWORD
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: openmeter-postgresql
+                            key: POSTGRES_PASSWORD
   
   destination:
     server: https://kubernetes.default.svc
@@ -181,7 +274,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
+      # ApplyOutOfSyncOnly removed to ensure post-renderer patches are always applied
     retry:
       limit: 5
       backoff:
