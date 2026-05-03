@@ -58,7 +58,7 @@ spec:
         config:
           aggregation:
             clickhouse:
-              address: platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+              address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
               database: openmeter
               username: openmeter
               tls: false

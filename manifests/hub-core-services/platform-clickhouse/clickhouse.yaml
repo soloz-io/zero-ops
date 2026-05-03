@@ -2,6 +2,7 @@
 # Platform-owned ClickHouse for all services (ADR 014)
 # Follows idiomatic enterprise pattern: shared cluster with database-level isolation
 # Similar to platform-db CNPG cluster pattern
+# NOTE: Name is "platform-clickhouse" so Altinity operator generates service as "clickhouse-platform-clickhouse"
 #
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
