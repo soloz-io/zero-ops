@@ -124,20 +124,42 @@ spec:
               failureThreshold: 6
         
         # External database configuration
-        # Source: openmeterio/openmeter/app/config/aggregation.go
-        # Password injected via OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD env var
-        # which overrides config.aggregation.clickhouse.password
-        extraEnvVars:
-          - name: OPENMETER_POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
+        # ESO Pattern: Secrets created in Wave 1, mounted as env vars in Wave 3
+        # OpenMeter reads passwords from environment variables
+        api:
+          extraEnvFrom:
+            - secretRef:
                 name: openmeter-postgresql
-                key: password
-          - name: OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
+            - secretRef:
                 name: openmeter-clickhouse
-                key: password
+        
+        balanceWorker:
+          extraEnvFrom:
+            - secretRef:
+                name: openmeter-postgresql
+            - secretRef:
+                name: openmeter-clickhouse
+        
+        billingWorker:
+          extraEnvFrom:
+            - secretRef:
+                name: openmeter-postgresql
+            - secretRef:
+                name: openmeter-clickhouse
+        
+        notificationService:
+          extraEnvFrom:
+            - secretRef:
+                name: openmeter-postgresql
+            - secretRef:
+                name: openmeter-clickhouse
+        
+        sinkWorker:
+          extraEnvFrom:
+            - secretRef:
+                name: openmeter-postgresql
+            - secretRef:
+                name: openmeter-clickhouse
         
         # Svix for webhooks - credentials from Infisical (ADR 003)
         svix:
