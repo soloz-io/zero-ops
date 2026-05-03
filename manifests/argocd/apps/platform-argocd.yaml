@@ -23,6 +23,12 @@ spec:
             timeout.hard.reconciliation: "0s"
             timeout.reconciliation: "60s"
             
+            # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
+            # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
+            # Used by: OpenMeter deployment (manifests/hub-core-services/openmeter/kustomization.yaml)
+            # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
+            kustomize.buildOptions: --enable-helm
+            
             # CNPG Cluster health check
             resource.customizations.health.postgresql.cnpg.io_Cluster: |
               hs = {}

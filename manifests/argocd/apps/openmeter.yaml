@@ -12,8 +12,6 @@ spec:
     repoURL: https://github.com/soloz-io/zero-ops.git
     targetRevision: HEAD
     path: manifests/hub-core-services/openmeter
-    kustomize:
-      enableHelm: true
   
   destination:
     server: https://kubernetes.default.svc
