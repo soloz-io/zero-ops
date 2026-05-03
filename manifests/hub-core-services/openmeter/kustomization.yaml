@@ -3,9 +3,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - secrets/secrets.yaml
+  - secrets/postgresql-es.yaml
   - secrets/clickhouse-credentials-externalsecret.yaml
-  - secrets/svix-externalsecret.yaml
+  - secrets/svix-es.yaml
 
 # Strategic merge patches to inject environment variables into OpenMeter deployments
 # Required because OpenMeter Helm chart does NOT support extraEnvFrom or extraVolumeMounts
