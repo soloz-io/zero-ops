@@ -13,7 +13,7 @@ helmCharts:
     version: 1.0.0-beta.227
     releaseName: openmeter
     namespace: hub-platform-billing
-    valuesFile: helm-chart.yaml
+    valuesFile: values.yaml
 
 # Strategic merge patches to inject environment variables
 patches:
@@ -21,88 +21,123 @@ patches:
       kind: Deployment
       name: openmeter-api
     patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env
-        value:
-          - name: AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-clickhouse
-                key: AGGREGATION_CLICKHOUSE_PASSWORD
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-postgresql
-                key: POSTGRES_PASSWORD
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: openmeter-api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: openmeter
+                env:
+                  - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-clickhouse
+                        key: AGGREGATION_CLICKHOUSE_PASSWORD
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-postgresql
+                        key: POSTGRES_PASSWORD
 
   - target:
       kind: Deployment
       name: openmeter-balance-worker
     patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env
-        value:
-          - name: AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-clickhouse
-                key: AGGREGATION_CLICKHOUSE_PASSWORD
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-postgresql
-                key: POSTGRES_PASSWORD
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: openmeter-balance-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: openmeter
+                env:
+                  - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-clickhouse
+                        key: AGGREGATION_CLICKHOUSE_PASSWORD
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-postgresql
+                        key: POSTGRES_PASSWORD
 
   - target:
       kind: Deployment
       name: openmeter-billing-worker
     patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env
-        value:
-          - name: AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-clickhouse
-                key: AGGREGATION_CLICKHOUSE_PASSWORD
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-postgresql
-                key: POSTGRES_PASSWORD
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: openmeter-billing-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: openmeter
+                env:
+                  - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-clickhouse
+                        key: AGGREGATION_CLICKHOUSE_PASSWORD
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-postgresql
+                        key: POSTGRES_PASSWORD
 
   - target:
       kind: Deployment
       name: openmeter-notification-service
     patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env
-        value:
-          - name: AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-clickhouse
-                key: AGGREGATION_CLICKHOUSE_PASSWORD
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-postgresql
-                key: POSTGRES_PASSWORD
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: openmeter-notification-service
+      spec:
+        template:
+          spec:
+            containers:
+              - name: openmeter
+                env:
+                  - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-clickhouse
+                        key: AGGREGATION_CLICKHOUSE_PASSWORD
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-postgresql
+                        key: POSTGRES_PASSWORD
 
   - target:
       kind: Deployment
       name: openmeter-sink-worker
     patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env
-        value:
-          - name: AGGREGATION_CLICKHOUSE_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-clickhouse
-                key: AGGREGATION_CLICKHOUSE_PASSWORD
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: openmeter-postgresql
-                key: POSTGRES_PASSWORD
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: openmeter-sink-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: openmeter
+                env:
+                  - name: AGGREGATION_CLICKHOUSE_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-clickhouse
+                        key: AGGREGATION_CLICKHOUSE_PASSWORD
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-postgresql
+                        key: POSTGRES_PASSWORD
