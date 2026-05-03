@@ -62,13 +62,34 @@ spec:
                 --password="${CLICKHOUSE_PASSWORD}" \
                 --query="CREATE DATABASE IF NOT EXISTS openmeter"
               
-              echo "Database openmeter created successfully"
+              echo "Creating openmeter user (idempotent)..."
+              clickhouse-client \
+                --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
+                --port=9000 \
+                --user=clickhouse_admin \
+                --password="${CLICKHOUSE_PASSWORD}" \
+                --query="CREATE USER IF NOT EXISTS openmeter IDENTIFIED WITH sha256_hash BY '${OPENMETER_PASSWORD_HASH}'"
+              
+              echo "Granting privileges to openmeter user..."
+              clickhouse-client \
+                --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
+                --port=9000 \
+                --user=clickhouse_admin \
+                --password="${CLICKHOUSE_PASSWORD}" \
+                --query="GRANT ALL ON openmeter.* TO openmeter"
+              
+              echo "Database and user setup completed successfully"
           env:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: platform-clickhouse-admin-password
                   key: password-plaintext
+            - name: OPENMETER_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: openmeter-clickhouse
+                  key: AGGREGATION_CLICKHOUSE_PASSWORD
           resources:
             requests:
               cpu: 50m
