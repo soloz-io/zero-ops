@@ -1,134 +1,134 @@
 ---
 replicaCount: 1
-    
-    image:
-      repository: ghcr.io/openmeterio/openmeter
-      tag: v1.0.0-beta.227
-    
-    nodeSelector:
-      node-role.kubernetes.io/worker: "true"
-    
-    tolerations:
-    - key: "workload"
-      operator: "Equal"
-      value: "platform"
-      effect: "NoSchedule"
-    
-    service:
-      type: ClusterIP
-      port: 80
-    
-    postgresql:
-      enabled: false
-    
-    redis:
-      enabled: false
-    
+
+image:
+  repository: ghcr.io/openmeterio/openmeter
+  tag: v1.0.0-beta.227
+
+nodeSelector:
+  node-role.kubernetes.io/worker: "true"
+
+tolerations:
+- key: "workload"
+  operator: "Equal"
+  value: "platform"
+  effect: "NoSchedule"
+
+service:
+  type: ClusterIP
+  port: 80
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+clickhouse:
+  enabled: false
+  operator:
+    install: false
+
+config:
+  aggregation:
     clickhouse:
-      enabled: false
-      operator:
-        install: false
-    
-    config:
-      aggregation:
-        clickhouse:
-          address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
-          database: openmeter
-          username: openmeter
-          tls: false
-      postgres:
-        url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
-    
-    kafka:
-      enabled: true
-      image:
-        registry: docker.io
-        repository: bitnamilegacy/kafka
-        tag: "4.0.0-debian-12-r10"
-      sasl:
-        client:
-          users: []
-        interbroker:
-          user: ""
-      listeners:
-        client:
-          protocol: PLAINTEXT
-        controller:
-          protocol: PLAINTEXT
-        interbroker:
-          protocol: PLAINTEXT
-      persistence:
-        enabled: true
-        size: 10Gi
-        storageClass: hcloud-volumes
-      controller:
-        replicaCount: 1
-        image:
-          registry: docker.io
-          repository: bitnamilegacy/kafka
-          tag: "4.0.0-debian-12-r10"
-        resources:
-          limits:
-            cpu: 200m
-            memory: 512Mi
-          requests:
-            cpu: 100m
-            memory: 256Mi
-        livenessProbe:
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 6
-        readinessProbe:
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 6
-    
-    api:
-      replicaCount: 1
-    
-    balanceWorker:
-      replicaCount: 1
-    
-    notificationService:
-      replicaCount: 1
-    
-    sinkWorker:
-      replicaCount: 1
-    
-    billingWorker:
-      replicaCount: 1
-    
-    svix:
-      enabled: true
-      replicaCount: 1
-      existingSecret: openmeter-svix
-      signingSecretKey: signing-secret
-      jwtSecretKey: jwt
-    
-    podDisruptionBudget:
-      enabled: false
-    
+      address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+      database: openmeter
+      username: openmeter
+      tls: false
+  postgres:
+    url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
+
+kafka:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/kafka
+    tag: "4.0.0-debian-12-r10"
+  sasl:
+    client:
+      users: []
+    interbroker:
+      user: ""
+  listeners:
+    client:
+      protocol: PLAINTEXT
+    controller:
+      protocol: PLAINTEXT
+    interbroker:
+      protocol: PLAINTEXT
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: hcloud-volumes
+  controller:
+    replicaCount: 1
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/kafka
+      tag: "4.0.0-debian-12-r10"
     resources:
       limits:
-        cpu: 300m
-        memory: 1Gi
+        cpu: 200m
+        memory: 512Mi
       requests:
         cpu: 100m
-        memory: 512Mi
-    
+        memory: 256Mi
     livenessProbe:
       initialDelaySeconds: 60
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
-    
     readinessProbe:
       initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
-    
+
+api:
+  replicaCount: 1
+
+balanceWorker:
+  replicaCount: 1
+
+notificationService:
+  replicaCount: 1
+
+sinkWorker:
+  replicaCount: 1
+
+billingWorker:
+  replicaCount: 1
+
+svix:
+  enabled: true
+  replicaCount: 1
+  existingSecret: openmeter-svix
+  signingSecretKey: signing-secret
+  jwtSecretKey: jwt
+
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 512Mi
+
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
 podAnnotations:
   sidecar.istio.io/inject: "true"
