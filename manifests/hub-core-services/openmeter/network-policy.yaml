@@ -68,7 +68,7 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: hub-platform-data
-        - podSelector:
+          podSelector:
             matchLabels:
               cnpg.io/cluster: platform-db
       ports:
@@ -79,7 +79,7 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: hub-platform-data
-        - podSelector:
+          podSelector:
             matchLabels:
               app: platform-redis
       ports:
@@ -90,7 +90,7 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: hub-platform-data
-        - podSelector:
+          podSelector:
             matchLabels:
               clickhouse.altinity.com/chi: platform-clickhouse
       ports:
