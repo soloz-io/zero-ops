@@ -20,7 +20,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: hub-platform-billing
+              name: hub-platform-billing
       ports:
         - protocol: TCP
           port: 9000  # ClickHouse native protocol
@@ -30,7 +30,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: hub-platform-data
+              name: hub-platform-data
       ports:
         - protocol: TCP
           port: 9000

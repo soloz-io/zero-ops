@@ -1,0 +1,33 @@
+---
+# NetworkPolicy for platform-redis
+# Allows ingress from hub-platform-billing namespace (OpenMeter, Svix)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-redis-access
+  namespace: hub-platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: platform-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from hub-platform-billing namespace (OpenMeter, Svix)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: hub-platform-billing
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow from hub-platform-data namespace (internal services)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: hub-platform-data
+      ports:
+        - protocol: TCP
+          port: 6379
