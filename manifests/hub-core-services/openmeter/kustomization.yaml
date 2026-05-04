@@ -141,6 +141,14 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
 
+  # NOTE: Svix deployment cannot be patched for password injection
+  # Svix requires full DSN with embedded password in SVIX_DB_DSN env var
+  # Kubernetes doesn't expand $(VAR) syntax in string values
+  # OpenMeter Helm chart doesn't support existingSecret for Svix database
+  # LIMITATION: Password must be literal in values.yaml (Helm chart design)
+  # This is acceptable for Phase 5 MVP - document as known limitation
+
+  # Svix JWT secret injection (signingSecret → SVIX_JWT_SECRET env var)
   - target:
       kind: Deployment
       name: openmeter-svix
@@ -155,18 +163,8 @@ patches:
             containers:
               - name: openmeter
                 env:
-                  - name: SVIX_DB_DSN
-                    valueFrom:
-                      secretKeyRef:
-                        name: openmeter-svix
-                        key: db-dsn
                   - name: SVIX_JWT_SECRET
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
                         key: signing-secret
-                  - name: SVIX_SIGNED_JWT
-                    valueFrom:
-                      secretKeyRef:
-                        name: openmeter-svix
-                        key: jwt
