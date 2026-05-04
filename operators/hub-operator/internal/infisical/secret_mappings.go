@@ -337,15 +337,9 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	},
 	{
 		UsernameKey: "",
-		PasswordKey: "openmeter-svix-signing-secret",
+		PasswordKey: "openmeter-svix-jwt-secret",
 		Username:    "",
-		Description: "OpenMeter Svix webhook signing secret",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "openmeter-svix-jwt",
-		Username:    "",
-		Description: "OpenMeter Svix JWT token for authentication",
+		Description: "OpenMeter Svix JWT secret (used for both signing and authentication)",
 	},
 }
 
