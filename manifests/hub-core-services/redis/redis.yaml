@@ -37,13 +37,14 @@ spec:
         node-role.kubernetes.io/worker: "true"
       containers:
       - name: redis
-        image: docker.io/bitnami/redis:7.4.2-debian-12-r4
+        image: docker.io/library/redis:8.6-alpine
         ports:
         - containerPort: 6379
           name: redis
-        env:
-        - name: ALLOW_EMPTY_PASSWORD
-          value: "yes"
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
         resources:
           limits:
             cpu: 100m
@@ -53,7 +54,7 @@ spec:
             memory: 128Mi
         volumeMounts:
         - name: data
-          mountPath: /bitnami/redis/data
+          mountPath: /data
   volumeClaimTemplates:
   - metadata:
       name: data
