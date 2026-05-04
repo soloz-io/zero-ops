@@ -106,6 +106,10 @@ svix:
   existingSecret: openmeter-svix
   signingSecretKey: signing-secret
   jwtSecretKey: jwt
+  database:
+    dsn: ""  # Will be overridden by Kustomize patch with password injection
+  redis:
+    dsn: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
 
 podDisruptionBudget:
   enabled: false
