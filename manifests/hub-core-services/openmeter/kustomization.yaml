@@ -40,6 +40,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
+                  - name: POSTGRES_URL
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                  - name: SVIX_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
 
   - target:
       kind: Deployment
@@ -65,6 +72,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
+                  - name: POSTGRES_URL
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                  - name: SVIX_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
 
   - target:
       kind: Deployment
@@ -90,6 +104,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
+                  - name: POSTGRES_URL
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                  - name: SVIX_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
 
   - target:
       kind: Deployment
@@ -115,6 +136,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
+                  - name: POSTGRES_URL
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                  - name: SVIX_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
 
   - target:
       kind: Deployment
@@ -140,6 +168,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
+                  - name: POSTGRES_URL
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                  - name: SVIX_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
 
   # NOTE: Svix deployment requires Kustomize patch for secret injection
   # OpenMeter Helm chart doesn't support existingSecret for Svix
