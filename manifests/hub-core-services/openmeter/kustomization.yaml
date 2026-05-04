@@ -155,10 +155,8 @@ patches:
             containers:
               - name: openmeter
                 env:
-                  - name: POSTGRES_PASSWORD
+                  - name: SVIX_DB_DSN
                     valueFrom:
                       secretKeyRef:
-                        name: openmeter-postgresql
-                        key: POSTGRES_PASSWORD
-                  - name: SVIX_DB_DSN
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                        name: openmeter-svix
+                        key: db-dsn
