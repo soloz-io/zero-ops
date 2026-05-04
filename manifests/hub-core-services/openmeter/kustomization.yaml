@@ -143,32 +143,33 @@ patches:
 
   # NOTE: Svix deployment requires Kustomize patch for secret injection
   # OpenMeter Helm chart doesn't support existingSecret for Svix
-  # We must patch the deployment to use secretKeyRef instead of literal values
+  # We must patch the deployment to REPLACE env vars (not append)
   # Kubernetes DOES support $(VAR) expansion when VAR is defined in same container env
   - target:
       kind: Deployment
       name: openmeter-svix
     patch: |-
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: openmeter-svix
-      spec:
-        template:
-          spec:
-            containers:
-              - name: openmeter
-                env:
-                  - name: POSTGRES_PASSWORD
-                    valueFrom:
-                      secretKeyRef:
-                        name: openmeter-postgresql
-                        key: POSTGRES_PASSWORD
-                  - name: SVIX_DB_DSN
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_JWT_SECRET
-                    valueFrom:
-                      secretKeyRef:
-                        name: openmeter-svix
-                        key: signing-secret
+      - op: replace
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: openmeter-postgresql
+                key: POSTGRES_PASSWORD
+          - name: SVIX_DB_DSN
+            value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+          - name: SVIX_REDIS_DSN
+            value: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
+          - name: SVIX_CACHE_TYPE
+            value: "redis"
+          - name: SVIX_JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: openmeter-svix
+                key: signing-secret
+          - name: SVIX_LOG_LEVEL
+            value: "debug"
+          - name: SVIX_QUEUE_TYPE
+            value: "redis"
 
