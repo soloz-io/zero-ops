@@ -103,11 +103,10 @@ billingWorker:
 svix:
   enabled: true
   replicaCount: 1
-  existingSecret: openmeter-svix
-  signingSecretKey: signing-secret
-  jwtSecretKey: jwt
+  signingSecret: ""  # Injected via Kustomize patch from ExternalSecret
+  signedJwt: ""      # Injected via Kustomize patch from ExternalSecret
   database:
-    dsn: ""  # Will be overridden by Kustomize patch with password injection
+    dsn: ""          # Injected via Kustomize patch from ExternalSecret
   redis:
     dsn: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
 

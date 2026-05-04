@@ -160,3 +160,13 @@ patches:
                       secretKeyRef:
                         name: openmeter-svix
                         key: db-dsn
+                  - name: SVIX_JWT_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: signing-secret
+                  - name: SVIX_SIGNED_JWT
+                    valueFrom:
+                      secretKeyRef:
+                        name: openmeter-svix
+                        key: jwt
