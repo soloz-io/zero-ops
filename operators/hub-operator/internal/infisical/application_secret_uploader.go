@@ -162,10 +162,11 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 // generateSvixJWT generates a signed JWT token required by Svix for API authentication
 // Svix validates incoming API requests using the signing secret (SVIX_JWT_SECRET)
 // OpenMeter must send a JWT token signed with that secret in the Authorization header
+// The 'sub' claim must be a valid organization ID in format 'org_XXXXX'
 func generateSvixJWT(signingSecret string) (string, error) {
 	claims := jwt.MapClaims{
 		"iss": "svix-server",
-		"sub": "openmeter",
+		"sub": "org_openmeter",  // Must be valid org ID format
 		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(10 * 365 * 24 * time.Hour).Unix(), // 10 years validity
 	}
