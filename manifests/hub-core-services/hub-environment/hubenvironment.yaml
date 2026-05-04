@@ -67,6 +67,13 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
+    - name: openmeter
+      database: openmeter
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
   nats:
     streams:
     - name: spoke-events
