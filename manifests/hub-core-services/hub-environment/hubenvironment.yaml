@@ -106,8 +106,6 @@ spec:
       responseTypes:
       - token
   secrets:
-    # ClusterID is sourced from hub-bootstrap-config ConfigMap
-    clusterId: hub-production
     infisical:
       # ProjectSlug and EnvironmentSlug are sourced from hub-bootstrap-config ConfigMap
       projectSlug: hub-platform
