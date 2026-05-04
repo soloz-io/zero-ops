@@ -3,11 +3,13 @@ package infisical
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1 "k8s.io/api/core/v1"
+	"github.com/golang-jwt/jwt/v5"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
@@ -127,6 +129,24 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			continue
 		}
 		logger.Info("Uploaded password to Infisical", "key", secretDef.PasswordKey)
+
+		// ---> NEW: Intercept Svix signing secret to generate and upload the JWT token <---
+		if secretDef.PasswordKey == "openmeter-svix-signing-secret" {
+			jwtToken, err := generateSvixJWT(password)
+			if err != nil {
+				logger.Error(err, "Failed to generate Svix JWT token")
+				failedKeys = append(failedKeys, "openmeter-svix-jwt")
+				continue
+			}
+			if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, "openmeter-svix-jwt", jwtToken); err != nil {
+				logger.Error(err, "Failed to upload Svix JWT to Infisical", "key", "openmeter-svix-jwt")
+				failedKeys = append(failedKeys, "openmeter-svix-jwt")
+				continue
+			}
+			logger.Info("Uploaded Svix JWT to Infisical", "key", "openmeter-svix-jwt")
+		}
+		// ---> END NEW LOGIC <---
+
 		successCount++
 	}
 
@@ -137,4 +157,18 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	}
 
 	return nil
+}
+
+// generateSvixJWT generates a signed JWT token required by Svix for API authentication
+// Svix validates incoming API requests using the signing secret (SVIX_JWT_SECRET)
+// OpenMeter must send a JWT token signed with that secret in the Authorization header
+func generateSvixJWT(signingSecret string) (string, error) {
+	claims := jwt.MapClaims{
+		"iss": "svix-server",
+		"sub": "openmeter",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(10 * 365 * 24 * time.Hour).Unix(), // 10 years validity
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(signingSecret))
 }
