@@ -15,11 +15,22 @@ Zero-Ops is an MCP-first platform that provisions production-grade, multi-tenant
 ## Platform Structure
 
 Zero-Ops Platform (PaaS)
-└── Tenant: "App Builder" (THE SAAS tenant - One product)
-    └── Users: alice, bob, charlie (your customers)
-        └── Applications: Each user builds their own apps
-            └── Forms: Each app contains multiple forms
-                └── Tables: Each form has dynamic schema
+├── CNPG Cluster (Spoke)
+│   ├── tenant_app-builder_db (logical database - ONE SaaS tenant)
+│   │   ├── Account: Construction Co (super admin: alice@construction.com)
+│   │   │   ├── User: worker1@construction.com
+│   │   │   ├── User: worker2@construction.com
+│   │   │   └── Applications/Forms (Forms: Each app contains multiple forms, Each form has dynamic schema, shared by workers)
+│   │   │
+│   │   ├── Account: Recruiting Inc (super admin: bob@recruiting.com)
+│   │   │   ├── User: recruiter1@recruiting.com
+│   │   │   └── Applications/Forms
+│   │   │
+│   │   └── Account: Retail Store (super admin: charlie@retail.com)
+│   │       └── Users...
+│   │
+│   ├── tenant_another-saas_db (different SaaS tenant)
+│   └── tenant_yet-another_db (different SaaS tenant)
 
 Zero-Ops Platform: PaaS Platform
 │
