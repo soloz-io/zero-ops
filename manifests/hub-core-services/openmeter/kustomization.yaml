@@ -42,7 +42,7 @@ patches:
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
                     value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_TOKEN
+                  - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
@@ -74,7 +74,7 @@ patches:
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
                     value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_TOKEN
+                  - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
@@ -106,7 +106,7 @@ patches:
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
                     value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_TOKEN
+                  - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
@@ -138,7 +138,7 @@ patches:
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
                     value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_TOKEN
+                  - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
@@ -170,7 +170,7 @@ patches:
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
                     value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-                  - name: SVIX_TOKEN
+                  - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
                         name: openmeter-svix
