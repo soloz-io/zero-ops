@@ -171,7 +171,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		infisicalSecretExists = false
 	}
 	
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated") || !infisicalSecretExists {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation) || !infisicalSecretExists {
 		if !infisicalSecretExists {
 			logger.Info("Phase 1: infisical-secrets missing, attempting restore from AWS backup")
 		} else {
@@ -224,7 +224,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
-		isFirstTime := !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "BootstrapSecretsGenerated")
+		isFirstTime := !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation)
 		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
 		
 		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
@@ -306,7 +306,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Phase 1b: Wait for ESO to create application secrets
 	// Application secrets are created by ESO from Infisical (creationPolicy: Owner)
 	// We must wait for them to exist before creating database roles
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "ApplicationSecretsReady") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "ApplicationSecretsReady", hubEnv.Generation) {
 		logger.Info("Phase 1b: Waiting for ESO to create application secrets")
 
 		dataNamespace := hubEnv.Spec.Database.Namespace
@@ -383,7 +383,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.6: Phase 2 - Run Migrations
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "MigrationsComplete") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "MigrationsComplete", hubEnv.Generation) {
 		logger.Info("Phase 2: Running database migrations")
 
 		migrator, err := database.NewMigrator(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
@@ -441,7 +441,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.7: Phase 2 - Create Database Roles
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "DatabaseRolesConfigured") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesConfigured", hubEnv.Generation) {
 		logger.Info("Phase 2: Creating database roles")
 
 		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
@@ -483,7 +483,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.8: Phase 3 - Upload Secrets to Infisical
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "SecretsBackedUp") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "SecretsBackedUp", hubEnv.Generation) {
 		logger.Info("Phase 3: Uploading secrets to Infisical")
 
 		// Requirement 9.11: Check if Infisical is ready
@@ -540,7 +540,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.9: Phase 3 - Register OAuth Clients
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "OAuthClientsRegistered") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "OAuthClientsRegistered", hubEnv.Generation) {
 		logger.Info("Phase 3: Registering OAuth clients")
 
 		// Requirement 9.11: Check if Hydra is ready
@@ -582,7 +582,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 9.10: Phase 3 - Create NATS Streams
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "NATSStreamsConfigured") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "NATSStreamsConfigured", hubEnv.Generation) {
 		logger.Info("Phase 3: Creating NATS streams")
 
 		// Requirement 9.11: Check if NATS is ready
@@ -625,7 +625,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// 6. Set Ready condition
-	if !meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "Ready") {
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
 		logger.Info("All phases complete, setting Ready condition")
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -644,7 +644,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Requirement 23: Handle certificate rotation (runs continuously after Ready)
-	if meta.IsStatusConditionTrue(hubEnv.Status.Conditions, "Ready") {
+	if isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
 		if err := r.handleCertificateRotation(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to handle certificate rotation")
 			// Don't fail reconciliation, just log and requeue
