@@ -40,9 +40,24 @@ err = billingProvider.CreateSubscription(ctx, "tenant-123", "tenant-123#user-456
 
 ## OpenMeter SDK Integration
 
-**Status**: Skeleton implementation. SDK integration pending OpenMeter deployment (Phase 5).
+**Status**: ✅ **COMPLETE** - HTTP client implementation integrated with OpenMeter API.
 
-All methods currently return `"not yet implemented - requires OpenMeter SDK integration"` errors. SDK will be integrated after OpenMeter is deployed to the Hub cluster.
+All methods now make actual HTTP calls to the OpenMeter API deployed at `http://openmeter-api.hub-platform-billing.svc.cluster.local:80`.
+
+### Implemented Methods
+
+**Subscription Management:**
+- ✅ CreateSubscription - Creates subscriptions with namespace isolation
+- ✅ GetSubscription - Retrieves subscription by ID
+- ✅ UpdateSubscription - Updates subscription with proration support
+- ✅ CancelSubscription - Marks subscription as inactive
+- ✅ ListSubscriptions - Lists subscriptions with filters
+- ✅ MigrateSubscription - Migrates subscription to new plan
+
+**Invoice Operations:**
+- ✅ PreviewInvoice - Generates draft invoice preview
+- ✅ GetInvoice - Retrieves invoice by ID
+- ✅ ListInvoices - Lists invoices with pagination
 
 ## Design References
 
