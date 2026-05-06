@@ -12,12 +12,10 @@ import (
 
 // Auth implements interfaces.IAuth using the Ory stack:
 //   - Ory Kratos  — identity management (users)
-//   - Ory Hydra   — OAuth2/OIDC token issuance
 //   - Ory Keto    — relationship-based authorization
 type Auth struct {
 	cfg    Config
 	kratos *kratosClient
-	hydra  *hydraClient
 	keto   *ketoClient
 	jwt    *jwtValidator
 }
@@ -29,33 +27,54 @@ func NewAuth(cfg Config) *Auth {
 	return &Auth{
 		cfg:    cfg,
 		kratos: &kratosClient{adminURL: cfg.KratosAdminURL, client: hc},
-		hydra:  &hydraClient{publicURL: cfg.HydraPublicURL, adminURL: cfg.HydraAdminURL, client: hc},
 		keto:   &ketoClient{readURL: cfg.KetoReadURL, writeURL: cfg.KetoWriteURL, client: hc},
 		jwt:    newJWTValidator(cfg),
 	}
 }
 
-// ─── User Management (6.4–6.9) ───────────────────────────────────────────────
-
-func (a *Auth) CreateUser(ctx context.Context, user models.User) error {
-	if err := a.kratos.createIdentity(ctx, user); err != nil {
-		return err
+// NewAuthProvider creates a simplified Ory Auth provider for API server
+func NewAuthProvider(kratosAdminURL string) (*Auth, error) {
+	if kratosAdminURL == "" {
+		return nil, fmt.Errorf("ory: kratosAdminURL is required")
 	}
-	// 6.16 — create tenant-user relationship in Keto
-	return a.keto.createRelationship(ctx, ketoRelationship{
+
+	cfg := Config{
+		KratosAdminURL: kratosAdminURL,
+		HydraPublicURL: "http://hydra-public.hub-platform-identity.svc.cluster.local:4444",
+		HydraAdminURL:  "http://hydra-admin.hub-platform-identity.svc.cluster.local:4445",
+		KetoReadURL:    "http://keto-read.hub-platform-identity.svc.cluster.local:4466",
+		KetoWriteURL:   "http://keto-write.hub-platform-identity.svc.cluster.local:4467",
+		JWTAudience:    "kube-sbt-api",
+	}
+
+	return NewAuth(cfg), nil
+}
+
+// ─── User Management ─────────────────────────────────────────────────────────
+
+func (a *Auth) CreateUser(ctx context.Context, user models.User) (*models.User, error) {
+	if err := a.kratos.createIdentity(ctx, user); err != nil {
+		return nil, err
+	}
+	// Create tenant-user relationship in Keto
+	_ = a.keto.createRelationship(ctx, ketoRelationship{
 		Namespace: "tenants",
 		Object:    user.TenantID,
 		Relation:  "member",
 		SubjectID: user.ID,
 	})
+	return a.kratos.getIdentity(ctx, user.ID)
 }
 
 func (a *Auth) GetUser(ctx context.Context, userID string) (*models.User, error) {
 	return a.kratos.getIdentity(ctx, userID)
 }
 
-func (a *Auth) UpdateUser(ctx context.Context, userID string, updates models.UserUpdates) error {
-	return a.kratos.updateIdentity(ctx, userID, updates)
+func (a *Auth) UpdateUser(ctx context.Context, userID string, updates models.UserUpdates) (*models.User, error) {
+	if err := a.kratos.updateIdentity(ctx, userID, updates); err != nil {
+		return nil, err
+	}
+	return a.kratos.getIdentity(ctx, userID)
 }
 
 func (a *Auth) DeleteUser(ctx context.Context, userID string) error {
@@ -64,7 +83,7 @@ func (a *Auth) DeleteUser(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
-	// 6.16 — remove Keto relationship
+	// Remove Keto relationship
 	_ = a.keto.deleteRelationship(ctx, ketoRelationship{
 		Namespace: "tenants",
 		Object:    user.TenantID,
@@ -74,89 +93,57 @@ func (a *Auth) DeleteUser(ctx context.Context, userID string) error {
 	return a.kratos.deleteIdentity(ctx, userID)
 }
 
-func (a *Auth) DisableUser(ctx context.Context, userID string) error {
-	return a.kratos.setState(ctx, userID, "inactive")
-}
-
-func (a *Auth) EnableUser(ctx context.Context, userID string) error {
-	return a.kratos.setState(ctx, userID, "active")
-}
-
-func (a *Auth) ListUsers(ctx context.Context, filters models.UserFilters) ([]models.User, error) {
+func (a *Auth) ListUsers(ctx context.Context, tenantID, page, pageSize string) ([]models.User, error) {
+	// TODO: Implement pagination properly
+	filters := models.UserFilters{
+		TenantID: &tenantID,
+	}
 	return a.kratos.listIdentities(ctx, filters)
 }
 
-// ─── Authentication (6.10–6.12) ──────────────────────────────────────────────
+// ─── Session Management ──────────────────────────────────────────────────────
 
-func (a *Auth) AuthenticateUser(ctx context.Context, creds models.Credentials) (*models.Token, error) {
-	return a.hydra.authenticate(ctx, creds, "opensbt-internal", a.cfg.JWTAudience)
-}
-
-// ValidateToken validates a JWT and returns the claims (6.11, 6.14).
-// Claims include: sub (user_id), tenant_id, tenant_tier, roles, email.
-func (a *Auth) ValidateToken(ctx context.Context, tokenString string) (*models.Claims, error) {
-	raw, err := a.jwt.validate(tokenString)
+func (a *Auth) ValidateSession(ctx context.Context, token string) (*models.Session, error) {
+	// Validate JWT and extract claims
+	raw, err := a.jwt.validate(token)
 	if err != nil {
 		return nil, err
 	}
-	claims := &models.Claims{}
-	claims.UserID, _ = raw["sub"].(string)
-	claims.TenantID, _ = raw["tenant_id"].(string)
-	claims.TenantTier, _ = raw["tenant_tier"].(string)
-	if exp, ok := raw["exp"].(float64); ok {
-		claims.ExpiresAt = int64(exp)
-	}
-	if iat, ok := raw["iat"].(float64); ok {
-		claims.IssuedAt = int64(iat)
-	}
-	if roles, ok := raw["roles"].([]interface{}); ok {
-		for _, r := range roles {
+
+	userID, _ := raw["sub"].(string)
+	tenantID, _ := raw["tenant_id"].(string)
+	
+	var roles []string
+	if rolesRaw, ok := raw["roles"].([]interface{}); ok {
+		for _, r := range rolesRaw {
 			if s, ok := r.(string); ok {
-				claims.Roles = append(claims.Roles, s)
+				roles = append(roles, s)
 			}
 		}
 	}
-	return claims, nil
-}
 
-func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.Token, error) {
-	return a.hydra.refreshToken(ctx, refreshToken, "opensbt-internal")
-}
-
-// ─── Admin Operations (6.13) ─────────────────────────────────────────────────
-
-func (a *Auth) CreateAdminUser(ctx context.Context, props models.CreateAdminUserProps) error {
-	user := models.User{
-		Email:    props.Email,
-		Name:     props.Name,
-		TenantID: "platform",
-		Roles:    []string{"platform-admin"},
+	var expiresAt time.Time
+	if exp, ok := raw["exp"].(float64); ok {
+		expiresAt = time.Unix(int64(exp), 0)
 	}
-	if err := a.kratos.createIdentity(ctx, user); err != nil {
-		return fmt.Errorf("create admin identity: %w", err)
+
+	var issuedAt time.Time
+	if iat, ok := raw["iat"].(float64); ok {
+		issuedAt = time.Unix(int64(iat), 0)
 	}
-	return nil
-}
 
-// ─── Token Configuration (6.15) ──────────────────────────────────────────────
-
-func (a *Auth) GetJWTIssuer() string {
-	return a.cfg.HydraPublicURL + "/"
-}
-
-func (a *Auth) GetJWTAudience() []string {
-	if a.cfg.JWTAudience == "" {
-		return nil
-	}
-	return []string{a.cfg.JWTAudience}
-}
-
-func (a *Auth) GetTokenEndpoint() string {
-	return a.cfg.HydraPublicURL + "/oauth2/token"
-}
-
-func (a *Auth) GetWellKnownEndpoint() string {
-	return a.cfg.HydraPublicURL + "/.well-known/openid-configuration"
+	return &models.Session{
+		ID: userID,
+		Identity: models.Identity{
+			ID: userID,
+			Traits: map[string]interface{}{
+				"tenant_id": tenantID,
+				"roles":     roles,
+			},
+		},
+		ExpiresAt: expiresAt,
+		IssuedAt:  issuedAt,
+	}, nil
 }
 
 // Compile-time assertion

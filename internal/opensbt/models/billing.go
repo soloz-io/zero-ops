@@ -77,6 +77,9 @@ type StripeConfig struct {
 
 // Validate validates Subscription fields
 func (s *Subscription) Validate() error {
+	if s.ID == "" {
+		return fmt.Errorf("subscription ID is required")
+	}
 	if s.Namespace == "" {
 		return fmt.Errorf("subscription namespace is required")
 	}
@@ -91,6 +94,9 @@ func (s *Subscription) Validate() error {
 
 // Validate validates Invoice fields
 func (i *Invoice) Validate() error {
+	if i.ID == "" {
+		return fmt.Errorf("invoice ID is required")
+	}
 	if i.Namespace == "" {
 		return fmt.Errorf("invoice namespace is required")
 	}
