@@ -95,3 +95,5 @@ kind: ServiceAccount
 metadata:
   name: kube-sbt-api
   namespace: hub-platform-ops
+imagePullSecrets:
+- name: ghcr-pull-secret
