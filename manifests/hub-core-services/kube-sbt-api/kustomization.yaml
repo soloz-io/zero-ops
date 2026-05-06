@@ -4,17 +4,17 @@ kind: Kustomization
 namespace: hub-platform-ops
 
 resources:
-  - namespace.yaml
-  - manager.yaml
-  - network-policy.yaml
+- namespace.yaml
+- manager.yaml
+- network-policy.yaml
 
 images:
-- name: controller
+- digest: sha256:515232934fb9fdcbe88d3e879a30747f5f32ed650bb67eb9ab0169fbd763fd29
+  name: controller
   newName: ghcr.io/soloz-io/zero-ops/kube-sbt-api
-  newTag: latest
 
 labels:
 - pairs:
-    app.kubernetes.io/name: kube-sbt-api
     app.kubernetes.io/component: metering-api
+    app.kubernetes.io/name: kube-sbt-api
     app.kubernetes.io/part-of: kube-sbt
