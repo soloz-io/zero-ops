@@ -211,11 +211,27 @@ This document specifies requirements for the kube-sbt metering and billing syste
 1. THE kube-sbt SHALL run exclusively in the Hub cluster as part of the control plane
 2. THE kube-sbt SHALL wrap Ory Kratos (IAuth) for identity management in the Hub
 3. THE kube-sbt SHALL wrap OpenMeter SDK (IMetering, IBilling) for metering/billing operations
-4. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls
+4. THE kube-sbt SHALL inject `OpenMeter-Namespace: {tenant_id}` header on all OpenMeter API calls (NOTE: OpenMeter v1.0.0-beta.227 uses StaticNamespaceDecoder and ignores this header - see Requirement 10.1)
 5. THE kube-sbt SHALL validate tenant JWT before proxying requests to OpenMeter
 6. THE Spoke clusters SHALL run zero kube-sbt code (only tenant workloads, PostgREST)
 7. THE AgentGateway SHALL run exclusively in Hub cluster (centralized gateway pattern)
 8. THE kube-sbt SHALL act as Backend-For-Frontend (BFF) preventing direct OpenMeter access from sbt-sdk
+
+### Requirement 10.1: OpenMeter Namespace Isolation Limitation (KNOWN ISSUE)
+
+**User Story:** As a platform architect, I need to understand OpenMeter's namespace isolation capabilities, so that I can design appropriate multi-tenancy strategies.
+
+#### Acceptance Criteria
+
+1. THE Platform SHALL document that OpenMeter v1.0.0-beta.227 does NOT support HTTP header-based namespace routing
+2. THE OpenMeter deployment SHALL use StaticNamespaceDecoder which returns a single configured namespace (Reference: archived/billing-metering/openmeter/app/common/namespace.go:L35-L39)
+3. THE kube-sbt provider implementation SHALL correctly set OpenMeter-Namespace header for future compatibility
+4. THE Platform SHALL implement one of the following multi-tenancy strategies:
+   - **Option A (Current)**: Single OpenMeter namespace for all tenants with subject-level isolation via `{tenant_id}#{user_id}` format
+   - **Option B (Future)**: Deploy multiple OpenMeter instances (one per tenant) with separate `namespace.default` configurations
+   - **Option C (Contribution)**: Contribute HeaderNamespaceDecoder implementation to OpenMeter project
+5. THE E2E tests SHALL document the namespace isolation limitation with source code references
+6. THE Design document SHALL include architectural decision record (ADR) for chosen multi-tenancy strategy
 
 ### Requirement 11: Zero-Trust Security Compliance
 

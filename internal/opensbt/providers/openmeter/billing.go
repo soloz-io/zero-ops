@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
@@ -15,8 +14,7 @@ import (
 )
 
 // BillingProvider implements interfaces.IBilling using OpenMeter HTTP API with retry logic
-// CORRECTED: Namespace passed as explicit parameter to all API calls with exponential backoff retry
-// Reference: archived/billing-metering/openmeter/openmeter/subscription/service/service.go:L138-L180
+// CORRECTED: Uses /openmeter/* paths and OpenMeter-Namespace header for v1.0.0-beta.227
 type BillingProvider struct {
 	baseURL     string
 	httpClient  *http.Client
@@ -38,11 +36,8 @@ func NewBillingProvider(baseURL string) (*BillingProvider, error) {
 	}, nil
 }
 
-// CreateSubscription creates a subscription in OpenMeter (Req 16.1)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic (Req 5.5)
-// Reference: archived/billing-metering/openmeter/openmeter/subscription/service/service.go:L138-L180
+// CreateSubscription creates a subscription in OpenMeter
 func (b *BillingProvider) CreateSubscription(ctx context.Context, namespace, subjectID, planID string, opts models.SubscriptionOptions) error {
-	// Validate inputs
 	if namespace == "" {
 		return fmt.Errorf("openmeter: namespace is required")
 	}
@@ -53,7 +48,6 @@ func (b *BillingProvider) CreateSubscription(ctx context.Context, namespace, sub
 		return fmt.Errorf("openmeter: planID is required")
 	}
 
-	// Build request body
 	reqBody := map[string]interface{}{
 		"customerId": subjectID,
 		"plan": map[string]string{
@@ -78,27 +72,23 @@ func (b *BillingProvider) CreateSubscription(ctx context.Context, namespace, sub
 		return fmt.Errorf("openmeter: failed to marshal request: %w", err)
 	}
 
-	// Execute with retry logic (Req 5.5: exponential backoff)
 	return RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions?namespace=%s", b.baseURL, url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions", b.baseURL)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("OpenMeter-Namespace", namespace)
 
-		// Execute request
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: create subscription failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -108,8 +98,7 @@ func (b *BillingProvider) CreateSubscription(ctx context.Context, namespace, sub
 	})
 }
 
-// GetSubscription retrieves a subscription by ID (Req 16.9)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// GetSubscription retrieves a subscription by ID
 func (b *BillingProvider) GetSubscription(ctx context.Context, namespace, subscriptionID string) (*models.Subscription, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")
@@ -121,23 +110,21 @@ func (b *BillingProvider) GetSubscription(ctx context.Context, namespace, subscr
 	var subscription *models.Subscription
 
 	err := RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions/%s?namespace=%s", b.baseURL, url.PathEscape(subscriptionID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions/%s", b.baseURL, subscriptionID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
-		// Execute request
+		req.Header.Set("OpenMeter-Namespace", namespace)
+
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("openmeter: subscription not found: %s", subscriptionID)
 		}
@@ -147,13 +134,11 @@ func (b *BillingProvider) GetSubscription(ctx context.Context, namespace, subscr
 			return fmt.Errorf("openmeter: get subscription failed: status=%d body=%s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
 		var respData map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
 			return fmt.Errorf("openmeter: failed to decode response: %w", err)
 		}
 
-		// Map to internal model
 		subscription = &models.Subscription{
 			ID:        respData["id"].(string),
 			Namespace: namespace,
@@ -161,7 +146,6 @@ func (b *BillingProvider) GetSubscription(ctx context.Context, namespace, subscr
 			Status:    respData["status"].(string),
 		}
 
-		// Parse plan reference
 		if plan, ok := respData["plan"].(map[string]interface{}); ok {
 			if key, ok := plan["key"].(string); ok {
 				subscription.PlanID = key
@@ -190,10 +174,7 @@ func (b *BillingProvider) GetSubscription(ctx context.Context, namespace, subscr
 	return subscription, nil
 }
 
-// UpdateSubscription modifies a subscription (Req 16.3)
-// VERIFIED: OpenMeter supports proration via ProRatingConfig (opt-in)
-// Must be enabled in Plan: ProRatingConfig{Enabled: true, Mode: "prorate_prices"}
-// Reference: archived/billing-metering/openmeter/openmeter/productcatalog/pro_rating.go:L23-L29
+// UpdateSubscription modifies a subscription
 func (b *BillingProvider) UpdateSubscription(ctx context.Context, namespace, subscriptionID string, updates models.SubscriptionUpdates) error {
 	if namespace == "" {
 		return fmt.Errorf("openmeter: namespace is required")
@@ -202,7 +183,6 @@ func (b *BillingProvider) UpdateSubscription(ctx context.Context, namespace, sub
 		return fmt.Errorf("openmeter: subscriptionID is required")
 	}
 
-	// Build request body
 	reqBody := make(map[string]interface{})
 	
 	if updates.PlanID != nil {
@@ -229,25 +209,22 @@ func (b *BillingProvider) UpdateSubscription(ctx context.Context, namespace, sub
 	}
 
 	return RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions/%s?namespace=%s", b.baseURL, url.PathEscape(subscriptionID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions/%s", b.baseURL, subscriptionID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(bodyBytes))
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("OpenMeter-Namespace", namespace)
 
-		// Execute request
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: update subscription failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -257,8 +234,7 @@ func (b *BillingProvider) UpdateSubscription(ctx context.Context, namespace, sub
 	})
 }
 
-// CancelSubscription marks subscription as inactive (Req 16.7, 16.8)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// CancelSubscription marks subscription as inactive
 func (b *BillingProvider) CancelSubscription(ctx context.Context, namespace, subscriptionID string) error {
 	if namespace == "" {
 		return fmt.Errorf("openmeter: namespace is required")
@@ -267,7 +243,6 @@ func (b *BillingProvider) CancelSubscription(ctx context.Context, namespace, sub
 		return fmt.Errorf("openmeter: subscriptionID is required")
 	}
 
-	// Build request body
 	reqBody := map[string]interface{}{
 		"effectiveDate": time.Now().Format(time.RFC3339),
 	}
@@ -278,25 +253,22 @@ func (b *BillingProvider) CancelSubscription(ctx context.Context, namespace, sub
 	}
 
 	return RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions/%s/cancel?namespace=%s", b.baseURL, url.PathEscape(subscriptionID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions/%s/cancel", b.baseURL, subscriptionID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("OpenMeter-Namespace", namespace)
 
-		// Execute request
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: cancel subscription failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -306,8 +278,7 @@ func (b *BillingProvider) CancelSubscription(ctx context.Context, namespace, sub
 	})
 }
 
-// ListSubscriptions lists subscriptions with filters (Req 16.9)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// ListSubscriptions lists subscriptions with filters
 func (b *BillingProvider) ListSubscriptions(ctx context.Context, namespace string, filters models.SubscriptionFilters) ([]models.Subscription, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")
@@ -316,60 +287,37 @@ func (b *BillingProvider) ListSubscriptions(ctx context.Context, namespace strin
 	var subscriptions []models.Subscription
 
 	err := RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with query parameters
-		params := url.Values{}
-		params.Set("namespace", namespace)
-		
-		if filters.SubjectID != nil {
-			params.Set("customerId", *filters.SubjectID)
-		}
-		
-		if filters.PlanID != nil {
-			params.Set("planKey", *filters.PlanID)
-		}
-		
-		if filters.Status != nil {
-			params.Set("status", *filters.Status)
-		}
-		
-		if filters.Limit > 0 {
-			params.Set("limit", fmt.Sprintf("%d", filters.Limit))
-		}
-		
-		if filters.Offset > 0 {
-			params.Set("offset", fmt.Sprintf("%d", filters.Offset))
-		}
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions", b.baseURL)
 
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions?%s", b.baseURL, params.Encode())
-
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
-		// Execute request
+		req.Header.Set("OpenMeter-Namespace", namespace)
+
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: list subscriptions failed: status=%d body=%s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
-		var respData []map[string]interface{}
+		// Parse paginated response
+		var respData struct {
+			Items      []map[string]interface{} `json:"items"`
+			TotalCount int                      `json:"totalCount"`
+		}
 		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
 			return fmt.Errorf("openmeter: failed to decode response: %w", err)
 		}
 
-		// Map to internal models
-		subscriptions = make([]models.Subscription, 0, len(respData))
-		for _, item := range respData {
+		subscriptions = make([]models.Subscription, 0, len(respData.Items))
+		for _, item := range respData.Items {
 			subscription := models.Subscription{
 				ID:        item["id"].(string),
 				Namespace: namespace,
@@ -377,7 +325,6 @@ func (b *BillingProvider) ListSubscriptions(ctx context.Context, namespace strin
 				Status:    item["status"].(string),
 			}
 
-			// Parse plan reference
 			if plan, ok := item["plan"].(map[string]interface{}); ok {
 				if key, ok := plan["key"].(string); ok {
 					subscription.PlanID = key
@@ -409,8 +356,7 @@ func (b *BillingProvider) ListSubscriptions(ctx context.Context, namespace strin
 	return subscriptions, nil
 }
 
-// MigrateSubscription transitions subscription to new plan (Req 16.12)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// MigrateSubscription transitions subscription to new plan
 func (b *BillingProvider) MigrateSubscription(ctx context.Context, namespace, subscriptionID, newPlanID string, prorationBehavior string) error {
 	if namespace == "" {
 		return fmt.Errorf("openmeter: namespace is required")
@@ -422,7 +368,6 @@ func (b *BillingProvider) MigrateSubscription(ctx context.Context, namespace, su
 		return fmt.Errorf("openmeter: newPlanID is required")
 	}
 
-	// Validate proration behavior
 	validBehaviors := map[string]bool{
 		"create_prorated_invoice": true,
 		"none":                    true,
@@ -432,7 +377,6 @@ func (b *BillingProvider) MigrateSubscription(ctx context.Context, namespace, su
 		return fmt.Errorf("openmeter: invalid prorationBehavior: %s", prorationBehavior)
 	}
 
-	// Build request body
 	reqBody := map[string]interface{}{
 		"plan": map[string]string{
 			"key": newPlanID,
@@ -449,25 +393,22 @@ func (b *BillingProvider) MigrateSubscription(ctx context.Context, namespace, su
 	}
 
 	return RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/subscriptions/%s/change?namespace=%s", b.baseURL, url.PathEscape(subscriptionID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/subscriptions/%s/change", b.baseURL, subscriptionID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("OpenMeter-Namespace", namespace)
 
-		// Execute request
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: migrate subscription failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -477,8 +418,7 @@ func (b *BillingProvider) MigrateSubscription(ctx context.Context, namespace, su
 	})
 }
 
-// PreviewInvoice generates invoice preview (Req 17.1)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// PreviewInvoice generates invoice preview
 func (b *BillingProvider) PreviewInvoice(ctx context.Context, namespace, subjectID string) (*models.Invoice, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")
@@ -490,37 +430,32 @@ func (b *BillingProvider) PreviewInvoice(ctx context.Context, namespace, subject
 	var invoice *models.Invoice
 
 	err := RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/customers/%s/invoices/simulate?namespace=%s", b.baseURL, url.PathEscape(subjectID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/customers/%s/invoices/simulate", b.baseURL, subjectID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, nil)
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("OpenMeter-Namespace", namespace)
 
-		// Execute request
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: preview invoice failed: status=%d body=%s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
 		var respData map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
 			return fmt.Errorf("openmeter: failed to decode response: %w", err)
 		}
 
-		// Map to internal model
 		invoice = &models.Invoice{
 			Namespace: namespace,
 			SubjectID: subjectID,
@@ -535,7 +470,6 @@ func (b *BillingProvider) PreviewInvoice(ctx context.Context, namespace, subject
 			invoice.Currency = currency
 		}
 
-		// Parse totals
 		if totals, ok := respData["totals"].(map[string]interface{}); ok {
 			if total, ok := totals["total"].(float64); ok {
 				invoice.Total = total
@@ -548,7 +482,6 @@ func (b *BillingProvider) PreviewInvoice(ctx context.Context, namespace, subject
 			}
 		}
 
-		// Parse line items
 		if lines, ok := respData["lines"].(map[string]interface{}); ok {
 			if data, ok := lines["data"].([]interface{}); ok {
 				invoice.LineItems = make([]models.LineItem, 0, len(data))
@@ -580,8 +513,7 @@ func (b *BillingProvider) PreviewInvoice(ctx context.Context, namespace, subject
 	return invoice, nil
 }
 
-// GetInvoice retrieves an invoice by ID (Req 17.2)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// GetInvoice retrieves an invoice by ID
 func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID string) (*models.Invoice, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")
@@ -593,23 +525,21 @@ func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID s
 	var invoice *models.Invoice
 
 	err := RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with namespace query parameter
-		apiURL := fmt.Sprintf("%s/api/v1/invoices/%s?namespace=%s&expand=lines", b.baseURL, url.PathEscape(invoiceID), url.QueryEscape(namespace))
+		apiURL := fmt.Sprintf("%s/openmeter/invoices/%s?expand=lines", b.baseURL, invoiceID)
 
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
-		// Execute request
+		req.Header.Set("OpenMeter-Namespace", namespace)
+
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("openmeter: invoice not found: %s", invoiceID)
 		}
@@ -619,13 +549,11 @@ func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID s
 			return fmt.Errorf("openmeter: get invoice failed: status=%d body=%s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
 		var respData map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
 			return fmt.Errorf("openmeter: failed to decode response: %w", err)
 		}
 
-		// Map to internal model
 		invoice = &models.Invoice{
 			ID:        respData["id"].(string),
 			Namespace: namespace,
@@ -647,7 +575,6 @@ func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID s
 			}
 		}
 
-		// Parse totals
 		if totals, ok := respData["totals"].(map[string]interface{}); ok {
 			if total, ok := totals["total"].(float64); ok {
 				invoice.Total = total
@@ -666,7 +593,6 @@ func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID s
 			}
 		}
 
-		// Parse line items
 		if lines, ok := respData["lines"].(map[string]interface{}); ok {
 			if data, ok := lines["data"].([]interface{}); ok {
 				invoice.LineItems = make([]models.LineItem, 0, len(data))
@@ -698,8 +624,7 @@ func (b *BillingProvider) GetInvoice(ctx context.Context, namespace, invoiceID s
 	return invoice, nil
 }
 
-// ListInvoices lists invoices with filters (Req 17.3)
-// CORRECTED: Pass namespace explicitly via query parameter with retry logic
+// ListInvoices lists invoices with filters
 func (b *BillingProvider) ListInvoices(ctx context.Context, namespace string, filters models.InvoiceFilters) ([]models.Invoice, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")
@@ -708,95 +633,70 @@ func (b *BillingProvider) ListInvoices(ctx context.Context, namespace string, fi
 	var invoices []models.Invoice
 
 	err := RetryWithExponentialBackoff(ctx, b.retryConfig, func() error {
-		// Build URL with query parameters
-		params := url.Values{}
-		params.Set("namespace", namespace)
-		
-		if filters.SubjectID != nil {
-			params.Set("customers", *filters.SubjectID)
-		}
-		
-		if filters.Status != nil {
-			params.Set("statuses", *filters.Status)
-		}
-		
-		if filters.Limit > 0 {
-			params.Set("limit", fmt.Sprintf("%d", filters.Limit))
-		}
-		
-		if filters.Offset > 0 {
-			params.Set("offset", fmt.Sprintf("%d", filters.Offset))
-		}
+		apiURL := fmt.Sprintf("%s/openmeter/invoices", b.baseURL)
 
-		apiURL := fmt.Sprintf("%s/api/v1/invoices?%s", b.baseURL, params.Encode())
-
-		// Create HTTP request
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			return fmt.Errorf("openmeter: failed to create request: %w", err)
 		}
 
-		// Execute request
+		req.Header.Set("OpenMeter-Namespace", namespace)
+
 		resp, err := b.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("openmeter: request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check response status
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("openmeter: list invoices failed: status=%d body=%s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
-		var respData map[string]interface{}
+		var respData struct {
+			Items      []map[string]interface{} `json:"items"`
+			TotalCount int                      `json:"totalCount"`
+		}
 		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
 			return fmt.Errorf("openmeter: failed to decode response: %w", err)
 		}
 
-		// Parse items array
-		if items, ok := respData["items"].([]interface{}); ok {
-			invoices = make([]models.Invoice, 0, len(items))
-			for _, item := range items {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					invoice := models.Invoice{
-						ID:        itemMap["id"].(string),
-						Namespace: namespace,
-					}
+		invoices = make([]models.Invoice, 0, len(respData.Items))
+		for _, item := range respData.Items {
+			invoice := models.Invoice{
+				ID:        item["id"].(string),
+				Namespace: namespace,
+			}
 
-					if customer, ok := itemMap["customer"].(map[string]interface{}); ok {
-						if id, ok := customer["id"].(string); ok {
-							invoice.SubjectID = id
-						}
-					}
-
-					if currency, ok := itemMap["currency"].(string); ok {
-						invoice.Currency = currency
-					}
-
-					if status, ok := itemMap["status"].(map[string]interface{}); ok {
-						if statusStr, ok := status["status"].(string); ok {
-							invoice.Status = statusStr
-						}
-					}
-
-					// Parse totals
-					if totals, ok := itemMap["totals"].(map[string]interface{}); ok {
-						if total, ok := totals["total"].(float64); ok {
-							invoice.Total = total
-						}
-					}
-
-					if createdAt, ok := itemMap["createdAt"].(string); ok {
-						if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
-							invoice.CreatedAt = t
-						}
-					}
-
-					invoices = append(invoices, invoice)
+			if customer, ok := item["customer"].(map[string]interface{}); ok {
+				if id, ok := customer["id"].(string); ok {
+					invoice.SubjectID = id
 				}
 			}
+
+			if currency, ok := item["currency"].(string); ok {
+				invoice.Currency = currency
+			}
+
+			if status, ok := item["status"].(map[string]interface{}); ok {
+				if statusStr, ok := status["status"].(string); ok {
+					invoice.Status = statusStr
+				}
+			}
+
+			if totals, ok := item["totals"].(map[string]interface{}); ok {
+				if total, ok := totals["total"].(float64); ok {
+					invoice.Total = total
+				}
+			}
+
+			if createdAt, ok := item["createdAt"].(string); ok {
+				if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+					invoice.CreatedAt = t
+				}
+			}
+
+			invoices = append(invoices, invoice)
 		}
 
 		return nil

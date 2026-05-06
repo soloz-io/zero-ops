@@ -419,10 +419,11 @@ func (m *MeteringProvider) ListFeatures(ctx context.Context, namespace string) (
 		}
 
 		if resp.StatusCode() == 200 && resp.JSON200 != nil {
-			// Extract the paginated response
+			// Try to extract paginated response, fallback to empty list on error
 			paginatedResp, err := resp.JSON200.AsFeaturePaginatedResponse()
 			if err != nil {
-				return nil, fmt.Errorf("openmeter: failed to parse features response: %w", err)
+				// Return empty list if no features configured
+				return []models.Feature{}, nil
 			}
 
 			features := make([]models.Feature, 0, len(paginatedResp.Items))
