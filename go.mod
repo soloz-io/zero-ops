@@ -1,6 +1,6 @@
 module github.com/soloz-io/zero-ops
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.87.1
