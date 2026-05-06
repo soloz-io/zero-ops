@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,9 +37,10 @@ import (
 // MeterReconciler reconciles a Meter object
 type MeterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	// OpenMeterClient would be injected here for actual OpenMeter API calls
-	// OpenMeterClient openmeter.ClientInterface
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	// OpenMeterClient will be added when SDK schema is verified
+	// OpenMeterClient *openmeter.ClientWithResponses
 }
 
 // +kubebuilder:rbac:groups=billing.nutgraf.in,resources=meters,verbs=get;list;watch;create;update;patch;delete
@@ -111,24 +113,32 @@ func (r *MeterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // syncMeterToOpenMeter syncs the meter to OpenMeter via Go SDK
 func (r *MeterReconciler) syncMeterToOpenMeter(ctx context.Context, meter *billingv1alpha1.Meter, namespace string) error {
-	// TODO: Implement actual OpenMeter SDK call
-	// Example:
-	// req := openmeter.CreateMeterRequest{
+	// TODO: Verify OpenMeter SDK schema and update request body type
+	// The exact SDK types need to be confirmed from openmeter/api/client/go package
+	// This is a placeholder implementation that needs SDK schema verification
+	
+	// Placeholder: Mark as synced for now
+	meter.Status.OpenMeterID = fmt.Sprintf("meter-%s", meter.Spec.Slug)
+	return nil
+	
+	// Expected implementation (needs SDK schema verification):
+	// req := openmeter.CreateMeterJSONRequestBody{
 	//     Slug:          meter.Spec.Slug,
-	//     Description:   meter.Spec.Description,
+	//     Description:   &meter.Spec.Description,
 	//     Aggregation:   meter.Spec.Aggregation,
 	//     EventType:     meter.Spec.EventType,
-	//     ValueProperty: meter.Spec.ValueProperty,
+	//     ValueProperty: &meter.Spec.ValueProperty,
 	//     GroupBy:       meter.Spec.GroupBy,
 	// }
-	// resp, err := r.OpenMeterClient.CreateMeter(ctx, namespace, req)
+	// resp, err := r.OpenMeterClient.CreateMeterWithResponse(ctx, req, m.withNamespace(namespace))
 	// if err != nil {
 	//     return fmt.Errorf("openmeter: create meter: %w", err)
 	// }
-	// meter.Status.OpenMeterID = resp.ID
-	
-	// Placeholder implementation
-	return nil
+	// if resp.StatusCode() != 201 && resp.StatusCode() != 200 {
+	//     return fmt.Errorf("openmeter: unexpected status %d", resp.StatusCode())
+	// }
+	// meter.Status.OpenMeterID = resp.JSON201.Id
+	// return nil
 }
 
 // calculateBackoff implements exponential backoff (1s, 2s, 4s, 8s, 16s, max 5min)
@@ -153,8 +163,7 @@ func (r *MeterReconciler) calculateBackoff(meter *billingv1alpha1.Meter) time.Du
 
 // emitEvent creates a Kubernetes Event for the Meter
 func (r *MeterReconciler) emitEvent(meter *billingv1alpha1.Meter, eventType, reason, message string) {
-	// TODO: Implement event emission using EventRecorder
-	// r.Recorder.Event(meter, eventType, reason, message)
+	r.Recorder.Event(meter, eventType, reason, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

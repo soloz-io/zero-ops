@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,9 +37,10 @@ import (
 // PlanReconciler reconciles a Plan object
 type PlanReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	// OpenMeterClient would be injected here for actual OpenMeter API calls
-	// OpenMeterClient openmeter.ClientInterface
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	// OpenMeterClient will be added when SDK schema is verified
+	// OpenMeterClient *openmeter.ClientWithResponses
 }
 
 // +kubebuilder:rbac:groups=billing.nutgraf.in,resources=plans,verbs=get;list;watch;create;update;patch;delete
@@ -194,37 +196,70 @@ func (r *PlanReconciler) validateFeatureReferences(ctx context.Context, plan *bi
 
 // syncPlanToOpenMeter syncs the plan to OpenMeter via Go SDK
 func (r *PlanReconciler) syncPlanToOpenMeter(ctx context.Context, plan *billingv1alpha1.Plan, namespace string) error {
-	// TODO: Implement actual OpenMeter SDK call
-	// Example:
-	// req := openmeter.CreatePlanRequest{
-	//     Key:             plan.Spec.Key,
-	//     Name:            plan.Spec.Name,
-	//     Description:     plan.Spec.Description,
-	//     Currency:        plan.Spec.Currency,
-	//     Phases:          convertPhases(plan.Spec.Phases),
-	//     ProRatingConfig: convertProRatingConfig(plan.Spec.ProRatingConfig),
+	// TODO: Verify OpenMeter SDK schema and update request body type
+	// The exact SDK types need to be confirmed from openmeter/api/client/go package
+	// This is a placeholder implementation that needs SDK schema verification
+	
+	// Placeholder: Mark as synced for now
+	plan.Status.OpenMeterID = fmt.Sprintf("plan-%s", plan.Spec.Key)
+	return nil
+	
+	// Expected implementation (needs SDK schema verification):
+	// Convert phases to OpenMeter format
+	// phases := make([]openmeter.PlanPhase, len(plan.Spec.Phases))
+	// for i, phase := range plan.Spec.Phases {
+	//     rateCards := make([]openmeter.RateCard, len(phase.RateCards))
+	//     for j, rc := range phase.RateCards {
+	//         rateCards[j] = openmeter.RateCard{
+	//             FeatureKey: rc.FeatureKey,
+	//             Price: openmeter.Price{
+	//                 Type:   rc.Price.Type,
+	//                 Amount: rc.Price.Amount,
+	//             },
+	//         }
+	//     }
+	//     phases[i] = openmeter.PlanPhase{
+	//         Key:       phase.Key,
+	//         Name:      phase.Name,
+	//         RateCards: rateCards,
+	//     }
 	// }
-	// resp, err := r.OpenMeterClient.CreatePlan(ctx, namespace, req)
+	// req := openmeter.CreatePlanJSONRequestBody{
+	//     Key:         plan.Spec.Key,
+	//     Name:        plan.Spec.Name,
+	//     Description: &plan.Spec.Description,
+	//     Currency:    plan.Spec.Currency,
+	//     Phases:      phases,
+	// }
+	// resp, err := r.OpenMeterClient.CreatePlanWithResponse(ctx, req, m.withNamespace(namespace))
 	// if err != nil {
 	//     return fmt.Errorf("openmeter: create plan: %w", err)
 	// }
-	// plan.Status.OpenMeterID = resp.ID
-	
-	// Placeholder implementation
-	return nil
+	// if resp.StatusCode() != 201 && resp.StatusCode() != 200 {
+	//     return fmt.Errorf("openmeter: unexpected status %d", resp.StatusCode())
+	// }
+	// plan.Status.OpenMeterID = resp.JSON201.Id
+	// return nil
 }
 
 // deletePlanFromOpenMeter deletes the plan from OpenMeter
 func (r *PlanReconciler) deletePlanFromOpenMeter(ctx context.Context, plan *billingv1alpha1.Plan, namespace string) error {
-	// TODO: Implement actual OpenMeter SDK call
-	// Example:
-	// err := r.OpenMeterClient.DeletePlan(ctx, namespace, plan.Status.OpenMeterID)
+	// TODO: Verify OpenMeter SDK schema and update delete method
+	// The exact SDK types need to be confirmed from openmeter/api/client/go package
+	// This is a placeholder implementation that needs SDK schema verification
+	
+	// Placeholder: Mark as deleted for now
+	return nil
+	
+	// Expected implementation (needs SDK schema verification):
+	// resp, err := r.OpenMeterClient.DeletePlanWithResponse(ctx, plan.Status.OpenMeterID, m.withNamespace(namespace))
 	// if err != nil {
 	//     return fmt.Errorf("openmeter: delete plan: %w", err)
 	// }
-	
-	// Placeholder implementation
-	return nil
+	// if resp.StatusCode() != 204 && resp.StatusCode() != 404 {
+	//     return fmt.Errorf("openmeter: unexpected status %d", resp.StatusCode())
+	// }
+	// return nil
 }
 
 // calculateBackoff implements exponential backoff (1s, 2s, 4s, 8s, 16s, max 5min)
@@ -247,8 +282,7 @@ func (r *PlanReconciler) calculateBackoff(plan *billingv1alpha1.Plan) time.Durat
 
 // emitEvent creates a Kubernetes Event for the Plan
 func (r *PlanReconciler) emitEvent(plan *billingv1alpha1.Plan, eventType, reason, message string) {
-	// TODO: Implement event emission using EventRecorder
-	// r.Recorder.Event(plan, eventType, reason, message)
+	r.Recorder.Event(plan, eventType, reason, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

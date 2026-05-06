@@ -74,7 +74,7 @@
 
 ## Phase 3: REST API Layer & User Management
 
-- [x] 11. Implement REST API server with Gin framework
+- [ ] 11. Implement REST API server with Gin framework
   - [ ] Create `cmd/kube-sbt-api/main.go` with Gin HTTP server initialization
   - [ ] Add middleware for JWT validation and tenant context injection
   - [ ] Add middleware for RFC 7807 Problem Details error responses
