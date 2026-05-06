@@ -23,7 +23,7 @@ The Vercel Workflows SDK propagates all `process.env` variables from host Node.j
 
 ## Decision
 
-We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to Spoke Worker pods.
+We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to Waypoint SDK pods.
 
 ### Architecture Pattern
 
@@ -32,7 +32,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
    ↓ (SPIFFE workload identity auth)
 [ Agent Injector Webhook ] ← Mutating admission controller
    ↓ (patches pod spec on CREATE events)
-[ Spoke Worker Pod ]
+[ Waypoint SDK Pod ]
    ├─ Init Container: Infisical Agent
    │    ↓ (authenticates via service account token)
    │    ↓ (fetches secrets from /tenants/{tenant-id}/plugins/*)
@@ -62,7 +62,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 
 **Enforcement Layers:**
 
-1. **Namespace Isolation:** Each tenant runs in dedicated namespace (`tenant-{id}`) with dedicated Spoke Worker Deployment (one Graphile Worker pod per tenant)
+1. **Namespace Isolation:** Each tenant runs in dedicated namespace (`tenant-{id}`) with dedicated Waypoint SDK Deployment (one Graphile Worker pod per tenant)
 2. **Infisical Machine Identity:** One per tenant, configured with Kubernetes Auth:
    - Allowed Namespace: `tenant-{id}`
    - Allowed Service Account: `spoke-worker`
@@ -70,7 +70,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 3. **ConfigMap Scoping:** One ConfigMap per tenant in tenant namespace, defines secret template
 4. **SPIFFE Validation:** Workload identity cryptographically validates namespace + service account
 
-**Result:** Tenant A's Spoke Worker pod cannot authenticate to fetch Tenant B's secrets due to Machine Identity path restrictions and namespace isolation.
+**Result:** Tenant A's Waypoint SDK pod cannot authenticate to fetch Tenant B's secrets due to Machine Identity path restrictions and namespace isolation.
 
 **Critical:** One Graphile Worker pod per tenant ensures `process.env` isolation. Tenant A and Tenant B never share a pod, preventing cross-tenant secret leakage.
 
@@ -93,7 +93,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 
 **Rotation Model:** Pod restart-based rotation with Stakater Reloader
 
-**Architecture Constraint:** Spoke Workers run Graphile Worker as long-running daemon (not ephemeral pods per workflow). The Vercel VM freezes `process.env` at context creation. Secrets loaded at pod startup cannot be hot-reloaded during pod lifetime.
+**Architecture Constraint:** Waypoint SDKs run Graphile Worker as long-running daemon (not ephemeral pods per workflow). The Vercel VM freezes `process.env` at context creation. Secrets loaded at pod startup cannot be hot-reloaded during pod lifetime.
 
 **Flow:**
 ```
@@ -103,7 +103,7 @@ Infisical Agent Injector syncs to K8s Secret (temporary mount)
    ↓
 Stakater Reloader detects Secret change
    ↓
-Reloader triggers rolling restart of Spoke Worker Deployment
+Reloader triggers rolling restart of Waypoint SDK Deployment
    ↓
 New pod starts → Init container fetches updated secrets
    ↓
@@ -136,7 +136,7 @@ metadata:
 
 ### Pod Configuration
 
-**Spoke Worker Deployment:**
+**Waypoint SDK Deployment:**
 ```yaml
 metadata:
   annotations:
@@ -207,13 +207,13 @@ data:
 - **Pod restart required for rotation:** Secrets not updated during pod lifetime, requires Stakater Reloader to trigger rolling restart (acceptable for long-running Graphile Worker model)
 - **Webhook dependency:** Requires Infisical Agent Injector deployed to cluster
 - **ConfigMap proliferation:** One ConfigMap per tenant (manageable via tenant provisioning automation)
-- **Infisical dependency:** Spoke Worker pods cannot start if Infisical unavailable (mitigated by Infisical HA deployment)
+- **Infisical dependency:** Waypoint SDK pods cannot start if Infisical unavailable (mitigated by Infisical HA deployment)
 - **Reloader dependency:** Requires Stakater Reloader for automated pod restarts on secret changes
 
 ## Boundary Rules
 
 - ✅ Use Infisical Agent Injector for plugin secrets delivery
-- ✅ Use init mode (not sidecar mode) for Spoke Worker pods
+- ✅ Use init mode (not sidecar mode) for Waypoint SDK pods
 - ✅ One Machine Identity per tenant with path-scoped access
 - ✅ One ConfigMap per tenant in tenant namespace
 - ✅ One Graphile Worker pod per tenant (dedicated Deployment per tenant namespace)
@@ -224,7 +224,7 @@ data:
 - ❌ Do NOT use sidecar mode (unnecessary overhead, init mode sufficient)
 - ❌ Do NOT create per-plugin Machine Identities (does not scale)
 - ❌ Do NOT modify OSS plugin code to read secrets differently
-- ❌ Do NOT share Spoke Worker pods across tenants (breaks process.env isolation)
+- ❌ Do NOT share Waypoint SDK pods across tenants (breaks process.env isolation)
 
 ## References
 
