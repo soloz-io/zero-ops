@@ -6,6 +6,8 @@ on:
     paths:
       - cmd/kube-sbt-api/**
       - internal/opensbt/**
+      - go.mod
+      - go.sum
       - .github/workflows/kube-sbt-api.yml
 
 permissions:
