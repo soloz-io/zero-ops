@@ -24,9 +24,6 @@ func ValidateUser(u User) error {
 	if strings.TrimSpace(u.Email) == "" {
 		return errors.New("user email is required")
 	}
-	if strings.TrimSpace(u.TenantID) == "" {
-		return errors.New("user tenant_id is required")
-	}
 	return nil
 }
 

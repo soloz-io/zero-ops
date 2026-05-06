@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-sbt-api
+  namespace: hub-platform-ops
+  labels:
+    app: kube-sbt-api
+    component: metering-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kube-sbt-api
+  template:
+    metadata:
+      labels:
+        app: kube-sbt-api
+        component: metering-api
+    spec:
+      serviceAccountName: kube-sbt-api
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: kube-sbt-api
+        image: controller:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        env:
+        - name: PORT
+          value: "8080"
+        - name: OPENMETER_URL
+          value: "http://openmeter-api.hub-platform-billing.svc.cluster.local"
+        - name: ORY_KRATOS_URL
+          value: "http://kratos-public.hub-platform-identity.svc.cluster.local"
+        - name: NATS_URL
+          value: "nats://nats.hub-platform-messaging.svc.cluster.local:4222"
+        - name: REDIS_URL
+          value: "redis://redis.hub-platform-billing.svc.cluster.local:6379"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-sbt-api
+  namespace: hub-platform-ops
+  labels:
+    app: kube-sbt-api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: kube-sbt-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-sbt-api
+  namespace: hub-platform-ops
+imagePullSecrets:
+- name: ghcr-pull-secret

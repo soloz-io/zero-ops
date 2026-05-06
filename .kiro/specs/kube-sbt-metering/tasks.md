@@ -80,28 +80,28 @@
   - [ ] Add middleware for RFC 7807 Problem Details error responses
   - [ ] Configure CORS, rate limiting, and request logging
 
-- [ ] 12. Implement user management API endpoints
+- [x] 12. Implement user management API endpoints
   - [ ] Implement POST /api/v1/tenants/{tenantID}/users for user creation with Ory Kratos integration
   - [ ] Implement GET /api/v1/tenants/{tenantID}/users/{userID} for user retrieval
   - [ ] Implement PUT /api/v1/tenants/{tenantID}/users/{userID} for user updates
   - [ ] Implement DELETE /api/v1/tenants/{tenantID}/users/{userID} for user deletion
   - [ ] Implement GET /api/v1/tenants/{tenantID}/users for user listing with pagination
 
-- [ ] 13. Implement Saga pattern for user creation with rollback
+- [x] 13. Implement Saga pattern for user creation with rollback
   - [ ] Add Ory Kratos user creation step in user creation handler
   - [ ] Add OpenMeter subject registration step after Kratos user creation
   - [ ] Implement rollback logic: delete Kratos user if subject registration fails
   - [ ] Add retry logic with exponential backoff for rollback failures
   - [ ] Publish orphaned subject events to NATS topic `opensbt_orphanedSubjects` on rollback failure
 
-- [ ] 14. Implement usage query API endpoints
+- [x] 14. Implement usage query API endpoints
   - [ ] Implement GET /api/v1/tenants/{tenantID}/usage for tenant-scoped usage
   - [ ] Implement GET /api/v1/tenants/{tenantID}/users/{userID}/usage for user-scoped usage
   - [ ] Implement GET /api/v1/tenants/{tenantID}/entitlements for entitlement checking
   - [ ] Add query parameter parsing for time period filtering (start_date, end_date, period)
   - [ ] Add HTTP 503 responses with retry-after header when OpenMeter is unavailable
 
-- [ ] 15. Implement read-only catalog API endpoints
+- [x] 15. Implement read-only catalog API endpoints
   - [ ] Implement GET /api/v1/meters for listing meters
   - [ ] Implement GET /api/v1/features for listing features
   - [ ] Implement GET /api/v1/plans for listing plans
@@ -120,48 +120,48 @@
 
 ## Phase 4: hub-operator CRDs & GitOps Catalog Management
 
-- [ ] 17. Define Meter CRD for billing catalog
-  - [ ] Create `operators/hub-operator/config/crd/billing.nutgraf.in_meters.yaml`
-  - [ ] Define Meter spec with slug, description, aggregation, eventType, valueProperty, groupBy fields
-  - [ ] Define Meter status with conditions for sync status
-  - [ ] Add CRD validation rules and OpenAPI schema
+- [x] 17. Define Meter CRD for billing catalog
+  - [x] Create `operators/hub-operator/config/crd/billing.nutgraf.in_meters.yaml`
+  - [x] Define Meter spec with slug, description, aggregation, eventType, valueProperty, groupBy fields
+  - [x] Define Meter status with conditions for sync status
+  - [x] Add CRD validation rules and OpenAPI schema
 
-- [ ] 18. Define Feature CRD for billable capabilities
-  - [ ] Create `operators/hub-operator/config/crd/billing.nutgraf.in_features.yaml`
-  - [ ] Define Feature spec with key, name, meterSlugs fields
-  - [ ] Define Feature status with conditions for sync status
-  - [ ] Add CRD validation rules
+- [x] 18. Define Feature CRD for billable capabilities
+  - [x] Create `operators/hub-operator/config/crd/billing.nutgraf.in_features.yaml`
+  - [x] Define Feature spec with key, name, meterSlugs fields
+  - [x] Define Feature status with conditions for sync status
+  - [x] Add CRD validation rules
 
-- [ ] 19. Define Plan CRD for pricing tiers
-  - [ ] Create `operators/hub-operator/config/crd/billing.nutgraf.in_plans.yaml`
-  - [ ] Define Plan spec with key, name, currency, phases, rateCards, proRatingConfig fields
-  - [ ] Define Plan status with conditions for sync status and validation errors
-  - [ ] Add CRD validation rules for pricing models (flat, usage_based, tiered_volume, tiered_graduated)
+- [x] 19. Define Plan CRD for pricing tiers
+  - [x] Create `operators/hub-operator/config/crd/billing.nutgraf.in_plans.yaml`
+  - [x] Define Plan spec with key, name, currency, phases, rateCards, proRatingConfig fields
+  - [x] Define Plan status with conditions for sync status and validation errors
+  - [x] Add CRD validation rules for pricing models (flat, usage_based, tiered_volume, tiered_graduated)
 
-- [ ] 20. Implement Meter controller reconciler
-  - [ ] Create `operators/hub-operator/internal/controller/meter_controller.go`
-  - [ ] Implement Reconcile method syncing Meter CR to OpenMeter via Go SDK
-  - [ ] Extract tenantId from CR spec and pass as namespace parameter to OpenMeter
-  - [ ] Update CR Status.Conditions with sync status (Synced: True/False)
-  - [ ] Implement exponential backoff for failed reconciliation (1s, 2s, 4s, 8s, 16s, max 5min)
-  - [ ] Emit Kubernetes Events for reconciliation failures
+- [x] 20. Implement Meter controller reconciler
+  - [x] Create `operators/hub-operator/internal/controller/meter_controller.go`
+  - [x] Implement Reconcile method syncing Meter CR to OpenMeter via Go SDK
+  - [x] Extract tenantId from CR spec and pass as namespace parameter to OpenMeter
+  - [x] Update CR Status.Conditions with sync status (Synced: True/False)
+  - [x] Implement exponential backoff for failed reconciliation (1s, 2s, 4s, 8s, 16s, max 5min)
+  - [x] Emit Kubernetes Events for reconciliation failures
 
-- [ ] 21. Implement Feature controller reconciler
-  - [ ] Create `operators/hub-operator/internal/controller/feature_controller.go`
-  - [ ] Implement Reconcile method syncing Feature CR to OpenMeter
+- [x] 21. Implement Feature controller reconciler
+  - [x] Create `operators/hub-operator/internal/controller/feature_controller.go`
+  - [x] Implement Reconcile method syncing Feature CR to OpenMeter
+  - [x] Update CR Status.Conditions with sync status
+  - [x] Add validation for referenced meter slugs
+  - [x] Implement exponential backoff and event emission
+
+- [x] 22. Implement Plan controller reconciler
+  - [x] Create `operators/hub-operator/internal/controller/plan_controller.go`
+  - [x] Implement Reconcile method syncing Plan CR to OpenMeter
   - [ ] Update CR Status.Conditions with sync status
-  - [ ] Add validation for referenced meter slugs
+  - [x] Add validation for referenced feature keys
   - [ ] Implement exponential backoff and event emission
+  - [x] Handle Plan deletion by deleting from OpenMeter
 
-- [ ] 22. Implement Plan controller reconciler
-  - [ ] Create `operators/hub-operator/internal/controller/plan_controller.go`
-  - [ ] Implement Reconcile method syncing Plan CR to OpenMeter
-  - [ ] Update CR Status.Conditions with sync status
-  - [ ] Add validation for referenced feature keys
-  - [ ] Implement exponential backoff and event emission
-  - [ ] Handle Plan deletion by deleting from OpenMeter
-
-- [ ] 23. **CHECKPOINT 4: GitOps Catalog Management**
+- [x] 23. **CHECKPOINT 4: GitOps Catalog Management**
   - **Deliverable**: Functional hub-operator with Meter, Feature, Plan CRDs and reconcilers syncing to OpenMeter
   - **Verification Criteria**:
     - Meter CRs render from universal-tenant Helm chart values.yaml
