@@ -4,6 +4,15 @@ metadata:
   name: kube-sbt-e2e-test
   namespace: hub-platform-ops
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-sbt-e2e-tests
+  namespace: hub-platform-ops
+data:
+  provider_test.go: |
+    # This will be populated by the runner script
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -25,6 +34,12 @@ spec:
       restartPolicy: Never
       nodeSelector:
         node-role.kubernetes.io/worker: "true"
+      volumes:
+      - name: test-code
+        configMap:
+          name: kube-sbt-e2e-tests
+      - name: go-modules
+        emptyDir: {}
       containers:
       - name: test
         image: golang:1.23
@@ -33,12 +48,15 @@ spec:
         - -c
         - |
           set -e
-          echo "=== Cloning repository ==="
-          git clone https://github.com/soloz-io/zero-ops.git /workspace
+          echo "=== Setting up test environment ==="
+          mkdir -p /workspace/test/e2e/openmeter
+          cp /test-code/provider_test.go /workspace/test/e2e/openmeter/
           cd /workspace
           
-          echo "=== Downloading dependencies ==="
-          go mod download
+          echo "=== Initializing Go module ==="
+          go mod init github.com/soloz-io/zero-ops || true
+          go get github.com/stretchr/testify/assert
+          go get github.com/stretchr/testify/require
           
           echo "=== Running OpenMeter E2E tests ==="
           go test -v -timeout 10m ./test/e2e/openmeter/
@@ -49,6 +67,13 @@ spec:
           value: "http://openmeter-api.hub-platform-billing.svc.cluster.local"
         - name: CGO_ENABLED
           value: "0"
+        - name: GOPATH
+          value: "/go"
+        volumeMounts:
+        - name: test-code
+          mountPath: /test-code
+        - name: go-modules
+          mountPath: /go
         resources:
           requests:
             cpu: 100m

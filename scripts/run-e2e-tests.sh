@@ -15,10 +15,17 @@ echo "Cluster: $(kubectl config current-context)"
 echo "Namespace: ${NAMESPACE}"
 echo ""
 
-# Delete existing job if present
+# Delete existing job and configmap if present
 echo "Cleaning up previous test runs..."
 kubectl delete job ${JOB_NAME} -n ${NAMESPACE} --ignore-not-found=true
+kubectl delete configmap kube-sbt-e2e-tests -n ${NAMESPACE} --ignore-not-found=true
 sleep 2
+
+# Create ConfigMap with test code
+echo "Creating ConfigMap with test code..."
+kubectl create configmap kube-sbt-e2e-tests \
+  -n ${NAMESPACE} \
+  --from-file=provider_test.go=test/e2e/openmeter/provider_test.go
 
 # Apply the test job
 echo "Creating test job..."
