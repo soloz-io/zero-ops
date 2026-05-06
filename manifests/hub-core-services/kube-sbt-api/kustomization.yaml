@@ -4,9 +4,9 @@ kind: Kustomization
 namespace: hub-platform-ops
 
 resources:
-- namespace.yaml
-- manager.yaml
-- network-policy.yaml
+  - namespace.yaml
+  - manager.yaml
+  - network-policy.yaml
 
 images:
 - digest: sha256:515232934fb9fdcbe88d3e879a30747f5f32ed650bb67eb9ab0169fbd763fd29
