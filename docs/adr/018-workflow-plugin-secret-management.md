@@ -8,7 +8,7 @@ See also: [ADR-003: ESO-Infisical Pattern](./003-eso-infisical-pattern.md), [ADR
 
 ## Context
 
-The Workhorse Blueprint Builder workflow engine executes tenant-defined workflows that invoke third-party plugins (OpenAI, Slack, Stripe, etc.). These plugins require API credentials to function. The platform must deliver plugin secrets to workflow execution pods while maintaining:
+The Waypoint Builder workflow engine executes tenant-defined workflows that invoke third-party plugins (OpenAI, Slack, Stripe, etc.). These plugins require API credentials to function. The platform must deliver plugin secrets to workflow execution pods while maintaining:
 
 1. **Zero application changes:** OSS plugins expect `process.env.OPENAI_API_KEY` without modification
 2. **Per-tenant isolation:** Tenant A cannot access Tenant B's plugin credentials
@@ -23,7 +23,7 @@ The Vercel Workflows SDK propagates all `process.env` variables from host Node.j
 
 ## Decision
 
-We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to Spoke Worker pods.
+We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to Waypoint SDK pods.
 
 ### Architecture Pattern
 
@@ -32,7 +32,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
    ↓ (SPIFFE workload identity auth)
 [ Agent Injector Webhook ] ← Mutating admission controller
    ↓ (patches pod spec on CREATE events)
-[ Spoke Worker Pod ]
+[ Waypoint SDK Pod ]
    ├─ Init Container: Infisical Agent
    │    ↓ (authenticates via service account token)
    │    ↓ (fetches secrets from /tenants/{tenant-id}/plugins/*)
@@ -62,7 +62,7 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 
 **Enforcement Layers:**
 
-1. **Namespace Isolation:** Each tenant runs in dedicated namespace (`tenant-{id}`)
+1. **Namespace Isolation:** Each tenant runs in dedicated namespace (`tenant-{id}`) with dedicated Waypoint SDK Deployment (one Graphile Worker pod per tenant)
 2. **Infisical Machine Identity:** One per tenant, configured with Kubernetes Auth:
    - Allowed Namespace: `tenant-{id}`
    - Allowed Service Account: `spoke-worker`
@@ -70,7 +70,9 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 3. **ConfigMap Scoping:** One ConfigMap per tenant in tenant namespace, defines secret template
 4. **SPIFFE Validation:** Workload identity cryptographically validates namespace + service account
 
-**Result:** Tenant A's Spoke Worker pod cannot authenticate to fetch Tenant B's secrets due to Machine Identity path restrictions and namespace isolation.
+**Result:** Tenant A's Waypoint SDK pod cannot authenticate to fetch Tenant B's secrets due to Machine Identity path restrictions and namespace isolation.
+
+**Critical:** One Graphile Worker pod per tenant ensures `process.env` isolation. Tenant A and Tenant B never share a pod, preventing cross-tenant secret leakage.
 
 ### Secret Path Convention
 
@@ -89,32 +91,52 @@ We adopt **Infisical Agent Injector** in init mode to deliver plugin secrets to 
 
 ### Secret Rotation
 
-**Rotation Model:** Pod lifecycle-based rotation
+**Rotation Model:** Pod restart-based rotation with Stakater Reloader
+
+**Architecture Constraint:** Waypoint SDKs run Graphile Worker as long-running daemon (not ephemeral pods per workflow). The Vercel VM freezes `process.env` at context creation. Secrets loaded at pod startup cannot be hot-reloaded during pod lifetime.
 
 **Flow:**
 ```
 Secret updated in Infisical
    ↓
-Existing workflow runs continue with old secret (in-flight pods)
+Infisical Agent Injector syncs to K8s Secret (temporary mount)
    ↓
-New workflow run triggered → New pod created
+Stakater Reloader detects Secret change
    ↓
-Init container fetches updated secret from Infisical
+Reloader triggers rolling restart of Waypoint SDK Deployment
    ↓
-New pod uses rotated secret
+New pod starts → Init container fetches updated secrets
    ↓
-Old pods complete and terminate
+New pod exports secrets to process.env
+   ↓
+Graphile Worker daemon starts with fresh secrets
+   ↓
+In-flight workflows on old pod complete gracefully
+   ↓
+Old pod terminates after drain period
 ```
 
 **Dual-Phase Rotation:** Follows Infisical's dual-phase rotation pattern (ADR-003):
 - Phase 1: Update secret in Infisical, overlap period where both old and new credentials valid
-- Phase 2: Expire old credential after all in-flight workflows complete
+- Phase 2: Rolling restart ensures zero downtime, old workflows complete on old pods
+- Phase 3: Expire old credential after all pods restarted
 
-**Rationale:** Workflow executions are ephemeral (minutes to hours). Each workflow run spawns fresh Spoke Worker pod. Secret rotation happens naturally via pod lifecycle, not runtime updates.
+**Stakater Reloader Configuration:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spoke-worker
+  namespace: tenant-app-creator
+  annotations:
+    reloader.stakater.com/auto: "true"  # Auto-restart on Secret change
+```
+
+**Rationale:** Graphile Worker is long-running daemon, not ephemeral. Pod restarts are required for secret rotation. Reloader automates this with zero downtime via rolling updates.
 
 ### Pod Configuration
 
-**Spoke Worker Deployment:**
+**Waypoint SDK Deployment:**
 ```yaml
 metadata:
   annotations:
@@ -182,30 +204,36 @@ data:
 
 ### Trade-offs
 
-- **Init-only rotation:** Secrets not updated during pod lifetime, requires new pod for rotated secrets (acceptable for ephemeral workflow model)
+- **Pod restart required for rotation:** Secrets not updated during pod lifetime, requires Stakater Reloader to trigger rolling restart (acceptable for long-running Graphile Worker model)
 - **Webhook dependency:** Requires Infisical Agent Injector deployed to cluster
 - **ConfigMap proliferation:** One ConfigMap per tenant (manageable via tenant provisioning automation)
-- **Infisical dependency:** Spoke Worker pods cannot start if Infisical unavailable (mitigated by Infisical HA deployment)
+- **Infisical dependency:** Waypoint SDK pods cannot start if Infisical unavailable (mitigated by Infisical HA deployment)
+- **Reloader dependency:** Requires Stakater Reloader for automated pod restarts on secret changes
 
 ## Boundary Rules
 
 - ✅ Use Infisical Agent Injector for plugin secrets delivery
-- ✅ Use init mode (not sidecar mode) for workflow execution pods
+- ✅ Use init mode (not sidecar mode) for Waypoint SDK pods
 - ✅ One Machine Identity per tenant with path-scoped access
 - ✅ One ConfigMap per tenant in tenant namespace
-- ✅ Secret rotation via pod lifecycle (new workflow run = new pod = fresh secrets)
+- ✅ One Graphile Worker pod per tenant (dedicated Deployment per tenant namespace)
+- ✅ Secret rotation via Stakater Reloader triggering rolling pod restarts
 - ✅ Leverage existing SPIFFE/SPIRE workload identity infrastructure
-- ❌ Do NOT store plugin secrets in Kubernetes Secrets (etcd)
-- ❌ Do NOT use sidecar mode (unnecessary overhead for ephemeral workflows)
+- ✅ Sync secrets to temporary K8s Secret for Reloader detection
+- ❌ Do NOT store plugin secrets in Kubernetes Secrets permanently (only temporary mount for Reloader)
+- ❌ Do NOT use sidecar mode (unnecessary overhead, init mode sufficient)
 - ❌ Do NOT create per-plugin Machine Identities (does not scale)
 - ❌ Do NOT modify OSS plugin code to read secrets differently
+- ❌ Do NOT share Waypoint SDK pods across tenants (breaks process.env isolation)
 
 ## References
 
 - [Infisical Kubernetes Agent Injector Documentation](https://infisical.com/docs/integrations/platforms/kubernetes-injector)
 - [Infisical Kubernetes Auth](https://infisical.com/docs/documentation/platform/identities/kubernetes-auth)
+- [Stakater Reloader](https://github.com/stakater/Reloader)
 - [Vault Agent Injector vs CSI Provider (HashiCorp)](https://developer.hashicorp.com/vault/docs/deploy/kubernetes/injector-csi)
 - [ADR-003: ESO-Infisical Pattern](./003-eso-infisical-pattern.md)
 - [ADR-009: Platform Security Architecture](./009-platform-security-architecture.md)
 - [ADR-017: Workflow Engine Tenant Isolation](./017-workflow-engine-tenant-isolation.md)
 - [Vercel Workflows SDK VM Context](creator/archived/workflow/packages/core/src/vm/index.ts)
+- [Graphile Worker Architecture](creator/archived/workflow/packages/world-postgres/src/queue.ts)

@@ -269,7 +269,7 @@ You are not building “Kubernetes dashboards”
 
 You are building:
 
-A cloud control plane UI (like GKE / AWS)
+A cloud Waypoint Builder (like GKE / AWS)
 
 And those are always backed by:
 
