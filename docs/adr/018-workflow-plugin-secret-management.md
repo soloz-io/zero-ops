@@ -8,7 +8,7 @@ See also: [ADR-003: ESO-Infisical Pattern](./003-eso-infisical-pattern.md), [ADR
 
 ## Context
 
-The Workhorse Blueprint Builder workflow engine executes tenant-defined workflows that invoke third-party plugins (OpenAI, Slack, Stripe, etc.). These plugins require API credentials to function. The platform must deliver plugin secrets to workflow execution pods while maintaining:
+The Waypoint Builder workflow engine executes tenant-defined workflows that invoke third-party plugins (OpenAI, Slack, Stripe, etc.). These plugins require API credentials to function. The platform must deliver plugin secrets to workflow execution pods while maintaining:
 
 1. **Zero application changes:** OSS plugins expect `process.env.OPENAI_API_KEY` without modification
 2. **Per-tenant isolation:** Tenant A cannot access Tenant B's plugin credentials
