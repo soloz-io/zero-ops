@@ -95,7 +95,7 @@ go build -o bin/hub ./cmd/hub
 **Usage:**
 ```bash
 # Step 1: Bootstrap Hub Cluster with Ubuntu (default, production-ready)
-export HCLOUD_TOKEN=<your-hetzner-token>
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
 ./bin/hub bootstrap \
   --name=hub \
   --region=fsn1 \
@@ -103,11 +103,19 @@ export HCLOUD_TOKEN=<your-hetzner-token>
 
 # Step 2: Configure AWS Secrets Manager for Infisical encryption key recovery (REQUIRED)
 # This must be done BEFORE init-secrets to enable disaster recovery
+# Prerequisites: AWS CLI configured with IAM admin permissions (aws configure or export AWS_PROFILE=<admin-profile>)
+# This command will:
+# 1. Create IAM user: hub-operator-secrets-manager-production
+# 2. Create IAM policy with Secrets Manager permissions
+# 3. Generate access keys and inject into Kubernetes secret
+export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permissions
 ./bin/hub configure-aws-secrets-manager \
-  --aws-access-key-id=<your-aws-access-key-id> \
-  --aws-secret-access-key=<your-aws-secret-access-key> \
+  --environment=development \
   --aws-region=ap-south-1 \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Only for DEV, If IAM user already exists with access keys, delete old key first:
+# aws iam delete-access-key --user-name hub-operator-secrets-manager-production --access-key-id <OLD_KEY_ID>
 
 # Step 3: Initialize bootstrap secrets (Secret Zero)
 # This generates Infisical master keys and backs them up to AWS

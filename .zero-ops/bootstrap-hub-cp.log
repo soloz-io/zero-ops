@@ -1,0 +1,188 @@
+[DEBUG] Bootstrap command started
+[DEBUG] Cluster Name: hub-cp
+[DEBUG] OS Type: ubuntu
+[DEBUG] Region: fsn1
+[DEBUG] Image ID: 
+[DEBUG] Network CIDR: 10.0.0.0/16
+[DEBUG] Dry Run: false
+[DEBUG] HCLOUD_TOKEN: lHc5...xN3z
+🚀 Starting Hub Cluster bootstrap...
+   Cluster Name: hub-cp
+   OS Type: ubuntu
+   Region: fsn1
+   Network CIDR: 10.0.0.0/16
+
+[preflight] Running validation checks...
+[preflight] ✓ All checks passed
+[DEBUG] Orchestrator.Run() started
+[DEBUG] ClusterName: hub-cp, Region: fsn1, OSType: ubuntu, Upgrade: false
+
+[bootstrap-create] Creating ephemeral bootstrap cluster...
+[DEBUG] Phase: bootstrap-create
+[DEBUG] Creating Kind cluster: hub-cp
+[bootstrap-create] ✓ Kind cluster created
+[bootstrap-create] ✓ Namespace created: platform-capi
+
+[capi-init] Installing cluster-api-operator...
+[DEBUG] Phase: capi-init
+[DEBUG] OperatorInstaller.Install() started
+[capi-init] Installing cert-manager...
+[capi-init] Waiting for cert-manager API...
+[capi-init] ✓ cert-manager API ready
+[capi-init] ✓ CRD coreproviders.operator.cluster.x-k8s.io registered
+[capi-init] ✓ CRD bootstrapproviders.operator.cluster.x-k8s.io registered
+[capi-init] ✓ CRD controlplaneproviders.operator.cluster.x-k8s.io registered
+[capi-init] ✓ CRD infrastructureproviders.operator.cluster.x-k8s.io registered
+[capi-init] Waiting for CoreProvider/cluster-api...
+[capi-init] Waiting for CoreProvider/cluster-api...
+[capi-init] ✓ CoreProvider/cluster-api ready
+[capi-init] Waiting for BootstrapProvider/kubeadm...
+[capi-init] Waiting for BootstrapProvider/kubeadm...
+[capi-init] Waiting for BootstrapProvider/kubeadm...
+[capi-init] ✓ BootstrapProvider/kubeadm ready
+[capi-init] ✓ ControlPlaneProvider/kubeadm ready
+[capi-init] ✓ InfrastructureProvider/hetzner ready
+[capi-init] ✓ CAPI operator installed
+[capi-init] ✓ Hetzner credentials secret created
+
+[cluster-provision] Provisioning Management Cluster on Hetzner...
+[DEBUG] Provisioner.Provision() started
+[DEBUG] ClusterName: hub-cp, Namespace: platform-capi
+[cluster-provision] ✓ Cluster resources and CRS applied
+[cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...
+[cluster-provision] Waiting for cluster to be ready...
+
+NAME                              CLUSTERCLASS             PHASE     AGE   VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Pending   0s    v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                              CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Provisioned   31s   v1.31.6
+
+NAME                                          CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-cp-5pwdd-hxqxc   hub-cp                            Provisioning   27s   v1.31.6
+
+NAME                                                             CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-cp-5pwdd   hub-cp                                         1         1                  1         1             31s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                              CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Provisioned   60s   v1.31.6
+
+NAME                                                     CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
+machine.cluster.x-k8s.io/hub-cp-5pwdd-hxqxc              hub-cp               hcloud://129715179   Provisioned   56s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-tbq5c   hub-cp                                    Pending       29s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-wk5kv   hub-cp                                    Pending       29s   v1.31.6
+
+NAME                                                             CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-cp-5pwdd   hub-cp                                         1         1                  1         1             60s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                              CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Provisioned   90s   v1.31.6
+
+NAME                                                     CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
+machine.cluster.x-k8s.io/hub-cp-5pwdd-hxqxc              hub-cp               hcloud://129715179   Provisioned   86s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-tbq5c   hub-cp                                    Pending       59s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-wk5kv   hub-cp                                    Pending       59s   v1.31.6
+
+NAME                                                             CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-cp-5pwdd   hub-cp                                         1         1                  1         1             90s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                              CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Provisioned   2m    v1.31.6
+
+NAME                                                     CLUSTER   NODENAME   PROVIDERID           PHASE         AGE    VERSION
+machine.cluster.x-k8s.io/hub-cp-5pwdd-hxqxc              hub-cp               hcloud://129715179   Provisioned   116s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-tbq5c   hub-cp                                    Pending       89s    v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-wk5kv   hub-cp                                    Pending       89s    v1.31.6
+
+NAME                                                             CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-cp-5pwdd   hub-cp                                         1         1                  1         1             2m    v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                              CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub-cp   hetzner-mgmt-ubuntu-v1   Provisioned   2m30s   v1.31.6
+
+NAME                                                     CLUSTER   NODENAME   PROVIDERID           PHASE         AGE     VERSION
+machine.cluster.x-k8s.io/hub-cp-5pwdd-hxqxc              hub-cp               hcloud://129715179   Provisioned   2m26s   v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-tbq5c   hub-cp                                    Pending       119s    v1.31.6
+machine.cluster.x-k8s.io/hub-cp-md-0-h8p5x-rvqng-wk5kv   hub-cp                                    Pending       119s    v1.31.6
+
+NAME                                                             CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-cp-5pwdd   hub-cp                                         1         1                  1         1             2m30s   v1.31.6
+
+[cluster-provision] ✓ Cluster is ready
+[cluster-provision] ✓ Management Cluster ready
+
+[pivot] Moving CAPI resources to Management Cluster...
+[DEBUG] Refreshed kubeconfig from kind
+[pivot] Waiting for all nodes to join cluster...
+[DEBUG] Waiting for 3 machines to have nodes joined...
+[DEBUG] Waiting for 3 machines to have nodes joined...
+[DEBUG] Waiting for 3 machines to have nodes joined...
+[DEBUG] Waiting for 3 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 1 machines to have nodes joined...
+[pivot] ✓ All nodes joined
+[pivot] ✓ Kubeconfig saved to k8-secrets/kubeconfig/hub-cp.kubeconfig
+[pivot] Installing cert-manager...
+[pivot] ✓ cert-manager manifests applied
+[pivot] Waiting for cert-manager webhook...
+[pivot] Installing cluster-api-operator...
+[pivot] Waiting for operator...
+[pivot] Applying provider manifests...
+[pivot] Waiting for CAPI CRDs...
+[pivot] ✓ CAPI CRDs ready
+[pivot] Creating namespace...
+[pivot] Creating Hetzner credentials secret...
+[pivot] ✓ Resources moved to Management Cluster
+
+[pivot-ready] Waiting for cluster reconciliation after move...
+[pivot] Recreating Hetzner credentials secret...
+[pivot] ✓ CoreProvider/cluster-api ready on Management Cluster
+[pivot] ✓ BootstrapProvider/kubeadm ready on Management Cluster
+[pivot] ✓ ControlPlaneProvider/kubeadm ready on Management Cluster
+[pivot] ✓ InfrastructureProvider/hetzner ready on Management Cluster
+[pivot] ✓ Cluster Ready condition satisfied
+[pivot-ready] ✓ Cluster ready on Management Cluster
+
+[cleanup] Deleting bootstrap cluster...
+[cleanup] ✓ Bootstrap cluster deleted
+
+[clusterclass-deploy] Deploying ClusterClass library...
+[clusterclass-deploy] ✓ Applied classes/hetzner-mgmt-ubuntu-v1.yaml
+[clusterclass-deploy] ✓ ClusterClass library deployed
+
+[postboot] Installing platform components...
+[postboot] Creating hetzner secret for CSI...
+[postboot] Installing hetzner-csi...
+[postboot] ✓ hetzner-csi ready
+[postboot] Installing argocd...
+[postboot] ✓ argocd ready
+[postboot] ✓ All components installed
+[postboot] Applying platform-core app-of-apps...
+[postboot] ✓ platform-core app-of-apps applied
+
+[config] Saving kubeconfig and talosconfig...
+[config] ✓ Kubeconfig saved to: k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+✓ Management Cluster bootstrap complete!
+  Cluster Name: hub-cp
+  Region: fsn1
+  Kubeconfig: k8-secrets/kubeconfig/hub-cp.kubeconfig
+  ArgoCD Password: e9kNWXJGj-TtegRH
+
+Next steps:
+1. Verify cluster: kubectl --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig get nodes
+3. Access ArgoCD UI (username: admin)

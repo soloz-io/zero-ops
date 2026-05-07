@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/soloz-io/zero-ops/internal/hub/teardown"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/teardown"
 	"github.com/spf13/cobra"
 )
 

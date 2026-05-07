@@ -16,6 +16,8 @@ spec:
     name: {{.ClusterName}}-cilium-addon
   - kind: Secret
     name: {{.ClusterName}}-ccm-addon
+  - kind: Secret
+    name: {{.ClusterName}}-node-labeler-addon
 ---
 apiVersion: v1
 kind: Secret
@@ -32,6 +34,8 @@ stringData:
       namespace: kube-system
     stringData:
       hcloud: "{{.HCloudToken}}"
+      robot-user: ""
+      robot-password: ""
 ---
 apiVersion: v1
 kind: Secret
@@ -52,3 +56,13 @@ type: addons.cluster.x-k8s.io/resource-set
 stringData:
   ccm.yaml: |
 {{.CCMManifest}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.ClusterName}}-node-labeler-addon
+  namespace: {{.Namespace}}
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  node-labeler.yaml: |
+{{.NodeLabelerManifest}}

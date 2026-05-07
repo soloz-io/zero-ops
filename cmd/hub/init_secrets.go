@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/soloz-io/zero-ops/internal/hub/components"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
 	"github.com/spf13/cobra"
 )
 

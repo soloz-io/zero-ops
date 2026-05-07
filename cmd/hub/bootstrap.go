@@ -6,8 +6,8 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/soloz-io/zero-ops/internal/hub/bootstrap"
-	"github.com/soloz-io/zero-ops/internal/hub/preflight"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/bootstrap"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
 	"github.com/spf13/cobra"
 )
 

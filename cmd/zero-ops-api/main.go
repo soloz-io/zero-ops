@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/soloz-io/zero-ops/internal/api"
-	"github.com/soloz-io/zero-ops/internal/config"
-	"github.com/soloz-io/zero-ops/internal/db"
+	"github.com/soloz-io/zero-ops/internal/zero-ops-api/api"
+	"github.com/soloz-io/zero-ops/internal/zero-ops-api/config"
+	"github.com/soloz-io/zero-ops/internal/zero-ops-api/db"
 	"github.com/soloz-io/zero-ops/internal/opensbt/providers/nats"
 	"go.uber.org/zap"
 )

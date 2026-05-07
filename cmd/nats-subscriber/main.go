@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
-	"github.com/soloz-io/zero-ops/internal/agent-core/client"
+	"github.com/soloz-io/zero-ops/internal/platform/agent-core/client"
 )
 
 // InfraStatusUpdate represents a Hub Centralised DB status update

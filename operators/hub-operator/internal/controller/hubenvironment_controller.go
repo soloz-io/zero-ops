@@ -24,7 +24,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
-	awsclient "github.com/soloz-io/zero-ops/internal/hub/aws"
+	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"

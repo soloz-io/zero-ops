@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/soloz-io/zero-ops/internal/hub/aws"
-	"github.com/soloz-io/zero-ops/internal/hub/components"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/aws"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
 	"github.com/spf13/cobra"
 )
 

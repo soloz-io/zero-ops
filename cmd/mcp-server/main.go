@@ -9,9 +9,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/soloz-io/zero-ops/cmd/mcp-server/tools/agents"
-	"github.com/soloz-io/zero-ops/internal/agent-core/client"
-	agentdb "github.com/soloz-io/zero-ops/internal/agent-core/database/generated"
-	"github.com/soloz-io/zero-ops/internal/agent-core/service"
+	"github.com/soloz-io/zero-ops/internal/platform/agent-core/client"
+	agentdb "github.com/soloz-io/zero-ops/internal/platform/agent-core/database/generated"
+	"github.com/soloz-io/zero-ops/internal/platform/agent-core/service"
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 )
 
