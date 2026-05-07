@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"text/template"
 	"time"
 
@@ -39,7 +41,14 @@ type Provisioner struct {
 }
 
 func (p *Provisioner) kubectlArgs(args ...string) []string {
-	result := []string{"--kubeconfig", p.Kubeconfig}
+	var result []string
+	// kubectl v1.34+ bug: explicit --kubeconfig ~/.kube/config breaks context resolution
+	// Only add --kubeconfig if it's NOT the default location
+	homeDir, _ := os.UserHomeDir()
+	defaultKubeconfig := filepath.Join(homeDir, ".kube", "config")
+	if p.Kubeconfig != defaultKubeconfig {
+		result = append(result, "--kubeconfig", p.Kubeconfig)
+	}
 	if p.Context != "" {
 		result = append(result, "--context", p.Context)
 	}

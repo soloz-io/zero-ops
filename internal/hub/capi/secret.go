@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // SecretManager manages CAPI secrets
@@ -15,7 +17,15 @@ type SecretManager struct {
 }
 
 func (m *SecretManager) kubectlArgs(args ...string) []string {
-	result := []string{"--kubeconfig", m.Kubeconfig}
+	var result []string
+	
+	// Skip --kubeconfig if using default location (kubectl v1.34+ bug workaround)
+	homeDir, _ := os.UserHomeDir()
+	defaultKubeconfig := filepath.Join(homeDir, ".kube", "config")
+	if m.Kubeconfig != "" && m.Kubeconfig != defaultKubeconfig {
+		result = append(result, "--kubeconfig", m.Kubeconfig)
+	}
+	
 	if m.Context != "" {
 		result = append(result, "--context", m.Context)
 	}

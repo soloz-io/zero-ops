@@ -243,7 +243,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				SubnetCIDR:              subnetCIDR,
 				ControlPlaneMachineType: "cx23",
 				WorkerMachineType:       "cx33",
-				ControlPlaneReplicas:    2,
+				ControlPlaneReplicas:    3,
 				WorkerReplicas:          2,
 				HCloudToken:             o.HCloudToken,
 				CiliumManifest:          string(ciliumRaw),
@@ -697,7 +697,7 @@ func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
 // This ensures both hub and spoke clusters use the same CNI/CCM manifests (single source of truth)
 func (o *Orchestrator) readClusterBIOSManifest(templateFile, dataKey string) ([]byte, error) {
 	// Path to spoke-bootstrap directory relative to project root
-	biosPath := "manifests/spoke-bootstrap/" + templateFile
+	biosPath := "manifests/spoke/spoke-bootstrap/" + templateFile
 	
 	// Read the template file
 	data, err := os.ReadFile(biosPath)

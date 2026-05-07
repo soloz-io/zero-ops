@@ -3,7 +3,9 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,7 +17,15 @@ type NamespaceManager struct {
 }
 
 func (m *NamespaceManager) Create(ctx context.Context) error {
-	args := []string{"--kubeconfig", m.Kubeconfig}
+	var args []string
+	
+	// Skip --kubeconfig if using default location (kubectl v1.34+ bug workaround)
+	homeDir, _ := os.UserHomeDir()
+	defaultKubeconfig := filepath.Join(homeDir, ".kube", "config")
+	if m.Kubeconfig != "" && m.Kubeconfig != defaultKubeconfig {
+		args = append(args, "--kubeconfig", m.Kubeconfig)
+	}
+	
 	if m.Context != "" {
 		args = append(args, "--context", m.Context)
 	}

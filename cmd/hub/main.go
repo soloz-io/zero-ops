@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 
-	"github.com/soloz-io/zero-ops/cmd/hub/demo"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +18,6 @@ func main() {
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
 	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
-	rootCmd.AddCommand(demo.NewDemoCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

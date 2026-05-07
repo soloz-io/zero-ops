@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
@@ -22,7 +24,15 @@ type OperatorInstaller struct {
 }
 
 func (i *OperatorInstaller) kubectlArgs(args ...string) []string {
-	result := []string{"--kubeconfig", i.Kubeconfig}
+	var result []string
+	
+	// Skip --kubeconfig if using default location (kubectl v1.34+ bug workaround)
+	homeDir, _ := os.UserHomeDir()
+	defaultKubeconfig := filepath.Join(homeDir, ".kube", "config")
+	if i.Kubeconfig != "" && i.Kubeconfig != defaultKubeconfig {
+		result = append(result, "--kubeconfig", i.Kubeconfig)
+	}
+	
 	if i.Context != "" {
 		result = append(result, "--context", i.Context)
 	}
