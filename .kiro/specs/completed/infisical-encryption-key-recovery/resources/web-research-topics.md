@@ -172,17 +172,17 @@ if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok
 ## 7. Secret Namespace Organization
 
 ### Current Namespaces
-- **Data Namespace**: `hubEnv.Spec.Database.Namespace` (e.g., `hub-platform-data`)
+- **Data Namespace**: `hubEnv.Spec.Database.Namespace` (e.g., `platform-data`)
   - `platform-db-ca` - CA certificate
   - `platform-db-app` - CNPG superuser credentials
   - `infisical-db-credentials` - Infisical database user
   - `infisical-redis-credentials` - Redis authentication
   
-- **Security Namespace**: `hub-platform-security` (hardcoded)
+- **Security Namespace**: `platform-security` (hardcoded)
   - `infisical-secrets` - Infisical encryption keys
   - `infisical-postgres-connection` - Infisical DB connection string
 
-- **Identity Namespace**: `hub-platform-identity`
+- **Identity Namespace**: `platform-identity`
   - `hydra-db-credentials` - Hydra database credentials (ESO-managed)
 
 ## 8. Owner References
@@ -260,7 +260,7 @@ if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: name, Namespace: name
    - Accepts AWS credentials as flags
    - Creates K8s secret via client-go (Secret Zero)
    - Secret name: `hub-operator-aws-credentials`
-   - Namespace: `hub-platform-ops`
+   - Namespace: `platform-ops`
 
 2. **Hub-Operator Uploads to Infisical**:
    - Reads `hub-operator-aws-credentials` secret
@@ -300,7 +300,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: hub-operator-aws-credentials
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/managed-by: zero-ops-hub-cli
     app.kubernetes.io/component: secret-zero

@@ -3,7 +3,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: openmeter
-  namespace: hub-platform-billing
+  namespace: platform-billing
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
@@ -59,33 +59,33 @@ spec:
           port: 80
         - protocol: TCP
           port: 8071  # Added Svix port
-    # Allow egress to PostgreSQL (hub-platform-data namespace)
+    # Allow egress to PostgreSQL (platform-data namespace)
     - to:
         - namespaceSelector:
             matchLabels:
-              name: hub-platform-data
+              name: platform-data
           podSelector:
             matchLabels:
               cnpg.io/cluster: platform-db
       ports:
         - protocol: TCP
           port: 5432
-    # Allow egress to Redis (hub-platform-data namespace)
+    # Allow egress to Redis (platform-data namespace)
     - to:
         - namespaceSelector:
             matchLabels:
-              name: hub-platform-data
+              name: platform-data
           podSelector:
             matchLabels:
               app: platform-redis
       ports:
         - protocol: TCP
           port: 6379
-    # Allow egress to ClickHouse (hub-platform-data namespace)
+    # Allow egress to ClickHouse (platform-data namespace)
     - to:
         - namespaceSelector:
             matchLabels:
-              name: hub-platform-data
+              name: platform-data
           podSelector:
             matchLabels:
               clickhouse.altinity.com/chi: platform-clickhouse

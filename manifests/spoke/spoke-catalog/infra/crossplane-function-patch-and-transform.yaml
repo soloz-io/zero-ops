@@ -3,7 +3,7 @@ apiVersion: pkg.crossplane.io/v1beta1
 kind: Function
 metadata:
   name: function-patch-and-transform
-  namespace: spoke-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:

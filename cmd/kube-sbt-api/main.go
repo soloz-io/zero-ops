@@ -18,8 +18,8 @@ import (
 
 func main() {
 	// Initialize providers
-	openMeterURL := getEnv("OPENMETER_URL", "http://openmeter-api.hub-platform-billing.svc.cluster.local")
-	oryKratosURL := getEnv("ORY_KRATOS_URL", "http://kratos-public.hub-platform-identity.svc.cluster.local")
+	openMeterURL := getEnv("OPENMETER_URL", "http://openmeter-api.platform-billing.svc.cluster.local")
+	oryKratosURL := getEnv("ORY_KRATOS_URL", "http://kratos-public.platform-identity.svc.cluster.local")
 
 	meteringProvider, err := openmeter.NewMeteringProvider(openMeterURL)
 	if err != nil {

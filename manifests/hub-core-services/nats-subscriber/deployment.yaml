@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nats-subscriber
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
   labels:
     app: nats-subscriber
     component: agent-core
@@ -58,7 +58,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: nats-subscriber
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
   labels:
     app: nats-subscriber
     component: agent-core
@@ -85,7 +85,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: nats-subscriber
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 roleRef:
   kind: ClusterRole
   name: nats-subscriber

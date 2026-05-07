@@ -97,8 +97,9 @@ go build -o bin/hub ./cmd/hub
 # Step 1: Bootstrap Hub Cluster with Ubuntu (default, production-ready)
 export HCLOUD_TOKEN=<your-hetzner-token>
 ./bin/hub bootstrap \
-  --name=mothership \
-  --region=fsn1
+  --name=hub \
+  --region=fsn1 \
+  --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
 
 # Step 2: Configure AWS Secrets Manager for Infisical encryption key recovery (REQUIRED)
 # This must be done BEFORE init-secrets to enable disaster recovery
@@ -106,15 +107,15 @@ export HCLOUD_TOKEN=<your-hetzner-token>
   --aws-access-key-id=<your-aws-access-key-id> \
   --aws-secret-access-key=<your-aws-secret-access-key> \
   --aws-region=ap-south-1 \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 3: Initialize bootstrap secrets (Secret Zero)
 # This generates Infisical master keys and backs them up to AWS
 ./bin/hub init-secrets \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 4: Wait for Infisical to be ready (check pods are running)
-kubectl get pods -n hub-platform-security --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 5: Create Machine Identity in Infisical UI
 # 1. Access Infisical UI (port-forward or ingress)
@@ -128,10 +129,10 @@ kubectl get pods -n hub-platform-security --kubeconfig=k8-secrets/kubeconfig/hub
   --infisical-client-secret=<client-secret-from-infisical-ui> \
   --ghcr-username=<your-github-username> \
   --ghcr-pat=<your-github-personal-access-token> \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Teardown cluster
-./bin/hub teardown --name=mothership
+./bin/hub teardown --name=hub
 ```
 
 **Command Execution Order (CRITICAL):**
@@ -245,14 +246,17 @@ Hub supports Ubuntu only:
 
 ## State Management
 
-Hub bootstrap state is tracked in `~/.zero-ops/state/<cluster-name>.json`. To retry a failed bootstrap or start fresh:
+Hub bootstrap state is tracked in `.zero-ops/state/<cluster-name>.json`. Bootstrap logs are saved to `.zero-ops/bootstrap-<cluster-name>.log`. To retry a failed bootstrap or start fresh:
 
 ```bash
 # Clear state for specific cluster
-rm -f ~/.zero-ops/state/<cluster-name>.json
+rm -f .zero-ops/state/<cluster-name>.json
 
-# Example: clear state for 'mothership' cluster
-rm -f ~/.zero-ops/state/mothership.json
+# Example: clear state for 'hub' cluster
+rm -f .zero-ops/state/hub.json
+
+# View bootstrap logs
+cat .zero-ops/bootstrap-hub.log
 ```
 
 ## License

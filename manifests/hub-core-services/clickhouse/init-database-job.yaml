@@ -13,7 +13,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: clickhouse-init-openmeter-db
-  namespace: hub-platform-data
+  namespace: platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -37,7 +37,7 @@ spec:
               # Timeout after 5 minutes (60 attempts * 5s)
               for i in $(seq 1 60); do
                 if clickhouse-client \
-                  --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
+                  --host=clickhouse-platform-clickhouse.platform-data.svc.cluster.local \
                   --port=9000 \
                   --user=clickhouse_admin \
                   --password="${CLICKHOUSE_PASSWORD}" \
@@ -56,7 +56,7 @@ spec:
               
               echo "Creating openmeter database (idempotent)..."
               clickhouse-client \
-                --host=clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local \
+                --host=clickhouse-platform-clickhouse.platform-data.svc.cluster.local \
                 --port=9000 \
                 --user=clickhouse_admin \
                 --password="${CLICKHOUSE_PASSWORD}" \

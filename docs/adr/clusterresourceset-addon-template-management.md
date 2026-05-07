@@ -40,7 +40,7 @@ Git Repository (zero-ops/manifests/platform-ops/cluster-bios/)
          ↓                                    ↓
    [Hub CLI reads]                    [ArgoCD syncs]
          ↓                                    ↓
-Hub Cluster Bootstrap              Hub Cluster (hub-platform-ops namespace)
+Hub Cluster Bootstrap              Hub Cluster (platform-ops namespace)
   ├── Cilium CNI                     ├── cilium-addon-template (Secret)
   ├── Hetzner CCM                    ├── ccm-addon-template (Secret)
   └── ArgoCD Agent                   └── argocd-agent-* (ConfigMaps + Secrets)

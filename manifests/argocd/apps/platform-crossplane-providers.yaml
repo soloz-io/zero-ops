@@ -3,7 +3,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-crossplane-providers
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -14,7 +14,7 @@ spec:
     path: manifests/hub-core-services/crossplane/providers
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true

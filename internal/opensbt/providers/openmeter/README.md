@@ -42,7 +42,7 @@ err = billingProvider.CreateSubscription(ctx, "tenant-123", "tenant-123#user-456
 
 **Status**: ✅ **COMPLETE** - HTTP client implementation integrated with OpenMeter API.
 
-All methods now make actual HTTP calls to the OpenMeter API deployed at `http://openmeter-api.hub-platform-billing.svc.cluster.local:80`.
+All methods now make actual HTTP calls to the OpenMeter API deployed at `http://openmeter-api.platform-billing.svc.cluster.local:80`.
 
 ### Implemented Methods
 

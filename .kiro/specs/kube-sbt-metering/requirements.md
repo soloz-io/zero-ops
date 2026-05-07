@@ -315,7 +315,7 @@ This document specifies requirements for the kube-sbt metering and billing syste
 
 1. THE SaaS builder SHALL define billing configuration in `fleet-registry/tenants/<tenant-id>/values.yaml` under the `billing` section
 2. THE `universal-tenant` Helm chart SHALL render `Meter`, `Feature`, and `Plan` CRs from `values.yaml`
-3. THE ArgoCD SHALL sync rendered CRs to Hub cluster namespace `hub-platform-billing`
+3. THE ArgoCD SHALL sync rendered CRs to Hub cluster namespace `platform-billing`
 4. THE hub-operator reconcilers SHALL detect CR changes and sync to OpenMeter within 30 seconds
 5. THE CR Status.Conditions SHALL reflect sync status (Synced: True/False) with error messages
 6. WHEN SaaS builder commits billing changes to Git, THE changes SHALL be applied to OpenMeter automatically via GitOps pipeline
@@ -411,8 +411,8 @@ This document specifies requirements for the kube-sbt metering and billing syste
 10. THE OpenMeter SHALL use platform-redis StatefulSet for caching (not embedded Bitnami Redis)
 11. THE OpenMeter Helm chart SHALL disable embedded PostgreSQL (`postgresql.enabled: false`)
 12. THE OpenMeter Helm chart SHALL disable embedded Redis (`redis.enabled: false`)
-13. THE OpenMeter SHALL connect to `platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter`
-14. THE OpenMeter SHALL connect to `platform-redis.hub-platform-data.svc.cluster.local:6379`
+13. THE OpenMeter SHALL connect to `platform-db-rw.platform-data.svc.cluster.local:5432/openmeter`
+14. THE OpenMeter SHALL connect to `platform-redis.platform-data.svc.cluster.local:6379`
 15. THE hub-operator SHALL generate `openmeter` database user credentials and upload to Infisical
 
 ### Requirement 21: Orphaned Subject Reconciliation

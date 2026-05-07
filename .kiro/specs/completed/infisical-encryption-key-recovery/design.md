@@ -178,14 +178,14 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: infisical-secrets
-  namespace: hub-platform-security
+  namespace: platform-security
   finalizers:
     - ops.nutgraf.in/encryption-key-protection
 type: Opaque
 stringData:
   ENCRYPTION_KEY: "8ec32a8fafb27566fccd50da3d789979"  # 32 hex chars
   AUTH_SECRET: "841e8ab0c28196d44e66b9075019cbfc"     # 32 hex chars
-  REDIS_URL: "redis://:password@redis-master.hub-platform-data.svc:6379"
+  REDIS_URL: "redis://:password@redis-master.platform-data.svc:6379"
   DB_ROOT_CERT: "LS0tLS1CRUdJTi..."                   # Base64 CA cert
 ```
 

@@ -73,7 +73,7 @@ Secrets for application workloads. These can be created AFTER infrastructure is 
 - `keto-db-credentials` (keto role)
 - `ghcr-pull-secret` (container registry)
 - `hetzner-dns` (DNS provider)
-- `hub-platform-git-secret` (GitHub credentials)
+- `platform-git-secret` (GitHub credentials)
 - `victoriametrics-basic-auth` (metrics auth)
 
 ## Consequences
@@ -180,7 +180,7 @@ creationPolicy: Owner  # ESO creates and owns
 - hcloud-token (CLI-injected)
 - hetzner-dns (CLI-injected)
 - ghcr-pull-secret (CLI-injected)
-- hub-platform-git-secret (CLI-injected)
+- platform-git-secret (CLI-injected)
 
 ## Alternatives Considered
 

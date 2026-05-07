@@ -23,7 +23,7 @@ Hub Cluster
 
 Spoke Cluster
 ├── crossplane-system: Crossplane operator (local — reconciles TenantDatabase XRs)
-├── spoke-platform-ops: provider-sql v0.9.0 (local, connects to shared-cnpg-rw via ClusterIP)
+├── platform-ops: provider-sql v0.9.0 (local, connects to shared-cnpg-rw via ClusterIP)
 ├── TenantDatabase XRD + Composition (new)
 │   ├── CNPG Database CR          → tenant-<id>-db
 │   ├── provider-sql Role CR      → tenant-<id>-user
@@ -134,18 +134,18 @@ apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
   name: default
-  namespace: spoke-platform-security
+  namespace: platform-security
 spec:
   credentials:
     source: PostgreSQLConnectionString
     connectionSecretRef:
-      namespace: spoke-platform-security
+      namespace: platform-security
       name: crossplane-admin-credentials
 ```
 
 Connection string in `crossplane-admin-credentials`:
 ```
-postgresql://crossplane_admin:<password>@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres
+postgresql://crossplane_admin:<password>@shared-cnpg-rw.platform-data.svc.cluster.local:5432/postgres
 ```
 
 ### 2.4 crossplane_admin bootstrap
@@ -226,7 +226,7 @@ Fields:
   username:   tenant-<id>-user
   password:   <32-char random alphanumeric>
   database:   tenant-<id>-db
-  host:       shared-cnpg-rw.spoke-platform-data.svc.cluster.local
+  host:       shared-cnpg-rw.platform-data.svc.cluster.local
   port:       5432
 ```
 

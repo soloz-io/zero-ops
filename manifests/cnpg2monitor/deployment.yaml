@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cnpg2monitor
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   replicas: 1
   selector:

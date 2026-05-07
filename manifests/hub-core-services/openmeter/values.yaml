@@ -32,12 +32,12 @@ clickhouse:
 config:
   aggregation:
     clickhouse:
-      address: clickhouse-platform-clickhouse.hub-platform-data.svc.cluster.local:9000
+      address: clickhouse-platform-clickhouse.platform-data.svc.cluster.local:9000
       database: openmeter
       username: openmeter
       tls: false
   postgres:
-    url: postgres://openmeter@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require
+    url: postgres://openmeter@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require
   # NOTE: svix.apiKey (signedJwt) cannot use secretKeyRef because it goes into ConfigMap
   # Helm chart limitation: ConfigMap values must be literals, not secret references
   # TODO Phase 6: Implement Kustomize ConfigMap generator or use external config management
@@ -110,14 +110,14 @@ svix:
     # CRITICAL: Svix requires full DSN with password embedded
     # Helm chart limitation: cannot use secretKeyRef for external database
     # Password will be injected via Kustomize patch from Secret
-    dsn: "postgres://openmeter:PLACEHOLDER_PASSWORD@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+    dsn: "postgres://openmeter:PLACEHOLDER_PASSWORD@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
   redis:
-    dsn: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
+    dsn: "redis://platform-redis.platform-data.svc.cluster.local:6379"
   signingSecret: "placeholder"  # Replaced by Secret openmeter-svix
   database:
     dsn: ""  # Empty = use internal PostgreSQL (official pattern)
   redis:
-    dsn: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
+    dsn: "redis://platform-redis.platform-data.svc.cluster.local:6379"
 
 podDisruptionBudget:
   enabled: false

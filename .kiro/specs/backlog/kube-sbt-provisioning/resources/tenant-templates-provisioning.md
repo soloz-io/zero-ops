@@ -84,7 +84,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: tenant-xr-provisioning
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   generators:
     - git:

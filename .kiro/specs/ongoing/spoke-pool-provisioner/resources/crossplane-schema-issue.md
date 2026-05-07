@@ -27,7 +27,7 @@ failed to create typed patch object: errors:
 
 ## Root Cause
 
-The composition creates **namespaced resources** (ConfigMaps in `hub-platform-ops` namespace):
+The composition creates **namespaced resources** (ConfigMaps in `platform-ops` namespace):
 - `argocd-agent-config-percluster` - ConfigMap with per-cluster agent configuration
 - `argocd-namespace-configmap` - ConfigMap with namespace manifest
 - `cluster-resource-set` - ClusterResourceSet (namespaced)
@@ -140,14 +140,14 @@ Crossplane automatically generates CRDs from XRDs with hardcoded schemas for int
 ### Why This Happens
 
 When Crossplane reconciles a composition that creates namespaced resources:
-1. Composition creates ConfigMap in `hub-platform-ops` namespace
+1. Composition creates ConfigMap in `platform-ops` namespace
 2. Crossplane tries to add reference to `spec.resourceRefs`:
    ```yaml
    resourceRefs:
      - apiVersion: v1
        kind: ConfigMap
        name: spoke-pool-eu-prod-01-argocd-agent-config
-       namespace: hub-platform-ops  # ← This field causes validation error
+       namespace: platform-ops  # ← This field causes validation error
    ```
 3. CRD schema validation rejects the update because `namespace` is not in the schema
 4. Composition reconciliation fails
@@ -213,7 +213,7 @@ When Crossplane reconciles a composition that creates namespaced resources:
 ### What Was Done
 
 1. **Deleted direct composition**: Removed `xrds/compositions/spokepool-hetzner.yaml` (v1) that directly composed namespaced resources
-2. **Fixed namespace mismatch**: Changed CAPI Cluster namespace from `hub-platform-capi` to `hub-platform-ops` to match ClusterResourceSet
+2. **Fixed namespace mismatch**: Changed CAPI Cluster namespace from `platform-capi` to `platform-ops` to match ClusterResourceSet
 3. **Renamed v2 to v1**: Renamed `spokepool-hetzner-v2.yaml` → `spokepool-hetzner.yaml` to become the default composition
 4. **Applied changes**: Deleted old composition, applied new one, recreated SpokePool
 
@@ -232,7 +232,7 @@ The `provider-kubernetes` `Object` resource is **cluster-scoped** but manages **
           apiVersion: cluster.x-k8s.io/v1beta1
           kind: Cluster
           metadata:
-            namespace: hub-platform-ops  # ← Creates namespaced resource
+            namespace: platform-ops  # ← Creates namespaced resource
 ```
 
 **Key insight**: Crossplane tracks the `Object` resource (cluster-scoped) in `resourceRefs`, not the underlying `Cluster` (namespaced). This bypasses the schema bug entirely.
@@ -240,7 +240,7 @@ The `provider-kubernetes` `Object` resource is **cluster-scoped** but manages **
 ### Verification
 
 ```bash
-$ kubectl get spokepool spoke-pool-eu-prod-01 -n hub-platform-ops
+$ kubectl get spokepool spoke-pool-eu-prod-01 -n platform-ops
 NAME                    SYNCED   READY   COMPOSITION         AGE
 spoke-pool-eu-prod-01   True     False   spokepool-hetzner   38s
 ```
@@ -263,7 +263,7 @@ resourceRefs:
 
 - ❌ Deleted: `xrds/compositions/spokepool-hetzner.yaml` (direct composition)
 - ✅ Updated: `xrds/compositions/spokepool-hetzner-v2.yaml` → `xrds/compositions/spokepool-hetzner.yaml`
-  - Fixed: Cluster namespace `hub-platform-capi` → `hub-platform-ops`
+  - Fixed: Cluster namespace `platform-capi` → `platform-ops`
   - Renamed: Removed `-v2` suffix to become default composition
 - ✅ Updated: `manifests/argocd/apps/platform-crossplane.yaml` (v1.14.5 → v1.20.5)
 - ✅ Fixed: ArgoCD Agent ConfigMap keys and image (unrelated issue)

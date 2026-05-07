@@ -180,7 +180,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubeconfig-generator
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   template:
     spec:

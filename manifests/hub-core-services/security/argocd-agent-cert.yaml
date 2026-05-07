@@ -13,7 +13,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-ca
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   isCA: true
   commonName: argocd-agent-ca
@@ -29,7 +29,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: argocd-agent-issuer
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   ca:
     secretName: argocd-agent-ca-secret-source
@@ -42,7 +42,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-client
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     description: "Shared ArgoCD Agent client certificate for all spoke pools (Phase 1)"
 spec:
@@ -84,7 +84,7 @@ spec:
               names:
                 - argocd-agent-ca-secret-source
               namespaces:
-                - hub-platform-ops
+                - platform-ops
       context:
         - name: caCrt
           variable:
@@ -93,7 +93,7 @@ spec:
         apiVersion: v1
         kind: Secret
         name: argocd-agent-ca-secret
-        namespace: hub-platform-ops
+        namespace: platform-ops
         synchronize: true
         data:
           type: addons.cluster.x-k8s.io/resource-set

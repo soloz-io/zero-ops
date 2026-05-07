@@ -37,11 +37,11 @@ func LoadConfig() (*Config, error) {
 
 	return &Config{
 		ListenAddr:              getEnv("LISTEN_ADDR", ":8080"),
-		HydraPublicURL:          getEnv("HYDRA_PUBLIC_URL", "http://ory-hydra-public.hub-platform-identity.svc.cluster.local:4444"),
-		HydraAdminURL:           getEnv("HYDRA_ADMIN_URL", "http://ory-hydra-admin.hub-platform-identity.svc.cluster.local:4445"),
-		HydraInternalJWKSURL:    getEnv("HYDRA_INTERNAL_JWKS_URL", "http://ory-hydra-public.hub-platform-identity.svc.cluster.local:4444/.well-known/jwks.json"),
-		KratosPublicURL:         getEnv("KRATOS_PUBLIC_URL", "http://ory-kratos-public.hub-platform-identity.svc.cluster.local:4433"),
-		KratosAdminURL:          getEnv("KRATOS_ADMIN_URL", "http://ory-kratos-admin.hub-platform-identity.svc.cluster.local:4434"),
+		HydraPublicURL:          getEnv("HYDRA_PUBLIC_URL", "http://ory-hydra-public.platform-identity.svc.cluster.local:4444"),
+		HydraAdminURL:           getEnv("HYDRA_ADMIN_URL", "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"),
+		HydraInternalJWKSURL:    getEnv("HYDRA_INTERNAL_JWKS_URL", "http://ory-hydra-public.platform-identity.svc.cluster.local:4444/.well-known/jwks.json"),
+		KratosPublicURL:         getEnv("KRATOS_PUBLIC_URL", "http://ory-kratos-public.platform-identity.svc.cluster.local:4433"),
+		KratosAdminURL:          getEnv("KRATOS_ADMIN_URL", "http://ory-kratos-admin.platform-identity.svc.cluster.local:4434"),
 		JWKSCacheTTL:            cacheTTL,
 		JWKSFetchTimeout:        fetchTimeout,
 		JWKSRefreshMinInterval:  refreshInterval,

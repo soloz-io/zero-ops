@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: setup-platform-roles
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-db
+        image: postgres:15-alpine
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h platform-db-rw.platform-data.svc.cluster.local -p 5432; do
+              echo "Waiting for database..."
+              sleep 2
+            done
+      containers:
+      - name: setup-roles
+        image: postgres:15-alpine
+        env:
+        - name: PGHOST
+          value: "platform-db-rw.platform-data.svc.cluster.local"
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: "postgres"
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-superuser
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-superuser
+              key: password
+        - name: PGSSLMODE
+          value: "require"
+        - name: MCP_SERVER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: control-plane-db-credentials
+              key: password
+        - name: AGENTREGISTRY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: control-plane-db-credentials
+              key: password
+        - name: SPOKE_CONTROLLER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: hub-db-credentials
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          
+          echo "Waiting for PostgreSQL to be ready..."
+          until psql -c "SELECT 1" > /dev/null 2>&1; do 
+            echo "Waiting for database..."
+            sleep 2
+          done
+
+          echo "Creating/updating mcp_server role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'mcp_server'" | grep -q 1 && \
+            psql -c "ALTER ROLE mcp_server WITH PASSWORD '${MCP_SERVER_PASSWORD}';" || \
+            psql -c "CREATE ROLE mcp_server WITH LOGIN PASSWORD '${MCP_SERVER_PASSWORD}';"
+
+          echo "Creating/updating agentregistry role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'agentregistry'" | grep -q 1 && \
+            psql -c "ALTER ROLE agentregistry WITH PASSWORD '${AGENTREGISTRY_PASSWORD}';" || \
+            psql -c "CREATE ROLE agentregistry WITH LOGIN PASSWORD '${AGENTREGISTRY_PASSWORD}';"
+
+          echo "Creating/updating spoke_controller role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spoke_controller'" | grep -q 1 && \
+            psql -c "ALTER ROLE spoke_controller WITH PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';" || \
+            psql -c "CREATE ROLE spoke_controller WITH LOGIN PASSWORD '${SPOKE_CONTROLLER_PASSWORD}';"
+
+          echo "Granting privileges on control_plane database..."
+          psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;"
+          psql -d control_plane -c "GRANT ALL PRIVILEGES ON DATABASE control_plane TO agentregistry;"
+
+          echo "Granting privileges on hub database..."
+          psql -d hub -c "GRANT ALL PRIVILEGES ON DATABASE hub TO spoke_controller;"
+
+          echo "✓ Platform roles created successfully"

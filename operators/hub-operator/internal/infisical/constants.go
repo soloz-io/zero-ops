@@ -3,9 +3,9 @@ package infisical
 const (
 	// Infisical Service Configuration
 	InfisicalServiceName      = "platform-infisical-infisical-standalone-infisical"
-	InfisicalServiceNamespace = "hub-platform-security"
+	InfisicalServiceNamespace = "platform-security"
 	InfisicalServicePort      = 8080
-	InfisicalBaseURL          = "http://platform-infisical-infisical-standalone-infisical.hub-platform-security.svc:8080"
+	InfisicalBaseURL          = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc.cluster.local:8080"
 
 	// API Endpoints
 	APIEndpointLogin              = "/api/v3/auth/login"
@@ -35,11 +35,11 @@ const (
 	SecretHetznerDNS     = "hetzner-dns"
 	SecretHCloud         = "hcloud"
 
-	// Namespaces
-	NamespaceOps         = "hub-platform-ops"
-	NamespaceCloudSystem = "hub-cloud-system"
-	NamespaceEdge        = "hub-platform-edge"
-	NamespaceData        = "hub-platform-data"
+	// Namespaces - unified across Hub and Spoke
+	NamespaceOps         = "platform-ops"
+	NamespaceCloudSystem = "kube-system"
+	NamespaceEdge        = "platform-edge"
+	NamespaceData        = "platform-data"
 
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey = "hetzner-dns-api-key"

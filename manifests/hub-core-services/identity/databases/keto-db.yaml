@@ -1,0 +1,10 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keto-db
+  namespace: platform-data
+spec:
+  cluster:
+    name: zero-ops-platform-db
+  name: keto_db
+  owner: keto

@@ -1,7 +1,7 @@
 ---
 # Kyverno Policy: Transform infisical-auth secret for ClusterResourceSet
 # Watches the infisical-auth Secret on the Hub and packages it for injection into Spokes.
-# Injects infisical-auth into spoke-platform-ops so ESO ClusterSecretStore can authenticate.
+# Injects infisical-auth into platform-ops so ESO ClusterSecretStore can authenticate.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -11,7 +11,7 @@ metadata:
     policies.kyverno.io/category: ClusterResourceSet Integration
     policies.kyverno.io/description: |
       Automatically transforms infisical-auth secret to ClusterResourceSet format.
-      Injects infisical-auth into spoke-platform-ops on every Spoke at bootstrap time.
+      Injects infisical-auth into platform-ops on every Spoke at bootstrap time.
 spec:
   generateExisting: true
   rules:
@@ -24,7 +24,7 @@ spec:
               names:
                 - infisical-auth
               namespaces:
-                - hub-platform-ops
+                - platform-ops
       context:
         - name: clientId
           variable:
@@ -36,7 +36,7 @@ spec:
         apiVersion: v1
         kind: Secret
         name: infisical-auth-crs
-        namespace: hub-platform-ops
+        namespace: platform-ops
         synchronize: true
         data:
           type: addons.cluster.x-k8s.io/resource-set
@@ -50,7 +50,7 @@ spec:
               kind: Secret
               metadata:
                 name: infisical-auth
-                namespace: spoke-platform-ops
+                namespace: platform-ops
               type: Opaque
               data:
                 client-id: "{{clientId}}"

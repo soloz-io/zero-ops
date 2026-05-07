@@ -226,7 +226,7 @@ Manual recovery required:
 
 Check if infisical-auth secret exists:
 ```bash
-kubectl get secret infisical-auth -n hub-platform-ops
+kubectl get secret infisical-auth -n platform-ops
 ```
 
 If missing, Phase 3a will suspend until the secret is created.
@@ -236,9 +236,9 @@ If missing, Phase 3a will suspend until the secret is created.
 Check dependency status:
 ```bash
 kubectl get cluster platform-db -o jsonpath='{.status.conditions}'
-kubectl get deployment infisical -n hub-platform-ops
+kubectl get deployment infisical -n platform-ops
 kubectl get deployment hydra -n ory-system
-kubectl get statefulset nats -n hub-platform-core
+kubectl get statefulset nats -n platform-core
 ```
 
 Reconciliation will requeue every 10 seconds until dependencies are ready.

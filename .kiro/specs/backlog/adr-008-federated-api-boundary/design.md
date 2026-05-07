@@ -534,7 +534,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: platform-spoketenantenvironment-xrds
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -548,7 +548,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-spoketenantenvironment-xrds'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -563,7 +563,7 @@ spec:
           include: 'spoketenantenvironment.yaml'
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true
@@ -584,7 +584,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: platform-spoketenantenvironment-compositions
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -598,7 +598,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-spoketenantenvironment-compositions'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -613,7 +613,7 @@ spec:
           include: 'spoketenantenvironment-*.yaml'
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true

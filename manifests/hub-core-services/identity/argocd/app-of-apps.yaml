@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-identity
+  namespace: platform-ops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: HEAD
+    path: manifests/platform-identity/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

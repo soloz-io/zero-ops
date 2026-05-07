@@ -39,7 +39,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: infisical-secrets
-  namespace: hub-platform-security
+  namespace: platform-security
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Replace=false
     # Prevent accidental deletion

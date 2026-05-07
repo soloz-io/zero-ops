@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-selfservice-ui-node
+  namespace: platform-identity
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kratos-selfservice-ui-node
+  template:
+    metadata:
+      labels:
+        app: kratos-selfservice-ui-node
+    spec:
+      containers:
+      - name: ui
+        image: oryd/kratos-selfservice-ui-node:v1.3.0
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: KRATOS_PUBLIC_URL
+          value: "http://ory-kratos-public.platform-identity.svc.cluster.local:80"
+        - name: KRATOS_BROWSER_URL
+          value: "https://console.nutgraf.in"
+        - name: COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: kratos-ui-secrets
+              key: cookie-secret
+        - name: CSRF_COOKIE_NAME
+          value: "__HOST-csrf"
+        - name: CSRF_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: kratos-ui-secrets
+              key: csrf-cookie-secret
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-selfservice-ui-node
+  namespace: platform-identity
+spec:
+  selector:
+    app: kratos-selfservice-ui-node
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http

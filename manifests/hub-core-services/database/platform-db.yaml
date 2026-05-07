@@ -1,0 +1,34 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: platform-db
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  instances: 3
+  storage:
+    size: 20Gi
+    storageClass: hcloud-volumes
+
+  enableSuperuserAccess: true
+
+  certificates:
+    serverAltDNSNames:
+      - platform-db-pooler
+      - platform-db-pooler.platform-core-db
+      - platform-db-pooler.platform-data.svc
+      - platform-db-pooler.platform-data.svc.cluster.local
+
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: app
+      secret:
+        name: platform-db-app
+      postInitSQL:
+        # Databases only - users created via setup-platform-roles-job
+        - CREATE DATABASE control_plane;
+        - CREATE DATABASE hub;
+        - CREATE DATABASE infisical;
+        - CREATE DATABASE openmeter;

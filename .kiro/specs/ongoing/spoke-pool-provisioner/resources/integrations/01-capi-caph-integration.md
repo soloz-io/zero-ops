@@ -124,7 +124,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: spokepool-01-kubeconfig
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     cluster.x-k8s.io/cluster-name: spokepool-01
 type: cluster.x-k8s.io/secret
@@ -252,8 +252,8 @@ spec:
 ```go
 type SpokePoolCRSData struct {
     ClusterName       string  // e.g., "spokepool-01"
-    Namespace         string  // "hub-platform-capi"
-    HubArgoURL        string  // "argocd-agent-principal.hub-platform-ops.svc.cluster.local:8443"
+    Namespace         string  // "platform-capi"
+    HubArgoURL        string  // "argocd-agent-principal.platform-ops.svc.cluster.local:8443"
     AgentMTLSCert     string  // Pre-generated client certificate
     AgentMTLSKey      string  // Pre-generated client key
     AgentCA           string  // Hub ArgoCD CA bundle
@@ -341,7 +341,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-spokepool-01
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   secretName: argocd-agent-spokepool-01-tls
   issuerRef:

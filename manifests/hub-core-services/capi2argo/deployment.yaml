@@ -3,13 +3,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: capi2argo-controller-manager
-  namespace: hub-platform-ops
+  namespace: platform-ops
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: capi2argo-controller-manager
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   replicas: 1
   selector:
@@ -26,7 +26,7 @@ spec:
         image: ghcr.io/dntosas/capi2argo-cluster-operator:latest
         env:
         - name: ARGOCD_NAMESPACE
-          value: "hub-platform-ops"
+          value: "platform-ops"
         - name: ENABLE_GARBAGE_COLLECTION
           value: "true"
         resources:

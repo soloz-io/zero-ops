@@ -38,7 +38,7 @@ if err := infisicalClient.CreateOrUpdateSecret(ctx, hubEnv, "db-password", "secr
 
 ### Authentication Flow
 
-1. Read `infisical-auth` secret from `hub-platform-ops` namespace
+1. Read `infisical-auth` secret from `platform-ops` namespace
 2. Extract `client-id` and `client-secret` from secret data
 3. POST to `/api/v1/auth/universal-auth/login` with credentials
 4. Cache access token with expiration time
@@ -220,7 +220,7 @@ import (
 )
 
 // Create NATS client
-natsClient, err := client.NewNATSClient("nats://nats.hub-platform-core.svc:4222")
+natsClient, err := client.NewNATSClient("nats://nats.platform-core.svc:4222")
 if err != nil {
     return err
 }

@@ -146,7 +146,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if err := nsMgr.Create(ctx); err != nil {
 			return fmt.Errorf("failed to create namespace: %w", err)
 		}
-		fmt.Println("[bootstrap-create] ✓ Namespace created: hub-platform-capi")
+		fmt.Println("[bootstrap-create] ✓ Namespace created: platform-capi")
 		
 		// Update state
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate)

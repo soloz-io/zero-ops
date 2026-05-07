@@ -143,7 +143,7 @@ A single Composition can include:
 ## Related ADRs
 
 - **ADR 004 (Declarative Operator State):** Mandates use of declarative CRs over imperative Jobs. This ADR defines HOW those CRs are delivered from Hub to Spoke.
-- **Namespace Alignment ADR:** Defines namespace conventions (`hub-platform-ops`, `spoke-platform-data`) that Compositions must respect.
+- **Namespace Alignment ADR:** Defines namespace conventions (`platform-ops`, `platform-data`) that Compositions must respect.
 - **ClusterResourceSet Addon Management ADR:** Defines Day-1 bootstrap (CNI, CCM, ArgoCD Agent) that must complete before Crossplane Compositions deploy Day-2 resources.
 
 ## References

@@ -40,7 +40,7 @@ This implementation plan follows a 4-phase approach with manual validation check
 - [x] 2. Phase 1 Manual Validation Checkpoint
   - **Manual Steps**:
     1. Run CLI command: `./bin/hub configure-aws-secrets-manager --aws-access-key-id="test" --aws-secret-access-key="test" --aws-region="ap-south-1"`
-    2. Verify secret created: `kubectl get secret hub-operator-aws-credentials -n hub-platform-ops -o yaml`
+    2. Verify secret created: `kubectl get secret hub-operator-aws-credentials -n platform-ops -o yaml`
     3. Check secret contains all 3 keys with correct values
     4. Verify hub-operator uploads credentials to Infisical
     5. Confirm ExternalSecret recreates secret from Infisical

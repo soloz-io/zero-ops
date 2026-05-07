@@ -6,7 +6,7 @@ The secret doesn't have `clientId` or `clientSecret`. Hub operator needs to crea
 
 Infisical is accessible internally. The issue is hub-operator trying to authenticate with invalid credentials. Let me check the operator code to see how it's supposed to bootstrap Infisical credentials.
 
-The operator expects `infisical-auth` secret in `hub-platform-ops` namespace with Universal Auth credentials. This secret doesn't exist. The operator needs to bootstrap Infisical first by creating an admin user and service account. Let me check if there's bootstrap logic.
+The operator expects `infisical-auth` secret in `platform-ops` namespace with Universal Auth credentials. This secret doesn't exist. The operator needs to bootstrap Infisical first by creating an admin user and service account. Let me check if there's bootstrap logic.
 
 Found it! The `infisical-auth` secret is created by CLI bootstrap command `hub configure-eso`. Let me check that code.
 
@@ -30,7 +30,7 @@ Infisical is working internally (200 OK). The external 403 is likely TLS/cert is
 
 for dns to work, eso sync should work..
 
-ESO syncs: ExternalSecret pulls from Infisical to create hetzner-dns in hub-platform-edge
+ESO syncs: ExternalSecret pulls from Infisical to create hetzner-dns in platform-edge
 
 
 
@@ -61,7 +61,7 @@ Hub operator `uploadSecretsToInfisical()` only uploads:
 **MISSING:** Hetzner token upload to Infisical
 
 The operator needs to upload `hetzner-dns` secret (api-key) to Infisical so ESO can sync it. Currently:
-- ✅ CLI creates `hetzner-dns` in `hub-platform-edge` (Day 0)
+- ✅ CLI creates `hetzner-dns` in `platform-edge` (Day 0)
 - ❌ Operator doesn't upload to Infisical (Day 1)
 - ❌ ESO can't sync from Infisical (Day 1+)
 

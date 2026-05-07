@@ -2,7 +2,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
   name: hetzner-mgmt-ubuntu-v1
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   controlPlane:
     ref:
@@ -157,7 +157,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
 metadata:
   name: hetzner-mgmt-ubuntu-cluster
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -188,7 +188,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
   name: hetzner-mgmt-control-plane
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -316,7 +316,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-mgmt-ubuntu-control-plane-machine
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -327,7 +327,7 @@ apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
   name: hetzner-mgmt-worker-bootstrap
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -435,7 +435,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-mgmt-ubuntu-worker-machine
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   template:
     spec:

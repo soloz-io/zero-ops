@@ -3,7 +3,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: clickhouse-operator
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -20,10 +20,10 @@ spec:
             config.yaml:
               watch:
                 namespaces:
-                  - hub-platform-data
+                  - platform-data
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true

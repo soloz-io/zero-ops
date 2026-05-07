@@ -34,7 +34,7 @@ spec:
                     apiVersion: cluster.x-k8s.io/v1beta1
                     kind: Cluster
                     metadata:
-                      namespace: hub-platform-capi
+                      namespace: platform-capi
                       labels:
                         spoke-type: pool
                         take-along-label.capi-to-argocd.spoke-type: ""
@@ -104,7 +104,7 @@ spec:
                     apiVersion: cert-manager.io/v1
                     kind: Certificate
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     spec:
                       secretName: ""  # Patched below
                       duration: 2160h  # 90 days
@@ -165,7 +165,7 @@ spec:
                     apiVersion: cert-manager.io/v1
                     kind: Certificate
                     metadata:
-                      namespace: hub-platform-observability
+                      namespace: platform-observability
                     spec:
                       secretName: ""  # Patched below
                       duration: 2160h  # 90 days
@@ -226,7 +226,7 @@ spec:
                     apiVersion: cert-manager.io/v1
                     kind: Certificate
                     metadata:
-                      namespace: hub-platform-messaging
+                      namespace: platform-messaging
                     spec:
                       secretName: ""  # Patched below
                       duration: 2160h  # 90 days
@@ -287,7 +287,7 @@ spec:
                     apiVersion: addons.cluster.x-k8s.io/v1beta1
                     kind: ClusterResourceSet
                     metadata:
-                      namespace: hub-platform-capi
+                      namespace: platform-capi
                     spec:
                       clusterSelector:
                         matchLabels:
@@ -397,7 +397,7 @@ spec:
                     apiVersion: v1
                     kind: ConfigMap
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     data:
                       argocd-agent-config.yaml: ""
                 providerConfigRef:
@@ -463,7 +463,7 @@ spec:
                     kind: ConfigMap
                     metadata:
                       name: argocd-namespace
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     data:
                       namespace.yaml: |
                         apiVersion: v1
@@ -496,7 +496,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
@@ -565,7 +565,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
@@ -582,7 +582,7 @@ spec:
                               kind: Secret
                               metadata:
                                 name: nats-leaf-creds
-                                namespace: spoke-platform-messaging
+                                namespace: platform-messaging
                               type: Opaque
                               stringData:
                                 password: "{{ .password | trim }}"
@@ -632,7 +632,7 @@ spec:
                     apiVersion: v1
                     kind: Secret
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     type: Opaque
                     stringData:
                       password: ""  # Patched with generated password
@@ -674,7 +674,7 @@ spec:
                     apiVersion: external-secrets.io/v1alpha1
                     kind: PushSecret
                     metadata:
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                     spec:
                       refreshInterval: 1h
                       secretStoreRefs:
@@ -742,7 +742,7 @@ spec:
                   - patchesFrom:
                       apiVersion: v1
                       kind: Secret
-                      namespace: hub-platform-observability
+                      namespace: platform-observability
                       fieldPath: data
                 forProvider:
                   manifest:
@@ -750,11 +750,11 @@ spec:
                     kind: Secret
                     metadata:
                       name: alloy-client-cert
-                      namespace: spoke-platform-observability
+                      namespace: platform-observability
                       labels:
                         managed-by: crossplane
                         source-cluster: hub
-                        source-namespace: hub-platform-observability
+                        source-namespace: platform-observability
                         cert-type: alloy-client
                     type: kubernetes.io/tls
                 providerConfigRef:
@@ -793,7 +793,7 @@ spec:
                   - patchesFrom:
                       apiVersion: v1
                       kind: Secret
-                      namespace: hub-platform-messaging
+                      namespace: platform-messaging
                       fieldPath: data
                 forProvider:
                   manifest:
@@ -801,11 +801,11 @@ spec:
                     kind: Secret
                     metadata:
                       name: nats-leafnode-client-cert
-                      namespace: spoke-platform-messaging
+                      namespace: platform-messaging
                       labels:
                         managed-by: crossplane
                         source-cluster: hub
-                        source-namespace: hub-platform-messaging
+                        source-namespace: platform-messaging
                         cert-type: nats-leafnode-client
                     type: kubernetes.io/tls
                 providerConfigRef:
@@ -844,7 +844,7 @@ spec:
                   - patchesFrom:
                       apiVersion: v1
                       kind: Secret
-                      namespace: hub-platform-ops
+                      namespace: platform-ops
                       fieldPath: data
                 forProvider:
                   manifest:
@@ -856,7 +856,7 @@ spec:
                       labels:
                         managed-by: crossplane
                         source-cluster: hub
-                        source-namespace: hub-platform-ops
+                        source-namespace: platform-ops
                         cert-type: argocd-agent-client
                     type: kubernetes.io/tls
                 providerConfigRef:

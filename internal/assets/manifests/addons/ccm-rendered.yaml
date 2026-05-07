@@ -3,14 +3,14 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: hub-cloud-system
+  name: kube-system
 ---
 # Source: ccm-hetzner/templates/pdb.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: ccm-ccm-hetzner
-  namespace: hub-cloud-system
+  namespace: kube-system
 spec:
   minAvailable: 1
   maxUnavailable: 
@@ -24,7 +24,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ccm-ccm-hetzner
-  namespace: hub-cloud-system
+  namespace: kube-system
   labels:
     helm.sh/chart: ccm-hetzner-1.1.10
     app: ccm
@@ -38,7 +38,7 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: ccm-ccm-hetzner
-  namespace: hub-cloud-system
+  namespace: kube-system
   labels:
     helm.sh/chart: ccm-hetzner-1.1.10
     app: ccm
@@ -53,14 +53,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ccm-ccm-hetzner
-    namespace: hub-cloud-system
+    namespace: kube-system
 ---
 # Source: ccm-hetzner/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ccm-ccm-hetzner
-  namespace: hub-cloud-system
+  namespace: kube-system
   labels:
     helm.sh/chart: ccm-hetzner-1.1.10
     app: ccm

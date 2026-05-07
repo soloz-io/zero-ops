@@ -36,12 +36,12 @@ func mapRoleToSecretName(roleName string) string {
 }
 
 // mapRoleToSecretNamespace returns the namespace where the secret is located
-// Ory services (Hydra, Kratos, Keto) have their secrets in hub-platform-identity
-// All other services have secrets in hub-platform-data
+// Ory services (Hydra, Kratos, Keto) have their secrets in platform-identity
+// All other services have secrets in platform-data
 func mapRoleToSecretNamespace(roleName, defaultNamespace string) string {
 	switch roleName {
 	case "hub_hydra", "hub_kratos", "hub_keto":
-		return "hub-platform-identity"
+		return "platform-identity"
 	default:
 		return defaultNamespace
 	}
@@ -269,7 +269,7 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 
 	// Get connection details from platform-db-superuser secret
 	secret := &corev1.Secret{}
-	namespace := "hub-platform-data" // TODO: make configurable
+	namespace := "platform-data" // TODO: make configurable
 	if err := rm.client.Get(ctx, client.ObjectKey{
 		Name:      "platform-db-superuser",
 		Namespace: namespace,

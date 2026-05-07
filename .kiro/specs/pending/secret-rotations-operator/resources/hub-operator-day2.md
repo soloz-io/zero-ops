@@ -11,8 +11,8 @@ Here's a complete breakdown of the Day 2 operation logic currently in hub-operat
 ### **Logic Flow**:
 
 1. **Read Secrets** (using UncachedClient):
-   - `platform-db-ca` (namespace: hub-platform-data)
-   - `infisical-secrets` (namespace: hub-platform-data)
+   - `platform-db-ca` (namespace: platform-data)
+   - `infisical-secrets` (namespace: platform-data)
 
 2. **Extract & Compare**:
    - Extract `ca.crt` from `platform-db-ca`
@@ -24,13 +24,13 @@ Here's a complete breakdown of the Day 2 operation logic currently in hub-operat
    - Call `r.Update(ctx, infisicalSecrets)`
 
 4. **Restart Services** (hardcoded list):
-   - `infisical` (Deployment, hub-platform-ops)
-   - `redis` (StatefulSet, hub-platform-data)
+   - `infisical` (Deployment, platform-ops)
+   - `redis` (StatefulSet, platform-data)
    - `hydra` (Deployment, ory-system)
    - `kratos` (Deployment, ory-system)
    - `keto` (Deployment, ory-system)
    - `spire-server` (StatefulSet, spire-system)
-   - `mcp-server` (Deployment, hub-platform-ops)
+   - `mcp-server` (Deployment, platform-ops)
 
 5. **Track Failures**:
    - Collect restart failures in `restartFailures` array
@@ -71,14 +71,14 @@ Here's a complete breakdown of the Day 2 operation logic currently in hub-operat
 
 5. **Restart Consuming Service** (hardcoded mapping):
    - Map role name to service:
-     - `infisical` → Deployment `infisical` (hub-platform-ops)
-     - `redis` → StatefulSet `redis` (hub-platform-data)
+     - `infisical` → Deployment `infisical` (platform-ops)
+     - `redis` → StatefulSet `redis` (platform-data)
      - `hydra` → Deployment `hydra` (ory-system)
      - `kratos` → Deployment `kratos` (ory-system)
      - `keto` → Deployment `keto` (ory-system)
      - `spire_server` → StatefulSet `spire-server` (spire-system)
-     - `mcp_server` → Deployment `mcp-server` (hub-platform-ops)
-     - `spoke_controller` → Deployment `spoke-controller` (hub-platform-data)
+     - `mcp_server` → Deployment `mcp-server` (platform-ops)
+     - `spoke_controller` → Deployment `spoke-controller` (platform-data)
 
 6. **Error Handling**:
    - Non-blocking: logs errors but continues processing
@@ -118,7 +118,7 @@ Here's a complete breakdown of the Day 2 operation logic currently in hub-operat
 
 ### **Logic**:
 ```go
-1. Get Deployment "infisical" (namespace: hub-platform-ops)
+1. Get Deployment "infisical" (namespace: platform-ops)
 2. If not found, return false
 3. Check deployment.Status.Conditions for:
    - Type: DeploymentAvailable
@@ -132,7 +132,7 @@ Here's a complete breakdown of the Day 2 operation logic currently in hub-operat
 
 ### **Hardcoded Dependencies**:
 1. **Service Names**: All service names are hardcoded in arrays/maps
-2. **Namespaces**: Hardcoded namespaces (hub-platform-ops, ory-system, spire-system)
+2. **Namespaces**: Hardcoded namespaces (platform-ops, ory-system, spire-system)
 3. **Role-to-Service Mapping**: Static mapping in `serviceMap`
 
 ### **Coupling Issues**:

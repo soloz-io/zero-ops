@@ -5,7 +5,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-redis
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/name: argocd-redis
     app.kubernetes.io/component: cache

@@ -11,7 +11,7 @@ helmCharts:
     repo: oci://ghcr.io/openmeterio/helm-charts
     version: 1.0.0-beta.227
     releaseName: openmeter
-    namespace: hub-platform-billing
+    namespace: platform-billing
     valuesFile: values.yaml
 
 # Strategic merge patches to inject environment variables
@@ -41,7 +41,7 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
                   - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
@@ -73,7 +73,7 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
                   - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
@@ -105,7 +105,7 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
                   - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
@@ -137,7 +137,7 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
                   - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
@@ -169,7 +169,7 @@ patches:
                         name: openmeter-postgresql
                         key: POSTGRES_PASSWORD
                   - name: POSTGRES_URL
-                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+                    value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
                   - name: SVIX_APIKEY
                     valueFrom:
                       secretKeyRef:
@@ -193,9 +193,9 @@ patches:
                 name: openmeter-postgresql
                 key: POSTGRES_PASSWORD
           - name: SVIX_DB_DSN
-            value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.hub-platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
+            value: "postgres://openmeter:$(POSTGRES_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
           - name: SVIX_REDIS_DSN
-            value: "redis://platform-redis.hub-platform-data.svc.cluster.local:6379"
+            value: "redis://platform-redis.platform-data.svc.cluster.local:6379"
           - name: SVIX_CACHE_TYPE
             value: "redis"
           - name: SVIX_JWT_SECRET

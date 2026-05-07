@@ -13,9 +13,9 @@ Perfect! Now I have the complete picture. Let me provide the final comprehensive
 Based on the ADR, integration docs, and actual cluster state:
 
 **Namespace Architecture (per ADR):**
-- ArgoCD is in `hub-platform-ops` namespace ✅
-- ClusterResourceSet is in `hub-platform-ops` namespace ✅
-- Certificates should be in `hub-platform-ops` namespace (where ArgoCD lives)
+- ArgoCD is in `platform-ops` namespace ✅
+- ClusterResourceSet is in `platform-ops` namespace ✅
+- Certificates should be in `platform-ops` namespace (where ArgoCD lives)
 
 **Current ClusterResourceSet References:**
 1. ✅ `spoke-pool-eu-prod-01-hetzner-credentials` (Secret) - EXISTS
@@ -38,24 +38,24 @@ The file `manifests/hub-core-services/security/argocd-agent-cert.yaml` defines c
 - Was never deployed (no ArgoCD Application exists)
 
 **What it should do (per integration docs):**
-- Create **CA certificates** in `hub-platform-ops` namespace (one-time)
+- Create **CA certificates** in `platform-ops` namespace (one-time)
 - Crossplane Composition generates **per-cluster certificates** dynamically
 - Certificate names: `argocd-agent-<cell-id>-tls`
 
 ### **The Correct Solution:**
 
 **Option 1: Simple Fix (Matches Current Composition)**
-Create static CA and client certificates in `hub-platform-ops` namespace that can be shared across all spoke pools:
+Create static CA and client certificates in `platform-ops` namespace that can be shared across all spoke pools:
 
 ```yaml
-# hub-platform-ops namespace
+# platform-ops namespace
 ---
 # Self-signed CA
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-ca
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   isCA: true
   commonName: argocd-agent-ca
@@ -72,7 +72,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-client
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretName: argocd-agent-client-cert
   duration: 2160h  # 90 days

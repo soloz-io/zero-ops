@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cnpg-crds-template
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/name: cnpg-crds
     app.kubernetes.io/component: bootstrap

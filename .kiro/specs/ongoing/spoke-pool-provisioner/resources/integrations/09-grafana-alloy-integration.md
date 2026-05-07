@@ -161,7 +161,7 @@ spec:
             - name: CELL_ID
               value: "spokepool-01"
             - name: VICTORIAMETRICS_URL
-              value: "http://victoria-metrics-cluster-vminsert.hub-platform-observability.svc:8480/insert/0/prometheus/api/v1/write"
+              value: "http://victoria-metrics-cluster-vminsert.platform-observability.svc:8480/insert/0/prometheus/api/v1/write"
             - name: VICTORIAMETRICS_TOKEN
               valueFrom:
                 secretKeyRef:

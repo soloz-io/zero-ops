@@ -167,7 +167,7 @@
   - **Deliverable**: Functional hub-operator with Meter, Feature, Plan CRDs and reconcilers syncing to OpenMeter
   - **Verification Criteria**:
     - Meter CRs render from universal-tenant Helm chart values.yaml
-    - ArgoCD syncs rendered CRs to Hub cluster namespace hub-platform-billing
+    - ArgoCD syncs rendered CRs to Hub cluster namespace platform-billing
     - hub-operator reconcilers detect CR changes and sync to OpenMeter within 30 seconds
     - CR Status.Conditions reflect sync status with error messages
     - Git commits trigger automatic OpenMeter updates via GitOps pipeline
@@ -195,7 +195,7 @@
   - [x] Create `manifests/argocd/apps/openmeter.yaml`
   - [x] Configure sync policy and sync waves
   - [x] Add health checks for OpenMeter pods
-  - [x] Configure namespace: hub-platform-billing
+  - [x] Configure namespace: platform-billing
 
 - [x] 27. Configure OpenMeter database and infrastructure dependencies
   - [x] Add `openmeter` PostgreSQL role to HubEnvironment CR

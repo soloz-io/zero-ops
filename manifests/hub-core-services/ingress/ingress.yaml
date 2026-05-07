@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: zero-ops-ingress
-  namespace: hub-platform-edge
+  namespace: platform-edge
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
@@ -30,7 +30,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: auth-ingress
-  namespace: hub-platform-identity
+  namespace: platform-identity
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
@@ -58,7 +58,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: console-ingress
-  namespace: hub-platform-identity
+  namespace: platform-identity
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"

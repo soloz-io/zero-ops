@@ -97,7 +97,7 @@ spec:
 
 3. **Restart hub-operator** (to pick up new env vars):
    ```bash
-   kubectl rollout restart deployment hub-operator -n hub-platform-ops
+   kubectl rollout restart deployment hub-operator -n platform-ops
    ```
 
 ## AWS Backup Path Construction
@@ -120,17 +120,17 @@ After updating configuration:
 
 1. **Verify ConfigMap**:
    ```bash
-   kubectl get configmap hub-bootstrap-config -n hub-platform-ops -o yaml
+   kubectl get configmap hub-bootstrap-config -n platform-ops -o yaml
    ```
 
 2. **Verify Environment Variables in Operator**:
    ```bash
-   kubectl get pod -n hub-platform-ops -l control-plane=hub-operator -o yaml | grep -A 20 "env:"
+   kubectl get pod -n platform-ops -l control-plane=hub-operator -o yaml | grep -A 20 "env:"
    ```
 
 3. **Check Operator Logs**:
    ```bash
-   kubectl logs -n hub-platform-ops -l control-plane=hub-operator -f
+   kubectl logs -n platform-ops -l control-plane=hub-operator -f
    ```
 
 ## Troubleshooting

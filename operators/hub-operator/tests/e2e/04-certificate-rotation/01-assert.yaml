@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: infisical-secrets
-  namespace: hub-platform-data
+  namespace: platform-data
   annotations:
     # Verify the secret was updated (resourceVersion will have changed)
     ops.nutgraf.in/rotation-test: "true"

@@ -316,7 +316,7 @@ spec:
             kind: ClusterResourceSet
             metadata:
               name: {{ .observed.composite.resource.metadata.name }}-addons
-              namespace: hub-platform-capi
+              namespace: platform-capi
             spec:
               clusterSelector:
                 matchLabels:
@@ -392,7 +392,7 @@ metadata:
 spec:
   provider:
     kubernetes:
-      remoteNamespace: hub-platform-ops
+      remoteNamespace: platform-ops
       server:
         url: https://api.nutgraf.in:6443  # Hub cluster API server
         caProvider:
@@ -602,11 +602,11 @@ kubectl get certificate -n hub-platform argocd-agent-spokepool-01 -o jsonpath='{
 # Expected: True
 
 # 3. Verify ClusterResourceSet references certificates
-kubectl get clusterresourceset spokepool-01-addons -n hub-platform-capi -o yaml | grep -A5 resources
+kubectl get clusterresourceset spokepool-01-addons -n platform-capi -o yaml | grep -A5 resources
 # Expected: argocd-agent-spokepool-01-tls, nats-leaf-spokepool-01-tls
 
 # 4. Wait for CAPI Cluster Ready
-kubectl wait --for=condition=Ready cluster/spokepool-01 -n hub-platform-capi --timeout=20m
+kubectl wait --for=condition=Ready cluster/spokepool-01 -n platform-capi --timeout=20m
 
 # 5. Verify certificates injected into Spoke Pool
 kubectl --context spokepool-01 get secret -n spoke-pool argocd-agent-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -subject
@@ -650,7 +650,7 @@ kubectl logs -n cert-manager -l app=cert-manager
 
 **Diagnosis**:
 ```bash
-kubectl get clusterresourceset spokepool-01-addons -n hub-platform-capi -o yaml
+kubectl get clusterresourceset spokepool-01-addons -n platform-capi -o yaml
 # Check resources[] array
 ```
 

@@ -13,7 +13,7 @@ E2E tests for OpenMeter provider using [kubernetes-sigs/e2e-framework](https://g
 ### 1. Start Port-Forward
 
 ```bash
-kubectl port-forward -n hub-platform-billing svc/openmeter-api 8080:80
+kubectl port-forward -n platform-billing svc/openmeter-api 8080:80
 ```
 
 ### 2. Run Tests
@@ -53,10 +53,10 @@ go test -v ./kube-sbt-api
 
 **Connection refused**: Verify OpenMeter is running:
 ```bash
-kubectl get pods -n hub-platform-billing -l app.kubernetes.io/name=openmeter
+kubectl get pods -n platform-billing -l app.kubernetes.io/name=openmeter
 ```
 
 **Test failures**: Check OpenMeter logs:
 ```bash
-kubectl logs -n hub-platform-billing -l app.kubernetes.io/name=openmeter --tail=50
+kubectl logs -n platform-billing -l app.kubernetes.io/name=openmeter --tail=50
 ```

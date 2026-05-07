@@ -9,7 +9,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: api-zero-ops-dev
-  namespace: hub-platform-edge
+  namespace: platform-edge
 spec:
   secretName: api-zero-ops-tls
   issuerRef:
@@ -22,7 +22,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: auth-zero-ops-dev
-  namespace: hub-platform-identity
+  namespace: platform-identity
 spec:
   secretName: auth-zero-ops-tls
   issuerRef:
@@ -35,7 +35,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: console-zero-ops-dev
-  namespace: hub-platform-identity
+  namespace: platform-identity
 spec:
   secretName: console-zero-ops-tls
   issuerRef:

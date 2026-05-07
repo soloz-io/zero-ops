@@ -120,7 +120,7 @@ type IBilling interface {
 ### 4.2 OpenMeter API Integration (Req 5 & 6)
 **File:** `internal/opensbt/providers/openmeter/metering.go`
 
-*   **Authentication:** The client will authenticate to the internal Hub endpoint (`http://openmeter.hub-platform-core.svc:8888`).
+*   **Authentication:** The client will authenticate to the internal Hub endpoint (`http://openmeter.platform-core.svc:8888`).
 *   **Header Injection:** All requests MUST include the header: `OpenMeter-Namespace: <namespace>`.
 *   **Fail-Open Entitlements:**
     ```go
@@ -161,7 +161,7 @@ type IBilling interface {
 
 ### 5.1 OpenMeter Deployment (Req 20)
 **File:** `manifests/hub-core-services/openmeter/application.yaml` (ArgoCD App)
-*   Deploys the official OpenMeter Helm chart to the `hub-platform-core` namespace.
+*   Deploys the official OpenMeter Helm chart to the `platform-core` namespace.
 *   **Node Affinity/Tolerations:** Ensure values.yaml includes:
     ```yaml
     nodeSelector:
@@ -178,23 +178,23 @@ type IBilling interface {
         kind: Request
         spec:
           forProvider:
-            url: "http://openmeter.hub-platform-core.svc:8888/api/v1/namespaces"
+            url: "http://openmeter.platform-core.svc:8888/api/v1/namespaces"
             method: POST
             payload: '{"slug": "placeholder"}' # Patched with tenantId
             # Mapping DELETE for cleanup
             rollback:
               method: DELETE
-              url: "http://openmeter.hub-platform-core.svc:8888/api/v1/namespaces/placeholder"
+              url: "http://openmeter.platform-core.svc:8888/api/v1/namespaces/placeholder"
     ```
 
 ### 5.3 Istio & mTLS (Req 11)
 *   **No Go Code Changes:** The `open-sbt` HTTP clients (e.g., to Ory or OpenMeter) will use plain HTTP (`http://ory-kratos:80`).
-*   **Envoy Sidecar:** Add the `istio-injection: enabled` label to the `hub-platform-billing` namespace where `open-sbt` runs.
+*   **Envoy Sidecar:** Add the `istio-injection: enabled` label to the `platform-billing` namespace where `open-sbt` runs.
 *   **PeerAuthentication:** Ensure STRICT mTLS is enforced in the namespace via Istio CRDs. SPIRE will deliver the SVID directly to the Envoy sidecar.
 
 ### 5.4 Secret Management (Req 18)
 *   **Infisical:** Store the `STRIPE_WEBHOOK_SECRET`.
-*   **ESO:** Create an `ExternalSecret` targeting `hub-platform-billing` to mount this as an environment variable in the `hub-operator` / `open-sbt` deployment.
+*   **ESO:** Create an `ExternalSecret` targeting `platform-billing` to mount this as an environment variable in the `hub-operator` / `open-sbt` deployment.
 
 ---
 

@@ -2,20 +2,20 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: spoke-platform-data
+  name: platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: spoke-platform-messaging
+  name: platform-messaging
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: spoke-platform-observability
+  name: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "-2"

@@ -134,7 +134,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	// Create the secret with ArgoCD auto-discovery label
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "hub-platform-git-secret",
+			Name:      "platform-git-secret",
 			Namespace: constants.NamespaceOps,
 			Labels: map[string]string{
 				"argocd.argoproj.io/secret-type": "repository",
@@ -230,7 +230,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		
 		// Extract Redis password from URL
 		redisURL := string(infSecret.Data["REDIS_URL"])
-		// Parse: redis://:PASSWORD@redis-master.hub-platform-data.svc:6379
+		// Parse: redis://:PASSWORD@redis-master.platform-data.svc:6379
 		if idx := strings.Index(redisURL, "redis://:"); idx >= 0 {
 			start := idx + len("redis://:")
 			if end := strings.Index(redisURL[start:], "@"); end >= 0 {
@@ -265,7 +265,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		
 		fmt.Println("[bootstrap-secrets] Generated new ENCRYPTION_KEY and AUTH_SECRET")
 	}
-	redisURL := fmt.Sprintf("redis://:%s@redis-master.hub-platform-data.svc:6379", redisPassword)
+	redisURL := fmt.Sprintf("redis://:%s@redis-master.platform-data.svc:6379", redisPassword)
 
 	// TLS Configuration Strategy: TLS Everywhere (Production-Grade)
 	// Architecture: Infisical → PgBouncer (TLS) → PostgreSQL (TLS)
@@ -477,7 +477,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"DB_HOST":     "platform-db-pooler.hub-platform-data.svc",  // PgBouncer service
+			"DB_HOST":     "platform-db-pooler.platform-data.svc",  // PgBouncer service
 			"DB_PORT":     "5432",
 			"DB_USER":     "infisical",
 			"DB_PASSWORD": infPassword,
@@ -718,7 +718,7 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := "hub-platform-security"
+	namespace := "platform-security"
 	timeout := 5 * time.Minute
 	checkInterval := 5 * time.Second
 	deadline := time.Now().Add(timeout)

@@ -89,7 +89,7 @@ The current implementation uses a single shared `app` user for all tenant Pooler
   - If password missing AND NOT first-time → FAIL reconciliation with error (requires manual intervention)
   - **Operator does NOT create Hub K8s secret**
   - **Operator does NOT manage secret lifecycle post-creation**
-- ESO syncs from Infisical to `crossplane-admin-credentials` Secret in `spoke-platform-ops` namespace
+- ESO syncs from Infisical to `crossplane-admin-credentials` Secret in `platform-ops` namespace
 
 ### FR-3: Credential Secret
 
@@ -130,7 +130,7 @@ The current implementation uses a single shared `app` user for all tenant Pooler
 **FR-5.1: provider-sql deployment**
 - `provider-sql` v0.9.0 installed on every Spoke Pool via edge catalog
 - Sync wave 0 (before CNPG operator)
-- `ProviderConfig` points to `shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432`
+- `ProviderConfig` points to `shared-cnpg-rw.platform-data.svc.cluster.local:5432`
 - Uses `crossplane-admin-credentials` Secret
 
 **FR-5.2: Remove provider-sql from Hub**

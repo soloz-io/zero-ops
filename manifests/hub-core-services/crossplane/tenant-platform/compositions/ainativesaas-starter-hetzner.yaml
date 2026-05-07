@@ -76,7 +76,7 @@ spec:
             apiVersion: postgresql.cnpg.io/v1
             kind: Pooler
             metadata:
-              namespace: spoke-platform-data
+              namespace: platform-data
             spec:
               cluster:
                 name: shared-cnpg

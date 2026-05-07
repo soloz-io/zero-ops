@@ -4,7 +4,7 @@ apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production
-  namespace: hub-platform-ops
+  namespace: platform-ops
 status:
   conditions:
   - type: SecretsBackedUp

@@ -165,7 +165,7 @@ This pulls the password from the generator and formats the connection URLs for b
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://tenant_%s_user:{{ .generated_password }}@%s-pooler.spoke-platform-data.svc:5432/%s"
+                    fmt: "postgresql://tenant_%s_user:{{ .generated_password }}@%s-pooler.platform-data.svc:5432/%s"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId

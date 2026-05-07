@@ -137,7 +137,7 @@
 │  │  │                                                                                    │    │  │
 │  │  │ Example:                                                                           │    │  │
 │  │  │   principals:                                                                      │    │  │
-│  │  │     - "cluster.local/ns/hub-platform-edge/sa/agentgateway"                        │    │  │
+│  │  │     - "cluster.local/ns/platform-edge/sa/agentgateway"                        │    │  │
 │  │  └──────────────────────────────────────────────────────────────────────────────────┘    │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                  │
@@ -216,7 +216,7 @@ Step 3: Layer 2 - Service Mesh (Spoke)
 AgentGateway Envoy Sidecar
         │
         ├─▶ Present SPIFFE SVID (X.509 certificate)
-        │   spiffe://cluster.local/ns/hub-platform-edge/sa/agentgateway
+        │   spiffe://cluster.local/ns/platform-edge/sa/agentgateway
         │
         ▼
     mTLS Handshake
@@ -229,7 +229,7 @@ AgentGateway Envoy Sidecar
 PostgREST Envoy Sidecar
         │
         ├─▶ Validate source principal (Istio AuthorizationPolicy)
-        │   ✓ ALLOW if principal == "cluster.local/ns/hub-platform-edge/sa/agentgateway"
+        │   ✓ ALLOW if principal == "cluster.local/ns/platform-edge/sa/agentgateway"
         │   ✗ DENY all other principals
         │
         ├─▶ Forward request to PostgREST container

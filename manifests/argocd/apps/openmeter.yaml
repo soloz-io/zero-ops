@@ -3,7 +3,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: openmeter
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -15,7 +15,7 @@ spec:
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-billing
+    namespace: platform-billing
   
   syncPolicy:
     automated:

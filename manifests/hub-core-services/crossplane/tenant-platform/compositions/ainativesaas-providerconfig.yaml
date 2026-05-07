@@ -7,7 +7,7 @@
 #
 # Connection uses the shared-cnpg superuser (postgres) for user/grant management.
 # The postgres superuser credentials are stored in the CNPG-generated secret:
-#   shared-cnpg-superuser in spoke-platform-data namespace.
+#   shared-cnpg-superuser in platform-data namespace.
 apiVersion: kubernetes.crossplane.io/v1alpha2
 kind: Object
 metadata:
@@ -25,7 +25,7 @@ spec:
         credentials:
           source: PostgreSQLConnectionString
           connectionSecretRef:
-            namespace: spoke-platform-data
+            namespace: platform-data
             name: shared-cnpg-superuser  # CNPG-generated superuser secret
   providerConfigRef:
     name: ""  # Patched: cellId (provider-kubernetes ProviderConfig for the spoke)

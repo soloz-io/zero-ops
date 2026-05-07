@@ -5,7 +5,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-tenant-platform
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:

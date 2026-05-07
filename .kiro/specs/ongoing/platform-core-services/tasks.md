@@ -640,7 +640,7 @@ For AgentGateway to issue short-lived JWTs that PostgREST will accept, it needs 
 ### Tasks
 
 - [ ] 11.1 Deploy Crossplane core infrastructure
-  - [ ] 11.1.1 Deploy Crossplane to Hub cluster in `hub-platform-ops` namespace
+  - [ ] 11.1.1 Deploy Crossplane to Hub cluster in `platform-ops` namespace
   - [ ] 11.1.2 Install `provider-kubernetes` for CNPG and secret management
   - [ ] 11.1.3 Install `provider-helm` for spoke cluster deployments
   - [ ] 11.1.4 Configure Crossplane RBAC and service accounts

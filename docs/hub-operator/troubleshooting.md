@@ -195,7 +195,7 @@ Added sync-wave annotations to ensure proper deployment order:
 ```yaml
 metadata:
   name: mcp-server
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 ```
@@ -204,7 +204,7 @@ metadata:
 ```yaml
 metadata:
   name: kratos-selfservice-ui
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 ```
@@ -555,17 +555,17 @@ During migration from CLI-based bootstrap (`internal/hub/components/installer-bk
 
 ```bash
 # Check secret names are valid
-kubectl get secrets -n hub-platform-data | grep -E "(control-plane|hub-db|spire-server)"
+kubectl get secrets -n platform-data | grep -E "(control-plane|hub-db|spire-server)"
 
 # Verify Redis is running
-kubectl get pods -n hub-platform-data -l app.kubernetes.io/name=redis
+kubectl get pods -n platform-data -l app.kubernetes.io/name=redis
 
 # Check Infisical keys exist
-kubectl exec -n hub-platform-data infisical-0 -- \
+kubectl exec -n platform-data infisical-0 -- \
   infisical secrets list --env prod --path /
 
 # Verify ExternalSecrets are synced
-kubectl get externalsecrets -n hub-platform-data
+kubectl get externalsecrets -n platform-data
 ```
 
 ---
@@ -638,10 +638,10 @@ platform-external-secrets has ServerSideApply=true.
 make docker-build docker-push IMG=ghcr.io/soloz-io/zero-ops/hub-operator:latest
 
 # 2. Restart operator
-kubectl rollout restart deployment hub-operator -n hub-platform-ops
+kubectl rollout restart deployment hub-operator -n platform-ops
 
 # 3. Trigger reconciliation
-kubectl annotate hubenvironment hub-production -n hub-platform-ops \
+kubectl annotate hubenvironment hub-production -n platform-ops \
   ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 ```
 
@@ -778,12 +778,12 @@ pq: schema "control_plane" does not exist
 
 ### Check Role Creation
 ```bash
-kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\du mcp_server"
+kubectl exec -n platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\du mcp_server"
 ```
 
 ### Check Permission Grants
 ```bash
-kubectl exec -n hub-platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\dp"
+kubectl exec -n platform-data platform-db-1 -- psql -U postgres -d control_plane -c "\dp"
 ```
 
 ### Check Infisical Secrets
@@ -794,7 +794,7 @@ kubectl exec -n zero-ops-system deployment/platform-infisical-infisical-standalo
 
 ### Check ExternalSecret Status
 ```bash
-kubectl get externalsecrets -n hub-platform-data -o wide
+kubectl get externalsecrets -n platform-data -o wide
 ```
 
 ---

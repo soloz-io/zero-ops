@@ -217,7 +217,7 @@ type GenerateInfisicalSecretsResult struct {
 // GenerateInfisicalSecrets creates the infisical-secrets Kubernetes secret with backup/restore logic
 // Required for Infisical bootstrap (encryption keys, Redis URL, DB cert)
 // Returns both the secret and the Redis password for creating infisical-redis-credentials
-// NOTE: This secret MUST be created in hub-platform-security namespace where Infisical pods run
+// NOTE: This secret MUST be created in platform-security namespace where Infisical pods run
 //
 // Implements REQ-7: Backup/restore logic with bootstrap detection
 // - First-time bootstrap: Generate new keys, validate, backup to AWS
@@ -375,7 +375,7 @@ func GenerateInfisicalRedisCredentials(namespace, redisPassword string, owner me
 
 // GenerateInfisicalPostgresConnection creates the infisical-postgres-connection secret
 // Required for Infisical to connect to PostgreSQL
-// NOTE: This secret MUST be created in hub-platform-security namespace where Infisical pods run
+// NOTE: This secret MUST be created in platform-security namespace where Infisical pods run
 func GenerateInfisicalPostgresConnection(securityNamespace, dbHost, dbName, username, password string, owner metav1.OwnerReference) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

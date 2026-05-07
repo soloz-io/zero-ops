@@ -194,9 +194,9 @@ Zero-Ops uses Crossplane Objects with `references.patchesFrom` to distribute mTL
 1. SpokePool XR created on Hub
    ↓
 2. Crossplane Composition creates Certificate Objects
-   - ArgoCD Agent client cert (hub-platform-ops namespace)
-   - Alloy client cert (hub-platform-observability namespace)
-   - NATS Leafnode client cert (hub-platform-messaging namespace)
+   - ArgoCD Agent client cert (platform-ops namespace)
+   - Alloy client cert (platform-observability namespace)
+   - NATS Leafnode client cert (platform-messaging namespace)
    ↓
 3. cert-manager generates certificates
    - CN matches cluster name (e.g., "spoke-pool-eu-prod-01")
@@ -213,13 +213,13 @@ Zero-Ops uses Crossplane Objects with `references.patchesFrom` to distribute mTL
 
 **Distribution Path:**
 ```
-Hub: cert-manager → Secret (hub-platform-observability/spoke-pool-eu-prod-01-alloy-client-cert)
+Hub: cert-manager → Secret (platform-observability/spoke-pool-eu-prod-01-alloy-client-cert)
      ↓
 Hub: Crossplane Object references Hub Secret via patchesFrom
      ↓
 Hub: provider-kubernetes reads Secret data and applies to Spoke
      ↓
-Spoke: Secret created (spoke-platform-observability/alloy-client-cert)
+Spoke: Secret created (platform-observability/alloy-client-cert)
      ↓
 Spoke: Alloy DaemonSet mounts certificate via volumeMount
 ```
@@ -384,7 +384,7 @@ spec:
     source: Secret
     secretRef:
       name: spoke-pool-eu-prod-01-kubeconfig
-      namespace: hub-platform-ops
+      namespace: platform-ops
       key: kubeconfig
 ```
 

@@ -38,7 +38,7 @@ capi2argo will copy `spoke-type` and `cell-id` to the ArgoCD cluster Secret, mak
 ## Configuration
 
 Environment variables (set in deployment.yaml):
-- `ARGOCD_NAMESPACE`: Namespace where ArgoCD cluster Secrets are created (default: `hub-platform-ops`)
+- `ARGOCD_NAMESPACE`: Namespace where ArgoCD cluster Secrets are created (default: `platform-ops`)
 - `ENABLE_GARBAGE_COLLECTION`: Delete ArgoCD Secrets when CAPI Secret is deleted (default: `true`)
 
 ## RBAC
@@ -61,13 +61,13 @@ Check if capi2argo is working:
 
 ```bash
 # Check pod status
-kubectl get pods -n hub-platform-ops -l control-plane=controller-manager
+kubectl get pods -n platform-ops -l control-plane=controller-manager
 
 # Check logs
-kubectl logs -n hub-platform-ops -l control-plane=controller-manager --tail=50
+kubectl logs -n platform-ops -l control-plane=controller-manager --tail=50
 
 # Verify ArgoCD cluster Secret format
-kubectl get secret cluster-<cluster-name> -n hub-platform-ops -o jsonpath='{.data.config}' | base64 -d | jq .
+kubectl get secret cluster-<cluster-name> -n platform-ops -o jsonpath='{.data.config}' | base64 -d | jq .
 ```
 
 Expected output: JSON with `tlsClientConfig` structure containing `caData`, `certData`, `keyData`.
@@ -76,7 +76,7 @@ Expected output: JSON with `tlsClientConfig` structure containing `caData`, `cer
 
 **RBAC Errors:**
 ```
-secrets is forbidden: User "system:serviceaccount:hub-platform-ops:capi2argo-controller-manager" cannot list resource "secrets"
+secrets is forbidden: User "system:serviceaccount:platform-ops:capi2argo-controller-manager" cannot list resource "secrets"
 ```
 Solution: Verify ClusterRole and ClusterRoleBinding are applied.
 

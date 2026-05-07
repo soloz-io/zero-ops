@@ -14,7 +14,7 @@ spec:
       scrapeInterval: 15s
   database:
     clusterRef: platform-db
-    namespace: hub-platform-data
+    namespace: platform-data
     roles:
     - name: mcp_server
       database: control_plane

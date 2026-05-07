@@ -9,7 +9,7 @@ apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMCluster
 metadata:
   name: vmcluster
-  namespace: hub-platform-observability
+  namespace: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:
@@ -73,7 +73,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: victoriametrics
-  namespace: hub-platform-observability
+  namespace: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "5"
   labels:
@@ -98,13 +98,13 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: victoriametrics-external
-  namespace: hub-platform-observability
+  namespace: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "5"
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # mTLS configuration for Alloy spoke clients
     nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
-    nginx.ingress.kubernetes.io/auth-tls-secret: "hub-platform-observability/observability-ca-secret-source"
+    nginx.ingress.kubernetes.io/auth-tls-secret: "platform-observability/observability-ca-secret-source"
     nginx.ingress.kubernetes.io/auth-tls-verify-depth: "1"
     nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream: "true"
 spec:
@@ -129,7 +129,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: victoriametrics-config
-  namespace: hub-platform-observability
+  namespace: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 data:
@@ -159,7 +159,7 @@ apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
   name: victoriametrics-cluster
-  namespace: hub-platform-observability
+  namespace: platform-observability
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:

@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cilium-addon-template
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/name: cilium
     app.kubernetes.io/component: cni

@@ -6,7 +6,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
-  namespace: spoke-platform-data
+  namespace: platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "-1"  # Before CNPG operator
 spec:
@@ -22,12 +22,12 @@ spec:
       data:
         # PostgreSQL connection string for provider-sql ProviderConfig
         connectionString: |
-          postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432/postgres?sslmode=require
+          postgresql://crossplane_admin:{{ .password }}@shared-cnpg-rw.platform-data.svc.cluster.local:5432/postgres?sslmode=require
         # Individual fields for bootstrap Job and provider-sql
         username: crossplane_admin
         password: "{{ .password }}"
-        endpoint: shared-cnpg-rw.spoke-platform-data.svc.cluster.local  # provider-sql uses 'endpoint' not 'host'
-        host: shared-cnpg-rw.spoke-platform-data.svc.cluster.local
+        endpoint: shared-cnpg-rw.platform-data.svc.cluster.local  # provider-sql uses 'endpoint' not 'host'
+        host: shared-cnpg-rw.platform-data.svc.cluster.local
         port: "5432"
         database: postgres
   data:

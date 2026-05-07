@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: platform-infrastructure
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   description: Platform infrastructure services for spoke pool clusters
   sourceRepos:

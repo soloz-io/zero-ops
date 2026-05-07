@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: argocd-crds-template
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/name: argocd-crds
     app.kubernetes.io/component: bootstrap

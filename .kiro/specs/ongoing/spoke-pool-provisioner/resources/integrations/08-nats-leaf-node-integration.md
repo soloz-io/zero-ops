@@ -129,7 +129,7 @@ nats:
     enabled: true
     # Connect to Hub NATS as a leaf node
     remotes:
-      - url: "nats-leaf://nats.hub-platform-messaging.svc.cluster.local:7422"
+      - url: "nats-leaf://nats.platform-messaging.svc.cluster.local:7422"
         # mTLS authentication
         tls:
           ca_file: "/etc/nats-certs/ca.crt"
@@ -266,7 +266,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nats-leaf-ca
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   isCA: true
   commonName: nats-leaf-ca
@@ -282,7 +282,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: nats-leaf-ca-issuer
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   ca:
     secretName: nats-leaf-ca-secret
@@ -291,15 +291,15 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nats-hub-server-cert
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   secretName: nats-hub-server-cert
   duration: 2160h # 90 days
   renewBefore: 168h # 7 days before expiration
-  commonName: nats.hub-platform-messaging.svc.cluster.local
+  commonName: nats.platform-messaging.svc.cluster.local
   dnsNames:
-    - nats.hub-platform-messaging.svc.cluster.local
-    - nats.hub-platform-messaging.svc
+    - nats.platform-messaging.svc.cluster.local
+    - nats.platform-messaging.svc
     - nats
   issuerRef:
     name: nats-leaf-ca-issuer
@@ -314,7 +314,7 @@ apiVersion: addons.cluster.x-k8s.io/v1beta1
 kind: ClusterResourceSet
 metadata:
   name: spokepool-01-nats-certs
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   clusterSelector:
     matchLabels:
@@ -543,7 +543,7 @@ err = nc.Publish("spoke.cell-01.billing.usage", data)
 import "github.com/nats-io/nats.go"
 
 // Connect to Hub NATS JetStream
-nc, err := nats.Connect("nats://nats.hub-platform-messaging.svc:4222")
+nc, err := nats.Connect("nats://nats.platform-messaging.svc:4222")
 if err != nil {
     return err
 }
@@ -606,7 +606,7 @@ kubectl --context=$HUB_CONTEXT exec -n hub-platform nats-0 -- \
   nats stream info spoke.cell-01.billing.usage
 
 echo "5. Simulate Hub outage (scale Hub NATS to 0)"
-kubectl --context=$HUB_CONTEXT scale statefulset nats -n hub-platform-messaging --replicas=0
+kubectl --context=$HUB_CONTEXT scale statefulset nats -n platform-messaging --replicas=0
 
 echo "6. Publish events during outage"
 for i in {1..10}; do
@@ -619,11 +619,11 @@ kubectl --context=$SPOKE_CONTEXT exec -n spoke-pool-system nats-0 -- \
   nats stream ls
 
 echo "8. Restore Hub NATS"
-kubectl --context=$HUB_CONTEXT scale statefulset nats -n hub-platform-messaging --replicas=3
+kubectl --context=$HUB_CONTEXT scale statefulset nats -n platform-messaging --replicas=3
 
 echo "9. Wait for reconnection and verify events delivered"
 sleep 30
-kubectl --context=$HUB_CONTEXT exec -n hub-platform-messaging nats-0 -- \
+kubectl --context=$HUB_CONTEXT exec -n platform-messaging nats-0 -- \
   nats stream info spoke.cell-01.billing.usage | grep "Messages:"
 ```
 
@@ -655,7 +655,7 @@ NATS Leaf Node provides reliable, buffered event forwarding from Spoke Pool clus
 1. Deploy NATS Leaf Node in ArgoCD sync wave 4 (after CNPG, Atlas, PostgREST)
 2. Use mTLS authentication with cert-manager-generated certificates
 3. Enable JetStream in Spoke for local buffering (10Gi persistent volume)
-4. Configure `remotes` pointing to Hub NATS (nats-leaf://nats.hub-platform-messaging.svc:7422)
+4. Configure `remotes` pointing to Hub NATS (nats-leaf://nats.platform-messaging.svc:7422)
 5. Use subject pattern: `spoke.{cell-id}.billing.usage` for billing events
 6. Implement idempotency in Hub Event Router (check `IsEventProcessed()`)
 7. Monitor connection status and buffer growth with Prometheus alerts

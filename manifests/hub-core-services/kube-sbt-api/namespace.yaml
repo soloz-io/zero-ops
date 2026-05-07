@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: hub-platform-ops
+  name: platform-ops
   labels:
-    name: hub-platform-ops
+    name: platform-ops
     istio-injection: enabled

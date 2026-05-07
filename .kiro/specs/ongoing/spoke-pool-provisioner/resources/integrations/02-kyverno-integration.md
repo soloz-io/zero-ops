@@ -72,7 +72,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: spokepool-01                    # Cell ID
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     spoke-type: pool                    # REQUIRED for Kyverno selector
     cluster.x-k8s.io/cluster-name: spokepool-01
@@ -86,7 +86,7 @@ status:
 ### 2.2 CAPI-Generated Kubeconfig Secret (from CAPI integration doc)
 
 **Secret Name**: `<cluster-name>-kubeconfig` (e.g., `spokepool-01-kubeconfig`)  
-**Namespace**: Same as Cluster CR (`hub-platform-capi`)  
+**Namespace**: Same as Cluster CR (`platform-capi`)  
 **Data Key**: `value` (base64-encoded kubeconfig)
 
 ```yaml
@@ -94,7 +94,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: spokepool-01-kubeconfig
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     cluster.x-k8s.io/cluster-name: spokepool-01
 type: cluster.x-k8s.io/secret
@@ -179,7 +179,7 @@ spec:
           kinds:
           - Cluster
           namespaces:
-          - hub-platform-capi  # Only watch CAPI namespace (spec constraint)
+          - platform-capi  # Only watch CAPI namespace (spec constraint)
     # Preconditions: Only trigger for Spoke Pool clusters that are Provisioned
     preconditions:
       all:
@@ -236,7 +236,7 @@ spec:
           kinds:
           - Cluster
           namespaces:
-          - hub-platform-capi
+          - platform-capi
     preconditions:
       all:
       - key: "{{request.object.metadata.labels.\"spoke-type\"}}"
@@ -668,7 +668,7 @@ rules:
 - apiGroups: ["cluster.x-k8s.io"]
   resources: ["clusters"]
   verbs: ["get", "list", "watch"]
-# Read CAPI kubeconfig Secrets (only in hub-platform-capi namespace)
+# Read CAPI kubeconfig Secrets (only in platform-capi namespace)
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch"]
@@ -718,7 +718,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: spokepool-01
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     spoke-type: pool  # REQUIRED for policy trigger
 status:
@@ -731,7 +731,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: spokepool-01-kubeconfig
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     cluster.x-k8s.io/cluster-name: spokepool-01
 type: cluster.x-k8s.io/secret
@@ -764,7 +764,7 @@ kubectl apply -f test/fixtures/spoke-pool/spokepool-01.yaml
 
 # Step 2: Wait for CAPI cluster to become Provisioned (NFR-1.1: < 15 minutes)
 kubectl wait --for=condition=Ready cluster/spokepool-01 \
-  -n hub-platform-capi --timeout=20m
+  -n platform-capi --timeout=20m
 
 # Step 3: Verify Kyverno generated ArgoCD cluster Secret (FR-1.3)
 kubectl get secret spokepool-01-argocd-cluster -n argocd
@@ -801,7 +801,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: test-cluster
-  namespace: hub-platform-capi
+  namespace: platform-capi
   # Missing spoke-type: pool label
 status:
   phase: Provisioned
@@ -816,7 +816,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: spokepool-02
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     spoke-type: pool
 status:
@@ -832,7 +832,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: spokepool-03
-  namespace: hub-platform-capi
+  namespace: platform-capi
   labels:
     spoke-type: pool
 status:
@@ -928,7 +928,7 @@ kubectl get secret -n argocd -l spoke-type=pool -o yaml
 
 **Decision Criteria**:
 - Kyverno version in Hub cluster (check `kubectl version` output)
-- RBAC policy (can Kyverno background controller read Secrets in hub-platform-capi namespace?)
+- RBAC policy (can Kyverno background controller read Secrets in platform-capi namespace?)
 - Complexity tolerance (Option A is simpler, Option B is more verbose)
 
 **Action**: Verify Kyverno version during Hub bootstrap, document in design.md.
@@ -953,14 +953,14 @@ kubectl get secret -n argocd -l spoke-type=pool -o yaml
 
 ### 11.3 Namespace Restriction
 
-**Q**: Should Kyverno policy watch ALL namespaces or only `hub-platform-capi`?
+**Q**: Should Kyverno policy watch ALL namespaces or only `platform-capi`?
 
 **Spec Impact**: Security (prevent accidental Secret generation for non-Spoke Pool clusters)
 
-**Current**: Restricted to `hub-platform-capi` namespace (see Section 3.2)
+**Current**: Restricted to `platform-capi` namespace (see Section 3.2)
 
 **Rationale**:
-- Spoke Pool clusters are ONLY provisioned in `hub-platform-capi` namespace (per CAPI integration doc)
+- Spoke Pool clusters are ONLY provisioned in `platform-capi` namespace (per CAPI integration doc)
 - Prevents policy from triggering on unrelated Cluster resources in other namespaces
 - Aligns with least-privilege principle (security best practice)
 

@@ -54,7 +54,7 @@
 
 // var _ = Describe("Suite 1: Platform Database Bootstrap", func() {
 // 	const (
-// 		namespace   = "hub-platform-data"
+// 		namespace   = "platform-data"
 // 		clusterName = "zero-ops-platform-db"
 // 		timeout     = time.Second * 180
 // 		interval    = time.Second * 5
@@ -155,7 +155,7 @@
 
 // var _ = Describe("Suite 2: cnpg2monitor Auto-Wiring", func() {
 // 	const (
-// 		namespace   = "hub-platform-data"
+// 		namespace   = "platform-data"
 // 		timeout     = time.Second * 180
 // 		interval    = time.Second * 5
 // 	)
@@ -310,7 +310,7 @@
 
 // var _ = Describe("Suite 3: AI Correlation Event Emission", func() {
 // 	const (
-// 		namespace   = "hub-platform-data"
+// 		namespace   = "platform-data"
 // 		timeout     = time.Second * 180
 // 		interval    = time.Second * 5
 // 	)

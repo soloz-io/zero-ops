@@ -1,6 +1,6 @@
 ---
 # ProviderConfig for spoke-pool-eu-prod-01
-# References kubeconfig from CAPI Secret in hub-platform-ops
+# References kubeconfig from CAPI Secret in platform-ops
 apiVersion: kubernetes.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -10,5 +10,5 @@ spec:
     source: Secret
     secretRef:
       name: spoke-pool-eu-prod-01-kubeconfig
-      namespace: hub-platform-ops
+      namespace: platform-ops
       key: value

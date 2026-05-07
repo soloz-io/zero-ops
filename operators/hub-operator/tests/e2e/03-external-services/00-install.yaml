@@ -4,7 +4,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-infisical
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -15,7 +15,7 @@ spec:
     path: manifests/hub-core-services/infisical
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true
@@ -28,7 +28,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-hydra
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -39,7 +39,7 @@ spec:
     path: manifests/hub-core-services/hydra
   destination:
     server: https://kubernetes.default.svc
-    namespace: ory-system
+    namespace: platform-identity
   syncPolicy:
     automated:
       prune: true
@@ -52,7 +52,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-nats
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -63,7 +63,7 @@ spec:
     path: manifests/hub-core-services/nats
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-core
+    namespace: platform-core
   syncPolicy:
     automated:
       prune: true

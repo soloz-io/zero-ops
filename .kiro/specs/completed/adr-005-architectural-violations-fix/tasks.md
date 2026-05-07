@@ -30,7 +30,7 @@
     - `kubectl get externalsecret tenant-app-creator-db-credentials-restore -n tenant-app-creator` - verify Ready=True
     - `kubectl get secret tenant-app-creator-db-credentials -n tenant-app-creator` - verify exists with username/password from Infisical
     - `kubectl get role.postgresql.sql.crossplane.io tenant_app-creator_user` - verify Ready=True
-    - `kubectl exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant_app_creator_user"` - verify user exists
+    - `kubectl exec -n platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant_app_creator_user"` - verify user exists
     - `kubectl get atlasmigration -n tenant-app-creator` - verify Ready=True, no "no such user" error
   - **Expected outcome**: PostgreSQL Role created successfully, AtlasMigration works, database provisioning unblocked
   - **Approval gate**: Proceed to Phase 1 only after TenantDatabase fix verified
@@ -193,7 +193,7 @@
     - **Verify Dependency Ordering**:
       - Check TenantDatabase XR created secret: `kubectl get secret tenant-test-tenant-001-db-credentials -n tenant-test-tenant-001`
       - Check GitHub PAT ExternalSecret synced: `kubectl get externalsecret github-migrations-pat -n tenant-test-tenant-001 -o yaml | yq .status.conditions`
-      - Check Pooler references secret: `kubectl get pooler -n spoke-platform-data test-tenant-001-pooler -o yaml | yq .spec.pgbouncer.authQueryUser.secretRef.name`
+      - Check Pooler references secret: `kubectl get pooler -n platform-data test-tenant-001-pooler -o yaml | yq .spec.pgbouncer.authQueryUser.secretRef.name`
       - Check PostgREST references pooler secret: `kubectl get deployment -n tenant-test-tenant-001 postgrest-test-tenant-001 -o yaml | yq '.spec.template.spec.containers[0].env[] | select(.name=="PGRST_DB_URI").valueFrom.secretKeyRef.name'`
       - **Check AtlasMigration references both secrets**: Database connection secret AND GitHub PAT
     - **Verify Retry Behavior** (if TenantDatabase or ESO slow):

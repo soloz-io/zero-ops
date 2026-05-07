@@ -1,42 +1,45 @@
 package constants
 
-// Hub Platform Namespaces - aligned with docs/adr/namespace-alignment.md
+// Platform Namespaces - unified across Hub and Spoke (aligned with docs/adr/namespace-alignment.md)
 const (
 	// CAPI and cluster management
-	NamespaceCAPI = "hub-platform-capi"
+	NamespaceCAPI = "platform-capi"
 	
 	// Messaging infrastructure
-	NamespaceMessaging = "hub-platform-messaging"
+	NamespaceMessaging = "platform-messaging"
 	
 	// Identity and authentication
-	NamespaceIdentity = "hub-platform-identity"
+	NamespaceIdentity = "platform-identity"
 	
 	// Data layer (PostgreSQL, Redis, CNPG)
-	NamespaceData = "hub-platform-data"
+	NamespaceData = "platform-data"
 	
 	// Platform operations (ArgoCD, Crossplane, ESO, etc)
-	NamespaceOps = "hub-platform-ops"
+	NamespaceOps = "platform-ops"
 	
 	// Security (Infisical, SPIRE)
-	NamespaceSecurity = "hub-platform-security"
+	NamespaceSecurity = "platform-security"
 	
 	// Edge services (AgentGateway, auth-proxy, Ingress)
-	NamespaceEdge = "hub-platform-edge"
+	NamespaceEdge = "platform-edge"
 	
 	// Network (Cilium)
-	NamespaceNetwork = "hub-platform-network"
+	NamespaceNetwork = "platform-network"
 	
 	// Observability (VictoriaMetrics, Grafana Alloy)
-	NamespaceObservability = "hub-platform-observability"
+	NamespaceObservability = "platform-observability"
 	
-	// Applications (MCP Server, AgentRegistry)
-	NamespaceApps = "hub-platform-apps"
+	// Control Plane (MCP Server, AgentRegistry) - renamed from Apps
+	NamespaceControlPlane = "platform-controlplane"
 	
-	// Cloud provider integrations (CCM, CSI)
-	NamespaceCloud = "hub-cloud-system"
+	// Billing (OpenMeter)
+	NamespaceBilling = "platform-billing"
+	
+	// Cloud provider integrations (CCM, CSI) - consolidated to kube-system
+	NamespaceCloud = "kube-system"
 	
 	// Upstream namespaces
 	NamespaceCertManager = "cert-manager"
 	NamespaceCNPG        = "cnpg-system"
-	NamespaceKubeSystem  = "kube-system" // Kubernetes system namespace (used by CSI, CCM via CAPI)
+	NamespaceKubeSystem  = "kube-system"
 )

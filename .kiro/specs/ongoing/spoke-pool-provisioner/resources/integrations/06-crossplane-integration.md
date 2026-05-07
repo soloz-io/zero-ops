@@ -187,7 +187,7 @@ spec:
           kind: Cluster
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}
-            namespace: hub-platform-capi
+            namespace: platform-capi
             labels:
               spoke-type: pool
               cell-id: {{ .observed.composite.resource.metadata.name }}
@@ -211,7 +211,7 @@ spec:
           kind: HetznerCluster
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             controlPlaneRegion: {{ .observed.composite.resource.spec.region }}
             sshKeys:
@@ -225,7 +225,7 @@ spec:
           kind: KubeadmControlPlane
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-cp
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             replicas: 1
             version: v1.31.6
@@ -256,7 +256,7 @@ spec:
           kind: HCloudMachineTemplate
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-cp-mt
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             template:
               spec:
@@ -267,7 +267,7 @@ spec:
           kind: MachineDeployment
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-workers
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             clusterName: {{ .observed.composite.resource.metadata.name }}
             replicas: {{ .observed.composite.resource.spec.nodePool.count }}
@@ -293,7 +293,7 @@ spec:
           kind: HCloudMachineTemplate
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-workers-mt
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             template:
               spec:
@@ -304,7 +304,7 @@ spec:
           kind: KubeadmConfigTemplate
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-workers-kct
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             template:
               spec:
@@ -317,7 +317,7 @@ spec:
           kind: ClusterResourceSet
           metadata:
             name: {{ .observed.composite.resource.metadata.name }}-argocd-agent
-            namespace: hub-platform-capi
+            namespace: platform-capi
           spec:
             clusterSelector:
               matchLabels:
@@ -364,7 +364,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: crossplane
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   replicas: 1
   template:
@@ -405,7 +405,7 @@ spec:
 3. Crossplane selects Composition (spokepool-hetzner)
 4. Crossplane executes Pipeline:
    - function-go-templating renders CAPI resources
-5. Crossplane creates composed resources in hub-platform-capi namespace
+5. Crossplane creates composed resources in platform-capi namespace
 6. CAPI Controller provisions Hetzner VMs
 7. ClusterResourceSet injects ArgoCD Agent manifests
 8. Crossplane updates SpokePool XR status:
@@ -453,7 +453,7 @@ kubectl apply -f spokepool-01.yaml
 kubectl apply -f spokepool-01.yaml  # No-op, no resources created/updated
 
 # Verify idempotency
-kubectl get cluster -n hub-platform-capi spokepool-01 -o yaml
+kubectl get cluster -n platform-capi spokepool-01 -o yaml
 # Only one Cluster resource exists, not two
 ```
 
@@ -563,7 +563,7 @@ status:
         kind: Certificate
         metadata:
           name: {{ .observed.composite.resource.metadata.name }}-argocd-agent
-          namespace: hub-platform-capi
+          namespace: platform-capi
         spec:
           secretName: {{ .observed.composite.resource.metadata.name }}-argocd-agent-mtls
           issuerRef:
@@ -636,8 +636,8 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 |-------------|----------------|------------|
 | FR-1.1 | SpokePool XRD defines schema: region, nodePool, maxTenantCapacity | XRD YAML validation |
 | FR-1.1 | Applying SpokePool XR triggers Crossplane | Crossplane controller logs |
-| FR-1.1 | Crossplane provisions CAPI Cluster + HetznerCluster + MachineDeployment | kubectl get cluster -n hub-platform-capi |
-| FR-1.1 | ClusterResourceSet automatically created | kubectl get clusterresourceset -n hub-platform-capi |
+| FR-1.1 | Crossplane provisions CAPI Cluster + HetznerCluster + MachineDeployment | kubectl get cluster -n platform-capi |
+| FR-1.1 | ClusterResourceSet automatically created | kubectl get clusterresourceset -n platform-capi |
 | FR-1.1 | Cell-id derived from metadata.name | Cluster label: cell-id=spokepool-01 |
 | FR-1.2 | ClusterResourceSet contains 5 resources | kubectl get clusterresourceset -o yaml |
 | FR-1.2 | mTLS certificate pre-generated | cert-manager Certificate CR |
@@ -655,8 +655,8 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 |----------|----------------|------------|
 | AC-1 | SpokePool XRD defined | kubectl get xrd spokepools.nutgraf.in |
 | AC-1 | SpokePool Composition generates CAPI resources | kubectl get composition spokepool-hetzner |
-| AC-1 | Composition patches mTLS cert into ClusterResourceSet | kubectl get secret -n hub-platform-capi |
-| AC-1 | Applying SpokePool XR provisions functional cluster | kubectl get cluster -n hub-platform-capi |
+| AC-1 | Composition patches mTLS cert into ClusterResourceSet | kubectl get secret -n platform-capi |
+| AC-1 | Applying SpokePool XR provisions functional cluster | kubectl get cluster -n platform-capi |
 
 
 ---
@@ -738,13 +738,13 @@ spokepool_capacity_utilization{cell_id="spokepool-01"} 0.45
 **Diagnosis**:
 ```bash
 # Check Crossplane controller logs
-kubectl logs -n hub-platform-ops deployment/crossplane | grep spokepool-01
+kubectl logs -n platform-ops deployment/crossplane | grep spokepool-01
 
 # Check Composition selection
 kubectl get spokepool spokepool-01 -o yaml | grep composition
 
 # Check composed resources
-kubectl get cluster,hetznercluster,machinedeployment -n hub-platform-capi -l cell-id=spokepool-01
+kubectl get cluster,hetznercluster,machinedeployment -n platform-capi -l cell-id=spokepool-01
 ```
 
 **Resolution**:
@@ -760,7 +760,7 @@ kubectl get cluster,hetznercluster,machinedeployment -n hub-platform-capi -l cel
 **Diagnosis**:
 ```bash
 # Check Crossplane function logs
-kubectl logs -n hub-platform-ops deployment/function-go-templating
+kubectl logs -n platform-ops deployment/function-go-templating
 
 # Check Composition pipeline steps
 kubectl get composition spokepool-hetzner -o yaml | grep -A 20 pipeline
@@ -781,13 +781,13 @@ kubectl crossplane beta render spokepool-01.yaml spokepool-hetzner.yaml
 **Diagnosis**:
 ```bash
 # Check Certificate CR
-kubectl get certificate -n hub-platform-capi | grep spokepool-01
+kubectl get certificate -n platform-capi | grep spokepool-01
 
 # Check cert-manager logs
 kubectl logs -n cert-manager deployment/cert-manager
 
 # Check Secret
-kubectl get secret -n hub-platform-capi | grep spokepool-01-argocd-agent-mtls
+kubectl get secret -n platform-capi | grep spokepool-01-argocd-agent-mtls
 ```
 
 **Resolution**:

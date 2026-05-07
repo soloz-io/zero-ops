@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: external-dns
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -36,7 +36,7 @@ spec:
           - service
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-edge
+    namespace: platform-edge
   syncPolicy:
     automated:
       prune: true

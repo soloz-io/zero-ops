@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: nats-init-streams
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -20,7 +20,7 @@ spec:
           - |
             set -e
             echo "Waiting for NATS cluster..."
-            until nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 server check connection 2>/dev/null; do
+            until nats --server=nats.platform-messaging.svc.cluster.local:4222 server check connection 2>/dev/null; do
               echo "NATS not ready, retrying..."
               sleep 5
             done
@@ -41,19 +41,19 @@ spec:
             
             # Stream 1: Agent Created Events
             sed 's/PLACEHOLDER/agent-created/; s/"PLACEHOLDER"/"hub.platform.agent.created"/' /tmp/stream-config.json | \
-              nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream add agent-created --config=/dev/stdin || echo "Stream 1 exists"
+              nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-created --config=/dev/stdin || echo "Stream 1 exists"
             
             # Stream 2: Agent Deployed Events
             sed 's/PLACEHOLDER/agent-deployed/; s/"PLACEHOLDER"/"hub.platform.agent.deployed"/' /tmp/stream-config.json | \
-              nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream add agent-deployed --config=/dev/stdin || echo "Stream 2 exists"
+              nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-deployed --config=/dev/stdin || echo "Stream 2 exists"
             
             # Stream 3: Agent Updated Events
             sed 's/PLACEHOLDER/agent-updated/; s/"PLACEHOLDER"/"hub.platform.agent.updated"/' /tmp/stream-config.json | \
-              nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream add agent-updated --config=/dev/stdin || echo "Stream 3 exists"
+              nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-updated --config=/dev/stdin || echo "Stream 3 exists"
             
             # Stream 4: Agent Deleted Events
             sed 's/PLACEHOLDER/agent-deleted/; s/"PLACEHOLDER"/"hub.platform.agent.deleted"/' /tmp/stream-config.json | \
-              nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream add agent-deleted --config=/dev/stdin || echo "Stream 4 exists"
+              nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-deleted --config=/dev/stdin || echo "Stream 4 exists"
             
             # Stream 5: Agent Infrastructure Status (CRITICAL for Phase 6)
             cat > /tmp/infra-status-config.json <<EOF
@@ -66,7 +66,7 @@ spec:
               "replicas": 3
             }
             EOF
-            nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream add agent-infra-status --config=/tmp/infra-status-config.json || echo "Stream 5 exists"
+            nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-infra-status --config=/tmp/infra-status-config.json || echo "Stream 5 exists"
             
             echo "All JetStream streams created successfully"
-            nats --server=nats.hub-platform-messaging.svc.cluster.local:4222 stream list
+            nats --server=nats.platform-messaging.svc.cluster.local:4222 stream list

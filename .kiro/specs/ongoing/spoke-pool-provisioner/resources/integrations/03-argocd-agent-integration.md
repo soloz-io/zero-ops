@@ -84,7 +84,7 @@ apiVersion: addons.cluster.x-k8s.io/v1beta1
 kind: ClusterResourceSet
 metadata:
   name: argocd-agent-bootstrap
-  namespace: hub-platform-capi
+  namespace: platform-capi
 spec:
   clusterSelector:
     matchLabels:
@@ -120,7 +120,7 @@ data:
   agent.mode: "managed"
   
   # Hub Principal connection
-  agent.server.address: "argocd-agent-principal.hub-platform-ops.svc.cluster.local"
+  agent.server.address: "argocd-agent-principal.platform-ops.svc.cluster.local"
   agent.server.port: "8443"
   
   # mTLS authentication (recommended)
@@ -184,7 +184,7 @@ argocd-agentctl pki init \
 argocd-agentctl pki issue principal \
   --principal-context hub-cluster \
   --ip "10.96.0.100" \
-  --dns "argocd-agent-principal.hub-platform-ops.svc.cluster.local" \
+  --dns "argocd-agent-principal.platform-ops.svc.cluster.local" \
   --upsert
 
 # Step 3: Issue Agent client certificate (per Spoke Pool cluster)
@@ -430,7 +430,7 @@ spec:
 3. Agent Deployment starts (image pull + pod start)
 4. Agent reads ConfigMap: agent.server.address, agent.mode=managed
 5. Agent loads mTLS certificates from Secrets
-6. Agent connects to Principal: argocd-agent-principal.hub-platform-ops.svc:8443
+6. Agent connects to Principal: argocd-agent-principal.platform-ops.svc:8443
 7. Principal validates client certificate CN matches agent name
 8. Principal creates queue pair for agent
 9. Agent subscribes to Application events
@@ -569,7 +569,7 @@ kubectl --context spokepool-01 describe pod -n argocd -l app.kubernetes.io/name=
 ```bash
 # Verify Principal service is reachable
 kubectl --context spokepool-01 exec -it deployment/argocd-agent-agent -n argocd -- \
-  nc -zv argocd-agent-principal.hub-platform-ops.svc.cluster.local 8443
+  nc -zv argocd-agent-principal.platform-ops.svc.cluster.local 8443
 
 # Verify certificate CN matches agent name
 kubectl --context spokepool-01 get secret argocd-agent-client-tls -n argocd -o yaml | \

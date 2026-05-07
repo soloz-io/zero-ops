@@ -10,16 +10,16 @@ kube-sbt-api is the REST API server for the kube-sbt metering and billing system
 - Read-only catalog access (meters, features, plans)
 
 ## Architecture
-- **Namespace**: `hub-platform-billing`
+- **Namespace**: `platform-billing`
 - **Replicas**: 2 (HA deployment)
 - **Node Selector**: Worker nodes only
 - **Service Mesh**: Istio sidecar injection enabled
 
 ## Dependencies
-- **OpenMeter API**: `openmeter-api.hub-platform-billing.svc.cluster.local`
-- **Ory Kratos**: `kratos-public.hub-platform-identity.svc.cluster.local`
-- **NATS**: `nats.hub-platform-messaging.svc.cluster.local:4222`
-- **Redis**: `redis.hub-platform-billing.svc.cluster.local:6379`
+- **OpenMeter API**: `openmeter-api.platform-billing.svc.cluster.local`
+- **Ory Kratos**: `kratos-public.platform-identity.svc.cluster.local`
+- **NATS**: `nats.platform-messaging.svc.cluster.local:4222`
+- **Redis**: `redis.platform-billing.svc.cluster.local:6379`
 
 ## Deployment
 
@@ -54,15 +54,15 @@ argocd app wait kube-sbt-api
 kubectl apply -k manifests/hub-core-services/kube-sbt-api/
 
 # Check deployment status
-kubectl get pods -n hub-platform-billing -l app=kube-sbt-api
-kubectl logs -n hub-platform-billing -l app=kube-sbt-api --tail=100
+kubectl get pods -n platform-billing -l app=kube-sbt-api
+kubectl logs -n platform-billing -l app=kube-sbt-api --tail=100
 ```
 
 ## Testing
 
 ### Health Check
 ```bash
-kubectl port-forward -n hub-platform-billing svc/kube-sbt-api 8080:80
+kubectl port-forward -n platform-billing svc/kube-sbt-api 8080:80
 curl http://localhost:8080/health
 ```
 
@@ -95,28 +95,28 @@ The deployment includes a NetworkPolicy that:
 ### Pod not starting
 ```bash
 # Check pod events
-kubectl describe pod -n hub-platform-billing -l app=kube-sbt-api
+kubectl describe pod -n platform-billing -l app=kube-sbt-api
 
 # Check logs
-kubectl logs -n hub-platform-billing -l app=kube-sbt-api --tail=100
+kubectl logs -n platform-billing -l app=kube-sbt-api --tail=100
 ```
 
 ### Connection issues
 ```bash
 # Test OpenMeter connectivity
-kubectl exec -n hub-platform-billing -it <pod-name> -- wget -O- http://openmeter-api.hub-platform-billing.svc.cluster.local/health
+kubectl exec -n platform-billing -it <pod-name> -- wget -O- http://openmeter-api.platform-billing.svc.cluster.local/health
 
 # Test Kratos connectivity
-kubectl exec -n hub-platform-billing -it <pod-name> -- wget -O- http://kratos-public.hub-platform-identity.svc.cluster.local/health/ready
+kubectl exec -n platform-billing -it <pod-name> -- wget -O- http://kratos-public.platform-identity.svc.cluster.local/health/ready
 ```
 
 ### Network Policy issues
 ```bash
 # Check network policy
-kubectl get networkpolicy -n hub-platform-billing kube-sbt-api -o yaml
+kubectl get networkpolicy -n platform-billing kube-sbt-api -o yaml
 
 # Temporarily disable for testing
-kubectl delete networkpolicy -n hub-platform-billing kube-sbt-api
+kubectl delete networkpolicy -n platform-billing kube-sbt-api
 ```
 
 ## Configuration

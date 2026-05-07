@@ -278,10 +278,10 @@
     - **Verify Database Provisioning**:
       - `kubectl get tenantdatabase test-tenant-004 --context spoke-pool-eu-prod-01`
       - Verify Ready=True
-      - `kubectl exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant_test-tenant-004_user" --context spoke-pool-eu-prod-01`
+      - `kubectl exec -n platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant_test-tenant-004_user" --context spoke-pool-eu-prod-01`
       - Verify user exists
     - **Verify Pooler Connection**:
-      - `kubectl get pooler test-tenant-004-pooler -n spoke-platform-data --context spoke-pool-eu-prod-01`
+      - `kubectl get pooler test-tenant-004-pooler -n platform-data --context spoke-pool-eu-prod-01`
       - Verify Ready=True
       - Test connection via pooler
     - **Verify PostgREST API**:

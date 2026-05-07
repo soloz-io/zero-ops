@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: ccm-addon-template
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     app.kubernetes.io/name: hetzner-ccm
     app.kubernetes.io/component: cloud-controller-manager

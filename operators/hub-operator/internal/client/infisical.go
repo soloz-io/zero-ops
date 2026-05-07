@@ -27,13 +27,13 @@ type InfisicalClient struct {
 
 // NewInfisicalClient creates a new Infisical API client
 // Requirement 6.3: Use controller-runtime client
-// Requirement 6.9: Read infisical-auth secret from hub-platform-ops namespace
+// Requirement 6.9: Read infisical-auth secret from platform-ops namespace
 func NewInfisicalClient(ctx context.Context, k8sClient client.Client, baseURL string) (*InfisicalClient, error) {
 	if baseURL == "" {
 		// Use internal service URL instead of external HTTPS
 		// This avoids TLS certificate verification issues during bootstrap
 		// Service name follows Helm pattern: {release}-{chart}-{component}
-		baseURL = "http://platform-infisical-infisical-standalone-infisical.hub-platform-security.svc:8080"
+		baseURL = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
 	}
 
 	return &InfisicalClient{
@@ -50,11 +50,11 @@ func NewInfisicalClient(ctx context.Context, k8sClient client.Client, baseURL st
 func (c *InfisicalClient) authenticate(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 
-	// Requirement 6.9: Read infisical-auth secret from hub-platform-ops namespace
+	// Requirement 6.9: Read infisical-auth secret from platform-ops namespace
 	secret := &corev1.Secret{}
 	if err := c.k8sClient.Get(ctx, client.ObjectKey{
 		Name:      "infisical-auth",
-		Namespace: "hub-platform-ops",
+		Namespace: "platform-ops",
 	}, secret); err != nil {
 		return fmt.Errorf("failed to get infisical-auth secret: %w", err)
 	}

@@ -59,7 +59,7 @@ spec:
                             username: "{{ .username }}"
                             password: "{{ .password }}"
                             database: ""  # Patched dynamically from spec.databaseName
-                            host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
+                            host: "shared-cnpg-rw.platform-data.svc.cluster.local"
                             port: "5432"
                       data:
                         - secretKey: username
@@ -142,7 +142,7 @@ spec:
                     apiVersion: postgresql.cnpg.io/v1
                     kind: Database
                     metadata:
-                      namespace: spoke-platform-data
+                      namespace: platform-data
                     spec:
                       cluster:
                         name: shared-cnpg
@@ -206,7 +206,7 @@ spec:
                             username: "{{ .username }}"
                             password: "{{ .password }}"
                             database: ""  # Patched dynamically
-                            host: "shared-cnpg-rw.spoke-platform-data.svc.cluster.local"
+                            host: "shared-cnpg-rw.platform-data.svc.cluster.local"
                             port: "5432"
                             pooler-host: ""  # Patched dynamically
                             url: ""  # Patched dynamically with template
@@ -282,7 +282,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-pooler.spoke-platform-data.svc"
+                      fmt: "%s-pooler.platform-data.svc"
               # Dynamic URL construction with secrets + config
               - type: CombineFromComposite
                 combine:
@@ -291,7 +291,7 @@ spec:
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://{{ .username }}:{{ .password }}@%s-pooler.spoke-platform-data.svc:5432/%s"
+                    fmt: "postgresql://{{ .username }}:{{ .password }}@%s-pooler.platform-data.svc:5432/%s"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
           
           # Resource 4: provider-sql Role (tenant user)

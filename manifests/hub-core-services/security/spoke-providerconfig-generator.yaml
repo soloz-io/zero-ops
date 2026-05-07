@@ -45,7 +45,7 @@ spec:
         apiVersion: v1
         kind: Secret
         name: "{{ clusterName }}-crossplane-kubeconfig"
-        namespace: hub-platform-ops
+        namespace: platform-ops
         synchronize: true
         data:
           type: Opaque
@@ -82,5 +82,5 @@ spec:
               source: Secret
               secretRef:
                 name: "{{ clusterName }}-crossplane-kubeconfig"
-                namespace: hub-platform-ops
+                namespace: platform-ops
                 key: kubeconfig

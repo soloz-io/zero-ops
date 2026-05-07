@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-infisical-prerequisites
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "2.5"
 spec:
@@ -10,13 +10,13 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/hub-core-services/platform-infisical
+    path: manifests/hub-core-services/infisical
     directory:
       recurse: true
       exclude: "*.md"
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-security
+    namespace: platform-security
   syncPolicy:
     automated:
       prune: true
@@ -33,7 +33,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-infisical
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -51,7 +51,7 @@ spec:
     ref: values
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-security
+    namespace: platform-security
   syncPolicy:
     automated:
       prune: true

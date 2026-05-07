@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-victoriametrics-infisical
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "7"
 spec:
@@ -15,7 +15,7 @@ spec:
       include: infisical-integration.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-observability
+    namespace: platform-observability
   syncPolicy:
     automated:
       prune: true

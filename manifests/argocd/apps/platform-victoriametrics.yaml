@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: victoria-metrics-operator
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 spec:
@@ -13,7 +13,7 @@ spec:
     chart: victoria-metrics-operator
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-observability
+    namespace: platform-observability
   syncPolicy:
     automated:
       prune: true
@@ -31,7 +31,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: victoria-metrics-cluster
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:
@@ -75,7 +75,7 @@ spec:
         retentionPeriod: 30d
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-observability
+    namespace: platform-observability
   syncPolicy:
     automated:
       prune: true

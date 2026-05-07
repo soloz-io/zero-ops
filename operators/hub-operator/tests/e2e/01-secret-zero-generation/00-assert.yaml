@@ -4,14 +4,14 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: infisical-secrets
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.5: Assert platform-db-app exists (BasicAuth type)
 apiVersion: v1
 kind: Secret
 metadata:
   name: platform-db-app
-  namespace: hub-platform-data
+  namespace: platform-data
 type: kubernetes.io/basic-auth
 ---
 # AC 16.6: Assert infisical-db-credentials exists
@@ -19,42 +19,42 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: infisical-db-credentials
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.7: Assert platform-db-ca exists
 apiVersion: v1
 kind: Secret
 metadata:
   name: platform-db-ca
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.8: Assert hydra-db-credentials exists
 apiVersion: v1
 kind: Secret
 metadata:
   name: hydra-db-credentials
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.9: Assert kratos-db-credentials exists
 apiVersion: v1
 kind: Secret
 metadata:
   name: kratos-db-credentials
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.10: Assert keto-db-credentials exists
 apiVersion: v1
 kind: Secret
 metadata:
   name: keto-db-credentials
-  namespace: hub-platform-data
+  namespace: platform-data
 ---
 # AC 16.11: Assert SecretZeroGenerated condition is True
 apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production
-  namespace: hub-platform-ops
+  namespace: platform-ops
 status:
   conditions:
   - type: SecretZeroGenerated

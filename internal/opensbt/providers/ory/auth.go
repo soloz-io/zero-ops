@@ -40,10 +40,10 @@ func NewAuthProvider(kratosAdminURL string) (*Auth, error) {
 
 	cfg := Config{
 		KratosAdminURL: kratosAdminURL,
-		HydraPublicURL: "http://hydra-public.hub-platform-identity.svc.cluster.local:4444",
-		HydraAdminURL:  "http://hydra-admin.hub-platform-identity.svc.cluster.local:4445",
-		KetoReadURL:    "http://keto-read.hub-platform-identity.svc.cluster.local:4466",
-		KetoWriteURL:   "http://keto-write.hub-platform-identity.svc.cluster.local:4467",
+		HydraPublicURL: "http://hydra-public.platform-identity.svc.cluster.local:4444",
+		HydraAdminURL:  "http://hydra-admin.platform-identity.svc.cluster.local:4445",
+		KetoReadURL:    "http://keto-read.platform-identity.svc.cluster.local:4466",
+		KetoWriteURL:   "http://keto-write.platform-identity.svc.cluster.local:4467",
 		JWTAudience:    "kube-sbt-api",
 	}
 

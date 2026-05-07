@@ -20,7 +20,7 @@ type Installer struct {
 // InstallAll installs all required components sequentially (CNI/CCM handled by CRS)
 func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
 	// Create hetzner secret for CSI driver
-	// NOTE: CSI manifest expects secret in hub-cloud-system namespace
+	// NOTE: CSI manifest expects secret in kube-system namespace
 	fmt.Println("[postboot] Creating hetzner secret for CSI...")
 	secretCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", i.Kubeconfig,

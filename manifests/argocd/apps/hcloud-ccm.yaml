@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: hcloud-ccm
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -23,7 +23,7 @@ spec:
           enabled: false
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-cloud-system
+    namespace: kube-system
   syncPolicy:
     automated:
       prune: true

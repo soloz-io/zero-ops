@@ -4,7 +4,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: hub-operator
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -15,7 +15,7 @@ spec:
     path: operators/hub-operator/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true
@@ -28,7 +28,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: hub-environment
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -39,7 +39,7 @@ spec:
     path: operators/hub-operator/config/samples
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true

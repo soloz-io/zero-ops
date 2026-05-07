@@ -312,14 +312,14 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		dataNamespace := hubEnv.Spec.Database.Namespace
 
 		// Map of application secrets to their namespaces
-		// Ory secrets are in hub-platform-identity, others in hub-platform-data
+		// Ory secrets are in platform-identity, others in platform-data
 		requiredSecrets := map[string]string{
-			"control-plane-db-credentials":  dataNamespace,           // hub-platform-data
-			"hub-db-credentials":            dataNamespace,           // hub-platform-data
-			"spire-server-db-credentials":   dataNamespace,           // hub-platform-data
-			"hydra-db-credentials":          "hub-platform-identity", // hub-platform-identity
-			"kratos-db-credentials":         "hub-platform-identity", // hub-platform-identity
-			"keto-db-credentials":           "hub-platform-identity", // hub-platform-identity
+			"control-plane-db-credentials":  dataNamespace,           // platform-data
+			"hub-db-credentials":            dataNamespace,           // platform-data
+			"spire-server-db-credentials":   dataNamespace,           // platform-data
+			"hydra-db-credentials":          "platform-identity", // platform-identity
+			"kratos-db-credentials":         "platform-identity", // platform-identity
+			"keto-db-credentials":           "platform-identity", // platform-identity
 		}
 
 		allSecretsExist := true
@@ -501,7 +501,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		infisicalAuth := &corev1.Secret{}
 		if err := r.Get(ctx, client.ObjectKey{
 			Name:      "infisical-auth",
-			Namespace: "hub-platform-ops",
+			Namespace: "platform-ops",
 		}, infisicalAuth); err != nil {
 			if errors.IsNotFound(err) {
 				logger.Info("infisical-auth secret not found, suspending Phase 3")
@@ -785,13 +785,13 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 		name      string
 		namespace string
 	}{
-		{"Deployment", "infisical", "hub-platform-ops"},
+		{"Deployment", "infisical", "platform-ops"},
 		{"StatefulSet", "redis", namespace},
-		{"Deployment", "hydra", "ory-system"},
-		{"Deployment", "kratos", "ory-system"},
-		{"Deployment", "keto", "ory-system"},
-		{"StatefulSet", "spire-server", "spire-system"},
-		{"Deployment", "mcp-server", "hub-platform-ops"},
+		{"Deployment", "hydra", "platform-identity"},
+		{"Deployment", "kratos", "platform-identity"},
+		{"Deployment", "keto", "platform-identity"},
+		{"StatefulSet", "spire-server", "platform-security"},
+		{"Deployment", "mcp-server", "platform-ops"},
 	}
 
 	for _, svc := range services {
@@ -886,7 +886,7 @@ func (r *HubEnvironmentReconciler) waitForInfisicalReadiness(ctx context.Context
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{
 		Name:      "infisical",
-		Namespace: "hub-platform-ops",
+		Namespace: "platform-ops",
 	}, deployment); err != nil {
 		if errors.IsNotFound(err) {
 			// Deployment doesn't exist yet
@@ -991,13 +991,13 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 			name      string
 			namespace string
 		}{
-			"infisical":        {"Deployment", "infisical", "hub-platform-ops"},
+			"infisical":        {"Deployment", "infisical", "platform-ops"},
 			"redis":            {"StatefulSet", "redis", namespace},
-			"hydra":            {"Deployment", "hydra", "ory-system"},
-			"kratos":           {"Deployment", "kratos", "ory-system"},
-			"keto":             {"Deployment", "keto", "ory-system"},
-			"spire_server":     {"StatefulSet", "spire-server", "spire-system"},
-			"mcp_server":       {"Deployment", "mcp-server", "hub-platform-ops"},
+			"hydra":            {"Deployment", "hydra", "platform-identity"},
+			"kratos":           {"Deployment", "kratos", "platform-identity"},
+			"keto":             {"Deployment", "keto", "platform-identity"},
+			"spire_server":     {"StatefulSet", "spire-server", "platform-security"},
+			"mcp_server":       {"Deployment", "mcp-server", "platform-ops"},
 			"spoke_controller": {"Deployment", "spoke-controller", namespace},
 		}
 
@@ -1137,7 +1137,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "hydra" && obj.GetNamespace() == "ory-system"
+					return obj.GetName() == "hydra" && obj.GetNamespace() == "platform-identity"
 				}),
 			),
 		).
@@ -1148,7 +1148,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "infisical" && obj.GetNamespace() == "hub-platform-ops"
+					return obj.GetName() == "infisical" && obj.GetNamespace() == "platform-ops"
 				}),
 			),
 		).
@@ -1159,7 +1159,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "nats" && obj.GetNamespace() == "hub-platform-core"
+					return obj.GetName() == "nats" && obj.GetNamespace() == "platform-core"
 				}),
 			),
 		).

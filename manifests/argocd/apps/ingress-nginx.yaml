@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: ingress-nginx
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -14,8 +14,8 @@ spec:
     helm:
       values: |
         tcp:
-          8443: "hub-platform-ops/argocd-agent-principal:443"
-          7422: "hub-platform-messaging/nats:7422"
+          8443: "platform-ops/argocd-agent-principal:443"
+          7422: "platform-messaging/nats:7422"
         controller:
           admissionWebhooks:
             enabled: false
@@ -28,7 +28,7 @@ spec:
             enable-ssl-passthrough: "true"
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-edge
+    namespace: platform-edge
   ignoreDifferences:
     - group: ""
       kind: Service

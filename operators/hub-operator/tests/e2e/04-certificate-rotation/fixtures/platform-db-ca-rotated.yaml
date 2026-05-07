@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: platform-db-ca
-  namespace: hub-platform-data
+  namespace: platform-data
   labels:
     app.kubernetes.io/managed-by: zero-ops-hub-cli
 type: Opaque

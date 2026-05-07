@@ -19,7 +19,7 @@ test/e2e/
 
 ```bash
 # 1. Start port-forward (in separate terminal)
-kubectl port-forward -n hub-platform-billing svc/openmeter-api 8080:80
+kubectl port-forward -n platform-billing svc/openmeter-api 8080:80
 
 # 2. Run tests
 export KUBECONFIG=../k8-secrets/kubeconfig/hub-cp.kubeconfig

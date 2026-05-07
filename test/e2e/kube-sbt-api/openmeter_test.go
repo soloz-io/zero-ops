@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	testenv.Setup(func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
 		openmeterURL := os.Getenv("OPENMETER_URL")
 		if openmeterURL == "" {
-			openmeterURL = "http://openmeter-api.hub-platform-billing.svc.cluster.local"
+			openmeterURL = "http://openmeter-api.platform-billing.svc.cluster.local"
 		}
 
 		var err error

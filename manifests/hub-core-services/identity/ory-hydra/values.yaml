@@ -1,0 +1,85 @@
+hydra:
+  existingSecret: hydra-system-secret
+  config:
+    urls:
+      self:
+        issuer: https://auth.nutgraf.in
+      login: https://auth.nutgraf.in/login
+      consent: https://auth.nutgraf.in/consent
+    serve:
+      public:
+        base_url: https://auth.nutgraf.in
+        cors:
+          enabled: true
+          allowed_origins:
+            - "*"
+          allowed_methods:
+            - GET
+            - POST
+            - OPTIONS
+          allowed_headers:
+            - Authorization
+            - Content-Type
+            - MCP-Protocol-Version
+    webfinger:
+      oidc_discovery:
+        client_registration_url: https://auth.nutgraf.in/oauth2/register
+    oauth2:
+      expose_internal_errors: false
+    oidc:
+      dynamic_client_registration:
+        enabled: true
+        default_scope: ["openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"]
+    strategies:
+      scope: exact
+      access_token: jwt
+    ttl:
+      access_token: 24h
+      refresh_token: 720h
+      auth_code: 10m
+    dsn: env://DSN
+    secrets:
+      system:
+        - env://SECRETS_SYSTEM
+
+  automigration:
+    enabled: true
+    type: initContainer
+
+secret:
+  enabled: true
+  nameOverride: "hydra-system-secret"
+
+deployment:
+  extraEnv:
+    - name: HYDRA_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: hydra-db-credentials
+          key: password
+    - name: DSN
+      value: postgres://hub_hydra:$(HYDRA_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/hydra
+    - name: SERVE_PUBLIC_CORS_ENABLED
+      value: "true"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_ORIGINS
+      value: "*"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_METHODS
+      value: "GET,POST,OPTIONS"
+    - name: SERVE_PUBLIC_CORS_ALLOWED_HEADERS
+      value: "Authorization,Content-Type,MCP-Protocol-Version"
+
+  automigration:
+    extraEnv:
+      - name: HYDRA_DB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: hydra-db-credentials
+            key: password
+      - name: DSN
+        value: postgres://hub_hydra:$(HYDRA_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/hydra
+
+  extraInitContainers: |
+    - name: wait-for-postgres
+      image: postgres:15-alpine
+      command: ['sh', '-c', 'until pg_isready -h platform-db-rw.platform-data.svc.cluster.local -p 5432; do sleep 2; done']
+

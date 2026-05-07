@@ -3,7 +3,7 @@ apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool
 metadata:
   name: spoke-pool-eu-prod-01
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     spoke-type: pool
     environment: production

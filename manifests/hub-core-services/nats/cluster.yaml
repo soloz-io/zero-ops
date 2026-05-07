@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nats
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
   labels:
     app: nats
 spec:
@@ -26,7 +26,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nats-config
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 data:
   nats.conf: |
     server_name: $POD_NAME
@@ -43,9 +43,9 @@ data:
       name: zero-ops-nats
       listen: 0.0.0.0:6222
       routes: [
-        "nats://nats-0.nats.hub-platform-messaging.svc.cluster.local:6222",
-        "nats://nats-1.nats.hub-platform-messaging.svc.cluster.local:6222",
-        "nats://nats-2.nats.hub-platform-messaging.svc.cluster.local:6222"
+        "nats://nats-0.nats.platform-messaging.svc.cluster.local:6222",
+        "nats://nats-1.nats.platform-messaging.svc.cluster.local:6222",
+        "nats://nats-2.nats.platform-messaging.svc.cluster.local:6222"
       ]
     }
     
@@ -69,7 +69,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nats
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:

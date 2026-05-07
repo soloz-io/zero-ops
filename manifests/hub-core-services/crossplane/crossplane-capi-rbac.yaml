@@ -161,5 +161,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: provider-kubernetes
-    namespace: hub-platform-ops
+    namespace: platform-ops
 

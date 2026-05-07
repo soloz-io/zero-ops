@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: spire-agent
-  namespace: hub-platform-security
+  namespace: platform-security
   labels:
     app: spire-agent
   annotations:
@@ -27,7 +27,7 @@ spec:
         - /bin/sh
         - -c
         - |
-          until wget --spider -q http://spire-server.hub-platform-security.svc.cluster.local:8080/ready; do
+          until wget --spider -q http://spire-server.platform-security.svc.cluster.local:8080/ready; do
             echo "Waiting for SPIRE Server..."
             sleep 2
           done

@@ -21,18 +21,18 @@ OpenMeter Helm chart includes embedded Bitnami PostgreSQL and Redis. This create
 The platform provides centralized stateful services. Applications consume them via connection strings and disable embedded databases in their Helm charts.
 
 ### PostgreSQL
-- Platform provides CNPG clusters in `hub-platform-data` namespace
+- Platform provides CNPG clusters in `platform-data` namespace
 - Applications request databases via `CREATE DATABASE` in CNPG postInitSQL
 - Hub-operator generates credentials and uploads to Infisical
 - Applications consume via external connection strings
 
 ### Redis
-- Platform provides StatefulSet in `hub-platform-data` namespace
+- Platform provides StatefulSet in `platform-data` namespace
 - Applications consume via service endpoint
 - No authentication required (internal cluster network)
 
 ### ClickHouse
-- Platform provides ClickHouseInstallation (Altinity operator) in `hub-platform-data` namespace
+- Platform provides ClickHouseInstallation (Altinity operator) in `platform-data` namespace
 - Shared cluster with database-level isolation per service (e.g., `openmeter` database)
 - Hub-operator generates credentials and uploads to Infisical
 - Applications consume via external connection strings with database-specific access

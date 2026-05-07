@@ -149,7 +149,7 @@ func (bc *BootstrapClient) Bootstrap(ctx context.Context) (bool, error) {
 		logger.Info("Identity granted project access")
 	}
 
-	// Step 10: Create infisical-auth secret in hub-platform-ops
+	// Step 10: Create infisical-auth secret in platform-ops
 	logger.Info("Step 10: Creating infisical-auth secret")
 	if err := bc.createInfisicalAuthSecret(ctx, clientID, clientSecret); err != nil {
 		return false, fmt.Errorf("failed to create infisical-auth secret: %w", err)

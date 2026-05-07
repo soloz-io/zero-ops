@@ -17,10 +17,10 @@ type HydraClient struct {
 
 // NewHydraClient creates a new Hydra client
 // Requirement 7.1: Use Ory Hydra Go SDK
-// Requirement 7.2: Configure client for https://hydra-admin.ory-system.svc
+// Requirement 7.2: Configure client for https://hydra-admin.platform-identity.svc
 func NewHydraClient(adminURL string) (*HydraClient, error) {
 	if adminURL == "" {
-		adminURL = "https://hydra-admin.ory-system.svc"
+		adminURL = "https://hydra-admin.platform-identity.svc"
 	}
 
 	configuration := hydra.NewConfiguration()

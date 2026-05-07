@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-agent-params
-  namespace: hub-platform-ops
+  namespace: platform-ops
 data:
   principal.listen.host: ""
   principal.listen.port: "8443"
@@ -10,7 +10,7 @@ data:
   principal.log.format: "json"
   principal.metrics.port: "8000"
   principal.healthz.port: "8003"
-  principal.namespace: "hub-platform-ops"
+  principal.namespace: "platform-ops"
   principal.allowed-namespaces: "*"
   
   # TLS Configuration

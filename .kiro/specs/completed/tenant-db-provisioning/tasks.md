@@ -74,7 +74,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - _Requirements: FR-5.1_
 
 - [x] 1.2.2 Create provider-sql ProviderConfig for Spoke
-  - Points to `shared-cnpg-rw.spoke-platform-data.svc.cluster.local:5432`
+  - Points to `shared-cnpg-rw.platform-data.svc.cluster.local:5432`
   - Uses `crossplane-admin-credentials` Secret
   - ProviderConfig name: `default`
   - Create file: `manifests/spoke-catalog/infra/crossplane-providerconfig-sql.yaml`
@@ -120,7 +120,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
 
 - [x] 2.2.2 Add CNPG Database resource to Composition
   - Resource 2: CNPG Database CR via provider-kubernetes Object
-  - Database name: `tenant-<id>-db` in `spoke-platform-data` namespace
+  - Database name: `tenant-<id>-db` in `platform-data` namespace
   - Owner: `crossplane_admin`
   - _Requirements: FR-1.2_
 
@@ -206,7 +206,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - _Requirements: FR-5.1_
 
 - [x] 4.1.2 Verify crossplane_admin role exists in CNPG
-  - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du crossplane_admin"`
+  - `kubectl --context spoke-pool-eu-prod-01 exec -n platform-data shared-cnpg-1 -- psql -U postgres -c "\du crossplane_admin"`
   - Verify: role exists with CREATEDB + CREATEROLE attributes
   - _Requirements: FR-2.3_
 
@@ -224,11 +224,11 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - _Requirements: FR-1.1, FR-1.2_
 
 - [x] 4.2.2 Verify CNPG Database CR created
-  - `kubectl --context spoke-pool-eu-prod-01 get database tenant-app-creator-db -n spoke-platform-data`
+  - `kubectl --context spoke-pool-eu-prod-01 get database tenant-app-creator-db -n platform-data`
   - _Requirements: FR-1.2_
 
 - [x] 4.2.3 Verify per-tenant user created
-  - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant-app-creator-user"`
+  - `kubectl --context spoke-pool-eu-prod-01 exec -n platform-data shared-cnpg-1 -- psql -U postgres -c "\du tenant-app-creator-user"`
   - Verify user exists with login privilege
   - _Requirements: FR-2.1, AC-3_
 
@@ -245,12 +245,12 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - _Requirements: FR-3.2, AC-6_
 
 - [x] 4.2.6 Verify tenant user can connect to own database
-  - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d tenant-app-creator-db -c "SELECT 1"`
+  - `kubectl --context spoke-pool-eu-prod-01 exec -n platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d tenant-app-creator-db -c "SELECT 1"`
   - Verify: connection succeeds
   - _Requirements: FR-2.2, AC-3_
 
 - [x] 4.2.7 Verify tenant user CANNOT connect to other databases
-  - `kubectl --context spoke-pool-eu-prod-01 exec -n spoke-platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d postgres`
+  - `kubectl --context spoke-pool-eu-prod-01 exec -n platform-data shared-cnpg-1 -- psql -U tenant-app-creator-user -d postgres`
   - Verify: connection fails with permission denied
   - _Requirements: FR-2.2, AC-4_
 
@@ -268,7 +268,7 @@ All tasks follow GitOps-first principles — changes via Git commits, ArgoCD rec
   - _Requirements: FR-4.1, AC-9_
 
 - [x] 4.3.3 Verify Pooler uses tenant credentials
-  - `kubectl --context spoke-pool-eu-prod-01 logs -n spoke-platform-data app-creator-pooler-<pod>`
+  - `kubectl --context spoke-pool-eu-prod-01 logs -n platform-data app-creator-pooler-<pod>`
   - Verify: `tenant-app-creator-user` in connection logs
   - Verify: no `app` user references
   - _Requirements: FR-4.2, AC-10_

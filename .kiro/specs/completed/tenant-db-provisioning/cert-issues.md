@@ -38,11 +38,11 @@ Following the industry-standard pattern documented in ADR (Red Hat ACM ManifestW
           kind: Secret
           metadata:
             name: alloy-client-cert
-            namespace: spoke-platform-observability
+            namespace: platform-observability
             labels:
               managed-by: crossplane
               source-cluster: hub
-              source-namespace: hub-platform-observability
+              source-namespace: platform-observability
           type: kubernetes.io/tls
           data: {} # patched from Hub secret
       readinessChecks:
@@ -81,11 +81,11 @@ Following the industry-standard pattern documented in ADR (Red Hat ACM ManifestW
           kind: Secret
           metadata:
             name: nats-leafnode-client-cert
-            namespace: spoke-platform-messaging
+            namespace: platform-messaging
             labels:
               managed-by: crossplane
               source-cluster: hub
-              source-namespace: hub-platform-messaging
+              source-namespace: platform-messaging
           type: kubernetes.io/tls
           data: {} # patched
       readinessChecks:
@@ -128,7 +128,7 @@ Following the industry-standard pattern documented in ADR (Red Hat ACM ManifestW
             labels:
               managed-by: crossplane
               source-cluster: hub
-              source-namespace: hub-platform-gitops
+              source-namespace: platform-gitops
           type: kubernetes.io/tls
           data: {} # patched
       readinessChecks:
@@ -218,15 +218,15 @@ certificateDelivery:
 **Success when:**
 ```bash
 # Hub: Crossplane Objects exist and ready
-kubectl get object -n hub-platform-ops | grep cert
+kubectl get object -n platform-ops | grep cert
 
 # Spoke: Secrets exist
-kubectl get secret -n spoke-platform-observability alloy-client-cert
-kubectl get secret -n spoke-platform-messaging nats-leafnode-client-cert
+kubectl get secret -n platform-observability alloy-client-cert
+kubectl get secret -n platform-messaging nats-leafnode-client-cert
 
 # Spoke: Workloads healthy
-kubectl get pods -n spoke-platform-observability  # Alloy 2/2 ready
-kubectl get pods -n spoke-platform-messaging      # NATS 1/1 ready
+kubectl get pods -n platform-observability  # Alloy 2/2 ready
+kubectl get pods -n platform-messaging      # NATS 1/1 ready
 
 # Application status
 kubectl get application spoke-pool-eu-prod-01 -n argocd

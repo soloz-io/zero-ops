@@ -4,7 +4,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-tenant-xrds-compositions
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -18,7 +18,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-tenant-xrds-compositions'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -38,7 +38,7 @@ spec:
             recurse: false
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true

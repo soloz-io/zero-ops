@@ -4,7 +4,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-cnpg-crds
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -18,7 +18,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-cnpg-crds'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -53,7 +53,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-cnpg-operator
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -67,7 +67,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-cnpg-operator'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -116,7 +116,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-atlas-operator
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -130,7 +130,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-atlas-operator'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -160,7 +160,7 @@ spec:
                 value: ""
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       ignoreDifferences:
         - group: apps
           kind: Deployment
@@ -185,7 +185,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-eso-crds
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -199,7 +199,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-eso-crds'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -212,7 +212,7 @@ spec:
         path: manifests/hub-core-services/eso/crds
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: false
@@ -232,7 +232,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-eso
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -246,7 +246,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-eso'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -274,7 +274,7 @@ spec:
                 memory: 128Mi
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true
@@ -293,7 +293,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-crossplane
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -307,7 +307,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-crossplane'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -334,7 +334,7 @@ spec:
                 cpu: "1000m"
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true
@@ -354,7 +354,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: spoke-infrastructure
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "11"
 spec:
@@ -368,7 +368,7 @@ spec:
   template:
     metadata:
       name: '{{.name}}-infrastructure'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         cell-id: '{{.name}}'
       annotations:
@@ -384,14 +384,14 @@ spec:
             - target:
                 kind: ExternalSecret
                 name: crossplane-admin-credentials
-                namespace: spoke-platform-data
+                namespace: platform-data
               patch: |
                 - op: replace
                   path: /spec/data/0/remoteRef/key
                   value: {{.name}}-crossplane-admin-password
       destination:
         name: '{{.name}}'
-        namespace: spoke-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true

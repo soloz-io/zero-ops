@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: infisical
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   template:
     metadata:
@@ -16,7 +16,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hydra
-  namespace: ory-system
+  namespace: platform-identity
 spec:
   template:
     metadata:
@@ -28,7 +28,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kratos
-  namespace: ory-system
+  namespace: platform-identity
 spec:
   template:
     metadata:
@@ -40,7 +40,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: keto
-  namespace: ory-system
+  namespace: platform-identity
 spec:
   template:
     metadata:
@@ -52,7 +52,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: spire-server
-  namespace: spire-system
+  namespace: platform-security
 spec:
   template:
     metadata:
@@ -64,7 +64,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mcp-server
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   template:
     metadata:

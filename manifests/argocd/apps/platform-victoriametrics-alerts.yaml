@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: victoria-metrics-alerts
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -13,7 +13,7 @@ spec:
     path: manifests/hub-core-services/victoriametrics-alerts
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-observability
+    namespace: platform-observability
   syncPolicy:
     automated:
       prune: true

@@ -409,7 +409,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: argocd-agent-principal
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     load-balancer.hetzner.cloud/location: fsn1
     load-balancer.hetzner.cloud/name: argocd-principal
@@ -747,11 +747,11 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Steps**:
 1. Publish test event: `kubectl --context spokepool-01 exec -n spoke-pool-system nats-0 -- nats pub spoke.cell-01.billing.usage '{"test": "event"}'`
-2. Verify event received in Hub: `kubectl --context hub exec -n hub-platform-messaging nats-0 -- nats stream info spoke.cell-01.billing.usage`
-3. Scale Hub NATS to 0: `kubectl --context hub scale statefulset nats -n hub-platform-messaging --replicas=0`
+2. Verify event received in Hub: `kubectl --context hub exec -n platform-messaging nats-0 -- nats stream info spoke.cell-01.billing.usage`
+3. Scale Hub NATS to 0: `kubectl --context hub scale statefulset nats -n platform-messaging --replicas=0`
 4. Publish 10 events during outage
 5. Verify Spoke JetStream buffer: `kubectl --context spokepool-01 exec -n spoke-pool-system nats-0 -- nats stream ls`
-6. Restore Hub NATS: `kubectl --context hub scale statefulset nats -n hub-platform-messaging --replicas=3`
+6. Restore Hub NATS: `kubectl --context hub scale statefulset nats -n platform-messaging --replicas=3`
 7. Wait 30 seconds for reconnection
 8. Verify all events delivered to Hub
 

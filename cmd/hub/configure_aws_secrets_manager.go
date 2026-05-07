@@ -132,7 +132,7 @@ func runConfigureAWSSecretsManager(cmd *cobra.Command, args []string) error {
 	fmt.Println("3. If infisical-secrets is deleted, operator will restore from AWS backup")
 	fmt.Println()
 	fmt.Println("Verify:")
-	fmt.Println("  kubectl get secret hub-operator-aws-credentials -n hub-platform-ops -o yaml")
+	fmt.Println("  kubectl get secret hub-operator-aws-credentials -n platform-ops -o yaml")
 	fmt.Println()
 	fmt.Println("Security reminders:")
 	fmt.Println("  - Store the Secret Access Key in a password manager")

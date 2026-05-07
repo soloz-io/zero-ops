@@ -8,7 +8,7 @@ apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
 metadata:
   name: platform-clickhouse
-  namespace: hub-platform-data
+  namespace: platform-data
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:

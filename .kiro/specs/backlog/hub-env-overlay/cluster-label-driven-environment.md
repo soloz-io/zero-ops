@@ -239,7 +239,7 @@ func CreateHubClusterSecret(ctx context.Context, kubeconfig, clusterName, enviro
         },
         ObjectMeta: metav1.ObjectMeta{
             Name:      "hub-cluster-secret",
-            Namespace: "hub-platform-ops",
+            Namespace: "platform-ops",
             Labels: map[string]string{
                 // ArgoCD required label
                 "argocd.argoproj.io/secret-type": "cluster",
@@ -329,7 +329,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: hub-environment
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -349,7 +349,7 @@ spec:
   template:
     metadata:
       name: 'hub-environment-{{name}}'
-      namespace: hub-platform-ops
+      namespace: platform-ops
       labels:
         platform-type: hub
         platform-env: '{{metadata.labels.platform-env}}'
@@ -364,7 +364,7 @@ spec:
         path: 'manifests/hub-core-services/hub-environment/overlays/{{metadata.labels.platform-env}}'
       destination:
         server: '{{server}}'
-        namespace: hub-platform-ops
+        namespace: platform-ops
       syncPolicy:
         automated:
           prune: true
@@ -392,7 +392,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-core
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
@@ -403,7 +403,7 @@ spec:
     path: manifests/argocd  # Single root directory with kustomization.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: hub-platform-ops
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true
@@ -502,7 +502,7 @@ The ApplicationSet will replace it with a dynamically generated Application.
 #### 3.1 Verify Cluster Secret
 
 ```bash
-kubectl get secret hub-cluster-secret -n hub-platform-ops -o yaml
+kubectl get secret hub-cluster-secret -n platform-ops -o yaml
 ```
 
 Expected output:
@@ -519,8 +519,8 @@ metadata:
 #### 3.2 Verify ApplicationSet Generates Application
 
 ```bash
-kubectl get applicationset hub-environment -n hub-platform-ops
-kubectl get application -n hub-platform-ops | grep hub-environment
+kubectl get applicationset hub-environment -n platform-ops
+kubectl get application -n platform-ops | grep hub-environment
 ```
 
 Expected: `hub-environment-in-cluster` Application created
@@ -528,7 +528,7 @@ Expected: `hub-environment-in-cluster` Application created
 #### 3.3 Verify Correct Overlay Path
 
 ```bash
-kubectl get application hub-environment-in-cluster -n hub-platform-ops -o yaml | grep path
+kubectl get application hub-environment-in-cluster -n platform-ops -o yaml | grep path
 ```
 
 Expected: `path: manifests/hub-core-services/hub-environment/overlays/dev`
@@ -537,13 +537,13 @@ Expected: `path: manifests/hub-core-services/hub-environment/overlays/dev`
 
 ```bash
 # Update cluster label (use standardized label name)
-kubectl label secret hub-cluster-secret -n hub-platform-ops platform-env=staging --overwrite
+kubectl label secret hub-cluster-secret -n platform-ops platform-env=staging --overwrite
 
 # Wait for ApplicationSet to reconcile (30s default)
 sleep 30
 
 # Verify new path
-kubectl get application hub-environment-in-cluster -n hub-platform-ops -o yaml | grep path
+kubectl get application hub-environment-in-cluster -n platform-ops -o yaml | grep path
 ```
 
 Expected: `path: manifests/hub-core-services/hub-environment/overlays/staging`
@@ -566,7 +566,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: hub-cluster-secret
-  namespace: hub-platform-ops
+  namespace: platform-ops
   labels:
     argocd.argoproj.io/secret-type: cluster
     platform-type: hub
@@ -665,26 +665,26 @@ func ChangeHubEnvironment(ctx context.Context, newEnv string) error {
 ## Troubleshooting
 
 ### ApplicationSet not generating Application
-- Check cluster secret exists: `kubectl get secret hub-cluster-secret -n hub-platform-ops`
-- Verify labels use standardized names: `kubectl get secret hub-cluster-secret -n hub-platform-ops -o yaml | grep labels -A 10`
+- Check cluster secret exists: `kubectl get secret hub-cluster-secret -n platform-ops`
+- Verify labels use standardized names: `kubectl get secret hub-cluster-secret -n platform-ops -o yaml | grep labels -A 10`
 - Confirm `platform-type: hub` label exists (not `cluster-type`)
 - Confirm `platform-env` label exists (not `environment`)
-- Check ApplicationSet status: `kubectl describe applicationset hub-environment -n hub-platform-ops`
+- Check ApplicationSet status: `kubectl describe applicationset hub-environment -n platform-ops`
 
 ### Wrong overlay path
-- Verify environment label: `kubectl get secret hub-cluster-secret -n hub-platform-ops -o jsonpath='{.metadata.labels.platform-env}'`
-- Check ApplicationSet template: `kubectl get applicationset hub-environment -n hub-platform-ops -o yaml | grep path`
+- Verify environment label: `kubectl get secret hub-cluster-secret -n platform-ops -o jsonpath='{.metadata.labels.platform-env}'`
+- Check ApplicationSet template: `kubectl get applicationset hub-environment -n platform-ops -o yaml | grep path`
 - Ensure overlay directory exists: `ls -la manifests/hub-core-services/hub-environment/overlays/`
 
 ### Label drift detected
-- Audit all cluster secrets: `kubectl get secrets -n hub-platform-ops -l argocd.argoproj.io/secret-type=cluster -o yaml`
+- Audit all cluster secrets: `kubectl get secrets -n platform-ops -l argocd.argoproj.io/secret-type=cluster -o yaml`
 - Verify all labels use standardized names
 - Check for typos in label values (must be lowercase, no spaces)
 - Validate against allowed enums (dev | staging | prod)
 
 ### Application not syncing
-- Check Application status: `kubectl get application hub-environment-in-cluster -n hub-platform-ops`
-- View sync errors: `kubectl describe application hub-environment-in-cluster -n hub-platform-ops`
+- Check Application status: `kubectl get application hub-environment-in-cluster -n platform-ops`
+- View sync errors: `kubectl describe application hub-environment-in-cluster -n platform-ops`
 
 ## Implementation Checklist
 
@@ -805,26 +805,26 @@ Run this audit regularly:
 
 ```bash
 # 1. Check all cluster secrets use standardized labels
-kubectl get secrets -n hub-platform-ops \
+kubectl get secrets -n platform-ops \
   -l argocd.argoproj.io/secret-type=cluster \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels}{"\n"}{end}'
 
 # 2. Verify platform-type values
-kubectl get secrets -n hub-platform-ops \
+kubectl get secrets -n platform-ops \
   -l argocd.argoproj.io/secret-type=cluster \
   -o jsonpath='{range .items[*]}{.metadata.labels.platform-type}{"\n"}{end}' | sort | uniq
 
 # 3. Verify platform-env values
-kubectl get secrets -n hub-platform-ops \
+kubectl get secrets -n platform-ops \
   -l argocd.argoproj.io/secret-type=cluster \
   -o jsonpath='{range .items[*]}{.metadata.labels.platform-env}{"\n"}{end}' | sort | uniq
 
 # 4. Check for old label names (should return empty)
-kubectl get secrets -n hub-platform-ops \
+kubectl get secrets -n platform-ops \
   -l cluster-type \
   -o name
 
-kubectl get secrets -n hub-platform-ops \
+kubectl get secrets -n platform-ops \
   -l environment \
   -o name
 ```

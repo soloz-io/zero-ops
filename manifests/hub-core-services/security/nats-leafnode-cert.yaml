@@ -12,7 +12,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nats-leafnode-ca
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   isCA: true
   commonName: nats-leafnode-ca
@@ -27,7 +27,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: nats-leafnode-issuer
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   ca:
     secretName: nats-leafnode-ca-secret-source
@@ -37,7 +37,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nats-leafnode-server
-  namespace: hub-platform-messaging
+  namespace: platform-messaging
 spec:
   secretName: nats-leafnode-server-cert
   duration: 2160h  # 90 days
@@ -47,8 +47,8 @@ spec:
     - digital signature
     - key encipherment
   dnsNames:
-    - nats.hub-platform-messaging.svc
-    - nats.hub-platform-messaging.svc.cluster.local
+    - nats.platform-messaging.svc
+    - nats.platform-messaging.svc.cluster.local
     - argocd-principal.nutgraf.in
   issuerRef:
     name: nats-leafnode-issuer
@@ -73,7 +73,7 @@ spec:
           kinds:
           - Secret
           namespaces:
-          - hub-platform-messaging
+          - platform-messaging
           names:
           - nats-leafnode-ca-secret-source
     context:
@@ -84,7 +84,7 @@ spec:
       apiVersion: v1
       kind: Secret
       name: nats-leafnode-ca-secret
-      namespace: hub-platform-ops
+      namespace: platform-ops
       synchronize: true
       data:
         type: addons.cluster.x-k8s.io/resource-set
@@ -98,7 +98,7 @@ spec:
             kind: Secret
             metadata:
               name: nats-leafnode-ca
-              namespace: spoke-platform-messaging
+              namespace: platform-messaging
             type: Opaque
             data:
               ca.crt: "{{caCrt}}"

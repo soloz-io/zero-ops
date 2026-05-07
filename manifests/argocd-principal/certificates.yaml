@@ -6,7 +6,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-principal-tls
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretName: argocd-agent-principal-tls
   duration: 2160h # 90 days
@@ -16,9 +16,9 @@ spec:
   - argocd-principal.nutgraf.in
   - argocd-principal-internal.nutgraf.in
   - argocd-agent-principal
-  - argocd-agent-principal.hub-platform-ops
-  - argocd-agent-principal.hub-platform-ops.svc
-  - argocd-agent-principal.hub-platform-ops.svc.cluster.local
+  - argocd-agent-principal.platform-ops
+  - argocd-agent-principal.platform-ops.svc
+  - argocd-agent-principal.platform-ops.svc.cluster.local
   usages:
   - server auth
   - client auth
@@ -35,7 +35,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-resource-proxy-tls
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretName: argocd-agent-resource-proxy-tls
   duration: 2160h # 90 days
@@ -43,9 +43,9 @@ spec:
   commonName: argocd-agent-resource-proxy
   dnsNames:
   - argocd-agent-resource-proxy
-  - argocd-agent-resource-proxy.hub-platform-ops
-  - argocd-agent-resource-proxy.hub-platform-ops.svc
-  - argocd-agent-resource-proxy.hub-platform-ops.svc.cluster.local
+  - argocd-agent-resource-proxy.platform-ops
+  - argocd-agent-resource-proxy.platform-ops.svc
+  - argocd-agent-resource-proxy.platform-ops.svc.cluster.local
   usages:
   - server auth
   - client auth
@@ -62,7 +62,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-agent-jwt
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretName: argocd-agent-jwt
   duration: 87600h # 10 years
@@ -85,7 +85,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argocd-principal-internal-tls
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretName: argocd-principal-internal-tls
   duration: 2160h # 90 days

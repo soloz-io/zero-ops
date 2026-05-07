@@ -2,7 +2,7 @@ apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-production
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   domain: zero-ops.local
   tls:
@@ -16,8 +16,8 @@ spec:
   database:
     clusterRef:
       name: platform-db
-      namespace: hub-platform-data
-    namespace: hub-platform-data
+      namespace: platform-data
+    namespace: platform-data
     roles:
     - name: mcp_server
       passwordRef:

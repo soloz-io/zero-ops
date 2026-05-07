@@ -157,7 +157,7 @@ Consume secrets at runtime
 **Purpose:** Infisical is the source of truth. ESO creates and owns the K8s secrets.
 **ESO role:** Runtime delivery only — syncing the current active credential to K8s for application consumption. ESO does NOT drive rotation.
 
-**Secrets:** control-plane-db-credentials, hub-db-credentials, spire-server-db-credentials, hydra-db-credentials, kratos-db-credentials, keto-db-credentials, ghcr-pull-secret, hetzner-dns, hub-platform-git-secret
+**Secrets:** control-plane-db-credentials, hub-db-credentials, spire-server-db-credentials, hydra-db-credentials, kratos-db-credentials, keto-db-credentials, ghcr-pull-secret, hetzner-dns, platform-git-secret
 
 ---
 
@@ -372,7 +372,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: spoke-pool-eu-prod-01-crossplane-admin
-  namespace: hub-platform-ops
+  namespace: platform-ops
 type: Opaque
 stringData:
   password: "<generated-from-metadata-uid>"
@@ -384,7 +384,7 @@ apiVersion: external-secrets.io/v1alpha1
 kind: PushSecret
 metadata:
   name: spoke-pool-eu-prod-01-crossplane-admin-push
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   secretStoreRefs:
     - name: infisical-backend
@@ -405,7 +405,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: crossplane-admin-credentials
-  namespace: spoke-platform-ops
+  namespace: platform-ops
 spec:
   secretStoreRef:
     name: infisical-secret-store

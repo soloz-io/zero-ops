@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spire-server
-  namespace: hub-platform-security
+  namespace: platform-security
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 data:
@@ -26,7 +26,7 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
-          connection_string = "host=platform-db-rw.hub-platform-data.svc.cluster.local port=5432 dbname=spire user=spire password=${SPIRE_DB_PASSWORD} sslmode=require"
+          connection_string = "host=platform-db-rw.platform-data.svc.cluster.local port=5432 dbname=spire user=spire password=${SPIRE_DB_PASSWORD} sslmode=require"
         }
       }
 
@@ -34,7 +34,7 @@ data:
         plugin_data {
           clusters = {
             "zero-ops-hub" = {
-              service_account_allow_list = ["spire-system:spire-agent"]
+              service_account_allow_list = ["platform-security:spire-agent"]
             }
           }
         }
@@ -60,7 +60,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: spire-server
-  namespace: hub-platform-security
+  namespace: platform-security
   labels:
     app: spire-server
   annotations:
@@ -87,7 +87,7 @@ spec:
               name: spire-server-db-credentials
               key: password
         - name: PGHOST
-          value: "platform-db-rw.hub-platform-data.svc.cluster.local"
+          value: "platform-db-rw.platform-data.svc.cluster.local"
         - name: PGPORT
           value: "5432"
         - name: PGDATABASE

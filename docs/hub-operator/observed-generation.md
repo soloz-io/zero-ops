@@ -197,7 +197,7 @@ kubectl annotate hubenvironment hub-production \
 
 ### Check Operator Logs
 ```bash
-kubectl logs -n hub-platform-ops -l app.kubernetes.io/name=hub-operator --tail=100
+kubectl logs -n platform-ops -l app.kubernetes.io/name=hub-operator --tail=100
 ```
 
 Look for:

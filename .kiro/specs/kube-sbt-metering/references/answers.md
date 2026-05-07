@@ -733,7 +733,7 @@ Based on ADR 009, **Envoy sidecar proxy handles TLS origination** (not direct SP
 client := &http.Client{
     Transport: &http.Transport{}, // No TLS config needed
 }
-resp, err := client.Get("http://ory-kratos.hub-platform-identity.svc.cluster.local")
+resp, err := client.Get("http://ory-kratos.platform-identity.svc.cluster.local")
 ```
 
 Envoy intercepts, upgrades to mTLS, validates peer SPIFFE ID, forwards to Ory.

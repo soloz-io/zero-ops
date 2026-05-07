@@ -136,11 +136,11 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// 3. Generate password using metadata.uid (36-char UUID)
 	password := string(spokePool.GetUID())
 	
-	// 4. Create K8s secret in hub-platform-ops
+	// 4. Create K8s secret in platform-ops
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-crossplane-admin", spokeName),
-			Namespace: "hub-platform-ops",
+			Namespace: "platform-ops",
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
@@ -270,7 +270,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: upload-crossplane-admin-password
-  namespace: hub-platform-ops
+  namespace: platform-ops
 spec:
   template:
     spec:
@@ -360,7 +360,7 @@ Error: secret "shared-cnpg-superuser" not found
 
 **Available secrets**:
 ```bash
-$ kubectl get secrets -n spoke-platform-data | grep cnpg
+$ kubectl get secrets -n platform-data | grep cnpg
 shared-cnpg-app           kubernetes.io/basic-auth   11     29h
 shared-cnpg-ca            Opaque                     2      29h
 shared-cnpg-replication   kubernetes.io/tls          2      29h
@@ -410,14 +410,14 @@ command:
   - |
     set -e
     echo "Waiting for CNPG cluster to be ready..."
-    until pg_isready -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local -p 5432 -U app; do
+    until pg_isready -h shared-cnpg-rw.platform-data.svc.cluster.local -p 5432 -U app; do
       echo "Waiting for PostgreSQL..."
       sleep 5
     done
     
     echo "Creating crossplane_admin role..."
     PGPASSWORD="${APP_PASSWORD}" psql \
-      -h shared-cnpg-rw.spoke-platform-data.svc.cluster.local \
+      -h shared-cnpg-rw.platform-data.svc.cluster.local \
       -p 5432 \
       -U app \
       -d app \
@@ -456,7 +456,7 @@ superuserSecret:
 ### Recovery Steps
 
 1. Commit changes to Git
-2. Delete existing failed Job: `kubectl delete job crossplane-admin-bootstrap -n spoke-platform-data --kubeconfig k8-secrets/kubeconfig/spoke-pool-eu-prod-01.kubeconfig`
+2. Delete existing failed Job: `kubectl delete job crossplane-admin-bootstrap -n platform-data --kubeconfig k8-secrets/kubeconfig/spoke-pool-eu-prod-01.kubeconfig`
 3. Trigger ArgoCD sync to recreate Job with correct configuration
 4. Verify Job completes successfully
 5. Verify Application reaches `Synced/Healthy` status

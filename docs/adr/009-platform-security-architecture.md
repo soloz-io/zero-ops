@@ -63,7 +63,7 @@ We adopt a **4-Layer Zero-Trust Architecture** combining asymmetric cryptography
 4.  **Authorization Policy:** Istio `AuthorizationPolicy` restricts PostgREST access:
     ```yaml
     principals:
-      - "cluster.local/ns/hub-platform-edge/sa/agentgateway"
+      - "cluster.local/ns/platform-edge/sa/agentgateway"
     ```
 5.  **Prevents Spoofing:** Cryptographic enforcement prevents header injection attacks.
 
@@ -195,7 +195,7 @@ spec:
     - from:
         - source:
             principals:
-              - "cluster.local/ns/hub-platform-edge/sa/agentgateway"
+              - "cluster.local/ns/platform-edge/sa/agentgateway"
 ```
 
 ## References

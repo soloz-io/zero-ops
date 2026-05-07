@@ -549,8 +549,8 @@ Response: 200 OK
 
 ### 10.1 Hub Prerequisites
 
-- [ ] Hub Ory Kratos deployed and configured (hub-platform-identity namespace)
-- [ ] Hub Ory Hydra deployed and configured (hub-platform-identity namespace)
+- [ ] Hub Ory Kratos deployed and configured (platform-identity namespace)
+- [ ] Hub Ory Hydra deployed and configured (platform-identity namespace)
 - [ ] JWKS endpoint exposed: `https://auth.nutgraf.in/.well-known/jwks.json`
 - [ ] JWT tokens include claims: `tenant_id`, `user_id`, `role`, `tenant_tier`
 - [ ] RS256 public key available for PostgREST configuration

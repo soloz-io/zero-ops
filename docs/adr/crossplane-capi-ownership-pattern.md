@@ -212,7 +212,7 @@ All wrapped in `kubernetes.crossplane.io/v1alpha2/Object` resources.
 ✅ **Clear Boundaries**: Each system manages its domain  
 ✅ **CAPI Native**: Works with CAPI's design, not against it  
 ✅ **GitOps-First**: Crossplane deployed declaratively via ArgoCD  
-✅ **Proper Namespace**: Resources created in `hub-platform-capi` by CAPI
+✅ **Proper Namespace**: Resources created in `platform-capi` by CAPI
 
 ### Negative
 

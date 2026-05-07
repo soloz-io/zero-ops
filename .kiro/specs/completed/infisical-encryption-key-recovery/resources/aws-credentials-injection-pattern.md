@@ -50,7 +50,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
     // Create the secret with ArgoCD auto-discovery label
     secret := &corev1.Secret{
         ObjectMeta: metav1.ObjectMeta{
-            Name:      "hub-platform-git-secret",
+            Name:      "platform-git-secret",
             Namespace: constants.NamespaceOps,
             Labels: map[string]string{
                 "argocd.argoproj.io/secret-type": "repository",
@@ -121,16 +121,16 @@ func (su *SecretUploader) uploadSecret(..., mapping SecretMapping) error {
 var CLISecretMappings = []SecretMapping{
     // GitHub username for ArgoCD
     {
-        SourceNamespace: NamespaceOps,              // hub-platform-ops
-        SourceName:      "hub-platform-git-secret", // hub-platform-git-secret
+        SourceNamespace: NamespaceOps,              // platform-ops
+        SourceName:      "platform-git-secret", // platform-git-secret
         SourceKey:       "username",                // username
         InfisicalKey:    "github-username",         // github-username
         Description:     "GitHub username for ArgoCD",
     },
     // GitHub token for ArgoCD
     {
-        SourceNamespace: NamespaceOps,              // hub-platform-ops
-        SourceName:      "hub-platform-git-secret", // hub-platform-git-secret
+        SourceNamespace: NamespaceOps,              // platform-ops
+        SourceName:      "platform-git-secret", // platform-git-secret
         SourceKey:       "password",                // password
         InfisicalKey:    "github-token",            // github-token
         Description:     "GitHub token for ArgoCD",
@@ -146,7 +146,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: argocd-github-creds
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -157,7 +157,7 @@ spec:
     kind: ClusterSecretStore
   
   target:
-    name: hub-platform-git-secret
+    name: platform-git-secret
     creationPolicy: Owner
     template:
       metadata:
@@ -295,7 +295,7 @@ func runConfigureAWSSecretsManager(cmd *cobra.Command, args []string) error {
     fmt.Println("\nNext steps:")
     fmt.Println("1. Hub-operator will automatically upload credentials to Infisical")
     fmt.Println("2. Verify secret exists:")
-    fmt.Println("   kubectl get secret hub-operator-aws-credentials -n hub-platform-ops")
+    fmt.Println("   kubectl get secret hub-operator-aws-credentials -n platform-ops")
     fmt.Println("3. Check operator logs for AWS backup confirmation")
 
     return nil
@@ -372,21 +372,21 @@ var CLISecretMappings = []SecretMapping{
     // Consumers: hub-operator
     // ExternalSecret: manifests/hub-operator/aws-credentials-externalsecret.yaml
     {
-        SourceNamespace: NamespaceOps,                      // hub-platform-ops
+        SourceNamespace: NamespaceOps,                      // platform-ops
         SourceName:      "hub-operator-aws-credentials",    // hub-operator-aws-credentials
         SourceKey:       "AWS_ACCESS_KEY_ID",               // AWS_ACCESS_KEY_ID
         InfisicalKey:    "aws-access-key-id",               // aws-access-key-id
         Description:     "AWS Access Key ID for Secrets Manager",
     },
     {
-        SourceNamespace: NamespaceOps,                      // hub-platform-ops
+        SourceNamespace: NamespaceOps,                      // platform-ops
         SourceName:      "hub-operator-aws-credentials",    // hub-operator-aws-credentials
         SourceKey:       "AWS_SECRET_ACCESS_KEY",           // AWS_SECRET_ACCESS_KEY
         InfisicalKey:    "aws-secret-access-key",           // aws-secret-access-key
         Description:     "AWS Secret Access Key for Secrets Manager",
     },
     {
-        SourceNamespace: NamespaceOps,                      // hub-platform-ops
+        SourceNamespace: NamespaceOps,                      // platform-ops
         SourceName:      "hub-operator-aws-credentials",    // hub-operator-aws-credentials
         SourceKey:       "AWS_REGION",                      // AWS_REGION
         InfisicalKey:    "aws-region",                      // aws-region
@@ -406,11 +406,11 @@ spec:
       - name: manager
         env:
         - name: INFISICAL_BASE_URL
-          value: "https://infisical.hub-platform-ops.svc"
+          value: "https://infisical.platform-ops.svc"
         - name: HYDRA_BASE_URL
           value: "https://hydra-admin.ory-system.svc"
         - name: NATS_URL
-          value: "nats://nats.hub-platform-core.svc:4222"
+          value: "nats://nats.platform-core.svc:4222"
         # AWS Secrets Manager credentials for disaster recovery
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
@@ -437,7 +437,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: hub-operator-aws-credentials
-  namespace: hub-platform-ops
+  namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -488,7 +488,7 @@ spec:
   --kubeconfig="~/.kube/config"
 
 # Step 3: Verify secret created
-kubectl get secret hub-operator-aws-credentials -n hub-platform-ops
+kubectl get secret hub-operator-aws-credentials -n platform-ops
 
 # Step 4: Hub-operator automatically:
 # - Reads hub-operator-aws-credentials secret
