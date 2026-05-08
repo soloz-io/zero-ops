@@ -2,8 +2,9 @@ package components
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -55,8 +56,9 @@ func (i *Installer) GenerateAndInjectCA(ctx context.Context) error {
 
 	fmt.Println("[bootstrap-ca] Generating CA certificate offline...")
 
-	// Generate RSA private key for CA
-	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	// Generate ECDSA private key for CA (P-256 curve)
+	// CNPG machinery library requires ECDSA - RSA keys are rejected with "invalid private key PEM block type"
+	caPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("failed to generate CA private key: %w", err)
 	}
@@ -88,10 +90,14 @@ func (i *Installer) GenerateAndInjectCA(ctx context.Context) error {
 		Bytes: caCertDER,
 	})
 
-	// Encode CA private key to PEM
+	// Encode CA private key to PEM (ECDSA)
+	caKeyDER, err := x509.MarshalECPrivateKey(caPrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CA private key: %w", err)
+	}
 	caKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(caPrivateKey),
+		Type:  "EC PRIVATE KEY",
+		Bytes: caKeyDER,
 	})
 
 	// Create platform-db-ca secret in platform-data namespace
