@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-identity/kratos-ui
+    path: manifests/hub-core-services/identity/kratos-ui
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-identity
