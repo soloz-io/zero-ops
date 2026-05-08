@@ -47,6 +47,7 @@ data:
     END;
     $ LANGUAGE plpgsql;
 
+    DROP TRIGGER IF EXISTS agent_infra_status_change ON agent_infra_status;
     CREATE TRIGGER agent_infra_status_change
     AFTER INSERT OR UPDATE ON agent_infra_status
     FOR EACH ROW
@@ -55,12 +56,26 @@ data:
   2_agent_infra_status_rls.up.sql: |
     ALTER TABLE agent_infra_status ENABLE ROW LEVEL SECURITY;
 
-    -- RLS policy: Spoke controllers can only write their own cluster's status
-    -- PostgREST sets app.spoke_cluster_id from JWT claims
-    CREATE POLICY spoke_cluster_isolation ON agent_infra_status
-        USING (spoke_cluster_id = current_setting('app.spoke_cluster_id', true));
-    
-    -- Additional policy: Tenant isolation for dashboard reads
-    -- PostgREST sets app.tenant_id from JWT claims for dashboard queries
-    CREATE POLICY tenant_isolation ON agent_infra_status
-        USING (tenant_id = current_setting('app.tenant_id', true)::UUID);
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'agent_infra_status'
+          AND policyname = 'spoke_cluster_isolation'
+      ) THEN
+        CREATE POLICY spoke_cluster_isolation ON agent_infra_status
+          USING (spoke_cluster_id = current_setting('app.spoke_cluster_id', true));
+      END IF;
+    END $$;
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'agent_infra_status'
+          AND policyname = 'tenant_isolation'
+      ) THEN
+        CREATE POLICY tenant_isolation ON agent_infra_status
+          USING (tenant_id = current_setting('app.tenant_id', true)::UUID);
+      END IF;
+    END $$;

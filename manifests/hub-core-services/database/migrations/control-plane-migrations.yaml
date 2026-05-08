@@ -32,8 +32,17 @@ data:
 
     ALTER TABLE agentregistry.agent_definitions ENABLE ROW LEVEL SECURITY;
 
-    CREATE POLICY tenant_isolation ON agentregistry.agent_definitions
-        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'agentregistry'
+          AND tablename = 'agent_definitions'
+          AND policyname = 'tenant_isolation'
+      ) THEN
+        CREATE POLICY tenant_isolation ON agentregistry.agent_definitions
+          USING (tenant_id = current_setting('app.tenant_id')::UUID);
+      END IF;
+    END $$;
 
     CREATE INDEX IF NOT EXISTS idx_agent_definitions_tenant ON agentregistry.agent_definitions(tenant_id);
 
@@ -50,8 +59,17 @@ data:
 
     ALTER TABLE agentregistry.deployments ENABLE ROW LEVEL SECURITY;
 
-    CREATE POLICY tenant_isolation ON agentregistry.deployments
-        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'agentregistry'
+          AND tablename = 'deployments'
+          AND policyname = 'tenant_isolation'
+      ) THEN
+        CREATE POLICY tenant_isolation ON agentregistry.deployments
+          USING (tenant_id = current_setting('app.tenant_id')::UUID);
+      END IF;
+    END $$;
 
     CREATE INDEX IF NOT EXISTS idx_deployments_tenant ON agentregistry.deployments(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_deployments_agent_id ON agentregistry.deployments(agent_id);
@@ -78,7 +96,16 @@ data:
 
     ALTER TABLE agents.authorized_tools ENABLE ROW LEVEL SECURITY;
 
-    CREATE POLICY tenant_isolation ON agents.authorized_tools
-        USING (tenant_id = current_setting('app.tenant_id')::UUID);
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'agents'
+          AND tablename = 'authorized_tools'
+          AND policyname = 'tenant_isolation'
+      ) THEN
+        CREATE POLICY tenant_isolation ON agents.authorized_tools
+          USING (tenant_id = current_setting('app.tenant_id')::UUID);
+      END IF;
+    END $$;
 
     CREATE INDEX IF NOT EXISTS idx_authorized_tools_tenant ON agents.authorized_tools(tenant_id);

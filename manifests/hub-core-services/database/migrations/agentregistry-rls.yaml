@@ -5,21 +5,33 @@ metadata:
   namespace: platform-data
 data:
   004_enable_rls.sql: |
-    -- Enable Row Level Security on agents table
-    ALTER TABLE agentregistry.agents ENABLE ROW LEVEL SECURITY;
-    
-    -- Create RLS policy for agents table
-    -- Users can only see agents for their tenant_id
-    CREATE POLICY agents_tenant_isolation ON agentregistry.agents
-        USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::UUID);
-    
-    -- Enable Row Level Security on deployments table
+    -- Enable Row Level Security (idempotent - Postgres no-ops if already enabled)
+    ALTER TABLE agentregistry.agent_definitions ENABLE ROW LEVEL SECURITY;
     ALTER TABLE agentregistry.deployments ENABLE ROW LEVEL SECURITY;
-    
-    -- Create RLS policy for deployments table
-    -- Users can only see deployments for their tenant_id
-    CREATE POLICY deployments_tenant_isolation ON agentregistry.deployments
-        USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::UUID);
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'agentregistry'
+          AND tablename = 'agent_definitions'
+          AND policyname = 'agents_tenant_isolation'
+      ) THEN
+        CREATE POLICY agents_tenant_isolation ON agentregistry.agent_definitions
+          USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::UUID);
+      END IF;
+    END $$;
+
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'agentregistry'
+          AND tablename = 'deployments'
+          AND policyname = 'deployments_tenant_isolation'
+      ) THEN
+        CREATE POLICY deployments_tenant_isolation ON agentregistry.deployments
+          USING (tenant_id = current_setting('app.current_tenant_id', TRUE)::UUID);
+      END IF;
+    END $$;
     
   005_grant_permissions.sql: |
     -- Grant all privileges on agentregistry schema tables to agentregistry role
