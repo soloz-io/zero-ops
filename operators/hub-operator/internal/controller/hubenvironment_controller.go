@@ -686,12 +686,20 @@ func (r *HubEnvironmentReconciler) isCNPGReady(ctx context.Context, hubEnv *opsv
 	return false, nil
 }
 
-// isInfisicalReady checks if Infisical Deployment is ready
+// isInfisicalReady checks if Infisical Deployment has at least one ready replica
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	// For now, assume Infisical is ready if the deployment exists
-	// In production, check deployment status
-	return true, nil
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      infisical.InfisicalServiceName,
+		Namespace: infisical.InfisicalServiceNamespace,
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return deployment.Status.ReadyReplicas > 0, nil
 }
 
 // isHydraReady checks if Hydra Deployment is ready
