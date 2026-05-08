@@ -118,7 +118,11 @@ export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permis
 # aws iam delete-access-key --user-name hub-operator-secrets-manager-production --access-key-id <OLD_KEY_ID>
 
 # Step 3: Configure GitHub Access (Secret Zero)
-# This enables ArgoCD to sync manifests and create platform namespaces
+# This enables ArgoCD to sync manifests from ALL repositories in the soloz-io organization
+# Creates organization-wide credentials (repo-creds) for:
+# - zero-ops repository (platform manifests)
+# - fleet-registry repository (tenant configurations)
+# - Any other repositories in the soloz-io organization
 # CRITICAL: Must run BEFORE init-secrets so platform-data namespace exists
 export GITHUB_TOKEN=$(cat k8-secrets/github/token)
 ./bin/hub configure-github-access \
@@ -175,7 +179,6 @@ kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
 9. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
 
 **Why this order matters:**
-- AWS credentials must exist BEFORE `init-secrets` runs (operator needs them for backup)
 - GitHub credentials must be injected BEFORE `init-secrets` (ArgoCD needs to create platform-data namespace)
 - `init-secrets` requires platform-data namespace to exist (created by ArgoCD sync)
 - `init-secrets` generates CA certificate offline and injects it before CNPG starts (Day-0 Deterministic Injection)
@@ -185,6 +188,7 @@ kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
 - `configure-eso` enables GitOps workflow (ArgoCD syncs database manifests)
 - If you skip `configure-aws-secrets-manager`, disaster recovery will not work
 - If you skip `configure-github-access`, ArgoCD cannot sync and namespaces won't be created
+- GitHub credentials are organization-scoped (repo-creds type) to support multiple repositories (zero-ops, fleet-registry, etc.)
 
 ### 2. OpenSBT (`opensbt`)
 SaaS Builder Toolkit control plane for multi-tenant application management.

@@ -26,12 +26,13 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 	}
 
 	// Create the secret with ArgoCD auto-discovery label
+	// Use repo-creds type for organization-wide credentials
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "platform-git-secret",
 			Namespace: constants.NamespaceOps,
 			Labels: map[string]string{
-				"argocd.argoproj.io/secret-type": "repository",
+				"argocd.argoproj.io/secret-type": "repo-creds", // Organization-wide credentials
 				"app.kubernetes.io/managed-by":   "zero-ops-hub-cli",
 				"app.kubernetes.io/component":    "secret-zero",
 				"app.kubernetes.io/part-of":      "argocd",
@@ -40,7 +41,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			"type":     "git",
-			"url":      "https://github.com/soloz-io/zero-ops",
+			"url":      "https://github.com/soloz-io", // Organization-scoped for all repos
 			"username": "zero-ops-bot",
 			"password": githubToken,
 		},

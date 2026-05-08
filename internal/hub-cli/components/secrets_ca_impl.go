@@ -110,8 +110,10 @@ func (i *Installer) GenerateAndInjectCA(ctx context.Context) error {
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{
-			"ca.crt": caCertPEM,
-			"ca.key": caKeyPEM,
+			"tls.crt": caCertPEM, // TLS secret requires tls.crt
+			"tls.key": caKeyPEM,  // TLS secret requires tls.key
+			"ca.crt":  caCertPEM, // CNPG reads ca.crt for TLS verification
+			"ca.key":  caKeyPEM,  // CNPG requires ca.key to sign server certificates
 		},
 	}
 

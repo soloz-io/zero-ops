@@ -27,10 +27,13 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := constants.NamespaceData
+	// Define explicit bounded contexts - "Secrets live exactly where they are consumed"
+	dataNamespace := constants.NamespaceData         // platform-data: CNPG, Redis, DB Init Jobs
+	securityNamespace := constants.NamespaceSecurity // platform-security: Infisical pods
 
 	// Step 1: Generate and inject platform-db-app (CNPG Secret Zero)
-	appSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
+	// MUST be in dataNamespace - consumed by CNPG cluster
+	appSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
 	var appPassword string
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
@@ -46,7 +49,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		appSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "platform-db-app",
-				Namespace: namespace,
+				Namespace: dataNamespace, // CNPG cluster in platform-data
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
 					"app.kubernetes.io/component":  "secret-zero",
@@ -59,7 +62,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 			},
 		}
 
-		_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, appSecret, metav1.CreateOptions{})
+		_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, appSecret, metav1.CreateOptions{})
 		if err != nil {
 			return false, fmt.Errorf("failed to create platform-db-app secret: %w", err)
 		}
@@ -70,7 +73,8 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	}
 
 	// Step 2: Generate and inject infisical-db-credentials (Infisical Secret Zero)
-	infDbSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
+	// MUST be in dataNamespace - consumed by DB Init Job that creates infisical role
+	infDbSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 	var infPassword string
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
@@ -86,7 +90,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		infDbSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "infisical-db-credentials",
-				Namespace: namespace,
+				Namespace: dataNamespace, // DB Init Job in platform-data
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
 					"app.kubernetes.io/component":  "secret-zero",
@@ -99,7 +103,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 			},
 		}
 
-		_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, infDbSecret, metav1.CreateOptions{})
+		_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, infDbSecret, metav1.CreateOptions{})
 		if err != nil {
 			return false, fmt.Errorf("failed to create infisical-db-credentials secret: %w", err)
 		}
@@ -110,6 +114,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	}
 
 	// Step 3: Create the connection string secret for Infisical to use
+	// MUST be in securityNamespace - consumed by Infisical pods
 	// TLS Configuration: End-to-end encryption (production-grade)
 	// - Infisical → PgBouncer: TLS (using CNPG-provided certificates)
 	// - PgBouncer → PostgreSQL: TLS (handled by CNPG)
@@ -117,7 +122,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	connSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-postgres-connection",
-			Namespace: namespace,
+			Namespace: securityNamespace, // Infisical pods in platform-security
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
 				"app.kubernetes.io/component":  "secret-zero",
@@ -134,11 +139,11 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		},
 	}
 
-	// Create or Update connSecret
-	_, err = clientset.CoreV1().Secrets(namespace).Update(ctx, connSecret, metav1.UpdateOptions{})
+	// Create or Update connSecret in securityNamespace
+	_, err = clientset.CoreV1().Secrets(securityNamespace).Update(ctx, connSecret, metav1.UpdateOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, connSecret, metav1.CreateOptions{})
+			_, err = clientset.CoreV1().Secrets(securityNamespace).Create(ctx, connSecret, metav1.CreateOptions{})
 			if err != nil {
 				return false, fmt.Errorf("failed to create infisical-postgres-connection: %w", err)
 			}
