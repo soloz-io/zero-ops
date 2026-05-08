@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  project: platform-infrastructure
+  project: default
   source:
     path: manifests/hub-core-services/cloudnative-pg
     repoURL: https://github.com/soloz-io/zero-ops
