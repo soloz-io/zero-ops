@@ -11,8 +11,6 @@ import (
 var (
 	infisicalClientID     string
 	infisicalClientSecret string
-	ghcrPAT               string
-	ghcrUsername          string
 	kubeconfig            string
 )
 
@@ -20,17 +18,15 @@ func newConfigureESOCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure-eso",
 		Short: "Configure External Secrets Operator authentication",
-		Long: `Configure External Secrets Operator (ESO) authentication to Infisical and ArgoCD GitHub access.
+		Long: `Configure External Secrets Operator (ESO) authentication to Infisical.
 
-This command injects Secret Zero credentials that enable the GitOps workflow:
+This command injects ESO authentication credentials:
 1. ESO authentication to Infisical (client-id and client-secret)
-2. ArgoCD GitHub repository access (GitHub PAT)
 
 Prerequisites:
 - Infisical must be deployed and accessible
 - Create Machine Identity in Infisical UI (Access Control -> Machine Identities)
 - Copy the Client ID and Client Secret from Infisical
-- Generate GitHub Personal Access Token with repo scope
 
 After running this command:
 - ArgoCD will sync ESO manifests (waves 4-6)
@@ -44,15 +40,11 @@ After running this command:
 	// Required flags
 	cmd.Flags().StringVar(&infisicalClientID, "infisical-client-id", "", "Infisical Machine Identity Client ID")
 	cmd.Flags().StringVar(&infisicalClientSecret, "infisical-client-secret", "", "Infisical Machine Identity Client Secret")
-	cmd.Flags().StringVar(&ghcrPAT, "ghcr-pat", "", "GitHub Personal Access Token (used for both Git and GHCR access)")
-	cmd.Flags().StringVar(&ghcrUsername, "ghcr-username", "", "GHCR username")
 	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file (default: ~/.kube/config)")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("infisical-client-id")
 	cmd.MarkFlagRequired("infisical-client-secret")
-	cmd.MarkFlagRequired("ghcr-pat")
-	cmd.MarkFlagRequired("ghcr-username")
 
 	return cmd
 }
@@ -64,14 +56,6 @@ func validateConfigureESOFlags(cmd *cobra.Command, args []string) error {
 
 	if infisicalClientSecret == "" {
 		return fmt.Errorf("--infisical-client-secret is required")
-	}
-
-	if ghcrPAT == "" {
-		return fmt.Errorf("--ghcr-pat is required")
-	}
-
-	if ghcrUsername == "" {
-		return fmt.Errorf("--ghcr-username is required")
 	}
 
 	// Set default kubeconfig if not provided
@@ -95,28 +79,16 @@ func runConfigureESO(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	fmt.Println("🔐 Configuring External Secrets Operator...")
-	fmt.Println("   This will inject Secret Zero credentials for GitOps workflow")
+	fmt.Println("   This will inject ESO authentication credentials for GitOps workflow")
 
 	installer := &components.Installer{
 		Kubeconfig: kubeconfig,
 	}
 
-	// Step 1: Create Infisical auth secret for ESO
-	fmt.Println("\n[1/3] Creating Infisical authentication secret...")
+	// Create Infisical auth secret for ESO
+	fmt.Println("\n[1/1] Creating Infisical authentication secret...")
 	if err := installer.InstallInfisicalAuth(ctx, infisicalClientID, infisicalClientSecret); err != nil {
 		return fmt.Errorf("failed to create Infisical auth secret: %w", err)
-	}
-
-	// Step 2: Create ArgoCD GitHub auth secret
-	fmt.Println("\n[2/3] Creating ArgoCD GitHub authentication secret...")
-	if err := installer.FixArgoCDGitHubAuth(ctx, ghcrPAT); err != nil {
-		return fmt.Errorf("failed to create ArgoCD GitHub secret: %w", err)
-	}
-
-	// Step 3: Create GHCR pull secret
-	fmt.Println("\n[3/3] Creating GHCR pull secret...")
-	if err := installer.InstallGHCRPullSecret(ctx, ghcrUsername, ghcrPAT); err != nil {
-		return fmt.Errorf("failed to create GHCR pull secret: %w", err)
 	}
 
 	fmt.Println("\n✅ Configuration complete!")
@@ -125,9 +97,11 @@ func runConfigureESO(cmd *cobra.Command, args []string) error {
 	fmt.Println("2. Verify ClusterSecretStore is ready:")
 	fmt.Println("   kubectl get clustersecretstore infisical-backend")
 	fmt.Println("3. Verify ExternalSecret is synced:")
-	fmt.Println("   kubectl get externalsecret argocd-github-creds -n argocd")
-	fmt.Println("4. Run validation script:")
-	fmt.Println("   ./test/e2e/check-secret-health.sh")
+	fmt.Println("   kubectl get externalsecret -A")
+	fmt.Println("4. Wait for database deployment:")
+	fmt.Println("   kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db -n platform-data --timeout=600s")
+	fmt.Println("5. Upgrade Infisical to TLS:")
+	fmt.Println("   ./bin/hub upgrade-infisical-tls --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig")
 
 	return nil
 }

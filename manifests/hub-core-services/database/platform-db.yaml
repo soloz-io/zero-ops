@@ -14,6 +14,8 @@ spec:
   enableSuperuserAccess: true
 
   certificates:
+    serverCASecret: platform-db-ca  # Use CLI-generated CA (Day-0 Deterministic Injection)
+    clientCASecret: platform-db-ca  # Use CLI-generated CA for client certificates
     serverAltDNSNames:
       - platform-db-pooler
       - platform-db-pooler.platform-core-db

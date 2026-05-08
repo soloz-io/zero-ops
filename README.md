@@ -117,27 +117,46 @@ export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permis
 # Only for DEV, If IAM user already exists with access keys, delete old key first:
 # aws iam delete-access-key --user-name hub-operator-secrets-manager-production --access-key-id <OLD_KEY_ID>
 
-# Step 3: Initialize bootstrap secrets (Secret Zero)
-# This generates Infisical master keys and backs them up to AWS
+# Step 3: Configure GitHub Access (Secret Zero)
+# This enables ArgoCD to sync manifests and create platform namespaces
+# CRITICAL: Must run BEFORE init-secrets so platform-data namespace exists
+export GITHUB_TOKEN=$(cat k8-secrets/github/token)
+./bin/hub configure-github-access \
+  --ghcr-pat=$GITHUB_TOKEN \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 4: Wait for ArgoCD to sync and create namespaces
+# ArgoCD will create platform-data, platform-security, and other namespaces
+kubectl wait --for=condition=ready namespace platform-data --timeout=300s \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 5: Initialize bootstrap secrets (Secret Zero)
+# This generates CA certificate, Infisical master keys, and backs them up to AWS
+# TLS is enabled from Day 0 - no upgrade step needed
+# NOTE: Now works because platform-data namespace exists (created by ArgoCD)
 ./bin/hub init-secrets \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
 
-# Step 4: Wait for Infisical to be ready (check pods are running)
-kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+# Step 6: Wait for Infisical to be ready (check pods are running)
+kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
 
-# Step 5: Create Machine Identity in Infisical UI
+# Step 7: Create Machine Identity in Infisical UI
 # 1. Access Infisical UI (port-forward or ingress)
 # 2. Go to Access Control -> Machine Identities
 # 3. Create "eso-operator" identity
 # 4. Copy Client ID and Client Secret
 
-# Step 6: Configure ESO authentication to Infisical and ArgoCD GitHub access
+# Step 8: Configure ESO authentication to Infisical
+# This enables ESO to sync secrets from Infisical
 ./bin/hub configure-eso \
   --infisical-client-id=<client-id-from-infisical-ui> \
   --infisical-client-secret=<client-secret-from-infisical-ui> \
-  --ghcr-username=<your-github-username> \
-  --ghcr-pat=<your-github-personal-access-token> \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+
+# Step 9: Wait for ArgoCD to sync and deploy database
+kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
+  -n platform-data --timeout=600s \
+  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
 
 # Teardown cluster
 ./bin/hub teardown --name=hub
@@ -146,18 +165,26 @@ kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kub
 **Command Execution Order (CRITICAL):**
 
 1. **`hub bootstrap`** - Creates Kubernetes cluster and deploys ArgoCD
-2. **`hub configure-aws-secrets-manager`** - Injects AWS credentials for disaster recovery (MUST run before init-secrets)
-3. **`hub init-secrets`** - Generates Infisical master keys, backs them up to AWS, starts Infisical pods
-4. **Wait for Infisical** - Verify Infisical pods are running and healthy
-5. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials
-6. **`hub configure-eso`** - Injects ESO auth to Infisical + ArgoCD GitHub access + GHCR pull secret
+2. **`hub configure-aws-secrets-manager`** - Injects AWS credentials for disaster recovery
+3. **`hub configure-github-access`** - Injects GitHub credentials (enables ArgoCD sync and namespace creation)
+4. **Wait for namespaces** - ArgoCD creates platform-data, platform-security, etc.
+5. **`hub init-secrets`** - Generates CA certificate, Infisical master keys with TLS enabled from Day 0
+6. **Wait for Infisical** - Verify Infisical pods are running
+7. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials
+8. **`hub configure-eso`** - Injects ESO auth to Infisical (enables secret management via GitOps)
+9. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
 
 **Why this order matters:**
 - AWS credentials must exist BEFORE `init-secrets` runs (operator needs them for backup)
-- `init-secrets` must run BEFORE `configure-eso` (Infisical must be running to create Machine Identity)
-- `configure-eso` enables GitOps workflow (ArgoCD syncs ESO manifests, ESO syncs secrets from Infisical)
+- GitHub credentials must be injected BEFORE `init-secrets` (ArgoCD needs to create platform-data namespace)
+- `init-secrets` requires platform-data namespace to exist (created by ArgoCD sync)
+- `init-secrets` generates CA certificate offline and injects it before CNPG starts (Day-0 Deterministic Injection)
+- CNPG uses the CLI-generated CA (via spec.certificates.serverCASecret)
+- Infisical uses the same CA for TLS verification (via DB_ROOT_CERT)
+- Both CNPG and Infisical start with TLS enabled on first boot - no restart loops
+- `configure-eso` enables GitOps workflow (ArgoCD syncs database manifests)
 - If you skip `configure-aws-secrets-manager`, disaster recovery will not work
-- If you run `configure-eso` before Infisical is ready, you cannot create Machine Identity
+- If you skip `configure-github-access`, ArgoCD cannot sync and namespaces won't be created
 
 ### 2. OpenSBT (`opensbt`)
 SaaS Builder Toolkit control plane for multi-tenant application management.

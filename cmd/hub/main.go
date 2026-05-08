@@ -15,9 +15,10 @@ func main() {
 
 	rootCmd.AddCommand(newBootstrapCmd())
 	rootCmd.AddCommand(newTeardownCmd())
+	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
+	rootCmd.AddCommand(newConfigureGitHubAccessCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
-	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
