@@ -128,13 +128,24 @@ func (m *Migrator) RunMigrations(ctx context.Context) error {
 		return fmt.Errorf("failed to get migration version: %w", err)
 	}
 
-	// Requirement 5.5: Detect dirty database state (permanent error)
+	// Requirement 5.5: Detect dirty database state
+	// If version=0 and dirty=true, this means the very first migration failed.
+	// Since all migrations are idempotent, we can safely force-reset to clean state
+	// and re-run. For version>0, require manual intervention to avoid data loss.
 	if dirty {
-		logger.Error(nil, "Database is in dirty state", "version", version)
-		return &DirtyDatabaseError{
-			Version: int(version),
-			Dirty:   dirty,
-			Err:     fmt.Errorf("migration version %d failed and left database in dirty state", version),
+		if version == 0 {
+			logger.Info("Database dirty at version 0 (first migration failed), auto-recovering via force reset")
+			if err := migrator.Force(0); err != nil {
+				return fmt.Errorf("failed to force reset dirty state: %w", err)
+			}
+			logger.Info("Dirty state cleared, retrying migrations")
+		} else {
+			logger.Error(nil, "Database is in dirty state - manual intervention required", "version", version)
+			return &DirtyDatabaseError{
+				Version: int(version),
+				Dirty:   dirty,
+				Err:     fmt.Errorf("migration version %d failed and left database in dirty state", version),
+			}
 		}
 	}
 
