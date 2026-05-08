@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - operators/hub-operator/**
+      - go.sum
+      - go.mod
 
 permissions:
   contents: write
