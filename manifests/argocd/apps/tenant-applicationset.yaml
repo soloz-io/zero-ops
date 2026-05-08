@@ -89,12 +89,26 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   
   generators:
-    # Git Generator watches fleet-registry for tenant values files
-    - git:
-        repoURL: https://github.com/soloz-io/fleet-registry.git
-        revision: main
-        files:
-          - path: 'tenants/*/values.yaml'
+    # Matrix Generator: Only create applications when BOTH conditions are met:
+    # 1. Tenant exists in Git (fleet-registry)
+    # 2. Target spoke cluster is registered in ArgoCD (by capi2argo)
+    # This prevents ApplicationSet failures during Hub bootstrap when spokes don't exist yet
+    - matrix:
+        generators:
+          # Generator 1: Read desired tenant state from Git
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry.git
+              revision: main
+              files:
+                - path: 'tenants/*/values.yaml'
+          
+          # Generator 2: Cross-reference with ACTUAL registered clusters
+          # If the spoke cluster isn't registered yet, this returns 0 results -> NO ERRORS
+          - clusters:
+              selector:
+                matchLabels:
+                  # This label is propagated by capi2argo from the CAPI Cluster resource
+                  cell-id: '{{.cellId}}'
   
   template:
     metadata:
@@ -127,8 +141,9 @@ spec:
           ref: values
       
       destination:
-        # Deploy to Spoke Pool cluster based on cellId
-        name: '{{.cellId}}'
+        # Use the 'name' variable natively yielded by the clusters generator
+        # instead of blindly evaluating the Git variable
+        name: '{{.name}}'
         namespace: 'tenant-{{.tenantId}}'
       
       syncPolicy:
