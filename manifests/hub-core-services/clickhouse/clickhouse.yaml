@@ -100,7 +100,7 @@ spec:
                         clickhouse.altinity.com/chi: platform-clickhouse
                     topologyKey: kubernetes.io/hostname
           nodeSelector:
-            node-role.kubernetes.io/worker: "true"
+            node-role.kubernetes.io/worker: ""
           containers:
             - name: clickhouse
               image: clickhouse/clickhouse-server:25.12.3-alpine

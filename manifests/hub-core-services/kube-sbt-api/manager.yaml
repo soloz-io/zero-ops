@@ -19,7 +19,7 @@ spec:
     spec:
       serviceAccountName: kube-sbt-api
       nodeSelector:
-        node-role.kubernetes.io/worker: "true"
+        node-role.kubernetes.io/worker: ""
       securityContext:
         runAsNonRoot: true
         seccompProfile:

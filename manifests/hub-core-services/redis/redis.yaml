@@ -34,7 +34,7 @@ spec:
         app: platform-redis
     spec:
       nodeSelector:
-        node-role.kubernetes.io/worker: "true"
+        node-role.kubernetes.io/worker: ""
       containers:
       - name: redis
         image: docker.io/library/redis:8.6-alpine

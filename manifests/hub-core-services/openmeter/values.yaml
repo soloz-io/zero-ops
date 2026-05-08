@@ -6,7 +6,7 @@ image:
   tag: v1.0.0-beta.227
 
 nodeSelector:
-  node-role.kubernetes.io/worker: "true"
+  node-role.kubernetes.io/worker: ""
 
 tolerations:
 - key: "workload"
