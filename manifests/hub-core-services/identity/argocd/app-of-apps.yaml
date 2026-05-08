@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
-    path: manifests/platform-identity/argocd
+    path: manifests/hub-core-services/identity/argocd
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops
