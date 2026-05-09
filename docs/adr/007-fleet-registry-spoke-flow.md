@@ -45,7 +45,7 @@
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| **Fleet Registry** | `archived/zero/fleet-registry/` | Tenant values (no changes) |
+| **Fleet Registry** | `https://github.com/soloz-io/fleet-registry.git` | Tenant values (no changes) |
 | **Universal Tenant Chart** | `manifests/tenants/charts/` | Renders AINativeSaaS CR (no changes) |
 | **AINativeSaaS XRD** | `xrds/definitions/` (Hub) | Tenant abstraction (no changes) |
 | **AINativeSaaS Composition** | `xrds/compositions/` (Hub) | **UPDATED**: Creates TenantDatabase instead of direct DB resources |

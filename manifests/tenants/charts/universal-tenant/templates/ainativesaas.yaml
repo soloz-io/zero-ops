@@ -1,5 +1,5 @@
 {{- if .Values.deployXR }}
-{{- $databaseName := .Values.database.name | default (printf "tenant_%s_db" .Values.tenantId) -}}
+{{- $databaseName := .Values.database.name | default (printf "tenant-%s-db" .Values.tenantId) -}}
 {{- $poolerMaxConn := 5 -}}
 {{- $poolerMode := "transaction" -}}
 {{- if .Values.pooler -}}
