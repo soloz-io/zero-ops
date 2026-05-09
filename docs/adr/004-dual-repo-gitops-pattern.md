@@ -50,7 +50,7 @@ zero-ops/
 
 ### Option 2: Dual Repository (SELECTED)
 ```
-Repo 1: hub-infra (platform code)
+Repo 1: zero-ops (platform code)
 ├── argocd/
 │   ├── applicationsets/
 │   └── platform-apps/
@@ -68,7 +68,7 @@ Repo 2: fleet-registry (runtime state)
 
 ### Option 3: Multi-Repository (per component)
 ```
-Repo 1: hub-infra
+Repo 1: zero-ops
 Repo 2: spoke-pools
 Repo 3: tenants
 Repo 4: platform-charts
@@ -82,7 +82,7 @@ Repo 4: platform-charts
 
 We will maintain two separate Git repositories:
 
-1. **hub-infra**: Platform code (static, infrequent changes)
+1. **zero-ops**: Platform code (static, infrequent changes)
 2. **fleet-registry**: Runtime state (dynamic, continuous changes)
 
 ---
@@ -91,7 +91,7 @@ We will maintain two separate Git repositories:
 
 ### 1. Clear Separation of Concerns
 
-**hub-infra = Platform Code**
+**zero-ops = Platform Code**
 - ArgoCD ApplicationSets
 - Platform component definitions (CNPG, NATS, Crossplane)
 - Helm charts (universal-tenant, spoke-pool)
@@ -106,7 +106,7 @@ We will maintain two separate Git repositories:
 
 ### 2. Safer Access Control
 
-| Actor | hub-infra Access | fleet-registry Access |
+| Actor | zero-ops Access | fleet-registry Access |
 |-------|------------------|----------------------|
 | Platform Team | Read + Write | Read + Write |
 | Operations Team | Read only | Read + Write |
@@ -120,14 +120,14 @@ We will maintain two separate Git repositories:
 **ArgoCD watches both repositories with different purposes**:
 
 ```yaml
-# App-of-Apps (from hub-infra)
+# App-of-Apps (from zero-ops)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-bootstrap
 spec:
   source:
-    repoURL: https://github.com/soloz-io/hub-infra
+    repoURL: https://github.com/soloz-io/zero-ops
     path: argocd/platform-apps
 
 ---
@@ -145,15 +145,15 @@ spec:
   template:
     spec:
       source:
-        repoURL: https://github.com/soloz-io/hub-infra  # Pulls charts from platform repo
+        repoURL: https://github.com/soloz-io/zero-ops  # Pulls charts from platform repo
         path: charts/universal-tenant
 ```
 
-**Key Pattern**: ApplicationSet watches `fleet-registry` for tenant directories, but pulls Helm charts from `hub-infra`.
+**Key Pattern**: ApplicationSet watches `fleet-registry` for tenant directories, but pulls Helm charts from `zero-ops`.
 
 ### 4. Independent Lifecycle
 
-**Platform Updates** (hub-infra):
+**Platform Updates** (zero-ops):
 - Upgrade ArgoCD version
 - Update Crossplane Compositions
 - Modify platform Helm charts
@@ -183,7 +183,7 @@ spec:
 
 ### 6. Audit Trail Clarity
 
-**hub-infra commits**:
+**zero-ops commits**:
 ```
 feat: upgrade CNPG operator to v1.23.0
 fix: correct sync wave for Atlas operator
@@ -205,34 +205,31 @@ tenant: scale acme resources (cpu: 2 -> 4)
 
 ### Repository Structure
 
-**hub-infra** (https://github.com/soloz-io/hub-infra):
+**zero-ops** (https://github.com/soloz-io/zero-ops):
 ```
-hub-infra/
-├── argocd/
-│   ├── applicationsets/
-│   │   ├── spoke-pool-fleet.yaml
-│   │   └── tenant-fleet.yaml
-│   └── platform-apps/
-│       ├── cnpg-operator.yaml
-│       ├── crossplane.yaml
-│       └── atlas-operator.yaml
-├── charts/
-│   ├── universal-tenant/
-│   │   ├── Chart.yaml
-│   │   ├── values.yaml
-│   │   └── templates/
-│   │       ├── atlasmigration.yaml
-│   │       └── namespace.yaml
-│   └── spoke-pool/
-│       ├── Chart.yaml
-│       └── templates/
-├── kyverno-policies/
-│   └── spoke-pool-cluster-discovery.yaml
-└── crossplane/
-    ├── xrds/
-    │   └── spokepool-v1.yaml
-    └── compositions/
-        └── spokepool-hetzner-v1.yaml
+zero-ops/
+├── operators/              # Kubernetes operators (hub-operator, spoke-operator)
+│   ├── hub-operator/
+│   └── spoke-operator/
+├── manifests/              # Kubernetes manifests and Helm charts
+│   ├── argocd/            # ArgoCD ApplicationSets and platform apps
+│   │   ├── applicationsets/
+│   │   └── platform-apps/
+│   ├── charts/            # Helm charts (universal-tenant, spoke-pool)
+│   │   ├── universal-tenant/
+│   │   └── spoke-pool/
+│   └── crossplane/        # Crossplane XRDs and Compositions
+│       ├── xrds/
+│       └── compositions/
+├── cmd/                   # Go application entrypoints
+│   ├── hub-cli/
+│   └── operators/
+├── internal/              # Internal Go packages
+│   ├── hub-operator/
+│   └── spoke-operator/
+├── docs/                  # Documentation
+│   └── adr/               # Architecture Decision Records
+└── scripts/               # Utility scripts
 ```
 
 **fleet-registry** (https://github.com/soloz-io/fleet-registry):
@@ -263,7 +260,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/soloz-io/hub-infra
+    repoURL: https://github.com/soloz-io/zero-ops
     path: argocd/platform-apps
     targetRevision: main
   destination:
@@ -275,7 +272,7 @@ spec:
       selfHeal: true
 ```
 
-**ApplicationSet for Tenants** (in hub-infra):
+**ApplicationSet for Tenants** (in zero-ops):
 ```yaml
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -295,7 +292,7 @@ spec:
     spec:
       project: tenants
       source:
-        repoURL: https://github.com/soloz-io/hub-infra
+        repoURL: https://github.com/soloz-io/zero-ops
         path: charts/universal-tenant
         targetRevision: main
         helm:
@@ -321,13 +318,13 @@ spec:
    - Commit message: "tenant: onboard acme (tier: starter)"
 4. ArgoCD ApplicationSet detects new directory
 5. ArgoCD creates Application: tenant-acme
-6. Application pulls Helm chart from hub-infra
+6. Application pulls Helm chart from zero-ops
 7. Application uses values.yaml from fleet-registry
 8. Helm renders templates → AtlasMigration CR, namespace, RBAC
 9. ArgoCD deploys to Spoke Pool cluster
 ```
 
-**Key Point**: MCP API only writes to `fleet-registry/tenants/`, never touches `hub-infra`.
+**Key Point**: MCP API only writes to `fleet-registry/tenants/`, never touches `zero-ops`.
 
 ---
 

@@ -34,22 +34,28 @@ We will implement the **Federated API Boundary Pattern** (also known as the Remo
 
 1. **Single API Boundary:** We will define a new Crossplane XRD named `SpokeTenantEnvironment` and deploy it to the **Spoke clusters**. This acts as the API contract between the Hub and the Spoke.
 
-2. **Spoke-Local Composition:** We will migrate all low-level infrastructure manifests (Namespaces, CNPG Poolers, Deployments, RBAC) from the Hub's `AINativeSaaS` composition into a Spoke-local `SpokeTenantEnvironment` Composition.
+2. **Strict Separation of Concerns:** ArgoCD handles KRM (Kubernetes Resource Model) primitives; Crossplane handles Infrastructure.
+   - **ArgoCD exclusively owns:** Namespaces, RBAC (ServiceAccounts, Roles, RoleBindings), ConfigMaps, ResourceQuotas, Services, Deployments
+   - **Crossplane exclusively owns:** External infrastructure (Databases, Storage, IAM), Custom Resources (CNPG, Atlas), Composite Resources (XRs)
+   - **Why:** Prevents "split-brain" race conditions between GitOps and Control Plane systems. Each system has a clear, non-overlapping domain.
 
-3. **Hub Simplification (Matryoshka Pattern):** The Hub's `AINativeSaaS` composition will be refactored to use `provider-kubernetes` to push exactly **ONE** object to the Spoke: the `SpokeTenantEnvironment` Custom Resource.
+3. **Spoke-Local Composition:** We will migrate all low-level infrastructure manifests (CNPG Poolers, Deployments) from the Hub's `AINativeSaaS` composition into a Spoke-local `SpokeTenantEnvironment` Composition. Note: Namespaces and RBAC are excluded from this Composition as they are managed by ArgoCD.
+
+4. **Hub Simplification (Matryoshka Pattern):** The Hub's `AINativeSaaS` composition will be refactored to use `provider-kubernetes` to push exactly **ONE** object to the Spoke: the `SpokeTenantEnvironment` Custom Resource.
 
    **Critical:** The Hub will **NOT** push multiple XRs (e.g., `TenantDatabase` + `SpokeTenantEnvironment`) to avoid race conditions. Instead, the `SpokeTenantEnvironment` Composition on the Spoke will **compose nested XRs** (like `TenantDatabase`) internally, guaranteeing dependency ordering.
 
-4. **Nested XR Composition:** The Spoke's `SpokeTenantEnvironment` Composition will compose other XRs (not just managed resources), following the Matryoshka pattern:
+5. **Nested XR Composition:** The Spoke's `SpokeTenantEnvironment` Composition will compose other XRs (not just managed resources), following the Matryoshka pattern:
    ```
    SpokeTenantEnvironment (XR)
-   ├── Namespace (managed resource)
    ├── TenantDatabase (nested XR) ← composed inside
    ├── AtlasMigration (managed resource)
    └── PostgREST Deployment (managed resource)
    ```
 
-5. **Status Reflection:** The Spoke-local composition will aggregate the health of its internal resources (including nested XRs) and expose a single `status.ready` boolean. The Hub will observe only this field.
+   **Critical:** Namespace is NOT managed by this Composition. Namespaces are created exclusively by ArgoCD via the Universal Tenant Helm Chart before the XR is created.
+
+6. **Status Reflection:** The Spoke-local composition will aggregate the health of its internal resources (including nested XRs) and expose a single `status.ready` boolean. The Hub will observe only this field.
 
 This decision *Amends* ADR-005 by clarifying that:
 - Crossplane abstractions must be distributed and scoped to their respective clusters

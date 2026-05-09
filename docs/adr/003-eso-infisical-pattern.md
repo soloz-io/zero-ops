@@ -9,6 +9,8 @@ See also: [Bootstrap vs Application Secrets](./bootstrap-vs-application-secrets.
 
 Infisical is the **SOURCE OF TRUTH** for all secrets. Two patterns exist based on secret type:
 
+**Critical Rule:** The ESO `PushSecret` resource is strictly banned due to lack of provider support (Infisical ESO provider does not support PushSecret) and architectural fragility. Secrets must flow from upstream controllers to Infisical (push-left), not from cluster operators back to Infisical.
+
 ### Pattern A: Bootstrap Secrets (Operator → Infisical → ESO)
 
 ```
@@ -87,18 +89,14 @@ Consume secret to provision tenant databases or connect to applications
 - Example: Tenant `app-creator` in cell `spoke-pool-eu-prod-01` → `/spoke-pool/spoke-pool-eu-prod-01/tenants/app-creator/db-credentials`
 - Implementation: `infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellId, tenantId)`
 
-#### Pattern A2b: Spoke Infrastructure (Crossplane → K8s Secret → PushSecret → Infisical → ESO)
+#### Pattern A2b: Spoke Infrastructure (Infrastructure Controller Generation → Infisical → ESO)
 
 ```
-[ Crossplane SpokePool Composition ]
+[ Hub Operator (SpokePoolReconciler) ]
    ↓
-Generate password (from metadata.uid)
+Generate password in Go (secure random)
    ↓
-Create K8s Secret on Hub
-   ↓
-[ ESO PushSecret ]
-   ↓
-Push to Infisical  ← SOURCE OF TRUTH
+Upload directly to Infisical via REST API  ← SOURCE OF TRUTH
    ↓
 ----------------------------------------
    ↓
@@ -111,7 +109,7 @@ Sync from Infisical to create K8s Secret on Spoke
 Consume secret to provision spoke infrastructure
 ```
 
-**Purpose:** Generate spoke infrastructure credentials via Crossplane Composition, backup to Infisical, deliver to Spoke via ESO.
+**Purpose:** Generate spoke infrastructure credentials via upstream control plane (Hub Operator), store in Infisical as source of truth, deliver to Spoke via ESO.
 
 **Use Cases:**
 - Spoke crossplane-admin database credentials
@@ -122,10 +120,12 @@ Consume secret to provision spoke infrastructure
 - SpokePool credentials: `<spokepool-cr-name>-crossplane-admin-password`
 
 **Key Characteristics:**
-- Crossplane Composition creates K8s secret on Hub (using metadata.uid for password)
-- PushSecret backs up to Infisical (source of truth for disaster recovery)
+- Hub Operator (e.g., `SpokePoolReconciler` in `operators/hub-operator/internal/controller/spokepool_controller.go`) generates password in Go
+- Password uploaded directly to Infisical via REST API (no K8s Secret on Hub)
 - Spoke ESO pulls from Infisical to create spoke-local secret
-- Idempotency via Crossplane's declarative reconciliation
+- Idempotency via Hub Operator's reconciliation logic (checks Infisical before generation)
+
+**Critical Rule:** The ESO `PushSecret` resource is strictly banned due to lack of provider support and architectural fragility. Secrets must flow from upstream controllers to Infisical (push-left), not from cluster operators back to Infisical.
 
 **Key Naming Convention:**
 - Pattern: `<spokepool-cr-name>-crossplane-admin-password`
@@ -190,21 +190,21 @@ Consume secrets at runtime
 
 **Critical:** Password is generated ONLY during first-time tenant onboarding. Controller does not manage secret lifecycle post-creation.
 
-#### Pattern A2b: Spoke Infrastructure (Crossplane)
+#### Pattern A2b: Spoke Infrastructure (Hub Operator)
 
-1. **Initial Creation:** 
-   - Crossplane SpokePool Composition reconciles
-   - Composition generates password from metadata.uid
-   - Creates K8s Secret on Hub
-   - PushSecret uploads to Infisical (backup/audit)
+1. **Initial Creation:**
+   - Hub Operator (SpokePoolReconciler) reconciles SpokePool CR
+   - Operator generates secure random password in Go
+   - Operator uploads password directly to Infisical via REST API
+   - **Operator does NOT create K8s Secret on Hub**
 2. **ESO Sync (Spoke):** Spoke ESO pulls from Infisical and creates K8s secret on Spoke (Owner mode)
 3. **Subsequent Reconciles:**
-   - Crossplane maintains K8s Secret on Hub (declarative reconciliation)
-   - PushSecret keeps Infisical in sync
-   - Spoke ESO keeps spoke secret in sync
+   - Hub Operator checks Infisical for password existence
+   - If password exists → Skip generation (idempotent)
+   - If password missing → FAIL reconciliation (manual intervention required)
 4. **Rotation:** See Rotation section below
 
-**Critical:** Hub K8s Secret is the working copy, Infisical is the backup/source-of-truth for disaster recovery.
+**Critical:** Infisical is the absolute source of truth. No K8s Secret exists on Hub. Password generation happens imperatively by the upstream controller before any GitOps reconciliation.
 
 ### Application Secrets Lifecycle (Pattern B)
 

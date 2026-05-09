@@ -18,25 +18,187 @@ OpenMeter Helm chart includes embedded Bitnami PostgreSQL and Redis. This create
 **Guiding Principle:**
 > "Stateful infrastructure is a platform concern; applications consume it—they don't own it."
 
-The platform provides centralized stateful services. Applications consume them via connection strings and disable embedded databases in their Helm charts.
+The platform provides centralized stateful services with enterprise-grade GitOps management. Applications consume them via declarative connection patterns without managing infrastructure lifecycle.
+
+## Architecture
+
+### Enterprise Stateful Infrastructure Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PLATFORM CONTROL PLANE                      │
+│                     (Hub Cluster)                            │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
+│  │   Crossplane    │  │     ArgoCD     │  │  Infisical  │ │
+│  │                 │  │                 │  │             │ │
+│  │ • CNPG Clusters │  │ • Stateful     │  │ • Secrets   │ │
+│  │ • Redis Stateful│  │   Infra Helm   │  │ • Rotation  │ │
+│  │ • ClickHouse    │  │   Charts       │  │ • Audit     │ │
+│  │ • provider-sql  │  │ • Backup Jobs  │  │             │ │
+│  │ • Backups       │  │ • Monitoring   │  │             │ │
+│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ Declarative APIs
+┌─────────────────────────────────────────────────────────────────┐
+│                   APPLICATION LAYER                             │
+│                  (Tenant Workloads)                           │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
+│  │   Applications │  │   ExternalSecret │  │   Service    │ │
+│  │                 │  │                 │  │   Mesh       │ │
+│  │ • Connection    │  │ • Auto-sync     │  │ • mTLS       │ │
+│  │   Strings      │  │ • Rotation     │  │ • Policies   │ │
+│  │ • No Embedded  │  │ • Templates     │  │ • Observability│ │
+│  │   Databases    │  │ • Quoting       │  │             │ │
+│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Stateful Service Architecture
+
+#### PostgreSQL (CNPG - CloudNativePG)
+```
+platform-data Namespace
+├── shared-cnpg (Cluster)
+│   ├── crossplane_admin (owner - migrations)
+│   ├── tenant-{id}-user (application - via provider-sql)
+│   ├── tenant-{id}-db (logical database)
+│   └── shared-cnpg-rw (Pooler service)
+├── Database Lifecycle
+│   ├── Creation: Crossplane provider-sql (declarative)
+│   ├── Credentials: Infisical → ESO → Secrets
+│   ├── Migrations: crossplane_admin (platform-owned)
+│   └── Access: Least-privilege via DefaultPrivileges
+└── Backup Strategy
+    ├── Continuous WAL archiving (CNPG)
+    ├── Scheduled snapshots (Barman)
+    └── Point-in-time recovery capability
+```
+
+#### Redis (StatefulSet + Service)
+```
+platform-data Namespace
+├── redis-cluster (StatefulSet)
+│   ├── redis-master (primary)
+│   ├── redis-replica-N (read replicas)
+│   └── redis-service (cluster endpoint)
+├── Access Pattern
+│   ├── Internal: Pod-to-Pod (no auth)
+│   ├── External: Service mesh mTLS
+│   └── Monitoring: Redis Exporter + Prometheus
+└── Persistence
+    ├── PVC: Redis data persistence
+    ├── Backup: Kubernetes Volume Snapshots
+    └── Recovery: Automated restore procedures
+```
+
+#### ClickHouse (Altinity Operator)
+```
+platform-data Namespace
+├── clickhouse-cluster (ClickHouseInstallation)
+│   ├── clickhouse-server-N (replicas)
+│   ├── clickhouse-service (endpoint)
+│   └── zookeeper-cluster (coordination)
+├── Database Isolation
+│   ├── openmeter (service database)
+│   ├── service-{id} (per-service databases)
+│   └── User-level access control
+├── Access Control
+│   ├── service-{id}-user (limited to own database)
+│   ├── read-only users (analytics)
+│   └── admin users (platform operations)
+└── Enterprise Features
+    ├── Distributed tables (horizontal scaling)
+    ├── Replicated tables (data durability)
+    ├── Query quotas (noisy neighbor prevention)
+    └── Monitoring: ClickHouse Exporter + Grafana
+```
+
+### GitOps Integration Pattern
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Platform      │    │   fleet-registry│    │     ArgoCD     │
+│   Engineers     │───▶│   Repository   │───▶│ ApplicationSets │
+│                 │    │                 │    │                 │
+│ • Database      │    │ • stateful/     │    │ • Sync stateful │
+│   definitions   │    │   infra/        │    │   infra charts  │
+│ • Backup        │    │   values.yaml   │    │ • Monitor       │
+│   policies     │    │                 │    │   health        │
+│ • Rotation     │    │                 │    │ • Auto-repair   │
+│   schedules     │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  Hub Cluster    │
+                    │  ┌─────────────┐ │
+                    │  │ CNPG, Redis │ │
+                    │  │ ClickHouse  │ │
+                    │  │ Backups     │ │
+                    │  │ Monitoring  │ │
+                    │  └─────────────┘ │
+                    └─────────────────┘
+```
+
+### Database-as-a-Service (DBaaS) Flow
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Application   │    │   Crossplane    │    │   PostgreSQL   │
+│   Request      │───▶│   Composition  │───▶│   Cluster      │
+│                 │    │                 │    │                 │
+│ • Database      │    │ • provider-sql  │    │ • CREATE DB    │
+│   name         │    │ • Role creation │    │ • CREATE USER  │
+│ • Permissions   │    │ • Grant rights  │    │ • GRANT        │
+│ • Quotas        │    │ • DefaultPrivs  │    │ • SET LIMITS   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   Infisical    │
+                    │  ┌─────────────┐ │
+                    │  │ Credentials │ │
+                    │  │ Rotation   │ │
+                    │  │ Audit      │ │
+                    │  └─────────────┘ │
+                    └─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   Application  │
+                    │  ┌─────────────┐ │
+                    │  │ Connection  │ │
+                    │  │ String     │ │
+                    │  │ Auto-retry │ │
+                    │  └─────────────┘ │
+                    └─────────────────┘
+```
 
 ### PostgreSQL
-- Platform provides CNPG clusters in `platform-data` namespace
-- Applications request databases via `CREATE DATABASE` in CNPG postInitSQL
-- Hub-operator generates credentials and uploads to Infisical
-- Applications consume via external connection strings
+- **Platform provides**: CNPG clusters in `platform-data` namespace
+- **Declarative creation**: Crossplane provider-sql creates databases/users
+- **Credentials**: Infisical → ESO → Kubernetes secrets
+- **Access control**: Database owner `crossplane_admin`, app users via DefaultPrivileges
+- **Applications consume**: External connection strings via ESO secrets
+- **✅ BANNED**: Application postInitSQL for database creation
 
 ### Redis
-- Platform provides StatefulSet in `platform-data` namespace
-- Applications consume via service endpoint
-- No authentication required (internal cluster network)
+- **Platform provides**: StatefulSet in `platform-data` namespace  
+- **High availability**: Master-replica configuration
+- **Applications consume**: Service endpoint with internal cluster networking
+- **Security**: Service mesh mTLS for external access
+- **Persistence**: PVC with automated volume snapshots
 
 ### ClickHouse
-- Platform provides ClickHouseInstallation (Altinity operator) in `platform-data` namespace
-- Shared cluster with database-level isolation per service (e.g., `openmeter` database)
-- Hub-operator generates credentials and uploads to Infisical
-- Applications consume via external connection strings with database-specific access
-- User-level access control: each service user granted access only to their database
+- **Platform provides**: ClickHouseInstallation (Altinity operator) in `platform-data` namespace
+- **Shared cluster**: Database-level isolation per service
+- **Enterprise features**: Distributed tables, query quotas, user-level access control
+- **Credentials**: Hub-operator generates and uploads to Infisical
+- **Applications consume**: External connection strings with database-specific access
+- **Access control**: Each service user granted access only to their database
 
 **Production Readiness Checklist:**
 - [ ] HA configuration (≥ 2 replicas) - deferred until staging/production

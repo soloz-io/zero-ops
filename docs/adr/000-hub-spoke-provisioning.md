@@ -122,6 +122,26 @@ This separation enables:
 - SpokePool uses provider-kubernetes to provision CAPI clusters
 - AINativeSaaS should use same pattern for tenant resources
 
+### 3.1 Strict Separation: GitOps for Primitives, Control Planes for Infra
+
+**Enterprise Pattern:**
+- **ArgoCD/Flux strictly owns Kubernetes primitives** (Namespaces, RBAC, ConfigMaps, ResourceQuotas, Services, Deployments)
+- **Crossplane strictly owns external/stateful infrastructure** (Cloud VMs, Databases, IAM, Buckets, XRs)
+
+**Why This Matters:**
+- Prevents "split-brain" race conditions between ArgoCD and Crossplane
+- Clear ownership boundaries reduce operational complexity
+- Aligns with idiomatic cloud-native patterns where GitOps manages KRM and control planes manage infrastructure
+
+**Banned Pattern:**
+- ❌ Crossplane using `provider-kubernetes` to push basic Kubernetes YAML (Namespaces, Roles, RoleBindings)
+- ❌ ArgoCD managing external infrastructure resources
+
+**Correct Pattern:**
+- ✅ ArgoCD (Universal Tenant Helm Chart) creates Namespace, RBAC, ResourceQuota on Spoke
+- ✅ Crossplane creates CNPG Database, Pooler, PostgREST, AtlasMigration on Spoke
+- ✅ Clear separation: KRM primitives via GitOps, infrastructure via Control Plane
+
 ### 4. AtlasMigration CR Included in Composition
 
 **Critical Decision**: Crossplane creates AtlasMigration CR (not separate Helm chart)
@@ -322,6 +342,8 @@ status:
    - No XR (XR stays on Hub)
 
 ### Updated Composition
+
+**Critical Rule:** Crossplane Compositions MUST NOT manage Kubernetes primitives (Namespaces, RBAC, ResourceQuotas). These are the exclusive domain of ArgoCD via the Universal Tenant Helm Chart. Crossplane exclusively provisions external/stateful infrastructure (Cloud VMs, Databases, IAM, Buckets, XRs).
 
 **AINativeSaaS Composition** must include (via provider-kubernetes Object wrappers):
 

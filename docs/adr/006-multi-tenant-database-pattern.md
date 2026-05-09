@@ -38,6 +38,12 @@ For multi-tenant databases, use the **Externalized Identity Pattern**: Infisical
 - **Static Platform Users**: Use CNPG postInitSQL for fixed user sets (agentregistry, mcp_server) in Hub databases (control_plane, hub) - simple, one-time bootstrap
 - **Dynamic Tenant Users**: Use Infisical → ESO → provider-sql for multi-tenant SaaS with continuous tenant creation - externalized, self-healing, declarative
 
+**Critical Security Boundary:**
+- **BANNED**: Applications must NEVER use postInitSQL for tenant database creation
+- **BANNED**: Applications must NEVER have `CREATEDB` or `CREATEROLE` permissions
+- **REQUIRED**: All tenant databases created declaratively via Crossplane provider-sql
+- **REQUIRED**: Database ownership remains with `crossplane_admin` for lifecycle management
+
 ## Consequences
 
 **Positive:**
