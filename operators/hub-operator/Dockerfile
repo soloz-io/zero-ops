@@ -15,7 +15,7 @@ RUN echo "=== Go module info ===" && \
 
 # Copy entire source tree to preserve module structure
 COPY . .
-
+ 
 # Debug: Show directory structure
 RUN echo "=== Workspace structure ===" && \
     ls -la && \
