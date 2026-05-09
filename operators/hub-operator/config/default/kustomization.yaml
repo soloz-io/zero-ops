@@ -66,7 +66,7 @@ patches:
         - name: INFISICAL_BASE_URL
           value: "https://infisical.platform-ops.svc"
         - name: HYDRA_BASE_URL
-          value: "https://hydra-admin.platform-identity.svc"
+          value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
         - name: NATS_URL
           value: "nats://nats.platform-core.svc:4222"
         - name: AWS_ACCESS_KEY_ID

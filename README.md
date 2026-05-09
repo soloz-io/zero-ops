@@ -146,6 +146,7 @@ INFISICAL_API_URL=http://localhost:8080 ./bin/hub init-secrets --kubeconfig=k8-s
 # Step 6: Wait for Infisical to be ready (check pods are running)
 kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
+# Step 7 and 8 automated in hub-operator
 # Step 7: Create Machine Identity in Infisical UI
 # 1. Access Infisical UI (port-forward or ingress)
 # 2. Go to Access Control -> Machine Identities
@@ -154,10 +155,10 @@ kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kub
 
 # Step 8: Configure ESO authentication to Infisical
 # This enables ESO to sync secrets from Infisical
-./bin/hub configure-eso \
-  --infisical-client-id=<client-id-from-infisical-ui> \
-  --infisical-client-secret=<client-secret-from-infisical-ui> \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+# ./bin/hub configure-eso \
+#   --infisical-client-id=<client-id-from-infisical-ui> \
+#   --infisical-client-secret=<client-secret-from-infisical-ui> \
+#   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 9: Wait for ArgoCD to sync and deploy database
 kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
@@ -180,9 +181,9 @@ export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub teardown --name
 4. **Wait for namespaces** - ArgoCD creates platform-data, platform-security, etc.
 5. **`hub init-secrets`** - Generates CA certificate, Infisical master keys with TLS enabled from Day 0
 6. **Wait for Infisical** - Verify Infisical pods are running
-7. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials
-8. **`hub configure-eso`** - Injects ESO auth to Infisical (enables secret management via GitOps)
-9. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
+<!-- 7. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials -->
+<!-- 8. **`hub configure-eso`** - Injects ESO auth to Infisical (enables secret management via GitOps) -->
+7. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
 
 **Why this order matters:**
 - GitHub credentials must be injected BEFORE `init-secrets` (ArgoCD needs to create platform-data namespace)
