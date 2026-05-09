@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-capi-resources
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops.git
+    targetRevision: HEAD
+    path: manifests/platform-capi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-capi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

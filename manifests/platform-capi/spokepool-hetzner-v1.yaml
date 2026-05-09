@@ -3,7 +3,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
   name: hetzner-spoke-pool-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   controlPlane:
     ref:
@@ -105,7 +105,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
 metadata:
   name: hetzner-spoke-pool-cluster-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -136,7 +136,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
   name: hetzner-spoke-pool-control-plane-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -205,7 +205,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-spoke-pool-control-plane-machine-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -216,7 +216,7 @@ apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
   name: hetzner-spoke-pool-worker-bootstrap-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   template:
     spec:
@@ -269,7 +269,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: hetzner-spoke-pool-worker-machine-v1
-  namespace: platform-ops
+  namespace: platform-capi
 spec:
   template:
     spec:

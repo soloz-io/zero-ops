@@ -13,11 +13,11 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Allow NATS client connections from zero-ops-system namespace
+  # Allow NATS client connections from platform-ops namespace
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: zero-ops-system
+          kubernetes.io/metadata.name: platform-ops
     ports:
     - protocol: TCP
       port: 4222
@@ -33,7 +33,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: zero-ops-system
+          kubernetes.io/metadata.name: platform-ops
     ports:
     - protocol: TCP
       port: 8222
