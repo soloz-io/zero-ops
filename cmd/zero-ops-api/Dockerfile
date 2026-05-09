@@ -1,5 +1,5 @@
 # Multi-stage build for zero-ops-api
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o zero-ops-api cmd/zero-ops-api/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -a -installsuffix cgo -o zero-ops-api cmd/zero-ops-api/main.go
 
 # Final stage
 FROM alpine:3.19

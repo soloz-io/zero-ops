@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -6,8 +6,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY cmd/mcp-server/ ./cmd/mcp-server/
+COPY internal/platform/agent-core/ ./internal/platform/agent-core/
+COPY internal/opensbt/interfaces/ ./internal/opensbt/interfaces/
+COPY internal/opensbt/models/ ./internal/opensbt/models/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o mcp-server ./cmd/mcp-server
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o mcp-server ./cmd/mcp-server
 
 FROM alpine:latest
 
