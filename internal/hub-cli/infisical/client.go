@@ -3,10 +3,12 @@ package infisical
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,8 +35,11 @@ type Config struct {
 // It retrieves the Infisical URL and authenticates using Universal Auth
 // Reuses the same credentials that ESO uses (infisical-auth in external-secrets-system)
 func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, error) {
-	// Use the external Infisical URL (accessible from outside cluster)
-	baseURL := "https://infisical.nutgraf.in"
+	// Allow override for local port-forwarding or custom DNS
+	baseURL := os.Getenv("INFISICAL_API_URL")
+	if baseURL == "" {
+		baseURL = "https://infisical.nutgraf.in"
+	}
 	
 	// Get Universal Auth credentials from the same secret ESO uses
 	esoNamespace := constants.NamespaceOps
@@ -54,6 +59,10 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				// Ignore TLS verification for Day-0 bootstrap when certificates are still provisioning
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
 		},
 	}
 
@@ -276,29 +285,29 @@ func (c *Client) updateSecret(ctx context.Context, workspaceId, environmentSlug,
 
 // GetInfisicalConfig retrieves Infisical configuration from ClusterSecretStore
 func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*Config, error) {
-	// Read the ClusterSecretStore to get projectSlug and environmentSlug
-	// Since we can't directly read CRDs without the CRD client, we'll use a ConfigMap fallback
-	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceCAPI).Get(ctx, "infisical-bootstrap-config", metav1.GetOptions{})
+	// Look for the correct ConfigMap in the correct namespace
+	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
 	if err != nil {
-		// Fallback to hardcoded values from cluster-secret-store.yaml
+		// Fallback to the correct hardcoded values from cluster-secret-store.yaml
 		return &Config{
-			ProjectSlug:    "platform",
-			EnvironmentSlug: "prod",
+			ProjectSlug:     "hub-platform",
+			EnvironmentSlug: "dev",
 		}, nil
 	}
 
-	projectSlug := cm.Data["projectSlug"]
-	environmentSlug := cm.Data["environmentSlug"]
+	// Use the correct keys from hub-bootstrap-config
+	projectSlug := cm.Data["INFISICAL_PROJECT_SLUG"]
+	environmentSlug := cm.Data["INFISICAL_ENVIRONMENT_SLUG"]
 
 	if projectSlug == "" || environmentSlug == "" {
 		return &Config{
-			ProjectSlug:    "platform",
-			EnvironmentSlug: "prod",
+			ProjectSlug:     "hub-platform",
+			EnvironmentSlug: "dev",
 		}, nil
 	}
 
 	return &Config{
-		ProjectSlug:    projectSlug,
+		ProjectSlug:     projectSlug,
 		EnvironmentSlug: environmentSlug,
 	}, nil
 }

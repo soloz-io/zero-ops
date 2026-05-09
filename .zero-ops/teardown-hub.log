@@ -1,0 +1,28 @@
+🗑️  Tearing down Hub Cluster: hub
+
+[teardown] ⚠️  Force deletion mode enabled
+[teardown] This will delete resources directly via Hetzner API
+[teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
+[teardown] Deleting server: hub-cp-k8wzf-7gbj4 (ID: 129875747)
+[teardown] ✓ Deleted server: hub-cp-k8wzf-7gbj4
+[teardown] Deleting server: hub-cp-md-0-kxsts-wwzls-ctfrl (ID: 129876074)
+[teardown] ✓ Deleted server: hub-cp-md-0-kxsts-wwzls-ctfrl
+[teardown] Deleting server: hub-cp-md-0-kxsts-wwzls-kdb6x (ID: 129876093)
+[teardown] ✓ Deleted server: hub-cp-md-0-kxsts-wwzls-kdb6x
+[teardown] Deleting load balancer: hub-cp-8x6ql-kube-apiserver-t7nxg (ID: 6296215)
+[teardown] ✓ Deleted load balancer: hub-cp-8x6ql-kube-apiserver-t7nxg
+[teardown] Deleting network: hub-cp-8x6ql (ID: 12201632)
+[teardown] ✓ Deleted network: hub-cp-8x6ql
+[teardown] ✓ Force deletion complete
+
+[teardown] Cleaning up local files...
+[teardown] Deleting kind cluster: hub...
+[teardown] ⚠️  Failed to delete kind cluster: exit status 1
+Deleting cluster "hub" ...
+ERROR: failed to delete cluster "hub": error listing nodes: failed to list nodes: command "docker ps -a --filter label=io.x-k8s.kind.cluster=hub --format '{{.Names}}'" failed with error: exit status 1
+
+Command Output: failed to connect to the docker API at unix:///Users/arun_subramanian/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/arun_subramanian/.docker/run/docker.sock: connect: no such file or directory
+
+[teardown] ✓ Local cleanup complete
+
+✓ Cluster 'hub' successfully torn down

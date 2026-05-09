@@ -17,8 +17,8 @@ spec:
           HCLOUD_TOKEN:
             valueFrom:
               secretKeyRef:
-                name: hcloud
-                key: token
+                name: hetzner
+                key: hcloud
         networking:
           enabled: false
   destination:

@@ -112,7 +112,7 @@ export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permis
 ./bin/hub configure-aws-secrets-manager \
   --environment=development \
   --aws-region=ap-south-1 \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Only for DEV, If IAM user already exists with access keys, delete old key first:
 # aws iam delete-access-key --user-name hub-operator-secrets-manager-production --access-key-id <OLD_KEY_ID>
@@ -124,25 +124,27 @@ export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permis
 # - fleet-registry repository (tenant configurations)
 # - Any other repositories in the soloz-io organization
 # CRITICAL: Must run BEFORE init-secrets so platform-data namespace exists
-export GITHUB_TOKEN=$(cat k8-secrets/github/token)
+export GITHUB_TOKEN=$(cat k8-secrets/github/github-pat-token)
 ./bin/hub configure-github-access \
   --ghcr-pat=$GITHUB_TOKEN \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 4: Wait for ArgoCD to sync and create namespaces
 # ArgoCD will create platform-data, platform-security, and other namespaces
-kubectl wait --for=condition=ready namespace platform-data --timeout=300s \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data \
+  --timeout=300s --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 5: Initialize bootstrap secrets (Secret Zero)
 # This generates CA certificate, Infisical master keys, and backs them up to AWS
 # TLS is enabled from Day 0 - no upgrade step needed
 # NOTE: Now works because platform-data namespace exists (created by ArgoCD)
-./bin/hub init-secrets \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+kubectl port-forward -n platform-security svc/platform-infisical-infisical-standalone-infisical 8080:8080 \
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+
+INFISICAL_API_URL=http://localhost:8080 ./bin/hub init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 6: Wait for Infisical to be ready (check pods are running)
-kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 7: Create Machine Identity in Infisical UI
 # 1. Access Infisical UI (port-forward or ingress)
@@ -155,15 +157,19 @@ kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub-cp.
 ./bin/hub configure-eso \
   --infisical-client-id=<client-id-from-infisical-ui> \
   --infisical-client-secret=<client-secret-from-infisical-ui> \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 9: Wait for ArgoCD to sync and deploy database
 kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
   -n platform-data --timeout=600s \
-  --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Teardown cluster
 ./bin/hub teardown --name=hub
+
+# Only use if local kind cluster does not exist and already pivoted
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub teardown --name=hub --force --confirm 2>&1 | tee .zero-ops/teardown-hub.log
+
 ```
 
 **Command Execution Order (CRITICAL):**

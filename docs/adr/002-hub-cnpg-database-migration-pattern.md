@@ -1,441 +1,362 @@
-# CNPG Database + Migration Pattern
+# ADR-002: Hub CNPG Database Migration Pattern
 
-**Version:** 1.0  
-**Date:** 2026-03-25  
-**Pattern:** Single CNPG Cluster + Kubernetes Job Migrations
+**Version:** 2.0
+**Date:** 2026-05-08
+**Status:** APPROVED
+**Supersedes:** v1.0 (2026-03-25)
+
+## Context
+
+During Hub cluster bootstrap, database migrations were failing with dirty state errors, causing cascading failures in the operator reconciliation loop. Root causes identified:
+
+1. Non-idempotent SQL (`CREATE POLICY`, `CREATE TRIGGER`) failing on re-runs
+2. `migrate force <version>` hardcoded in GitOps jobs — dangerous in production
+3. Duplicate RLS ownership across migration files and standalone ConfigMaps
+4. Wrong table references (`agentregistry.agents` vs `agentregistry.agent_definitions`)
+5. Hub-operator treating all dirty states as permanent errors requiring manual intervention
+
+This ADR documents the corrected patterns and principles adopted.
+
+---
 
 ## Core Principle
 
-**CNPG manages infrastructure. Kubernetes Jobs manage schema lifecycle.**
+**CNPG manages infrastructure. The Hub Operator manages schema lifecycle. GitOps jobs are rerunnability-safe.**
 
 ```
 CNPG Cluster (infra)
   ├── Database creation (postInitSQL)
-  ├── User/role creation (postInitSQL)
-  └── One-time bootstrap
+  ├── Role creation (postInitSQL)
+  └── TLS CA injection (CLI Secret Zero)
            ↓
-Migration Jobs (schema lifecycle)
-  ├── Versioned migrations
-  ├── Per-database targeting
-  └── Retryable + observable
+Hub Operator (schema lifecycle)
+  ├── Dirty state auto-recovery (version=0 only)
+  ├── Versioned migrations via golang-migrate
+  └── Idempotent SQL — safe to re-run
+           ↓
+ArgoCD Migration Jobs (supplementary role setup)
+  ├── migrate up only — no force
+  ├── Idempotent SQL
+  └── Retryable via backoffLimit
            ↓
 Application (runtime)
-  └── Connects to ready databases
+  └── Connects to ready databases via ESO-synced credentials
 ```
+
+---
 
 ## The Three Layers
 
-### 1. CNPG Cluster: Infrastructure Provisioning
+### Layer 1: CNPG Cluster — Infrastructure Provisioning
 
-**Single cluster with multiple logical databases:**
+**Single cluster, multiple logical databases:**
 
 ```yaml
-# manifests/hub-core-services/platform-database/platform-db.yaml
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata:
-  name: platform-db
-  namespace: zero-ops-system
 spec:
-  instances: 3
-  storage:
-    size: 20Gi
-    storageClass: hcloud-volumes
-  
   bootstrap:
     initdb:
       database: postgres
-      owner: postgres
+      owner: app
+      secret:
+        name: platform-db-app        # CLI-injected Secret Zero
       postInitSQL:
-        # Create databases
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
-        
-        # Create users
-        - CREATE USER agentregistry WITH PASSWORD 'changeme';
-        - CREATE USER mcp_server WITH PASSWORD 'changeme';
-        - CREATE USER spoke_controller WITH PASSWORD 'changeme';
-        
-        # Grant database access
-        - GRANT ALL PRIVILEGES ON DATABASE control_plane TO agentregistry;
-        - GRANT ALL PRIVILEGES ON DATABASE control_plane TO mcp_server;
-        - GRANT ALL PRIVILEGES ON DATABASE hub TO spoke_controller;
+        - CREATE DATABASE infisical;
+        - CREATE DATABASE openmeter;
+  certificates:
+    serverCASecret: platform-db-ca   # CLI-injected ECDSA CA
+    clientCASecret: platform-db-ca
 ```
 
 **What belongs in postInitSQL:**
-- ✅ CREATE DATABASE
-- ✅ CREATE USER / CREATE ROLE
-- ✅ GRANT database-level privileges
-- ✅ GRANT schema-level privileges (USAGE, CREATE on schemas)
-- ❌ Schema creation (use migrations)
-- ❌ Table creation (use migrations)
-- ❌ Versioned changes (use migrations)
+- ✅ `CREATE DATABASE`
+- ✅ `CREATE ROLE` / `CREATE USER`
+- ✅ `GRANT` database-level privileges
+- ❌ Schema creation → use migrations
+- ❌ Table creation → use migrations
+- ❌ RLS policies → use migrations
 
-**CRITICAL - Schema Grants Required:**
-CNPG does NOT auto-grant schema permissions. Database access ≠ schema access in PostgreSQL.
+**TLS Day-0 Pattern:**
 
-After creating users, you MUST grant schema-level privileges:
-```sql
--- Grant schema access
-GRANT USAGE ON SCHEMA public TO agentregistry;
-GRANT CREATE ON SCHEMA public TO agentregistry;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO agentregistry;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO agentregistry;
+The CA secret (`platform-db-ca`) is injected by the CLI **before** ArgoCD deploys CNPG. This eliminates restart loops.
+
+```
+hub init-secrets
+  → generates ECDSA P-256 CA (not RSA — CNPG requires EC PRIVATE KEY)
+  → injects platform-db-ca with keys: ca.crt, ca.key, tls.crt, tls.key
+  → CNPG reads ca.key to sign server certificates on first boot
 ```
 
-**Why single cluster:**
-- Shared resource pool (CPU, memory, connections)
-- Simplified backup/restore
-- Single monitoring endpoint
-- Lower operational overhead
+**Required CA secret keys:**
 
-### 2. Migration Jobs: Schema Lifecycle
+| Key | Purpose |
+|-----|---------|
+| `ca.crt` | CA certificate for TLS verification |
+| `ca.key` | **Required by CNPG** to sign server certificates (ECDSA P-256) |
+| `tls.crt` | Required by Kubernetes `kubernetes.io/tls` secret type |
+| `tls.key` | Required by Kubernetes `kubernetes.io/tls` secret type |
 
-**Kubernetes Jobs run after cluster is ready:**
-
-```yaml
-# manifests/hub-core-services/platform-database/migrations/control-plane-migrations.yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: control-plane-migrations
-  namespace: zero-ops-system
-spec:
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-      - name: migrate
-        image: migrate/migrate:latest
-        command:
-          - migrate
-          - -path=/migrations
-          - -database=postgresql://agentregistry:changeme@platform-db-rw:5432/control_plane?sslmode=require
-          - up
-        volumeMounts:
-        - name: migrations
-          mountPath: /migrations
-      volumes:
-      - name: migrations
-        configMap:
-          name: control-plane-migrations
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: control-plane-migrations
-  namespace: zero-ops-system
-data:
-  001_agentregistry_schema.sql: |
-    CREATE SCHEMA IF NOT EXISTS agentregistry;
-    
-    CREATE TABLE IF NOT EXISTS agentregistry.agent_definitions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id UUID NOT NULL,
-        name TEXT NOT NULL,
-        version TEXT NOT NULL,
-        agent_type TEXT NOT NULL,
-        system_message TEXT NOT NULL,
-        tool_access JSONB NOT NULL,
-        memory_config JSONB NOT NULL,
-        guardrail_policies JSONB NOT NULL,
-        model_config JSONB NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(tenant_id, name, version)
-    );
-    
-    ALTER TABLE agentregistry.agent_definitions ENABLE ROW LEVEL SECURITY;
-    
-    CREATE POLICY tenant_isolation ON agentregistry.agent_definitions
-        USING (tenant_id = current_setting('app.tenant_id')::UUID);
-  
-  002_agents_schema.sql: |
-    CREATE SCHEMA IF NOT EXISTS agents;
-    
-    CREATE TABLE IF NOT EXISTS agents.authorized_tools (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id UUID NOT NULL,
-        tool_name VARCHAR(255) NOT NULL,
-        category VARCHAR(100),
-        enabled BOOLEAN DEFAULT true,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(tenant_id, tool_name)
-    );
-```
 
-**Migration tool options:**
-- **golang-migrate/migrate**: Simple, container-ready, version tracking
-- **Flyway**: Java-based, enterprise features
-- **Liquibase**: XML/YAML definitions
-- **goose**: Go-native, embedded or CLI
+### Layer 2: Hub Operator — Schema Lifecycle
 
-**Why Jobs over postInitSQL:**
-- ✅ Versioned migrations (001, 002, 003...)
-- ✅ Rollback support
-- ✅ Per-database targeting
-- ✅ Retryable on failure
-- ✅ Observable via kubectl logs
-- ✅ Can run after cluster is ready
-- ✅ Decoupled from infrastructure
+The Hub Operator (`HubEnvironmentReconciler`) owns migration execution via `golang-migrate`.
 
-### 3. Application: Runtime Usage
-
-**Applications connect to ready databases:**
+**Dirty State Recovery Policy:**
 
 ```go
-// cmd/zero-ops-api/main.go
-func main() {
-    dbURL := os.Getenv("DATABASE_URL")
-    // postgresql://agentregistry:changeme@platform-db-rw:5432/control_plane
-    
-    pool, err := pgxpool.New(context.Background(), dbURL)
-    if err != nil {
-        log.Fatal(err)
+if dirty {
+    if version == 0 {
+        // First migration failed — safe to auto-recover
+        // All migrations are idempotent, so re-running is safe
+        migrator.Force(0)
+        // then re-run migrate up
+    } else {
+        // Partial schema change — require manual intervention
+        return &DirtyDatabaseError{...}
     }
-    
-    // Application logic
 }
 ```
 
-**Connection patterns:**
-- Use `-rw` service for read-write (platform-db-rw)
-- Use `-ro` service for read-only (platform-db-ro)
-- Use `-r` service for any replica (platform-db-r)
+**Rationale:** `version=0, dirty=true` means the very first migration failed before writing any schema. Since all SQL is idempotent, auto-recovery is safe. For `version>0`, manual intervention is required to prevent data loss.
 
-## Complete Flow
-
-### Step 1: Deploy CNPG Cluster
+**Manual Recovery Runbook (version > 0):**
 
 ```bash
-kubectl apply -f manifests/hub-core-services/platform-database/platform-db.yaml
+# 1. Identify the dirty version
+kubectl get hubenvironment hub-production -o jsonpath='{.status.conditions}'
+
+# 2. Connect to database
+kubectl exec -n platform-data platform-db-1 -- psql -U app -d hub
+
+# 3. Inspect migration state
+SELECT * FROM schema_migrations;
+
+# 4. Force to last known good version (manual only, never in GitOps)
+migrate -path=/migrations -database="${DATABASE_URL}" force <version>
+
+# 5. Trigger operator re-reconciliation
+kubectl annotate hubenvironment hub-production ops.nutgraf.in/reconcile-trigger="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 ```
 
-**What happens:**
-1. CNPG operator creates 3 PostgreSQL instances
-2. postInitSQL runs once on primary
-3. Databases created: control_plane, hub
-4. Users created: agentregistry, mcp_server, spoke_controller
-5. Cluster becomes Ready
+---
 
-### Step 2: Run Migration Jobs
+### Layer 3: ArgoCD Migration Jobs — Supplementary Role Setup
 
-```bash
-kubectl apply -f manifests/hub-core-services/platform-database/migrations/
+Jobs run via ArgoCD sync waves for role/permission setup that cannot be done in `postInitSQL` (requires connecting to specific logical databases).
+
+**Job Pattern — migrate up only:**
+
+```yaml
+containers:
+- name: migrate
+  image: migrate/migrate:latest
+  command:
+    - sh
+    - -c
+    - migrate -path=/migrations -database="${DATABASE_URL}" up
 ```
 
-**What happens:**
-1. Job pods start after cluster is Ready
-2. Migration tool connects to specific database
-3. Runs migrations in order (001, 002, 003...)
-4. Tracks version in schema_migrations table
-5. Job completes successfully
+**Never use `migrate force` in GitOps jobs.** It resets migration bookkeeping globally and is dangerous in automated pipelines. Force is a manual recovery tool only.
 
-### Step 3: Deploy Applications
+---
 
-```bash
-kubectl apply -f manifests/zero-ops-api/
+## Idempotent SQL Patterns
+
+All migration SQL must be safe to re-run. These are the required patterns:
+
+### Tables and Indexes
+
+```sql
+-- ✅ Always use IF NOT EXISTS
+CREATE TABLE IF NOT EXISTS agent_infra_status (...);
+CREATE INDEX IF NOT EXISTS idx_agent_infra_status_tenant ON agent_infra_status(tenant_id);
 ```
 
-**What happens:**
-1. Application pods start
-2. Connect to platform-db-rw:5432/control_plane
-3. Query tables created by migrations
-4. Application becomes Ready
+### Functions
+
+```sql
+-- ✅ Always use CREATE OR REPLACE
+CREATE OR REPLACE FUNCTION notify_agent_infra_status_change()
+RETURNS TRIGGER AS $$ ... $$ LANGUAGE plpgsql;
+```
+
+### Triggers
+
+```sql
+-- ✅ Drop before create (idempotent)
+DROP TRIGGER IF EXISTS agent_infra_status_change ON agent_infra_status;
+CREATE TRIGGER agent_infra_status_change
+AFTER INSERT OR UPDATE ON agent_infra_status
+FOR EACH ROW EXECUTE FUNCTION notify_agent_infra_status_change();
+```
+
+### RLS Policies
+
+```sql
+-- ✅ Wrap in DO block with existence check
+ALTER TABLE agent_infra_status ENABLE ROW LEVEL SECURITY;  -- idempotent natively
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'agent_infra_status'
+      AND policyname = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON agent_infra_status
+      USING (tenant_id = current_setting('app.tenant_id', true)::UUID);
+  END IF;
+END $$;
+```
+
+### Roles and Grants
+
+```sql
+-- ✅ Check before create
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spire_server') THEN
+    CREATE ROLE spire_server WITH LOGIN PASSWORD '${SPIRE_SERVER_PASSWORD}';
+  ELSE
+    ALTER ROLE spire_server WITH PASSWORD '${SPIRE_SERVER_PASSWORD}';
+  END IF;
+END $$;
+
+-- GRANT is idempotent natively
+GRANT CONNECT ON DATABASE hub TO spire_server;
+```
+
+### Schemas
+
+```sql
+-- ✅ Always use IF NOT EXISTS
+CREATE SCHEMA IF NOT EXISTS agentregistry;
+```
+
+---
+
+## RLS Ownership Rule
+
+**Migrations own schema AND RLS. No standalone RLS ConfigMaps.**
+
+| Responsibility | Owner |
+|---------------|-------|
+| Table creation | Migration SQL |
+| Index creation | Migration SQL |
+| RLS enablement | Migration SQL |
+| RLS policies | Migration SQL |
+| Role creation | Migration Job (spire-server-role.yaml) or postInitSQL |
+| Grants | Migration SQL or postInitSQL |
+
+**Anti-pattern (do not do):**
+
+```
+migrations/control-plane-migrations.yaml  → creates policies
+migrations/agentregistry-rls.yaml         → also creates policies on same tables
+```
+
+This causes drift, ordering issues, and repeated sync failures. Consolidate all RLS into the primary migration file for each database.
+
+---
+
+## Transactional Migrations
+
+Wrap multi-statement migrations in transactions to prevent partial dirty states:
+
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS agent_infra_status (...);
+
+CREATE INDEX IF NOT EXISTS idx_agent_infra_status_tenant
+  ON agent_infra_status(tenant_id);
+
+ALTER TABLE agent_infra_status ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'agent_infra_status'
+      AND policyname = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON agent_infra_status
+      USING (tenant_id = current_setting('app.tenant_id', true)::UUID);
+  END IF;
+END $$;
+
+COMMIT;
+```
+
+Note: DDL in PostgreSQL is transactional. `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE` all participate in transactions.
+
+---
+
+## Sync Wave Ordering
+
+```
+Wave -2: AppProject (platform-infrastructure)
+Wave  1: CNPG Operator, Redis, platform-infisical-prerequisites
+Wave  2: CNPG Cluster (platform-db), platform-database application
+Wave  3: Infisical (requires DB ready)
+Wave  4: Migration Jobs (requires DB + credentials from ESO)
+Wave  5: Applications (requires migrations complete)
+```
+
+**Wave 4 prerequisite:** ESO must have synced `hub-db-credentials`, `control-plane-db-credentials`, `spire-server-db-credentials` from Infisical before migration jobs run.
+
+---
+
+## Node Scheduling
+
+CNPG and migration jobs must schedule on worker nodes. CAPI/kubeadm sets the worker role label as a **key-only label** (empty value):
+
+```yaml
+# ✅ Correct — matches CAPI node label
+nodeSelector:
+  node-role.kubernetes.io/worker: ""
+
+# ❌ Wrong — never matches
+nodeSelector:
+  node-role.kubernetes.io/worker: "true"
+```
+
+---
 
 ## Directory Structure
 
 ```
-manifests/
-  platform-database/
-    platform-db.yaml              ← CNPG Cluster (infra)
-    migrations/
-      control-plane-migrations.yaml   ← Job + ConfigMap
-      hub-migrations.yaml             ← Job + ConfigMap
-
-internal/
-  agent-core/
-    database/
-      migrations/
-        001_agentregistry_schema.sql  ← Source migrations
-        002_agents_schema.sql
-        003_hub_agent_infra_status.sql
+manifests/hub-core-services/database/
+  platform-db.yaml                        ← CNPG Cluster
+  platform-db-pooler.yaml                 ← PgBouncer
+  migrations/
+    hub-job.yaml                          ← migrate up only
+    hub-migrations.yaml                   ← ConfigMap with idempotent SQL
+    control-plane-job.yaml                ← migrate up only
+    control-plane-migrations.yaml         ← ConfigMap with idempotent SQL
+    agentregistry-rls.yaml                ← ConfigMap (consolidated RLS)
+    spire-server-role.yaml                ← Role setup job (idempotent)
+  hub-db-credentials-es.yaml              ← ExternalSecret (ESO → Infisical)
+  control-plane-db-credentials-es.yaml
+  spire-server-db-credentials-es.yaml
+  platform-db-app-credentials-es.yaml
 ```
 
-**Build process:**
-1. Developer writes SQL in `internal/*/database/migrations/`
-2. CI packages migrations into ConfigMaps
-3. GitOps deploys Jobs with ConfigMaps
-4. Jobs run migrations in cluster
+---
 
-## Migration Job Best Practices
+## Implementation Checklist
 
-### Use Init Containers for Readiness
-
-```yaml
-spec:
-  template:
-    spec:
-      initContainers:
-      - name: wait-for-db
-        image: postgres:16
-        command:
-          - sh
-          - -c
-          - |
-            until pg_isready -h platform-db-rw -p 5432; do
-              echo "Waiting for database..."
-              sleep 2
-            done
-      containers:
-      - name: migrate
-        # ... migration container
-```
-
-### Use Secrets for Credentials
-
-```yaml
-env:
-- name: DB_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: platform-db-app
-      key: password
-command:
-  - migrate
-  - -database=postgresql://agentregistry:$(DB_PASSWORD)@platform-db-rw:5432/control_plane
-  - up
-```
-
-### Track Migration Status
-
-```sql
--- Migration tool creates this automatically
-CREATE TABLE schema_migrations (
-    version BIGINT PRIMARY KEY,
-    dirty BOOLEAN NOT NULL
-);
-```
-
-### Handle Failures Gracefully
-
-```yaml
-spec:
-  backoffLimit: 3  # Retry up to 3 times
-  template:
-    spec:
-      restartPolicy: OnFailure
-```
-
-## Common Patterns
-
-### Pattern 1: Multiple Databases, Single Cluster
-
-```yaml
-# One cluster
-platform-db:
-  - control_plane database
-    - agentregistry schema
-    - agents schema
-  - hub database
-    - public schema (agent_infra_status)
-```
-
-**Migration Jobs:**
-- `control-plane-migrations.yaml` → connects to control_plane
-- `hub-migrations.yaml` → connects to hub
-
-### Pattern 2: Shared Tables Across Schemas
-
-```sql
--- In control_plane database
-CREATE SCHEMA IF NOT EXISTS public;
-CREATE TABLE public.tenants (
-    id UUID PRIMARY KEY,
-    name TEXT NOT NULL
-);
-
--- Other schemas reference it
-CREATE TABLE agents.authorized_tools (
-    tenant_id UUID REFERENCES public.tenants(id)
-);
-```
-
-### Pattern 3: Cross-Database References (Avoid)
-
-```sql
--- ❌ Don't do this
-CREATE TABLE agents.tools (
-    status_id UUID REFERENCES hub.agent_infra_status(id)
-);
-```
-
-**Why:** PostgreSQL doesn't support cross-database foreign keys.
-
-**Solution:** Use application-level joins or denormalize data.
-
-## Troubleshooting
-
-### Migration Job Fails
-
-```bash
-# Check job status
-kubectl get jobs -n zero-ops-system
-
-# View logs
-kubectl logs -n zero-ops-system job/control-plane-migrations
-
-# Common issues:
-# - Database not ready → add initContainer
-# - Wrong credentials → check secret
-# - SQL syntax error → test migration locally
-```
-
-### Database Not Created
-
-```bash
-# Check cluster status
-kubectl get cluster -n zero-ops-system platform-db
-
-# View cluster logs
-kubectl logs -n zero-ops-system platform-db-1
-
-# Check postInitSQL execution
-kubectl exec -n zero-ops-system platform-db-1 -- psql -U postgres -c '\l'
-```
-
-### Connection Refused
-
-```bash
-# Check service endpoints
-kubectl get svc -n zero-ops-system | grep platform-db
-
-# Test connection from pod
-kubectl run -it --rm debug --image=postgres:16 --restart=Never -- \
-  psql postgresql://agentregistry:changeme@platform-db-rw:5432/control_plane
-```
-
-## Summary
-
-**The Pattern:**
-1. **CNPG Cluster** creates infrastructure (databases, users, roles)
-2. **Migration Jobs** create schemas and tables (versioned, retryable)
-3. **Applications** connect to ready databases
-
-**Why It Works:**
-- **Separation of concerns**: Infra vs schema lifecycle
-- **Idiomatic Kubernetes**: Jobs for one-time tasks
-- **Versioned migrations**: Rollback support, audit trail
-- **Observable**: kubectl logs shows migration status
-- **Retryable**: Jobs handle transient failures
-
-**Implementation Checklist:**
-- [ ] Create CNPG Cluster with postInitSQL (databases + users)
-- [ ] Package migrations into ConfigMaps
-- [ ] Create Job manifests per database
-- [ ] Add initContainers for readiness checks
-- [ ] Use Secrets for credentials
-- [ ] Test migrations locally before deploying
-- [ ] Monitor Job completion in cluster
-
-This is the idiomatic way to manage PostgreSQL databases in Kubernetes with CNPG.
+- [ ] CA secret uses ECDSA P-256 with all four keys (`ca.crt`, `ca.key`, `tls.crt`, `tls.key`)
+- [ ] All `CREATE TABLE` use `IF NOT EXISTS`
+- [ ] All `CREATE INDEX` use `IF NOT EXISTS`
+- [ ] All `CREATE FUNCTION` use `CREATE OR REPLACE`
+- [ ] All `CREATE TRIGGER` preceded by `DROP TRIGGER IF EXISTS`
+- [ ] All `CREATE POLICY` wrapped in `DO $$ IF NOT EXISTS` block
+- [ ] `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` used directly (natively idempotent)
+- [ ] No `migrate force` in any GitOps job
+- [ ] RLS policies owned exclusively by migration SQL (no duplicate standalone ConfigMaps)
+- [ ] Table references verified against actual schema (e.g. `agent_definitions` not `agents`)
+- [ ] Migration jobs use `migrate up` only
+- [ ] `nodeSelector: node-role.kubernetes.io/worker: ""` (empty string, not "true")
+- [ ] Multi-statement migrations wrapped in `BEGIN; ... COMMIT;`

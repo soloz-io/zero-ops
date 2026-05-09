@@ -362,8 +362,48 @@ func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, er
 }
 
 // WaitForInfisicalHealth waits for Infisical pods to become ready
-// Returns error if timeout exceeded or pods not found
+func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
 
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := constants.NamespaceSecurity // CORRECT NAMESPACE
+	timeout := 5 * time.Minute
+	checkInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		// CORRECT DEPLOYMENT NAME
+		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-infisical-standalone-infisical", metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				fmt.Println("   Infisical deployment not found yet, waiting...")
+				time.Sleep(checkInterval)
+				continue
+			}
+			return fmt.Errorf("failed to get infisical deployment: %w", err)
+		}
+
+		if deployment.Status.ReadyReplicas > 0 {
+			fmt.Println("✓ Infisical is healthy")
+			return nil
+		}
+
+		fmt.Printf("   Infisical not ready yet (%d/%d replicas ready), waiting...\n",
+			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+		time.Sleep(checkInterval)
+	}
+
+	return fmt.Errorf("timeout waiting for Infisical to become healthy after %v", timeout)
+}
+
+// RestartPlatformWorkloads performs a rolling restart of StatefulSets/Deployments
 func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
@@ -375,20 +415,21 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := constants.NamespaceData
+	dataNamespace := constants.NamespaceData
+	securityNamespace := constants.NamespaceSecurity
 	patchData := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, time.Now().Format(time.RFC3339)))
 
 	fmt.Println("[bootstrap-secrets] Changes detected. Triggering workload rollouts to sync...")
 
-	// Restart Redis StatefulSet
-	if _, err = clientset.AppsV1().StatefulSets(namespace).Patch(ctx, "redis-master", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+	// Restart Redis StatefulSet (Redis is in platform-data)
+	if _, err = clientset.AppsV1().StatefulSets(dataNamespace).Patch(ctx, "redis-master", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to restart redis-master: %w", err)
 		}
 	}
 
-	// Restart Infisical Deployment
-	if _, err = clientset.AppsV1().Deployments(namespace).Patch(ctx, "platform-infisical-standalone", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+	// Restart Infisical Deployment (Infisical is in platform-security and uses the long Helm name)
+	if _, err = clientset.AppsV1().Deployments(securityNamespace).Patch(ctx, "platform-infisical-infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to restart infisical deployment: %w", err)
 		}

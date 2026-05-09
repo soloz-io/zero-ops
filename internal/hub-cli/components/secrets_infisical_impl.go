@@ -11,7 +11,6 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -268,65 +267,6 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 
 	return true, nil
 }
-
-// InstallPostgresConnectionSecret creates the PostgreSQL connection secret for Infisical
-// This is Layer 1 Bootstrap (Secret Zero) - called during bootstrap BEFORE ArgoCD syncs Infisical.
-//
-// Bootstrap Pattern:
-// 1. CLI generates passwords for CNPG bootstrap (platform-db-app) and Infisical bootstrap (infisical-db-credentials)
-// 2. CLI injects these secrets directly into K8s (Secret Zero)
-// 3. CNPG and Infisical boot using these secrets
-// 4. CLI uploads these secrets to Infisical (making Infisical the Source of Truth)
-// 5. ESO adopts these secrets (creationPolicy: Owner) and keeps them in sync
-//
-// This solves the circular dependency: Infisical needs DB → DB needs secrets → Secrets need Infisical
-//
-// IDEMPOTENCY: Returns (true, nil) if secrets were created/modified, (false, nil) if they already exist.
-
-func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
-	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	namespace := "platform-security"
-	timeout := 5 * time.Minute
-	checkInterval := 5 * time.Second
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		// Check if deployment exists and has ready replicas
-		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-standalone", metav1.GetOptions{})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				fmt.Println("   Infisical deployment not found yet, waiting...")
-				time.Sleep(checkInterval)
-				continue
-			}
-			return fmt.Errorf("failed to get infisical deployment: %w", err)
-		}
-
-		// Check if at least one replica is ready
-		if deployment.Status.ReadyReplicas > 0 {
-			fmt.Println("✓ Infisical is healthy")
-			return nil
-		}
-
-		fmt.Printf("   Infisical not ready yet (%d/%d replicas ready), waiting...\n",
-			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
-		time.Sleep(checkInterval)
-	}
-
-	return fmt.Errorf("timeout waiting for Infisical to become healthy after %v", timeout)
-}
-
-// RestartPlatformWorkloads performs a rolling restart of StatefulSets/Deployments
-// This is called ONLY when secrets are actually modified to sync workloads with new credentials.
 
 func (i *Installer) UpgradeInfisicalTLS(ctx context.Context) error {
 	// Load kubeconfig and create clientset
