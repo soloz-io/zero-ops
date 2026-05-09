@@ -27,7 +27,7 @@ RUN echo "=== Workspace structure ===" && \
     echo "=== Build command: go build -a -o manager ./operators/hub-operator/cmd/main.go ==="
 
 # Build using relative path from workspace root
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager ./operators/hub-operator/cmd/main.go && \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -mod=mod -a -o manager ./operators/hub-operator/cmd/main.go && \
     echo "=== Build successful, binary location: ===" && \
     ls -lh manager
 
