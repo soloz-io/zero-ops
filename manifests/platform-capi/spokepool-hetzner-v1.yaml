@@ -81,6 +81,18 @@ spec:
         path: /spec/template/spec/type
         valueFrom:
           variable: workerMachineType
+  - name: sshKey
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/sshKeys/hcloud/0/name
+        valueFrom:
+          variable: sshKeyName
   variables:
   - name: region
     required: true
@@ -100,6 +112,12 @@ spec:
       openAPIV3Schema:
         type: string
         default: "cx23"
+  - name: sshKeyName
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "default-ssh-key"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -126,7 +144,7 @@ spec:
         networkZone: eu-central  # Default, will be patched by ClusterClass
       sshKeys:
         hcloud:
-        - name: zero-ops-mac-mini-debug
+        - name: ""  # Will be patched by ClusterClass variable sshKeyName
       hetznerSecretRef:
         name: hetzner-credentials
         key:

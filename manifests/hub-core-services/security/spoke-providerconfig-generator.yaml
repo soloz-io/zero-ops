@@ -10,12 +10,12 @@ metadata:
     policies.kyverno.io/description: |
       Automatically generates provider-kubernetes ProviderConfig for each Spoke cluster
       when CAPI cluster becomes Ready. Extracts kubeconfig from CAPI Secret and creates
-      Crossplane Secret + ProviderConfig.
+      tool-agnostic kubeconfig Secret + ProviderConfig.
 spec:
   generateExisting: true
   rules:
-    # Rule 1: Generate Crossplane Secret with kubeconfig
-    - name: generate-crossplane-kubeconfig-secret
+    # Rule 1: Generate Kubeconfig Secret (tool-agnostic naming)
+    - name: generate-kubeconfig-secret
       match:
         any:
         - resources:
@@ -44,7 +44,7 @@ spec:
       generate:
         apiVersion: v1
         kind: Secret
-        name: "{{ clusterName }}-crossplane-kubeconfig"
+        name: "{{ clusterName }}-kubeconfig"
         namespace: platform-ops
         synchronize: true
         data:
@@ -81,6 +81,6 @@ spec:
             credentials:
               source: Secret
               secretRef:
-                name: "{{ clusterName }}-crossplane-kubeconfig"
+                name: "{{ clusterName }}-kubeconfig"
                 namespace: platform-ops
                 key: kubeconfig

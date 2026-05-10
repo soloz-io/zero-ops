@@ -137,10 +137,10 @@ var CLISecretMappings = []SecretMapping{
 	// ExternalSecret: manifests/platform-external-dns/hetzner-dns-externalsecret.yaml
 	{
 		SourceNamespace: NamespaceCloudSystem, // kube-system
-		SourceName:      "hetzner",            // WAS: SecretHCloud ("hcloud")
-		SourceKey:       "hcloud",             // WAS: KeyToken ("token")
-		InfisicalKey:    "hetzner-dns",
-		Description:     "Hetzner DNS API token (from hcloud)",
+		SourceName:      "hetzner",             // Day-0 secret name
+		SourceKey:       "hcloud",             // Key in the secret
+		InfisicalKey:    "hcloud-token",       // Unified SOT key in Infisical
+		Description:     "Hetzner API token",
 	},
 
 	// ========================================================================

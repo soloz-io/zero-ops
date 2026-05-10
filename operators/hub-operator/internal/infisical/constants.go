@@ -30,10 +30,15 @@ const (
 	AdminPassword = "Password@123" // TODO: Generate secure password
 
 	// Secret Names
-	SecretInfisicalAuth  = "infisical-auth"
-	SecretInfisicalAdmin = "infisical-admin"
-	SecretHetznerDNS     = "hetzner-dns"
-	SecretHCloud         = "hcloud"
+	SecretInfisicalAuth         = "infisical-auth"
+	SecretInfisicalAdmin        = "infisical-admin"
+	SecretHetznerDNS            = "hetzner-dns"           // For external-dns and cert-manager
+	SecretHetznerCredentials    = "hetzner-credentials" // For CAPI/CCM/CSI
+	SecretHCloudDeprecated      = "hcloud"              // Deprecated: use SecretHetznerCredentials
+	SecretPlatformDBApp         = "platform-db-app"
+	SecretInfisicalDB           = "infisical-db-credentials"
+	SecretGHCRPull              = "ghcr-pull-secret"
+	SecretPlatformGit           = "platform-git-secret"
 
 	// Namespaces - unified across Hub and Spoke
 	NamespaceOps         = "platform-ops"
@@ -42,17 +47,44 @@ const (
 	NamespaceData        = "platform-data"
 
 	// Infisical Secret Keys
-	KeyHetznerDNSAPIKey = "hetzner-dns-api-key"
-	KeyHCloudToken      = "hcloud-token"
-	KeyClientID         = "client-id"
-	KeyClientSecret     = "client-secret"
-	KeyAdminToken       = "admin-token"
-	KeyAdminEmail       = "admin-email"
-	KeyOrgID            = "org-id"
-	KeyProjectID        = "project-id"
-	KeyProjectSlug      = "project-slug"
-	KeyAPIKey           = "api-key"
-	KeyToken            = "token"
+	KeyHetznerDNSAPIKey        = "hetzner-dns-api-key"
+	KeyHCloudToken             = "hcloud-token"
+	KeyClientID                = "client-id"
+	KeyClientSecret            = "client-secret"
+	KeyAdminToken              = "admin-token"
+	KeyAdminEmail              = "admin-email"
+	KeyOrgID                   = "org-id"
+	KeyProjectID               = "project-id"
+	KeyProjectSlug             = "project-slug"
+	KeyAPIKey                  = "api-key"
+	KeyToken                   = "token"
+	KeyPlatformDBAppUsername   = "platform-db-app-username"
+	KeyPlatformDBAppPassword   = "platform-db-app-password"
+	KeyInfisicalDBUsername     = "infisical-db-username"
+	KeyInfisicalDBPassword     = "infisical-db-password"
+	KeyGHCRPullSecret          = "ghcr-pull-secret"
+	KeyGitHubUsername          = "github-username"
+	KeyGitHubToken             = "github-token"
+
+	// Application Secret Keys (Operator uploads directly to Infisical)
+	KeyControlPlaneDBUsername  = "hub-control-plane-db-username"
+	KeyControlPlaneDBPassword  = "hub-control-plane-db-password"
+	KeyHubCentralizedDBUsername = "hub-centralized-db-username"
+	KeyHubCentralizedDBPassword = "hub-centralized-db-password"
+	KeySpireServerDBUsername   = "spire-server-db-username"
+	KeySpireServerDBPassword   = "spire-server-db-password"
+	KeyHydraDBUsername         = "hub-hydra-db-username"
+	KeyHydraDBPassword         = "hub-hydra-db-password"
+	KeyKratosDBUsername        = "hub-kratos-db-username"
+	KeyKratosDBPassword        = "hub-kratos-db-password"
+	KeyKetoDBUsername          = "hub-keto-db-username"
+	KeyKetoDBPassword          = "hub-keto-db-password"
+	KeyHydraSystemSecret       = "hub-hydra-system-secret"
+	KeyNATSLeafUsername        = "nats-leaf-username"
+	KeyNATSLeafPassword        = "nats-leaf-password"
+	KeyOpenmeterPostgreSQLUsername = "openmeter-postgresql-username"
+	KeyOpenmeterPostgreSQLPassword = "openmeter-postgresql-password"
+	KeyClickhouseAdminPassword = "platform-clickhouse-admin-password"
 
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"

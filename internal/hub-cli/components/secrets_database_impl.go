@@ -235,17 +235,6 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	}
 	fmt.Println("[bootstrap-secrets] ✓ platform-db-app credentials uploaded to Infisical")
 
-	// Upload hetzner hcloud token (required for spoke cluster CSI/CCM)
-	hetznerSecret, err := clientset.CoreV1().Secrets(constants.NamespaceCloud).Get(ctx, "hetzner", metav1.GetOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to read hetzner secret: %w", err)
-	}
-
-	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "hcloud", string(hetznerSecret.Data["hcloud"])); err != nil {
-		return false, fmt.Errorf("failed to upload hcloud token: %w", err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ hcloud token uploaded to Infisical")
-
 	// Step 2: Generate and store Layer 2 Application Credentials in Infisical
 	fmt.Println("[bootstrap-secrets] Generating Layer 2 (Application) credentials and storing in Infisical...")
 

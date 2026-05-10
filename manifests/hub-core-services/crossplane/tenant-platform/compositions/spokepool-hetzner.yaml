@@ -63,6 +63,8 @@ spec:
                           value: ""
                         - name: workerMachineType
                           value: ""
+                        - name: sshKeyName
+                          value: ""
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -87,6 +89,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.sshKeyName
+                toFieldPath: spec.forProvider.manifest.spec.topology.variables[2].value
           
           # Dynamic Certificate generation per Spoke Pool (Phase 2)
           # Generates unique client certificate with CN matching cluster name
@@ -522,7 +527,7 @@ spec:
                       data:
                         - secretKey: hcloud
                           remoteRef:
-                            key: hcloud
+                            key: hcloud-token
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -660,70 +665,8 @@ spec:
                 fromFieldPath: metadata.uid
                 toFieldPath: spec.forProvider.manifest.stringData.password
 
-          # Crossplane Admin Password PushSecret (per-spoke, pushes to Infisical)
-          # Wrapped in provider-kubernetes Object
-          - name: crossplane-admin-pushsecret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: external-secrets.io/v1alpha1
-                    kind: PushSecret
-                    metadata:
-                      namespace: platform-ops
-                    spec:
-                      refreshInterval: 1h
-                      secretStoreRefs:
-                        - name: infisical-backend
-                          kind: ClusterSecretStore
-                      selector:
-                        secret:
-                          name: ""  # Patched to secret name
-                      data:
-                        - match:
-                            secretKey: password
-                            remoteRef:
-                              remoteKey: ""  # Patched to Infisical key
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin-push"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin-push"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.selector.secret.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.data[0].match.remoteRef.remoteKey
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin-password"
-          
+          # Infisical push for crossplane-admin password is owned by Hub Operator (ADR-003 A2b), not PushSecret.
+
           # ========================================================================
           # mTLS Certificate Distribution via Crossplane Objects (v2.0 Pattern)
           # Replaces Kyverno+CRS hybrid with pure continuous reconciliation
