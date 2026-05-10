@@ -131,8 +131,14 @@ export GITHUB_TOKEN=$(cat k8-secrets/github/github-pat-token)
 
 # Step 4: Wait for ArgoCD to sync and create namespaces
 # ArgoCD will create platform-data, platform-security, and other namespaces
+# Note: We must poll until the namespace exists, as kubectl wait fails if it is missing.
+until kubectl get namespace platform-data --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig >/dev/null 2>&1; do
+  echo "Waiting for ArgoCD to create platform-data namespace..."
+  sleep 5
+done
+
 kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data \
-  --timeout=300s --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+  --timeout=60s --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 5: Initialize bootstrap secrets (Secret Zero)
 # This generates CA certificate, Infisical master keys, and backs them up to AWS

@@ -49,7 +49,7 @@ spec:
                           cidrBlocks:
                             - 10.96.0.0/12
                       topology:
-                        class: hetzner-spoke-pool-v1
+                        class: hetzner-spoke-standard-v1 # Semantic Isolation (Critique 1)
                         version: v1.31.6
                         controlPlane:
                           replicas: 1
@@ -57,14 +57,15 @@ spec:
                           machineDeployments:
                           - class: default-worker
                             name: md-0
-                            replicas: 2
+                            replicas: 1 # Patched
+                        # ENTERPRISE: Explicit Variable Mapping (Critique 2)
+                        # By explicitly defining the structure here, we own the index ordering.
+                        # We omit imageId and CP machine type, relying on the ClusterClass defaults.
                         variables:
-                        - name: region
-                          value: ""
-                        - name: workerMachineType
-                          value: ""
-                        - name: sshKeyName
-                          value: ""
+                          - name: region
+                            value: "fsn1" # Patched
+                          - name: hcloudWorkerMachineType
+                            value: "cx23" # Patched
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -83,15 +84,14 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
+              # Patch 1: Map region to the explicitly defined first variable
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[0].value
+              # Patch 2: Map tenant instance type STRICTLY to the Worker variable
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.sshKeyName
-                toFieldPath: spec.forProvider.manifest.spec.topology.variables[2].value
           
           # Dynamic Certificate generation per Spoke Pool (Phase 2)
           # Generates unique client certificate with CN matching cluster name

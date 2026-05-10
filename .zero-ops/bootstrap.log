@@ -38,3 +38,154 @@
 [2026-05-10 20:50:31] Step 4: Namespaces already created, skipping
 [2026-05-10 20:50:41] Step 5: Initializing bootstrap secrets...
 [2026-05-10 20:50:41] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-05-10 21:36:11] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-10 21:36:11] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-10 21:36:11] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-10 21:36:11] Checking prerequisites...
+[2026-05-10 21:36:13] Prerequisites check passed
+[2026-05-10 21:36:13] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-10 21:36:13] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-10 21:36:43] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-10 21:36:43] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-10 21:36:45] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-10 21:36:47] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-10 21:36:47] Attempting to use existing access keys...
+[2026-05-10 21:36:50] Existing keys may be invalid, attempting to recreate...
+[2026-05-10 21:36:50] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-10 21:36:52] Debug: Raw AWS response: {
+    "AccessKeyMetadata": [
+        {
+            "UserName": "hub-operator-secrets-manager-development",
+            "AccessKeyId": "AKIAU5KC4MFAVSQ4CPUU",
+            "Status": "Active",
+            "CreateDate": "2026-05-10T15:19:58+00:00"
+        }
+    ]
+}
+[2026-05-10 21:36:54] Debug: Active keys found: 'AKIAU5KC4MFAVSQ4CPUU'
+[2026-05-10 21:36:54] Deleting access key: AKIAU5KC4MFAVSQ4CPUU
+[2026-05-10 21:36:56] All existing access keys deleted
+[2026-05-10 21:36:56] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-10 21:37:01] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-10 21:37:01] AWS Secrets Manager configuration completed
+[2026-05-10 21:37:16] Step 3: Configuring GitHub Access...
+[2026-05-10 21:37:16] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-10 21:37:17] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-10 21:37:17] GitHub access configuration completed
+[2026-05-10 21:37:32] Step 4: Namespaces already created, skipping
+[2026-05-10 21:37:42] Step 5: Initializing bootstrap secrets...
+[2026-05-10 21:37:42] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-05-10 21:38:01] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-10 21:38:01] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-10 21:38:01] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-10 21:38:01] Checking prerequisites...
+[2026-05-10 21:38:02] Prerequisites check passed
+[2026-05-10 21:38:02] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-10 21:38:02] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-10 21:38:32] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-10 21:38:32] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-10 21:38:34] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-10 21:38:36] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-10 21:38:36] Attempting to use existing access keys...
+[2026-05-10 21:38:38] Existing keys may be invalid, attempting to recreate...
+[2026-05-10 21:38:38] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-10 21:38:40] Debug: Raw AWS response: {
+    "AccessKeyMetadata": [
+        {
+            "UserName": "hub-operator-secrets-manager-development",
+            "AccessKeyId": "AKIAU5KC4MFAYCQ5WDX6",
+            "Status": "Active",
+            "CreateDate": "2026-05-10T16:07:00+00:00"
+        }
+    ]
+}
+[2026-05-10 21:38:42] Debug: Active keys found: 'AKIAU5KC4MFAYCQ5WDX6'
+[2026-05-10 21:38:42] Deleting access key: AKIAU5KC4MFAYCQ5WDX6
+[2026-05-10 21:38:43] All existing access keys deleted
+[2026-05-10 21:38:43] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-10 21:38:49] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-10 21:38:49] AWS Secrets Manager configuration completed
+[2026-05-10 21:39:04] Step 3: Configuring GitHub Access...
+[2026-05-10 21:39:04] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-10 21:39:05] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-10 21:39:05] GitHub access configuration completed
+[2026-05-10 21:39:20] Step 4: Namespaces already created, skipping
+[2026-05-10 21:39:30] Step 5: Initializing bootstrap secrets...
+[2026-05-10 21:39:30] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-05-10 21:42:46] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-10 22:25:12] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-10 22:25:12] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-10 22:25:12] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-10 22:25:12] Checking prerequisites...
+[2026-05-10 22:25:13] Prerequisites check passed
+[2026-05-10 22:25:13] Step 1: Hub bootstrap already completed, skipping
+[2026-05-10 22:25:43] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-10 22:25:58] Step 3: GitHub access already configured, skipping
+[2026-05-10 22:26:13] Step 4: Namespaces already created, skipping
+[2026-05-10 22:26:23] Step 5: Initializing bootstrap secrets...
+[2026-05-10 22:26:23] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-05-10 22:26:44] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-10 22:26:45] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-10 22:26:56] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-10 22:27:07] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-10 22:27:17] Infisical pod is ready
+[2026-05-10 22:27:18] Starting port-forward for Infisical...
+[2026-05-10 22:27:23] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-10 22:27:23] Bootstrap secrets initialization completed
+[2026-05-10 22:27:38] Step 6: Waiting for Infisical to be ready...
+[2026-05-10 22:27:38] Checking Infisical pods status...
+[2026-05-10 22:27:38] Waiting for Infisical to be ready (attempt 1/30, status: NotFound)
+[2026-05-10 22:27:49] Waiting for Infisical to be ready (attempt 2/30, status: NotFound)
+[2026-05-10 22:27:59] Waiting for Infisical to be ready (attempt 3/30, status: NotFound)
+[2026-05-10 22:28:10] Waiting for Infisical to be ready (attempt 4/30, status: NotFound)
+[2026-05-10 22:28:21] Waiting for Infisical to be ready (attempt 5/30, status: NotFound)
+[2026-05-10 22:28:31] Waiting for Infisical to be ready (attempt 6/30, status: NotFound)
+[2026-05-10 22:28:42] Waiting for Infisical to be ready (attempt 7/30, status: NotFound)
+[2026-05-10 22:28:53] Waiting for Infisical to be ready (attempt 8/30, status: NotFound)
+[2026-05-10 22:29:03] Waiting for Infisical to be ready (attempt 9/30, status: NotFound)
+[2026-05-10 22:29:14] Waiting for Infisical to be ready (attempt 10/30, status: NotFound)
+[2026-05-10 22:29:25] Waiting for Infisical to be ready (attempt 11/30, status: NotFound)
+[2026-05-10 22:29:35] Waiting for Infisical to be ready (attempt 12/30, status: NotFound)
+[2026-05-10 22:29:46] Waiting for Infisical to be ready (attempt 13/30, status: NotFound)
+[2026-05-10 22:29:56] Waiting for Infisical to be ready (attempt 14/30, status: NotFound)
+[2026-05-10 22:30:07] Waiting for Infisical to be ready (attempt 15/30, status: NotFound)
+[2026-05-10 22:30:18] Waiting for Infisical to be ready (attempt 16/30, status: NotFound)
+[2026-05-10 22:30:28] Waiting for Infisical to be ready (attempt 17/30, status: NotFound)
+[2026-05-10 22:30:39] Waiting for Infisical to be ready (attempt 18/30, status: NotFound)
+[2026-05-10 22:30:49] Waiting for Infisical to be ready (attempt 19/30, status: NotFound)
+[2026-05-10 22:31:00] Waiting for Infisical to be ready (attempt 20/30, status: NotFound)
+[2026-05-10 22:31:11] Waiting for Infisical to be ready (attempt 21/30, status: NotFound)
+[2026-05-10 22:31:21] Waiting for Infisical to be ready (attempt 22/30, status: NotFound)
+[2026-05-10 22:31:32] Waiting for Infisical to be ready (attempt 23/30, status: NotFound)
+[2026-05-10 22:31:42] Waiting for Infisical to be ready (attempt 24/30, status: NotFound)
+[2026-05-10 22:31:53] Waiting for Infisical to be ready (attempt 25/30, status: NotFound)
+[2026-05-10 22:32:04] Waiting for Infisical to be ready (attempt 26/30, status: NotFound)
+[2026-05-10 22:32:15] Waiting for Infisical to be ready (attempt 27/30, status: NotFound)
+[2026-05-10 22:32:25] Waiting for Infisical to be ready (attempt 28/30, status: NotFound)
+[2026-05-10 22:32:36] Waiting for Infisical to be ready (attempt 29/30, status: NotFound)
+[2026-05-10 22:32:47] Waiting for Infisical to be ready (attempt 30/30, status: NotFound)
+[2026-05-10 22:32:57] ERROR: Infisical did not become ready within expected time
+[2026-05-10 22:40:39] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-10 22:40:39] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-10 22:40:40] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-10 22:40:40] Checking prerequisites...
+[2026-05-10 22:40:40] Prerequisites check passed
+[2026-05-10 22:40:40] Step 1: Hub bootstrap already completed, skipping
+[2026-05-10 22:41:10] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-10 22:41:25] Step 3: GitHub access already configured, skipping
+[2026-05-10 22:41:40] Step 4: Namespaces already created, skipping
+[2026-05-10 22:41:50] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-10 22:42:05] Step 6: Waiting for Infisical to be ready...
+[2026-05-10 22:42:05] Checking Infisical pods status...
+[2026-05-10 22:42:06] Infisical is ready
+[2026-05-10 22:42:06] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-10 22:42:06] Infisical pods are running
+[2026-05-10 22:42:16] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-10 22:42:16] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-10 22:42:16] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-10 22:42:21] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-10 22:42:21] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-10 22:42:23] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-10 22:42:23] Database deployment completed
+[2026-05-10 22:42:23] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-10 22:42:23] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig

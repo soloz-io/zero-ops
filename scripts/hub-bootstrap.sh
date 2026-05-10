@@ -37,7 +37,8 @@ is_step_completed() {
     fi
     
     if command -v jq >/dev/null 2>&1; then
-        jq -e --arg step "$step" '.completedSteps[] == $step' "$BOOTSTRAP_STATE_FILE" >/dev/null
+        # Use any() to check if any step matches, returns true/false with proper exit codes
+        jq -e --arg step "$step" '.completedSteps | any(. == $step)' "$BOOTSTRAP_STATE_FILE" >/dev/null
     else
         # Fallback: simple grep check
         grep -q "\"$step\"" "$BOOTSTRAP_STATE_FILE"
@@ -289,13 +290,27 @@ step4_wait_namespaces() {
     
     log "Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)..."
     
-    log "Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=300s"
+    # Correct polling logic for a resource that doesn't exist yet
+    # kubectl wait fails if namespace doesn't exist, so we must poll first
+    timeout=300
+    elapsed=0
+    while ! kubectl get namespace platform-data --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" >/dev/null 2>&1; do
+        if [ $elapsed -ge $timeout ]; then
+            log "❌ Timeout waiting for platform-data namespace to be created by ArgoCD"
+            error_exit "ArgoCD failed to create platform-data namespace within ${timeout}s"
+        fi
+        sleep 5
+        elapsed=$((elapsed+5))
+    done
+    
+    # Now wait for it to be active since we know it exists
+    log "Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s"
     kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data \
-        --timeout=300s \
+        --timeout=60s \
         --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
     
     mark_step_completed "wait_namespaces"
-    log "Namespaces created successfully"
+    log "✅ platform-data namespace created by ArgoCD"
 }
 
 # Step 5: Initialize bootstrap secrets
@@ -314,21 +329,21 @@ step5_init_secrets() {
     
     # Wait for Infisical pod to be ready after secrets are created
     log "Waiting for Infisical pod to be ready after secrets initialization..."
-    local max_attempts=30
+    local max_attempts=180  # 30 minutes (180 × 10 seconds)
     local attempt=1
     
     while [[ $attempt -le $max_attempts ]]; do
-        local pod_status
-        pod_status=$(kubectl get pods -n platform-security \
+        local pod_ready
+        pod_ready=$(kubectl get pods -n platform-security \
             --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-            -l app=infisical -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+            -l app=infisical-standalone -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
         
-        if [[ "$pod_status" == "Running" ]]; then
+        if [[ "$pod_ready" == "True" ]]; then
             log "Infisical pod is ready"
             break
         fi
         
-        log "Waiting for Infisical pod to be ready (attempt $attempt/$max_attempts, status: $pod_status)"
+        log "Waiting for Infisical pod to be ready (attempt $attempt/$max_attempts, ready: $pod_ready)"
         sleep 10
         ((attempt++))
     done
@@ -362,24 +377,24 @@ step6_wait_infisical() {
     
     log "Step 6: Waiting for Infisical to be ready..."
     
-    # Wait for Infisical pods to be running
+    # Wait for Infisical pods to be ready (using same logic as Step 5)
     log "Checking Infisical pods status..."
-    local max_attempts=30
+    local max_attempts=180  # 30 minutes to match Step 5
     local attempt=1
     
     while [[ $attempt -le $max_attempts ]]; do
-        local pod_status
-        pod_status=$(kubectl get pods -n platform-security \
+        local pod_ready
+        pod_ready=$(kubectl get pods -n platform-security \
             --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-            -l app.kubernetes.io/instance=platform-infisical \
-            -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+            -l app=infisical-standalone \
+            -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
         
-        if [[ "$pod_status" == "Running" ]]; then
+        if [[ "$pod_ready" == "True" ]]; then
             log "Infisical is ready"
             break
         fi
         
-        log "Waiting for Infisical to be ready (attempt $attempt/$max_attempts, status: $pod_status)"
+        log "Waiting for Infisical to be ready (attempt $attempt/$max_attempts, ready: $pod_ready)"
         sleep 10
         ((attempt++))
     done

@@ -1,0 +1,1 @@
+Trace exactly why "Spoke clusters did not become ready within expected time" and summarize me the precise manifest/app fix to fix the issue. Do not fix yourself.
