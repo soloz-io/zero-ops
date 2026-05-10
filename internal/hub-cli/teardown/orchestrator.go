@@ -46,14 +46,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName),
 			fmt.Sprintf("%s.kubeconfig", o.ClusterName),
 		}
-		
+
 		for _, path := range possiblePaths {
 			if _, err := os.Stat(path); err == nil {
 				kubeconfig = path
 				break
 			}
 		}
-		
+
 		// If no kubeconfig found, try kind context
 		if kubeconfig == "" {
 			kubeconfig = fmt.Sprintf("--context=kind-%s", o.ClusterName)
@@ -72,7 +72,7 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 
 	// Check if using context or kubeconfig file
 	useContext := strings.HasPrefix(kubeconfig, "--context=")
-	
+
 	if !useContext {
 		// Check if kubeconfig file exists
 		if _, err := os.Stat(kubeconfig); os.IsNotExist(err) {
@@ -84,10 +84,10 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 
 	// Delete Cluster resources in both namespaces (old and new)
 	namespaces := []string{constants.NamespaceCAPI, "hub-platform-capi"}
-	
+
 	for _, ns := range namespaces {
 		fmt.Printf("[teardown] Deleting Cluster resource '%s' in namespace '%s'...\n", o.ClusterName, ns)
-		
+
 		var cmd *exec.Cmd
 		if useContext {
 			contextName := strings.TrimPrefix(kubeconfig, "--context=")
@@ -97,11 +97,11 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 			cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 				"delete", "cluster", o.ClusterName, "-n", ns, "--wait=false", "--ignore-not-found")
 		}
-		
+
 		if o.Debug {
 			fmt.Printf("[DEBUG] kubectl %v\n", cmd.Args)
 		}
-		
+
 		if output, err := cmd.CombinedOutput(); err != nil {
 			if o.Debug {
 				fmt.Printf("[DEBUG] kubectl output: %s\n", string(output))
@@ -120,7 +120,7 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 
 	// Wait for deletion cascade (15 minutes)
 	fmt.Println("[teardown] Waiting for CAPI deletion cascade (timeout: 15m)...")
-	
+
 	if err := o.waitForDeletion(ctx, kubeconfig, useContext, 15*time.Minute); err != nil {
 		fmt.Printf("[teardown] ⚠️  Deletion timeout: %v\n", err)
 		fmt.Println("[teardown] Resources may still be deleting. Check Hetzner Console.")
@@ -148,7 +148,7 @@ func (o *Orchestrator) waitForDeletion(ctx context.Context, kubeconfig string, u
 			return fmt.Errorf("timeout waiting for deletion")
 		case <-ticker.C:
 			allDeleted := true
-			
+
 			for _, ns := range namespaces {
 				var cmd *exec.Cmd
 				if useContext {
@@ -159,18 +159,18 @@ func (o *Orchestrator) waitForDeletion(ctx context.Context, kubeconfig string, u
 					cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 						"get", "cluster", o.ClusterName, "-n", ns, "--ignore-not-found")
 				}
-				
+
 				output, err := cmd.CombinedOutput()
 				if err == nil && len(output) > 0 && !strings.Contains(string(output), "No resources found") {
 					allDeleted = false
 					break
 				}
 			}
-			
+
 			if allDeleted {
 				return nil
 			}
-			
+
 			if o.Debug {
 				fmt.Printf("[DEBUG] Cluster still exists, waiting...\n")
 			} else {
@@ -193,7 +193,7 @@ func (o *Orchestrator) forceDelete(ctx context.Context) error {
 
 	// Query resources by CAPH cluster label pattern (caph-cluster-<name>-*)
 	labelPattern := fmt.Sprintf("caph-cluster-%s", o.ClusterName)
-	
+
 	fmt.Printf("[teardown] Querying Hetzner resources with label pattern: %s-*\n", labelPattern)
 
 	// Delete servers
@@ -224,17 +224,11 @@ func (o *Orchestrator) forceDelete(ctx context.Context) error {
 	}
 
 	for _, lb := range allLBs {
-		// Check if any label key starts with our pattern
-		for labelKey := range lb.Labels {
-			if strings.HasPrefix(labelKey, labelPattern) {
-				fmt.Printf("[teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
-				if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
-					fmt.Printf("[teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
-				} else {
-					fmt.Printf("[teardown] ✓ Deleted load balancer: %s\n", lb.Name)
-				}
-				break
-			}
+		fmt.Printf("[teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
+		if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
+			fmt.Printf("[teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
+		} else {
+			fmt.Printf("[teardown] ✓ Deleted load balancer: %s\n", lb.Name)
 		}
 	}
 

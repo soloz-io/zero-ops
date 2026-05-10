@@ -165,11 +165,17 @@ kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
   -n platform-data --timeout=600s \
   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
-# Teardown cluster
+# Teardown Hub cluster
 ./bin/hub teardown --name=hub
 
 # Only use if local kind cluster does not exist and already pivoted
 export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub teardown --name=hub --force --confirm 2>&1 | tee .zero-ops/teardown-hub.log
+
+# Teardown spoke clusters (independent of hub)
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub spoke teardown --force 2>&1 | tee .zero-ops/teardown-spoke.log
+
+# Teardown specific spoke cluster
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub spoke teardown --name=spoke-pool-eu-prod-01 --force 2>&1 | tee .zero-ops/teardown-spoke.log
 
 ```
 

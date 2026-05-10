@@ -15,6 +15,7 @@ func main() {
 
 	rootCmd.AddCommand(newBootstrapCmd())
 	rootCmd.AddCommand(newTeardownCmd())
+	rootCmd.AddCommand(newSpokeCmd())
 	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
 	rootCmd.AddCommand(newConfigureGitHubAccessCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
