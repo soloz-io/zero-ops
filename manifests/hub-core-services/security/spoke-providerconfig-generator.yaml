@@ -9,50 +9,10 @@ metadata:
     policies.kyverno.io/category: Crossplane
     policies.kyverno.io/description: |
       Automatically generates provider-kubernetes ProviderConfig for each Spoke cluster
-      when CAPI cluster becomes Ready. Extracts kubeconfig from CAPI Secret and creates
-      tool-agnostic kubeconfig Secret + ProviderConfig.
+      when CAPI cluster becomes Ready. Points directly to the CAPI-managed kubeconfig Secret.
 spec:
   generateExisting: true
   rules:
-    # Rule 1: Generate Kubeconfig Secret (tool-agnostic naming)
-    - name: generate-kubeconfig-secret
-      match:
-        any:
-        - resources:
-            kinds:
-            - Cluster
-            selector:
-              matchLabels:
-                spoke-type: pool
-      context:
-      - name: clusterName
-        variable:
-          jmesPath: request.object.metadata.name
-      - name: kubeconfigSecretName
-        variable:
-          jmesPath: request.object.metadata.name
-          value: "{{ clusterName }}-kubeconfig"
-      - name: kubeconfigData
-        apiCall:
-          urlPath: "/api/v1/namespaces/{{ request.object.metadata.namespace }}/secrets/{{ kubeconfigSecretName }}"
-          jmesPath: data.value
-      preconditions:
-        all:
-        - key: "{{ request.object.status.phase || '' }}"
-          operator: Equals
-          value: "Provisioned"
-      generate:
-        apiVersion: v1
-        kind: Secret
-        name: "{{ clusterName }}-kubeconfig"
-        namespace: platform-ops
-        synchronize: true
-        data:
-          type: Opaque
-          data:
-            kubeconfig: "{{ kubeconfigData }}"
-    
-    # Rule 2: Generate ProviderConfig
     - name: generate-providerconfig
       match:
         any:
@@ -82,5 +42,5 @@ spec:
               source: Secret
               secretRef:
                 name: "{{ clusterName }}-kubeconfig"
-                namespace: platform-ops
-                key: kubeconfig
+                namespace: "{{ request.object.metadata.namespace }}"
+                key: value
