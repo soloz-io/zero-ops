@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "clusterName": "hub-cp",
+  "clusterName": "hub",
   "region": "fsn1",
   "bootstrapId": "",
   "currentPhase": "complete",
@@ -13,8 +13,8 @@
     "clusterclass-deploy",
     "postboot"
   ],
-  "bootstrapContext": "kind-hub-cp",
-  "mgmtKubeconfig": "k8-secrets/kubeconfig/hub-cp.kubeconfig",
+  "bootstrapContext": "kind-hub",
+  "mgmtKubeconfig": "k8-secrets/kubeconfig/hub.kubeconfig",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "10.0.0.0/16",

@@ -129,6 +129,34 @@ func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) er
 		fmt.Println("[teardown] ✓ All CAPI resources deleted")
 	}
 
+	// Clean up any remaining volumes via Hetzner API
+	fmt.Println("[teardown] Cleaning up any remaining volumes...")
+	hcloudToken := os.Getenv("HCLOUD_TOKEN")
+	if hcloudToken == "" {
+		// Try to load token from file
+		if tokenBytes, err := os.ReadFile("k8-secrets/hetzner/token"); err == nil {
+			hcloudToken = strings.TrimSpace(string(tokenBytes))
+		}
+	}
+
+	if hcloudToken != "" {
+		client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
+
+		allVolumes, err := client.Volume.All(ctx)
+		if err != nil {
+			fmt.Printf("[teardown] ⚠️  Failed to list volumes for cleanup: %v\n", err)
+		} else {
+			for _, volume := range allVolumes {
+				fmt.Printf("[teardown] Deleting remaining volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
+				if _, err := client.Volume.Delete(ctx, volume); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted remaining volume: %s\n", volume.Name)
+				}
+			}
+		}
+	}
+
 	// Local cleanup
 	return o.localCleanup()
 }
@@ -185,6 +213,13 @@ func (o *Orchestrator) forceDelete(ctx context.Context) error {
 	fmt.Println("[teardown] This will delete resources directly via Hetzner API")
 
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
+	if hcloudToken == "" {
+		// Try to load token from file
+		if tokenBytes, err := os.ReadFile("k8-secrets/hetzner/token"); err == nil {
+			hcloudToken = strings.TrimSpace(string(tokenBytes))
+		}
+	}
+
 	if hcloudToken == "" {
 		return fmt.Errorf("HCLOUD_TOKEN environment variable required for force deletion")
 	}
@@ -247,6 +282,22 @@ func (o *Orchestrator) forceDelete(ctx context.Context) error {
 			} else {
 				fmt.Printf("[teardown] ✓ Deleted network: %s\n", network.Name)
 			}
+		}
+	}
+
+	// Delete volumes
+	fmt.Println("[teardown] Deleting associated volumes...")
+	allVolumes, err := client.Volume.All(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list volumes: %w", err)
+	}
+
+	for _, volume := range allVolumes {
+		fmt.Printf("[teardown] Deleting volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
+		if _, err := client.Volume.Delete(ctx, volume); err != nil {
+			fmt.Printf("[teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
+		} else {
+			fmt.Printf("[teardown] ✓ Deleted volume: %s\n", volume.Name)
 		}
 	}
 

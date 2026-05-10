@@ -6,9 +6,9 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  instances: 3
+  instances: 1
   storage:
-    size: 20Gi
+    size: 10Gi
     storageClass: hcloud-volumes
 
   enableSuperuserAccess: true

@@ -1,0 +1,40 @@
+[2026-05-10 20:10:51] ERROR: Infisical pod did not become ready within expected time
+[2026-05-10 20:34:47] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-10 20:34:47] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-10 20:34:47] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-10 20:34:47] Checking prerequisites...
+[2026-05-10 20:34:48] Prerequisites check passed
+[2026-05-10 20:34:48] Step 1: Bootstrapping Hub Cluster...
+[2026-05-10 20:34:48] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-10 20:49:13] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-10 20:49:13] Hub cluster bootstrap completed
+[2026-05-10 20:49:43] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-10 20:49:43] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-10 20:49:44] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-10 20:49:46] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-10 20:49:46] Attempting to use existing access keys...
+[2026-05-10 20:49:49] Existing keys may be invalid, attempting to recreate...
+[2026-05-10 20:49:49] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-10 20:49:51] Debug: Raw AWS response: {
+    "AccessKeyMetadata": [
+        {
+            "UserName": "hub-operator-secrets-manager-development",
+            "AccessKeyId": "AKIAU5KC4MFAYTZJGP7J",
+            "Status": "Active",
+            "CreateDate": "2026-05-10T14:34:47+00:00"
+        }
+    ]
+}
+[2026-05-10 20:49:53] Debug: Active keys found: 'AKIAU5KC4MFAYTZJGP7J'
+[2026-05-10 20:49:53] Deleting access key: AKIAU5KC4MFAYTZJGP7J
+[2026-05-10 20:49:54] All existing access keys deleted
+[2026-05-10 20:49:54] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-10 20:49:59] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-10 20:49:59] AWS Secrets Manager configuration completed
+[2026-05-10 20:50:14] Step 3: Configuring GitHub Access...
+[2026-05-10 20:50:14] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-10 20:50:16] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-10 20:50:16] GitHub access configuration completed
+[2026-05-10 20:50:31] Step 4: Namespaces already created, skipping
+[2026-05-10 20:50:41] Step 5: Initializing bootstrap secrets...
+[2026-05-10 20:50:41] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets

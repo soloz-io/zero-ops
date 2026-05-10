@@ -9,5 +9,4 @@ memory
 k8-secrets
 test
 manifests/hub-core-services/eso/crds/
-scripts
 internal/assets/
