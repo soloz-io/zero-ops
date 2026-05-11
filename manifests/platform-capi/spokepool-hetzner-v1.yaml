@@ -96,11 +96,28 @@ spec:
             hcloud:
             - name: {{ .sshKeyName }}
   # NEW: Inject sshKeys explicitly into the Machine templates
-  - name: sshKeyForMachines
+  - name: sshKeyForControlPlane
     definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: HCloudMachineTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/sshKeys
+        valueFrom:
+          template: |
+            - name: {{ .sshKeyName }}
+  - name: sshKeyForWorkers
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          machineDeploymentClass:
+            names:
+            - default-worker
       jsonPatches:
       - op: add
         path: /spec/template/spec/sshKeys
