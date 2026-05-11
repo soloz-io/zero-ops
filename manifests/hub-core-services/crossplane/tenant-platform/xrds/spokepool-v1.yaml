@@ -57,7 +57,3 @@ spec:
                   minimum: 1
                   maximum: 100
                   default: 100
-                sshKeyName:
-                  type: string
-                  description: "Name of the SSH key in Hetzner Cloud for node access"
-                  default: "default-ssh-key"

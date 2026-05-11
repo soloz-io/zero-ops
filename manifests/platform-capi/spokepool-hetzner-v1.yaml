@@ -81,49 +81,6 @@ spec:
         path: /spec/template/spec/type
         valueFrom:
           variable: workerMachineType
-  - name: sshKey
-    definitions:
-    - selector:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HetznerClusterTemplate
-        matchResources:
-          infrastructureCluster: true
-      jsonPatches:
-      - op: add
-        path: /spec/template/spec/sshKeys
-        valueFrom:
-          template: |
-            hcloud:
-            - name: {{ .sshKeyName }}
-  # NEW: Inject sshKeys explicitly into the Machine templates
-  - name: sshKeyForControlPlane
-    definitions:
-    - selector:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HCloudMachineTemplate
-        matchResources:
-          controlPlane: true
-      jsonPatches:
-      - op: add
-        path: /spec/template/spec/sshKeys
-        valueFrom:
-          template: |
-            - name: {{ .sshKeyName }}
-  - name: sshKeyForWorkers
-    definitions:
-    - selector:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: HCloudMachineTemplate
-        matchResources:
-          machineDeploymentClass:
-            names:
-            - default-worker
-      jsonPatches:
-      - op: add
-        path: /spec/template/spec/sshKeys
-        valueFrom:
-          template: |
-            - name: {{ .sshKeyName }}
   variables:
   - name: region
     required: true
@@ -143,12 +100,6 @@ spec:
       openAPIV3Schema:
         type: string
         default: "cx23"
-  - name: sshKeyName
-    required: true
-    schema:
-      openAPIV3Schema:
-        type: string
-        default: "default-ssh-key"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
