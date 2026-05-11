@@ -89,12 +89,23 @@ spec:
         matchResources:
           infrastructureCluster: true
       jsonPatches:
-      # FIX: Add the entire object rather than trying to patch a specific array index
       - op: add
         path: /spec/template/spec/sshKeys
         valueFrom:
           template: |
             hcloud:
+            - name: {{ .sshKeyName }}
+  # NEW: Inject sshKeys explicitly into the Machine templates
+  - name: sshKeyForMachines
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/sshKeys
+        valueFrom:
+          template: |
             - name: {{ .sshKeyName }}
   variables:
   - name: region
@@ -134,21 +145,17 @@ spec:
         host: ""
         port: 443
       controlPlaneRegions:
-      - fsn1  # Default, will be patched by ClusterClass
+      - fsn1
       controlPlaneLoadBalancer:
         enabled: true
         type: lb11
         algorithm: round_robin
-        region: fsn1  # Default, will be patched by ClusterClass
+        region: fsn1
       hcloudNetwork:
         enabled: true
         cidrBlock: 10.0.0.0/16
         subnetCidrBlock: 10.0.0.0/24
-        networkZone: eu-central  # Default, will be patched by ClusterClass
-      # Required by HetznerClusterTemplate validation; patched by ClusterClass
-      sshKeys:
-        hcloud:
-        - name: default-ssh-key
+        networkZone: eu-central
       hetznerSecretRef:
         name: hetzner-credentials
         key:
