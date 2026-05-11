@@ -5,7 +5,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-agent-deployment
-  namespace: platform-ops
+  namespace: platform-capi
   labels:
     app.kubernetes.io/name: argocd-agent
     app.kubernetes.io/component: deployment
@@ -118,7 +118,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-agent-rbac
-  namespace: platform-ops
+  namespace: platform-capi
   labels:
     app.kubernetes.io/name: argocd-agent
     app.kubernetes.io/component: rbac

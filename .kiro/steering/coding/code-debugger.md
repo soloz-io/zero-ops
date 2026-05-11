@@ -5,6 +5,7 @@ Trace exactly why reported issue occurred and summarize the precise manifest/app
 
 Solution will always be provided by me.
 Do not try to fix yourself.
+You should never use "git push" command.
 
 you should only do this exactly.. nothing else...
 if the provided solution did not resolve the issue,

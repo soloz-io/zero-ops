@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argocd-core-components
-  namespace: platform-ops
+  namespace: platform-capi
   labels:
     app.kubernetes.io/name: argocd-core
     app.kubernetes.io/component: bootstrap
