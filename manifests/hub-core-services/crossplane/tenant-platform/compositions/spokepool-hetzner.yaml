@@ -387,7 +387,7 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[11].name
                 transforms:
                   - type: string
                     string:
