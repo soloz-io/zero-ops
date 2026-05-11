@@ -1,7 +1,7 @@
 # ADR 0001: ClusterResourceSet Addon Template Management
 
-**Status**: Proposed  
-**Date**: 2026-04-10  
+**Status**: Accepted (Updated)
+**Date**: 2026-05-11  
 **Context**: Spoke Pool Provisioner - ClusterResourceSet Bootstrap
 
 ---
@@ -16,15 +16,22 @@ Spoke pool clusters require CNI (Cilium), CCM (Hetzner Cloud Controller Manager)
 
 ## Decision
 
-Adopt the **Static Versioned Templates in Git** pattern for ClusterResourceSet addon management:
+We will use Cluster API `ClusterResourceSet` (CRS) to deliver Phase 1 (Cluster BIOS) components to newly provisioned Spoke clusters.
 
-1. **Store templates as static Kubernetes resources** in `zero-ops/manifests/platform-ops/cluster-bios/`
-2. **Hub bootstrap CLI reads** from the same Git directory (replaces embedded assets)
-3. **ArgoCD syncs templates** to hub cluster for spoke pool provisioning
-4. **Crossplane Composition references** the synced templates
-5. **ClusterResourceSet applies** templates during spoke cluster bootstrap
+*   **Constraint Rule:** To comply with CAPI multi-tenancy security boundaries, all `Secret` and `ConfigMap` resources acting as CRS payloads MUST be deployed to the same namespace as the target `Cluster` objects (`platform-capi`).
+*   **Asset Routing:** 
+    1. Static manifests (CNI, CCM, ArgoCD Agent) are routed by ArgoCD directly to the `platform-capi` namespace via `platform-spoke-bootstrap-templates` ApplicationSet.
+    2. Dynamic secrets (e.g., `infisical-auth`, `observability-ca`) originating from Hub are intercepted by Kyverno ClusterPolicies and explicitly materialized as `addons.cluster.x-k8s.io/resource-set` typed `Secrets` inside of `platform-capi` namespace.
 
 This is the idiomatic enterprise approach used by AWS EKS Anywhere, Azure Fleet Manager, and CAPI community.
+
+---
+
+## Consequences
+
+*   **Positive:** We natively satisfy CAPI's strict RBAC/security model, preventing any risk of cross-namespace payload injection.
+*   **Positive:** Complete logical grouping. If a platform engineer looks at `platform-capi`, they see the complete definition of a Spoke cluster, including exact payloads that will be injected into it upon creation.
+*   **Negative/Mitigation:** Platform operators must remember that while ArgoCD *controller* lives in `platform-ops`, ArgoCD Agent *bootstrap manifests* must be placed in `platform-capi` so CAPI can read them.
 
 **Single Source of Truth**: Both hub and spoke clusters use the same CNI/CCM manifests from Git, eliminating duplication.
 
