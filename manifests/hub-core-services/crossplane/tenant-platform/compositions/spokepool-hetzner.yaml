@@ -402,7 +402,7 @@ spec:
                     apiVersion: v1
                     kind: ConfigMap
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     data:
                       argocd-agent-config.yaml: ""
                 providerConfigRef:
@@ -468,7 +468,7 @@ spec:
                     kind: ConfigMap
                     metadata:
                       name: argocd-namespace
-                      namespace: platform-ops
+                      namespace: platform-capi
                     data:
                       namespace.yaml: |
                         apiVersion: v1
@@ -501,7 +501,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
@@ -570,7 +570,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
