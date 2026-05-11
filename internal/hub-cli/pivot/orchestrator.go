@@ -255,22 +255,52 @@ func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig
 	}
 	fmt.Println("[pivot] ✓ cert-manager manifests applied")
 	
-	// 2. Wait for cert-manager webhook
-	fmt.Println("[pivot] Waiting for cert-manager webhook...")
-	cmd = exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", mgmtKubeconfig,
-		"wait", "deployment",
-		"-n", constants.NamespaceCertManager,
-		"cert-manager-webhook",
-		"--for=condition=Available",
-		"--timeout=3m",
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("cert-manager webhook not ready: %w\n%s", err, output)
+	// 2. Wait for all cert-manager deployments
+	fmt.Println("[pivot] Waiting for cert-manager API...")
+	deployments := []string{"cert-manager", "cert-manager-webhook", "cert-manager-cainjector"}
+	for _, dep := range deployments {
+		cmd = exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", mgmtKubeconfig,
+			"wait", "deployment",
+			"-n", constants.NamespaceCertManager,
+			dep,
+			"--for=condition=Available",
+			"--timeout=3m",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("cert-manager deployment %s not ready: %w\n%s", dep, err, output)
+		}
 	}
-	
-	// Wait additional time for cert-manager to be fully operational
-	time.Sleep(30 * time.Second)
+
+	fmt.Println("[pivot] Waiting for cert-manager webhook to become fully functional...")
+	dummyIssuer := []byte(`
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: test-webhook-readiness
+  namespace: default
+spec:
+  selfSigned: {}
+`)
+
+	deadline := time.Now().Add(2 * time.Minute)
+	webhookReady := false
+	for time.Now().Before(deadline) {
+		cmd = exec.CommandContext(ctx, "kubectl",
+			"--kubeconfig", mgmtKubeconfig,
+			"apply", "--dry-run=server", "-f", "-",
+		)
+		cmd.Stdin = bytes.NewReader(dummyIssuer)
+		if err := cmd.Run(); err == nil {
+			webhookReady = true
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	if !webhookReady {
+		return fmt.Errorf("timeout waiting for cert-manager webhook to become fully functional")
+	}
 	
 	// 3. Install full operator manifest (excluding CRDs)
 	fmt.Println("[pivot] Installing cluster-api-operator...")

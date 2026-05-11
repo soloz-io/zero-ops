@@ -1,4 +1,5 @@
-- I am current building a enterprise SaaS platform called Zero-Ops that provides a complete infrastructure management solution for Kubernetes clusters across multiple cloud providers. 
+- I am current building a enterprise Hub-Soke PaaS platform called Zero-Ops that provides a complete infrastructure management solution for Kubernetes clusters across multiple cloud providers. 
 - Any questions or clarifications askedto must be approached in a idiomatic and producttion-ready manner.
 - Never accept or implement any code that is not idiomatic and production-ready.
 - Any solutions you provide must respect and align with the existing ADRs and principles.
+- Attaching platform design for your reference.

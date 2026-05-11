@@ -203,3 +203,17 @@
 [2026-05-11 08:05:59] Prerequisites check passed
 [2026-05-11 08:05:59] Step 1: Bootstrapping Hub Cluster...
 [2026-05-11 08:05:59] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-11 09:52:03] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 09:52:03] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 09:52:03] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 09:52:03] Checking prerequisites...
+[2026-05-11 09:52:05] Prerequisites check passed
+[2026-05-11 09:52:05] Step 1: Bootstrapping Hub Cluster...
+[2026-05-11 09:52:05] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-11 09:54:11] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 09:54:11] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 09:54:11] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 09:54:11] Checking prerequisites...
+[2026-05-11 09:54:12] Prerequisites check passed
+[2026-05-11 09:54:12] Step 1: Bootstrapping Hub Cluster...
+[2026-05-11 09:54:12] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug

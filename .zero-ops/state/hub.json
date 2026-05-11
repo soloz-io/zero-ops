@@ -3,9 +3,11 @@
   "clusterName": "hub",
   "region": "fsn1",
   "bootstrapId": "",
-  "currentPhase": "capi-init",
+  "currentPhase": "pivot-move",
   "completedPhases": [
-    "bootstrap-create"
+    "bootstrap-create",
+    "capi-init",
+    "cluster-provision"
   ],
   "bootstrapContext": "kind-hub",
   "mgmtKubeconfig": "",

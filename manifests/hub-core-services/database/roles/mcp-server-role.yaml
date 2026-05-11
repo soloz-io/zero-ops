@@ -7,11 +7,11 @@ metadata:
   namespace: platform-data
 spec:
   forProvider:
-    database: postgres
+    database: control_plane
     name: mcp_server
     login: true
     passwordSecretRef:
-      name: control-plane-db-credentials
+      name: mcp-server-db-credentials
       namespace: platform-data
       key: password
   providerConfigRef:

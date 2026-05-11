@@ -103,20 +103,44 @@ func (i *OperatorInstaller) ensureCertManager(ctx context.Context) error {
 
 func (i *OperatorInstaller) waitForCertManagerAPI(ctx context.Context) error {
 	fmt.Println("[capi-init] Waiting for cert-manager API...")
-	
-	// Wait for webhook deployment (upstream installs to cert-manager namespace)
-	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
-		"-n", constants.NamespaceCertManager,
-		"cert-manager-webhook",
-		"--for=condition=Available",
-		"--timeout=2m")...)
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("cert-manager webhook not ready: %w\n%s", err, output)
+
+	deployments := []string{"cert-manager", "cert-manager-webhook", "cert-manager-cainjector"}
+	for _, dep := range deployments {
+		cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
+			"-n", constants.NamespaceCertManager,
+			dep,
+			"--for=condition=Available",
+			"--timeout=2m")...)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("cert-manager deployment %s not ready: %w\n%s", dep, err, output)
+		}
 	}
-	
-	fmt.Println("[capi-init] ✓ cert-manager API ready")
-	return nil
+
+	fmt.Println("[capi-init] Waiting for cert-manager webhook to become fully functional...")
+
+	dummyIssuer := []byte(`
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: test-webhook-readiness
+  namespace: default
+spec:
+  selfSigned: {}
+`)
+
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "--dry-run=server", "-f", "-")...)
+		cmd.Stdin = bytes.NewReader(dummyIssuer)
+		if err := cmd.Run(); err == nil {
+			fmt.Println("[capi-init] ✓ cert-manager API ready")
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for cert-manager webhook to become fully functional")
 }
 
 func (i *OperatorInstaller) installOperator(ctx context.Context) error {

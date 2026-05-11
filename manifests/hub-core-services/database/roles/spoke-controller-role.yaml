@@ -11,7 +11,7 @@ spec:
     name: spoke_controller
     login: true
     passwordSecretRef:
-      name: hub-db-credentials
+      name: spoke-controller-db-credentials
       namespace: platform-data
       key: password
   providerConfigRef:
