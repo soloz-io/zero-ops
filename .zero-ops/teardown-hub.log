@@ -3,12 +3,25 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
+[teardown] Deleting server: hub-tpl56-nqrlt (ID: 130347836)
+[teardown] ✓ Deleted server: hub-tpl56-nqrlt
+[teardown] Deleting server: hub-md-0-xzddn-7w477-zndqp (ID: 130348074)
+[teardown] ✓ Deleted server: hub-md-0-xzddn-7w477-zndqp
+[teardown] Deleting server: hub-md-0-xzddn-7w477-qhdft (ID: 130348082)
+[teardown] ✓ Deleted server: hub-md-0-xzddn-7w477-qhdft
+[teardown] Deleting load balancer: hub-xtvw8-kube-apiserver-hdqp8 (ID: 6312167)
+[teardown] ✓ Deleted load balancer: hub-xtvw8-kube-apiserver-hdqp8
+[teardown] Deleting network: hub-xtvw8 (ID: 12209689)
+[teardown] ✓ Deleted network: hub-xtvw8
 [teardown] Deleting associated volumes...
 [teardown] ✓ Force deletion complete
 
 [teardown] Cleaning up local files...
 [teardown] Deleting kind cluster: hub...
 [teardown] ✓ Deleted kind cluster: hub
+[teardown] ✓ Removed k8-secrets/kubeconfig/hub.kubeconfig
+[teardown] ✓ Removed state file
+[teardown] ✓ Removed bootstrap state file
 [teardown] ✓ Local cleanup complete
 
 ✓ Cluster 'hub' successfully torn down

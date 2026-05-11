@@ -3,3 +3,5 @@
 - Never accept or implement any code that is not idiomatic and production-ready.
 - Any solutions you provide must respect and align with the existing ADRs and principles.
 - Attaching platform design for your reference.
+- Your solutions must always refer to the ADRs and principles that it follows and make sure it is aligned with them.
+- If your solution doesn't align with the ADRs and principles, you must provide a justification for why it doesn't and propose the necessary changes to align it.

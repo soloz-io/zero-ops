@@ -912,11 +912,12 @@ func (o *Orchestrator) waitForOperators(ctx context.Context, kubeconfig string) 
 				return fmt.Errorf("timeout waiting for operators to establish webhooks")
 			}
 
-			// Check if Crossplane webhooks are ready
+			// Check if CAPI and Cert-Manager webhooks are ready
+			// We check by name to avoid fragile JSONPath issues
 			cmd := exec.CommandContext(ctx, "kubectl",
 				"--kubeconfig", kubeconfig,
 				"get", "validatingwebhookconfigurations",
-				"-o", "jsonpath={range .items[*]}{.metadata.name}:{.webhooks[0].clientConfig.service.name}{\"\\n\"}{end}",
+				"-o", "name",
 			)
 
 			output, err := cmd.Output()
@@ -934,8 +935,8 @@ func (o *Orchestrator) waitForOperators(ctx context.Context, kubeconfig string) 
 				if line == "" {
 					continue
 				}
-				// Check if any webhook service is ready
-				if strings.Contains(line, "crossplane") || strings.Contains(line, "atlas") || strings.Contains(line, "cnpg") {
+				// Check if the actual core operators are present
+				if strings.Contains(line, "capi") || strings.Contains(line, "caph") || strings.Contains(line, "cert-manager") {
 					webhooksReady = true
 					break
 				}

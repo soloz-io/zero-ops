@@ -1,9 +1,0 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-# Data stores
-resources:
-  - ../../apps/hub-database.yaml
-  - ../../apps/hub-redis.yaml
-  - ../../apps/hub-clickhouse.yaml
-  - ../../apps/hub-nats.yaml

@@ -32,7 +32,10 @@ error_exit() {
 is_step_completed() {
     local step="$1"
     
+    # Create empty state file if it doesn't exist
     if [[ ! -f "$BOOTSTRAP_STATE_FILE" ]]; then
+        mkdir -p "$(dirname "$BOOTSTRAP_STATE_FILE")"
+        echo '{"completedSteps": []}' > "$BOOTSTRAP_STATE_FILE"
         return 1
     fi
     
@@ -110,24 +113,17 @@ delete_iam_access_keys() {
     
     log "Deleting all access keys for $iam_user"
     
-    # Debug: Show what we're getting from AWS
-    local all_keys_debug=$(aws iam list-access-keys --user-name "$iam_user" --output json 2>/dev/null || echo "")
-    log "Debug: Raw AWS response: $all_keys_debug"
-    
     # Get all access keys (both active and inactive)
     local all_keys=$(aws iam list-access-keys --user-name "$iam_user" --query 'AccessKeyMetadata[?Status==`Active`].AccessKeyId' --output text 2>/dev/null || echo "")
-    log "Debug: Active keys found: '$all_keys'"
     
     if [[ -z "$all_keys" ]] || [[ "$all_keys" == "None" ]]; then
         # Try getting all keys regardless of status
         all_keys=$(aws iam list-access-keys --user-name "$iam_user" --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null || echo "")
-        log "Debug: All keys found: '$all_keys'"
     fi
     
     if [[ -n "$all_keys" ]] && [[ "$all_keys" != "None" ]]; then
         for key_id in $all_keys; do
             if [[ -n "$key_id" ]] && [[ "$key_id" != "None" ]] && [[ ${#key_id} -ge 16 ]]; then
-                log "Deleting access key: $key_id"
                 aws iam delete-access-key --user-name "$iam_user" --access-key-id "$key_id" 2>/dev/null || true
             fi
         done
@@ -176,7 +172,7 @@ step1_bootstrap_hub() {
         return
     fi
     
-    # Check if cluster already exists and is working
+    # Check if cluster already exists and is working (even if state file is missing)
     local kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
     if [[ -f "$kubeconfig" ]] && kubectl --kubeconfig="$kubeconfig" cluster-info >/dev/null 2>&1; then
         log "Step 1: Hub cluster already exists and is accessible, marking as completed"

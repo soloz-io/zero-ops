@@ -217,3 +217,86 @@
 [2026-05-11 09:54:12] Prerequisites check passed
 [2026-05-11 09:54:12] Step 1: Bootstrapping Hub Cluster...
 [2026-05-11 09:54:12] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-11 10:20:33] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 10:20:33] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 10:20:33] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 10:20:33] Checking prerequisites...
+[2026-05-11 10:20:34] Prerequisites check passed
+[2026-05-11 10:20:35] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-11 10:20:35] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-11 10:21:05] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-11 10:21:05] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-11 10:21:07] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-11 10:21:09] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-11 10:21:09] Attempting to use existing access keys...
+[2026-05-11 10:21:11] Existing keys may be invalid, attempting to recreate...
+[2026-05-11 10:21:11] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-11 10:21:13] Debug: Raw AWS response: {
+    "AccessKeyMetadata": [
+        {
+            "UserName": "hub-operator-secrets-manager-development",
+            "AccessKeyId": "AKIAU5KC4MFA76K67J5I",
+            "Status": "Active",
+            "CreateDate": "2026-05-10T16:08:47+00:00"
+        }
+    ]
+}
+[2026-05-11 10:21:15] Debug: Active keys found: 'AKIAU5KC4MFA76K67J5I'
+[2026-05-11 10:21:15] Deleting access key: AKIAU5KC4MFA76K67J5I
+[2026-05-11 10:21:16] All existing access keys deleted
+[2026-05-11 10:21:16] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-11 10:21:21] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-11 10:21:21] AWS Secrets Manager configuration completed
+[2026-05-11 10:21:35] Script interrupted
+[2026-05-11 10:22:04] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 10:22:04] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 10:22:04] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 10:22:04] Checking prerequisites...
+[2026-05-11 10:22:05] Prerequisites check passed
+[2026-05-11 10:22:05] Step 1: Bootstrapping Hub Cluster...
+[2026-05-11 10:22:05] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-11 10:36:33] Script interrupted
+[2026-05-11 10:37:19] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 10:37:19] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 10:37:19] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 10:37:19] Checking prerequisites...
+[2026-05-11 10:37:19] Prerequisites check passed
+[2026-05-11 10:37:20] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-11 10:37:20] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-11 10:37:34] Script interrupted
+[2026-05-11 10:38:10] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 10:38:10] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 10:38:10] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 10:38:10] Checking prerequisites...
+[2026-05-11 10:38:10] Prerequisites check passed
+[2026-05-11 10:38:10] Step 1: Bootstrapping Hub Cluster...
+[2026-05-11 10:38:10] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-11 10:51:25] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-11 10:51:25] Hub cluster bootstrap completed
+[2026-05-11 10:51:55] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-11 10:51:55] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-11 10:51:57] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-11 10:51:59] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-11 10:51:59] Attempting to use existing access keys...
+[2026-05-11 10:52:03] Existing keys may be invalid, attempting to recreate...
+[2026-05-11 10:52:03] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-11 10:52:05] Debug: Raw AWS response: {
+    "AccessKeyMetadata": [
+        {
+            "UserName": "hub-operator-secrets-manager-development",
+            "Status": "Active",
+            "CreateDate": "2026-05-11T04:51:20+00:00"
+        }
+    ]
+}
+[2026-05-11 10:52:08] All existing access keys deleted
+[2026-05-11 10:52:08] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-11 10:52:13] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-11 10:52:13] AWS Secrets Manager configuration completed
+[2026-05-11 10:52:28] Step 3: Configuring GitHub Access...
+[2026-05-11 10:52:28] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-11 10:52:29] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-11 10:52:29] GitHub access configuration completed
+[2026-05-11 10:52:44] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-11 10:58:20] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-11 10:58:20] ERROR: ArgoCD failed to create platform-data namespace within 300s
