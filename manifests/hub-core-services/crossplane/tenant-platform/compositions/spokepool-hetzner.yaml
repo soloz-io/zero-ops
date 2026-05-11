@@ -64,8 +64,10 @@ spec:
                         variables:
                           - name: region
                             value: "fsn1" # Patched
-                          - name: hcloudWorkerMachineType
-                            value: "cx23" # Patched
+                          - name: workerMachineType
+                            value: "cx33" # Patched
+                          - name: sshKeyName
+                            value: "default-ssh-key"
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
