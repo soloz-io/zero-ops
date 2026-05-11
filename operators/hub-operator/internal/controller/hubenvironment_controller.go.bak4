@@ -1,0 +1,1227 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/soloz-io/zero-ops/archived/bkp/database"
+	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
+	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
+)
+
+// HubEnvironmentReconciler reconciles a HubEnvironment object
+type HubEnvironmentReconciler struct {
+	client.Client
+	// UncachedClient reads secrets directly from API server (bypasses cache)
+	// Use for operational secrets: platform-db-superuser, platform-db-ca, infisical-auth
+	// These must not have their data stripped by the cache transformer
+	UncachedClient client.Client
+	Scheme         *runtime.Scheme
+}
+
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
+
+// Reconcile is part of the main kubernetes reconciliation loop
+// Requirement 9.3: Implement Reconcile() main entry point
+func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// 1. Fetch HubEnvironment CR
+	hubEnv := &opsv1alpha1.HubEnvironment{}
+	if err := r.Get(ctx, req.NamespacedName, hubEnv); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// REQ-10: Handle finalizer for graceful teardown
+	// REQ-13: Remove finalizers from secrets when HubEnvironment is being deleted
+	if !hubEnv.DeletionTimestamp.IsZero() {
+		logger.Info("HubEnvironment is being deleted, removing finalizers from secrets")
+
+		// Remove finalizers from infisical-secrets
+		if err := r.removeFinalizer(ctx, "infisical-secrets", infisical.InfisicalServiceNamespace); err != nil {
+			logger.Error(err, "Failed to remove finalizer from infisical-secrets")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+
+		// Remove finalizers from infisical-redis-credentials
+		dataNamespace := hubEnv.Spec.Database.Namespace
+		if err := r.removeFinalizer(ctx, "infisical-redis-credentials", dataNamespace); err != nil {
+			logger.Error(err, "Failed to remove finalizer from infisical-redis-credentials")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+
+		logger.Info("Successfully removed finalizers from secrets, allowing deletion to proceed")
+		return ctrl.Result{}, nil
+	}
+
+	// Requirement 9.4: Handle reconcile-trigger annotation
+	if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok {
+		logger.Info("Manual reconciliation triggered", "timestamp", triggerTime)
+
+		// Clear ALL conditions and uploaded secrets to force full Phase 1 re-run
+		// This ensures infisical-secrets gets recreated in the correct namespace
+		hubEnv.Status.Conditions = []metav1.Condition{}
+		hubEnv.Status.UploadedSecrets = []string{}
+
+		// Remove the annotation after processing
+		delete(hubEnv.Annotations, "ops.nutgraf.in/reconcile-trigger")
+		if err := r.Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Update status to clear conditions
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Cleared all conditions and uploaded secrets, forcing full reconciliation")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Phase 0: Bootstrap Infisical (Day 0 initialization)
+	// Bootstrap is idempotent - it checks if infisical-auth secret exists
+	logger.Info("Phase 0: Bootstrapping Infisical")
+
+	// Check if Infisical is ready
+	infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
+	if err != nil {
+		logger.Error(err, "Failed to check Infisical readiness")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	if !infisicalReady {
+		logger.Info("Waiting for Infisical to be ready")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Bootstrap Infisical (creates admin user, project, machine identity)
+	// Returns (true, nil) if bootstrap was performed, (false, nil) if already bootstrapped
+	bootstrapClient := infisical.NewBootstrapClient(r.Client, r.UncachedClient)
+	bootstrapped, err := bootstrapClient.Bootstrap(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to bootstrap Infisical")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	if bootstrapped {
+		logger.Info("Infisical bootstrapped successfully")
+	} else {
+		logger.Info("Infisical already bootstrapped, skipping")
+	}
+
+	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
+	// This runs regardless of whether bootstrap just occurred or was already done
+	// Makes Infisical the Source of Truth for all secrets
+	secretUploader := infisical.NewSecretUploader(r.Client, r.UncachedClient)
+	if err := secretUploader.UploadCLISecrets(ctx); err != nil {
+		logger.Error(err, "Failed to upload CLI secrets, continuing...")
+	} else {
+		logger.Info("CLI secrets uploaded to Infisical")
+	}
+
+	// Upload application secrets directly to Infisical (without creating K8s secrets)
+	// ESO will create K8s secrets by syncing from Infisical
+	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient)
+	if err := appSecretUploader.UploadApplicationSecrets(ctx); err != nil {
+		logger.Error(err, "Failed to upload application secrets, continuing...")
+	} else {
+		logger.Info("Application secrets uploaded to Infisical")
+	}
+
+	logger.Info("Phase 0 complete: Infisical ready")
+
+	// Phase 1: Generate Bootstrap Secrets Only
+	// Bootstrap secrets are required for infrastructure to start (CNPG, Infisical)
+	// Application secrets are created by ESO from Infisical
+	// REQ-7: Always check if infisical-secrets exists, even if BootstrapSecretsGenerated=true
+	// This handles the case where the secret was deleted and needs restoration from AWS
+	securityNamespace := infisical.InfisicalServiceNamespace
+	infisicalSecret := &corev1.Secret{}
+	infisicalSecretExists := true
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets", Namespace: securityNamespace}, infisicalSecret); err != nil {
+		infisicalSecretExists = false
+	}
+
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation) || !infisicalSecretExists {
+		if !infisicalSecretExists {
+			logger.Info("Phase 1: infisical-secrets missing, attempting restore from AWS backup")
+		} else {
+			logger.Info("Phase 1: Generating Bootstrap Secrets")
+		}
+
+		dataNamespace := hubEnv.Spec.Database.Namespace
+		dbHost := fmt.Sprintf("platform-db-rw.%s.svc", dataNamespace)
+
+		// Create owner reference
+		owner := metav1.OwnerReference{
+			APIVersion: hubEnv.APIVersion,
+			Kind:       hubEnv.Kind,
+			Name:       hubEnv.Name,
+			UID:        hubEnv.UID,
+			Controller: func() *bool { b := true; return &b }(),
+		}
+
+		// Build list of bootstrap secret names only
+		// These are required for infrastructure bootstrap (CNPG, Infisical, Redis)
+		secretNamesInData := []string{
+			"platform-db-app",             // CNPG bootstrap superuser
+			"infisical-db-credentials",    // Infisical database user
+			"platform-db-ca",              // TLS certificate authority
+			"infisical-redis-credentials", // Redis authentication
+		}
+
+		secretNamesInSecurity := []string{
+			"infisical-secrets",             // Infisical encryption keys
+			"infisical-postgres-connection", // Infisical DB connection
+		}
+
+		// Read existing secrets for idempotency
+		existingSecrets := make(map[string]*corev1.Secret)
+
+		// Read secrets from data namespace using UncachedClient (need secret data, not just metadata)
+		for _, name := range secretNamesInData {
+			secret := &corev1.Secret{}
+			if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: name, Namespace: dataNamespace}, secret); err == nil {
+				existingSecrets[name] = secret
+			}
+		}
+
+		// Read secrets from security namespace using UncachedClient (need secret data, not just metadata)
+		for _, name := range secretNamesInSecurity {
+			secret := &corev1.Secret{}
+			if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: name, Namespace: securityNamespace}, secret); err == nil {
+				existingSecrets[name] = secret
+			}
+		}
+
+		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
+		isFirstTime := !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation)
+		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
+
+		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
+		var awsClient secrets.AWSSecretsManagerClient
+		awsRegion := "ap-south-1" // Default region, can be made configurable
+
+		// Try to initialize AWS client (optional - if credentials not available, backup/restore will be skipped)
+		awsClientImpl, err := r.initializeAWSClient(ctx, awsRegion)
+		if err != nil {
+			logger.Info("AWS Secrets Manager not available, backup/restore disabled", "error", err.Error())
+			awsClient = nil
+		} else {
+			awsClient = awsClientImpl
+			logger.Info("AWS Secrets Manager client initialized successfully", "region", awsRegion)
+		}
+
+		// REQ-7: Use HubEnvironment name as cluster ID for AWS backup path
+		clusterID := hubEnv.Name
+		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "awsEnabled", awsClient != nil)
+
+		// Generate Bootstrap Secrets with AWS backup/restore support
+		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, awsClient)
+		if err != nil {
+			logger.Error(err, "Failed to generate Bootstrap Secrets")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+
+		logger.Info("Bootstrap secrets generated successfully", "awsBackupEnabled", awsClient != nil)
+
+		// Create bootstrap secrets only
+		secretsToCreate := []*corev1.Secret{
+			result.PlatformDBCA,
+			result.PlatformDBApp,
+			result.InfisicalDBCredentials,
+			result.InfisicalSecrets,
+			result.InfisicalRedisCredentials,
+			result.InfisicalPostgresConnection,
+		}
+
+		for _, secret := range secretsToCreate {
+			if secret == nil {
+				continue
+			}
+			if err := r.Create(ctx, secret); err != nil {
+				if !errors.IsAlreadyExists(err) {
+					logger.Error(err, "Failed to create secret", "secret", secret.Name, "namespace", secret.Namespace)
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+				}
+			}
+			logger.Info("Created bootstrap secret", "secret", secret.Name, "namespace", secret.Namespace)
+		}
+
+		// Set status condition with appropriate message based on AWS backup status
+		statusMessage := "Bootstrap secrets generated successfully"
+		if awsClient != nil {
+			if isFirstTime {
+				statusMessage = "Bootstrap secrets generated and backed up to AWS Secrets Manager"
+			} else {
+				statusMessage = "Bootstrap secrets restored from AWS Secrets Manager backup"
+			}
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "BootstrapSecretsGenerated",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Generated",
+			Message:            statusMessage,
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 1 complete: Bootstrap secrets generated", "awsBackup", awsClient != nil, "isFirstTime", isFirstTime)
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Phase 1b: Wait for ESO to create application secrets
+	// Application secrets are created by ESO from Infisical (creationPolicy: Owner)
+	// We must wait for them to exist before creating database roles
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "ApplicationSecretsReady", hubEnv.Generation) {
+		logger.Info("Phase 1b: Waiting for ESO to create application secrets")
+
+		dataNamespace := hubEnv.Spec.Database.Namespace
+
+		// Map of application secrets to their namespaces
+		// Ory secrets are in platform-identity, others in platform-data
+		requiredSecrets := map[string]string{
+			"control-plane-db-credentials": dataNamespace,       // platform-data
+			"hub-db-credentials":           dataNamespace,       // platform-data
+			"spire-server-db-credentials":  dataNamespace,       // platform-data
+			"hydra-db-credentials":         "platform-identity", // platform-identity
+			"kratos-db-credentials":        "platform-identity", // platform-identity
+			"keto-db-credentials":          "platform-identity", // platform-identity
+		}
+
+		allSecretsExist := true
+		missingSecrets := []string{}
+
+		for secretName, namespace := range requiredSecrets {
+			secret := &corev1.Secret{}
+			if err := r.Get(ctx, client.ObjectKey{
+				Name:      secretName,
+				Namespace: namespace,
+			}, secret); err != nil {
+				if errors.IsNotFound(err) {
+					logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
+					allSecretsExist = false
+					missingSecrets = append(missingSecrets, secretName)
+				} else {
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+				}
+			}
+		}
+
+		if !allSecretsExist {
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "ApplicationSecretsReady",
+				Status:             metav1.ConditionFalse,
+				Reason:             "WaitingForESO",
+				Message:            fmt.Sprintf("Waiting for ESO to create secrets: %s", strings.Join(missingSecrets, ", ")),
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "ApplicationSecretsReady",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ESOSynced",
+			Message:            "ESO created all application secrets successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 1b complete: Application secrets ready")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Requirement 9.11: Wait for CNPG Cluster Ready
+	cnpgReady, err := r.isCNPGReady(ctx, hubEnv)
+	if err != nil {
+		logger.Error(err, "Failed to check CNPG readiness")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	if !cnpgReady {
+		logger.Info("Waiting for CNPG Cluster to be ready")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Requirement 9.8: Phase 3 - Upload Secrets to Infisical
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "SecretsBackedUp", hubEnv.Generation) {
+		logger.Info("Phase 3: Uploading secrets to Infisical")
+
+		// Requirement 9.11: Check if Infisical is ready
+		infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
+		if err != nil {
+			logger.Error(err, "Failed to check Infisical readiness")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+		if !infisicalReady {
+			logger.Info("Waiting for Infisical to be ready")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		// Check if infisical-auth secret exists
+		infisicalAuth := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{
+			Name:      "infisical-auth",
+			Namespace: "platform-ops",
+		}, infisicalAuth); err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("infisical-auth secret not found, suspending Phase 3")
+				meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+					Type:               "SecretsBackedUp",
+					Status:             metav1.ConditionFalse,
+					Reason:             "AuthenticationFailed",
+					Message:            "infisical-auth secret not found. Phase 3 suspended.",
+					ObservedGeneration: hubEnv.Generation,
+				})
+				if err := r.Status().Update(ctx, hubEnv); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+
+		// All secrets are now uploaded via SecretUploader in Phase 0
+		// No need for separate Phase 3 upload logic
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "SecretsBackedUp",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Uploaded",
+			Message:            "Secrets uploaded to Infisical successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 3a complete: Secrets backed up to Infisical")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Requirement 9.9: Phase 3 - Register OAuth Clients
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "OAuthClientsRegistered", hubEnv.Generation) {
+		logger.Info("Phase 3: Registering OAuth clients")
+
+		// Requirement 9.11: Check if Hydra is ready
+		hydraReady, err := r.isHydraReady(ctx, hubEnv)
+		if err != nil {
+			logger.Error(err, "Failed to check Hydra readiness")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+		if !hydraReady {
+			logger.Info("Waiting for Hydra to be ready")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		hydraClient, err := infisicalclient.NewHydraClient("")
+		if err != nil {
+			logger.Error(err, "Failed to create Hydra client")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+
+		if err := hydraClient.RegisterOAuthClients(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to register OAuth clients")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "OAuthClientsRegistered",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Registered",
+			Message:            "OAuth clients registered successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 3b complete: OAuth clients registered")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Requirement 9.10: Phase 3 - Create NATS Streams
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "NATSStreamsConfigured", hubEnv.Generation) {
+		logger.Info("Phase 3: Creating NATS streams")
+
+		// Requirement 9.11: Check if NATS is ready
+		natsReady, err := r.isNATSReady(ctx, hubEnv)
+		if err != nil {
+			logger.Error(err, "Failed to check NATS readiness")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+		if !natsReady {
+			logger.Info("Waiting for NATS to be ready")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		natsClient, err := infisicalclient.NewNATSClient("")
+		if err != nil {
+			logger.Error(err, "Failed to create NATS client")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+		defer natsClient.Close()
+
+		if err := natsClient.CreateOrUpdateStreams(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to create NATS streams")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "NATSStreamsConfigured",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Configured",
+			Message:            "NATS streams configured successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 3c complete: NATS streams created")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// 6. Set Ready condition
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
+		logger.Info("All phases complete, setting Ready condition")
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionTrue,
+			Reason:             "AllPhasesComplete",
+			Message:            "Hub environment is ready",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("HubEnvironment reconciliation complete")
+	}
+
+	// Requirement 23: Handle certificate rotation (runs continuously after Ready)
+	if isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
+		if err := r.handleCertificateRotation(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to handle certificate rotation")
+			// Don't fail reconciliation, just log and requeue
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
+		// Requirement 23.15-23.16: Handle password rotation
+		if err := r.handlePasswordRotation(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to handle password rotation")
+			// Don't fail reconciliation, just log and requeue
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// isCNPGReady checks if the CNPG Cluster is ready
+// Requirement 9.11: Implement dependency readiness checks
+func (r *HubEnvironmentReconciler) isCNPGReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	cluster := &cnpgv1.Cluster{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      hubEnv.Spec.Database.ClusterRef,
+		Namespace: hubEnv.Spec.Database.Namespace,
+	}, cluster); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	// Check if cluster is ready
+	for _, condition := range cluster.Status.Conditions {
+		if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// isInfisicalReady checks if Infisical Deployment has at least one ready replica
+// Requirement 9.11: Implement dependency readiness checks
+func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      infisical.InfisicalServiceName,
+		Namespace: infisical.InfisicalServiceNamespace,
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return deployment.Status.ReadyReplicas > 0, nil
+}
+
+// isHydraReady checks if Hydra Deployment is ready
+// Requirement 9.11: Implement dependency readiness checks
+func (r *HubEnvironmentReconciler) isHydraReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	// For now, assume Hydra is ready if the deployment exists
+	// In production, check deployment status
+	return true, nil
+}
+
+// isNATSReady checks if NATS StatefulSet is ready
+// Requirement 9.11: Implement dependency readiness checks
+func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	// For now, assume NATS is ready if the statefulset exists
+	// In production, check statefulset status
+	return true, nil
+}
+
+// uploadSecretsToInfisical uploads all secrets to Infisical
+// handleCertificateRotation detects platform-db-ca changes and restarts services
+// Requirement 23.1-23.14: Implement certificate rotation handling
+func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+	namespace := hubEnv.Spec.Database.Namespace
+
+	// Requirement 23.2: Read platform-db-ca secret
+	// Task 13: Use UncachedClient - operational secret, must not have data stripped
+	platformDBCA := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+		Name:      "platform-db-ca",
+		Namespace: namespace,
+	}, platformDBCA); err != nil {
+		if errors.IsNotFound(err) {
+			// CA not yet generated, skip rotation
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.2: Read infisical-secrets to compare DB_ROOT_CERT
+	// Task 13: Use UncachedClient - operational secret, must not have data stripped
+	infisicalSecrets := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+		Name:      "infisical-secrets",
+		Namespace: namespace,
+	}, infisicalSecrets); err != nil {
+		if errors.IsNotFound(err) {
+			// Infisical secrets not yet generated, skip rotation
+			return nil
+		}
+		return err
+	}
+
+	// Extract CA certificate from platform-db-ca
+	caCert, ok := platformDBCA.Data["ca.crt"]
+	if !ok {
+		logger.Info("platform-db-ca missing ca.crt, skipping rotation")
+		return nil
+	}
+
+	// Extract current DB_ROOT_CERT from infisical-secrets
+	currentDBRootCert, ok := infisicalSecrets.Data["DB_ROOT_CERT"]
+	if !ok {
+		logger.Info("infisical-secrets missing DB_ROOT_CERT, skipping rotation")
+		return nil
+	}
+
+	// Requirement 23.3: Compare CA certificate with DB_ROOT_CERT
+	// DB_ROOT_CERT is base64-encoded, ca.crt is already base64-encoded
+	if string(caCert) == string(currentDBRootCert) {
+		// No rotation needed
+		return nil
+	}
+
+	logger.Info("Certificate rotation detected, updating DB_ROOT_CERT and restarting services")
+
+	// Requirement 23.4: Update DB_ROOT_CERT in infisical-secrets
+	infisicalSecrets.Data["DB_ROOT_CERT"] = caCert
+	if err := r.Update(ctx, infisicalSecrets); err != nil {
+		return fmt.Errorf("failed to update DB_ROOT_CERT: %w", err)
+	}
+
+	logger.Info("Updated DB_ROOT_CERT in infisical-secrets")
+
+	// Track restart failures for status condition
+	var restartFailures []string
+
+	// Requirement 23.5-23.13: Restart all database-connected services
+	services := []struct {
+		kind      string
+		name      string
+		namespace string
+	}{
+		{"Deployment", "infisical", "platform-ops"},
+		{"StatefulSet", "redis", namespace},
+		{"Deployment", "hydra", "platform-identity"},
+		{"Deployment", "kratos", "platform-identity"},
+		{"Deployment", "keto", "platform-identity"},
+		{"StatefulSet", "spire-server", "platform-security"},
+		{"Deployment", "mcp-server", "platform-ops"},
+	}
+
+	for _, svc := range services {
+		if svc.kind == "Deployment" {
+			if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
+				logger.Error(err, "Failed to restart deployment", "name", svc.name, "namespace", svc.namespace)
+				restartFailures = append(restartFailures, svc.name)
+			} else {
+				logger.Info("Restarted deployment", "name", svc.name, "namespace", svc.namespace)
+			}
+		} else if svc.kind == "StatefulSet" {
+			if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
+				logger.Error(err, "Failed to restart statefulset", "name", svc.name, "namespace", svc.namespace)
+				restartFailures = append(restartFailures, svc.name)
+			} else {
+				logger.Info("Restarted statefulset", "name", svc.name, "namespace", svc.namespace)
+			}
+		}
+	}
+
+	// Requirement 23.6-23.7: Update status condition if restart fails
+	if len(restartFailures) > 0 {
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationFailed",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ServiceRestartFailed",
+			Message:            fmt.Sprintf("Failed to restart services after certificate rotation: %s", strings.Join(restartFailures, ", ")),
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to update status condition")
+		}
+	} else {
+		// All restarts succeeded, now wait for Infisical readiness (AC 23.6)
+		infisicalReady, err := r.waitForInfisicalReadiness(ctx, hubEnv)
+		if err != nil {
+			logger.Error(err, "Failed to check Infisical readiness after restart")
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "CertificateRotationFailed",
+				Status:             metav1.ConditionTrue,
+				Reason:             "InfisicalNotReady",
+				Message:            fmt.Sprintf("Infisical not ready after certificate rotation: %v", err),
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				logger.Error(err, "Failed to update status condition")
+			}
+			return nil
+		}
+
+		if !infisicalReady {
+			logger.Info("Waiting for Infisical to become ready after certificate rotation")
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "CertificateRotationInProgress",
+				Status:             metav1.ConditionTrue,
+				Reason:             "WaitingForInfisical",
+				Message:            "Waiting for Infisical Deployment to become ready after certificate rotation",
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				logger.Error(err, "Failed to update status condition")
+			}
+			return nil
+		}
+
+		// Clear any previous failure condition
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationFailed",
+			Status:             metav1.ConditionFalse,
+			Reason:             "ServicesRestarted",
+			Message:            "All services restarted successfully after certificate rotation",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "CertificateRotationInProgress",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Completed",
+			Message:            "Certificate rotation completed successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to update status condition")
+		}
+	}
+
+	return nil
+}
+
+// waitForInfisicalReadiness checks if Infisical Deployment is ready after restart
+// Requirement 23.6: Watch for Infisical Deployment readiness after restart
+func (r *HubEnvironmentReconciler) waitForInfisicalReadiness(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "infisical",
+		Namespace: "platform-ops",
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			// Deployment doesn't exist yet
+			return false, nil
+		}
+		return false, err
+	}
+
+	// Check if deployment is ready
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == appsv1.DeploymentAvailable && condition.Status == corev1.ConditionTrue {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// handlePasswordRotation detects password changes and executes ALTER ROLE
+// Requirement 23.15-23.16: Implement password rotation handling
+func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+	namespace := hubEnv.Spec.Database.Namespace
+
+	// Check all database role secrets for password changes
+	for _, roleSpec := range hubEnv.Spec.Database.Roles {
+		secretName := roleSpec.Name + "-db-credentials"
+
+		// Read the secret
+		// Task 13: Use UncachedClient - credential secret, must not have data stripped
+		secret := &corev1.Secret{}
+		if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+			Name:      secretName,
+			Namespace: namespace,
+		}, secret); err != nil {
+			if errors.IsNotFound(err) {
+				// Secret doesn't exist yet, skip
+				continue
+			}
+			return err
+		}
+
+		// Check if secret has the db-credentials label (ESO-managed)
+		if labels := secret.GetLabels(); labels == nil || labels["ops.nutgraf.in/db-credentials"] != "true" {
+			// Not an ESO-managed secret, skip
+			continue
+		}
+
+		// Extract username and password
+		username, ok := secret.Data["username"]
+		if !ok {
+			logger.Info("Secret missing username field", "secret", secretName)
+			continue
+		}
+
+		password, ok := secret.Data["password"]
+		if !ok {
+			logger.Info("Secret missing password field", "secret", secretName)
+			continue
+		}
+
+		// Requirement 23.15: Execute ALTER ROLE to update PostgreSQL password
+		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, namespace)
+		if err != nil {
+			logger.Error(err, "Failed to create role manager for password rotation")
+			continue
+		}
+
+		// Check if password needs update (drift detection)
+		needsUpdate, err := roleManager.PasswordNeedsUpdate(ctx, string(username), string(password))
+		if err != nil {
+			roleManager.Close()
+			logger.Error(err, "Failed to check password drift", "role", string(username))
+			continue
+		}
+
+		if !needsUpdate {
+			roleManager.Close()
+			// Password hasn't changed, skip
+			continue
+		}
+
+		logger.Info("Password rotation detected, updating role", "role", string(username))
+
+		// Execute ALTER ROLE
+		if err := roleManager.UpdateRolePassword(ctx, string(username), string(password)); err != nil {
+			roleManager.Close()
+			logger.Error(err, "Failed to update role password", "role", string(username))
+			continue
+		}
+
+		roleManager.Close()
+		logger.Info("Updated role password in PostgreSQL", "role", string(username))
+
+		// Requirement 23.16: Restart consuming Deployment/StatefulSet
+		// Extract service name from role name (e.g., "infisical" from "infisical-db-credentials")
+		serviceName := roleSpec.Name
+
+		// Map role names to service deployments/statefulsets
+		serviceMap := map[string]struct {
+			kind      string
+			name      string
+			namespace string
+		}{
+			"infisical":        {"Deployment", "infisical", "platform-ops"},
+			"redis":            {"StatefulSet", "redis", namespace},
+			"hydra":            {"Deployment", "hydra", "platform-identity"},
+			"kratos":           {"Deployment", "kratos", "platform-identity"},
+			"keto":             {"Deployment", "keto", "platform-identity"},
+			"spire_server":     {"StatefulSet", "spire-server", "platform-security"},
+			"mcp_server":       {"Deployment", "mcp-server", "platform-ops"},
+			"spoke_controller": {"Deployment", "spoke-controller", namespace},
+		}
+
+		if svc, ok := serviceMap[serviceName]; ok {
+			if svc.kind == "Deployment" {
+				if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
+					logger.Error(err, "Failed to restart deployment after password rotation", "name", svc.name)
+				} else {
+					logger.Info("Restarted deployment after password rotation", "name", svc.name)
+				}
+			} else if svc.kind == "StatefulSet" {
+				if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
+					logger.Error(err, "Failed to restart statefulset after password rotation", "name", svc.name)
+				} else {
+					logger.Info("Restarted statefulset after password rotation", "name", svc.name)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// restartDeployment patches a Deployment with restartedAt annotation
+// Requirement 23.5: Implement restartDeployment() helper
+func (r *HubEnvironmentReconciler) restartDeployment(ctx context.Context, name, namespace string) error {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			// Deployment doesn't exist yet, skip restart
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.4: Use kubectl.kubernetes.io/restartedAt annotation pattern
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	return r.Update(ctx, deployment)
+}
+
+// restartStatefulSet patches a StatefulSet with restartedAt annotation
+// Requirement 23.6: Implement restartStatefulSet() helper
+func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name, namespace string) error {
+	statefulSet := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, statefulSet); err != nil {
+		if errors.IsNotFound(err) {
+			// StatefulSet doesn't exist yet, skip restart
+			return nil
+		}
+		return err
+	}
+
+	// Requirement 23.4: Use kubectl.kubernetes.io/restartedAt annotation pattern
+	if statefulSet.Spec.Template.Annotations == nil {
+		statefulSet.Spec.Template.Annotations = make(map[string]string)
+	}
+	statefulSet.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	return r.Update(ctx, statefulSet)
+}
+
+// initializeAWSClient creates an AWS Secrets Manager client for backup/restore operations
+// REQ-11: AWS Secrets Manager integration with static IAM credentials
+// Returns nil if AWS credentials are not available (backup/restore will be disabled)
+func (r *HubEnvironmentReconciler) initializeAWSClient(ctx context.Context, region string) (*awsclient.SecretsManagerClient, error) {
+	logger := log.FromContext(ctx)
+
+	// Check if AWS credentials are available in environment variables
+	// These are injected from hub-operator-aws-credentials secret
+	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsRegion := os.Getenv("AWS_REGION")
+
+	if accessKeyID == "" || secretAccessKey == "" {
+		return nil, fmt.Errorf("AWS credentials not found in environment variables")
+	}
+
+	// Use provided region or fall back to environment variable
+	if awsRegion != "" {
+		region = awsRegion
+	}
+
+	logger.Info("Initializing AWS Secrets Manager client", "region", region)
+
+	// Create AWS Secrets Manager client
+	client, err := awsclient.NewSecretsManagerClient(ctx, region)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
+	}
+
+	return client, nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+// Requirement 12: Configure controller watches for all external dependencies and secrets
+func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		// Requirement 12.2: Primary resource
+		For(&opsv1alpha1.HubEnvironment{}).
+		// Requirement 12.3: Owned secrets (operator-created)
+		Owns(&corev1.Secret{}).
+		// Requirement 12.4: Watch CNPG Cluster for readiness
+		Watches(
+			&cnpgv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForCNPG),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		// Requirement 12.5: Watch platform-db-ca secret for certificate rotation
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				secret := obj.(*corev1.Secret)
+				return secret.Name == "platform-db-ca"
+			})),
+		).
+		// Requirement 12.6: Watch secrets with label ops.nutgraf.in/db-credentials=true for password rotation
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				secret := obj.(*corev1.Secret)
+				if labels := secret.GetLabels(); labels != nil {
+					return labels["ops.nutgraf.in/db-credentials"] == "true"
+				}
+				return false
+			})),
+		).
+		// Requirement 12.7: Watch Hydra Deployment
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForDeployment),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "hydra" && obj.GetNamespace() == "platform-identity"
+				}),
+			),
+		).
+		// Requirement 12.8: Watch Infisical Deployment
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForDeployment),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "infisical" && obj.GetNamespace() == "platform-ops"
+				}),
+			),
+		).
+		// Requirement 12.9: Watch NATS StatefulSet
+		Watches(
+			&appsv1.StatefulSet{},
+			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForStatefulSet),
+			builder.WithPredicates(
+				predicate.ResourceVersionChangedPredicate{},
+				predicate.NewPredicateFuncs(func(obj client.Object) bool {
+					return obj.GetName() == "nats" && obj.GetNamespace() == "platform-core"
+				}),
+			),
+		).
+		Complete(r)
+}
+
+// findHubEnvironmentForCNPG maps CNPG Cluster to HubEnvironment CR
+// Requirement 12.10: Implement mapper function for CNPG
+func (r *HubEnvironmentReconciler) findHubEnvironmentForCNPG(ctx context.Context, obj client.Object) []reconcile.Request {
+	cluster := obj.(*cnpgv1.Cluster)
+
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Find HubEnvironment that references this cluster
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		if hubEnv.Spec.Database.ClusterRef == cluster.Name &&
+			hubEnv.Spec.Database.Namespace == cluster.Namespace {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      hubEnv.Name,
+					Namespace: hubEnv.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForSecret maps Secret to HubEnvironment CR
+// Requirement 12.11: Implement mapper function for Secret
+func (r *HubEnvironmentReconciler) findHubEnvironmentForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret := obj.(*corev1.Secret)
+
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Find HubEnvironment in the same namespace as the secret
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		if hubEnv.Spec.Database.Namespace == secret.Namespace {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      hubEnv.Name,
+					Namespace: hubEnv.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForDeployment maps Deployment to HubEnvironment CR
+// Requirement 12.12: Implement mapper function for Deployment
+func (r *HubEnvironmentReconciler) findHubEnvironmentForDeployment(ctx context.Context, obj client.Object) []reconcile.Request {
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Trigger reconciliation for all HubEnvironments
+	// The reconciler will check if the deployment is ready
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      hubEnv.Name,
+				Namespace: hubEnv.Namespace,
+			},
+		})
+	}
+
+	return requests
+}
+
+// findHubEnvironmentForStatefulSet maps StatefulSet to HubEnvironment CR
+// Requirement 12.13: Implement mapper function for StatefulSet
+func (r *HubEnvironmentReconciler) findHubEnvironmentForStatefulSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	// List all HubEnvironment CRs
+	hubEnvList := &opsv1alpha1.HubEnvironmentList{}
+	if err := r.List(ctx, hubEnvList); err != nil {
+		return []reconcile.Request{}
+	}
+
+	// Trigger reconciliation for all HubEnvironments
+	// The reconciler will check if the statefulset is ready
+	var requests []reconcile.Request
+	for _, hubEnv := range hubEnvList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      hubEnv.Name,
+				Namespace: hubEnv.Namespace,
+			},
+		})
+	}
+
+	return requests
+}
+
+// removeFinalizer removes the encryption key protection finalizer from a secret
+// REQ-10: Implement finalizer controller for graceful teardown
+// REQ-13: Graceful teardown support - remove finalizers when HubEnvironment is deleted
+func (r *HubEnvironmentReconciler) removeFinalizer(ctx context.Context, secretName, namespace string) error {
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Secret doesn't exist, nothing to do
+			return nil
+		}
+		return fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	// Check if finalizer exists
+	finalizerExists := false
+	for _, f := range secret.Finalizers {
+		if f == secrets.EncryptionKeyProtectionFinalizer {
+			finalizerExists = true
+			break
+		}
+	}
+
+	if !finalizerExists {
+		// Finalizer doesn't exist, nothing to do
+		return nil
+	}
+
+	// Remove the finalizer
+	var newFinalizers []string
+	for _, f := range secret.Finalizers {
+		if f != secrets.EncryptionKeyProtectionFinalizer {
+			newFinalizers = append(newFinalizers, f)
+		}
+	}
+	secret.Finalizers = newFinalizers
+
+	// Update the secret
+	if err := r.Update(ctx, secret); err != nil {
+		return fmt.Errorf("failed to remove finalizer from secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	log.FromContext(ctx).Info("Removed finalizer from secret", "secret", secretName, "namespace", namespace)
+	return nil
+}

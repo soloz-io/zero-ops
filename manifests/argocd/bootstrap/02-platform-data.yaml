@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: 02-platform-data
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # Wave 2: Data stores (CNPG Cluster, Redis, ClickHouse, NATS)
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: HEAD
+    path: manifests/argocd/bootstrap/02-platform-data
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

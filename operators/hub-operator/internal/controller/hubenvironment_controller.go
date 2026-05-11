@@ -23,10 +23,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	"github.com/soloz-io/zero-ops/archived/bkp/database"
 	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
+	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
-	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
@@ -66,20 +66,20 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// REQ-13: Remove finalizers from secrets when HubEnvironment is being deleted
 	if !hubEnv.DeletionTimestamp.IsZero() {
 		logger.Info("HubEnvironment is being deleted, removing finalizers from secrets")
-		
+
 		// Remove finalizers from infisical-secrets
 		if err := r.removeFinalizer(ctx, "infisical-secrets", infisical.InfisicalServiceNamespace); err != nil {
 			logger.Error(err, "Failed to remove finalizer from infisical-secrets")
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 		}
-		
+
 		// Remove finalizers from infisical-redis-credentials
 		dataNamespace := hubEnv.Spec.Database.Namespace
 		if err := r.removeFinalizer(ctx, "infisical-redis-credentials", dataNamespace); err != nil {
 			logger.Error(err, "Failed to remove finalizer from infisical-redis-credentials")
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 		}
-		
+
 		logger.Info("Successfully removed finalizers from secrets, allowing deletion to proceed")
 		return ctrl.Result{}, nil
 	}
@@ -98,12 +98,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err := r.Update(ctx, hubEnv); err != nil {
 			return ctrl.Result{}, err
 		}
-		
+
 		// Update status to clear conditions
 		if err := r.Status().Update(ctx, hubEnv); err != nil {
 			return ctrl.Result{}, err
 		}
-		
+
 		logger.Info("Cleared all conditions and uploaded secrets, forcing full reconciliation")
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -170,7 +170,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets", Namespace: securityNamespace}, infisicalSecret); err != nil {
 		infisicalSecretExists = false
 	}
-	
+
 	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation) || !infisicalSecretExists {
 		if !infisicalSecretExists {
 			logger.Info("Phase 1: infisical-secrets missing, attempting restore from AWS backup")
@@ -193,20 +193,20 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Build list of bootstrap secret names only
 		// These are required for infrastructure bootstrap (CNPG, Infisical, Redis)
 		secretNamesInData := []string{
-			"platform-db-app",           // CNPG bootstrap superuser
-			"infisical-db-credentials",  // Infisical database user
-			"platform-db-ca",            // TLS certificate authority
+			"platform-db-app",             // CNPG bootstrap superuser
+			"infisical-db-credentials",    // Infisical database user
+			"platform-db-ca",              // TLS certificate authority
 			"infisical-redis-credentials", // Redis authentication
 		}
 
 		secretNamesInSecurity := []string{
-			"infisical-secrets",            // Infisical encryption keys
+			"infisical-secrets",             // Infisical encryption keys
 			"infisical-postgres-connection", // Infisical DB connection
 		}
 
 		// Read existing secrets for idempotency
 		existingSecrets := make(map[string]*corev1.Secret)
-		
+
 		// Read secrets from data namespace using UncachedClient (need secret data, not just metadata)
 		for _, name := range secretNamesInData {
 			secret := &corev1.Secret{}
@@ -214,7 +214,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				existingSecrets[name] = secret
 			}
 		}
-		
+
 		// Read secrets from security namespace using UncachedClient (need secret data, not just metadata)
 		for _, name := range secretNamesInSecurity {
 			secret := &corev1.Secret{}
@@ -226,11 +226,11 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// REQ-7: Bootstrap detection - determine if this is first-time bootstrap
 		isFirstTime := !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation)
 		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
-		
+
 		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
 		var awsClient secrets.AWSSecretsManagerClient
 		awsRegion := "ap-south-1" // Default region, can be made configurable
-		
+
 		// Try to initialize AWS client (optional - if credentials not available, backup/restore will be skipped)
 		awsClientImpl, err := r.initializeAWSClient(ctx, awsRegion)
 		if err != nil {
@@ -240,7 +240,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			awsClient = awsClientImpl
 			logger.Info("AWS Secrets Manager client initialized successfully", "region", awsRegion)
 		}
-		
+
 		// REQ-7: Use HubEnvironment name as cluster ID for AWS backup path
 		clusterID := hubEnv.Name
 		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "awsEnabled", awsClient != nil)
@@ -251,7 +251,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			logger.Error(err, "Failed to generate Bootstrap Secrets")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
-		
+
 		logger.Info("Bootstrap secrets generated successfully", "awsBackupEnabled", awsClient != nil)
 
 		// Create bootstrap secrets only
@@ -286,7 +286,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				statusMessage = "Bootstrap secrets restored from AWS Secrets Manager backup"
 			}
 		}
-		
+
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 			Type:               "BootstrapSecretsGenerated",
 			Status:             metav1.ConditionTrue,
@@ -314,12 +314,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Map of application secrets to their namespaces
 		// Ory secrets are in platform-identity, others in platform-data
 		requiredSecrets := map[string]string{
-			"control-plane-db-credentials":  dataNamespace,           // platform-data
-			"hub-db-credentials":            dataNamespace,           // platform-data
-			"spire-server-db-credentials":   dataNamespace,           // platform-data
-			"hydra-db-credentials":          "platform-identity", // platform-identity
-			"kratos-db-credentials":         "platform-identity", // platform-identity
-			"keto-db-credentials":           "platform-identity", // platform-identity
+			"control-plane-db-credentials": dataNamespace,       // platform-data
+			"hub-db-credentials":           dataNamespace,       // platform-data
+			"spire-server-db-credentials":  dataNamespace,       // platform-data
+			"hydra-db-credentials":         "platform-identity", // platform-identity
+			"kratos-db-credentials":        "platform-identity", // platform-identity
+			"keto-db-credentials":          "platform-identity", // platform-identity
 		}
 
 		allSecretsExist := true
@@ -382,104 +382,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	// Requirement 9.6: Phase 2 - Run Migrations
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "MigrationsComplete", hubEnv.Generation) {
-		logger.Info("Phase 2: Running database migrations")
 
-		migrator, err := database.NewMigrator(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
-		if err != nil {
-			logger.Error(err, "Failed to create migrator")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-		}
-		defer migrator.Close()
-
-		if err := migrator.RunMigrations(ctx); err != nil {
-			// Requirement 9.13: Classify errors (transient vs permanent)
-			if database.IsDirtyDatabaseError(err) {
-				logger.Error(err, "Database is in dirty state - manual intervention required")
-				meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-					Type:               "MigrationsComplete",
-					Status:             metav1.ConditionFalse,
-					Reason:             "DirtyDatabase",
-					Message:            err.Error(),
-					ObservedGeneration: hubEnv.Generation,
-				})
-				// DO NOT requeue - requires manual intervention
-				return ctrl.Result{}, r.Status().Update(ctx, hubEnv)
-			}
-
-			// Transient error - requeue with backoff
-			logger.Error(err, "Migration failed (transient error)")
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:               "MigrationsComplete",
-				Status:             metav1.ConditionFalse,
-				Reason:             "MigrationFailed",
-				Message:            err.Error(),
-				ObservedGeneration: hubEnv.Generation,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
-			}
-			// Requirement 9.14: Exponential backoff for transient errors
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "MigrationsComplete",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Completed",
-			Message:            "Database migrations completed successfully",
-			ObservedGeneration: hubEnv.Generation,
-		})
-
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		logger.Info("Phase 2a complete: Migrations executed")
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	// Requirement 9.7: Phase 2 - Create Database Roles
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesConfigured", hubEnv.Generation) {
-		logger.Info("Phase 2: Creating database roles")
-
-		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
-		if err != nil {
-			logger.Error(err, "Failed to create role manager")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-		}
-		defer roleManager.Close()
-
-		if err := roleManager.CreateOrUpdateRoles(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to create database roles")
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:               "DatabaseRolesConfigured",
-				Status:             metav1.ConditionFalse,
-				Reason:             "RoleCreationFailed",
-				Message:            err.Error(),
-				ObservedGeneration: hubEnv.Generation,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "DatabaseRolesConfigured",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Configured",
-			Message:            "Database roles configured successfully",
-			ObservedGeneration: hubEnv.Generation,
-		})
-
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		logger.Info("Phase 2b complete: Database roles created")
-		return ctrl.Result{Requeue: true}, nil
+		// NOTE: Phase 2 (Database Migrations and Roles) removed - now handled by Crossplane and Atlas
+		// This establishes the tri-state database ownership contract:
+		// - Physical Layer: CNPG (Pods, PVCs, Services)
+		// - Logical Layer: Crossplane (Databases, Roles, Grants)
+		// - Schema Layer: Atlas (DDL, migrations)		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Requirement 9.8: Phase 3 - Upload Secrets to Infisical
@@ -1076,30 +984,30 @@ func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name,
 // Returns nil if AWS credentials are not available (backup/restore will be disabled)
 func (r *HubEnvironmentReconciler) initializeAWSClient(ctx context.Context, region string) (*awsclient.SecretsManagerClient, error) {
 	logger := log.FromContext(ctx)
-	
+
 	// Check if AWS credentials are available in environment variables
 	// These are injected from hub-operator-aws-credentials secret
 	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
 	awsRegion := os.Getenv("AWS_REGION")
-	
+
 	if accessKeyID == "" || secretAccessKey == "" {
 		return nil, fmt.Errorf("AWS credentials not found in environment variables")
 	}
-	
+
 	// Use provided region or fall back to environment variable
 	if awsRegion != "" {
 		region = awsRegion
 	}
-	
+
 	logger.Info("Initializing AWS Secrets Manager client", "region", region)
-	
+
 	// Create AWS Secrets Manager client
 	client, err := awsclient.NewSecretsManagerClient(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
 	}
-	
+
 	return client, nil
 }
 

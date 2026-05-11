@@ -1,0 +1,15 @@
+# Crossplane Grant resource for mcp_server on control_plane database
+# This establishes Logical Layer ownership (Crossplane manages grants)
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: mcp-server-grant
+  namespace: platform-data
+spec:
+  forProvider:
+    database: control_plane
+    privileges:
+      - ALL
+    role: mcp_server
+  providerConfigRef:
+    name: hub-sql-provider

@@ -6,7 +6,6 @@ metadata:
   labels:
     argocd.argoproj.io/instance: platform-core
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   destination:
     namespace: platform-messaging

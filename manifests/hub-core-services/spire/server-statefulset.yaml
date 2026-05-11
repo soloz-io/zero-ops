@@ -77,36 +77,6 @@ spec:
         app: spire-server
     spec:
       serviceAccountName: spire-server
-      initContainers:
-      - name: wait-for-db
-        image: postgres:16-alpine
-        env:
-        - name: SPIRE_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: spire-server-db-credentials
-              key: password
-        - name: PGHOST
-          value: "platform-db-rw.platform-data.svc.cluster.local"
-        - name: PGPORT
-          value: "5432"
-        - name: PGDATABASE
-          value: "spire"
-        - name: PGUSER
-          value: "spire"
-        - name: PGSSLMODE
-          value: "require"
-        command:
-        - /bin/sh
-        - -c
-        - |
-          set -e
-          echo "Waiting for SPIRE Server database role to be ready..."
-          until PGPASSWORD="${SPIRE_DB_PASSWORD}" psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -c "SELECT 1" > /dev/null 2>&1; do
-            echo "Database not ready, retrying in 5s..."
-            sleep 5
-          done
-          echo "Database connection successful"
       containers:
       - name: spire-server
         image: ghcr.io/spiffe/spire-server:1.9.0
@@ -144,6 +114,14 @@ spec:
             port: 8080
           initialDelaySeconds: 10
           periodSeconds: 10
+        startupProbe:
+          httpGet:
+            path: /live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 30
+          timeoutSeconds: 5
       volumes:
       - name: spire-config
         configMap:

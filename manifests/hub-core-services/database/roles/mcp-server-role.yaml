@@ -1,0 +1,18 @@
+# Crossplane Role resource for mcp_server
+# This establishes Logical Layer ownership (Crossplane manages role creation)
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: mcp-server-role
+  namespace: platform-data
+spec:
+  forProvider:
+    database: postgres
+    name: mcp_server
+    login: true
+    passwordSecretRef:
+      name: control-plane-db-credentials
+      namespace: platform-data
+      key: password
+  providerConfigRef:
+    name: hub-sql-provider

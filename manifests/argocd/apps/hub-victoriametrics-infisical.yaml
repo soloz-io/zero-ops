@@ -4,7 +4,6 @@ metadata:
   name: platform-victoriametrics-infisical
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
 spec:
   project: default
   source:

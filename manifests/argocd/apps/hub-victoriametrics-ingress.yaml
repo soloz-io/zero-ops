@@ -4,7 +4,6 @@ metadata:
   name: victoriametrics-ingress
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "8"
 spec:
   project: default
   source:

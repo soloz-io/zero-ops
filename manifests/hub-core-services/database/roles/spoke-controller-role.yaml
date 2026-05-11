@@ -1,0 +1,18 @@
+# Crossplane Role resource for spoke_controller
+# This establishes Logical Layer ownership (Crossplane manages role creation)
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: spoke-controller-role
+  namespace: platform-data
+spec:
+  forProvider:
+    database: postgres
+    name: spoke_controller
+    login: true
+    passwordSecretRef:
+      name: hub-db-credentials
+      namespace: platform-data
+      key: password
+  providerConfigRef:
+    name: hub-sql-provider

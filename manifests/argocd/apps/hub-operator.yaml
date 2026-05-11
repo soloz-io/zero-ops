@@ -4,7 +4,6 @@ metadata:
   name: hub-operator
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:

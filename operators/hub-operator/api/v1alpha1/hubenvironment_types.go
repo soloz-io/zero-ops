@@ -208,11 +208,19 @@ type InfisicalConfig struct {
 
 // HubEnvironmentStatus defines the observed state of HubEnvironment.
 type HubEnvironmentStatus struct {
+	// Phase represents the high-level lifecycle phase of the HubEnvironment
+	// Valid phases: Provisioning, Available, Degraded, Failed
+	// - Provisioning: Controllers are actively converging, pods may be NotReady
+	// - Available: Readiness contract met, system is fully operational
+	// - Degraded: System was Available, but a dependency dropped or drifted
+	// - Failed: Terminal failure requiring manual intervention
+	// +kubebuilder:validation:Enum=Provisioning;Available;Degraded;Failed
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
 	// Conditions represent the current state of the HubEnvironment resource.
 	// Standard condition types:
 	// - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
-	// - MigrationsComplete: Database migrations have been executed
-	// - DatabaseRolesConfigured: Database roles have been created
 	// - SecretsBackedUp: Secrets have been uploaded to Infisical
 	// - OAuthClientsRegistered: OAuth clients have been registered with Hydra
 	// - NATSStreamsConfigured: NATS JetStream streams have been created

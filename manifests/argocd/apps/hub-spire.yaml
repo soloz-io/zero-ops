@@ -4,7 +4,6 @@ metadata:
   name: platform-spire
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   project: default
   source:

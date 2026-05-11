@@ -360,6 +360,14 @@ func (o *Orchestrator) localCleanup() error {
 		fmt.Printf("[teardown] ✓ Removed state file\n")
 	}
 
+	// Remove bootstrap state file
+	bootstrapStatePath := filepath.Join(".zero-ops", "bootstrap-state.json")
+	if err := os.Remove(bootstrapStatePath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("[teardown] ⚠️  Failed to remove bootstrap state file: %v\n", err)
+	} else if err == nil {
+		fmt.Printf("[teardown] ✓ Removed bootstrap state file\n")
+	}
+
 	// TODO: Remove context from ~/.kube/config if merged
 
 	fmt.Println("[teardown] ✓ Local cleanup complete")

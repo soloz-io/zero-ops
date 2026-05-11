@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Platform services
+resources:
+  - ../../apps/hub-operator.yaml
+  - ../../apps/kube-sbt-api.yaml
+  - ../../apps/api-gateway.yaml
+  - ../../apps/hub-identity.yaml
+  - ../../apps/hub-spire.yaml
+  - ../../apps/openmeter.yaml
+  - ../../apps/hub-victoriametrics.yaml
+  - ../../apps/hub-grafana-alloy.yaml
+  - ../../apps/hub-victoriametrics-alerts.yaml
+  - ../../apps/hub-infisical.yaml
+  - ../../apps/hub-prometheus-operator.yaml
+  - ../../apps/hub-environment.yaml
+  - ../../apps/network-policies.yaml
+  - ../../apps/external-dns.yaml
+  - ../../apps/hub-external-dns-secrets.yaml
+  - ../../apps/hcloud-ccm.yaml
+  - ../../apps/clickhouse-operator.yaml
+  - ../../apps/openmeter-secrets.yaml
+  - ../../apps/hub-argocd-fleet-registry-auth.yaml
+  - ../../apps/hub-argocd-github-auth.yaml
+  - ../../apps/hub-capi2argo.yaml
+  - ../../apps/hub-victoriametrics-ingress.yaml
+  - ../../apps/hub-victoriametrics-infisical.yaml
+  - ../../apps/ingress-config.yaml
+
+# Crossplane DB/Role declarations (declarative database ownership)
+  - ../../../hub-core-services/crossplane/hub-providerconfig-sql.yaml
+  - ../../../hub-core-services/database/roles/control-plane-database.yaml
+  - ../../../hub-core-services/database/roles/hub-database.yaml
+  - ../../../hub-core-services/database/roles/mcp-server-role.yaml
+  - ../../../hub-core-services/database/roles/agentregistry-role.yaml
+  - ../../../hub-core-services/database/roles/spoke-controller-role.yaml
+  - ../../../hub-core-services/database/roles/spire-server-role.yaml
+  - ../../../hub-core-services/database/roles/mcp-server-grant.yaml
+  - ../../../hub-core-services/database/roles/agentregistry-grant.yaml
+  - ../../../hub-core-services/database/roles/spoke-controller-grant.yaml
+
+# Atlas Migrations (schema governance per ADR-020)
+  - ../../../hub-core-services/database-migrations/control-plane-migrations-configmap.yaml
+  - ../../../hub-core-services/database-migrations/hub-migrations-configmap.yaml
+  - ../../../hub-core-services/database-migrations/control-plane-atlasmigration.yaml
+  - ../../../hub-core-services/database-migrations/hub-atlasmigration.yaml

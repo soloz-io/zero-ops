@@ -424,16 +424,46 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	fmt.Println("[postboot] ✓ All components installed")
 	
-	// Apply platform-core app-of-apps
-	fmt.Println("[postboot] Applying platform-core app-of-apps...")
-	cmd := exec.CommandContext(ctx, "kubectl", "apply",
-		"--kubeconfig", mgmtKubeconfig,
-		"-f", "manifests/argocd/app-of-apps.yaml",
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply app-of-apps: %w\n%s", err, output)
-	}
-	fmt.Println("[postboot] ✓ platform-core app-of-apps applied")
+		// Apply ArgoCD bootstrap boundaries in sequence (replaces monolithic app-of-apps)
+		// Phase 1: Apply Infrastructure boundary
+		fmt.Println("[postboot] Applying 01-platform-infra boundary...")
+		cmd := exec.CommandContext(ctx, "kubectl", "apply",
+			"--kubeconfig", mgmtKubeconfig,
+			"-f", "manifests/argocd/bootstrap/01-platform-infra.yaml",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to apply 01-platform-infra: %w\n%s", err, output)
+		}
+		fmt.Println("[postboot] ✓ 01-platform-infra boundary applied")
+		
+		// Wait for Operators (Crossplane, Atlas, CNPG) to establish webhooks
+		fmt.Println("[postboot] Waiting for operators to establish webhooks...")
+		if err := o.waitForOperators(ctx, mgmtKubeconfig); err != nil {
+			return fmt.Errorf("failed to wait for operators: %w", err)
+		}
+		fmt.Println("[postboot] ✓ Operators ready")
+		
+		// Phase 2: Apply Data boundary
+		fmt.Println("[postboot] Applying 02-platform-data boundary...")
+		cmd = exec.CommandContext(ctx, "kubectl", "apply",
+			"--kubeconfig", mgmtKubeconfig,
+			"-f", "manifests/argocd/bootstrap/02-platform-data.yaml",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to apply 02-platform-data: %w\n%s", err, output)
+		}
+		fmt.Println("[postboot] ✓ 02-platform-data boundary applied")
+		
+		// Phase 3: Apply Services boundary
+		fmt.Println("[postboot] Applying 03-platform-services boundary...")
+		cmd = exec.CommandContext(ctx, "kubectl", "apply",
+			"--kubeconfig", mgmtKubeconfig,
+			"-f", "manifests/argocd/bootstrap/03-platform-services.yaml",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to apply 03-platform-services: %w\n%s", err, output)
+		}
+		fmt.Println("[postboot] ✓ 03-platform-services boundary applied")
 	
 		// Update state
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
@@ -862,6 +892,61 @@ func (o *Orchestrator) waitForAllMachinesRunning(ctx context.Context, kubeconfig
 			
 			if o.Debug {
 				fmt.Printf("[DEBUG] Waiting for %d machines to have nodes joined...\n", pendingCount)
+			}
+		}
+	}
+}
+
+// waitForOperators waits for critical operators (Crossplane, Atlas, CNPG) to establish webhooks
+func (o *Orchestrator) waitForOperators(ctx context.Context, kubeconfig string) error {
+	deadline := time.Now().Add(10 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for operators to establish webhooks")
+			}
+
+			// Check if Crossplane webhooks are ready
+			cmd := exec.CommandContext(ctx, "kubectl",
+				"--kubeconfig", kubeconfig,
+				"get", "validatingwebhookconfigurations",
+				"-o", "jsonpath={range .items[*]}{.metadata.name}:{.webhooks[0].clientConfig.service.name}{\"\\n\"}{end}",
+			)
+
+			output, err := cmd.Output()
+			if err != nil {
+				if o.Debug {
+					fmt.Printf("[DEBUG] Waiting for webhooks to be ready...\n")
+				}
+				continue
+			}
+
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			webhooksReady := false
+
+			for _, line := range lines {
+				if line == "" {
+					continue
+				}
+				// Check if any webhook service is ready
+				if strings.Contains(line, "crossplane") || strings.Contains(line, "atlas") || strings.Contains(line, "cnpg") {
+					webhooksReady = true
+					break
+				}
+			}
+
+			if webhooksReady {
+				return nil
+			}
+
+			if o.Debug {
+				fmt.Printf("[DEBUG] Waiting for operator webhooks to be established...\n")
 			}
 		}
 	}

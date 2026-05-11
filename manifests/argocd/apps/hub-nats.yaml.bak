@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-nats
+  namespace: platform-ops
+  labels:
+    argocd.argoproj.io/instance: platform-core
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  destination:
+    namespace: platform-messaging
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: manifests/hub-core-services/nats
+    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: HEAD
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

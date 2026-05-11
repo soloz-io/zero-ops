@@ -1,0 +1,39 @@
+# AtlasMigration CR for hub database
+# Applies schema migrations for agent_infra_status table and RLS policies
+# Follows ADR-020: Migration Governance with Atlas
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: hub-migrations
+  namespace: platform-data
+  labels:
+    app.kubernetes.io/name: hub-migrations
+    app.kubernetes.io/component: database-migrations
+    database: hub
+spec:
+  # Database connection from CNPG superuser secret
+  urlFrom:
+    secretKeyRef:
+      name: platform-db-superuser
+      key: uri
+      namespace: platform-data
+  
+  # Migration directory from ConfigMap
+  dir:
+    configMapRef:
+      name: hub-migrations
+  
+  # Dev database for validation (empty = operator spins up temp container)
+  devURL: ""
+  
+  # Schema-specific revisions table (tracks migrations for this database)
+  revisionsSchema: "hub"
+  
+  # Baseline version (first migration)
+  baseline: "20260511020613"
+  
+  # Execution order
+  execOrder: linear
+  
+  # Retry policy
+  backoffLimit: 20

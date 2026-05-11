@@ -2,8 +2,10 @@
 
 **Version:** 2.0
 **Date:** 2026-05-08
-**Status:** APPROVED
+**Status:** SUPERSEDED by ADR-023
 **Supersedes:** v1.0 (2026-03-25)
+
+> **Note:** The imperative database management logic described in this ADR caused split-brain scenarios with declarative controllers. It has been completely replaced by the unified declarative approach detailed in ADR-020.
 
 ## Context
 

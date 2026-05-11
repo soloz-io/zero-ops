@@ -1,0 +1,18 @@
+# ProviderConfig for provider-sql on Hub
+# Points to platform-db-superuser for database and role management
+# This establishes the Logical Layer ownership (Crossplane manages databases and roles)
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: hub-sql-provider
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  credentials:
+    source: PostgreSQLConnectionSecret
+    connectionSecretRef:
+      namespace: platform-data
+      name: platform-db-superuser
+  defaultDatabase: postgres
+  sslMode: require

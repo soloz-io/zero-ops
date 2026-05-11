@@ -12,29 +12,39 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/soloz-io/zero-ops/internal/opensbt/api/handlers"
 	"github.com/soloz-io/zero-ops/internal/opensbt/api/middleware"
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/opensbt/providers/openmeter"
 	"github.com/soloz-io/zero-ops/internal/opensbt/providers/ory"
 )
 
 func main() {
-	// Initialize providers
+	// Initialize providers with graceful retry logic
 	openMeterURL := getEnv("OPENMETER_URL", "http://openmeter-api.platform-billing.svc.cluster.local")
 	oryKratosURL := getEnv("ORY_KRATOS_URL", "http://kratos-public.platform-identity.svc.cluster.local")
 
-	meteringProvider, err := openmeter.NewMeteringProvider(openMeterURL)
+	meteringProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
+		return openmeter.NewMeteringProvider(openMeterURL)
+	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to create metering provider: %v", err))
+		panic(fmt.Sprintf("failed to create metering provider after retries: %v", err))
 	}
+	meteringProvider := meteringProviderRaw.(interfaces.IMetering)
 
-	billingProvider, err := openmeter.NewBillingProvider(openMeterURL)
+	billingProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
+		return openmeter.NewBillingProvider(openMeterURL)
+	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to create billing provider: %v", err))
+		panic(fmt.Sprintf("failed to create billing provider after retries: %v", err))
 	}
+	billingProvider := billingProviderRaw.(interfaces.IBilling)
 
-	authProvider, err := ory.NewAuthProvider(oryKratosURL)
+	authProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
+		return ory.NewAuthProvider(oryKratosURL)
+	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to create auth provider: %v", err))
+		panic(fmt.Sprintf("failed to create auth provider after retries: %v", err))
 	}
+	authProvider := authProviderRaw.(interfaces.IAuth)
 
 	// Initialize Gin router
 	router := gin.New()
@@ -140,4 +150,35 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// retryWithBackoff executes a function with exponential backoff retry logic
+// This implements the "stable-but-not-ready" pattern for graceful dependency handling
+func retryWithBackoff(fn func() (interface{}, error)) (interface{}, error) {
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	maxRetries := 30 // 5 minutes total with 10s intervals
+
+	for i := 0; i < maxRetries; i++ {
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+
+		// Log the retry attempt
+		fmt.Printf("Dependency connection failed (attempt %d/%d): %v, retrying in %v...\n", i+1, maxRetries, err, backoff)
+
+		// Sleep with exponential backoff
+		time.Sleep(backoff)
+
+		// Increase backoff (exponential, capped at maxBackoff)
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("max retries (%d) exceeded", maxRetries)
 }

@@ -60,6 +60,16 @@ deployment:
       - name: DSN
         value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
 
+  # Startup probe gives 5 minutes grace period for database connection
+  startupProbe:
+    httpGet:
+      path: /health/ready
+      port: 4434
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 5
+
   extraVolumes:
     - name: identity-schema
       configMap:
@@ -69,9 +79,4 @@ deployment:
     - name: identity-schema
       mountPath: /etc/config/schemas
       readOnly: true
-
-  extraInitContainers: |
-    - name: wait-for-postgres
-      image: postgres:15-alpine
-      command: ['sh', '-c', 'until pg_isready -h platform-db-rw.platform-data.svc.cluster.local -p 5432; do sleep 2; done']
 

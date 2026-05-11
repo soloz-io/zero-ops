@@ -3,18 +3,12 @@
   "clusterName": "hub",
   "region": "fsn1",
   "bootstrapId": "",
-  "currentPhase": "complete",
+  "currentPhase": "capi-init",
   "completedPhases": [
-    "bootstrap-create",
-    "capi-init",
-    "cluster-provision",
-    "pivot-move",
-    "pivot-ready",
-    "clusterclass-deploy",
-    "postboot"
+    "bootstrap-create"
   ],
   "bootstrapContext": "kind-hub",
-  "mgmtKubeconfig": "k8-secrets/kubeconfig/hub.kubeconfig",
+  "mgmtKubeconfig": "",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "10.0.0.0/16",

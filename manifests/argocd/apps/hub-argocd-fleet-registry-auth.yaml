@@ -4,7 +4,6 @@ metadata:
   name: platform-argocd-fleet-registry-auth
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
 spec:
   project: default
   source:
