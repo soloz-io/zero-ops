@@ -49,7 +49,7 @@ spec:
                           cidrBlocks:
                             - 10.96.0.0/12
                       topology:
-                        class: hetzner-spoke-standard-v1 # Semantic Isolation (Critique 1)
+                        class: hetzner-spoke-pool-v1 # Semantic Isolation (Critique 1)
                         version: v1.31.6
                         controlPlane:
                           replicas: 1

@@ -89,10 +89,13 @@ spec:
         matchResources:
           infrastructureCluster: true
       jsonPatches:
-      - op: replace
-        path: /spec/template/spec/sshKeys/hcloud/0/name
+      # FIX: Add the entire object rather than trying to patch a specific array index
+      - op: add
+        path: /spec/template/spec/sshKeys
         valueFrom:
-          variable: sshKeyName
+          template: |
+            hcloud:
+            - name: {{ .sshKeyName }}
   variables:
   - name: region
     required: true
@@ -142,9 +145,10 @@ spec:
         cidrBlock: 10.0.0.0/16
         subnetCidrBlock: 10.0.0.0/24
         networkZone: eu-central  # Default, will be patched by ClusterClass
+      # Required by HetznerClusterTemplate validation; patched by ClusterClass
       sshKeys:
         hcloud:
-        - name: ""  # Will be patched by ClusterClass variable sshKeyName
+        - name: default-ssh-key
       hetznerSecretRef:
         name: hetzner-credentials
         key:

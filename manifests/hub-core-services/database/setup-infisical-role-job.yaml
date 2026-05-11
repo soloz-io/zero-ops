@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: setup-infisical-role
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-db
+        image: postgres:15-alpine
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h platform-db-rw.platform-data.svc.cluster.local -p 5432; do
+              echo "Waiting for database..."
+              sleep 2
+            done
+      containers:
+      - name: setup-infisical-role
+        image: postgres:15-alpine
+        env:
+        - name: PGHOST
+          value: "platform-db-rw.platform-data.svc.cluster.local"
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: "postgres"
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-superuser
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-db-superuser
+              key: password
+        - name: PGSSLMODE
+          value: "require"
+        - name: INFISICAL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: infisical-db-credentials
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          
+          echo "Waiting for PostgreSQL to be ready..."
+          until psql -c "SELECT 1" > /dev/null 2>&1; do 
+            echo "Waiting for database..."
+            sleep 2
+          done
+
+          echo "Creating cnpg_pooler_pgbouncer role for PgBouncer pooler..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'cnpg_pooler_pgbouncer'" | grep -q 1 || \
+            psql -c "CREATE ROLE cnpg_pooler_pgbouncer WITH LOGIN;"
+
+          echo "Creating/updating infisical role..."
+          psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'infisical'" | grep -q 1 && \
+            psql -c "ALTER ROLE infisical WITH PASSWORD '${INFISICAL_PASSWORD}';" || \
+            psql -c "CREATE ROLE infisical WITH LOGIN PASSWORD '${INFISICAL_PASSWORD}';"
+
+          echo "Granting privileges on infisical database..."
+          psql -d infisical -c "GRANT ALL PRIVILEGES ON DATABASE infisical TO infisical;"
+          psql -d infisical -c "GRANT ALL ON SCHEMA public TO infisical;"
+          psql -d infisical -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO infisical;"
+          psql -d infisical -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO infisical;"
+          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO infisical;"
+          psql -d infisical -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO infisical;"
+
+          echo "✓ Infisical role and permissions created successfully"

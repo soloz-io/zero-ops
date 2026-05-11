@@ -192,7 +192,7 @@ spec:
                           identifier
                         type: string
                       projectSlug:
-                        default: platform
+                        default: hub-platform
                         description: ProjectSlug is the Infisical project identifier
                         type: string
                     type: object
@@ -223,8 +223,6 @@ spec:
                   Conditions represent the current state of the HubEnvironment resource.
                   Standard condition types:
                   - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
-                  - MigrationsComplete: Database migrations have been executed
-                  - DatabaseRolesConfigured: Database roles have been created
                   - SecretsBackedUp: Secrets have been uploaded to Infisical
                   - OAuthClientsRegistered: OAuth clients have been registered with Hydra
                   - NATSStreamsConfigured: NATS JetStream streams have been created
@@ -292,6 +290,20 @@ spec:
                   recently observed HubEnvironment
                 format: int64
                 type: integer
+              phase:
+                description: |-
+                  Phase represents the high-level lifecycle phase of the HubEnvironment
+                  Valid phases: Provisioning, Available, Degraded, Failed
+                  - Provisioning: Controllers are actively converging, pods may be NotReady
+                  - Available: Readiness contract met, system is fully operational
+                  - Degraded: System was Available, but a dependency dropped or drifted
+                  - Failed: Terminal failure requiring manual intervention
+                enum:
+                - Provisioning
+                - Available
+                - Degraded
+                - Failed
+                type: string
               uploadedSecrets:
                 description: |-
                   UploadedSecrets tracks which secrets have been uploaded to Infisical

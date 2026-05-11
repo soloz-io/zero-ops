@@ -1,10 +1,10 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down run build-all build-auth-proxy build-mcp-server build-opensbt build-hub
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down run build-all build-auth-proxy build-mcp-server build-kube-sbt-api build-hub
 
 # Build variables
 API_BINARY_NAME=zero-ops-api
 AUTH_PROXY_BINARY=auth-proxy
 MCP_SERVER_BINARY=mcp-server
-OPENSBT_BINARY=opensbt
+KUBE_SBT_API_BINARY=kube-sbt-api
 HUB_BINARY=hub
 BUILD_DIR=bin
 GO=go
@@ -17,7 +17,7 @@ build-all:
 	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) ./cmd/zero-ops-api
 	$(GO) build -o $(BUILD_DIR)/$(AUTH_PROXY_BINARY) ./cmd/auth-proxy
 	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
-	$(GO) build -o $(BUILD_DIR)/$(OPENSBT_BINARY) ./cmd/opensbt
+	$(GO) build -o $(BUILD_DIR)/$(KUBE_SBT_API_BINARY) ./cmd/kube-sbt-api
 	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
 	@echo "✓ All builds complete"
 
@@ -42,12 +42,12 @@ build-mcp-server:
 	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
 	@echo "✓ Build complete: $(BUILD_DIR)/$(MCP_SERVER_BINARY)"
 
-# Build the opensbt binary
-build-opensbt:
-	@echo "Building $(OPENSBT_BINARY)..."
+# Build the kube-sbt-api binary
+build-kube-sbt-api:
+	@echo "Building $(KUBE_SBT_API_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(OPENSBT_BINARY) ./cmd/opensbt
-	@echo "✓ Build complete: $(BUILD_DIR)/$(OPENSBT_BINARY)"
+	$(GO) build -o $(BUILD_DIR)/$(KUBE_SBT_API_BINARY) ./cmd/kube-sbt-api
+	@echo "✓ Build complete: $(BUILD_DIR)/$(KUBE_SBT_API_BINARY)"
 
 # Build the hub binary
 build-hub:

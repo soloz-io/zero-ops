@@ -23,10 +23,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/soloz-io/zero-ops/archived/bkp/database"
 	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
@@ -380,14 +380,6 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !cnpgReady {
 		logger.Info("Waiting for CNPG Cluster to be ready")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-
-		// NOTE: Phase 2 (Database Migrations and Roles) removed - now handled by Crossplane and Atlas
-		// This establishes the tri-state database ownership contract:
-		// - Physical Layer: CNPG (Pods, PVCs, Services)
-		// - Logical Layer: Crossplane (Databases, Roles, Grants)
-		// - Schema Layer: Atlas (DDL, migrations)		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Requirement 9.8: Phase 3 - Upload Secrets to Infisical

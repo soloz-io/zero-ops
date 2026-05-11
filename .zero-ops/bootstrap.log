@@ -496,3 +496,36 @@
 [2026-05-11 12:06:48] Waiting for Infisical pod to be ready (attempt 179/180, ready: False)
 [2026-05-11 12:06:58] Waiting for Infisical pod to be ready (attempt 180/180, ready: False)
 [2026-05-11 12:07:08] ERROR: Infisical pod did not become ready within expected time
+[2026-05-11 13:54:03] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-11 13:54:03] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-05-11 13:54:03] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-05-11 13:54:03] Checking prerequisites...
+[2026-05-11 13:54:04] Prerequisites check passed
+[2026-05-11 13:54:04] Step 1: Hub bootstrap already completed, skipping
+[2026-05-11 13:54:34] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-11 13:54:49] Step 3: GitHub access already configured, skipping
+[2026-05-11 13:55:04] Step 4: Namespaces already created, skipping
+[2026-05-11 13:55:14] Step 5: Initializing bootstrap secrets...
+[2026-05-11 13:55:14] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-05-11 13:55:35] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-11 13:55:36] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-11 13:55:47] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-11 13:55:58] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-11 13:56:09] Infisical pod is ready
+[2026-05-11 13:56:09] Starting port-forward for Infisical...
+[2026-05-11 13:56:14] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-11 13:56:14] Bootstrap secrets initialization completed
+[2026-05-11 13:56:29] Step 6: Waiting for Infisical to be ready...
+[2026-05-11 13:56:29] Checking Infisical pods status...
+[2026-05-11 13:56:30] Infisical is ready
+[2026-05-11 13:56:30] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-11 13:56:30] Infisical pods are running
+[2026-05-11 13:56:40] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-11 13:56:40] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-11 13:56:40] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-11 13:56:45] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-11 13:56:45] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-11 13:56:47] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-11 13:56:47] Database deployment completed
+[2026-05-11 13:56:47] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-11 13:56:47] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
