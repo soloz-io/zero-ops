@@ -16,7 +16,7 @@ spec:
     clusterRef: platform-db
     namespace: platform-data
     roles:
-    - name: mcp_server
+    - name: hub_control_plane
       database: control_plane
       permissions:
       - SELECT
@@ -30,13 +30,13 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    - name: spoke_controller
+    - name: hub_centralized
       database: hub
       permissions:
       - SELECT
       - INSERT
       - UPDATE
-    - name: spire_server
+    - name: spire
       database: spire
       permissions:
       - SELECT

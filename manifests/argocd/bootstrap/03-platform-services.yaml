@@ -5,8 +5,8 @@ metadata:
   namespace: platform-ops
   annotations:
     argocd.argoproj.io/sync-wave: "3"
-    # Wave 3: Platform services + Crossplane DB/Role declarations + Atlas schema migrations
-    # Applied after 02-platform-data (CNPG databases + Crossplane roles created)
+    # Wave 3: Platform services + Hub Operator role management + Atlas schema migrations
+    # Applied after 02-platform-data (CNPG databases + Hub Operator roles created)
 spec:
   project: default
   source:

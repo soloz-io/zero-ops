@@ -29,8 +29,11 @@ spec:
       secret:
         name: platform-db-app
       postInitSQL:
-        # Databases only - users created via setup-platform-roles-job
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
         - CREATE DATABASE infisical;
         - CREATE DATABASE openmeter;
+        - CREATE DATABASE spire;
+        - CREATE DATABASE hydra;
+        - CREATE DATABASE kratos;
+        - CREATE DATABASE keto;
