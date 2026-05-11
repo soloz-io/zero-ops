@@ -124,6 +124,8 @@ spec:
         cidrBlock: 10.0.0.0/16
         subnetCidrBlock: 10.0.0.0/24
         networkZone: eu-central
+      sshKeys:
+        hcloud: []
       hetznerSecretRef:
         name: hetzner-credentials
         key:
