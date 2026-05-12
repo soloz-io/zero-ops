@@ -5,10 +5,11 @@
     Windows Development Environment Setup Script
 .DESCRIPTION
     This script installs and configures a complete development environment on Windows including:
-    - Visual Studio Code
     - Git
     - Node.js
     - kubectl
+    - pip (Python package manager)
+    - uvx (Python tool runner)
     - SSH key generation
     - Git configuration
 .AUTHOR
@@ -67,17 +68,8 @@ function Add-ToPath {
 Write-Host "Starting Windows Development Environment Setup..." -ForegroundColor Cyan
 Write-Host "=================================================" -ForegroundColor Cyan
 
-# 1. Install Visual Studio Code
-Write-Host "`n[1/7] Installing Visual Studio Code..." -ForegroundColor Yellow
-if (-not (Test-Command "code")) {
-    $vscodeUrl = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-user"
-    Install-FromUrl -Name "VSCode" -Url $vscodeUrl -InstallerArgs "/S /mergetasks=!runcode"
-} else {
-    Write-Host "Visual Studio Code is already installed." -ForegroundColor Green
-}
-
-# 2. Install Git
-Write-Host "`n[2/7] Installing Git..." -ForegroundColor Yellow
+# 1. Install Git
+Write-Host "`n[1/6] Installing Git..." -ForegroundColor Yellow
 if (-not (Test-Command "git")) {
     $gitUrl = "https://git-scm.com/download/win"
     Write-Host "Downloading Git from $gitUrl..." -ForegroundColor Green
@@ -101,8 +93,8 @@ if (-not (Test-Command "git")) {
     Write-Host "Git is already installed." -ForegroundColor Green
 }
 
-# 3. Install Node.js
-Write-Host "`n[3/7] Installing Node.js..." -ForegroundColor Yellow
+# 2. Install Node.js
+Write-Host "`n[2/6] Installing Node.js..." -ForegroundColor Yellow
 if (-not (Test-Command "node")) {
     $nodeUrl = "https://nodejs.org/dist/v20.12.2/node-v20.12.2-x64.msi"
     Install-FromUrl -Name "NodeJS" -Url $nodeUrl -InstallerArgs "/quiet /norestart"
@@ -110,8 +102,8 @@ if (-not (Test-Command "node")) {
     Write-Host "Node.js is already installed." -ForegroundColor Green
 }
 
-# 4. Install kubectl
-Write-Host "`n[4/7] Installing kubectl..." -ForegroundColor Yellow
+# 3. Install kubectl
+Write-Host "`n[3/6] Installing kubectl..." -ForegroundColor Yellow
 $kubectlPath = "$env:USERPROFILE\kubectl.exe"
 if (-not (Test-Path $kubectlPath)) {
     try {
@@ -130,8 +122,8 @@ if (-not (Test-Path $kubectlPath)) {
     Write-Host "kubectl is already installed." -ForegroundColor Green
 }
 
-# 5. Generate SSH key
-Write-Host "`n[5/7] Generating SSH key..." -ForegroundColor Yellow
+# 4. Generate SSH key
+Write-Host "`n[4/6] Generating SSH key..." -ForegroundColor Yellow
 $sshDir = "$env:USERPROFILE\.ssh"
 $privateKeyPath = "$sshDir\id_ed25519"
 $publicKeyPath = "$sshDir\id_ed25519.pub"
@@ -166,8 +158,8 @@ if (-not (Test-Path $privateKeyPath)) {
     Write-Host "-------------------" -ForegroundColor Cyan
 }
 
-# 6. Configure Git
-Write-Host "`n[6/7] Configuring Git..." -ForegroundColor Yellow
+# 5. Configure Git
+Write-Host "`n[5/8] Configuring Git..." -ForegroundColor Yellow
 try {
     git config --global user.name "Arun Subramanian"
     git config --global user.email "arun4infra@gmail.com"
@@ -182,17 +174,79 @@ catch {
     Write-Host "Failed to configure Git. Error: $_" -ForegroundColor Red
 }
 
-# 7. Verify installations
-Write-Host "`n[7/7] Verifying installations..." -ForegroundColor Yellow
+# 6. Install pip
+Write-Host "`n[6/8] Installing pip..." -ForegroundColor Yellow
+if (-not (Test-Command "pip")) {
+    try {
+        Write-Host "Downloading get-pip.py..." -ForegroundColor Green
+        $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
+        $pipScript = "$env:TEMP\get-pip.py"
+        
+        Invoke-WebRequest -Uri $pipUrl -OutFile $pipScript -UseBasicParsing
+        
+        Write-Host "Installing pip..." -ForegroundColor Green
+        python $pipScript --user
+        
+        # Add Python user scripts to PATH
+        $pythonScriptsPath = "$env:APPDATA\Python\Python311\Scripts"
+        if (Test-Path $pythonScriptsPath) {
+            Add-ToPath -Path $pythonScriptsPath
+        } else {
+            # Try to find Python scripts path
+            $pythonPaths = @("$env:APPDATA\Python\Python3*\Scripts", "$env:LOCALAPPDATA\Programs\Python\Python3*\Scripts")
+            foreach ($path in $pythonPaths) {
+                $found = Get-ChildItem $path -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+                if ($found) {
+                    Add-ToPath -Path $found.FullName
+                    break
+                }
+            }
+        }
+        
+        Remove-Item $pipScript -Force
+        Write-Host "pip installed successfully!" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Failed to install pip. Error: $_" -ForegroundColor Red
+        Write-Host "Please ensure Python is installed first." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "pip is already installed." -ForegroundColor Green
+}
+
+# 7. Install uvx
+Write-Host "`n[7/8] Installing uvx..." -ForegroundColor Yellow
+if (-not (Test-Command "uvx")) {
+    try {
+        Write-Host "Installing uvx using pip..." -ForegroundColor Green
+        pip install --user uvx
+        
+        # Refresh PATH to include uvx
+        $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [Environment]::GetEnvironmentVariable("PATH", "Machine")
+        
+        Write-Host "uvx installed successfully!" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Failed to install uvx. Error: $_" -ForegroundColor Red
+        Write-Host "Please ensure pip is installed and accessible." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "uvx is already installed." -ForegroundColor Green
+}
+
+# 8. Verify installations
+Write-Host "`n[8/8] Verifying installations..." -ForegroundColor Yellow
 Write-Host "Installation Summary:" -ForegroundColor Cyan
 Write-Host "====================" -ForegroundColor Cyan
 
 $tools = @{
-    "VS Code" = "code --version"
     "Git" = "git --version"
     "Node.js" = "node --version"
     "npm" = "npm --version"
     "kubectl" = "kubectl version --client"
+    "Python" = "python --version"
+    "pip" = "pip --version"
+    "uvx" = "uvx --version"
 }
 
 foreach ($tool in $tools.GetEnumerator()) {
