@@ -7,7 +7,7 @@ on:
       - operators/function-cert-distribution/**
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
@@ -25,9 +25,8 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - uses: docker/build-push-action@v5
-        id: build
         with:
-          context: .
+          context: operators/function-cert-distribution
           file: operators/function-cert-distribution/Dockerfile
           platforms: linux/amd64
           push: true
