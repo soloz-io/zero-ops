@@ -95,11 +95,16 @@ go build -o bin/hub ./cmd/hub
 **Usage:**
 ```bash
 # Step 1: Bootstrap Hub Cluster with Ubuntu (default, production-ready)
-export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
-./bin/hub bootstrap \
-  --name=hub \
-  --region=fsn1 \
-  --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
+
+# Legacy way
+# export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
+# ./bin/hub bootstrap \
+#   --name=hub \
+#   --region=fsn1 \
+#   --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
+
+# New way
+./scripts/hub-bootstrap.sh
 
 # Step 2: Configure AWS Secrets Manager for Infisical encryption key recovery (REQUIRED)
 # This must be done BEFORE init-secrets to enable disaster recovery
