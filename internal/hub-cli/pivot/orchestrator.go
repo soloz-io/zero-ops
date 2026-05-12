@@ -8,13 +8,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/binaries"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
+
+type resourceMetadata struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name        string            `yaml:"name"`
+		Annotations map[string]string `yaml:"annotations"`
+	} `yaml:"metadata"`
+}
 
 // Orchestrator manages CAPI pivot from bootstrap to management cluster
 type Orchestrator struct {
@@ -22,6 +33,7 @@ type Orchestrator struct {
 	ClusterName         string
 	Namespace           string
 	OSType              string // ubuntu or talos
+	Debug               bool
 }
 
 // ExecuteMove performs the pivot move operation (without waiting for ready)
@@ -302,56 +314,15 @@ spec:
 		return fmt.Errorf("timeout waiting for cert-manager webhook to become fully functional")
 	}
 
-	// 3. Install full operator manifest
+	// 3. Install operator deterministically
 	fmt.Println("[pivot] Installing cluster-api-operator...")
 	operatorManifest, err := assets.ReadManifest("core/capi-operator/install.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to read operator manifest: %w", err)
 	}
 
-	// Split manifest into CRDs and other resources
-	// This ensures CRDs are created before the operator deployment and webhooks
-	docs := bytes.Split(operatorManifest, []byte("\n---"))
-	var crds [][]byte
-	var others [][]byte
-
-	for _, doc := range docs {
-		if bytes.Contains(doc, []byte("kind: CustomResourceDefinition")) {
-			crds = append(crds, doc)
-		} else if len(bytes.TrimSpace(doc)) > 0 {
-			others = append(others, doc)
-		}
-	}
-
-	// Apply CRDs first using Server-Side Apply to avoid annotation size limits
-	if len(crds) > 0 {
-		fmt.Println("[pivot] Applying CAPI operator CRDs...")
-		crdManifest := bytes.Join(crds, []byte("\n---\n"))
-
-		applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "--server-side", "--force-conflicts",
-			"--kubeconfig", mgmtKubeconfig, "-f", "-")
-		applyCmd.Stdin = bytes.NewReader(crdManifest)
-
-		if output, err := applyCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply CAPI Operator CRDs: %w\n%s", err, output)
-		}
-
-		// Give apiserver a moment to register CRDs
-		time.Sleep(5 * time.Second)
-	}
-
-	// Apply remaining resources (Deployments, Webhooks, etc.)
-	if len(others) > 0 {
-		fmt.Println("[pivot] Applying CAPI operator components...")
-		otherManifest := bytes.Join(others, []byte("\n---\n"))
-
-		applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "--server-side", "--force-conflicts",
-			"--kubeconfig", mgmtKubeconfig, "-f", "-")
-		applyCmd.Stdin = bytes.NewReader(otherManifest)
-
-		if output, err := applyCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("operator apply failed: %w\n%s", err, output)
-		}
+	if err := o.applyManifestSafely(ctx, mgmtKubeconfig, operatorManifest); err != nil {
+		return err
 	}
 
 	// 4. Wait for operator ready
@@ -380,6 +351,135 @@ spec:
 		return fmt.Errorf("CAPI CRDs not ready: %w", err)
 	}
 
+	return nil
+}
+
+func (o *Orchestrator) applyManifestSafely(ctx context.Context, kubeconfig string, manifest []byte) error {
+	docs := bytes.Split(manifest, []byte("\n---"))
+	var prereqs, injectables, deployments [][]byte
+	var crdsToWait []string
+	var crdsToInject []string
+
+	for _, doc := range docs {
+		doc = bytes.TrimSpace(doc)
+		if len(doc) == 0 {
+			continue
+		}
+
+		var m resourceMetadata
+		if err := yaml.Unmarshal(doc, &m); err != nil {
+			prereqs = append(prereqs, doc)
+			continue
+		}
+
+		switch m.Kind {
+		case "CustomResourceDefinition":
+			injectables = append(injectables, doc)
+			crdsToWait = append(crdsToWait, m.Metadata.Name)
+			if m.Metadata.Annotations != nil && m.Metadata.Annotations["cert-manager.io/inject-ca-from"] != "" {
+				crdsToInject = append(crdsToInject, m.Metadata.Name)
+			}
+		case "MutatingWebhookConfiguration", "ValidatingWebhookConfiguration":
+			injectables = append(injectables, doc)
+		case "Deployment", "StatefulSet":
+			deployments = append(deployments, doc)
+		default:
+			prereqs = append(prereqs, doc)
+		}
+	}
+
+	fmt.Println("[pivot] Applying prerequisites (Namespaces, Certificates, RBAC)...")
+	if err := o.applyBatch(ctx, kubeconfig, prereqs); err != nil {
+		return fmt.Errorf("failed to apply prerequisites: %w", err)
+	}
+
+	// Give cert-manager a tiny window to process the newly created Certificate/Issuer
+	time.Sleep(2 * time.Second)
+
+	fmt.Println("[pivot] Applying CRDs and Webhooks...")
+	if err := o.applyBatch(ctx, kubeconfig, injectables); err != nil {
+		return fmt.Errorf("failed to apply CRDs and Webhooks: %w", err)
+	}
+
+	if len(crdsToInject) > 0 {
+		fmt.Println("[pivot] Waiting for cert-manager cainjector to inject CA bundles...")
+		for _, crdName := range crdsToInject {
+			if o.Debug {
+				fmt.Printf("[DEBUG] Waiting for CA injection on CRD %s...\n", crdName)
+			}
+			if err := o.waitForCAInjection(ctx, kubeconfig, crdName); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(crdsToWait) > 0 {
+		fmt.Println("[pivot] Waiting for CRDs to be Established...")
+		for _, crdName := range crdsToWait {
+			waitCmd := exec.CommandContext(ctx, "kubectl", "wait", "--for=condition=Established", "crd/"+crdName, "--timeout=60s", "--kubeconfig", kubeconfig)
+			if out, err := waitCmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("timeout waiting for CRD %s to establish: %w\n%s", crdName, err, out)
+			}
+		}
+	}
+
+	fmt.Println("[pivot] Applying Operator Deployments...")
+	if err := o.applyBatch(ctx, kubeconfig, deployments); err != nil {
+		return fmt.Errorf("failed to apply operator deployments: %w", err)
+	}
+
+	return nil
+}
+
+func (o *Orchestrator) waitForCAInjection(ctx context.Context, kubeconfig, crdName string) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			cmd := exec.CommandContext(ctx, "kubectl", "get", "crd", crdName, "-o", "jsonpath={.spec.conversion.webhook.clientConfig.caBundle}", "--kubeconfig", kubeconfig)
+			out, err := cmd.Output()
+			if err == nil {
+				caBundle := strings.TrimSpace(string(out))
+				caBundle = strings.Trim(caBundle, "'\"") // Cleanup potential JSONPath formatting
+				// "Cg==" is the base64 encoded "\n" placeholder. We wait for cainjector to overwrite it.
+				if caBundle != "" && caBundle != "Cg==" {
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("timeout waiting for cert-manager cainjector to inject CA bundle for CRD %s", crdName)
+}
+
+func (o *Orchestrator) applyBatch(ctx context.Context, kubeconfig string, batch [][]byte) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	manifest := bytes.Join(batch, []byte("\n---\n"))
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", kubeconfig, "-f", "-")
+	cmd.Stdin = bytes.NewReader(manifest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// Fallback to server-side apply ONLY if we hit the annotation length limit (safe enterprise workaround)
+		if bytes.Contains(out, []byte("Too long: must have at most 262144 bytes")) {
+			if o.Debug {
+				fmt.Println("[DEBUG] Resource too large for client-side apply, falling back to server-side apply...")
+			}
+			cmd = exec.CommandContext(ctx, "kubectl", "apply", "--server-side", "--kubeconfig", kubeconfig, "-f", "-")
+			cmd.Stdin = bytes.NewReader(manifest)
+			out, err = cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s", string(out))
+			}
+			return nil
+		}
+		return fmt.Errorf("%s", string(out))
+	}
 	return nil
 }
 

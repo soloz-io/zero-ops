@@ -4,15 +4,28 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
 )
+
+type resourceMetadata struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name        string            `yaml:"name"`
+		Annotations map[string]string `yaml:"annotations"`
+	} `yaml:"metadata"`
+}
 
 // OperatorInstaller installs cluster-api-operator
 type OperatorInstaller struct {
@@ -146,13 +159,155 @@ spec:
 func (i *OperatorInstaller) installOperator(ctx context.Context) error {
 	operatorURL := fmt.Sprintf("https://github.com/kubernetes-sigs/cluster-api-operator/releases/download/%s/operator-components.yaml", versions.CAPIOperatorVersion)
 
-	// Use server-side apply to avoid "metadata.annotations: Too long" errors with large CRDs
-	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "--server-side", "--force-conflicts", "-f", operatorURL)...)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("kubectl apply failed: %w\n%s", err, output)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, operatorURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for operator manifest: %w", err)
 	}
 
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to download operator manifest: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download operator manifest, status: %d", resp.StatusCode)
+	}
+
+	manifest, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read operator manifest: %w", err)
+	}
+
+	return i.applyManifestSafely(ctx, manifest)
+}
+
+func (i *OperatorInstaller) applyManifestSafely(ctx context.Context, manifest []byte) error {
+	docs := bytes.Split(manifest, []byte("\n---"))
+	var prereqs, injectables, deployments [][]byte
+	var crdsToWait []string
+	var crdsToInject []string
+
+	for _, doc := range docs {
+		doc = bytes.TrimSpace(doc)
+		if len(doc) == 0 {
+			continue
+		}
+
+		var m resourceMetadata
+		if err := yaml.Unmarshal(doc, &m); err != nil {
+			prereqs = append(prereqs, doc)
+			continue
+		}
+
+		switch m.Kind {
+		case "CustomResourceDefinition":
+			injectables = append(injectables, doc)
+			crdsToWait = append(crdsToWait, m.Metadata.Name)
+			if m.Metadata.Annotations != nil && m.Metadata.Annotations["cert-manager.io/inject-ca-from"] != "" {
+				crdsToInject = append(crdsToInject, m.Metadata.Name)
+			}
+		case "MutatingWebhookConfiguration", "ValidatingWebhookConfiguration":
+			injectables = append(injectables, doc)
+		case "Deployment", "StatefulSet":
+			deployments = append(deployments, doc)
+		default:
+			prereqs = append(prereqs, doc)
+		}
+	}
+
+	fmt.Println("[capi-init] Applying prerequisites (Namespaces, Certificates, RBAC)...")
+	if err := i.applyBatch(ctx, prereqs); err != nil {
+		return fmt.Errorf("failed to apply prerequisites: %w", err)
+	}
+
+	// Give cert-manager a tiny window to process the newly created Certificate/Issuer
+	time.Sleep(2 * time.Second)
+
+	fmt.Println("[capi-init] Applying CRDs and Webhooks...")
+	if err := i.applyBatch(ctx, injectables); err != nil {
+		return fmt.Errorf("failed to apply CRDs and Webhooks: %w", err)
+	}
+
+	if len(crdsToInject) > 0 {
+		fmt.Println("[capi-init] Waiting for cert-manager cainjector to inject CA bundles...")
+		for _, crdName := range crdsToInject {
+			if i.Debug {
+				fmt.Printf("[DEBUG] Waiting for CA injection on CRD %s...\n", crdName)
+			}
+			if err := i.waitForCAInjection(ctx, crdName); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(crdsToWait) > 0 {
+		fmt.Println("[capi-init] Waiting for CRDs to be Established...")
+		for _, crdName := range crdsToWait {
+			waitCmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "--for=condition=Established", "crd/"+crdName, "--timeout=60s")...)
+			if out, err := waitCmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("timeout waiting for CRD %s to establish: %w\n%s", crdName, err, out)
+			}
+		}
+	}
+
+	fmt.Println("[capi-init] Applying Operator Deployments...")
+	if err := i.applyBatch(ctx, deployments); err != nil {
+		return fmt.Errorf("failed to apply operator deployments: %w", err)
+	}
+
+	return nil
+}
+
+func (i *OperatorInstaller) waitForCAInjection(ctx context.Context, crdName string) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", "crd", crdName, "-o", "jsonpath={.spec.conversion.webhook.clientConfig.caBundle}")...)
+			out, err := cmd.Output()
+			if err == nil {
+				caBundle := strings.TrimSpace(string(out))
+				caBundle = strings.Trim(caBundle, "'\"") // Cleanup potential JSONPath formatting
+				// "Cg==" is the base64 encoded "\n" placeholder. We wait for cainjector to overwrite it.
+				if caBundle != "" && caBundle != "Cg==" {
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("timeout waiting for cert-manager cainjector to inject CA bundle for CRD %s", crdName)
+}
+
+func (i *OperatorInstaller) applyBatch(ctx context.Context, batch [][]byte) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	manifest := bytes.Join(batch, []byte("\n---\n"))
+	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "-f", "-")...)
+	cmd.Stdin = bytes.NewReader(manifest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// Fallback to server-side apply ONLY if we hit the annotation length limit (safe enterprise workaround)
+		if bytes.Contains(out, []byte("Too long: must have at most 262144 bytes")) {
+			if i.Debug {
+				fmt.Println("[DEBUG] Resource too large for client-side apply, falling back to server-side apply...")
+			}
+			cmd = exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "--server-side", "-f", "-")...)
+			cmd.Stdin = bytes.NewReader(manifest)
+			out, err = cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s", string(out))
+			}
+			return nil
+		}
+		return fmt.Errorf("%s", string(out))
+	}
 	return nil
 }
 
