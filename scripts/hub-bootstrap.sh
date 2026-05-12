@@ -511,7 +511,7 @@ step10_wait_spokepool() {
         local workers_ready
         workers_ready=$(kubectl get cluster "$cluster_name" -n platform-capi \
             --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-            -o jsonpath='{.status.conditions[?(@.type=="WorkersReady")].status}' 2>/dev/null || echo "False")
+            -o jsonpath='{.status.v1beta2.conditions[?(@.type=="WorkerMachinesReady")].status}' 2>/dev/null || echo "False")
         
         if [[ "$infra_ready" == "True" && "$cp_ready" == "True" && "$workers_ready" == "True" ]]; then
             log "✅ CAPI Cluster is ready: Phase=$cluster_phase, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True"
@@ -553,9 +553,9 @@ step10_wait_spokepool() {
     # Step 10c: Wait for certificate distribution resources (with correct naming)
     log "Step 10c: Checking certificate distribution resources..."
     local cert_resources=(
-        "${SPOKEPOOL_NAME}-alloy-client-cert-distribution"
-        "${SPOKEPOOL_NAME}-nats-leafnode-cert-distribution"
-        "${SPOKEPOOL_NAME}-argocd-agent-cert-distribution"
+        "${SPOKEPOOL_NAME}-alloy-cert-dist"
+        "${SPOKEPOOL_NAME}-nats-cert-dist"
+        "${SPOKEPOOL_NAME}-argocd-cert-dist"
     )
     
     for cert_resource in "${cert_resources[@]}"; do
