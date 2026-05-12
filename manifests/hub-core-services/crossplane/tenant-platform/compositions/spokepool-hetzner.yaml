@@ -277,9 +277,15 @@ spec:
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.commonName
           
+          # Stateful Certificate Distribution using Composition Function (v2.0 pattern)
+          # Eliminates patchesFrom deadlocks and provides SRE observability
+          - step: distribute-certificates
+            functionRef:
+              name: function-cert-distribution
+
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
-          # NOTE: Certificate distribution moved to Crossplane Objects (v2.0 pattern)
+          # NOTE: Only static bootstrap resources remain here
           # CRS now only contains static bootstrap resources
           - name: cluster-resource-set
             base:

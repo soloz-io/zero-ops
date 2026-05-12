@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - provider-kubernetes/provider.yaml
   - function/function.yaml
+  - function/function-cert-distribution.yaml
