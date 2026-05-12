@@ -108,8 +108,9 @@ spec:
                   manifest:
                     apiVersion: cert-manager.io/v1
                     kind: Certificate
+                    # Enterprise Fix: Co-locate Certificate request with its Issuer
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     spec:
                       secretName: ""  # Patched below
                       duration: 2160h  # 90 days
@@ -520,6 +521,19 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-observability-namespace"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-observability-namespace"
 
           # platform-messaging namespace ConfigMap
           - name: messaging-namespace-configmap
@@ -548,6 +562,19 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-messaging-namespace"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-messaging-namespace"
 
           # Hetzner credentials ExternalSecret
           # Wrapped in provider-kubernetes Object
@@ -897,7 +924,8 @@ spec:
                   - patchesFrom:
                       apiVersion: v1
                       kind: Secret
-                      namespace: platform-ops
+                      # Enterprise Fix: Read the generated cert from the Issuer's namespace
+                      namespace: platform-capi
                       fieldPath: data
                 forProvider:
                   manifest:
@@ -909,7 +937,7 @@ spec:
                       labels:
                         managed-by: crossplane
                         source-cluster: hub
-                        source-namespace: platform-ops
+                        source-namespace: platform-capi
                         cert-type: argocd-agent-client
                     type: kubernetes.io/tls
                 providerConfigRef:
