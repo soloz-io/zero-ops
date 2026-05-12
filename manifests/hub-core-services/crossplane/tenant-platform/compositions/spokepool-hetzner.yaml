@@ -314,6 +314,12 @@ spec:
                         # ArgoCD namespace
                         - name: argocd-namespace
                           kind: ConfigMap
+                        # platform-observability namespace
+                        - name: observability-namespace
+                          kind: ConfigMap
+                        # platform-messaging namespace
+                        - name: messaging-namespace
+                          kind: ConfigMap
                         # ArgoCD CRDs (must be before Agent)
                         - name: argocd-crds-template
                           kind: Secret
@@ -381,7 +387,7 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
                 transforms:
                   - type: string
                     string:
@@ -402,7 +408,7 @@ spec:
                     apiVersion: v1
                     kind: ConfigMap
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     data:
                       argocd-agent-config.yaml: ""
                 providerConfigRef:
@@ -468,7 +474,7 @@ spec:
                     kind: ConfigMap
                     metadata:
                       name: argocd-namespace
-                      namespace: platform-ops
+                      namespace: platform-capi
                     data:
                       namespace.yaml: |
                         apiVersion: v1
@@ -486,7 +492,63 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-namespace"
-          
+
+          # platform-observability namespace ConfigMap
+          - name: observability-namespace-configmap
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: observability-namespace
+                      namespace: platform-capi
+                    data:
+                      namespace.yaml: |
+                        apiVersion: v1
+                        kind: Namespace
+                        metadata:
+                          name: platform-observability
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+
+          # platform-messaging namespace ConfigMap
+          - name: messaging-namespace-configmap
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: messaging-namespace
+                      namespace: platform-capi
+                    data:
+                      namespace.yaml: |
+                        apiVersion: v1
+                        kind: Namespace
+                        metadata:
+                          name: platform-messaging
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+
           # Hetzner credentials ExternalSecret
           # Wrapped in provider-kubernetes Object
           - name: hetzner-credentials-externalsecret
@@ -501,7 +563,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
@@ -570,7 +632,7 @@ spec:
                     apiVersion: external-secrets.io/v1
                     kind: ExternalSecret
                     metadata:
-                      namespace: platform-ops
+                      namespace: platform-capi
                     spec:
                       refreshInterval: 1h
                       secretStoreRef:
@@ -668,10 +730,58 @@ spec:
           # Infisical push for crossplane-admin password is owned by Hub Operator (ADR-003 A2b), not PushSecret.
 
           # ========================================================================
+          # Spoke ProviderConfig (Replaces Kyverno Policy)
+          # Creates the ProviderConfig pointing to the CAPI-generated kubeconfig.
+          # Consolidates the declarative dependency graph natively in Crossplane.
+          # ========================================================================
+          - name: spoke-providerconfig
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    kind: ProviderConfig
+                    metadata:
+                      name: ""
+                    spec:
+                      credentials:
+                        source: Secret
+                        secretRef:
+                          namespace: platform-capi
+                          name: ""
+                          key: value
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-providerconfig"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.credentials.secretRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-kubeconfig"
+
+          # ========================================================================
           # mTLS Certificate Distribution via Crossplane Objects (v2.0 Pattern)
           # Replaces Kyverno+CRS hybrid with pure continuous reconciliation
           # ========================================================================
-          
+
           # Alloy Client Certificate Distribution
           # Copies cert-manager generated secret from Hub to Spoke
           - name: alloy-client-cert-distribution

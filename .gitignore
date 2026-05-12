@@ -5,3 +5,4 @@ bin
 codebase.md
 .kiro/specs/agentic-enterprise-onboarding/references
 docs/metrics
+kubeconfig
