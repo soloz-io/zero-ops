@@ -433,3 +433,24 @@ with:
 * shared lower-level implementation modules
 
 That is the idiomatic enterprise-grade platform architecture.
+
+
+6. Integration Test Coverage Is Now Mandatory
+
+At this level of orchestration sophistication, unit tests alone are insufficient.
+
+You now need automated reconciliation-path tests for:
+
+* Certificate absent
+* Certificate pending
+* Certificate ready
+* Secret projection delayed
+* Secret malformed
+* provider-kubernetes degraded
+* XR upgrade during pending state
+* CompositionRevision migration
+* cert rotation
+* spoke deletion
+* providerConfig outage
+
+Because this logic now encodes orchestration semantics, not just transformation.
