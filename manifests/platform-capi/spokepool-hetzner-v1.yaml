@@ -99,7 +99,7 @@ spec:
     schema:
       openAPIV3Schema:
         type: string
-        default: "cx23"
+        default: "cx33"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -208,7 +208,7 @@ metadata:
 spec:
   template:
     spec:
-      type: cx23
+      type: cx33
       imageName: ubuntu-24.04
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
