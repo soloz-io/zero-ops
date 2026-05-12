@@ -730,10 +730,58 @@ spec:
           # Infisical push for crossplane-admin password is owned by Hub Operator (ADR-003 A2b), not PushSecret.
 
           # ========================================================================
+          # Spoke ProviderConfig (Replaces Kyverno Policy)
+          # Creates the ProviderConfig pointing to the CAPI-generated kubeconfig.
+          # Consolidates the declarative dependency graph natively in Crossplane.
+          # ========================================================================
+          - name: spoke-providerconfig
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    kind: ProviderConfig
+                    metadata:
+                      name: ""
+                    spec:
+                      credentials:
+                        source: Secret
+                        secretRef:
+                          namespace: platform-capi
+                          name: ""
+                          key: value
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-providerconfig"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.credentials.secretRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-kubeconfig"
+
+          # ========================================================================
           # mTLS Certificate Distribution via Crossplane Objects (v2.0 Pattern)
           # Replaces Kyverno+CRS hybrid with pure continuous reconciliation
           # ========================================================================
-          
+
           # Alloy Client Certificate Distribution
           # Copies cert-manager generated secret from Hub to Spoke
           - name: alloy-client-cert-distribution
