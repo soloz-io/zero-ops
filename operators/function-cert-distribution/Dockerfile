@@ -10,4 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o function-cert-distribut
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/function-cert-distribution .
+# Enterprise Fix: Inject Crossplane package metadata into the OCI image root
+COPY package.yaml /package.yaml
+
 ENTRYPOINT ["/function-cert-distribution"]

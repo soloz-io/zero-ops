@@ -1,0 +1,9 @@
+apiVersion: meta.pkg.crossplane.io/v1beta1
+kind: Function
+metadata:
+  name: function-cert-distribution
+  annotations:
+    meta.crossplane.io/maintainer: "Zero-Ops Platform Team"
+    meta.crossplane.io/source: "https://github.com/soloz-io/zero-ops"
+    meta.crossplane.io/license: "Apache-2.0"
+    meta.crossplane.io/description: "A Crossplane composition function that handles state-aware certificate distribution from Hub to Spoke clusters."
