@@ -7,6 +7,7 @@ import (
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/fieldpath"
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/function-sdk-go/errors"
 	fnv1 "github.com/crossplane/function-sdk-go/proto/v1"
 	"github.com/crossplane/function-sdk-go/request"
@@ -31,12 +32,12 @@ const (
 
 // Function represents the composition function
 type Function struct {
-	// Add any required fields here, typically a logger
+	log logging.Logger
 }
 
 // RunFunction executes the phased rendering logic for certificate distribution
 func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest) (*fnv1.RunFunctionResponse, error) {
-	// log := f.log.WithValues("tag", req.GetMeta().GetTag())
+	log := f.log.WithValues("tag", req.GetMeta().GetTag())
 	resp := response.To(req, response.DefaultTTL)
 
 	// 1. Get the XR
@@ -82,12 +83,12 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 			// Escalate to Degraded/Timeout state
 			response.ConditionFalse(resp, string(ConditionTypeCertificatesMinted), string(ReasonTimeout)).
 				WithMessage("Certificate generation timed out after 15 minutes. Check cert-manager logs on Hub.")
-			// log.Info("Certificate generation timed out", "spoke", spokeName)
+			log.Info("Certificate generation timed out", "spoke", spokeName)
 		} else {
 			// Normal pending state
 			response.ConditionFalse(resp, string(ConditionTypeCertificatesMinted), string(ReasonWaitingForCertManager)).
 				WithMessage("Waiting for cert-manager to mint the client certificate")
-			// log.Debug("Nested Certificate not ready, short-circuiting cert distribution", "spoke", spokeName)
+			log.Debug("Nested Certificate not ready, short-circuiting cert distribution", "spoke", spokeName)
 		}
 
 		// Return gracefully; omit the downstream resource to prevent patchesFrom deadlocks
@@ -104,7 +105,7 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 			WithMessage("Certificates successfully minted")
 		response.ConditionFalse(resp, string(ConditionTypeCertificatesDistributed), string(ReasonWaitingForSecretProjection)).
 			WithMessage("Certificate is ready, waiting for secret data to project into observed state")
-		// log.Debug("Secret data not yet populated in observed state, waiting...", "spoke", spokeName)
+		log.Debug("Secret data not yet populated in observed state, waiting...", "spoke", spokeName)
 		return resp, nil
 	}
 
@@ -115,7 +116,7 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 			WithMessage("Certificates successfully minted")
 		response.ConditionFalse(resp, string(ConditionTypeCertificatesDistributed), string(ReasonMalformedSecretData)).
 			WithMessage("Secret data projection is malformed in the observed state")
-		// log.Info("Failed to assert secret data to map[string]interface{}", "spoke", spokeName)
+		log.Info("Failed to assert secret data to map[string]interface{}", "spoke", spokeName)
 		return resp, nil
 	}
 
