@@ -32,6 +32,7 @@ const (
 
 // Function represents the composition function
 type Function struct {
+	fnv1.UnimplementedFunctionRunnerServiceServer
 	log logging.Logger
 }
 

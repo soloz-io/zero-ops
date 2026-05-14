@@ -23,7 +23,7 @@ func main() {
 
 	// 3. Start the Crossplane gRPC server
 	// fn.Serve defaults to listening on :9443, which the package manager expects
-	if err := fn.Serve(f, fn.WithLogger(logger)); err != nil {
+	if err := fn.Serve(f); err != nil {
 		logger.Info("Fatal error running function server", "error", err)
 		os.Exit(1)
 	}
