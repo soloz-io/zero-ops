@@ -3,35 +3,7 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
-[teardown] Deleting server: hub-tlbdd-rhfsh (ID: 130350232)
-[teardown] ✓ Deleted server: hub-tlbdd-rhfsh
-[teardown] Deleting server: hub-md-0-hhtxd-f6rzh-8v68p (ID: 130350982)
-[teardown] ✓ Deleted server: hub-md-0-hhtxd-f6rzh-8v68p
-[teardown] Deleting server: hub-md-0-hhtxd-f6rzh-pptj8 (ID: 130350988)
-[teardown] ✓ Deleted server: hub-md-0-hhtxd-f6rzh-pptj8
-[teardown] Deleting load balancer: hub-lwmxx-kube-apiserver-k5pvf (ID: 6312218)
-[teardown] ✓ Deleted load balancer: hub-lwmxx-kube-apiserver-k5pvf
-[teardown] Deleting load balancer: a8a5c0f0bc0a74c1482f0538f08a7cd3 (ID: 6312377)
-[teardown] ✓ Deleted load balancer: a8a5c0f0bc0a74c1482f0538f08a7cd3
-[teardown] Deleting network: hub-lwmxx (ID: 12209718)
-[teardown] ✓ Deleted network: hub-lwmxx
 [teardown] Deleting associated volumes...
-[teardown] Deleting volume: pvc-a201521e-b508-438c-8297-97436381bfa5 (ID: 105671830, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-a201521e-b508-438c-8297-97436381bfa5
-[teardown] Deleting volume: pvc-0bd06de9-4806-40e7-973e-49b8f1717db0 (ID: 105671829, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-0bd06de9-4806-40e7-973e-49b8f1717db0
-[teardown] Deleting volume: pvc-cc0db25c-0c97-414f-9764-7305f181a1c5 (ID: 105671840, Size: 50 GB)
-[teardown] ✓ Deleted volume: pvc-cc0db25c-0c97-414f-9764-7305f181a1c5
-[teardown] Deleting volume: pvc-81dd2dfe-dfcc-4f62-aa2a-957d4037d1e9 (ID: 105671877, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-81dd2dfe-dfcc-4f62-aa2a-957d4037d1e9
-[teardown] Deleting volume: pvc-1d8a7911-138d-4295-8494-bc497d2f1340 (ID: 105672594, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-1d8a7911-138d-4295-8494-bc497d2f1340
-[teardown] Deleting volume: pvc-9f4740ac-cec5-47d8-a26d-e94c2bb437ab (ID: 105673658, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-9f4740ac-cec5-47d8-a26d-e94c2bb437ab
-[teardown] Deleting volume: pvc-2713f4b1-e8ba-4385-b5cc-d069b292ad25 (ID: 105673639, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-2713f4b1-e8ba-4385-b5cc-d069b292ad25
-[teardown] Deleting volume: pvc-d896243a-a49e-4bc5-b7f1-b8ee5a40b026 (ID: 105673638, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-d896243a-a49e-4bc5-b7f1-b8ee5a40b026
 [teardown] ✓ Force deletion complete
 
 [teardown] Cleaning up local files...

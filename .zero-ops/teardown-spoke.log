@@ -1,0 +1,7 @@
+🗑️  Tearing down ALL Spoke Clusters
+
+[spoke-teardown] ⚠️  Force deletion mode enabled
+[spoke-teardown] This will delete spoke resources directly via Hetzner API
+[spoke-teardown] No spoke clusters found
+
+✓ All Spoke Clusters successfully torn down
