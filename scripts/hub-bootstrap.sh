@@ -143,31 +143,74 @@ delete_iam_access_keys() {
 # Check prerequisites
 check_prerequisites() {
     log "Checking prerequisites..."
-    
-    # Check if hub binary exists
+    local failed=0
+
+    # --- Required CLI tools ---
+    for tool in kubectl aws jq; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            log "ERROR: '$tool' is not installed or not in PATH"
+            case "$tool" in
+                kubectl)
+                    log "  Install (Windows): winget install -e --id Kubernetes.kubectl"
+                    log "  Or download: https://dl.k8s.io/release/v1.30.0/bin/windows/amd64/kubectl.exe"
+                    log "  Docs: https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/"
+                    ;;
+                aws)
+                    log "  Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi"
+                    log "  Or: winget install -e --id Amazon.AWSCLI"
+                    log "  Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+                    ;;
+                jq)
+                    log "  Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=\$PATH:~"
+                    log "  Or (Windows): winget install -e --id jqlang.jq"
+                    log "  Docs: https://jqlang.github.io/jq/download/"
+                    ;;
+            esac
+            failed=1
+        else
+            log "  ✓ $tool found: $(command -v "$tool")"
+        fi
+    done
+
+    # --- Hub binary ---
     if [[ ! -f "$HUB_BINARY" ]]; then
-        error_exit "Hub binary not found at $HUB_BINARY. Please run 'make build-hub' first."
+        log "ERROR: Hub binary not found at $HUB_BINARY"
+        log "  Fix: go build -mod=mod -o bin/hub ./cmd/hub"
+        failed=1
+    else
+        log "  ✓ hub binary found"
     fi
-    
-    # Check required environment variables and files
+
+    # --- Secret files ---
     if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/hetzner/token" ]]; then
-        error_exit "Hetzner token file not found at k8-secrets/hetzner/token"
+        log "ERROR: Hetzner token file not found at k8-secrets/hetzner/token"
+        failed=1
+    else
+        log "  ✓ k8-secrets/hetzner/token found"
     fi
-    
+
     if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/github/github-pat-token" ]]; then
-        error_exit "GitHub token file not found at k8-secrets/github/github-pat-token"
+        log "ERROR: GitHub token file not found at k8-secrets/github/github-pat-token"
+        failed=1
+    else
+        log "  ✓ k8-secrets/github/github-pat-token found"
     fi
-    
-    # Check if AWS profile is configured
-    if ! aws configure list --profile zerotouch-platform-admin >/dev/null 2>&1; then
-        error_exit "AWS profile 'zerotouch-platform-admin' not configured. Please run 'aws configure --profile zerotouch-platform-admin'"
+
+    # --- AWS profile ---
+    if ! command -v aws >/dev/null 2>&1; then
+        : # already reported above
+    elif ! aws configure list --profile zerotouch-platform-admin >/dev/null 2>&1; then
+        log "ERROR: AWS profile 'zerotouch-platform-admin' not configured"
+        log "  Fix: aws configure --profile zerotouch-platform-admin"
+        failed=1
+    else
+        log "  ✓ AWS profile 'zerotouch-platform-admin' configured"
     fi
-    
-    # Check for jq
-    if ! command -v jq >/dev/null 2>&1; then
-        log "Warning: jq not found. State management will be limited."
+
+    if [[ $failed -ne 0 ]]; then
+        error_exit "Prerequisites check failed. Fix the errors above and re-run."
     fi
-    
+
     log "Prerequisites check passed"
 }
 
