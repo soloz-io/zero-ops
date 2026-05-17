@@ -1,30 +1,43 @@
 package main
 
 import (
-	"os"
-
+	"github.com/alecthomas/kong"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	fn "github.com/crossplane/function-sdk-go"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-func main() {
-	// 1. Initialize production-ready structured JSON logger
+// CLI configures the function.
+type CLI struct {
+	Debug              bool   `help:"Emit debug logs in addition to info logs." short:"d"`
+	Network            string `default:"tcp"   help:"Network on which to listen for gRPC connections."`
+	Address            string `default:":9443" help:"Address at which to listen for gRPC connections."`
+	TLSCertsDir        string `env:"TLS_SERVER_CERTS_DIR" help:"Directory containing server certs (tls.key, tls.crt) and the CA used to verify client certificates (ca.crt)"`
+	Insecure           bool   `help:"Run without mTLS credentials. If you supply this flag --tls-certs-dir will be ignored."`
+	MaxRecvMessageSize int    `default:"4" help:"Maximum size of received messages in MB."`
+}
+
+// Run executes the function.
+func (c *CLI) Run() error {
+	// Initialize production-ready structured JSON logger
 	// This ensures logs are properly parsed by Grafana Alloy / OpenSearch
-	zl := zap.New(zap.UseDevMode(false))
-	logger := logging.NewLogrLogger(zl.WithName("function-cert-distribution"))
+	zl := zap.New(zap.UseDevMode(c.Debug))
+	log := logging.NewLogrLogger(zl.WithName("function-cert-distribution"))
 
-	logger.Info("Starting function-cert-distribution gRPC server")
+	log.Info("Starting function-cert-distribution gRPC server", "address", c.Address)
 
-	// 2. Instantiate the function with the injected logger
-	f := &Function{
-		log: logger,
-	}
+	// Start the Crossplane gRPC server with mTLS, correct listen address,
+	// and a safe max receive message size to prevent ResourceExhausted panics
+	// under large Composition payloads.
+	return fn.Serve(&Function{log: log},
+		fn.Listen(c.Network, c.Address),
+		fn.MTLSCertificates(c.TLSCertsDir),
+		fn.Insecure(c.Insecure),
+		fn.MaxRecvMessageSize(c.MaxRecvMessageSize*1024*1024),
+	)
+}
 
-	// 3. Start the Crossplane gRPC server
-	// fn.Serve defaults to listening on :9443, which the package manager expects
-	if err := fn.Serve(f); err != nil {
-		logger.Info("Fatal error running function server", "error", err)
-		os.Exit(1)
-	}
+func main() {
+	ctx := kong.Parse(&CLI{}, kong.Description("Zero-Ops Crossplane Cert-Distribution Function."))
+	ctx.FatalIfErrorf(ctx.Run())
 }

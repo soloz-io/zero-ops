@@ -3,6 +3,7 @@ module github.com/crossplane/function-cert-distribution
 go 1.24.9
 
 require (
+	github.com/alecthomas/kong v1.15.0
 	github.com/crossplane/crossplane-runtime v1.11.0
 	github.com/crossplane/function-sdk-go v0.5.0
 	github.com/stretchr/testify v1.10.0
