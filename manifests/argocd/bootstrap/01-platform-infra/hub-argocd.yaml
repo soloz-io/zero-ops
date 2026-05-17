@@ -42,6 +42,56 @@ spec:
               hs.status = "Progressing"
               hs.message = "Waiting for cluster to be healthy"
               return hs
+
+            # CROSSPLANE Provider health check
+            # Ensures ArgoCD waits for the Provider CRD to be fully registered before
+            # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
+            resource.customizations.health.pkg.crossplane.io_Provider: |
+              hs = {}
+              if obj.status ~= nil then
+                if obj.status.conditions ~= nil then
+                  for i, condition in ipairs(obj.status.conditions) do
+                    if condition.type == "Healthy" and condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = condition.message
+                      return hs
+                    end
+                    if condition.type == "Healthy" and condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = condition.message
+                      return hs
+                    end
+                  end
+                end
+              end
+              hs.status = "Progressing"
+              hs.message = "Waiting for Crossplane provider to be installed and healthy"
+              return hs
+
+            # CROSSPLANE Function health check
+            # Ensures ArgoCD waits for the Function CRD to be fully registered before
+            # advancing to dependent waves, preventing the FunctionRevision-not-found race condition.
+            resource.customizations.health.pkg.crossplane.io_Function: |
+              hs = {}
+              if obj.status ~= nil then
+                if obj.status.conditions ~= nil then
+                  for i, condition in ipairs(obj.status.conditions) do
+                    if condition.type == "Healthy" and condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = condition.message
+                      return hs
+                    end
+                    if condition.type == "Healthy" and condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = condition.message
+                      return hs
+                    end
+                  end
+                end
+              end
+              hs.status = "Progressing"
+              hs.message = "Waiting for Crossplane function to be installed and healthy"
+              return hs
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops

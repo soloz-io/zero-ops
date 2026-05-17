@@ -52,6 +52,7 @@ metadata:
   name: default
   annotations:
     argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   credentials:
     source: InjectedIdentity
