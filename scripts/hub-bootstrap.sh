@@ -721,7 +721,7 @@ step10_wait_spokepool() {
     # Step 10d: Verify certificates exist in target namespaces
     log "Step 10d: Verifying certificates in target namespaces..."
     
-    local target_namespaces=("platform-observability" "platform-messaging" "argocd")
+    local target_namespaces=("platform-observability" "platform-messaging" "platform-ops")
     for ns in "${target_namespaces[@]}"; do
         # Check if namespace exists
         if kubectl get namespace "$ns" \
@@ -734,20 +734,23 @@ step10_wait_spokepool() {
     
     # Step 10e: Verify worker nodes are Ready
     log "Step 10e: Verifying worker nodes are Ready..."
-    
-    local worker_nodes
-    local ready_workers=0
-    worker_nodes=$(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
+
+    local machine_lines=()
+    mapfile -t machine_lines < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
         --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-        -n platform-capi --no-headers 2>/dev/null | wc -l | tr -d '\r' || echo "0")
-    
+        -n platform-capi --no-headers 2>/dev/null || true)
+    local worker_nodes=${#machine_lines[@]}
+
     if [[ "$worker_nodes" -gt 0 ]]; then
-        ready_workers=$(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
+        local ready_names=()
+        mapfile -t ready_names < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
             --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-            -n platform-capi -o jsonpath='{.items[?(@.status.conditions[?(@.type=="Ready")].status=="True")].metadata.name}' 2>/dev/null | wc -w | tr -d '\r')
-        
+            -n platform-capi \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+        local ready_workers=${#ready_names[@]}
+
         log "Worker nodes: $ready_workers/$worker_nodes Ready"
-        
+
         if [[ "$ready_workers" -lt "$worker_nodes" ]]; then
             log "⚠️ Not all worker nodes are Ready yet, but continuing (nodes will be available after cluster is provisioned)"
         fi
