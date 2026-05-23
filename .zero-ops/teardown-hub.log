@@ -3,6 +3,16 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
+[teardown] Deleting server: hub-kprqd-nwjfd (ID: 132531861)
+[teardown] ✓ Deleted server: hub-kprqd-nwjfd
+[teardown] Deleting server: hub-md-0-r86k6-hgwvr-mdcd6 (ID: 132532085)
+[teardown] ✓ Deleted server: hub-md-0-r86k6-hgwvr-mdcd6
+[teardown] Deleting server: hub-md-0-r86k6-hgwvr-4r6kb (ID: 132532106)
+[teardown] ✓ Deleted server: hub-md-0-r86k6-hgwvr-4r6kb
+[teardown] Deleting load balancer: hub-jftjl-kube-apiserver-lvrct (ID: 6393953)
+[teardown] ✓ Deleted load balancer: hub-jftjl-kube-apiserver-lvrct
+[teardown] Deleting network: hub-jftjl (ID: 12252787)
+[teardown] ✓ Deleted network: hub-jftjl
 [teardown] Deleting associated volumes...
 [teardown] ✓ Force deletion complete
 

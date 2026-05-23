@@ -1205,3 +1205,983 @@
 [2026-05-17 01:48:36] ❌ SpokePool did not become ready within expected time
 [2026-05-17 01:48:36] Current status: Ready=, Synced=
 [2026-05-17 01:48:36] ERROR: SpokePool readiness timeout
+[2026-05-23 15:18:37] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:18:38] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:18:38] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:18:38] Checking prerequisites...
+[2026-05-23 15:18:38]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:18:38]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:18:38] ERROR: 'jq' is not installed or not in PATH
+[2026-05-23 15:18:39]   Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=$PATH:~
+[2026-05-23 15:18:39]   Or (Windows): winget install -e --id jqlang.jq
+[2026-05-23 15:18:39]   Docs: https://jqlang.github.io/jq/download/
+[2026-05-23 15:18:39]   ✓ hub binary found
+[2026-05-23 15:18:39]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:18:40]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:18:45]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:18:46] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-23 15:19:04] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:19:04] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:19:05] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:19:05] Checking prerequisites...
+[2026-05-23 15:19:05]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:19:05]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:19:05] ERROR: 'jq' is not installed or not in PATH
+[2026-05-23 15:19:06]   Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=$PATH:~
+[2026-05-23 15:19:06]   Or (Windows): winget install -e --id jqlang.jq
+[2026-05-23 15:19:06]   Docs: https://jqlang.github.io/jq/download/
+[2026-05-23 15:19:06]   ✓ hub binary found
+[2026-05-23 15:19:06]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:19:06]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:19:09]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:19:09] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-23 15:20:38] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:20:38] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:20:39] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:20:39] Checking prerequisites...
+[2026-05-23 15:20:39]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:20:39]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:20:39] ERROR: 'jq' is not installed or not in PATH
+[2026-05-23 15:20:40]   Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=$PATH:~
+[2026-05-23 15:20:40]   Or (Windows): winget install -e --id jqlang.jq
+[2026-05-23 15:20:40]   Docs: https://jqlang.github.io/jq/download/
+[2026-05-23 15:20:40]   ✓ hub binary found
+[2026-05-23 15:20:40]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:20:40]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:20:43]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:20:43] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-23 15:21:20] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:21:20] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:21:20] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:21:21] Checking prerequisites...
+[2026-05-23 15:21:21]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:21:21]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:21:21] ERROR: 'jq' is not installed or not in PATH
+[2026-05-23 15:21:21]   Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=$PATH:~
+[2026-05-23 15:21:22]   Or (Windows): winget install -e --id jqlang.jq
+[2026-05-23 15:21:22]   Docs: https://jqlang.github.io/jq/download/
+[2026-05-23 15:21:22]   ✓ hub binary found
+[2026-05-23 15:21:22]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:21:22]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:21:25]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:21:25] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-23 15:22:04] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:22:04] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:22:04] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:22:04] Checking prerequisites...
+[2026-05-23 15:22:05]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:22:05]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:22:05]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:22:05]   ✓ hub binary found
+[2026-05-23 15:22:06]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:22:06]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:22:08]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:22:08] Prerequisites check passed
+[2026-05-23 15:22:09] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 15:22:39] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-23 15:22:55] Step 3: GitHub access already configured, skipping
+[2026-05-23 15:23:10] Step 4: Namespaces already created, skipping
+[2026-05-23 15:23:21] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-23 15:23:36] Step 6: Infisical already ready, skipping
+[2026-05-23 15:23:47] Step 7-8: ESO configuration already completed, skipping
+[2026-05-23 15:23:52] Step 9: Database already ready, skipping
+[2026-05-23 15:24:02] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-23 15:24:03] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-23 15:24:03] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-23 15:24:27] Waiting for SpokePool readiness (attempt 1/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:24:49] Waiting for SpokePool readiness (attempt 2/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:00] Waiting for SpokePool readiness (attempt 3/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:12] Waiting for SpokePool readiness (attempt 4/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:23] Waiting for SpokePool readiness (attempt 5/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:35] Waiting for SpokePool readiness (attempt 6/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:46] Waiting for SpokePool readiness (attempt 7/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:25:57] Waiting for SpokePool readiness (attempt 8/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:26:09] Waiting for SpokePool readiness (attempt 9/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:26:20] Waiting for SpokePool readiness (attempt 10/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:26:32] Waiting for SpokePool readiness (attempt 11/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:26:43] Waiting for SpokePool readiness (attempt 12/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:26:55] Waiting for SpokePool readiness (attempt 13/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:27:06] Waiting for SpokePool readiness (attempt 14/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:27:18] Waiting for SpokePool readiness (attempt 15/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:27:29] Waiting for SpokePool readiness (attempt 16/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:27:41] Waiting for SpokePool readiness (attempt 17/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:27:52] Waiting for SpokePool readiness (attempt 18/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:28:04] Waiting for SpokePool readiness (attempt 19/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:28:09] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:28:09] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:28:10] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:28:10] Checking prerequisites...
+[2026-05-23 15:28:10]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:28:10]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:28:10]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:28:11]   ✓ hub binary found
+[2026-05-23 15:28:11]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:28:11]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:28:14]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:28:14] Prerequisites check passed
+[2026-05-23 15:28:14] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:28:15] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:28:15] Waiting for SpokePool readiness (attempt 20/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:28:27] Waiting for SpokePool readiness (attempt 21/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:28:38] Waiting for SpokePool readiness (attempt 22/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:28:50] Waiting for SpokePool readiness (attempt 23/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:29:01] Waiting for SpokePool readiness (attempt 24/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:29:13] Waiting for SpokePool readiness (attempt 25/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:29:24] Waiting for SpokePool readiness (attempt 26/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:29:36] Waiting for SpokePool readiness (attempt 27/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:29:48] Waiting for SpokePool readiness (attempt 28/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:00] Waiting for SpokePool readiness (attempt 29/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:12] Waiting for SpokePool readiness (attempt 30/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:24] Waiting for SpokePool readiness (attempt 31/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:36] Waiting for SpokePool readiness (attempt 32/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:47] Waiting for SpokePool readiness (attempt 33/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:30:59] Waiting for SpokePool readiness (attempt 34/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:31:11] Waiting for SpokePool readiness (attempt 35/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:31:17] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:31:17] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:31:17] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:31:17] Checking prerequisites...
+[2026-05-23 15:31:17]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:31:18]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:31:18]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:31:18]   ✓ hub binary found
+[2026-05-23 15:31:18]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:31:18]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:31:21]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:31:21] Prerequisites check passed
+[2026-05-23 15:31:21] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:31:22] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:31:22] Waiting for SpokePool readiness (attempt 36/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:31:34] Waiting for SpokePool readiness (attempt 37/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:31:46] Waiting for SpokePool readiness (attempt 38/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:31:58] Waiting for SpokePool readiness (attempt 39/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:32:09] Waiting for SpokePool readiness (attempt 40/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:32:19] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:32:19] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:32:20] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:32:20] Checking prerequisites...
+[2026-05-23 15:32:20]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:32:20]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:32:21]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:32:21]   ✓ hub binary found
+[2026-05-23 15:32:21]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:32:21] Waiting for SpokePool readiness (attempt 41/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:32:21]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:32:25]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:32:25] Prerequisites check passed
+[2026-05-23 15:32:26] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:32:26] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:32:33] Waiting for SpokePool readiness (attempt 42/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:32:44] Waiting for SpokePool readiness (attempt 43/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:32:55] Waiting for SpokePool readiness (attempt 44/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:07] Waiting for SpokePool readiness (attempt 45/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:18] Waiting for SpokePool readiness (attempt 46/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:30] Waiting for SpokePool readiness (attempt 47/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:41] Waiting for SpokePool readiness (attempt 48/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:52] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:33:52] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:33:52] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:33:53] Checking prerequisites...
+[2026-05-23 15:33:53] Waiting for SpokePool readiness (attempt 49/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:33:53]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:33:53]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:33:53]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:33:53]   ✓ hub binary found
+[2026-05-23 15:33:54]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:33:54]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:33:56]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:33:56] Prerequisites check passed
+[2026-05-23 15:33:57] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:33:57] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:34:04] Waiting for SpokePool readiness (attempt 50/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:34:16] Waiting for SpokePool readiness (attempt 51/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:34:27] Waiting for SpokePool readiness (attempt 52/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:34:39] Waiting for SpokePool readiness (attempt 53/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:34:50] Waiting for SpokePool readiness (attempt 54/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:01] Waiting for SpokePool readiness (attempt 55/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:13] Waiting for SpokePool readiness (attempt 56/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:24] Waiting for SpokePool readiness (attempt 57/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:36] Waiting for SpokePool readiness (attempt 58/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:47] Waiting for SpokePool readiness (attempt 59/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:35:59] Waiting for SpokePool readiness (attempt 60/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:36:10] Waiting for SpokePool readiness (attempt 61/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:36:22] Waiting for SpokePool readiness (attempt 62/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:36:33] Waiting for SpokePool readiness (attempt 63/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:36:44] Waiting for SpokePool readiness (attempt 64/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:36:56] Waiting for SpokePool readiness (attempt 65/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:37:07] Waiting for SpokePool readiness (attempt 66/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:37:19] Waiting for SpokePool readiness (attempt 67/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:37:30] Waiting for SpokePool readiness (attempt 68/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:37:42] Waiting for SpokePool readiness (attempt 69/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:37:53] Waiting for SpokePool readiness (attempt 70/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:38:05] Waiting for SpokePool readiness (attempt 71/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:38:16] Waiting for SpokePool readiness (attempt 72/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:38:28] Waiting for SpokePool readiness (attempt 73/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:38:39] Waiting for SpokePool readiness (attempt 74/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:38:50] Waiting for SpokePool readiness (attempt 75/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:39:02] Waiting for SpokePool readiness (attempt 76/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:39:14] Waiting for SpokePool readiness (attempt 77/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:39:26] Waiting for SpokePool readiness (attempt 78/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:39:38] Waiting for SpokePool readiness (attempt 79/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:39:50] Waiting for SpokePool readiness (attempt 80/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:40:01] Waiting for SpokePool readiness (attempt 81/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:40:13] Waiting for SpokePool readiness (attempt 82/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:40:17] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:40:17] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:40:18] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:40:18] Checking prerequisites...
+[2026-05-23 15:40:18]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:40:18]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:40:19]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:40:19]   ✓ hub binary found
+[2026-05-23 15:40:19]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:40:19]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:40:22]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:40:22] Prerequisites check passed
+[2026-05-23 15:40:23] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:40:23] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:40:25] Waiting for SpokePool readiness (attempt 83/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:40:37] Waiting for SpokePool readiness (attempt 84/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:40:49] Waiting for SpokePool readiness (attempt 85/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:01] Waiting for SpokePool readiness (attempt 86/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:12] Waiting for SpokePool readiness (attempt 87/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:24] Waiting for SpokePool readiness (attempt 88/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:33] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 15:41:33] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 15:41:34] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 15:41:34] Checking prerequisites...
+[2026-05-23 15:41:34]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 15:41:34]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 15:41:34]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 15:41:35]   ✓ hub binary found
+[2026-05-23 15:41:35]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 15:41:35]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 15:41:36] Waiting for SpokePool readiness (attempt 89/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:37]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 15:41:38] Prerequisites check passed
+[2026-05-23 15:41:38] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 15:41:38] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 15:41:47] Waiting for SpokePool readiness (attempt 90/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:41:59] Waiting for SpokePool readiness (attempt 91/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:42:11] Waiting for SpokePool readiness (attempt 92/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:42:23] Waiting for SpokePool readiness (attempt 93/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:42:34] Waiting for SpokePool readiness (attempt 94/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:42:46] Waiting for SpokePool readiness (attempt 95/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:42:58] Waiting for SpokePool readiness (attempt 96/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:43:09] Waiting for SpokePool readiness (attempt 97/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:43:21] Waiting for SpokePool readiness (attempt 98/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:43:33] Waiting for SpokePool readiness (attempt 99/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:43:45] Waiting for SpokePool readiness (attempt 100/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:43:57] Waiting for SpokePool readiness (attempt 101/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:44:08] Waiting for SpokePool readiness (attempt 102/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:44:20] Waiting for SpokePool readiness (attempt 103/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:44:31] Waiting for SpokePool readiness (attempt 104/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:44:42] Waiting for SpokePool readiness (attempt 105/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:44:54] Waiting for SpokePool readiness (attempt 106/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:45:06] Waiting for SpokePool readiness (attempt 107/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:45:17] Waiting for SpokePool readiness (attempt 108/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:45:29] Waiting for SpokePool readiness (attempt 109/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:45:40] Waiting for SpokePool readiness (attempt 110/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:45:52] Waiting for SpokePool readiness (attempt 111/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:46:03] Waiting for SpokePool readiness (attempt 112/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:46:15] Waiting for SpokePool readiness (attempt 113/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:46:27] Waiting for SpokePool readiness (attempt 114/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:46:38] Waiting for SpokePool readiness (attempt 115/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:46:49] Waiting for SpokePool readiness (attempt 116/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:01] Waiting for SpokePool readiness (attempt 117/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:12] Waiting for SpokePool readiness (attempt 118/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:24] Waiting for SpokePool readiness (attempt 119/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:36] Waiting for SpokePool readiness (attempt 120/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:47] Waiting for SpokePool readiness (attempt 121/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:47:59] Waiting for SpokePool readiness (attempt 122/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:48:11] Waiting for SpokePool readiness (attempt 123/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:48:22] Waiting for SpokePool readiness (attempt 124/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:48:34] Waiting for SpokePool readiness (attempt 125/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:48:45] Waiting for SpokePool readiness (attempt 126/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:48:57] Waiting for SpokePool readiness (attempt 127/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:49:08] Waiting for SpokePool readiness (attempt 128/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:49:19] Waiting for SpokePool readiness (attempt 129/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:49:31] Waiting for SpokePool readiness (attempt 130/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:49:42] Waiting for SpokePool readiness (attempt 131/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:49:53] Waiting for SpokePool readiness (attempt 132/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:50:05] Waiting for SpokePool readiness (attempt 133/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:50:16] Waiting for SpokePool readiness (attempt 134/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:50:27] Waiting for SpokePool readiness (attempt 135/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:50:39] Waiting for SpokePool readiness (attempt 136/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:50:50] Waiting for SpokePool readiness (attempt 137/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:02] Waiting for SpokePool readiness (attempt 138/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:13] Waiting for SpokePool readiness (attempt 139/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:24] Waiting for SpokePool readiness (attempt 140/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:36] Waiting for SpokePool readiness (attempt 141/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:47] Waiting for SpokePool readiness (attempt 142/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:51:58] Waiting for SpokePool readiness (attempt 143/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:52:10] Waiting for SpokePool readiness (attempt 144/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:52:21] Waiting for SpokePool readiness (attempt 145/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:52:32] Waiting for SpokePool readiness (attempt 146/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:52:44] Waiting for SpokePool readiness (attempt 147/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:52:55] Waiting for SpokePool readiness (attempt 148/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:53:06] Waiting for SpokePool readiness (attempt 149/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:53:18] Waiting for SpokePool readiness (attempt 150/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:53:29] Waiting for SpokePool readiness (attempt 151/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:53:41] Waiting for SpokePool readiness (attempt 152/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:53:52] Waiting for SpokePool readiness (attempt 153/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:54:03] Waiting for SpokePool readiness (attempt 154/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:54:15] Waiting for SpokePool readiness (attempt 155/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:54:26] Waiting for SpokePool readiness (attempt 156/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:54:37] Waiting for SpokePool readiness (attempt 157/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:54:49] Waiting for SpokePool readiness (attempt 158/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:00] Waiting for SpokePool readiness (attempt 159/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:11] Waiting for SpokePool readiness (attempt 160/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:23] Waiting for SpokePool readiness (attempt 161/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:35] Waiting for SpokePool readiness (attempt 162/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:47] Waiting for SpokePool readiness (attempt 163/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:55:58] Waiting for SpokePool readiness (attempt 164/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:56:09] Waiting for SpokePool readiness (attempt 165/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:56:21] Waiting for SpokePool readiness (attempt 166/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:56:32] Waiting for SpokePool readiness (attempt 167/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:56:43] Waiting for SpokePool readiness (attempt 168/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:56:54] Waiting for SpokePool readiness (attempt 169/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:57:06] Waiting for SpokePool readiness (attempt 170/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:57:17] Waiting for SpokePool readiness (attempt 171/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:57:29] Waiting for SpokePool readiness (attempt 172/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:57:40] Waiting for SpokePool readiness (attempt 173/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:57:51] Waiting for SpokePool readiness (attempt 174/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:58:03] Waiting for SpokePool readiness (attempt 175/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:58:14] Waiting for SpokePool readiness (attempt 176/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:58:26] Waiting for SpokePool readiness (attempt 177/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:58:37] Waiting for SpokePool readiness (attempt 178/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:58:49] Waiting for SpokePool readiness (attempt 179/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:59:00] Waiting for SpokePool readiness (attempt 180/180, Ready: NotFound, Synced: NotFound)
+[2026-05-23 15:59:10] ❌ SpokePool did not become ready within expected time
+[2026-05-23 15:59:10] Current status: Ready=NotFound, Synced=NotFound
+[2026-05-23 15:59:11] ERROR: SpokePool readiness timeout
+[2026-05-23 16:09:21] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:09:22] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:09:22] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:09:22] Checking prerequisites...
+[2026-05-23 16:09:22]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:09:23]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:09:23]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:09:23]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:09:24]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:09:24]   ✓ hub binary found
+[2026-05-23 16:09:24]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:09:24]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:09:28]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:09:28] Prerequisites check passed
+[2026-05-23 16:09:28] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:09:28] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:12:00] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:12:00] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:12:01] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:12:01] Checking prerequisites...
+[2026-05-23 16:12:01]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:12:01]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:12:02]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:12:02] ERROR: 'kind' is not installed or not in PATH
+[2026-05-23 16:12:02]   Install (Windows): winget install -e --id Kubernetes.kind
+[2026-05-23 16:12:02]   Or download: https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64
+[2026-05-23 16:12:02]   Docs: https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+[2026-05-23 16:12:02] ERROR: 'clusterctl' is not installed or not in PATH
+[2026-05-23 16:12:03]   Install (Windows): curl -Lo clusterctl.exe https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.6/clusterctl-windows-amd64.exe
+[2026-05-23 16:12:03]   Then add to PATH
+[2026-05-23 16:12:03]   Docs: https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl
+[2026-05-23 16:12:03]   ✓ hub binary found
+[2026-05-23 16:12:03]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:12:03]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:12:06]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:12:06] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-23 16:15:03] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:15:03] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:15:03] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:15:03] Checking prerequisites...
+[2026-05-23 16:15:03]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:15:04]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:15:04]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:15:04]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:15:04]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:15:05]   ✓ hub binary found
+[2026-05-23 16:15:05]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:15:05]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:15:07]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:15:07] Prerequisites check passed
+[2026-05-23 16:15:08] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:15:08] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:18:23] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:18:23] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:18:23] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:18:24] Checking prerequisites...
+[2026-05-23 16:18:24]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:18:24]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:18:24]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:18:25]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:18:25]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:18:25]   ✓ hub binary found
+[2026-05-23 16:18:25]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:18:25]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:18:29]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:18:29] Prerequisites check passed
+[2026-05-23 16:18:29] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:18:30] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:19:05] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:19:05] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:19:05] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:19:06] Checking prerequisites...
+[2026-05-23 16:19:06]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:19:06]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:19:06]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:19:06]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:19:07]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:19:07]   ✓ hub binary found
+[2026-05-23 16:19:07]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:19:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:19:10]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:19:10] Prerequisites check passed
+[2026-05-23 16:19:10] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:19:10] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:21:31] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:21:31] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:21:32] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:21:32] Checking prerequisites...
+[2026-05-23 16:21:32]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:21:32]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:21:32]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:21:33]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:21:33]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:21:33]   ✓ hub binary found
+[2026-05-23 16:21:33]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:21:33]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:21:36]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:21:36] Prerequisites check passed
+[2026-05-23 16:21:37] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:21:37] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:51:33] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:51:33] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:51:33] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:51:34] Checking prerequisites...
+[2026-05-23 16:51:34]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:51:34]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:51:34]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:51:35]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:51:35]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:51:35]   ✓ hub binary found
+[2026-05-23 16:51:35]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:51:35]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:51:39]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:51:39] Prerequisites check passed
+[2026-05-23 16:51:39] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:51:40] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:53:51] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:53:51] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:53:51] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:53:51] Checking prerequisites...
+[2026-05-23 16:53:52]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:53:52]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:53:52]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:53:52]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:53:53]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:53:53]   ✓ hub binary found
+[2026-05-23 16:53:53]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:53:53]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:53:56]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:53:56] Prerequisites check passed
+[2026-05-23 16:53:56] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:53:56] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 16:54:18] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 16:54:18] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 16:54:18] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 16:54:19] Checking prerequisites...
+[2026-05-23 16:54:19]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 16:54:19]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 16:54:19]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 16:54:19]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 16:54:20]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 16:54:20]   ✓ hub binary found
+[2026-05-23 16:54:20]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 16:54:20]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 16:54:23]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 16:54:23] Prerequisites check passed
+[2026-05-23 16:54:24] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 16:54:24] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 17:07:11] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 17:07:11] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 17:07:12] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 17:07:12] Checking prerequisites...
+[2026-05-23 17:07:12]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 17:07:12]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 17:07:12]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 17:07:13]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 17:07:13]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 17:07:13]   ✓ hub binary found
+[2026-05-23 17:07:13]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 17:07:13]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 17:07:17]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 17:07:17] Prerequisites check passed
+[2026-05-23 17:07:19] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-23 17:07:19] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-23 17:07:50] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 17:07:50] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 17:07:55] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-aws-secrets-manager --environment=development --aws-region=ap-south-1
+[2026-05-23 17:15:42] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 17:15:42] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 17:15:42] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 17:15:42] Checking prerequisites...
+[2026-05-23 17:15:42]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 17:15:43]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 17:15:43]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 17:15:43]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 17:15:43]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 17:15:43]   ✓ hub binary found
+[2026-05-23 17:15:43]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 17:15:44]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 17:15:46]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 17:15:46] Prerequisites check passed
+[2026-05-23 17:15:47] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 17:16:17] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 17:16:17]   Using AWS credentials from k8-secrets/aws/
+[2026-05-23 17:16:17] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 17:16:22] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-aws-secrets-manager --environment=development --aws-region=ap-south-1
+[2026-05-23 17:36:01] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 17:36:01] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 17:36:01] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 17:36:01] Checking prerequisites...
+[2026-05-23 17:36:01]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 17:36:01]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 17:36:02]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 17:36:02]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 17:36:02]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 17:36:03]   ✓ hub binary found
+[2026-05-23 17:36:03]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 17:36:03]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 17:36:06]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 17:36:06] Prerequisites check passed
+[2026-05-23 17:36:06] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 17:36:37] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 17:36:37]   Using AWS credentials from k8-secrets/aws/
+[2026-05-23 17:36:37] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 17:36:41] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-aws-secrets-manager --environment=development --aws-region=ap-south-1
+[2026-05-23 17:49:11] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 17:49:11] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 17:49:11] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 17:49:11] Checking prerequisites...
+[2026-05-23 17:49:11]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 17:49:12]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 17:49:12]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 17:49:12]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 17:49:12]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 17:49:13]   ✓ hub binary found
+[2026-05-23 17:49:13]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 17:49:13]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 17:49:16]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 17:49:17] Prerequisites check passed
+[2026-05-23 17:49:17] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 17:49:47] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 17:49:48] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 17:49:52] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-23 17:49:56] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-23 17:49:56] Attempting to use existing access keys...
+[2026-05-23 17:49:58] Existing keys may be invalid, attempting to recreate...
+[2026-05-23 17:49:58] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-23 17:50:06] All existing access keys deleted
+[2026-05-23 17:50:07] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-23 17:50:09] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-23 17:50:09] AWS Secrets Manager configuration completed
+[2026-05-23 17:50:24] Step 3: Configuring GitHub Access...
+[2026-05-23 17:50:25] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-23 17:50:26] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-23 17:50:26] GitHub access configuration completed
+[2026-05-23 17:50:41] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 17:56:22] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 17:56:23] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 18:21:50] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 18:21:53] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 18:21:53] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 18:21:54] Checking prerequisites...
+[2026-05-23 18:21:55]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 18:21:55]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 18:21:55]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 18:21:55]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 18:21:56]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 18:21:57]   ✓ hub binary found
+[2026-05-23 18:21:57]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 18:21:57]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 18:22:01]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 18:22:01] Prerequisites check passed
+[2026-05-23 18:22:01] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 18:22:32] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-23 18:22:47] Step 3: GitHub access already configured, skipping
+[2026-05-23 18:23:03] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 18:28:48] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 18:28:48] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 18:29:07] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 18:29:07] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 18:29:07] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 18:29:08] Checking prerequisites...
+[2026-05-23 18:29:08]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 18:29:08]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 18:29:08]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 18:29:08]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 18:29:09]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 18:29:09]   ✓ hub binary found
+[2026-05-23 18:29:09]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 18:29:09]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 18:29:11]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 18:29:12] Prerequisites check passed
+[2026-05-23 18:29:12] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 18:29:42] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-23 18:29:58] Step 3: GitHub access already configured, skipping
+[2026-05-23 18:30:13] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 18:35:55] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 18:35:55] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 21:58:07] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 21:58:08] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 21:58:08] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 21:58:08] Checking prerequisites...
+[2026-05-23 21:58:08]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 21:58:09]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 21:58:09]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 21:58:09]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 21:58:10]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 21:58:10]   'helm' not found — attempting auto-install...
+[2026-05-23 21:58:10]   Auto-installing helm...
+[2026-05-23 21:58:18]   ✓ helm installed to /d/Users/Kavishree.Shanmugam/bin/helm.exe
+[2026-05-23 21:58:18]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-23 21:58:18]   ✓ hub binary found
+[2026-05-23 21:58:19]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 21:58:19]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 21:58:22]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 21:58:23] Prerequisites check passed
+[2026-05-23 21:58:23] Step 1: Bootstrapping Hub Cluster...
+[2026-05-23 21:58:23] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-23 22:11:59] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-23 22:11:59] Hub cluster bootstrap completed
+[2026-05-23 22:12:29] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 22:12:30] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 22:12:35] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-23 22:12:39] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-23 22:12:39] Attempting to use existing access keys...
+[2026-05-23 22:12:42] Existing keys may be invalid, attempting to recreate...
+[2026-05-23 22:12:42] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-23 22:12:51] All existing access keys deleted
+[2026-05-23 22:12:51] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-23 22:12:53] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-23 22:12:54] AWS Secrets Manager configuration completed
+[2026-05-23 22:13:09] Step 3: Configuring GitHub Access...
+[2026-05-23 22:13:09] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-23 22:13:10] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-23 22:13:11] GitHub access configuration completed
+[2026-05-23 22:13:26] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 22:19:09] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 22:19:09] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 22:25:42] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 22:25:42] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 22:25:42] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 22:25:42] Checking prerequisites...
+[2026-05-23 22:25:43]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 22:25:43]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 22:25:43]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 22:25:43]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 22:25:44]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 22:25:44]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-23 22:25:45]   ✓ hub binary found
+[2026-05-23 22:25:45]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 22:25:45]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 22:25:48]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 22:25:48] Prerequisites check passed
+[2026-05-23 22:25:49] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-23 22:25:50] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-23 22:26:20] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-23 22:26:20] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-23 22:26:25] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-23 22:26:29] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-23 22:26:29] Attempting to use existing access keys...
+[2026-05-23 22:26:31] Existing keys may be invalid, attempting to recreate...
+[2026-05-23 22:26:31] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-23 22:26:39] All existing access keys deleted
+[2026-05-23 22:26:39] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-23 22:26:42] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-23 22:26:42] AWS Secrets Manager configuration completed
+[2026-05-23 22:26:57] Step 3: Configuring GitHub Access...
+[2026-05-23 22:26:57] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-23 22:26:58] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-23 22:26:58] GitHub access configuration completed
+[2026-05-23 22:27:14] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 22:32:57] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 22:32:58] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 23:43:55] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 23:43:55] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 23:43:55] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 23:43:55] Checking prerequisites...
+[2026-05-23 23:43:56]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 23:43:56]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 23:43:56]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 23:43:57]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 23:43:57]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 23:43:57]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-23 23:43:58]   ✓ hub binary found
+[2026-05-23 23:43:58]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 23:43:59]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 23:44:04]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 23:44:04] Prerequisites check passed
+[2026-05-23 23:44:05] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 23:44:35] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-23 23:44:50] Step 3: GitHub access already configured, skipping
+[2026-05-23 23:45:06] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 23:50:57] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-23 23:50:57] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-23 23:53:26] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-23 23:53:26] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-23 23:53:26] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-23 23:53:26] Checking prerequisites...
+[2026-05-23 23:53:27]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-23 23:53:27]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-23 23:53:27]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-23 23:53:27]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-23 23:53:28]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-23 23:53:28]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-23 23:53:29]   ✓ hub binary found
+[2026-05-23 23:53:29]   ✓ k8-secrets/hetzner/token found
+[2026-05-23 23:53:29]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-23 23:53:32]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-23 23:53:32] Prerequisites check passed
+[2026-05-23 23:53:33] Step 1: Hub bootstrap already completed, skipping
+[2026-05-23 23:54:03] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-23 23:54:19] Step 3: Configuring GitHub Access...
+[2026-05-23 23:54:19] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-23 23:54:24] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-23 23:54:24] GitHub access configuration completed
+[2026-05-23 23:54:39] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-23 23:56:55] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-23 23:56:56] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-23 23:56:56] ✅ platform-data namespace created by ArgoCD
+[2026-05-23 23:57:07] Step 5: Initializing bootstrap secrets...
+[2026-05-23 23:57:07] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-24 00:02:09] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-24 00:02:10] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-24 00:02:21] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-24 00:02:32] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-24 00:02:43] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-24 00:02:54] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-24 00:03:05] Waiting for Infisical pod to be ready (attempt 6/180, ready: False)
+[2026-05-24 00:03:16] Waiting for Infisical pod to be ready (attempt 7/180, ready: False)
+[2026-05-24 00:03:27] Waiting for Infisical pod to be ready (attempt 8/180, ready: False)
+[2026-05-24 00:03:38] Waiting for Infisical pod to be ready (attempt 9/180, ready: False)
+[2026-05-24 00:03:49] Infisical pod is ready
+[2026-05-24 00:03:49] Starting port-forward for Infisical...
+[2026-05-24 00:03:55] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-24 00:03:56] Bootstrap secrets initialization completed
+[2026-05-24 00:04:11] Step 6: Waiting for Infisical to be ready...
+[2026-05-24 00:04:11] Checking Infisical pods status...
+[2026-05-24 00:04:12] Infisical is ready
+[2026-05-24 00:04:13] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-24 00:04:13] Infisical pods are running
+[2026-05-24 00:04:24] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-24 00:04:24] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-24 00:04:24] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-24 00:04:30] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-24 00:04:30] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-24 00:04:31] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-24 00:04:32] Database deployment completed
+[2026-05-24 00:04:42] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 00:04:42] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 00:04:42] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 00:04:44] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: True)
+[2026-05-24 00:04:56] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: True)
+[2026-05-24 00:05:08] Waiting for SpokePool readiness (attempt 3/180, Ready: False, Synced: True)
+[2026-05-24 00:05:20] Waiting for SpokePool readiness (attempt 4/180, Ready: False, Synced: True)
+[2026-05-24 00:05:32] Waiting for SpokePool readiness (attempt 5/180, Ready: False, Synced: True)
+[2026-05-24 00:05:43] Waiting for SpokePool readiness (attempt 6/180, Ready: False, Synced: True)
+[2026-05-24 00:05:55] Waiting for SpokePool readiness (attempt 7/180, Ready: False, Synced: True)
+[2026-05-24 00:06:07] Waiting for SpokePool readiness (attempt 8/180, Ready: False, Synced: )
+[2026-05-24 00:06:20] Waiting for SpokePool readiness (attempt 9/180, Ready: False, Synced: True)
+[2026-05-24 00:06:32] Waiting for SpokePool readiness (attempt 10/180, Ready: False, Synced: True)
+[2026-05-23 13:36:44] Waiting for SpokePool readiness (attempt 11/180, Ready: False, Synced: True)
+[2026-05-24 00:06:57] Waiting for SpokePool readiness (attempt 12/180, Ready: False, Synced: )
+[2026-05-24 00:07:09] Waiting for SpokePool readiness (attempt 13/180, Ready: False, Synced: )
+[2026-05-24 00:07:22] Waiting for SpokePool readiness (attempt 14/180, Ready: False, Synced: True)
+[2026-05-24 00:07:34] Waiting for SpokePool readiness (attempt 15/180, Ready: False, Synced: True)
+[2026-05-24 00:07:46] Waiting for SpokePool readiness (attempt 16/180, Ready: False, Synced: True)
+[2026-05-24 00:07:58] Waiting for SpokePool readiness (attempt 17/180, Ready: False, Synced: True)
+[2026-05-24 00:08:10] Waiting for SpokePool readiness (attempt 18/180, Ready: False, Synced: True)
+[2026-05-24 00:08:22] Waiting for SpokePool readiness (attempt 19/180, Ready: False, Synced: )
+[2026-05-24 00:08:34] Waiting for SpokePool readiness (attempt 20/180, Ready: False, Synced: True)
+[2026-05-24 00:08:46] Waiting for SpokePool readiness (attempt 21/180, Ready: False, Synced: )
+[2026-05-24 00:08:58] Waiting for SpokePool readiness (attempt 22/180, Ready: False, Synced: )
+[2026-05-24 00:09:10] Waiting for SpokePool readiness (attempt 23/180, Ready: False, Synced: True)
+[2026-05-24 00:09:22] Waiting for SpokePool readiness (attempt 24/180, Ready: False, Synced: True)
+[2026-05-24 00:09:34] Waiting for SpokePool readiness (attempt 25/180, Ready: False, Synced: True)
+[2026-05-24 00:09:46] Waiting for SpokePool readiness (attempt 26/180, Ready: False, Synced: True)
+[2026-05-24 00:09:58] Waiting for SpokePool readiness (attempt 27/180, Ready: False, Synced: True)
+[2026-05-24 00:10:10] Waiting for SpokePool readiness (attempt 28/180, Ready: False, Synced: True)
+[2026-05-24 00:10:22] Waiting for SpokePool readiness (attempt 29/180, Ready: False, Synced: )
+[2026-05-24 00:10:34] Waiting for SpokePool readiness (attempt 30/180, Ready: False, Synced: )
+[2026-05-24 00:10:46] Waiting for SpokePool readiness (attempt 31/180, Ready: False, Synced: True)
+[2026-05-24 00:10:58] Waiting for SpokePool readiness (attempt 32/180, Ready: False, Synced: )
+[2026-05-24 00:11:10] Waiting for SpokePool readiness (attempt 33/180, Ready: False, Synced: True)
+[2026-05-24 00:11:22] Waiting for SpokePool readiness (attempt 34/180, Ready: False, Synced: )
+[2026-05-24 00:11:34] Waiting for SpokePool readiness (attempt 35/180, Ready: False, Synced: True)
+[2026-05-24 00:11:46] Waiting for SpokePool readiness (attempt 36/180, Ready: False, Synced: True)
+[2026-05-24 00:11:57] Waiting for SpokePool readiness (attempt 37/180, Ready: , Synced: True)
+[2026-05-24 00:12:09] Waiting for SpokePool readiness (attempt 38/180, Ready: , Synced: True)
+[2026-05-24 00:12:21] ✅ SpokePool is Ready and Synced
+[2026-05-24 00:12:21] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-24 00:12:25] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 00:12:25] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-24 00:12:26] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-24 00:12:26] Step 10c: Checking certificate distribution resources...
+[2026-05-24 00:12:26] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:12:28] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:12:28] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:12:30] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:12:30] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:12:32] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:12:32] Step 10d: Verifying certificates in target namespaces...
+[2026-05-24 00:12:33] ✅ Namespace exists: platform-observability
+[2026-05-24 00:12:34] ✅ Namespace exists: platform-messaging
+[2026-05-24 00:12:35] ⚠️ Namespace not found yet (may be created later): argocd
+[2026-05-24 00:12:35] Step 10e: Verifying worker nodes are Ready...
+[2026-05-24 00:18:04] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 00:18:04] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 00:18:04] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 00:18:04] Checking prerequisites...
+[2026-05-24 00:18:05]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 00:18:05]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 00:18:05]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 00:18:05]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 00:18:06]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 00:18:06]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 00:18:07]   ✓ hub binary found
+[2026-05-24 00:18:07]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 00:18:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 00:18:10]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 00:18:10] Prerequisites check passed
+[2026-05-24 00:18:10] Step 1: Hub bootstrap already completed, skipping
+[2026-05-24 00:18:41] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-24 00:18:56] Step 3: GitHub access already configured, skipping
+[2026-05-24 00:19:12] Step 4: Namespaces already created, skipping
+[2026-05-24 00:19:22] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-24 00:19:37] Step 6: Infisical already ready, skipping
+[2026-05-24 00:19:48] Step 7-8: ESO configuration already completed, skipping
+[2026-05-24 00:19:53] Step 9: Database already ready, skipping
+[2026-05-24 00:20:03] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 00:20:04] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 00:20:04] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 00:20:06] Waiting for SpokePool readiness (attempt 1/180, Ready: True, Synced: )
+[2026-05-24 00:20:17] Waiting for SpokePool readiness (attempt 2/180, Ready: , Synced: True)
+[2026-05-24 00:20:29] ✅ SpokePool is Ready and Synced
+[2026-05-24 00:20:29] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-24 00:20:33] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 00:20:33] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-24 00:20:34] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-24 00:20:34] Step 10c: Checking certificate distribution resources...
+[2026-05-24 00:20:34] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:20:36] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:20:36] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:20:38] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:20:38] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:20:40] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:20:40] Step 10d: Verifying certificates in target namespaces...
+[2026-05-24 00:20:41] ✅ Namespace exists: platform-observability
+[2026-05-24 00:20:42] ✅ Namespace exists: platform-messaging
+[2026-05-24 00:20:43] ⚠️ Namespace not found yet (may be created later): argocd
+[2026-05-24 00:20:43] Step 10e: Verifying worker nodes are Ready...
+[2026-05-24 00:22:27] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 00:22:27] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 00:22:27] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 00:22:28] Checking prerequisites...
+[2026-05-24 00:22:28]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 00:22:28]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 00:22:28]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 00:22:29]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 00:22:29]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 00:22:29]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 00:22:29]   ✓ hub binary found
+[2026-05-24 00:22:29]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 00:22:29]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 00:22:32]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 00:22:32] Prerequisites check passed
+[2026-05-24 00:22:32] Step 1: Hub bootstrap already completed, skipping
+[2026-05-24 00:23:02] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-24 00:23:18] Step 3: GitHub access already configured, skipping
+[2026-05-24 00:23:33] Step 4: Namespaces already created, skipping
+[2026-05-24 00:23:43] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-24 00:23:59] Step 6: Infisical already ready, skipping
+[2026-05-24 00:24:09] Step 7-8: ESO configuration already completed, skipping
+[2026-05-24 00:24:15] Step 9: Database already ready, skipping
+[2026-05-24 00:24:25] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 00:24:25] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 00:24:25] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 00:24:27] Waiting for SpokePool readiness (attempt 1/180, Ready: True, Synced: )
+[2026-05-24 00:24:39] Waiting for SpokePool readiness (attempt 2/180, Ready: , Synced: True)
+[2026-05-24 00:24:51] ✅ SpokePool is Ready and Synced
+[2026-05-24 00:24:51] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-24 00:24:54] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 00:24:54] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-24 00:24:55] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-24 00:24:55] Step 10c: Checking certificate distribution resources...
+[2026-05-24 00:24:56] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:24:57] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:24:57] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:24:59] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:24:59] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:25:01] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:25:01] Step 10d: Verifying certificates in target namespaces...
+[2026-05-24 00:25:02] ✅ Namespace exists: platform-observability
+[2026-05-24 00:25:03] ✅ Namespace exists: platform-messaging
+[2026-05-24 00:25:04] ⚠️ Namespace not found yet (may be created later): argocd
+[2026-05-24 00:25:04] Step 10e: Verifying worker nodes are Ready...
+[2026-05-24 00:29:40] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 00:29:40] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 00:29:40] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 00:29:40] Checking prerequisites...
+[2026-05-24 00:29:41]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 00:29:41]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 00:29:41]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 00:29:41]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 00:29:41]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 00:29:42]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 00:29:42]   ✓ hub binary found
+[2026-05-24 00:29:42]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 00:29:42]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 00:29:44]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 00:29:45] Prerequisites check passed
+[2026-05-24 00:29:45] Step 1: Hub bootstrap already completed, skipping
+[2026-05-24 00:30:15] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-24 00:30:31] Step 3: GitHub access already configured, skipping
+[2026-05-24 00:30:46] Step 4: Namespaces already created, skipping
+[2026-05-24 00:30:56] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-24 00:31:12] Step 6: Infisical already ready, skipping
+[2026-05-24 00:31:22] Step 7-8: ESO configuration already completed, skipping
+[2026-05-24 00:31:28] Step 9: Database already ready, skipping
+[2026-05-24 00:31:38] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 00:31:38] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 00:31:38] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 00:31:40] ✅ SpokePool is Ready and Synced
+[2026-05-24 00:31:40] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-24 00:31:44] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 00:31:44] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-24 00:31:45] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-24 00:31:45] Step 10c: Checking certificate distribution resources...
+[2026-05-24 00:31:45] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:31:47] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 00:31:47] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:31:49] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 00:31:49] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:31:51] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 00:31:51] Step 10d: Verifying certificates in target namespaces...
+[2026-05-24 00:31:52] ✅ Namespace exists: platform-observability
+[2026-05-24 00:31:53] ✅ Namespace exists: platform-messaging
+[2026-05-24 00:31:54] ✅ Namespace exists: platform-ops
+[2026-05-24 00:31:54] Step 10e: Verifying worker nodes are Ready...
+[2026-05-24 00:31:56] Worker nodes: 3/3 Ready
+[2026-05-24 00:31:57] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-24 00:31:57] ✅ SpokePool readiness validation completed successfully
+[2026-05-24 00:31:57] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-24 00:31:57] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-24 00:31:57] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 00:31:57] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-24 00:31:57] 🎯 Hub cluster: Ready and operational
+[2026-05-24 00:31:58] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-24 00:31:58] 🔐 Certificate distribution: Complete
+[2026-05-24 00:31:58] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-24 00:31:58] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
