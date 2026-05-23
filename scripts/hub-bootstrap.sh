@@ -167,6 +167,20 @@ auto_install_tool() {
                 return 1
             fi
             ;;
+        helm)
+            log "  Auto-installing helm..."
+            local helm_version="v3.17.3"
+            local helm_zip="$install_dir/helm.zip"
+            if curl -fsSLo "$helm_zip" "https://get.helm.sh/helm-${helm_version}-windows-amd64.zip" 2>/dev/null; then
+                unzip -jo "$helm_zip" "windows-amd64/helm.exe" -d "$install_dir" 2>/dev/null
+                rm -f "$helm_zip"
+                chmod +x "$install_dir/helm.exe"
+                export PATH="$PATH:$install_dir"
+                log "  ✓ helm installed to $install_dir/helm.exe"
+            else
+                return 1
+            fi
+            ;;
         *)
             return 1
             ;;
@@ -186,10 +200,10 @@ check_prerequisites() {
     local failed=0
 
     # --- Required CLI tools ---
-    for tool in kubectl aws jq kind clusterctl; do
+    for tool in kubectl aws jq kind clusterctl helm; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             case "$tool" in
-                kind|clusterctl)
+                kind|clusterctl|helm)
                     log "  '$tool' not found — attempting auto-install..."
                     if auto_install_tool "$tool" && command -v "$tool" >/dev/null 2>&1; then
                         log "  ✓ $tool found: $(command -v "$tool")"
@@ -205,6 +219,11 @@ check_prerequisites() {
                                 log "  Install (Windows): curl -Lo clusterctl.exe https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.6/clusterctl-windows-amd64.exe"
                                 log "  Then add to PATH"
                                 log "  Docs: https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl"
+                                ;;
+                            helm)
+                                log "  Install (Windows): winget install -e --id Helm.Helm"
+                                log "  Or download: https://get.helm.sh/helm-v3.17.3-windows-amd64.zip"
+                                log "  Docs: https://helm.sh/docs/intro/install/"
                                 ;;
                         esac
                         failed=1
