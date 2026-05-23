@@ -20,7 +20,7 @@ kubectl port-forward -n platform-billing svc/openmeter-api 8080:80
 
 ```bash
 # From workspace root
-export KUBECONFIG=k8-secrets/kubeconfig/hub-cp.kubeconfig
+export KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig
 export OPENMETER_URL=http://localhost:8080
 cd test/e2e
 go test -v ./kube-sbt-api

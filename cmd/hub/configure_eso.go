@@ -101,7 +101,7 @@ func runConfigureESO(cmd *cobra.Command, args []string) error {
 	fmt.Println("4. Wait for database deployment:")
 	fmt.Println("   kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db -n platform-data --timeout=600s")
 	fmt.Println("5. Upgrade Infisical to TLS:")
-	fmt.Println("   ./bin/hub upgrade-infisical-tls --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig")
+	fmt.Println("   ./bin/hub upgrade-infisical-tls --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig")
 
 	return nil
 }

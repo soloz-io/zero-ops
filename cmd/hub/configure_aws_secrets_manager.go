@@ -36,7 +36,7 @@ Example:
   hub configure-aws-secrets-manager \
     --environment=production \
     --aws-region=ap-south-1 \
-    --kubeconfig=k8-secrets/kubeconfig/hub-cp.kubeconfig
+    --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 After running this command:
 - Hub-operator will backup ENCRYPTION_KEY and AUTH_SECRET to AWS on first bootstrap

@@ -65,7 +65,7 @@ mark_step_completed() {
     local existing_steps=""
     if [[ -f "$BOOTSTRAP_STATE_FILE" ]]; then
         if command -v jq >/dev/null 2>&1; then
-            existing_steps=$(jq -r '.completedSteps[]?' "$BOOTSTRAP_STATE_FILE" 2>/dev/null || echo "")
+            existing_steps=$(jq -r '.completedSteps[]?' "$BOOTSTRAP_STATE_FILE" 2>/dev/null | tr -d '\r' || echo "")
         else
             # Fallback: parse simple JSON array
             existing_steps=$(grep '"completedSteps":' "$BOOTSTRAP_STATE_FILE" | sed 's/.*"completedSteps": \[\(.*\)\]/\1/' | sed 's/[","]//g' | tr ',' '\n')
