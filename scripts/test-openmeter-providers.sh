@@ -4,7 +4,7 @@ set -e
 # Test script for OpenMeter providers
 # This script tests the metering and billing providers against a live OpenMeter instance
 
-KUBECONFIG=${KUBECONFIG:-"k8-secrets/kubeconfig/hub-cp.kubeconfig"}
+KUBECONFIG=${KUBECONFIG:-"k8-secrets/kubeconfig/hub.kubeconfig"}
 NAMESPACE="hub-platform-billing"
 OPENMETER_URL="http://openmeter-api.${NAMESPACE}.svc.cluster.local"
 

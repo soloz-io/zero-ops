@@ -4,7 +4,7 @@
 
 set -e
 
-KUBECONFIG=${KUBECONFIG:-"k8-secrets/kubeconfig/hub-cp.kubeconfig"}
+KUBECONFIG=${KUBECONFIG:-"k8-secrets/kubeconfig/hub.kubeconfig"}
 NAMESPACE="hub-platform-billing"
 
 echo "========================================="

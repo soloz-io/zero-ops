@@ -739,12 +739,12 @@ step10_wait_spokepool() {
     local ready_workers=0
     worker_nodes=$(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
         --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-        -n platform-capi --no-headers 2>/dev/null | wc -l || echo "0")
+        -n platform-capi --no-headers 2>/dev/null | wc -l | tr -d '\r' || echo "0")
     
     if [[ "$worker_nodes" -gt 0 ]]; then
         ready_workers=$(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
             --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" \
-            -n platform-capi -o jsonpath='{.items[?(@.status.conditions[?(@.type=="Ready")].status=="True")].metadata.name}' 2>/dev/null | wc -w)
+            -n platform-capi -o jsonpath='{.items[?(@.status.conditions[?(@.type=="Ready")].status=="True")].metadata.name}' 2>/dev/null | wc -w | tr -d '\r')
         
         log "Worker nodes: $ready_workers/$worker_nodes Ready"
         
