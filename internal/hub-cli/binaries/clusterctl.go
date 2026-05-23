@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 )
@@ -42,10 +43,16 @@ func NewClusterctlManager() (*ClusterctlManager, error) {
 
 // EnsureInstalled ensures clusterctl is installed and verified
 func (m *ClusterctlManager) EnsureInstalled(ctx context.Context) error {
+	// First, check if clusterctl is already available in PATH
+	if path, err := exec.LookPath("clusterctl"); err == nil {
+		m.binPath = path
+		return nil
+	}
+
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
 
-	// Validate supported platform
+	// Validate supported platform for auto-download
 	if !isSupportedPlatform(osName, arch) {
 		return fmt.Errorf("unsupported architecture (%s/%s). Please install clusterctl manually in PATH", osName, arch)
 	}
@@ -84,8 +91,12 @@ func (m *ClusterctlManager) EnsureInstalled(ctx context.Context) error {
 	return nil
 }
 
-// GetPath returns the path to the clusterctl binary
+// GetPath returns the path to the clusterctl binary.
+// Prefers a system-installed clusterctl found in PATH over the managed binary.
 func (m *ClusterctlManager) GetPath() string {
+	if path, err := exec.LookPath("clusterctl"); err == nil {
+		return path
+	}
 	return m.binPath
 }
 

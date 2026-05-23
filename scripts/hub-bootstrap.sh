@@ -42,7 +42,7 @@ is_step_completed() {
     # Create empty state file if it doesn't exist
     if [[ ! -f "$BOOTSTRAP_STATE_FILE" ]]; then
         mkdir -p "$(dirname "$BOOTSTRAP_STATE_FILE")"
-        echo '{"completedSteps": []}' > "$BOOTSTRAP_STATE_FILE"
+        printf '{"completedSteps": []}' > "$BOOTSTRAP_STATE_FILE"
         return 1
     fi
     
@@ -107,8 +107,8 @@ mark_step_completed() {
     done
     completed_steps_json+="]"
     
-    # Create or update bootstrap state file
-    echo "{\"completedSteps\": $completed_steps_json}" > "$BOOTSTRAP_STATE_FILE.tmp"
+    # Create or update bootstrap state file (use printf to avoid CRLF on Windows/Git Bash)
+    printf '{"completedSteps": %s}' "$completed_steps_json" > "$BOOTSTRAP_STATE_FILE.tmp"
     mv "$BOOTSTRAP_STATE_FILE.tmp" "$BOOTSTRAP_STATE_FILE"
     
     log "Step '$step' marked as completed in bootstrap state file"
@@ -140,33 +140,98 @@ delete_iam_access_keys() {
     fi
 }
 
+# Auto-install kind and clusterctl into ~/bin on Windows/Git Bash if missing
+auto_install_tool() {
+    local tool="$1"
+    local install_dir="$HOME/bin"
+    mkdir -p "$install_dir"
+
+    case "$tool" in
+        kind)
+            log "  Auto-installing kind..."
+            if curl -fsSLo "$install_dir/kind.exe" "https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64" 2>/dev/null; then
+                chmod +x "$install_dir/kind.exe"
+                export PATH="$PATH:$install_dir"
+                log "  ✓ kind installed to $install_dir/kind.exe"
+            else
+                return 1
+            fi
+            ;;
+        clusterctl)
+            log "  Auto-installing clusterctl..."
+            if curl -fsSLo "$install_dir/clusterctl.exe" "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.6/clusterctl-windows-amd64.exe" 2>/dev/null; then
+                chmod +x "$install_dir/clusterctl.exe"
+                export PATH="$PATH:$install_dir"
+                log "  ✓ clusterctl installed to $install_dir/clusterctl.exe"
+            else
+                return 1
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    # Persist to ~/.bashrc if not already there
+    local bashrc="$HOME/.bashrc"
+    local path_line="export PATH=\"\$PATH:$install_dir\""
+    if ! grep -qF "$install_dir" "$bashrc" 2>/dev/null; then
+        echo -e "\n# auto-installed tools\n$path_line" >> "$bashrc"
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     log "Checking prerequisites..."
     local failed=0
 
     # --- Required CLI tools ---
-    for tool in kubectl aws jq; do
+    for tool in kubectl aws jq kind clusterctl; do
         if ! command -v "$tool" >/dev/null 2>&1; then
-            log "ERROR: '$tool' is not installed or not in PATH"
             case "$tool" in
-                kubectl)
-                    log "  Install (Windows): winget install -e --id Kubernetes.kubectl"
-                    log "  Or download: https://dl.k8s.io/release/v1.30.0/bin/windows/amd64/kubectl.exe"
-                    log "  Docs: https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/"
+                kind|clusterctl)
+                    log "  '$tool' not found — attempting auto-install..."
+                    if auto_install_tool "$tool" && command -v "$tool" >/dev/null 2>&1; then
+                        log "  ✓ $tool found: $(command -v "$tool")"
+                    else
+                        log "ERROR: '$tool' could not be auto-installed"
+                        case "$tool" in
+                            kind)
+                                log "  Install (Windows): winget install -e --id Kubernetes.kind"
+                                log "  Or download: https://kind.sigs.k8s.io/dl/latest/kind-windows-amd64"
+                                log "  Docs: https://kind.sigs.k8s.io/docs/user/quick-start/#installation"
+                                ;;
+                            clusterctl)
+                                log "  Install (Windows): curl -Lo clusterctl.exe https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.6/clusterctl-windows-amd64.exe"
+                                log "  Then add to PATH"
+                                log "  Docs: https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl"
+                                ;;
+                        esac
+                        failed=1
+                    fi
                     ;;
-                aws)
-                    log "  Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi"
-                    log "  Or: winget install -e --id Amazon.AWSCLI"
-                    log "  Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
-                    ;;
-                jq)
-                    log "  Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=\$PATH:~"
-                    log "  Or (Windows): winget install -e --id jqlang.jq"
-                    log "  Docs: https://jqlang.github.io/jq/download/"
+                *)
+                    log "ERROR: '$tool' is not installed or not in PATH"
+                    case "$tool" in
+                        kubectl)
+                            log "  Install (Windows): winget install -e --id Kubernetes.kubectl"
+                            log "  Or download: https://dl.k8s.io/release/v1.30.0/bin/windows/amd64/kubectl.exe"
+                            log "  Docs: https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/"
+                            ;;
+                        aws)
+                            log "  Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi"
+                            log "  Or: winget install -e --id Amazon.AWSCLI"
+                            log "  Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+                            ;;
+                        jq)
+                            log "  Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=\$PATH:~"
+                            log "  Or (Windows): winget install -e --id jqlang.jq"
+                            log "  Docs: https://jqlang.github.io/jq/download/"
+                            ;;
+                    esac
+                    failed=1
                     ;;
             esac
-            failed=1
         else
             log "  ✓ $tool found: $(command -v "$tool")"
         fi

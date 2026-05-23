@@ -48,16 +48,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		fmt.Printf("[DEBUG] ClusterName: %s, Region: %s, OSType: %s, Upgrade: %v\n", o.ClusterName, o.Region, o.OSType, o.Upgrade)
 	}
 
-	// Preflight check: Fail if kind cluster already exists
-	if err := o.checkKindClusterExists(); err != nil {
-		return err
-	}
-
-	// Preflight check: Fail if Hetzner resources already exist
-	if err := o.checkHetznerResourcesExist(ctx); err != nil {
-		return err
-	}
-
 	stateMgr := state.NewStateManager(o.ClusterName)
 
 	// Try to load existing state
@@ -81,6 +71,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			fmt.Printf("[DEBUG] Completed phases: %v\n", bootstrapState.CompletedPhases)
 		}
 	} else {
+		// Fresh bootstrap - check for conflicting resources before starting
+		if err := o.checkKindClusterExists(); err != nil {
+			return err
+		}
+		if err := o.checkHetznerResourcesExist(ctx); err != nil {
+			return err
+		}
+
 		// Initialize new state
 		bootstrapState = &state.BootstrapState{
 			Version:      "1.0",
