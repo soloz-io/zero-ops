@@ -12,7 +12,7 @@ During the implementation of Spoke cluster provisioning, we identified a hard se
 
 | Namespace | Components |
 |-----------|------------|
-| `platform-capi` | Cluster API resources, cluster-api-operator, Crossplane composite resources (SpokePool), AND all associated bootstrap templates (ClusterResourceSet dependencies, CNI/CCM payloads, and bootstrap CA secrets) |
+| `platform-capi` | Cluster API resources, cluster-api-operator, Crossplane composite resources (SpokePool), AND all associated bootstrap templates (ClusterResourceSet dependencies, CNI/CCM payloads, and bootstrap CA secrets), CAPI Provider CRs (CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider) |
 | `platform-messaging` | NATS subscriber (Hub), NATS Leaf Node (Spoke) |
 | `platform-identity` | Kratos, Keto, Hydra, kratos-ui |
 | `platform-data` | PostgreSQL clusters, PgBouncer, Redis, CloudNativePG Operator |
@@ -40,7 +40,7 @@ Update of definition of `platform-capi` to explicitly include bootstrap assets:
 |-----------|------------|-------|
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
-| `capi-operator-system` | CAPI Operator, CAPH Controller, CAPI/Kubeadm Controllers | Upstream-constrained: bootstrap code in `internal/hub-cli/capi/operator.go` applies `operator-components.yaml` directly from the upstream GitHub release — this manifest hardcodes `capi-operator-system`. Overriding it would require Helm-based install or manifest post-processing, both fragile on upgrades. Conceptual separation is intentional: `capi-operator-system` holds **controllers** (operator + provider reconcilers), `platform-capi` holds **resources** (Cluster, MachinePool, SpokePool CRs) — mirrors the `cnpg-system`/`platform-data` pattern. |
+| `capi-operator-system` | CAPI Operator Deployment (`capi-operator-controller-manager`) only | Upstream-constrained: the operator deployment namespace is hardcoded in `operator-components.yaml` released by upstream. Provider CRs (CoreProvider, BootstrapProvider, etc.) are placed in `platform-capi` — the operator watches all namespaces by default. This is consistent with `cnpg-system` (operator) / `platform-data` (workloads) separation. |
 
 ## Tenant Namespaces (Spoke Only)
 

@@ -2,6 +2,6 @@ apiVersion: operator.cluster.x-k8s.io/v1alpha2
 kind: BootstrapProvider
 metadata:
   name: talos
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   version: v0.6.5

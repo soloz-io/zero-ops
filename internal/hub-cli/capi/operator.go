@@ -452,7 +452,7 @@ func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.D
 				}
 
 				cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", provider.kind, provider.name,
-					"-n", "capi-operator-system",
+					"-n", "platform-capi",
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")...)
 
 				output, err := cmd.Output()

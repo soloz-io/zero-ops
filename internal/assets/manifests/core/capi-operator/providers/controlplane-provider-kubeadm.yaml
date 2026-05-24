@@ -2,7 +2,7 @@ apiVersion: operator.cluster.x-k8s.io/v1alpha2
 kind: ControlPlaneProvider
 metadata:
   name: kubeadm
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   version: v1.8.5
   manager:
