@@ -717,7 +717,7 @@ func (o *Orchestrator) updateProviders(ctx context.Context, kubeconfig string) e
 		// Patch Provider CRD spec.version
 		patch := fmt.Sprintf(`{"spec":{"version":"%s"}}`, p.version)
 		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"patch", p.kind, p.name, "-n", "capi-operator-system",
+			"patch", p.kind, p.name, "-n", "platform-capi",
 			"--type=merge", "-p", patch)
 
 		if output, err := cmd.CombinedOutput(); err != nil {

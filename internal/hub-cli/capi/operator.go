@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,27 +155,14 @@ spec:
 }
 
 func (i *OperatorInstaller) installOperator(ctx context.Context) error {
-	operatorURL := fmt.Sprintf("https://github.com/kubernetes-sigs/cluster-api-operator/releases/download/%s/operator-components.yaml", versions.CAPIOperatorVersion)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, operatorURL, nil)
+	manifest, err := assets.ReadManifest("core/capi-operator/install.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to create request for operator manifest: %w", err)
+		return fmt.Errorf("failed to read embedded capi-operator manifest: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download operator manifest: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download operator manifest, status: %d", resp.StatusCode)
-	}
-
-	manifest, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read operator manifest: %w", err)
-	}
+	// Rewrite all capi-operator-system references to platform-capi so the
+	// operator deployment, CRDs, webhooks and RBAC all land in platform-capi.
+	manifest = bytes.ReplaceAll(manifest, []byte("capi-operator-system"), []byte("platform-capi"))
 
 	return i.applyManifestSafely(ctx, manifest)
 }
@@ -316,7 +301,7 @@ func (i *OperatorInstaller) waitForOperator(ctx context.Context, timeout time.Du
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
-		"-n", "capi-operator-system",
+		"-n", "platform-capi",
 		"capi-operator-controller-manager",
 		"--for=condition=Available",
 		fmt.Sprintf("--timeout=%s", timeout))...)

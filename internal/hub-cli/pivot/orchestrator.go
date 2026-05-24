@@ -330,7 +330,7 @@ spec:
 	cmd = exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", mgmtKubeconfig,
 		"wait", "deployment",
-		"-n", "capi-operator-system",
+		"-n", "platform-capi",
 		"capi-operator-controller-manager",
 		"--for=condition=Available",
 		"--timeout=3m",
@@ -636,7 +636,7 @@ func (o *Orchestrator) waitForProvidersReady(ctx context.Context, kubeconfig str
 				cmd := exec.CommandContext(ctx, "kubectl",
 					"--kubeconfig", kubeconfig,
 					"get", provider.kind, provider.name,
-					"-n", "capi-operator-system",
+					"-n", "platform-capi",
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
 				)
 

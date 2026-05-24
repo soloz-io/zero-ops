@@ -40,7 +40,6 @@ Update of definition of `platform-capi` to explicitly include bootstrap assets:
 |-----------|------------|-------|
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
-| `capi-operator-system` | CAPI Operator Deployment (`capi-operator-controller-manager`) only | Upstream-constrained: the operator deployment namespace is hardcoded in `operator-components.yaml` released by upstream. Provider CRs (CoreProvider, BootstrapProvider, etc.) are placed in `platform-capi` — the operator watches all namespaces by default. This is consistent with `cnpg-system` (operator) / `platform-data` (workloads) separation. |
 
 ## Tenant Namespaces (Spoke Only)
 

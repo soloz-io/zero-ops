@@ -171,6 +171,7 @@ check_namespaces() {
     log_section "1. PLATFORM NAMESPACES"
     local required_ns=(
         platform-ops
+        platform-capi
         platform-data
         platform-identity
         platform-billing
@@ -178,6 +179,7 @@ check_namespaces() {
         platform-observability
         platform-security
         platform-edge
+        platform-controlplane
         cert-manager
         cnpg-system
         kube-system
@@ -198,6 +200,10 @@ check_argocd() {
     check_deployment "platform-ops" "argocd-server"
     check_deployment "platform-ops" "argocd-repo-server"
     check_deployment "platform-ops" "argocd-applicationset-controller"
+
+    # Kyverno (platform-ops per ADR-015)
+    check_deployment "platform-ops" "kyverno-admission-controller"
+    check_deployment "platform-ops" "kyverno-background-controller"
 }
 
 # ─── 3. CROSSPLANE ────────────────────────────────────────────────────────────
@@ -430,11 +436,11 @@ check_hub_operator() {
     check_argocd_app "hub-operator" "FAIL"
     check_deployment "platform-ops" "hub-operator"
 
-    # Billing CRDs installed
+    # Billing CRDs installed (ops.nutgraf.in group — added in hub-operator kustomization.yaml)
     local billing_crds=(
-        "meters.billing.nutgraf.in"
-        "features.billing.nutgraf.in"
-        "plans.billing.nutgraf.in"
+        "meters.ops.nutgraf.in"
+        "features.ops.nutgraf.in"
+        "plans.ops.nutgraf.in"
     )
     for crd in "${billing_crds[@]}"; do
         if kc get crd "$crd" >/dev/null 2>&1; then
@@ -501,6 +507,24 @@ check_ingress() {
 check_spoke() {
     log_section "14. SPOKE POOL & CAPI"
 
+    # CAPI operator deployment (migrated to platform-capi per ADR-015)
+    check_deployment "platform-capi" "capi-operator-controller-manager"
+
+    # CAPI Provider CRs (all in platform-capi per ADR-015)
+    local providers=("CoreProvider/cluster-api" "BootstrapProvider/kubeadm" "ControlPlaneProvider/kubeadm" "InfrastructureProvider/hetzner")
+    for p in "${providers[@]}"; do
+        local kind="${p%%/*}"
+        local name="${p##*/}"
+        local ready
+        ready=$(kc get "$kind" "$name" -n platform-capi \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        if [[ "$ready" == "True" ]]; then
+            log_pass "CAPI $kind/$name: Ready"
+        else
+            log_fail "CAPI $kind/$name: Ready=$ready"
+        fi
+    done
+
     local spokepool_ready
     spokepool_ready=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
         -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
@@ -539,6 +563,7 @@ check_platform_argocd_apps() {
 
     # Critical — failure blocks operations
     local critical_apps=(
+        "platform-namespaces"
         "02-platform-data"
         "platform-external-secrets"
         "platform-crossplane"
@@ -561,6 +586,7 @@ check_platform_argocd_apps() {
     local warn_apps=(
         "01-platform-infra"
         "03-platform-services"
+        "platform-kyverno"
         "platform-clickhouse"
         "clickhouse-operator"
         "openmeter"
