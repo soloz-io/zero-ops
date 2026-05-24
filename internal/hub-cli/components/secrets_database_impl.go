@@ -350,6 +350,55 @@ func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, er
 	return true, nil
 }
 
+// WaitForInfisicalAuth waits for the infisical-auth secret to be created by 'hub configure-eso'.
+// This secret contains the Machine Identity credentials needed to authenticate with the Infisical API.
+// It must exist before Steps 4-5 of init-secrets can run.
+func (i *Installer) WaitForInfisicalAuth(ctx context.Context) error {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	namespace := constants.NamespaceOps
+	timeout := 30 * time.Minute
+	checkInterval := 15 * time.Second
+	deadline := time.Now().Add(timeout)
+	printed := false
+
+	for time.Now().Before(deadline) {
+		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
+		if err == nil {
+			// Validate it has the required keys
+			if len(secret.Data["client-id"]) > 0 && len(secret.Data["client-secret"]) > 0 {
+				fmt.Println("✓ infisical-auth secret found — Machine Identity credentials ready")
+				return nil
+			}
+		}
+
+		if !printed {
+			fmt.Println("\n⏳ Waiting for infisical-auth secret...")
+			fmt.Println("   ACTION REQUIRED: Open a new terminal and run:")
+			fmt.Println("   1. Create a Machine Identity in the Infisical UI (Access Control → Machine Identities)")
+			fmt.Println("   2. Run: hub configure-eso \\")
+			fmt.Println("          --infisical-client-id=<client-id> \\")
+			fmt.Println("          --infisical-client-secret=<client-secret> \\")
+			fmt.Println("          --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig")
+			fmt.Println("   This process will continue automatically once the secret is created.")
+			printed = true
+		}
+
+		fmt.Printf("   infisical-auth not found yet, checking again in %v...\n", checkInterval)
+		time.Sleep(checkInterval)
+	}
+
+	return fmt.Errorf("timeout after %v waiting for infisical-auth secret — run 'hub configure-eso' to create it", timeout)
+}
+
 // WaitForInfisicalHealth waits for Infisical pods to become ready
 func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)

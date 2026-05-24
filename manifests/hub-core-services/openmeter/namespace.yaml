@@ -5,3 +5,4 @@ metadata:
   name: platform-billing
   labels:
     name: platform-billing
+    topology.platform.io/role: hub

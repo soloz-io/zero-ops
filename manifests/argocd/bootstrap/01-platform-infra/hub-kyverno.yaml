@@ -81,7 +81,7 @@ spec:
           install: true
   destination:
     server: https://kubernetes.default.svc
-    namespace: kyverno
+    namespace: platform-ops
   syncPolicy:
     automated:
       prune: true

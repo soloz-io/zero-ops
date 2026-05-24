@@ -4,3 +4,4 @@ metadata:
   name: platform-data
   labels:
     name: platform-data
+    topology.platform.io/role: hub

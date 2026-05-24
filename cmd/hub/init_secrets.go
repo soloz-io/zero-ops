@@ -76,6 +76,14 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Step 3.5: Wait for infisical-auth secret (Machine Identity credentials for Infisical API).
+	// Created by: hub configure-eso --infisical-client-id=... --infisical-client-secret=...
+	// Steps 4-5 need this to authenticate with the Infisical API and store platform credentials.
+	fmt.Println("\n[Step 3.5/5] Waiting for Infisical Machine Identity credentials (infisical-auth)...")
+	if err := installer.WaitForInfisicalAuth(ctx); err != nil {
+		return fmt.Errorf("infisical-auth secret not available: %w", err)
+	}
+
 	// Step 4: Generate secure passwords for platform database users (requires Infisical API)
 	fmt.Println("\n[Step 4/5] Storing platform database credentials in Infisical...")
 	changed3, err := installer.InstallPlatformDatabaseCredentials(ctx)

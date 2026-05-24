@@ -16,7 +16,7 @@ During the implementation of Spoke cluster provisioning, we identified a hard se
 | `platform-messaging` | NATS subscriber (Hub), NATS Leaf Node (Spoke) |
 | `platform-identity` | Kratos, Keto, Hydra, kratos-ui |
 | `platform-data` | PostgreSQL clusters, PgBouncer, Redis, CloudNativePG Operator |
-| `platform-ops` | ArgoCD/ArgoCD Agent, Argo-repo-Server, capi2argo, ESO, Crossplane, KEDA, cnpg2monitor, External-DNS, kube-sbt API |
+| `platform-ops` | ArgoCD/ArgoCD Agent, Argo-repo-Server, capi2argo, ESO, Crossplane, KEDA, cnpg2monitor, External-DNS, kube-sbt API, Kyverno |
 | `platform-security` | Infisical, SPIFFE/SPIRE, spire-k8s-registrar |
 | `platform-edge` | AgentGateway, auth-proxy, Ingress NGINX |
 | `platform-network` | Cilium |
@@ -40,6 +40,7 @@ Update of definition of `platform-capi` to explicitly include bootstrap assets:
 |-----------|------------|-------|
 | `cert-manager` | Cert-Manager | Upstream default namespace |
 | `cnpg-system` | CloudNativePG Operator | Upstream default namespace |
+| `capi-operator-system` | CAPI Operator, CAPH Controller, CAPI/Kubeadm Controllers | Upstream-constrained: bootstrap code in `internal/hub-cli/capi/operator.go` applies `operator-components.yaml` directly from the upstream GitHub release — this manifest hardcodes `capi-operator-system`. Overriding it would require Helm-based install or manifest post-processing, both fragile on upgrades. Conceptual separation is intentional: `capi-operator-system` holds **controllers** (operator + provider reconcilers), `platform-capi` holds **resources** (Cluster, MachinePool, SpokePool CRs) — mirrors the `cnpg-system`/`platform-data` pattern. |
 
 ## Tenant Namespaces (Spoke Only)
 
@@ -57,6 +58,8 @@ metadata:
     topology.platform.io/role: hub|spoke
     topology.platform.io/cell-id: <spoke-pool-id>  # Spoke only
 ```
+
+Topology labels are applied via the `platform-namespaces` ArgoCD application (sync-wave `-2`), which runs before all other platform services to ensure labels are present at namespace creation time. Canonical source: `manifests/hub-core-services/platform-namespaces/namespaces.yaml`.
 
 ## Notes
 

@@ -807,6 +807,16 @@ main() {
     log "🔐 Certificate distribution: Complete"
     log "🏗️  Spoke cluster: Ready for tenant database provisioning"
     log "You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig"
+
+    # Run post-bootstrap core services validation
+    log ""
+    log "Running post-bootstrap core services validation..."
+    local validate_script="$SCRIPT_DIR/post-bootstrap-validate.sh"
+    if [[ -f "$validate_script" ]]; then
+        bash "$validate_script" || log "⚠️  Post-bootstrap validation reported failures — review the summary above"
+    else
+        log "⚠️  post-bootstrap-validate.sh not found at $validate_script — skipping validation"
+    fi
 }
 
 # Handle script interruption

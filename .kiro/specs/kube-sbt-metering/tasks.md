@@ -1,4 +1,4 @@
-# Task List
+﻿# Task List
 
 ## Phase 1: Foundation - OpenMeter Provider & Core Interfaces
 
@@ -76,38 +76,38 @@
 
 ## Phase 3: REST API Layer & User Management
 
-- [ ] 11. Implement REST API server with Gin framework
-  - [ ] Create `cmd/kube-sbt-api/main.go` with Gin HTTP server initialization
-  - [ ] Add middleware for JWT validation and tenant context injection
-  - [ ] Add middleware for RFC 7807 Problem Details error responses
-  - [ ] Configure CORS, rate limiting, and request logging
+- [x] 11. Implement REST API server with Gin framework
+  - [x] Create `cmd/kube-sbt-api/main.go` with Gin HTTP server initialization
+  - [x] Add middleware for JWT validation and tenant context injection
+  - [x] Add middleware for RFC 7807 Problem Details error responses
+  - [x] Configure CORS, rate limiting, and request logging
 
 - [x] 12. Implement user management API endpoints
-  - [ ] Implement POST /api/v1/tenants/{tenantID}/users for user creation with Ory Kratos integration
-  - [ ] Implement GET /api/v1/tenants/{tenantID}/users/{userID} for user retrieval
-  - [ ] Implement PUT /api/v1/tenants/{tenantID}/users/{userID} for user updates
-  - [ ] Implement DELETE /api/v1/tenants/{tenantID}/users/{userID} for user deletion
-  - [ ] Implement GET /api/v1/tenants/{tenantID}/users for user listing with pagination
+  - [x] Implement POST /api/v1/tenants/{tenantID}/users for user creation with Ory Kratos integration
+  - [x] Implement GET /api/v1/tenants/{tenantID}/users/{userID} for user retrieval
+  - [x] Implement PUT /api/v1/tenants/{tenantID}/users/{userID} for user updates
+  - [x] Implement DELETE /api/v1/tenants/{tenantID}/users/{userID} for user deletion
+  - [x] Implement GET /api/v1/tenants/{tenantID}/users for user listing with pagination
 
 - [x] 13. Implement Saga pattern for user creation with rollback
-  - [ ] Add Ory Kratos user creation step in user creation handler
-  - [ ] Add OpenMeter subject registration step after Kratos user creation
-  - [ ] Implement rollback logic: delete Kratos user if subject registration fails
-  - [ ] Add retry logic with exponential backoff for rollback failures
-  - [ ] Publish orphaned subject events to NATS topic `opensbt_orphanedSubjects` on rollback failure
+  - [x] Add Ory Kratos user creation step in user creation handler
+  - [x] Add OpenMeter subject registration step after Kratos user creation
+  - [x] Implement rollback logic: delete Kratos user if subject registration fails
+  - [x] Add retry logic with exponential backoff for rollback failures
+  - [x] Publish orphaned subject events to NATS topic `opensbt_orphanedSubjects` on rollback failure
 
 - [x] 14. Implement usage query API endpoints
-  - [ ] Implement GET /api/v1/tenants/{tenantID}/usage for tenant-scoped usage
-  - [ ] Implement GET /api/v1/tenants/{tenantID}/users/{userID}/usage for user-scoped usage
-  - [ ] Implement GET /api/v1/tenants/{tenantID}/entitlements for entitlement checking
-  - [ ] Add query parameter parsing for time period filtering (start_date, end_date, period)
-  - [ ] Add HTTP 503 responses with retry-after header when OpenMeter is unavailable
+  - [x] Implement GET /api/v1/tenants/{tenantID}/usage for tenant-scoped usage
+  - [x] Implement GET /api/v1/tenants/{tenantID}/users/{userID}/usage for user-scoped usage
+  - [x] Implement GET /api/v1/tenants/{tenantID}/entitlements for entitlement checking
+  - [x] Add query parameter parsing for time period filtering (start_date, end_date, period)
+  - [x] Add HTTP 503 responses with retry-after header when OpenMeter is unavailable
 
 - [x] 15. Implement read-only catalog API endpoints
-  - [ ] Implement GET /api/v1/meters for listing meters
-  - [ ] Implement GET /api/v1/features for listing features
-  - [ ] Implement GET /api/v1/plans for listing plans
-  - [ ] Add namespace filtering for all catalog endpoints
+  - [x] Implement GET /api/v1/meters for listing meters
+  - [x] Implement GET /api/v1/features for listing features
+  - [x] Implement GET /api/v1/plans for listing plans
+  - [x] Add namespace filtering for all catalog endpoints
 
 - [ ] 16. **CHECKPOINT 3: REST API Functional**
   - **Deliverable**: Functional REST API with user management, usage queries, and catalog endpoints
@@ -158,12 +158,12 @@
 - [x] 22. Implement Plan controller reconciler
   - [x] Create `operators/hub-operator/internal/controller/plan_controller.go`
   - [x] Implement Reconcile method syncing Plan CR to OpenMeter
-  - [ ] Update CR Status.Conditions with sync status
+  - [x] Update CR Status.Conditions with sync status
   - [x] Add validation for referenced feature keys
-  - [ ] Implement exponential backoff and event emission
+  - [x] Implement exponential backoff and event emission
   - [x] Handle Plan deletion by deleting from OpenMeter
 
-- [x] 23. **CHECKPOINT 4: GitOps Catalog Management**
+- [ ] 23. **CHECKPOINT 4: GitOps Catalog Management**
   - **Deliverable**: Functional hub-operator with Meter, Feature, Plan CRDs and reconcilers syncing to OpenMeter
   - **Verification Criteria**:
     - Meter CRs render from universal-tenant Helm chart values.yaml

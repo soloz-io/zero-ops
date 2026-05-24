@@ -5,6 +5,7 @@ Trace exactly why reported issue occurred and summarize the precise manifest/app
 
 Solution will always be provided by me.
 Do not try to fix yourself.
+Do not apply direct cluster changes.
 You should never use "git push" command.
 
 you should only do this exactly.. nothing else...

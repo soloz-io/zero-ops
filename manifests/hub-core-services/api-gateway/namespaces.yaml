@@ -4,6 +4,7 @@ metadata:
   name: platform-edge
   labels:
     name: platform-edge
+    topology.platform.io/role: hub
 ---
 apiVersion: v1
 kind: Namespace
@@ -11,3 +12,4 @@ metadata:
   name: platform-controlplane
   labels:
     name: platform-controlplane
+    topology.platform.io/role: hub

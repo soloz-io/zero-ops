@@ -4,3 +4,4 @@ metadata:
   name: platform-security
   labels:
     name: platform-security
+    topology.platform.io/role: hub

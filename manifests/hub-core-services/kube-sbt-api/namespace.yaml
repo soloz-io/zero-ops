@@ -4,4 +4,4 @@ metadata:
   name: platform-ops
   labels:
     name: platform-ops
-    istio-injection: enabled
+    topology.platform.io/role: hub

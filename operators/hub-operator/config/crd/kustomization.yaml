@@ -3,6 +3,9 @@
 # It should be run by config/default
 resources:
 - bases/ops.nutgraf.in_hubenvironments.yaml
+- bases/ops.nutgraf.in_meters.yaml
+- bases/ops.nutgraf.in_features.yaml
+- bases/ops.nutgraf.in_plans.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
