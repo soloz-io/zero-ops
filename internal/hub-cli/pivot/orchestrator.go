@@ -334,7 +334,7 @@ spec:
 	cmd = exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", mgmtKubeconfig,
 		"wait", "deployment",
-		"-n", "platform-capi",
+		"-n", constants.NamespaceCAPI,
 		"capi-operator-controller-manager",
 		"--for=condition=Available",
 		"--timeout=3m",
@@ -579,7 +579,7 @@ func (o *Orchestrator) waitForOperatorCRDs(ctx context.Context, kubeconfig strin
 			cmd := exec.CommandContext(ctx, "kubectl",
 				"--kubeconfig", kubeconfig,
 				"get", "endpoints", "capi-operator-webhook-service",
-				"-n", "platform-capi",
+				"-n", constants.NamespaceCAPI,
 				"-o", "jsonpath={.subsets[0].addresses[0].ip}",
 			)
 			out, err := cmd.Output()
@@ -712,7 +712,7 @@ func (o *Orchestrator) waitForProvidersReady(ctx context.Context, kubeconfig str
 				cmd := exec.CommandContext(ctx, "kubectl",
 					"--kubeconfig", kubeconfig,
 					"get", provider.kind, provider.name,
-					"-n", "platform-capi",
+					"-n", constants.NamespaceCAPI,
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
 				)
 

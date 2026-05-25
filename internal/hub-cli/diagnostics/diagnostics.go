@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
 
 // OutputDiagnostics prints diagnostic information for troubleshooting

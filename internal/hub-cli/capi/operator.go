@@ -301,7 +301,7 @@ func (i *OperatorInstaller) waitForOperator(ctx context.Context, timeout time.Du
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("wait", "deployment",
-		"-n", "platform-capi",
+		"-n", constants.NamespaceCAPI,
 		"capi-operator-controller-manager",
 		"--for=condition=Available",
 		fmt.Sprintf("--timeout=%s", timeout))...)
@@ -437,7 +437,7 @@ func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.D
 				}
 
 				cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", provider.kind, provider.name,
-					"-n", "platform-capi",
+					"-n", constants.NamespaceCAPI,
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")...)
 
 				output, err := cmd.Output()
