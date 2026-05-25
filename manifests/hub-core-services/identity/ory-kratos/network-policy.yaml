@@ -40,25 +40,21 @@ spec:
     - protocol: TCP
       port: 4433
   egress:
-  # Allow to CNPG database
+  # Allow to CNPG database (namespaceSelector only: Cilium socket-LB evaluates
+  # policy against the service ClusterIP, so podSelector would never match)
   - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: platform-data
-      podSelector:
-        matchLabels:
-          cnpg.io/cluster: platform-db
     ports:
     - protocol: TCP
       port: 5432
-  # Allow to Hydra admin within platform-identity
+  # Allow to Hydra admin within platform-identity (namespaceSelector only: same
+  # Cilium socket-LB constraint — ClusterIP does not match pod labels)
   - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: platform-identity
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: hydra
     ports:
     - protocol: TCP
       port: 4445

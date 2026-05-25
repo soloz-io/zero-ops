@@ -31,27 +31,22 @@ spec:
     - protocol: TCP
       port: 8080
   egress:
-  # Allow to Hydra
+  # Allow to Hydra (namespaceSelector only: Cilium socket-LB evaluates
+  # policy against the service ClusterIP, so podSelector would never match)
   - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: platform-identity
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: hydra
     ports:
     - protocol: TCP
       port: 4444
     - protocol: TCP
       port: 4445
-  # Allow to Kratos
+  # Allow to Kratos (namespaceSelector only: same Cilium socket-LB constraint)
   - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: platform-identity
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: kratos
     ports:
     - protocol: TCP
       port: 4433

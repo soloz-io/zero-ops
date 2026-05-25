@@ -23,18 +23,14 @@ spec:
     - protocol: TCP
       port: 8080
   egress:
-  # Allow DNS
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
-      podSelector:
-        matchLabels:
-          k8s-app: kube-dns
-    ports:
+  # Allow DNS (no 'to' selector: Cilium socket-LB resolves kube-dns before
+  # NetworkPolicy evaluation; omitting 'to' is the portable pattern for DNS)
+  - ports:
     - protocol: UDP
       port: 53
-  # Allow OpenMeter API
+    - protocol: TCP
+      port: 53
+  # Allow OpenMeter API (same namespace)
   - to:
     - podSelector:
         matchLabels:
@@ -43,29 +39,24 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # Allow Ory Kratos
+  # Allow Ory Kratos (namespaceSelector only: Cilium socket-LB evaluates policy
+  # against service ClusterIP, so podSelector would never match)
   - to:
     - namespaceSelector:
         matchLabels:
-          name: platform-identity
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: kratos
+          kubernetes.io/metadata.name: platform-identity
     ports:
     - protocol: TCP
       port: 4433
-  # Allow NATS
+  # Allow NATS (namespaceSelector only: same Cilium socket-LB constraint)
   - to:
     - namespaceSelector:
         matchLabels:
-          name: platform-messaging
-      podSelector:
-        matchLabels:
-          app: nats
+          kubernetes.io/metadata.name: platform-messaging
     ports:
     - protocol: TCP
       port: 4222
-  # Allow Redis
+  # Allow Redis (same namespace)
   - to:
     - podSelector:
         matchLabels:
