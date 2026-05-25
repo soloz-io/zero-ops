@@ -382,6 +382,40 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	// Phase 2: Provision database roles
+	// Must run after ApplicationSecretsReady (ESO has created the credential
+	// secrets that RoleManager reads) and after CNPG is ready.
+	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesProvisioned", hubEnv.Generation) {
+		logger.Info("Phase 2: Provisioning database roles")
+
+		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
+		if err != nil {
+			logger.Error(err, "Failed to create RoleManager")
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
+		}
+		defer roleManager.Close()
+
+		if err := roleManager.CreateOrUpdateRoles(ctx, hubEnv); err != nil {
+			logger.Error(err, "Failed to provision database roles")
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
+		}
+
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "DatabaseRolesProvisioned",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Provisioned",
+			Message:            "Database roles created/updated successfully",
+			ObservedGeneration: hubEnv.Generation,
+		})
+
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Phase 2 complete: Database roles provisioned")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// Requirement 9.8: Phase 3 - Upload Secrets to Infisical
 	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "SecretsBackedUp", hubEnv.Generation) {
 		logger.Info("Phase 3: Uploading secrets to Infisical")
