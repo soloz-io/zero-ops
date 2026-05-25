@@ -16,6 +16,17 @@ spec:
     server: https://kubernetes.default.svc
     namespace: platform-billing
   
+  # Ignore the Kafka KRaft cluster-id secret: it is seeded by a Bitnami Kafka
+  # init-hook at runtime and its data is intentionally not stored in Git.
+  # ArgoCD would otherwise flag it as OutOfSync on every reconcile.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: openmeter-kafka-kraft-cluster-id
+      namespace: platform-billing
+      jsonPointers:
+        - /data
+
   syncPolicy:
     automated:
       prune: true

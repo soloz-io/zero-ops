@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: platform-data
-  labels:
-    name: platform-data
-    topology.platform.io/role: hub

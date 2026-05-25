@@ -272,7 +272,7 @@ check_databases() {
     log_section "6. DATABASES (CloudNative-PG)"
     # cnpg-system = upstream operator namespace (per ADR-015 Upstream Namespaces)
     # Operator health is checked here; database workloads live in platform-data
-    check_deployment "cnpg-system" "cnpg-controller-manager"
+    check_deployment "cnpg-system" "cloudnative-pg"
 
     # CNPG clusters (platform-data per ADR-015)
     local clusters
@@ -281,7 +281,7 @@ check_databases() {
     if [[ -n "$clusters" ]]; then
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
-            if echo "$line" | grep -q ": Ready"; then
+            if echo "$line" | grep -q ": Cluster in healthy state"; then
                 log_pass "CNPG Cluster $line"
             else
                 log_fail "CNPG Cluster $line (not Ready)"
