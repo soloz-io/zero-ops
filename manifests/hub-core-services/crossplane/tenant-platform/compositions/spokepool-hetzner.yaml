@@ -388,6 +388,22 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-observability-namespace"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-messaging-namespace"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.resources[12].name
                 transforms:
                   - type: string
