@@ -300,18 +300,15 @@ check_prerequisites() {
 
 # Step 1: Bootstrap Hub Cluster
 step1_bootstrap_hub() {
-    # First check if step is already completed
+    # Check if step is already completed AND the Go bootstrap state confirms postboot finished
+    local go_state_file="$ZERO_OPS_DIR/.zero-ops/state/hub.json"
     if is_step_completed "bootstrap_hub"; then
-        log "Step 1: Hub bootstrap already completed, skipping"
-        return
-    fi
-    
-    # Check if cluster already exists and is working (even if state file is missing)
-    local kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
-    if [[ -f "$kubeconfig" ]] && kubectl --kubeconfig="$kubeconfig" cluster-info >/dev/null 2>&1; then
-        log "Step 1: Hub cluster already exists and is accessible, marking as completed"
-        mark_step_completed "bootstrap_hub"
-        return
+        # Verify the Go bootstrap actually completed all phases (incl. postboot)
+        if [[ -f "$go_state_file" ]] && grep -q '"postboot"' "$go_state_file"; then
+            log "Step 1: Hub bootstrap already completed (postboot confirmed), skipping"
+            return
+        fi
+        log "Step 1: Bash state says done but Go bootstrap postboot not found — re-running hub bootstrap to resume"
     fi
     
     log "Step 1: Bootstrapping Hub Cluster..."

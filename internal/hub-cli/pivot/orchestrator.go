@@ -321,9 +321,9 @@ spec:
 		return fmt.Errorf("failed to read operator manifest: %w", err)
 	}
 
-	// Rewrite all capi-operator-system references to platform-capi so the
-	// operator deployment, CRDs, webhooks and RBAC all land in platform-capi.
-	operatorManifest = bytes.ReplaceAll(operatorManifest, []byte("capi-operator-system"), []byte("platform-capi"))
+	// Clear the placeholder caBundle (base64 of '\n') to empty so Kubernetes accepts
+	// the apply; cert-manager cainjector will inject the real CA bundle once the cert is ready.
+	operatorManifest = bytes.ReplaceAll(operatorManifest, []byte("caBundle: Cg=="), []byte(`caBundle: ""`))
 
 	if err := o.applyManifestSafely(ctx, mgmtKubeconfig, operatorManifest); err != nil {
 		return err

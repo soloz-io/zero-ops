@@ -160,9 +160,9 @@ func (i *OperatorInstaller) installOperator(ctx context.Context) error {
 		return fmt.Errorf("failed to read embedded capi-operator manifest: %w", err)
 	}
 
-	// Rewrite all capi-operator-system references to platform-capi so the
-	// operator deployment, CRDs, webhooks and RBAC all land in platform-capi.
-	manifest = bytes.ReplaceAll(manifest, []byte("capi-operator-system"), []byte("platform-capi"))
+	// Clear the placeholder caBundle (base64 of '\n') to empty so Kubernetes accepts
+	// the apply; cert-manager cainjector will inject the real CA bundle once the cert is ready.
+	manifest = bytes.ReplaceAll(manifest, []byte("caBundle: Cg=="), []byte(`caBundle: ""`))
 
 	return i.applyManifestSafely(ctx, manifest)
 }

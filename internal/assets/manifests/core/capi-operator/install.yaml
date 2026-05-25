@@ -4,13 +4,13 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
     control-plane: controller-manager
-  name: capi-operator-system
+  name: platform-capi
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -23,7 +23,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -3019,7 +3019,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -3032,7 +3032,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -7613,7 +7613,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -7626,7 +7626,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -12210,7 +12210,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -12223,7 +12223,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -16804,7 +16804,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -16817,7 +16817,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -21401,7 +21401,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -21414,7 +21414,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -24410,7 +24410,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
@@ -24423,7 +24423,7 @@ spec:
         caBundle: Cg==
         service:
           name: capi-operator-webhook-service
-          namespace: capi-operator-system
+          namespace: platform-capi
           path: /convert
       conversionReviewVersions:
       - v1
@@ -27424,7 +27424,7 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-manager
-  namespace: capi-operator-system
+  namespace: platform-capi
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -27432,7 +27432,7 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-leader-election-role
-  namespace: capi-operator-system
+  namespace: platform-capi
 rules:
 - apiGroups:
   - ""
@@ -27493,7 +27493,7 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-leader-election-rolebinding
-  namespace: capi-operator-system
+  namespace: platform-capi
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -27501,7 +27501,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: capi-operator-manager
-  namespace: capi-operator-system
+  namespace: platform-capi
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -27516,7 +27516,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: capi-operator-manager
-  namespace: capi-operator-system
+  namespace: platform-capi
 ---
 apiVersion: v1
 kind: Service
@@ -27524,7 +27524,7 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-webhook-service
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   ports:
   - port: 443
@@ -27540,7 +27540,7 @@ metadata:
     clusterctl.cluster.x-k8s.io/core: capi-operator
     control-plane: controller-manager
   name: capi-operator-controller-manager
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   replicas: 1
   selector:
@@ -27599,11 +27599,11 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-serving-cert
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   dnsNames:
-  - capi-operator-webhook-service.capi-operator-system.svc
-  - capi-operator-webhook-service.capi-operator-system.svc.cluster.local
+  - capi-operator-webhook-service.platform-capi.svc
+  - capi-operator-webhook-service.platform-capi.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: capi-operator-selfsigned-issuer
@@ -27615,7 +27615,7 @@ metadata:
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-selfsigned-issuer
-  namespace: capi-operator-system
+  namespace: platform-capi
 spec:
   selfSigned: {}
 ---
@@ -27623,7 +27623,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-mutating-webhook-configuration
@@ -27634,7 +27634,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-addonprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27656,7 +27656,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-bootstrapprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27678,7 +27678,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-controlplaneprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27700,7 +27700,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-coreprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27722,7 +27722,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-infrastructureprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27744,7 +27744,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-ipamprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27766,7 +27766,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /mutate-operator-cluster-x-k8s-io-v1alpha2-runtimeextensionprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27787,7 +27787,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capi-operator-system/capi-operator-serving-cert
+    cert-manager.io/inject-ca-from: platform-capi/capi-operator-serving-cert
   labels:
     clusterctl.cluster.x-k8s.io/core: capi-operator
   name: capi-operator-validating-webhook-configuration
@@ -27798,7 +27798,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-addonprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27820,7 +27820,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-bootstrapprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27842,7 +27842,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-controlplaneprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27864,7 +27864,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-coreprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27886,7 +27886,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-infrastructureprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27908,7 +27908,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-ipamprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
@@ -27930,7 +27930,7 @@ webhooks:
   clientConfig:
     service:
       name: capi-operator-webhook-service
-      namespace: capi-operator-system
+      namespace: platform-capi
       path: /validate-operator-cluster-x-k8s-io-v1alpha2-runtimeextensionprovider
   failurePolicy: Fail
   matchPolicy: Equivalent
