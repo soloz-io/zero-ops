@@ -39,21 +39,12 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # Allow Ory Kratos (namespaceSelector only: Cilium socket-LB evaluates policy
-  # against service ClusterIP, so podSelector would never match)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: platform-identity
-    ports:
+  # Allow Ory Kratos and NATS (ports-only: Cilium evaluates NetworkPolicy BEFORE
+  # service DNAT; ClusterIPs match no namespace selector. Ports constrain scope.)
+  - ports:
     - protocol: TCP
       port: 4433
-  # Allow NATS (namespaceSelector only: same Cilium socket-LB constraint)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: platform-messaging
-    ports:
+  - ports:
     - protocol: TCP
       port: 4222
   # Allow Redis (same namespace)

@@ -22,13 +22,10 @@ spec:
     - protocol: TCP
       port: 4467
   egress:
-  # Allow to CNPG database (namespaceSelector only: Cilium socket-LB evaluates
-  # policy against the service ClusterIP, so podSelector would never match)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: platform-data
-    ports:
+  # Allow to CNPG database (ports-only: Cilium evaluates NetworkPolicy BEFORE
+  # service DNAT when bpf-lb-sock=false; ClusterIPs match no namespace/pod
+  # selector. Port 5432 is constrained; CNPG ingress policy restricts callers.)
+  - ports:
     - protocol: TCP
       port: 5432
   # Allow DNS (no 'to' selector: Cilium socket-LB resolves the kube-dns

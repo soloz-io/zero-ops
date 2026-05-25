@@ -59,29 +59,17 @@ spec:
           port: 80
         - protocol: TCP
           port: 8071  # Added Svix port
-    # Allow egress to PostgreSQL (platform-data namespace, namespaceSelector only:
-    # Cilium socket-LB evaluates policy against service ClusterIP, podSelector fails)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: platform-data
-      ports:
+    # Allow egress to PostgreSQL, Redis, ClickHouse (ports-only: Cilium evaluates
+    # NetworkPolicy BEFORE service DNAT when bpf-lb-sock=false; ClusterIPs match
+    # no namespace/pod selector. Ports constrain scope; data-layer ingress policies
+    # restrict which namespaces can reach each service.)
+    - ports:
         - protocol: TCP
           port: 5432
-    # Allow egress to Redis (platform-data namespace, namespaceSelector only)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: platform-data
-      ports:
+    - ports:
         - protocol: TCP
           port: 6379
-    # Allow egress to ClickHouse (platform-data namespace, namespaceSelector only)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: platform-data
-      ports:
+    - ports:
         - protocol: TCP
           port: 8123
         - protocol: TCP

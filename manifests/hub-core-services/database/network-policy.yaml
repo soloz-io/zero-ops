@@ -1,0 +1,44 @@
+---
+# NetworkPolicy for platform-db (CNPG) — defence-in-depth ingress restriction.
+#
+# Because Cilium evaluates NetworkPolicy BEFORE service DNAT (bpf-lb-sock=false),
+# egress rules in client namespaces cannot use namespaceSelector to restrict
+# egress to ClusterIPs (ClusterIPs have no namespace/pod labels). Egress rules in
+# client NetPols therefore specify ports-only, shifting the restriction burden to
+# this ingress policy.
+#
+# Authorised callers on port 5432:
+#   - platform-identity   (Kratos, Hydra, Keto)
+#   - platform-billing    (OpenMeter)
+#   - platform-ops        (hub-operator, infisical setup jobs)
+#   - platform-data       (internal CNPG cluster communication)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-db-access
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: platform-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-identity
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-billing
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-ops
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-data
+      ports:
+        - protocol: TCP
+          port: 5432
