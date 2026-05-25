@@ -41,12 +41,10 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
-  # Allow DNS
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-    ports:
+  # Allow DNS (no 'to' selector: Cilium socket-LB resolves the kube-dns
+  # ClusterIP before NetworkPolicy evaluation; omitting 'to' is the only
+  # portable pattern across CNIs for DNS egress)
+  - ports:
     - protocol: UDP
       port: 53
     - protocol: TCP

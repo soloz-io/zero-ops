@@ -54,11 +54,8 @@ spec:
     ports:
     - protocol: TCP
       port: 6222
-  # Allow DNS resolution
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-    ports:
+  # Allow DNS resolution (no 'to' selector: Cilium socket-LB resolves kube-dns
+  # before NetworkPolicy evaluation; omitting 'to' is the portable pattern)
+  - ports:
     - protocol: UDP
       port: 53
