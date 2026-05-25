@@ -106,6 +106,7 @@ spec:
                             properties:
                               amount:
                                 description: Amount is the price amount
+                                type: string
                               billingCadence:
                                 description: BillingCadence defines billing frequency
                                 enum:

@@ -529,7 +529,79 @@ func (o *Orchestrator) waitForCAPICRDs(ctx context.Context, kubeconfig string, t
 	}
 }
 
+// waitForOperatorCRDs waits for the capi-operator's Provider CRDs to be established
+// and for the webhook service endpoint to have ready addresses before applying Provider CRs.
+func (o *Orchestrator) waitForOperatorCRDs(ctx context.Context, kubeconfig string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	requiredCRDs := []string{
+		"coreproviders.operator.cluster.x-k8s.io",
+		"bootstrapproviders.operator.cluster.x-k8s.io",
+		"controlplaneproviders.operator.cluster.x-k8s.io",
+		"infrastructureproviders.operator.cluster.x-k8s.io",
+	}
+
+	crdsReady := false
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for operator CRDs and webhook endpoint")
+			}
+
+			if !crdsReady {
+				allReady := true
+				for _, crd := range requiredCRDs {
+					cmd := exec.CommandContext(ctx, "kubectl",
+						"--kubeconfig", kubeconfig,
+						"wait", "--for=condition=Established",
+						"crd/"+crd,
+						"--timeout=5s",
+					)
+					if err := cmd.Run(); err != nil {
+						allReady = false
+						break
+					}
+				}
+				if !allReady {
+					fmt.Println("[pivot] Waiting for operator CRDs to be established...")
+					continue
+				}
+				crdsReady = true
+			}
+
+			// CRDs established — now confirm the webhook service has ready endpoints.
+			// "Established" CRD registration races with the webhook goroutine binding its port.
+			cmd := exec.CommandContext(ctx, "kubectl",
+				"--kubeconfig", kubeconfig,
+				"get", "endpoints", "capi-operator-webhook-service",
+				"-n", "platform-capi",
+				"-o", "jsonpath={.subsets[0].addresses[0].ip}",
+			)
+			out, err := cmd.Output()
+			if err != nil || strings.TrimSpace(string(out)) == "" {
+				fmt.Println("[pivot] Waiting for webhook service endpoint to be ready...")
+				continue
+			}
+
+			fmt.Println("[pivot] ✓ Operator CRDs established and webhook endpoint ready")
+			return nil
+		}
+	}
+}
+
 func (o *Orchestrator) applyProviders(ctx context.Context, kubeconfig string) error {
+	// Wait for the operator's CRDs to be established before applying Provider CRs.
+	// The webhook (vcoreprovider.kb.io) rejects requests until the operator pod is
+	// fully serving — deployment Available != webhook listening.
+	if err := o.waitForOperatorCRDs(ctx, kubeconfig, 3*time.Minute); err != nil {
+		return fmt.Errorf("operator CRDs not ready: %w", err)
+	}
+
 	// Determine which providers to install based on OS type
 	var bootstrapProvider, controlPlaneProvider string
 	if o.OSType == "talos" {
