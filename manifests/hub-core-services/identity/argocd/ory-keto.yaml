@@ -35,3 +35,10 @@ spec:
       backoff:
         duration: 30s
         maxDuration: 10m
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status
+        - /metadata/resourceVersion
+        - /metadata/ownerReferences

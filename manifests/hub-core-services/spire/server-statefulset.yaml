@@ -90,12 +90,6 @@ spec:
           name: healthz
         - containerPort: 9988
           name: metrics
-        env:
-        - name: SPIRE_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: spire-server-db-credentials
-              key: password
         volumeMounts:
         - name: spire-config
           mountPath: /run/spire/config
@@ -124,8 +118,8 @@ spec:
           timeoutSeconds: 5
       volumes:
       - name: spire-config
-        configMap:
-          name: spire-server
+        secret:
+          secretName: spire-server-db-credentials
   volumeClaimTemplates:
   - metadata:
       name: spire-data

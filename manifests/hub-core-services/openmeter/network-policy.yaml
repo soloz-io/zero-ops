@@ -49,16 +49,13 @@ spec:
           port: 9092
         - protocol: TCP
           port: 9093
-    # Allow egress to Svix (same namespace)
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: svix
-      ports:
+    # Allow egress to Svix (port-only — Cilium post-DNAT; Svix pod carries
+    # app.kubernetes.io/name=openmeter not svix, so podSelector would never match)
+    - ports:
         - protocol: TCP
           port: 80
         - protocol: TCP
-          port: 8071  # Added Svix port
+          port: 8071
     # Allow egress to PostgreSQL, Redis, ClickHouse (ports-only: Cilium evaluates
     # NetworkPolicy BEFORE service DNAT when bpf-lb-sock=false; ClusterIPs match
     # no namespace/pod selector. Ports constrain scope; data-layer ingress policies

@@ -42,7 +42,7 @@ deployment:
   startupProbe:
     httpGet:
       path: /health/ready
-      port: 4446
+      port: 4466
     initialDelaySeconds: 10
     periodSeconds: 10
     failureThreshold: 30

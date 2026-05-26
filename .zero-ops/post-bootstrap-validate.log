@@ -1,238 +1,928 @@
-[2026-05-25 17:14:30] ═══════════════════════════════════════════════════════
-[2026-05-25 17:14:30]  Zero-Ops Post-Bootstrap Core Services Validation
-[2026-05-25 17:14:30]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
-[2026-05-25 17:14:31]  SpokePool:  spoke-pool-eu-prod-01
-[2026-05-25 17:14:31] ═══════════════════════════════════════════════════════
-[2026-05-25 17:14:31] 
-[2026-05-25 17:14:31] ══════════════════════════════════════════
-[2026-05-25 17:14:31]   PREFLIGHT
-[2026-05-25 17:14:31] ══════════════════════════════════════════
-[2026-05-25 17:14:33]   ✅ Hub cluster reachable: https://49.12.22.19:443
-[2026-05-25 17:14:33]   ✅ Core namespaces present
-[2026-05-25 17:14:34] 
-[2026-05-25 17:14:34] ══════════════════════════════════════════
-[2026-05-25 17:14:34]   1. PLATFORM NAMESPACES
-[2026-05-25 17:14:34] ══════════════════════════════════════════
-[2026-05-25 17:14:35]   ✅ Namespace platform-ops exists
-[2026-05-25 17:14:35]   ✅ Namespace platform-capi exists
-[2026-05-25 17:14:36]   ✅ Namespace platform-data exists
-[2026-05-25 17:14:37]   ✅ Namespace platform-identity exists
-[2026-05-25 17:14:38]   ✅ Namespace platform-billing exists
-[2026-05-25 17:14:38]   ✅ Namespace platform-messaging exists
-[2026-05-25 17:14:39]   ✅ Namespace platform-observability exists
-[2026-05-25 17:14:40]   ✅ Namespace platform-security exists
-[2026-05-25 17:14:41]   ✅ Namespace platform-edge exists
-[2026-05-25 17:14:41]   ✅ Namespace platform-controlplane exists
-[2026-05-25 17:14:42]   ✅ Namespace cert-manager exists
-[2026-05-25 17:14:43]   ✅ Namespace cnpg-system exists
-[2026-05-25 17:14:44]   ✅ Namespace kube-system exists
-[2026-05-25 17:14:44] 
-[2026-05-25 17:14:44] ══════════════════════════════════════════
-[2026-05-25 17:14:44]   2. ARGOCD
-[2026-05-25 17:14:44] ══════════════════════════════════════════
-[2026-05-25 17:14:46]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-25 17:14:47]   ✅ Deployment platform-ops/argocd-server: 1/1 available
-[2026-05-25 17:14:49]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
-[2026-05-25 17:14:50]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
-[2026-05-25 17:14:51]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
-[2026-05-25 17:14:53]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
-[2026-05-25 17:14:53] 
-[2026-05-25 17:14:53] ══════════════════════════════════════════
-[2026-05-25 17:14:53]   3. CROSSPLANE
-[2026-05-25 17:14:53] ══════════════════════════════════════════
-[2026-05-25 17:14:55]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-25 17:14:56]   ✅ Deployment platform-ops/crossplane: 1/1 available
-[2026-05-25 17:14:58]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
-[2026-05-25 17:14:58]   Checking Crossplane providers...
-[2026-05-25 17:14:59]   ⚠️  No Crossplane providers found
-[2026-05-25 17:14:59] 
-[2026-05-25 17:14:59] ══════════════════════════════════════════
-[2026-05-25 17:15:00]   4. EXTERNAL SECRETS OPERATOR
-[2026-05-25 17:15:00] ══════════════════════════════════════════
-[2026-05-25 17:15:01]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-25 17:15:02]   ✅ ClusterSecretStore infisical-backend: Ready
-[2026-05-25 17:15:02] 
-[2026-05-25 17:15:02] ══════════════════════════════════════════
-[2026-05-25 17:15:03]   5. INFISICAL
-[2026-05-25 17:15:03] ══════════════════════════════════════════
-[2026-05-25 17:15:04]   ✅ Namespace platform-security: all 1 pod(s) healthy
-[2026-05-25 17:15:05]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
-[2026-05-25 17:15:06]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
-[2026-05-25 17:15:07]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
-[2026-05-25 17:15:07]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
-[2026-05-25 17:15:08]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
-[2026-05-25 17:15:09]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
-[2026-05-25 17:15:09] 
-[2026-05-25 17:15:09] ══════════════════════════════════════════
-[2026-05-25 17:15:09]   6. DATABASES (CloudNative-PG)
-[2026-05-25 17:15:09] ══════════════════════════════════════════
-[2026-05-25 17:15:11]   ❌ Deployment cnpg-system/cnpg-controller-manager: 0/0 available
-[2026-05-25 17:15:12]   ❌ CNPG Cluster platform-db: Cluster in healthy state (not Ready)
-[2026-05-25 17:15:13]   ✅ Redis (platform-data): Running
-[2026-05-25 17:15:14]   ❌ Namespace platform-data: unhealthy pods (CrashLoop=0, Pending=1, Error=0)
-[2026-05-25 17:15:14]      → chi-platform-clickhouse-platform-ch-cls-0-0-0   0/1   Pending             0     1s
-[2026-05-25 17:15:15]      → clickhouse-init-openmeter-db-lx4km              0/1   ContainerCreating   0     4s
-[2026-05-25 17:15:15] 
-[2026-05-25 17:15:15] ══════════════════════════════════════════
-[2026-05-25 17:15:15]   7. CLICKHOUSE
-[2026-05-25 17:15:15] ══════════════════════════════════════════
-[2026-05-25 17:15:17]   ✅ ArgoCD app platform-clickhouse: Sync=Synced Health=Progressing
-[2026-05-25 17:15:17]   ⚠️  ClickHouseInstallation platform-clickhouse: status=InProgress (may still be provisioning)
-[2026-05-25 17:15:19]   ✅ ClickHouse services present (1 found)
-[2026-05-25 17:15:19] 
-[2026-05-25 17:15:19] ══════════════════════════════════════════
-[2026-05-25 17:15:19]   8. OPENMETER
-[2026-05-25 17:15:19] ══════════════════════════════════════════
-[2026-05-25 17:15:21]   ❌ ArgoCD app openmeter: Sync=OutOfSync Health=Progressing (OutOfSync: Secret/openmeter-kafka-kraft-cluster-id NetworkPolicy/openmeter )
-[2026-05-25 17:15:24]   ❌ OpenMeter openmeter-api: 0/1 available
-[2026-05-25 17:15:26]   ❌ OpenMeter openmeter-balance-worker: 0/1 available
-[2026-05-25 17:15:28]   ❌ OpenMeter openmeter-billing-worker: 0/1 available
-[2026-05-25 17:15:31]   ❌ OpenMeter openmeter-notification-service: 0/1 available
-[2026-05-25 17:15:33]   ❌ OpenMeter openmeter-sink-worker: 0/1 available
-[2026-05-25 17:15:35]   ❌ OpenMeter openmeter-svix: 0/1 available
-[2026-05-25 17:15:36]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
-[2026-05-25 17:15:37] 
-[2026-05-25 17:15:37] ══════════════════════════════════════════
-[2026-05-25 17:15:37]   9. ORY IDENTITY STACK
-[2026-05-25 17:15:38] ══════════════════════════════════════════
-[2026-05-25 17:15:40]   ❌ ArgoCD app ory-kratos: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/kratos-identity-schema ConfigMap/ory-kratos-config Service/ory-kratos-admin Service/ory-kratos-courier Service/ory-kratos-public ServiceAccount/ory-kratos Deployment/ory-kratos StatefulSet/ory-kratos-courier ExternalSecret/kratos-db-credentials NetworkPolicy/ory-kratos-netpol )
-[2026-05-25 17:15:42]   ❌ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
-[2026-05-25 17:15:44]   ❌ ArgoCD app ory-keto: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-keto-config Service/ory-keto-read Service/ory-keto-read-headless Service/ory-keto-write Service/ory-keto-write-headless ServiceAccount/ory-keto Deployment/ory-keto ExternalSecret/keto-db-credentials NetworkPolicy/ory-keto-netpol )
-[2026-05-25 17:15:46]   ❌ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
-[2026-05-25 17:15:47]   ⚠️  Ory deployment not found: platform-identity/hydra (may use different name)
-[2026-05-25 17:15:48]   ⚠️  Ory deployment not found: platform-identity/keto-read (may use different name)
-[2026-05-25 17:15:49]   ⚠️  Ory deployment not found: platform-identity/keto-write (may use different name)
-[2026-05-25 17:15:49] 
-[2026-05-25 17:15:49] ══════════════════════════════════════════
-[2026-05-25 17:15:49]   10. NATS MESSAGING
-[2026-05-25 17:15:49] ══════════════════════════════════════════
-[2026-05-25 17:15:51]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
-[2026-05-25 17:15:52]   ✅ NATS pods running: 2
-[2026-05-25 17:15:52] 
-[2026-05-25 17:15:52] ══════════════════════════════════════════
-[2026-05-25 17:15:52]   11. HUB-OPERATOR
-[2026-05-25 17:15:52] ══════════════════════════════════════════
-[2026-05-25 17:15:54]   ❌ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
-[2026-05-25 17:15:56]   ✅ Deployment platform-ops/hub-operator: 2/2 available
-[2026-05-25 17:15:57]   ✅ Billing CRD meters.ops.nutgraf.in: installed
-[2026-05-25 17:15:58]   ✅ Billing CRD features.ops.nutgraf.in: installed
-[2026-05-25 17:15:58]   ✅ Billing CRD plans.ops.nutgraf.in: installed
-[2026-05-25 17:16:00]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
-[2026-05-25 17:16:00] 
-[2026-05-25 17:16:00] ══════════════════════════════════════════
-[2026-05-25 17:16:00]   12. KUBE-SBT API
-[2026-05-25 17:16:01] ══════════════════════════════════════════
-[2026-05-25 17:16:02]   ✅ ArgoCD app kube-sbt-api: Sync=Synced Health=Healthy
-[2026-05-25 17:16:04]   ✅ Namespace platform-ops: all 2 pod(s) healthy
-[2026-05-25 17:16:05]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
-[2026-05-25 17:16:05] 
-[2026-05-25 17:16:05] ══════════════════════════════════════════
-[2026-05-25 17:16:05]   13. INGRESS & CERT-MANAGER
-[2026-05-25 17:16:05] ══════════════════════════════════════════
-[2026-05-25 17:16:07]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
-[2026-05-25 17:16:09]   ✅ Namespace cert-manager: all 3 pod(s) healthy
-[2026-05-25 17:16:10]   ✅ Deployment cert-manager/cert-manager: 1/1 available
-[2026-05-25 17:16:12]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
-[2026-05-25 17:16:13]   ✅ Ingress pods (platform-edge): 2 running
-[2026-05-25 17:16:13] 
-[2026-05-25 17:16:13] ══════════════════════════════════════════
-[2026-05-25 17:16:13]   14. SPOKE POOL & CAPI
-[2026-05-25 17:16:13] ══════════════════════════════════════════
-[2026-05-25 17:16:15]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
-[2026-05-25 17:16:16]   ✅ CAPI CoreProvider/cluster-api: Ready
-[2026-05-25 17:16:17]   ✅ CAPI BootstrapProvider/kubeadm: Ready
-[2026-05-25 17:16:18]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
-[2026-05-25 17:16:18]   ✅ CAPI InfrastructureProvider/hetzner: Ready
-[2026-05-25 17:16:20]   ✅ SpokePool spoke-pool-eu-prod-01: Ready+Synced
-[2026-05-25 17:16:21]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
-[2026-05-25 17:16:22]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
-[2026-05-25 17:16:24]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
-[2026-05-25 17:16:25]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
-[2026-05-25 17:16:25] 
-[2026-05-25 17:16:26] ══════════════════════════════════════════
-[2026-05-25 17:16:26]   15. CRITICAL ARGOCD APPS
-[2026-05-25 17:16:26] ══════════════════════════════════════════
-[2026-05-25 17:16:28]   ❌ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
-[2026-05-25 17:16:30]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
-[2026-05-25 17:16:31]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
-[2026-05-25 17:16:33]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
-[2026-05-25 17:16:35]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
-[2026-05-25 17:16:36]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
-[2026-05-25 17:16:38]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
-[2026-05-25 17:16:39]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
-[2026-05-25 17:16:41]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
-[2026-05-25 17:16:42]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
-[2026-05-25 17:16:44]   ❌ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
-[2026-05-25 17:16:46]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
-[2026-05-25 17:16:48]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
-[2026-05-25 17:16:49]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
-[2026-05-25 17:16:51]   ⚠️  ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
-[2026-05-25 17:16:54]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
-[2026-05-25 17:16:55]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
-[2026-05-25 17:16:57]   ⚠️  ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Progressing (OutOfSync: CiliumIdentity/21266 )
-[2026-05-25 17:16:59]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
-[2026-05-25 17:17:02]   ⚠️  ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
-[2026-05-25 17:17:04]   ⚠️  ArgoCD app ory-kratos: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/kratos-identity-schema ConfigMap/ory-kratos-config Service/ory-kratos-admin Service/ory-kratos-courier Service/ory-kratos-public ServiceAccount/ory-kratos Deployment/ory-kratos StatefulSet/ory-kratos-courier ExternalSecret/kratos-db-credentials NetworkPolicy/ory-kratos-netpol )
-[2026-05-25 17:17:06]   ⚠️  ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
-[2026-05-25 17:17:08]   ⚠️  ArgoCD app ory-keto: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-keto-config Service/ory-keto-read Service/ory-keto-read-headless Service/ory-keto-write Service/ory-keto-write-headless ServiceAccount/ory-keto Deployment/ory-keto ExternalSecret/keto-db-credentials NetworkPolicy/ory-keto-netpol )
-[2026-05-25 17:17:10]   ✅ ArgoCD app kube-sbt-api: Sync=Synced Health=Healthy
-[2026-05-25 17:17:12]   ⚠️  ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/spire-bundle ConfigMap/spire-k8s-registrar ConfigMap/spire-server Service/spire-agent-metrics Service/spire-server-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar StatefulSet/spire-server ServiceMonitor/spire-agent ServiceMonitor/spire-server )
-[2026-05-25 17:17:14]   ⚠️  ArgoCD app platform-infisical-prerequisites: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-data )
-[2026-05-25 17:17:14] 
-[2026-05-25 17:17:14] ══════════════════════════════════════════
-[2026-05-25 17:17:14]   16. OBSERVABILITY
-[2026-05-25 17:17:14] ══════════════════════════════════════════
-[2026-05-25 17:17:16]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
-[2026-05-25 17:17:17]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
-[2026-05-25 17:17:19]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
-[2026-05-25 17:17:20]   ✅ Observability pods (platform-observability): 8 running
-[2026-05-25 17:17:20] 
-[2026-05-25 17:17:20] ╔══════════════════════════════════════════╗
-[2026-05-25 17:17:20] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
-[2026-05-25 17:17:20] ╠══════════════════════════════════════════╣
-[2026-05-25 17:17:20] ║  ✅ PASSED : 78
-[2026-05-25 17:17:21] ║  ❌ FAILED : 17
-[2026-05-25 17:17:21] ║  ⚠️  WARNED : 17
-[2026-05-25 17:17:21] ╠══════════════════════════════════════════╣
-[2026-05-25 17:17:21] ║  CRITICAL FAILURES:
-[2026-05-25 17:17:21] ║    ✗ Deployment cnpg-system/cnpg-controller-manager: 0/0 available
-[2026-05-25 17:17:21] ║    ✗ CNPG Cluster platform-db: Cluster in healthy state (not Ready)
-[2026-05-25 17:17:22] ║    ✗ Namespace platform-data: unhealthy pods (CrashLoop=0, Pending=1, Error=0)
-[2026-05-25 17:17:22] ║    ✗ ArgoCD app openmeter: Sync=OutOfSync Health=Progressing (OutOfSync: Secret/openmeter-kafka-kraft-cluster-id NetworkPolicy/openmeter )
-[2026-05-25 17:17:22] ║    ✗ OpenMeter openmeter-api: 0/1 available
-[2026-05-25 17:17:22] ║    ✗ OpenMeter openmeter-balance-worker: 0/1 available
-[2026-05-25 17:17:22] ║    ✗ OpenMeter openmeter-billing-worker: 0/1 available
-[2026-05-25 17:17:22] ║    ✗ OpenMeter openmeter-notification-service: 0/1 available
-[2026-05-25 17:17:23] ║    ✗ OpenMeter openmeter-sink-worker: 0/1 available
-[2026-05-25 17:17:23] ║    ✗ OpenMeter openmeter-svix: 0/1 available
-[2026-05-25 17:17:23] ║    ✗ ArgoCD app ory-kratos: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/kratos-identity-schema ConfigMap/ory-kratos-config Service/ory-kratos-admin Service/ory-kratos-courier Service/ory-kratos-public ServiceAccount/ory-kratos Deployment/ory-kratos StatefulSet/ory-kratos-courier ExternalSecret/kratos-db-credentials NetworkPolicy/ory-kratos-netpol )
-[2026-05-25 17:17:23] ║    ✗ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
-[2026-05-25 17:17:23] ║    ✗ ArgoCD app ory-keto: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-keto-config Service/ory-keto-read Service/ory-keto-read-headless Service/ory-keto-write Service/ory-keto-write-headless ServiceAccount/ory-keto Deployment/ory-keto ExternalSecret/keto-db-credentials NetworkPolicy/ory-keto-netpol )
-[2026-05-25 17:17:23] ║    ✗ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
-[2026-05-25 17:17:23] ║    ✗ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
-[2026-05-25 17:17:24] ║    ✗ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
-[2026-05-25 17:17:24] ║    ✗ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
-[2026-05-25 17:17:24] ╠══════════════════════════════════════════╣
-[2026-05-25 17:17:24] ║  WARNINGS:
-[2026-05-25 17:17:24] ║    ! No Crossplane providers found
-[2026-05-25 17:17:24] ║    ! ClickHouseInstallation platform-clickhouse: status=InProgress (may still be provisioning)
-[2026-05-25 17:17:24] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
-[2026-05-25 17:17:25] ║    ! Ory deployment not found: platform-identity/hydra (may use different name)
-[2026-05-25 17:17:25] ║    ! Ory deployment not found: platform-identity/keto-read (may use different name)
-[2026-05-25 17:17:25] ║    ! Ory deployment not found: platform-identity/keto-write (may use different name)
-[2026-05-25 17:17:25] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
-[2026-05-25 17:17:25] ║    ! ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
-[2026-05-25 17:17:25] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
-[2026-05-25 17:17:25] ║    ! ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Progressing (OutOfSync: CiliumIdentity/21266 )
-[2026-05-25 17:17:26] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
-[2026-05-25 17:17:26] ║    ! ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
-[2026-05-25 17:17:26] ║    ! ArgoCD app ory-kratos: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/kratos-identity-schema ConfigMap/ory-kratos-config Service/ory-kratos-admin Service/ory-kratos-courier Service/ory-kratos-public ServiceAccount/ory-kratos Deployment/ory-kratos StatefulSet/ory-kratos-courier ExternalSecret/kratos-db-credentials NetworkPolicy/ory-kratos-netpol )
-[2026-05-25 17:17:26] ║    ! ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
-[2026-05-25 17:17:26] ║    ! ArgoCD app ory-keto: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-keto-config Service/ory-keto-read Service/ory-keto-read-headless Service/ory-keto-write Service/ory-keto-write-headless ServiceAccount/ory-keto Deployment/ory-keto ExternalSecret/keto-db-credentials NetworkPolicy/ory-keto-netpol )
-[2026-05-25 17:17:26] ║    ! ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/spire-bundle ConfigMap/spire-k8s-registrar ConfigMap/spire-server Service/spire-agent-metrics Service/spire-server-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar StatefulSet/spire-server ServiceMonitor/spire-agent ServiceMonitor/spire-server )
-[2026-05-25 17:17:26] ║    ! ArgoCD app platform-infisical-prerequisites: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-data )
-[2026-05-25 17:17:26] ╠══════════════════════════════════════════╣
-[2026-05-25 17:17:27] ║  💥 17 CRITICAL CHECK(S) FAILED        ║
-[2026-05-25 17:17:27] ║  Review failures above before proceeding  ║
-[2026-05-25 17:17:27] ╚══════════════════════════════════════════╝
-[2026-05-25 17:17:27]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log
+[2026-05-25 20:34:11] ═══════════════════════════════════════════════════════
+[2026-05-25 20:34:11]  Zero-Ops Post-Bootstrap Core Services Validation
+[2026-05-25 20:34:11]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-25 20:34:12]  SpokePool:  spoke-pool-eu-prod-01
+[2026-05-25 20:34:12] ═══════════════════════════════════════════════════════
+[2026-05-25 20:34:12] 
+[2026-05-25 20:34:12] ══════════════════════════════════════════
+[2026-05-25 20:34:12]   PREFLIGHT
+[2026-05-25 20:34:12] ══════════════════════════════════════════
+[2026-05-25 20:34:14]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-25 20:34:15]   ✅ Core namespaces present
+[2026-05-25 20:34:15] 
+[2026-05-25 20:34:15] ══════════════════════════════════════════
+[2026-05-25 20:34:15]   1. PLATFORM NAMESPACES
+[2026-05-25 20:34:15] ══════════════════════════════════════════
+[2026-05-25 20:34:16]   ✅ Namespace platform-ops exists
+[2026-05-25 20:34:17]   ✅ Namespace platform-capi exists
+[2026-05-25 20:34:18]   ✅ Namespace platform-data exists
+[2026-05-25 20:34:18]   ✅ Namespace platform-identity exists
+[2026-05-25 20:34:19]   ✅ Namespace platform-billing exists
+[2026-05-25 20:34:20]   ✅ Namespace platform-messaging exists
+[2026-05-25 20:34:20]   ✅ Namespace platform-observability exists
+[2026-05-25 20:34:21]   ✅ Namespace platform-security exists
+[2026-05-25 20:34:22]   ✅ Namespace platform-edge exists
+[2026-05-25 20:34:23]   ✅ Namespace platform-controlplane exists
+[2026-05-25 20:34:23]   ✅ Namespace cert-manager exists
+[2026-05-25 20:34:24]   ✅ Namespace cnpg-system exists
+[2026-05-25 20:34:25]   ✅ Namespace kube-system exists
+[2026-05-25 20:34:25] 
+[2026-05-25 20:34:25] ══════════════════════════════════════════
+[2026-05-25 20:34:25]   2. ARGOCD
+[2026-05-25 20:34:25] ══════════════════════════════════════════
+[2026-05-25 20:34:27]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:34:28]   ✅ Deployment platform-ops/argocd-server: 1/1 available
+[2026-05-25 20:34:30]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
+[2026-05-25 20:34:31]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
+[2026-05-25 20:34:32]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
+[2026-05-25 20:34:34]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
+[2026-05-25 20:34:34] 
+[2026-05-25 20:34:34] ══════════════════════════════════════════
+[2026-05-25 20:34:34]   3. CROSSPLANE
+[2026-05-25 20:34:34] ══════════════════════════════════════════
+[2026-05-25 20:34:36]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:34:38]   ✅ Deployment platform-ops/crossplane: 1/1 available
+[2026-05-25 20:34:39]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
+[2026-05-25 20:34:39]   Checking Crossplane providers...
+[2026-05-25 20:34:40]   ⚠️  No Crossplane providers found
+[2026-05-25 20:34:40] 
+[2026-05-25 20:34:40] ══════════════════════════════════════════
+[2026-05-25 20:34:41]   4. EXTERNAL SECRETS OPERATOR
+[2026-05-25 20:34:41] ══════════════════════════════════════════
+[2026-05-25 20:34:43]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:34:43]   ✅ ClusterSecretStore infisical-backend: Ready
+[2026-05-25 20:34:44] 
+[2026-05-25 20:34:44] ══════════════════════════════════════════
+[2026-05-25 20:34:44]   5. INFISICAL
+[2026-05-25 20:34:44] ══════════════════════════════════════════
+[2026-05-25 20:34:46]   ✅ Namespace platform-security: all 1 pod(s) healthy
+[2026-05-25 20:34:47]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
+[2026-05-25 20:34:48]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
+[2026-05-25 20:34:49]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
+[2026-05-25 20:34:50]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
+[2026-05-25 20:34:51]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
+[2026-05-25 20:34:52]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
+[2026-05-25 20:34:52] 
+[2026-05-25 20:34:52] ══════════════════════════════════════════
+[2026-05-25 20:34:52]   6. DATABASES (CloudNative-PG)
+[2026-05-25 20:34:52] ══════════════════════════════════════════
+[2026-05-25 20:34:54]   ❌ Deployment cnpg-system/cnpg-controller-manager: 0/0 available
+[2026-05-25 20:34:56]   ❌ CNPG Cluster platform-db: Cluster in healthy state (not Ready)
+[2026-05-25 20:34:57]   ✅ Redis (platform-data): Running
+[2026-05-25 20:34:58]   ✅ Namespace platform-data: all 8 pod(s) healthy
+[2026-05-25 20:34:58] 
+[2026-05-25 20:34:59] ══════════════════════════════════════════
+[2026-05-25 20:34:59]   7. CLICKHOUSE
+[2026-05-25 20:34:59] ══════════════════════════════════════════
+[2026-05-25 20:35:02]   ❌ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/14835 CiliumIdentity/4059 )
+[2026-05-25 20:35:03]   ✅ ClickHouseInstallation platform-clickhouse: Completed
+[2026-05-25 20:35:04]   ✅ ClickHouse services present (2 found)
+[2026-05-25 20:35:04] 
+[2026-05-25 20:35:04] ══════════════════════════════════════════
+[2026-05-25 20:35:04]   8. OPENMETER
+[2026-05-25 20:35:04] ══════════════════════════════════════════
+[2026-05-25 20:35:07]   ❌ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
+[2026-05-25 20:35:09]   ❌ OpenMeter openmeter-api: 0/1 available
+[2026-05-25 20:35:11]   ❌ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-25 20:35:14]   ❌ OpenMeter openmeter-billing-worker: 0/1 available
+[2026-05-25 20:35:16]   ❌ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-25 20:35:18]   ❌ OpenMeter openmeter-sink-worker: 0/1 available
+[2026-05-25 20:35:20]   ❌ OpenMeter openmeter-svix: 0/1 available
+[2026-05-25 20:35:21]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-25 20:35:21] 
+[2026-05-25 20:35:22] ══════════════════════════════════════════
+[2026-05-25 20:35:22]   9. ORY IDENTITY STACK
+[2026-05-25 20:35:22] ══════════════════════════════════════════
+[2026-05-25 20:35:24]   ❌ ArgoCD app ory-kratos: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:35:26]   ❌ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:35:28]   ❌ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:35:30]   ❌ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
+[2026-05-25 20:35:31]   ⚠️  Ory deployment not found: platform-identity/hydra (may use different name)
+[2026-05-25 20:35:32]   ⚠️  Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-25 20:35:33]   ⚠️  Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-25 20:35:33] 
+[2026-05-25 20:35:33] ══════════════════════════════════════════
+[2026-05-25 20:35:33]   10. NATS MESSAGING
+[2026-05-25 20:35:33] ══════════════════════════════════════════
+[2026-05-25 20:35:35]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-25 20:35:37]   ✅ NATS pods running: 2
+[2026-05-25 20:35:37] 
+[2026-05-25 20:35:37] ══════════════════════════════════════════
+[2026-05-25 20:35:37]   11. HUB-OPERATOR
+[2026-05-25 20:35:37] ══════════════════════════════════════════
+[2026-05-25 20:35:40]   ❌ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
+[2026-05-25 20:35:42]   ✅ Deployment platform-ops/hub-operator: 2/2 available
+[2026-05-25 20:35:42]   ✅ Billing CRD meters.ops.nutgraf.in: installed
+[2026-05-25 20:35:43]   ✅ Billing CRD features.ops.nutgraf.in: installed
+[2026-05-25 20:35:44]   ✅ Billing CRD plans.ops.nutgraf.in: installed
+[2026-05-25 20:35:45]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-25 20:35:46] 
+[2026-05-25 20:35:46] ══════════════════════════════════════════
+[2026-05-25 20:35:46]   12. KUBE-SBT API
+[2026-05-25 20:35:46] ══════════════════════════════════════════
+[2026-05-25 20:35:47]   ✅ ArgoCD app kube-sbt-api: Sync=Synced Health=Healthy
+[2026-05-25 20:35:49]   ✅ Namespace platform-ops: all 2 pod(s) healthy
+[2026-05-25 20:35:50]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
+[2026-05-25 20:35:50] 
+[2026-05-25 20:35:50] ══════════════════════════════════════════
+[2026-05-25 20:35:50]   13. INGRESS & CERT-MANAGER
+[2026-05-25 20:35:50] ══════════════════════════════════════════
+[2026-05-25 20:35:52]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
+[2026-05-25 20:35:53]   ✅ Namespace cert-manager: all 3 pod(s) healthy
+[2026-05-25 20:35:55]   ✅ Deployment cert-manager/cert-manager: 1/1 available
+[2026-05-25 20:35:56]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
+[2026-05-25 20:35:57]   ✅ Ingress pods (platform-edge): 3 running
+[2026-05-25 20:35:57] 
+[2026-05-25 20:35:57] ══════════════════════════════════════════
+[2026-05-25 20:35:57]   14. SPOKE POOL & CAPI
+[2026-05-25 20:35:57] ══════════════════════════════════════════
+[2026-05-25 20:35:59]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
+[2026-05-25 20:36:00]   ✅ CAPI CoreProvider/cluster-api: Ready
+[2026-05-25 20:36:00]   ✅ CAPI BootstrapProvider/kubeadm: Ready
+[2026-05-25 20:36:01]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
+[2026-05-25 20:36:02]   ✅ CAPI InfrastructureProvider/hetzner: Ready
+[2026-05-25 20:36:03]   ✅ SpokePool spoke-pool-eu-prod-01: Ready+Synced
+[2026-05-25 20:36:04]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
+[2026-05-25 20:36:05]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
+[2026-05-25 20:36:07]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
+[2026-05-25 20:36:08]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
+[2026-05-25 20:36:08] 
+[2026-05-25 20:36:08] ══════════════════════════════════════════
+[2026-05-25 20:36:09]   15. CRITICAL ARGOCD APPS
+[2026-05-25 20:36:09] ══════════════════════════════════════════
+[2026-05-25 20:36:11]   ❌ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-25 20:36:12]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
+[2026-05-25 20:36:14]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
+[2026-05-25 20:36:15]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
+[2026-05-25 20:36:17]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
+[2026-05-25 20:36:18]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
+[2026-05-25 20:36:20]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
+[2026-05-25 20:36:22]   ❌ ArgoCD app platform-database: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-data )
+[2026-05-25 20:36:23]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
+[2026-05-25 20:36:25]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
+[2026-05-25 20:36:27]   ❌ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
+[2026-05-25 20:36:28]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-25 20:36:30]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
+[2026-05-25 20:36:32]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
+[2026-05-25 20:36:35]   ⚠️  ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-25 20:36:38]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-25 20:36:40]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
+[2026-05-25 20:36:42]   ⚠️  ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:36:46]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-25 20:36:48]   ⚠️  ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
+[2026-05-25 20:36:50]   ⚠️  ArgoCD app ory-kratos: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:36:52]   ⚠️  ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:36:54]   ⚠️  ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:36:56]   ✅ ArgoCD app kube-sbt-api: Sync=Synced Health=Healthy
+[2026-05-25 20:36:58]   ⚠️  ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/spire-bundle ConfigMap/spire-k8s-registrar ConfigMap/spire-server Service/spire-agent-metrics Service/spire-server-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar StatefulSet/spire-server ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-25 20:36:59]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
+[2026-05-25 20:36:59] 
+[2026-05-25 20:36:59] ══════════════════════════════════════════
+[2026-05-25 20:37:00]   16. OBSERVABILITY
+[2026-05-25 20:37:00] ══════════════════════════════════════════
+[2026-05-25 20:37:01]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
+[2026-05-25 20:37:03]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
+[2026-05-25 20:37:04]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
+[2026-05-25 20:37:05]   ✅ Observability pods (platform-observability): 7 running
+[2026-05-25 20:37:05] 
+[2026-05-25 20:37:05] ╔══════════════════════════════════════════╗
+[2026-05-25 20:37:05] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
+[2026-05-25 20:37:05] ╠══════════════════════════════════════════╣
+[2026-05-25 20:37:06] ║  ✅ PASSED : 79
+[2026-05-25 20:37:06] ║  ❌ FAILED : 18
+[2026-05-25 20:37:06] ║  ⚠️  WARNED : 15
+[2026-05-25 20:37:06] ╠══════════════════════════════════════════╣
+[2026-05-25 20:37:06] ║  CRITICAL FAILURES:
+[2026-05-25 20:37:06] ║    ✗ Deployment cnpg-system/cnpg-controller-manager: 0/0 available
+[2026-05-25 20:37:06] ║    ✗ CNPG Cluster platform-db: Cluster in healthy state (not Ready)
+[2026-05-25 20:37:06] ║    ✗ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/14835 CiliumIdentity/4059 )
+[2026-05-25 20:37:07] ║    ✗ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
+[2026-05-25 20:37:07] ║    ✗ OpenMeter openmeter-api: 0/1 available
+[2026-05-25 20:37:07] ║    ✗ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-25 20:37:07] ║    ✗ OpenMeter openmeter-billing-worker: 0/1 available
+[2026-05-25 20:37:07] ║    ✗ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-25 20:37:07] ║    ✗ OpenMeter openmeter-sink-worker: 0/1 available
+[2026-05-25 20:37:08] ║    ✗ OpenMeter openmeter-svix: 0/1 available
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app ory-kratos: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:37:08] ║    ✗ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-25 20:37:08] ║    ✗ ArgoCD app platform-database: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-data )
+[2026-05-25 20:37:09] ║    ✗ ArgoCD app hub-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Namespace/platform-ops )
+[2026-05-25 20:37:09] ╠══════════════════════════════════════════╣
+[2026-05-25 20:37:09] ║  WARNINGS:
+[2026-05-25 20:37:09] ║    ! No Crossplane providers found
+[2026-05-25 20:37:09] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-25 20:37:09] ║    ! Ory deployment not found: platform-identity/hydra (may use different name)
+[2026-05-25 20:37:09] ║    ! Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-25 20:37:09] ║    ! Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-25 20:37:10] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-25 20:37:10] ║    ! ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-25 20:37:10] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-25 20:37:10] ║    ! ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:37:10] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-25 20:37:10] ║    ! ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter )
+[2026-05-25 20:37:10] ║    ! ArgoCD app ory-kratos: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:37:10] ║    ! ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:37:11] ║    ! ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:37:11] ║    ! ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/spire-bundle ConfigMap/spire-k8s-registrar ConfigMap/spire-server Service/spire-agent-metrics Service/spire-server-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar StatefulSet/spire-server ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-25 20:37:11] ╠══════════════════════════════════════════╣
+[2026-05-25 20:37:11] ║  💥 18 CRITICAL CHECK(S) FAILED        ║
+[2026-05-25 20:37:11] ║  Review failures above before proceeding  ║
+[2026-05-25 20:37:11] ╚══════════════════════════════════════════╝
+[2026-05-25 20:37:11]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log
+[2026-05-25 20:50:05] ═══════════════════════════════════════════════════════
+[2026-05-25 20:50:06]  Zero-Ops Post-Bootstrap Core Services Validation
+[2026-05-25 20:50:06]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-25 20:50:06]  SpokePool:  spoke-pool-eu-prod-01
+[2026-05-25 20:50:06] ═══════════════════════════════════════════════════════
+[2026-05-25 20:50:06] 
+[2026-05-25 20:50:06] ══════════════════════════════════════════
+[2026-05-25 20:50:06]   PREFLIGHT
+[2026-05-25 20:50:07] ══════════════════════════════════════════
+[2026-05-25 20:50:08]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-25 20:50:09]   ✅ Core namespaces present
+[2026-05-25 20:50:09] 
+[2026-05-25 20:50:09] ══════════════════════════════════════════
+[2026-05-25 20:50:09]   1. PLATFORM NAMESPACES
+[2026-05-25 20:50:10] ══════════════════════════════════════════
+[2026-05-25 20:50:10]   ✅ Namespace platform-ops exists
+[2026-05-25 20:50:11]   ✅ Namespace platform-capi exists
+[2026-05-25 20:50:12]   ✅ Namespace platform-data exists
+[2026-05-25 20:50:13]   ✅ Namespace platform-identity exists
+[2026-05-25 20:50:13]   ✅ Namespace platform-billing exists
+[2026-05-25 20:50:14]   ✅ Namespace platform-messaging exists
+[2026-05-25 20:50:15]   ✅ Namespace platform-observability exists
+[2026-05-25 20:50:16]   ✅ Namespace platform-security exists
+[2026-05-25 20:50:17]   ✅ Namespace platform-edge exists
+[2026-05-25 20:50:17]   ✅ Namespace platform-controlplane exists
+[2026-05-25 20:50:18]   ✅ Namespace cert-manager exists
+[2026-05-25 20:50:19]   ✅ Namespace cnpg-system exists
+[2026-05-25 20:50:20]   ✅ Namespace kube-system exists
+[2026-05-25 20:50:20] 
+[2026-05-25 20:50:20] ══════════════════════════════════════════
+[2026-05-25 20:50:20]   2. ARGOCD
+[2026-05-25 20:50:20] ══════════════════════════════════════════
+[2026-05-25 20:50:22]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:50:23]   ✅ Deployment platform-ops/argocd-server: 1/1 available
+[2026-05-25 20:50:25]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
+[2026-05-25 20:50:26]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
+[2026-05-25 20:50:28]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
+[2026-05-25 20:50:29]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
+[2026-05-25 20:50:29] 
+[2026-05-25 20:50:29] ══════════════════════════════════════════
+[2026-05-25 20:50:30]   3. CROSSPLANE
+[2026-05-25 20:50:30] ══════════════════════════════════════════
+[2026-05-25 20:50:31]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:50:33]   ✅ Deployment platform-ops/crossplane: 1/1 available
+[2026-05-25 20:50:34]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
+[2026-05-25 20:50:35]   Checking Crossplane providers...
+[2026-05-25 20:50:35]   ⚠️  No Crossplane providers found
+[2026-05-25 20:50:36] 
+[2026-05-25 20:50:36] ══════════════════════════════════════════
+[2026-05-25 20:50:36]   4. EXTERNAL SECRETS OPERATOR
+[2026-05-25 20:50:36] ══════════════════════════════════════════
+[2026-05-25 20:50:38]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-25 20:50:38]   ✅ ClusterSecretStore infisical-backend: Ready
+[2026-05-25 20:50:39] 
+[2026-05-25 20:50:39] ══════════════════════════════════════════
+[2026-05-25 20:50:39]   5. INFISICAL
+[2026-05-25 20:50:39] ══════════════════════════════════════════
+[2026-05-25 20:50:41]   ❌ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-25 20:50:41]      → spire-server-0                                                    0/1   CrashLoopBackOff   4 (61s ago)   3m3s
+[2026-05-25 20:50:42]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
+[2026-05-25 20:50:42]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
+[2026-05-25 20:50:43]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
+[2026-05-25 20:50:44]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
+[2026-05-25 20:50:45]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
+[2026-05-25 20:50:46]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
+[2026-05-25 20:50:46] 
+[2026-05-25 20:50:46] ══════════════════════════════════════════
+[2026-05-25 20:50:46]   6. DATABASES (CloudNative-PG)
+[2026-05-25 20:50:46] ══════════════════════════════════════════
+[2026-05-25 20:50:48]   ✅ Deployment cnpg-system/cloudnative-pg: 1/1 available
+[2026-05-25 20:50:49]   ✅ CNPG Cluster platform-db: Cluster in healthy state
+[2026-05-25 20:50:50]   ✅ Redis (platform-data): Running
+[2026-05-25 20:50:52]   ✅ Namespace platform-data: all 8 pod(s) healthy
+[2026-05-25 20:50:52] 
+[2026-05-25 20:50:52] ══════════════════════════════════════════
+[2026-05-25 20:50:52]   7. CLICKHOUSE
+[2026-05-25 20:50:52] ══════════════════════════════════════════
+[2026-05-25 20:50:55]   ❌ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:50:55]   ✅ ClickHouseInstallation platform-clickhouse: Completed
+[2026-05-25 20:50:56]   ✅ ClickHouse services present (2 found)
+[2026-05-25 20:50:57] 
+[2026-05-25 20:50:57] ══════════════════════════════════════════
+[2026-05-25 20:50:57]   8. OPENMETER
+[2026-05-25 20:50:57] ══════════════════════════════════════════
+[2026-05-25 20:50:59]   ❌ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-25 20:51:02]   ❌ OpenMeter openmeter-api: 0/1 available
+[2026-05-25 20:51:04]   ❌ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-25 20:51:07]   ❌ OpenMeter openmeter-billing-worker: 0/1 available
+[2026-05-25 20:51:09]   ❌ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-25 20:51:11]   ❌ OpenMeter openmeter-sink-worker: 0/1 available
+[2026-05-25 20:51:14]   ❌ OpenMeter openmeter-svix: 0/1 available
+[2026-05-25 20:51:15]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-25 20:51:16] 
+[2026-05-25 20:51:16] ══════════════════════════════════════════
+[2026-05-25 20:51:16]   9. ORY IDENTITY STACK
+[2026-05-25 20:51:16] ══════════════════════════════════════════
+[2026-05-25 20:51:19]   ❌ ArgoCD app ory-kratos: Sync=OutOfSync Health=Progressing (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:51:21]   ❌ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:51:24]   ❌ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:51:26]   ❌ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
+[2026-05-25 20:51:27]   ⚠️  Ory deployment not found: platform-identity/hydra (may use different name)
+[2026-05-25 20:51:28]   ⚠️  Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-25 20:51:29]   ⚠️  Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-25 20:51:29] 
+[2026-05-25 20:51:29] ══════════════════════════════════════════
+[2026-05-25 20:51:30]   10. NATS MESSAGING
+[2026-05-25 20:51:30] ══════════════════════════════════════════
+[2026-05-25 20:51:31]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-25 20:51:32]   ✅ NATS pods running: 2
+[2026-05-25 20:51:32] 
+[2026-05-25 20:51:33] ══════════════════════════════════════════
+[2026-05-25 20:51:33]   11. HUB-OPERATOR
+[2026-05-25 20:51:33] ══════════════════════════════════════════
+[2026-05-25 20:51:35]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Progressing
+[2026-05-25 20:51:36]   ✅ Deployment platform-ops/hub-operator: 2/2 available
+[2026-05-25 20:51:37]   ✅ Billing CRD meters.ops.nutgraf.in: installed
+[2026-05-25 20:51:38]   ✅ Billing CRD features.ops.nutgraf.in: installed
+[2026-05-25 20:51:39]   ✅ Billing CRD plans.ops.nutgraf.in: installed
+[2026-05-25 20:51:40]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-25 20:51:41] 
+[2026-05-25 20:51:41] ══════════════════════════════════════════
+[2026-05-25 20:51:41]   12. KUBE-SBT API
+[2026-05-25 20:51:41] ══════════════════════════════════════════
+[2026-05-25 20:51:44]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-25 20:51:45]   ✅ Namespace platform-ops: all 2 pod(s) healthy
+[2026-05-25 20:51:46]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
+[2026-05-25 20:51:46] 
+[2026-05-25 20:51:47] ══════════════════════════════════════════
+[2026-05-25 20:51:47]   13. INGRESS & CERT-MANAGER
+[2026-05-25 20:51:47] ══════════════════════════════════════════
+[2026-05-25 20:51:49]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
+[2026-05-25 20:51:50]   ✅ Namespace cert-manager: all 3 pod(s) healthy
+[2026-05-25 20:51:53]   ✅ Deployment cert-manager/cert-manager: 1/1 available
+[2026-05-25 20:51:54]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
+[2026-05-25 20:51:55]   ✅ Ingress pods (platform-edge): 3 running
+[2026-05-25 20:51:55] 
+[2026-05-25 20:51:56] ══════════════════════════════════════════
+[2026-05-25 20:51:56]   14. SPOKE POOL & CAPI
+[2026-05-25 20:51:56] ══════════════════════════════════════════
+[2026-05-25 20:51:58]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
+[2026-05-25 20:51:59]   ✅ CAPI CoreProvider/cluster-api: Ready
+[2026-05-25 20:51:59]   ✅ CAPI BootstrapProvider/kubeadm: Ready
+[2026-05-25 20:52:00]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
+[2026-05-25 20:52:01]   ✅ CAPI InfrastructureProvider/hetzner: Ready
+[2026-05-25 20:52:03]   ✅ SpokePool spoke-pool-eu-prod-01: Ready+Synced
+[2026-05-25 20:52:04]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
+[2026-05-25 20:52:06]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
+[2026-05-25 20:52:08]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
+[2026-05-25 20:52:09]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
+[2026-05-25 20:52:09] 
+[2026-05-25 20:52:10] ══════════════════════════════════════════
+[2026-05-25 20:52:10]   15. CRITICAL ARGOCD APPS
+[2026-05-25 20:52:10] ══════════════════════════════════════════
+[2026-05-25 20:52:13]   ❌ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-25 20:52:14]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
+[2026-05-25 20:52:16]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
+[2026-05-25 20:52:17]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
+[2026-05-25 20:52:19]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
+[2026-05-25 20:52:21]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
+[2026-05-25 20:52:22]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
+[2026-05-25 20:52:24]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
+[2026-05-25 20:52:25]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
+[2026-05-25 20:52:27]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
+[2026-05-25 20:52:28]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-25 20:52:30]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-25 20:52:32]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
+[2026-05-25 20:52:33]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
+[2026-05-25 20:52:36]   ⚠️  ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-25 20:52:39]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-25 20:52:41]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
+[2026-05-25 20:52:43]   ⚠️  ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:52:45]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-25 20:52:48]   ⚠️  ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-25 20:52:50]   ⚠️  ArgoCD app ory-kratos: Sync=OutOfSync Health=Progressing (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:52:52]   ⚠️  ArgoCD app ory-hydra: Sync=OutOfSync Health=Progressing (OutOfSync: Secret/hydra-system-secret ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-25 20:52:54]   ⚠️  ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:52:57]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-25 20:52:59]   ⚠️  ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-25 20:53:00]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
+[2026-05-25 20:53:01] 
+[2026-05-25 20:53:01] ══════════════════════════════════════════
+[2026-05-25 20:53:01]   16. OBSERVABILITY
+[2026-05-25 20:53:01] ══════════════════════════════════════════
+[2026-05-25 20:53:03]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
+[2026-05-25 20:53:04]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
+[2026-05-25 20:53:06]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
+[2026-05-25 20:53:07]   ✅ Observability pods (platform-observability): 7 running
+[2026-05-25 20:53:07] 
+[2026-05-25 20:53:07] ╔══════════════════════════════════════════╗
+[2026-05-25 20:53:07] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
+[2026-05-25 20:53:07] ╠══════════════════════════════════════════╣
+[2026-05-25 20:53:07] ║  ✅ PASSED : 81
+[2026-05-25 20:53:07] ║  ❌ FAILED : 14
+[2026-05-25 20:53:08] ║  ⚠️  WARNED : 17
+[2026-05-25 20:53:08] ╠══════════════════════════════════════════╣
+[2026-05-25 20:53:08] ║  CRITICAL FAILURES:
+[2026-05-25 20:53:08] ║    ✗ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-25 20:53:08] ║    ✗ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:53:08] ║    ✗ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-25 20:53:08] ║    ✗ OpenMeter openmeter-api: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ OpenMeter openmeter-billing-worker: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ OpenMeter openmeter-sink-worker: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ OpenMeter openmeter-svix: 0/1 available
+[2026-05-25 20:53:09] ║    ✗ ArgoCD app ory-kratos: Sync=OutOfSync Health=Progressing (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:53:09] ║    ✗ ArgoCD app ory-hydra: Sync=OutOfSync Health=Missing (OutOfSync: ConfigMap/ory-hydra Secret/hydra-system-secret Service/ory-hydra-admin Service/ory-hydra-public ServiceAccount/ory-hydra ServiceAccount/ory-hydra-hydra-maester-account CustomResourceDefinition/oauth2clients.hydra.ory.sh Deployment/ory-hydra Deployment/ory-hydra-hydra-maester ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret NetworkPolicy/ory-hydra-netpol ClusterRole/ory-hydra-hydra-maester-role ClusterRoleBinding/ory-hydra-hydra-maester-role-binding Role/ory-hydra-hydra-maester-role RoleBinding/ory-hydra-hydra-maester-role-binding )
+[2026-05-25 20:53:10] ║    ✗ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:53:10] ║    ✗ Deployment platform-identity/kratos-selfservice-ui-node: 0/1 available
+[2026-05-25 20:53:10] ║    ✗ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-25 20:53:10] ╠══════════════════════════════════════════╣
+[2026-05-25 20:53:10] ║  WARNINGS:
+[2026-05-25 20:53:10] ║    ! No Crossplane providers found
+[2026-05-25 20:53:10] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-25 20:53:11] ║    ! Ory deployment not found: platform-identity/hydra (may use different name)
+[2026-05-25 20:53:11] ║    ! Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-25 20:53:11] ║    ! Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-25 20:53:11] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-25 20:53:11] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-25 20:53:11] ║    ! ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-25 20:53:12] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-25 20:53:12] ║    ! ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-25 20:53:12] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-25 20:53:12] ║    ! ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-25 20:53:12] ║    ! ArgoCD app ory-kratos: Sync=OutOfSync Health=Progressing (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-25 20:53:12] ║    ! ArgoCD app ory-hydra: Sync=OutOfSync Health=Progressing (OutOfSync: Secret/hydra-system-secret ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-25 20:53:12] ║    ! ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-25 20:53:13] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-25 20:53:13] ║    ! ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-25 20:53:13] ╠══════════════════════════════════════════╣
+[2026-05-25 20:53:13] ║  💥 14 CRITICAL CHECK(S) FAILED        ║
+[2026-05-25 20:53:13] ║  Review failures above before proceeding  ║
+[2026-05-25 20:53:13] ╚══════════════════════════════════════════╝
+[2026-05-25 20:53:14]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log
+[2026-05-26 05:39:07] ═══════════════════════════════════════════════════════
+[2026-05-26 05:39:07]  Zero-Ops Post-Bootstrap Core Services Validation
+[2026-05-26 05:39:07]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-26 05:39:07]  SpokePool:  spoke-pool-eu-prod-01
+[2026-05-26 05:39:07] ═══════════════════════════════════════════════════════
+[2026-05-26 05:39:07] 
+[2026-05-26 05:39:07] ══════════════════════════════════════════
+[2026-05-26 05:39:08]   PREFLIGHT
+[2026-05-26 05:39:08] ══════════════════════════════════════════
+[2026-05-26 05:39:09]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-26 05:39:10]   ✅ Core namespaces present
+[2026-05-26 05:39:10] 
+[2026-05-26 05:39:10] ══════════════════════════════════════════
+[2026-05-26 05:39:10]   1. PLATFORM NAMESPACES
+[2026-05-26 05:39:10] ══════════════════════════════════════════
+[2026-05-26 05:39:11]   ✅ Namespace platform-ops exists
+[2026-05-26 05:39:12]   ✅ Namespace platform-capi exists
+[2026-05-26 05:39:12]   ✅ Namespace platform-data exists
+[2026-05-26 05:39:13]   ✅ Namespace platform-identity exists
+[2026-05-26 05:39:14]   ✅ Namespace platform-billing exists
+[2026-05-26 05:39:15]   ✅ Namespace platform-messaging exists
+[2026-05-26 05:39:15]   ✅ Namespace platform-observability exists
+[2026-05-26 05:39:16]   ✅ Namespace platform-security exists
+[2026-05-26 05:39:17]   ✅ Namespace platform-edge exists
+[2026-05-26 05:39:17]   ✅ Namespace platform-controlplane exists
+[2026-05-26 05:39:18]   ✅ Namespace cert-manager exists
+[2026-05-26 05:39:19]   ✅ Namespace cnpg-system exists
+[2026-05-26 05:39:19]   ✅ Namespace kube-system exists
+[2026-05-26 05:39:20] 
+[2026-05-26 05:39:20] ══════════════════════════════════════════
+[2026-05-26 05:39:20]   2. ARGOCD
+[2026-05-26 05:39:20] ══════════════════════════════════════════
+[2026-05-26 05:39:21]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:39:23]   ✅ Deployment platform-ops/argocd-server: 1/1 available
+[2026-05-26 05:39:25]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
+[2026-05-26 05:39:26]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
+[2026-05-26 05:39:27]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
+[2026-05-26 05:39:29]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
+[2026-05-26 05:39:29] 
+[2026-05-26 05:39:29] ══════════════════════════════════════════
+[2026-05-26 05:39:29]   3. CROSSPLANE
+[2026-05-26 05:39:29] ══════════════════════════════════════════
+[2026-05-26 05:39:31]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:39:32]   ✅ Deployment platform-ops/crossplane: 1/1 available
+[2026-05-26 05:39:33]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
+[2026-05-26 05:39:34]   Checking Crossplane providers...
+[2026-05-26 05:39:34]   ⚠️  No Crossplane providers found
+[2026-05-26 05:39:34] 
+[2026-05-26 05:39:35] ══════════════════════════════════════════
+[2026-05-26 05:39:35]   4. EXTERNAL SECRETS OPERATOR
+[2026-05-26 05:39:35] ══════════════════════════════════════════
+[2026-05-26 05:39:36]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:39:37]   ✅ ClusterSecretStore infisical-backend: Ready
+[2026-05-26 05:39:37] 
+[2026-05-26 05:39:38] ══════════════════════════════════════════
+[2026-05-26 05:39:38]   5. INFISICAL
+[2026-05-26 05:39:38] ══════════════════════════════════════════
+[2026-05-26 05:39:39]   ❌ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-26 05:39:39]      → spire-server-0                                                    0/1   CrashLoopBackOff   103 (4m6s ago)   8h
+[2026-05-26 05:39:40]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
+[2026-05-26 05:39:41]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
+[2026-05-26 05:39:42]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
+[2026-05-26 05:39:42]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
+[2026-05-26 05:39:43]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
+[2026-05-26 05:39:44]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
+[2026-05-26 05:39:44] 
+[2026-05-26 05:39:44] ══════════════════════════════════════════
+[2026-05-26 05:39:44]   6. DATABASES (CloudNative-PG)
+[2026-05-26 05:39:44] ══════════════════════════════════════════
+[2026-05-26 05:39:46]   ✅ Deployment cnpg-system/cloudnative-pg: 1/1 available
+[2026-05-26 05:39:47]   ✅ CNPG Cluster platform-db: Cluster in healthy state
+[2026-05-26 05:39:48]   ✅ Redis (platform-data): Running
+[2026-05-26 05:39:49]   ✅ Namespace platform-data: all 8 pod(s) healthy
+[2026-05-26 05:39:50] 
+[2026-05-26 05:39:50] ══════════════════════════════════════════
+[2026-05-26 05:39:50]   7. CLICKHOUSE
+[2026-05-26 05:39:50] ══════════════════════════════════════════
+[2026-05-26 05:39:52]   ❌ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:39:53]   ✅ ClickHouseInstallation platform-clickhouse: Completed
+[2026-05-26 05:39:54]   ✅ ClickHouse services present (2 found)
+[2026-05-26 05:39:54] 
+[2026-05-26 05:39:55] ══════════════════════════════════════════
+[2026-05-26 05:39:55]   8. OPENMETER
+[2026-05-26 05:39:55] ══════════════════════════════════════════
+[2026-05-26 05:39:57]   ❌ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:39:59]   ❌ OpenMeter openmeter-api: 0/1 available
+[2026-05-26 05:40:01]   ❌ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-26 05:40:03]   ✅ OpenMeter openmeter-billing-worker: 1/1
+[2026-05-26 05:40:05]   ❌ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-26 05:40:06]   ✅ OpenMeter openmeter-sink-worker: 1/1
+[2026-05-26 05:40:07]   ✅ OpenMeter openmeter-svix: 1/1
+[2026-05-26 05:40:08]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-26 05:40:13] 
+[2026-05-26 05:40:13] ══════════════════════════════════════════
+[2026-05-26 05:40:13]   9. ORY IDENTITY STACK
+[2026-05-26 05:40:13] ══════════════════════════════════════════
+[2026-05-26 05:40:15]   ❌ ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:40:17]   ❌ ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:40:19]   ❌ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:40:21]   ✅ Deployment platform-identity/kratos-selfservice-ui-node: 1/1 available
+[2026-05-26 05:40:23]   ✅ Deployment platform-identity/ory-hydra: 1/1 available
+[2026-05-26 05:40:24]   ⚠️  Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-26 05:40:25]   ⚠️  Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-26 05:40:25] 
+[2026-05-26 05:40:26] ══════════════════════════════════════════
+[2026-05-26 05:40:26]   10. NATS MESSAGING
+[2026-05-26 05:40:26] ══════════════════════════════════════════
+[2026-05-26 05:40:28]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-26 05:40:29]   ✅ NATS pods running: 2
+[2026-05-26 05:40:29] 
+[2026-05-26 05:40:29] ══════════════════════════════════════════
+[2026-05-26 05:40:29]   11. HUB-OPERATOR
+[2026-05-26 05:40:29] ══════════════════════════════════════════
+[2026-05-26 05:40:31]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-26 05:40:32]   ✅ Deployment platform-ops/hub-operator: 2/2 available
+[2026-05-26 05:40:33]   ✅ Billing CRD meters.ops.nutgraf.in: installed
+[2026-05-26 05:40:34]   ✅ Billing CRD features.ops.nutgraf.in: installed
+[2026-05-26 05:40:35]   ✅ Billing CRD plans.ops.nutgraf.in: installed
+[2026-05-26 05:40:37]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-26 05:40:37] 
+[2026-05-26 05:40:37] ══════════════════════════════════════════
+[2026-05-26 05:40:37]   12. KUBE-SBT API
+[2026-05-26 05:40:37] ══════════════════════════════════════════
+[2026-05-26 05:40:39]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:40:41]   ✅ Namespace platform-ops: all 2 pod(s) healthy
+[2026-05-26 05:40:42]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
+[2026-05-26 05:40:42] 
+[2026-05-26 05:40:42] ══════════════════════════════════════════
+[2026-05-26 05:40:42]   13. INGRESS & CERT-MANAGER
+[2026-05-26 05:40:42] ══════════════════════════════════════════
+[2026-05-26 05:40:44]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
+[2026-05-26 05:40:45]   ✅ Namespace cert-manager: all 3 pod(s) healthy
+[2026-05-26 05:40:47]   ✅ Deployment cert-manager/cert-manager: 1/1 available
+[2026-05-26 05:40:48]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
+[2026-05-26 05:40:49]   ✅ Ingress pods (platform-edge): 3 running
+[2026-05-26 05:40:49] 
+[2026-05-26 05:40:50] ══════════════════════════════════════════
+[2026-05-26 05:40:50]   14. SPOKE POOL & CAPI
+[2026-05-26 05:40:50] ══════════════════════════════════════════
+[2026-05-26 05:40:52]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
+[2026-05-26 05:40:52]   ✅ CAPI CoreProvider/cluster-api: Ready
+[2026-05-26 05:40:53]   ✅ CAPI BootstrapProvider/kubeadm: Ready
+[2026-05-26 05:40:54]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
+[2026-05-26 05:40:55]   ✅ CAPI InfrastructureProvider/hetzner: Ready
+[2026-05-26 05:40:57]   ❌ SpokePool spoke-pool-eu-prod-01: Ready=True Synced=
+[2026-05-26 05:40:57]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
+[2026-05-26 05:40:59]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
+[2026-05-26 05:41:01]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
+[2026-05-26 05:41:02]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
+[2026-05-26 05:41:02] 
+[2026-05-26 05:41:03] ══════════════════════════════════════════
+[2026-05-26 05:41:03]   15. CRITICAL ARGOCD APPS
+[2026-05-26 05:41:03] ══════════════════════════════════════════
+[2026-05-26 05:41:06]   ❌ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-26 05:41:07]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
+[2026-05-26 05:41:09]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
+[2026-05-26 05:41:10]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
+[2026-05-26 05:41:12]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
+[2026-05-26 05:41:13]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
+[2026-05-26 05:41:15]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
+[2026-05-26 05:41:16]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
+[2026-05-26 05:41:18]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
+[2026-05-26 05:41:19]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
+[2026-05-26 05:41:20]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-26 05:41:22]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-26 05:41:23]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
+[2026-05-26 05:41:24]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
+[2026-05-26 05:41:26]   ✅ ArgoCD app 01-platform-infra: Sync=Synced Health=Healthy
+[2026-05-26 05:41:28]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-26 05:41:29]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
+[2026-05-26 05:41:31]   ⚠️  ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:41:33]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-26 05:41:35]   ⚠️  ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:41:37]   ⚠️  ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:41:39]   ⚠️  ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:41:41]   ⚠️  ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:41:43]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:41:45]   ⚠️  ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-26 05:41:46]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
+[2026-05-26 05:41:46] 
+[2026-05-26 05:41:46] ══════════════════════════════════════════
+[2026-05-26 05:41:46]   16. OBSERVABILITY
+[2026-05-26 05:41:46] ══════════════════════════════════════════
+[2026-05-26 05:41:48]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
+[2026-05-26 05:41:49]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
+[2026-05-26 05:41:51]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
+[2026-05-26 05:41:52]   ✅ Observability pods (platform-observability): 7 running
+[2026-05-26 05:41:52] 
+[2026-05-26 05:41:52] ╔══════════════════════════════════════════╗
+[2026-05-26 05:41:52] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
+[2026-05-26 05:41:52] ╠══════════════════════════════════════════╣
+[2026-05-26 05:41:52] ║  ✅ PASSED : 86
+[2026-05-26 05:41:52] ║  ❌ FAILED : 11
+[2026-05-26 05:41:53] ║  ⚠️  WARNED : 15
+[2026-05-26 05:41:53] ╠══════════════════════════════════════════╣
+[2026-05-26 05:41:53] ║  CRITICAL FAILURES:
+[2026-05-26 05:41:53] ║    ✗ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-26 05:41:53] ║    ✗ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:41:53] ║    ✗ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:41:53] ║    ✗ OpenMeter openmeter-api: 0/1 available
+[2026-05-26 05:41:53] ║    ✗ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-26 05:41:54] ║    ✗ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-26 05:41:54] ║    ✗ ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:41:54] ║    ✗ ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:41:54] ║    ✗ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:41:54] ║    ✗ SpokePool spoke-pool-eu-prod-01: Ready=True Synced=
+[2026-05-26 05:41:54] ║    ✗ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-26 05:41:54] ╠══════════════════════════════════════════╣
+[2026-05-26 05:41:55] ║  WARNINGS:
+[2026-05-26 05:41:55] ║    ! No Crossplane providers found
+[2026-05-26 05:41:55] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-26 05:41:55] ║    ! Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-26 05:41:55] ║    ! Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-26 05:41:55] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-26 05:41:55] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:41:55] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-26 05:41:56] ║    ! ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:41:56] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-26 05:41:56] ║    ! ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:41:56] ║    ! ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:41:56] ║    ! ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:41:56] ║    ! ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:41:56] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:41:57] ║    ! ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-26 05:41:57] ╠══════════════════════════════════════════╣
+[2026-05-26 05:41:57] ║  💥 11 CRITICAL CHECK(S) FAILED        ║
+[2026-05-26 05:41:57] ║  Review failures above before proceeding  ║
+[2026-05-26 05:41:57] ╚══════════════════════════════════════════╝
+[2026-05-26 05:41:57]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log
+[2026-05-26 05:42:08] ═══════════════════════════════════════════════════════
+[2026-05-26 05:42:08]  Zero-Ops Post-Bootstrap Core Services Validation
+[2026-05-26 05:42:08]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-26 05:42:08]  SpokePool:  spoke-pool-eu-prod-01
+[2026-05-26 05:42:08] ═══════════════════════════════════════════════════════
+[2026-05-26 05:42:08] 
+[2026-05-26 05:42:08] ══════════════════════════════════════════
+[2026-05-26 05:42:09]   PREFLIGHT
+[2026-05-26 05:42:09] ══════════════════════════════════════════
+[2026-05-26 05:42:10]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-26 05:42:11]   ✅ Core namespaces present
+[2026-05-26 05:42:11] 
+[2026-05-26 05:42:11] ══════════════════════════════════════════
+[2026-05-26 05:42:11]   1. PLATFORM NAMESPACES
+[2026-05-26 05:42:11] ══════════════════════════════════════════
+[2026-05-26 05:42:12]   ✅ Namespace platform-ops exists
+[2026-05-26 05:42:13]   ✅ Namespace platform-capi exists
+[2026-05-26 05:42:13]   ✅ Namespace platform-data exists
+[2026-05-26 05:42:14]   ✅ Namespace platform-identity exists
+[2026-05-26 05:42:15]   ✅ Namespace platform-billing exists
+[2026-05-26 05:42:16]   ✅ Namespace platform-messaging exists
+[2026-05-26 05:42:16]   ✅ Namespace platform-observability exists
+[2026-05-26 05:42:17]   ✅ Namespace platform-security exists
+[2026-05-26 05:42:18]   ✅ Namespace platform-edge exists
+[2026-05-26 05:42:18]   ✅ Namespace platform-controlplane exists
+[2026-05-26 05:42:19]   ✅ Namespace cert-manager exists
+[2026-05-26 05:42:20]   ✅ Namespace cnpg-system exists
+[2026-05-26 05:42:21]   ✅ Namespace kube-system exists
+[2026-05-26 05:42:21] 
+[2026-05-26 05:42:21] ══════════════════════════════════════════
+[2026-05-26 05:42:21]   2. ARGOCD
+[2026-05-26 05:42:21] ══════════════════════════════════════════
+[2026-05-26 05:42:23]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:42:24]   ✅ Deployment platform-ops/argocd-server: 1/1 available
+[2026-05-26 05:42:25]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
+[2026-05-26 05:42:27]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
+[2026-05-26 05:42:28]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
+[2026-05-26 05:42:29]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
+[2026-05-26 05:42:30] 
+[2026-05-26 05:42:30] ══════════════════════════════════════════
+[2026-05-26 05:42:30]   3. CROSSPLANE
+[2026-05-26 05:42:30] ══════════════════════════════════════════
+[2026-05-26 05:42:32]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:42:33]   ✅ Deployment platform-ops/crossplane: 1/1 available
+[2026-05-26 05:42:34]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
+[2026-05-26 05:42:34]   Checking Crossplane providers...
+[2026-05-26 05:42:35]   ⚠️  No Crossplane providers found
+[2026-05-26 05:42:35] 
+[2026-05-26 05:42:36] ══════════════════════════════════════════
+[2026-05-26 05:42:36]   4. EXTERNAL SECRETS OPERATOR
+[2026-05-26 05:42:36] ══════════════════════════════════════════
+[2026-05-26 05:42:38]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-26 05:42:38]   ✅ ClusterSecretStore infisical-backend: Ready
+[2026-05-26 05:42:38] 
+[2026-05-26 05:42:39] ══════════════════════════════════════════
+[2026-05-26 05:42:39]   5. INFISICAL
+[2026-05-26 05:42:39] ══════════════════════════════════════════
+[2026-05-26 05:42:40]   ❌ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-26 05:42:41]      → spire-server-0                                                    0/1   CrashLoopBackOff   104 (2m3s ago)   8h
+[2026-05-26 05:42:41]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
+[2026-05-26 05:42:42]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
+[2026-05-26 05:42:43]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
+[2026-05-26 05:42:44]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
+[2026-05-26 05:42:45]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
+[2026-05-26 05:42:45]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
+[2026-05-26 05:42:45] 
+[2026-05-26 05:42:46] ══════════════════════════════════════════
+[2026-05-26 05:42:46]   6. DATABASES (CloudNative-PG)
+[2026-05-26 05:42:46] ══════════════════════════════════════════
+[2026-05-26 05:42:47]   ✅ Deployment cnpg-system/cloudnative-pg: 1/1 available
+[2026-05-26 05:42:48]   ✅ CNPG Cluster platform-db: Cluster in healthy state
+[2026-05-26 05:42:49]   ✅ Redis (platform-data): Running
+[2026-05-26 05:42:51]   ✅ Namespace platform-data: all 8 pod(s) healthy
+[2026-05-26 05:42:51] 
+[2026-05-26 05:42:51] ══════════════════════════════════════════
+[2026-05-26 05:42:51]   7. CLICKHOUSE
+[2026-05-26 05:42:51] ══════════════════════════════════════════
+[2026-05-26 05:42:53]   ❌ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:42:54]   ✅ ClickHouseInstallation platform-clickhouse: Completed
+[2026-05-26 05:42:55]   ✅ ClickHouse services present (2 found)
+[2026-05-26 05:42:55] 
+[2026-05-26 05:42:55] ══════════════════════════════════════════
+[2026-05-26 05:42:55]   8. OPENMETER
+[2026-05-26 05:42:56] ══════════════════════════════════════════
+[2026-05-26 05:42:58]   ❌ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:43:00]   ❌ OpenMeter openmeter-api: 0/1 available
+[2026-05-26 05:43:02]   ❌ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-26 05:43:03]   ✅ OpenMeter openmeter-billing-worker: 1/1
+[2026-05-26 05:43:05]   ❌ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-26 05:43:07]   ✅ OpenMeter openmeter-sink-worker: 1/1
+[2026-05-26 05:43:08]   ✅ OpenMeter openmeter-svix: 1/1
+[2026-05-26 05:43:09]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-26 05:43:10] 
+[2026-05-26 05:43:10] ══════════════════════════════════════════
+[2026-05-26 05:43:10]   9. ORY IDENTITY STACK
+[2026-05-26 05:43:10] ══════════════════════════════════════════
+[2026-05-26 05:43:12]   ❌ ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:43:14]   ❌ ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:43:16]   ❌ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:43:18]   ✅ Deployment platform-identity/kratos-selfservice-ui-node: 1/1 available
+[2026-05-26 05:43:20]   ✅ Deployment platform-identity/ory-hydra: 1/1 available
+[2026-05-26 05:43:21]   ⚠️  Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-26 05:43:21]   ⚠️  Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-26 05:43:22] 
+[2026-05-26 05:43:22] ══════════════════════════════════════════
+[2026-05-26 05:43:22]   10. NATS MESSAGING
+[2026-05-26 05:43:22] ══════════════════════════════════════════
+[2026-05-26 05:43:23]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-26 05:43:24]   ✅ NATS pods running: 2
+[2026-05-26 05:43:24] 
+[2026-05-26 05:43:24] ══════════════════════════════════════════
+[2026-05-26 05:43:25]   11. HUB-OPERATOR
+[2026-05-26 05:43:25] ══════════════════════════════════════════
+[2026-05-26 05:43:26]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-26 05:43:27]   ✅ Deployment platform-ops/hub-operator: 2/2 available
+[2026-05-26 05:43:28]   ✅ Billing CRD meters.ops.nutgraf.in: installed
+[2026-05-26 05:43:29]   ✅ Billing CRD features.ops.nutgraf.in: installed
+[2026-05-26 05:43:30]   ✅ Billing CRD plans.ops.nutgraf.in: installed
+[2026-05-26 05:43:31]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-26 05:43:31] 
+[2026-05-26 05:43:31] ══════════════════════════════════════════
+[2026-05-26 05:43:31]   12. KUBE-SBT API
+[2026-05-26 05:43:31] ══════════════════════════════════════════
+[2026-05-26 05:43:33]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:43:35]   ✅ Namespace platform-ops: all 2 pod(s) healthy
+[2026-05-26 05:43:36]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
+[2026-05-26 05:43:36] 
+[2026-05-26 05:43:36] ══════════════════════════════════════════
+[2026-05-26 05:43:36]   13. INGRESS & CERT-MANAGER
+[2026-05-26 05:43:36] ══════════════════════════════════════════
+[2026-05-26 05:43:38]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
+[2026-05-26 05:43:39]   ✅ Namespace cert-manager: all 3 pod(s) healthy
+[2026-05-26 05:43:41]   ✅ Deployment cert-manager/cert-manager: 1/1 available
+[2026-05-26 05:43:42]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
+[2026-05-26 05:43:43]   ✅ Ingress pods (platform-edge): 3 running
+[2026-05-26 05:43:43] 
+[2026-05-26 05:43:43] ══════════════════════════════════════════
+[2026-05-26 05:43:43]   14. SPOKE POOL & CAPI
+[2026-05-26 05:43:43] ══════════════════════════════════════════
+[2026-05-26 05:43:45]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
+[2026-05-26 05:43:45]   ✅ CAPI CoreProvider/cluster-api: Ready
+[2026-05-26 05:43:46]   ✅ CAPI BootstrapProvider/kubeadm: Ready
+[2026-05-26 05:43:47]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
+[2026-05-26 05:43:48]   ✅ CAPI InfrastructureProvider/hetzner: Ready
+[2026-05-26 05:43:49]   ❌ SpokePool spoke-pool-eu-prod-01: Ready= Synced=True
+[2026-05-26 05:43:50]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
+[2026-05-26 05:43:51]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
+[2026-05-26 05:43:52]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
+[2026-05-26 05:43:54]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
+[2026-05-26 05:43:54] 
+[2026-05-26 05:43:54] ══════════════════════════════════════════
+[2026-05-26 05:43:54]   15. CRITICAL ARGOCD APPS
+[2026-05-26 05:43:54] ══════════════════════════════════════════
+[2026-05-26 05:43:56]   ❌ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-26 05:43:58]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
+[2026-05-26 05:44:00]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
+[2026-05-26 05:44:01]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
+[2026-05-26 05:44:03]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
+[2026-05-26 05:44:04]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
+[2026-05-26 05:44:06]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
+[2026-05-26 05:44:07]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
+[2026-05-26 05:44:08]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
+[2026-05-26 05:44:10]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
+[2026-05-26 05:44:11]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-26 05:44:12]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
+[2026-05-26 05:44:14]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
+[2026-05-26 05:44:15]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
+[2026-05-26 05:44:17]   ⚠️  ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-26 05:44:19]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-26 05:44:20]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
+[2026-05-26 05:44:22]   ⚠️  ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:44:24]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-26 05:44:27]   ⚠️  ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:44:29]   ⚠️  ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:44:31]   ⚠️  ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:44:34]   ⚠️  ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:44:36]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:44:38]   ⚠️  ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-26 05:44:39]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
+[2026-05-26 05:44:39] 
+[2026-05-26 05:44:39] ══════════════════════════════════════════
+[2026-05-26 05:44:39]   16. OBSERVABILITY
+[2026-05-26 05:44:40] ══════════════════════════════════════════
+[2026-05-26 05:44:41]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
+[2026-05-26 05:44:42]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
+[2026-05-26 05:44:44]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
+[2026-05-26 05:44:45]   ✅ Observability pods (platform-observability): 7 running
+[2026-05-26 05:44:45] 
+[2026-05-26 05:44:45] ╔══════════════════════════════════════════╗
+[2026-05-26 05:44:45] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
+[2026-05-26 05:44:45] ╠══════════════════════════════════════════╣
+[2026-05-26 05:44:45] ║  ✅ PASSED : 85
+[2026-05-26 05:44:46] ║  ❌ FAILED : 11
+[2026-05-26 05:44:46] ║  ⚠️  WARNED : 16
+[2026-05-26 05:44:46] ╠══════════════════════════════════════════╣
+[2026-05-26 05:44:46] ║  CRITICAL FAILURES:
+[2026-05-26 05:44:46] ║    ✗ Namespace platform-security: unhealthy pods (CrashLoop=1, Pending=0, Error=0)
+[2026-05-26 05:44:46] ║    ✗ ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:44:47] ║    ✗ ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:44:47] ║    ✗ OpenMeter openmeter-api: 0/1 available
+[2026-05-26 05:44:47] ║    ✗ OpenMeter openmeter-balance-worker: 0/1 available
+[2026-05-26 05:44:47] ║    ✗ OpenMeter openmeter-notification-service: 0/1 available
+[2026-05-26 05:44:47] ║    ✗ ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:44:47] ║    ✗ ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:44:48] ║    ✗ ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:44:48] ║    ✗ SpokePool spoke-pool-eu-prod-01: Ready= Synced=True
+[2026-05-26 05:44:48] ║    ✗ ArgoCD app platform-namespaces: Sync=Unknown Health=Unknown
+[2026-05-26 05:44:48] ╠══════════════════════════════════════════╣
+[2026-05-26 05:44:48] ║  WARNINGS:
+[2026-05-26 05:44:48] ║    ! No Crossplane providers found
+[2026-05-26 05:44:48] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
+[2026-05-26 05:44:48] ║    ! Ory deployment not found: platform-identity/keto-read (may use different name)
+[2026-05-26 05:44:49] ║    ! Ory deployment not found: platform-identity/keto-write (may use different name)
+[2026-05-26 05:44:49] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-26 05:44:49] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:44:49] ║    ! ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
+[2026-05-26 05:44:49] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-26 05:44:49] ║    ! ArgoCD app platform-clickhouse: Sync=OutOfSync Health=Healthy (OutOfSync: CiliumIdentity/4059 )
+[2026-05-26 05:44:49] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-26 05:44:50] ║    ! ArgoCD app openmeter: Sync=OutOfSync Health=Degraded (OutOfSync: NetworkPolicy/openmeter-platform-netpol )
+[2026-05-26 05:44:50] ║    ! ArgoCD app ory-kratos: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/kratos-db-credentials )
+[2026-05-26 05:44:50] ║    ! ArgoCD app ory-hydra: Sync=OutOfSync Health=Healthy (OutOfSync: ExternalSecret/hydra-db-credentials ExternalSecret/hydra-system-secret )
+[2026-05-26 05:44:50] ║    ! ArgoCD app ory-keto: Sync=OutOfSync Health=Degraded (OutOfSync: ExternalSecret/keto-db-credentials )
+[2026-05-26 05:44:50] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
+[2026-05-26 05:44:50] ║    ! ArgoCD app platform-spire: Sync=OutOfSync Health=Missing (OutOfSync: Service/spire-agent-metrics DaemonSet/spire-agent Deployment/spire-k8s-registrar ServiceMonitor/spire-agent ServiceMonitor/spire-server )
+[2026-05-26 05:44:50] ╠══════════════════════════════════════════╣
+[2026-05-26 05:44:51] ║  💥 11 CRITICAL CHECK(S) FAILED        ║
+[2026-05-26 05:44:51] ║  Review failures above before proceeding  ║
+[2026-05-26 05:44:51] ╚══════════════════════════════════════════╝
+[2026-05-26 05:44:51]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log

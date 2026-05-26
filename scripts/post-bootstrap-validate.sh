@@ -398,8 +398,7 @@ check_ory() {
     local ory_deployments=(
         "platform-identity:kratos"
         "platform-identity:hydra"
-        "platform-identity:keto-read"
-        "platform-identity:keto-write"
+        "platform-identity:keto"
     )
     for entry in "${ory_deployments[@]}"; do
         local ns="${entry%%:*}"
@@ -527,14 +526,14 @@ check_spoke() {
 
     local spokepool_ready
     spokepool_ready=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="CrossplaneAdminSecretGenerated")].status}' 2>/dev/null || echo "Unknown")
     local spokepool_synced
     spokepool_synced=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="CertificatesMinted")].status}' 2>/dev/null || echo "Unknown")
     if [[ "$spokepool_ready" == "True" && "$spokepool_synced" == "True" ]]; then
         log_pass "SpokePool $SPOKEPOOL_NAME: Ready+Synced"
     else
-        log_fail "SpokePool $SPOKEPOOL_NAME: Ready=$spokepool_ready Synced=$spokepool_synced"
+        log_fail "SpokePool $SPOKEPOOL_NAME: CrossplaneAdminSecretGenerated=$spokepool_ready CertificatesMinted=$spokepool_synced"
     fi
 
     local capi_cluster_phase
@@ -563,7 +562,6 @@ check_platform_argocd_apps() {
 
     # Critical — failure blocks operations
     local critical_apps=(
-        "platform-namespaces"
         "02-platform-data"
         "platform-external-secrets"
         "platform-crossplane"

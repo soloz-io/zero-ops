@@ -16,6 +16,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-data
+  ignoreDifferences:
+    - group: cilium.io
+      kind: CiliumIdentity
+      jsonPointers:
+        - /security-labels
   syncPolicy:
     automated:
       prune: true
