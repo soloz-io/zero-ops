@@ -38,7 +38,5 @@ spec:
   ignoreDifferences:
     - group: external-secrets.io
       kind: ExternalSecret
-      jsonPointers:
-        - /status
-        - /metadata/resourceVersion
-        - /metadata/ownerReferences
+      managedFieldsManagers:
+        - external-secrets
