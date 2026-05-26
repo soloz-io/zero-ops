@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: platform-ops
 
 resources:
-- namespace.yaml
 - manager.yaml
 - network-policy.yaml
 

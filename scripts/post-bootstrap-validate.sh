@@ -370,7 +370,7 @@ check_openmeter() {
 
     # Kafka (StatefulSet)
     local kafka_ready_raw
-    kafka_ready_raw=$(kc get statefulset -n platform-billing -l "app.kubernetes.io/component=controller" \
+    kafka_ready_raw=$(kc get statefulset -n platform-billing -l "app.kubernetes.io/name=kafka" \
         --no-headers 2>/dev/null | awk '{print $2}' | head -1 | tr -d '[:space:]' || echo "0/0")
     local kafka_ready="${kafka_ready_raw:-0/0}"
     if echo "$kafka_ready" | grep -qE '^[1-9][0-9]*/[1-9][0-9]*$'; then
