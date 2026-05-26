@@ -62,7 +62,9 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 	}
 
 	// 3. Safely Check Observed State for Dependency Readiness
-	certResourceName := fmt.Sprintf("%s-argocd-agent-client-cert", spokeName)
+	// Use the composition pipeline resource name, not the Kubernetes object name.
+	// GetObservedComposedResources keys by composition resource name (crossplane.io/composition-resource-name annotation).
+	certResourceName := "argocd-agent-client-cert"
 	observedComposed, err := request.GetObservedComposedResources(req)
 	if err != nil {
 		return resp, errors.Wrap(err, "cannot get observed composed resources")
@@ -130,8 +132,9 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 	certDistObject := generateCertDistributionObject(spokeName, secretDataMap)
 
 	// Set the desired composed resource using the correct API
+	// Key must match the composition pipeline step resource name (not the k8s object name).
 	desiredResources := map[resource.Name]*unstructured.Unstructured{
-		resource.Name(certResourceName + "-dist"): certDistObject,
+		resource.Name("argocd-agent-cert-distribution"): certDistObject,
 	}
 
 	if err := response.SetDesiredResources(resp, desiredResources); err != nil {

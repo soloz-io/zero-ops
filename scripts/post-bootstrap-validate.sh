@@ -216,7 +216,7 @@ check_crossplane() {
     # Crossplane providers
     log "  Checking Crossplane providers..."
     local providers
-    providers=$(kc get providers -o jsonpath='{range .items[*]}{.metadata.name}: {.status.conditions[?(@.type=="Healthy")].status}{"\n"}{end}' 2>/dev/null || echo "")
+    providers=$(kc get providers.pkg.crossplane.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.conditions[?(@.type=="Healthy")].status}{"\n"}{end}' 2>/dev/null || echo "")
     if [[ -n "$providers" ]]; then
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
