@@ -40,6 +40,6 @@ spec:
       kind: ExternalSecret
       managedFieldsManagers:
         - external-secrets
-      jqPathExpressions:
-        - ".metadata.finalizers"
-        - ".status"
+      jsonPointers:
+        - /metadata/finalizers
+        - /status
