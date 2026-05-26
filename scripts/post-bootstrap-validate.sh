@@ -19,6 +19,8 @@ DEPLOY_READY_TIMEOUT="${DEPLOY_READY_TIMEOUT:-120}"
 ARGOCD_SYNC_TIMEOUT="${ARGOCD_SYNC_TIMEOUT:-60}"
 
 mkdir -p "$LOG_DIR"
+# Clear log on each run (do not append to stale output from previous runs)
+> "$LOG_FILE"
 
 # ─── Counters ─────────────────────────────────────────────────────────────────
 PASS=0
