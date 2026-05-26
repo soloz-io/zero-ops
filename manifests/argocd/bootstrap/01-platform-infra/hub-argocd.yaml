@@ -43,7 +43,17 @@ spec:
               hs.message = "Waiting for cluster to be healthy"
               return hs
 
-            # CROSSPLANE Provider health check
+            # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
+            # Cilium copies argocd.argoproj.io/instance labels from pods onto CiliumIdentity
+            # objects it creates. ArgoCD then treats them as orphaned managed resources and
+            # marks the owning app as OutOfSync. Excluding them globally prevents this.
+            resource.exclusions: |
+              - apiGroups:
+                  - cilium.io
+                kinds:
+                  - CiliumIdentity
+                clusters:
+                  - '*'
             # Ensures ArgoCD waits for the Provider CRD to be fully registered before
             # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
             resource.customizations.health.pkg.crossplane.io_Provider: |
