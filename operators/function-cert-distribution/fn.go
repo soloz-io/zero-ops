@@ -28,6 +28,12 @@ const (
 	ReasonWaitingForSecretProjection xpv1.ConditionReason = "WaitingForSecretProjection"
 	ReasonMalformedSecretData        xpv1.ConditionReason = "MalformedSecretData"
 	ReasonTimeout                    xpv1.ConditionReason = "Timeout"
+
+	// Composition pipeline resource names — must match spokepool-hetzner composition YAML.
+	// These are the logical resource names (crossplane.io/composition-resource-name annotation),
+	// NOT the Kubernetes object names which are derived at runtime via name transforms.
+	compositionResourceArgocdClientCert  = "argocd-agent-client-cert"
+	compositionResourceArgocdCertDist    = "argocd-agent-cert-distribution"
 )
 
 // Function represents the composition function
@@ -64,7 +70,7 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 	// 3. Safely Check Observed State for Dependency Readiness
 	// Use the composition pipeline resource name, not the Kubernetes object name.
 	// GetObservedComposedResources keys by composition resource name (crossplane.io/composition-resource-name annotation).
-	certResourceName := "argocd-agent-client-cert"
+	certResourceName := compositionResourceArgocdClientCert
 	observedComposed, err := request.GetObservedComposedResources(req)
 	if err != nil {
 		return resp, errors.Wrap(err, "cannot get observed composed resources")
@@ -134,7 +140,7 @@ func (f *Function) RunFunction(ctx context.Context, req *fnv1.RunFunctionRequest
 	// Set the desired composed resource using the correct API
 	// Key must match the composition pipeline step resource name (not the k8s object name).
 	desiredResources := map[resource.Name]*unstructured.Unstructured{
-		resource.Name("argocd-agent-cert-distribution"): certDistObject,
+		resource.Name(compositionResourceArgocdCertDist): certDistObject,
 	}
 
 	if err := response.SetDesiredResources(resp, desiredResources); err != nil {
