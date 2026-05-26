@@ -29,6 +29,14 @@ spec:
     ports:
     - protocol: TCP
       port: 4444
+  # Allow hub-operator to register OAuth clients via admin API
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: platform-ops
+    ports:
+    - protocol: TCP
+      port: 4445
   egress:
   # Allow to CNPG database (ports-only: Cilium evaluates NetworkPolicy BEFORE
   # service DNAT when bpf-lb-sock=false; ClusterIPs match no namespace/pod

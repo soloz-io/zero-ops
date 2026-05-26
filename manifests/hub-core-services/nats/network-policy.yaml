@@ -18,6 +18,9 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: platform-ops
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: platform-messaging
     ports:
     - protocol: TCP
       port: 4222

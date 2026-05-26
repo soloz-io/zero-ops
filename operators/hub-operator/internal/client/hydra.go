@@ -20,7 +20,7 @@ type HydraClient struct {
 // Requirement 7.2: Configure client for https://hydra-admin.platform-identity.svc
 func NewHydraClient(adminURL string) (*HydraClient, error) {
 	if adminURL == "" {
-		adminURL = "https://hydra-admin.platform-identity.svc"
+		adminURL = "http://ory-hydra-admin.platform-identity.svc:4445"
 	}
 
 	configuration := hydra.NewConfiguration()

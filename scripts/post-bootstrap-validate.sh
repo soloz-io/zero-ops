@@ -410,9 +410,9 @@ check_ory() {
     check_argocd_app "ory-keto" "FAIL"
 
     local ory_deployments=(
-        "platform-identity:kratos"
-        "platform-identity:hydra"
-        "platform-identity:keto"
+        "platform-identity:ory-kratos"
+        "platform-identity:ory-hydra"
+        "platform-identity:ory-keto"
     )
     for entry in "${ory_deployments[@]}"; do
         local ns="${entry%%:*}"
