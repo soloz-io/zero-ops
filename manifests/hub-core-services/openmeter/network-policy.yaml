@@ -5,7 +5,7 @@ metadata:
   name: openmeter-platform-netpol
   namespace: platform-billing
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchExpressions:
