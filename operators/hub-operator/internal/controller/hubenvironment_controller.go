@@ -108,58 +108,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Phase 0: Bootstrap Infisical (Day 0 initialization)
-	// Bootstrap is idempotent - it checks if infisical-auth secret exists
-	logger.Info("Phase 0: Bootstrapping Infisical")
-
-	// Check if Infisical is ready
-	infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
-	if err != nil {
-		logger.Error(err, "Failed to check Infisical readiness")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-	}
-	if !infisicalReady {
-		logger.Info("Waiting for Infisical to be ready")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-	// Bootstrap Infisical (creates admin user, project, machine identity)
-	// Returns (true, nil) if bootstrap was performed, (false, nil) if already bootstrapped
-	bootstrapClient := infisical.NewBootstrapClient(r.Client, r.UncachedClient)
-	bootstrapped, err := bootstrapClient.Bootstrap(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to bootstrap Infisical")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-	}
-
-	if bootstrapped {
-		logger.Info("Infisical bootstrapped successfully")
-	} else {
-		logger.Info("Infisical already bootstrapped, skipping")
-	}
-
-	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
-	// This runs regardless of whether bootstrap just occurred or was already done
-	// Makes Infisical the Source of Truth for all secrets
-	secretUploader := infisical.NewSecretUploader(r.Client, r.UncachedClient)
-	if err := secretUploader.UploadCLISecrets(ctx); err != nil {
-		logger.Error(err, "Failed to upload CLI secrets, continuing...")
-	} else {
-		logger.Info("CLI secrets uploaded to Infisical")
-	}
-
-	// Upload application secrets directly to Infisical (without creating K8s secrets)
-	// ESO will create K8s secrets by syncing from Infisical
-	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient)
-	if err := appSecretUploader.UploadApplicationSecrets(ctx); err != nil {
-		logger.Error(err, "Failed to upload application secrets, continuing...")
-	} else {
-		logger.Info("Application secrets uploaded to Infisical")
-	}
-
-	logger.Info("Phase 0 complete: Infisical ready")
-
 	// Phase 1: Generate Bootstrap Secrets Only
+	// MUST run before Phase 0 (Infisical bootstrap) because Infisical itself depends on
+	// secrets created here (infisical-db-credentials, infisical-postgres-connection).
+	// Without these secrets the setup-infisical-role job cannot create the DB role,
+	// Infisical pods crash with "no such user", and Phase 0 deadlocks forever.
+	//
 	// Bootstrap secrets are required for infrastructure to start (CNPG, Infisical)
 	// Application secrets are created by ESO from Infisical
 	// REQ-7: Always check if infisical-secrets exists, even if BootstrapSecretsGenerated=true
@@ -302,6 +256,59 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("Phase 1 complete: Bootstrap secrets generated", "awsBackup", awsClient != nil, "isFirstTime", isFirstTime)
 		return ctrl.Result{Requeue: true}, nil
 	}
+
+	// Phase 0: Bootstrap Infisical (Day 0 initialization)
+	// Runs after Phase 1 so that infisical-db-credentials and infisical-postgres-connection
+	// already exist. The setup-infisical-role job (ArgoCD wave 3) mounts these secrets to
+	// create the "infisical" PostgreSQL role. Only once that role exists can the Infisical
+	// pods start successfully and allow this phase to proceed.
+	logger.Info("Phase 0: Bootstrapping Infisical")
+
+	infisicalReady, err := r.isInfisicalReady(ctx, hubEnv)
+	if err != nil {
+		logger.Error(err, "Failed to check Infisical readiness")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	if !infisicalReady {
+		logger.Info("Waiting for Infisical to be ready")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Bootstrap Infisical (creates admin user, project, machine identity)
+	// Returns (true, nil) if bootstrap was performed, (false, nil) if already bootstrapped
+	bootstrapClient := infisical.NewBootstrapClient(r.Client, r.UncachedClient)
+	bootstrapped, err := bootstrapClient.Bootstrap(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to bootstrap Infisical")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	if bootstrapped {
+		logger.Info("Infisical bootstrapped successfully")
+	} else {
+		logger.Info("Infisical already bootstrapped, skipping")
+	}
+
+	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
+	// This runs regardless of whether bootstrap just occurred or was already done
+	// Makes Infisical the Source of Truth for all secrets
+	secretUploader := infisical.NewSecretUploader(r.Client, r.UncachedClient)
+	if err := secretUploader.UploadCLISecrets(ctx); err != nil {
+		logger.Error(err, "Failed to upload CLI secrets, continuing...")
+	} else {
+		logger.Info("CLI secrets uploaded to Infisical")
+	}
+
+	// Upload application secrets directly to Infisical (without creating K8s secrets)
+	// ESO will create K8s secrets by syncing from Infisical
+	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient)
+	if err := appSecretUploader.UploadApplicationSecrets(ctx); err != nil {
+		logger.Error(err, "Failed to upload application secrets, continuing...")
+	} else {
+		logger.Info("Application secrets uploaded to Infisical")
+	}
+
+	logger.Info("Phase 0 complete: Infisical bootstrapped")
 
 	// Phase 1b: Wait for ESO to create application secrets
 	// Application secrets are created by ESO from Infisical (creationPolicy: Owner)
