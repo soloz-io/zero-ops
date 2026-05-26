@@ -4,9 +4,10 @@ metadata:
   name: setup-infisical-role
   namespace: platform-data
   annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
     argocd.argoproj.io/sync-wave: "3"
 spec:
-  ttlSecondsAfterFinished: 300
   backoffLimit: 3
   template:
     spec:
