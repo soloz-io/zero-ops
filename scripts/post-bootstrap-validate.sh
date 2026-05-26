@@ -56,7 +56,11 @@ check_namespace_pods() {
         local count
         # shellcheck disable=SC2086
         count=$(kc get pods -n "$ns" $label_arg --no-headers 2>/dev/null | grep -c '' || echo 0)
-        log_pass "Namespace $ns: all $count pod(s) healthy"
+        if [[ "$count" -eq 0 ]]; then
+            log_warn "Namespace $ns: no pods found (nothing deployed yet?)"
+        else
+            log_pass "Namespace $ns: all $count pod(s) healthy"
+        fi
     else
         local crashloop_count
         crashloop_count=$(echo "$not_ready" | grep -c "CrashLoopBackOff" || true)
@@ -97,8 +101,11 @@ check_argocd_app() {
     local health
     health=$(kc get application "$app" -n platform-ops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
 
-    if [[ "$sync" == "Synced" && ( "$health" == "Healthy" || "$health" == "Progressing" ) ]]; then
+    if [[ "$sync" == "Synced" && "$health" == "Healthy" ]]; then
         log_pass "ArgoCD app $app: Sync=$sync Health=$health"
+    elif [[ "$sync" == "Synced" && "$health" == "Progressing" ]]; then
+        # Progressing is transitional — warn regardless of severity so it is visible
+        log_warn "ArgoCD app $app: Sync=$sync Health=$health (still converging)"
     else
         local out_of_sync_resources
         out_of_sync_resources=$(kc get application "$app" -n platform-ops \
@@ -272,7 +279,12 @@ check_databases() {
     log_section "6. DATABASES (CloudNative-PG)"
     # cnpg-system = upstream operator namespace (per ADR-015 Upstream Namespaces)
     # Operator health is checked here; database workloads live in platform-data
-    check_deployment "cnpg-system" "cloudnative-pg"
+    # Deployment name from cloudnative-pg Helm chart is cloudnative-pg.
+    # Fall back to legacy name cnpg-controller-manager if the primary is not found.
+    local cnpg_deploy
+    cnpg_deploy=$(kc get deployment -n cnpg-system --no-headers 2>/dev/null \
+        | awk '{print $1}' | grep -E '^(cloudnative-pg|cnpg-controller-manager)$' | head -1 || echo "cloudnative-pg")
+    check_deployment "cnpg-system" "$cnpg_deploy"
 
     # CNPG clusters (platform-data per ADR-015)
     local clusters
@@ -292,12 +304,15 @@ check_databases() {
     fi
 
     # Redis
-    local redis_ready
-    redis_ready=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c "Running" || echo "0")
-    if [[ "$redis_ready" -gt 0 ]]; then
-        log_pass "Redis (platform-data): Running"
+    local redis_total redis_running
+    redis_total=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c '' || echo "0")
+    redis_running=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+    if [[ "$redis_total" -gt 0 && "$redis_running" -eq "$redis_total" ]]; then
+        log_pass "Redis (platform-data): $redis_running/$redis_total Running"
+    elif [[ "$redis_running" -gt 0 ]]; then
+        log_warn "Redis (platform-data): $redis_running/$redis_total Running (partial)"
     else
-        log_warn "Redis (platform-data): not found or not running"
+        log_fail "Redis (platform-data): not found or not running"
     fi
 
     # All data-layer pods (postgres, pooler, redis)
@@ -322,12 +337,9 @@ check_clickhouse() {
     fi
 
     # ClickHouse service reachable
-    local ch_svc_list
-    ch_svc_list=$(kc get svc -n platform-data -l "clickhouse.altinity.com/chi=platform-clickhouse" \
-        --no-headers 2>/dev/null || true)
-    local ch_svc=0
-    [[ -n "$ch_svc_list" ]] && ch_svc=$(echo "$ch_svc_list" | grep -c '.' | tr -d '[:space:]' || echo "0")
-    ch_svc="${ch_svc//[^0-9]/}"
+    local ch_svc
+    ch_svc=$(kc get svc -n platform-data -l "clickhouse.altinity.com/chi=platform-clickhouse" \
+        --no-headers 2>/dev/null | grep -c '' || echo "0")
     if [[ "${ch_svc:-0}" -gt 0 ]]; then
         log_pass "ClickHouse services present ($ch_svc found)"
     else
@@ -376,7 +388,7 @@ check_openmeter() {
     if echo "$kafka_ready" | grep -qE '^[1-9][0-9]*/[1-9][0-9]*$'; then
         log_pass "OpenMeter Kafka: $kafka_ready ready"
     else
-        log_warn "OpenMeter Kafka: ready=$kafka_ready (may still be starting)"
+        log_fail "OpenMeter Kafka: ready=$kafka_ready (StatefulSet not ready)"
     fi
 
     # Recurring job errors (billing/subscription sync)
@@ -403,9 +415,9 @@ check_ory() {
     for entry in "${ory_deployments[@]}"; do
         local ns="${entry%%:*}"
         local name="${entry##*:}"
-        # Try both possible name patterns (app or component label)
+        # Use word-boundary anchored match: first column (name) starts with $name
         local found
-        found=$(kc get deployment -n "$ns" --no-headers 2>/dev/null | grep "$name" | awk '{print $1}' | head -1 || true)
+        found=$(kc get deployment -n "$ns" --no-headers 2>/dev/null | awk -v n="$name" '$1 ~ "^" n' | awk '{print $1}' | head -1 || true)
         if [[ -n "$found" ]]; then
             check_deployment "$ns" "$found"
         else
@@ -417,7 +429,7 @@ check_ory() {
 # ─── 10. NATS MESSAGING ───────────────────────────────────────────────────────
 check_nats() {
     log_section "10. NATS MESSAGING"
-    check_argocd_app "platform-nats" "WARN"
+    check_argocd_app "platform-nats" "FAIL"
 
     local nats_ready
     nats_ready=$(kc get pods -n platform-messaging --no-headers 2>/dev/null \
@@ -472,7 +484,7 @@ check_hub_operator() {
 # ─── 12. KUBE-SBT API ─────────────────────────────────────────────────────────
 check_kube_sbt_api() {
     log_section "12. KUBE-SBT API"
-    check_argocd_app "kube-sbt-api" "WARN"
+    check_argocd_app "kube-sbt-api" "FAIL"
     check_namespace_pods "platform-ops" "app=kube-sbt-api"
 
     local svc_ip
@@ -487,7 +499,7 @@ check_kube_sbt_api() {
 # ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
     log_section "13. INGRESS & CERT-MANAGER"
-    check_argocd_app "ingress-nginx" "WARN"
+    check_argocd_app "ingress-nginx" "FAIL"
     check_namespace_pods "cert-manager"
     check_deployment "cert-manager" "cert-manager"
     check_deployment "cert-manager" "cert-manager-webhook"
@@ -562,6 +574,7 @@ check_platform_argocd_apps() {
 
     # Critical — failure blocks operations
     local critical_apps=(
+        "platform-namespaces"
         "02-platform-data"
         "platform-external-secrets"
         "platform-crossplane"
@@ -591,7 +604,6 @@ check_platform_argocd_apps() {
         "ory-kratos"
         "ory-hydra"
         "ory-keto"
-        "kube-sbt-api"
         "platform-spire"
         "platform-infisical-prerequisites"
     )
