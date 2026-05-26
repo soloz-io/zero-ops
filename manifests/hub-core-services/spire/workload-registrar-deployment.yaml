@@ -1,113 +1,21 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spire-k8s-registrar
-  namespace: platform-security
-
+# Migrated from deprecated k8s-workload-registrar (removed in SPIRE 1.8+) to
+# spire-controller-manager v0.6.4 running as a sidecar in the SPIRE server
+# StatefulSet (server-statefulset.yaml). The controller-manager uses the
+# spire-server ServiceAccount with extended RBAC (server-serviceaccount.yaml).
+#
+# ADR-015: GitOps Declarative State - all SPIRE entry policy declared here as
+# ClusterSPIFFEID CRs; controller-manager reconciles them to SPIRE entries.
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
 metadata:
-  name: spire-k8s-registrar
-rules:
-- apiGroups: [""]
-  resources: ["pods", "nodes"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["endpoints"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["authentication.k8s.io"]
-  resources: ["tokenreviews"]
-  verbs: ["create"]
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: spire-k8s-registrar
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: spire-k8s-registrar
-subjects:
-- kind: ServiceAccount
-  name: spire-k8s-registrar
-  namespace: platform-security
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spire-k8s-registrar
-  namespace: platform-security
+  name: zero-ops-default
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
-data:
-  k8s-workload-registrar.conf: |
-    log_level = "info"
-    trust_domain = "zero-ops.nutgraf.in"
-    server_socket_path = "/run/spire/sockets/server.sock"
-    cluster = "zero-ops-hub"
-    
-    mode = "reconcile"
-    
-    pod_label = "spiffe.io/spiffe-id"
-    pod_annotation = "spiffe.io/spiffe-id"
-    
-    # Identity template for dynamic SPIFFE IDs
-    identity_template = "spiffe://zero-ops.nutgraf.in/ns/{{.Pod.Namespace}}/sa/{{.Pod.ServiceAccount}}"
-    identity_template_label = "spiffe.io/spiffe-id-template"
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: spire-k8s-registrar
-  namespace: platform-security
-  labels:
-    app: spire-k8s-registrar
-  annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-wave: "8"
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: spire-k8s-registrar
-  template:
-    metadata:
-      labels:
-        app: spire-k8s-registrar
-    spec:
-      serviceAccountName: spire-k8s-registrar
-      initContainers:
-      - name: wait-for-spire-server
-        image: busybox:1.36
-        command:
-        - /bin/sh
-        - -c
-        - |
-          until wget --spider -q http://spire-server.platform-security.svc.cluster.local:8080/ready; do
-            echo "Waiting for SPIRE Server..."
-            sleep 2
-          done
-      containers:
-      - name: spire-k8s-registrar
-        image: ghcr.io/spiffe/k8s-workload-registrar:1.9.0
-        args:
-        - -config
-        - /run/spire/config/k8s-workload-registrar.conf
-        volumeMounts:
-        - name: spire-config
-          mountPath: /run/spire/config
-          readOnly: true
-        - name: spire-server-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-      volumes:
-      - name: spire-config
-        configMap:
-          name: spire-k8s-registrar
-      - name: spire-server-socket
-        hostPath:
-          path: /run/spire/sockets
-          type: Directory
+  # Issue SVID to every pod based on its namespace and service account.
+  # This is the default identity for all Zero-Ops workloads.
+  spiffeIDTemplate: "spiffe://zero-ops.nutgraf.in/ns/{{.PodMeta.Namespace}}/sa/{{.PodSpec.ServiceAccountName}}"
+  podSelector: {}
+  namespaceSelector: {}
+

@@ -56,6 +56,32 @@ data:
     }
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-controller-manager-config
+  namespace: platform-security
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    health:
+      healthProbeBindAddress: :8083
+    metrics:
+      bindAddress: 127.0.0.1:8082
+    leaderElection:
+      leaderElect: false
+      resourceName: 98c9c988.spiffe.io
+    clusterName: zero-ops-hub
+    trustDomain: zero-ops.nutgraf.in
+    spireServerSocketPath: /spire-server/api.sock
+    ignoreNamespaces:
+      - kube-system
+      - kube-public
+      - spire-system
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -96,6 +122,8 @@ spec:
           readOnly: true
         - name: spire-data
           mountPath: /run/spire/data
+        - name: spire-api-socket
+          mountPath: /spire-server
         livenessProbe:
           httpGet:
             path: /live
@@ -116,10 +144,48 @@ spec:
           periodSeconds: 10
           failureThreshold: 30
           timeoutSeconds: 5
+      - name: spire-controller-manager
+        image: ghcr.io/spiffe/spire-controller-manager:0.6.4
+        args:
+        - --config=/run/spire-controller-manager/config/config.yaml
+        env:
+        - name: ENABLE_WEBHOOKS
+          value: "false"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8083
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        volumeMounts:
+        - name: spire-api-socket
+          mountPath: /spire-server
+          readOnly: true
+        - name: spire-controller-manager-config
+          mountPath: /run/spire-controller-manager/config
+          readOnly: true
       volumes:
       - name: spire-config
         secret:
           secretName: spire-server-db-credentials
+      - name: spire-api-socket
+        emptyDir: {}
+      - name: spire-controller-manager-config
+        configMap:
+          name: spire-controller-manager-config
   volumeClaimTemplates:
   - metadata:
       name: spire-data
