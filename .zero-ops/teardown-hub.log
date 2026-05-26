@@ -3,17 +3,29 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
-[teardown] Deleting server: hub-kprqd-nwjfd (ID: 132531861)
-[teardown] ✓ Deleted server: hub-kprqd-nwjfd
-[teardown] Deleting server: hub-md-0-r86k6-hgwvr-mdcd6 (ID: 132532085)
-[teardown] ✓ Deleted server: hub-md-0-r86k6-hgwvr-mdcd6
-[teardown] Deleting server: hub-md-0-r86k6-hgwvr-4r6kb (ID: 132532106)
-[teardown] ✓ Deleted server: hub-md-0-r86k6-hgwvr-4r6kb
-[teardown] Deleting load balancer: hub-jftjl-kube-apiserver-lvrct (ID: 6393953)
-[teardown] ✓ Deleted load balancer: hub-jftjl-kube-apiserver-lvrct
-[teardown] Deleting network: hub-jftjl (ID: 12252787)
-[teardown] ✓ Deleted network: hub-jftjl
+[teardown] Deleting server: hub-rxphr-wtx74 (ID: 132838698)
+[teardown] ✓ Deleted server: hub-rxphr-wtx74
+[teardown] Deleting server: hub-md-0-shg44-w72s9-vrpvz (ID: 132839039)
+[teardown] ✓ Deleted server: hub-md-0-shg44-w72s9-vrpvz
+[teardown] Deleting server: hub-md-0-shg44-w72s9-h46hq (ID: 132839041)
+[teardown] ✓ Deleted server: hub-md-0-shg44-w72s9-h46hq
+[teardown] Deleting load balancer: hub-sm8kc-kube-apiserver-7wrvb (ID: 6410895)
+[teardown] ✓ Deleted load balancer: hub-sm8kc-kube-apiserver-7wrvb
+[teardown] Deleting load balancer: a7e0f10a6e19945dcaec3c0f241b32a4 (ID: 6412199)
+[teardown] ✓ Deleted load balancer: a7e0f10a6e19945dcaec3c0f241b32a4
+[teardown] Deleting network: hub-sm8kc (ID: 12256710)
+[teardown] ✓ Deleted network: hub-sm8kc
 [teardown] Deleting associated volumes...
+[teardown] Deleting volume: pvc-4fc16c1a-50c7-4643-a74c-b54080767b69 (ID: 105810012, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-4fc16c1a-50c7-4643-a74c-b54080767b69
+[teardown] Deleting volume: pvc-54f5dfc2-68ec-4e4d-9579-30ba283a9ade (ID: 105810030, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-54f5dfc2-68ec-4e4d-9579-30ba283a9ade
+[teardown] Deleting volume: pvc-aadccd45-76b8-479e-a7a7-dfab4f0bd07b (ID: 105810013, Size: 50 GB)
+[teardown] ✓ Deleted volume: pvc-aadccd45-76b8-479e-a7a7-dfab4f0bd07b
+[teardown] Deleting volume: pvc-baa138e3-4d37-4abd-bf89-eb1cdf7c355b (ID: 105810020, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-baa138e3-4d37-4abd-bf89-eb1cdf7c355b
+[teardown] Deleting volume: pvc-c765dd5c-bc67-40ec-94f0-b4eefeae6681 (ID: 105810025, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-c765dd5c-bc67-40ec-94f0-b4eefeae6681
 [teardown] ✓ Force deletion complete
 
 [teardown] Cleaning up local files...

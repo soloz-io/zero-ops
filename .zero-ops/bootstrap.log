@@ -2185,3 +2185,953 @@
 [2026-05-24 00:31:58] 🔐 Certificate distribution: Complete
 [2026-05-24 00:31:58] 🏗️  Spoke cluster: Ready for tenant database provisioning
 [2026-05-24 00:31:58] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-24 09:46:28] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 09:46:28] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 09:46:28] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 09:46:28] Checking prerequisites...
+[2026-05-24 09:46:29]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 09:46:29]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 09:46:29]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 09:46:30]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 09:46:30]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 09:46:30]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 09:46:31]   ✓ hub binary found
+[2026-05-24 09:46:31]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 09:46:31]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 09:46:36]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 09:46:36] Prerequisites check passed
+[2026-05-24 09:46:36] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 09:46:37] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 09:47:06] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 09:47:07] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 09:47:07] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 09:47:07] Checking prerequisites...
+[2026-05-24 09:47:07]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 09:47:07]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 09:47:08]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 09:47:08]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 09:47:08]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 09:47:08]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 09:47:09]   ✓ hub binary found
+[2026-05-24 09:47:09]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 09:47:09]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 09:47:12]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 09:47:12] Prerequisites check passed
+[2026-05-24 09:47:13] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 09:47:13] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 10:03:19] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-24 10:03:19] Hub cluster bootstrap completed
+[2026-05-24 10:03:50] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-24 10:03:50] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-24 10:03:55] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-24 10:03:59] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-24 10:03:59] Attempting to use existing access keys...
+[2026-05-24 10:04:01] Existing keys may be invalid, attempting to recreate...
+[2026-05-24 10:04:01] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-24 10:04:10] All existing access keys deleted
+[2026-05-24 10:04:10] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-24 10:04:13] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-24 10:04:13] AWS Secrets Manager configuration completed
+[2026-05-24 10:04:29] Step 3: Configuring GitHub Access...
+[2026-05-24 10:04:29] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-24 10:04:30] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-24 10:04:31] GitHub access configuration completed
+[2026-05-24 10:04:46] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-24 10:09:09] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-24 10:09:11] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-24 10:09:11] ✅ platform-data namespace created by ArgoCD
+[2026-05-24 10:09:21] Step 5: Initializing bootstrap secrets...
+[2026-05-24 10:09:21] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-24 11:23:12] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 11:23:12] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 11:23:12] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 11:23:12] Checking prerequisites...
+[2026-05-24 11:23:12]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 11:23:13]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 11:23:13]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 11:23:13]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 11:23:13]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 11:23:14]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 11:23:14]   ✓ hub binary found
+[2026-05-24 11:23:15]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 11:23:15]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 11:23:18]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 11:23:18] Prerequisites check passed
+[2026-05-24 11:23:18] Step 1: Hub bootstrap already completed, skipping
+[2026-05-24 11:23:49] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-24 11:24:04] Step 3: GitHub access already configured, skipping
+[2026-05-24 11:24:20] Step 4: Namespaces already created, skipping
+[2026-05-24 11:24:30] Step 5: Initializing bootstrap secrets...
+[2026-05-24 11:24:30] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-24 11:24:35] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-24 11:24:36] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-24 11:24:47] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-24 11:24:59] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-24 11:25:10] Infisical pod is ready
+[2026-05-24 11:25:10] Starting port-forward for Infisical...
+[2026-05-24 11:25:16] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-24 11:25:16] Bootstrap secrets initialization completed
+[2026-05-24 11:25:31] Step 6: Waiting for Infisical to be ready...
+[2026-05-24 11:25:31] Checking Infisical pods status...
+[2026-05-24 11:25:32] Infisical is ready
+[2026-05-24 11:25:33] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-24 11:25:33] Infisical pods are running
+[2026-05-24 11:25:43] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-24 11:25:44] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-24 11:25:44] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-24 11:25:50] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-24 11:25:50] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-24 11:25:52] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-24 11:25:52] Database deployment completed
+[2026-05-24 11:26:02] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 11:26:02] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 11:26:03] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 11:26:05] Waiting for SpokePool readiness (attempt 1/180, Ready: True, Synced: )
+[2026-05-24 11:26:16] ✅ SpokePool is Ready and Synced
+[2026-05-24 11:26:16] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-24 11:26:19] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 11:26:19] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-24 11:26:20] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-24 11:26:20] Step 10c: Checking certificate distribution resources...
+[2026-05-24 11:26:21] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 11:26:22] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-24 11:26:22] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 11:26:24] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-24 11:26:24] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 11:26:25] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-24 11:26:26] Step 10d: Verifying certificates in target namespaces...
+[2026-05-24 11:26:26] ✅ Namespace exists: platform-observability
+[2026-05-24 11:26:27] ✅ Namespace exists: platform-messaging
+[2026-05-24 11:26:28] ✅ Namespace exists: platform-ops
+[2026-05-24 11:26:28] Step 10e: Verifying worker nodes are Ready...
+[2026-05-24 11:26:29] Worker nodes: 3/3 Ready
+[2026-05-24 11:26:30] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-24 11:26:30] ✅ SpokePool readiness validation completed successfully
+[2026-05-24 11:26:30] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-24 11:26:31] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-24 11:26:31] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-24 11:26:31] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-24 11:26:31] 🎯 Hub cluster: Ready and operational
+[2026-05-24 11:26:31] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-24 11:26:31] 🔐 Certificate distribution: Complete
+[2026-05-24 11:26:31] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-24 11:26:32] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-24 17:43:33] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 17:43:33] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 17:43:33] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 17:43:34] Checking prerequisites...
+[2026-05-24 17:43:34]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 17:43:34]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 17:43:34]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 17:43:34]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 17:43:35]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 17:43:35]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 17:43:35]   ✓ hub binary found
+[2026-05-24 17:43:35]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 17:43:35]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 17:43:39]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 17:43:39] Prerequisites check passed
+[2026-05-24 17:43:39] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 17:43:40] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 18:53:17] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 18:53:17] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 18:53:17] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 18:53:18] Checking prerequisites...
+[2026-05-24 18:53:18]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 18:53:18]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 18:53:18]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 18:53:19]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 18:53:19]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 18:53:19]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 18:53:19]   ✓ hub binary found
+[2026-05-24 18:53:19]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 18:53:19]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 18:53:23]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 18:53:23] Prerequisites check passed
+[2026-05-24 18:53:25] Step 1: Hub cluster already exists and is accessible, marking as completed
+[2026-05-24 18:53:26] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-24 18:53:56] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-24 18:53:56] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-24 18:54:01] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-24 18:54:06] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-24 18:54:06] Attempting to use existing access keys...
+[2026-05-24 18:54:12] Existing keys may be invalid, attempting to recreate...
+[2026-05-24 18:54:13] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-24 18:54:21] All existing access keys deleted
+[2026-05-24 18:54:21] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-24 18:54:24] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-24 18:54:24] AWS Secrets Manager configuration completed
+[2026-05-24 18:54:40] Step 3: Configuring GitHub Access...
+[2026-05-24 18:54:40] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-24 18:54:42] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-24 18:54:42] GitHub access configuration completed
+[2026-05-24 18:54:57] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-24 19:00:40] ❌ Timeout waiting for platform-data namespace to be created by ArgoCD
+[2026-05-24 19:00:40] ERROR: ArgoCD failed to create platform-data namespace within 300s
+[2026-05-24 19:21:42] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 19:21:42] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 19:21:43] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 19:21:43] Checking prerequisites...
+[2026-05-24 19:21:43]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 19:21:43]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 19:21:43]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 19:21:44]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 19:21:44]   'clusterctl' not found — attempting auto-install...
+[2026-05-24 19:21:44]   Auto-installing clusterctl...
+[2026-05-24 19:22:24] ERROR: 'clusterctl' could not be auto-installed
+[2026-05-24 19:22:24]   Install (Windows): curl -Lo clusterctl.exe https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.6/clusterctl-windows-amd64.exe
+[2026-05-24 19:22:24]   Then add to PATH
+[2026-05-24 19:22:24]   Docs: https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl
+[2026-05-24 19:22:24]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 19:22:25]   ✓ hub binary found
+[2026-05-24 19:22:25]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 19:22:25]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 19:22:28]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 19:22:28] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-24 19:22:48] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 19:22:48] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 19:22:49] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 19:22:49] Checking prerequisites...
+[2026-05-24 19:22:49]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 19:22:49]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 19:22:49]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 19:22:50]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 19:22:50]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/clusterctl
+[2026-05-24 19:22:50]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 19:22:50]   ✓ hub binary found
+[2026-05-24 19:22:50]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 19:22:50]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 19:22:53]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 19:22:53] Prerequisites check passed
+[2026-05-24 19:22:54] Step 1: Bash state says done but Go bootstrap postboot not found — re-running hub bootstrap to resume
+[2026-05-24 19:22:54] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 19:22:54] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 19:30:20] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 19:30:20] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 19:30:20] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 19:30:20] Checking prerequisites...
+[2026-05-24 19:30:20]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 19:30:21]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 19:30:21]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 19:30:21]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 19:30:22]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 19:30:22]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 19:30:22]   ✓ hub binary found
+[2026-05-24 19:30:22]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 19:30:22]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 19:30:26]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 19:30:26] Prerequisites check passed
+[2026-05-24 19:30:27] Step 1: Bash state says done but Go bootstrap postboot not found — re-running hub bootstrap to resume
+[2026-05-24 19:30:27] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 19:30:27] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 19:35:38] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-24 19:35:39] Hub cluster bootstrap completed
+[2026-05-24 19:36:09] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-24 19:36:25] Step 3: GitHub access already configured, skipping
+[2026-05-24 19:36:40] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-24 19:36:41] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-24 19:36:42] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-24 19:36:42] ✅ platform-data namespace created by ArgoCD
+[2026-05-24 19:36:53] Step 5: Initializing bootstrap secrets...
+[2026-05-24 19:36:53] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-24 20:43:27] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 20:43:27] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 20:43:27] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 20:43:27] Checking prerequisites...
+[2026-05-24 20:43:28]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 20:43:28]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 20:43:28]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 20:43:28]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 20:43:29]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 20:43:29]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 20:43:30]   ✓ hub binary found
+[2026-05-24 20:43:30]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 20:43:30]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 20:43:34]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 20:43:34] Prerequisites check passed
+[2026-05-24 20:43:35] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-05-24 20:43:45] Script interrupted
+[2026-05-24 20:45:05] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-24 20:45:05] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-24 20:45:05] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-24 20:45:06] Checking prerequisites...
+[2026-05-24 20:45:06]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-24 20:45:06]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-24 20:45:06]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-24 20:45:07]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-24 20:45:07]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-24 20:45:07]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-24 20:45:07]   ✓ hub binary found
+[2026-05-24 20:45:07]   ✓ k8-secrets/hetzner/token found
+[2026-05-24 20:45:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-24 20:45:10]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-24 20:45:10] Prerequisites check passed
+[2026-05-24 20:45:10] Step 1: Bootstrapping Hub Cluster...
+[2026-05-24 20:45:11] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-24 20:58:41] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-24 20:58:41] Hub cluster bootstrap completed
+[2026-05-24 20:59:12] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-24 20:59:12] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-24 20:59:18] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-24 20:59:22] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-24 20:59:22] Attempting to use existing access keys...
+[2026-05-24 20:59:25] Existing keys may be invalid, attempting to recreate...
+[2026-05-24 20:59:25] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-24 20:59:34] All existing access keys deleted
+[2026-05-24 20:59:34] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-24 20:59:37] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-24 20:59:37] AWS Secrets Manager configuration completed
+[2026-05-24 20:59:52] Step 3: Configuring GitHub Access...
+[2026-05-24 20:59:53] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-24 20:59:54] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-24 20:59:54] GitHub access configuration completed
+[2026-05-24 21:00:10] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-24 21:04:28] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-24 21:04:29] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-24 21:04:29] ✅ platform-data namespace created by ArgoCD
+[2026-05-24 21:04:40] Step 5: Initializing bootstrap secrets...
+[2026-05-24 21:04:40] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-24 21:09:43] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-24 21:09:44] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-24 21:09:55] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-24 21:10:06] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-24 21:10:16] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-24 21:10:27] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-24 21:10:38] Infisical pod is ready
+[2026-05-24 21:10:38] Starting port-forward for Infisical...
+[2026-05-24 21:10:44] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-24 21:10:44] Bootstrap secrets initialization completed
+[2026-05-24 21:11:00] Step 6: Waiting for Infisical to be ready...
+[2026-05-24 21:11:00] Checking Infisical pods status...
+[2026-05-24 21:11:01] Infisical is ready
+[2026-05-24 21:11:02] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-24 21:11:02] Infisical pods are running
+[2026-05-24 21:11:12] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-24 21:11:12] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-24 21:11:13] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-24 21:11:18] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-24 21:11:18] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-24 21:11:20] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-24 21:11:20] Database deployment completed
+[2026-05-24 21:11:30] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-24 21:11:31] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-24 21:11:31] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-24 21:11:32] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: True)
+[2026-05-24 21:11:44] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: True)
+[2026-05-24 21:11:56] Waiting for SpokePool readiness (attempt 3/180, Ready: False, Synced: True)
+[2026-05-24 21:12:07] Waiting for SpokePool readiness (attempt 4/180, Ready: False, Synced: True)
+[2026-05-24 21:12:19] Waiting for SpokePool readiness (attempt 5/180, Ready: False, Synced: True)
+[2026-05-24 21:12:30] Waiting for SpokePool readiness (attempt 6/180, Ready: False, Synced: True)
+[2026-05-24 21:12:42] Waiting for SpokePool readiness (attempt 7/180, Ready: False, Synced: True)
+[2026-05-24 21:12:54] Waiting for SpokePool readiness (attempt 8/180, Ready: False, Synced: True)
+[2026-05-24 21:13:05] Waiting for SpokePool readiness (attempt 9/180, Ready: False, Synced: True)
+[2026-05-24 21:13:17] Waiting for SpokePool readiness (attempt 10/180, Ready: False, Synced: True)
+[2026-05-24 21:13:28] Waiting for SpokePool readiness (attempt 11/180, Ready: False, Synced: True)
+[2026-05-24 21:13:40] Waiting for SpokePool readiness (attempt 12/180, Ready: False, Synced: True)
+[2026-05-24 21:13:52] Waiting for SpokePool readiness (attempt 13/180, Ready: False, Synced: True)
+[2026-05-24 21:14:03] Waiting for SpokePool readiness (attempt 14/180, Ready: False, Synced: True)
+[2026-05-24 21:14:15] Waiting for SpokePool readiness (attempt 15/180, Ready: False, Synced: True)
+[2026-05-24 21:14:27] Waiting for SpokePool readiness (attempt 16/180, Ready: False, Synced: True)
+[2026-05-24 21:14:38] Waiting for SpokePool readiness (attempt 17/180, Ready: False, Synced: True)
+[2026-05-24 21:14:50] Waiting for SpokePool readiness (attempt 18/180, Ready: False, Synced: True)
+[2026-05-24 21:15:02] Waiting for SpokePool readiness (attempt 19/180, Ready: False, Synced: True)
+[2026-05-24 21:15:13] Waiting for SpokePool readiness (attempt 20/180, Ready: False, Synced: True)
+[2026-05-24 21:15:25] Waiting for SpokePool readiness (attempt 21/180, Ready: False, Synced: True)
+[2026-05-24 21:15:37] Waiting for SpokePool readiness (attempt 22/180, Ready: False, Synced: True)
+[2026-05-24 21:15:48] Waiting for SpokePool readiness (attempt 23/180, Ready: False, Synced: True)
+[2026-05-24 21:16:00] Waiting for SpokePool readiness (attempt 24/180, Ready: False, Synced: True)
+[2026-05-24 21:16:12] Waiting for SpokePool readiness (attempt 25/180, Ready: False, Synced: True)
+[2026-05-24 21:16:24] Waiting for SpokePool readiness (attempt 26/180, Ready: False, Synced: True)
+[2026-05-24 21:16:35] Waiting for SpokePool readiness (attempt 27/180, Ready: False, Synced: True)
+[2026-05-24 21:16:47] Waiting for SpokePool readiness (attempt 28/180, Ready: False, Synced: True)
+[2026-05-24 21:16:59] Waiting for SpokePool readiness (attempt 29/180, Ready: False, Synced: True)
+[2026-05-24 21:17:11] Waiting for SpokePool readiness (attempt 30/180, Ready: False, Synced: True)
+[2026-05-24 21:17:23] Waiting for SpokePool readiness (attempt 31/180, Ready: False, Synced: True)
+[2026-05-24 21:17:35] Waiting for SpokePool readiness (attempt 32/180, Ready: False, Synced: True)
+[2026-05-24 21:17:47] Waiting for SpokePool readiness (attempt 33/180, Ready: False, Synced: True)
+[2026-05-24 21:17:58] Waiting for SpokePool readiness (attempt 34/180, Ready: False, Synced: True)
+[2026-05-24 21:18:10] Waiting for SpokePool readiness (attempt 35/180, Ready: False, Synced: True)
+[2026-05-24 21:18:22] Waiting for SpokePool readiness (attempt 36/180, Ready: False, Synced: True)
+[2026-05-24 21:18:34] Waiting for SpokePool readiness (attempt 37/180, Ready: False, Synced: True)
+[2026-05-24 21:18:45] Waiting for SpokePool readiness (attempt 38/180, Ready: False, Synced: True)
+[2026-05-24 21:18:57] Waiting for SpokePool readiness (attempt 39/180, Ready: False, Synced: True)
+[2026-05-24 21:19:08] Waiting for SpokePool readiness (attempt 40/180, Ready: False, Synced: True)
+[2026-05-24 21:19:20] Waiting for SpokePool readiness (attempt 41/180, Ready: False, Synced: True)
+[2026-05-24 21:19:32] Waiting for SpokePool readiness (attempt 42/180, Ready: False, Synced: True)
+[2026-05-24 21:19:43] Waiting for SpokePool readiness (attempt 43/180, Ready: False, Synced: True)
+[2026-05-24 21:19:55] Waiting for SpokePool readiness (attempt 44/180, Ready: False, Synced: True)
+[2026-05-24 21:20:07] Waiting for SpokePool readiness (attempt 45/180, Ready: False, Synced: True)
+[2026-05-24 21:20:18] Waiting for SpokePool readiness (attempt 46/180, Ready: False, Synced: True)
+[2026-05-24 21:20:30] Waiting for SpokePool readiness (attempt 47/180, Ready: False, Synced: True)
+[2026-05-24 21:20:42] Waiting for SpokePool readiness (attempt 48/180, Ready: False, Synced: True)
+[2026-05-24 21:20:53] Waiting for SpokePool readiness (attempt 49/180, Ready: False, Synced: True)
+[2026-05-24 21:21:05] Waiting for SpokePool readiness (attempt 50/180, Ready: False, Synced: True)
+[2026-05-24 21:21:17] Waiting for SpokePool readiness (attempt 51/180, Ready: False, Synced: True)
+[2026-05-24 21:21:28] Waiting for SpokePool readiness (attempt 52/180, Ready: False, Synced: True)
+[2026-05-24 21:21:40] Waiting for SpokePool readiness (attempt 53/180, Ready: False, Synced: True)
+[2026-05-24 21:21:51] Waiting for SpokePool readiness (attempt 54/180, Ready: False, Synced: True)
+[2026-05-24 21:22:03] Waiting for SpokePool readiness (attempt 55/180, Ready: False, Synced: True)
+[2026-05-24 21:22:15] Waiting for SpokePool readiness (attempt 56/180, Ready: False, Synced: True)
+[2026-05-24 21:22:26] Waiting for SpokePool readiness (attempt 57/180, Ready: False, Synced: True)
+[2026-05-24 21:22:38] Waiting for SpokePool readiness (attempt 58/180, Ready: False, Synced: True)
+[2026-05-24 21:22:50] Waiting for SpokePool readiness (attempt 59/180, Ready: False, Synced: True)
+[2026-05-24 21:23:02] Waiting for SpokePool readiness (attempt 60/180, Ready: False, Synced: True)
+[2026-05-24 21:23:13] Waiting for SpokePool readiness (attempt 61/180, Ready: False, Synced: True)
+[2026-05-24 21:23:25] Waiting for SpokePool readiness (attempt 62/180, Ready: False, Synced: True)
+[2026-05-24 21:23:37] Waiting for SpokePool readiness (attempt 63/180, Ready: False, Synced: True)
+[2026-05-24 21:23:48] Waiting for SpokePool readiness (attempt 64/180, Ready: False, Synced: True)
+[2026-05-24 21:24:00] Waiting for SpokePool readiness (attempt 65/180, Ready: False, Synced: True)
+[2026-05-24 21:24:11] Waiting for SpokePool readiness (attempt 66/180, Ready: False, Synced: True)
+[2026-05-24 21:24:23] Waiting for SpokePool readiness (attempt 67/180, Ready: False, Synced: True)
+[2026-05-24 21:24:35] Waiting for SpokePool readiness (attempt 68/180, Ready: False, Synced: True)
+[2026-05-24 21:24:46] Waiting for SpokePool readiness (attempt 69/180, Ready: False, Synced: True)
+[2026-05-24 21:24:58] Waiting for SpokePool readiness (attempt 70/180, Ready: False, Synced: True)
+[2026-05-24 21:25:10] Waiting for SpokePool readiness (attempt 71/180, Ready: False, Synced: True)
+[2026-05-24 21:25:21] Waiting for SpokePool readiness (attempt 72/180, Ready: False, Synced: True)
+[2026-05-24 21:25:33] Waiting for SpokePool readiness (attempt 73/180, Ready: False, Synced: True)
+[2026-05-24 21:25:45] Waiting for SpokePool readiness (attempt 74/180, Ready: False, Synced: True)
+[2026-05-24 21:25:56] Waiting for SpokePool readiness (attempt 75/180, Ready: False, Synced: True)
+[2026-05-24 21:26:08] Waiting for SpokePool readiness (attempt 76/180, Ready: False, Synced: True)
+[2026-05-24 21:26:20] Waiting for SpokePool readiness (attempt 77/180, Ready: False, Synced: True)
+[2026-05-24 21:26:31] Waiting for SpokePool readiness (attempt 78/180, Ready: False, Synced: True)
+[2026-05-24 21:26:43] Waiting for SpokePool readiness (attempt 79/180, Ready: False, Synced: True)
+[2026-05-24 21:26:54] Waiting for SpokePool readiness (attempt 80/180, Ready: False, Synced: True)
+[2026-05-24 21:27:06] Waiting for SpokePool readiness (attempt 81/180, Ready: False, Synced: True)
+[2026-05-24 21:27:18] Waiting for SpokePool readiness (attempt 82/180, Ready: False, Synced: True)
+[2026-05-24 21:27:29] Waiting for SpokePool readiness (attempt 83/180, Ready: False, Synced: True)
+[2026-05-24 21:27:41] Waiting for SpokePool readiness (attempt 84/180, Ready: False, Synced: True)
+[2026-05-24 21:27:53] Waiting for SpokePool readiness (attempt 85/180, Ready: False, Synced: True)
+[2026-05-24 21:28:04] Waiting for SpokePool readiness (attempt 86/180, Ready: False, Synced: True)
+[2026-05-24 21:28:16] Waiting for SpokePool readiness (attempt 87/180, Ready: False, Synced: True)
+[2026-05-24 21:28:28] Waiting for SpokePool readiness (attempt 88/180, Ready: False, Synced: True)
+[2026-05-24 21:28:39] Waiting for SpokePool readiness (attempt 89/180, Ready: False, Synced: True)
+[2026-05-24 21:28:51] Waiting for SpokePool readiness (attempt 90/180, Ready: False, Synced: True)
+[2026-05-24 21:29:03] Waiting for SpokePool readiness (attempt 91/180, Ready: False, Synced: True)
+[2026-05-24 21:29:14] Waiting for SpokePool readiness (attempt 92/180, Ready: False, Synced: True)
+[2026-05-24 21:29:26] Waiting for SpokePool readiness (attempt 93/180, Ready: False, Synced: True)
+[2026-05-24 21:29:38] Waiting for SpokePool readiness (attempt 94/180, Ready: False, Synced: True)
+[2026-05-24 21:29:49] Waiting for SpokePool readiness (attempt 95/180, Ready: False, Synced: True)
+[2026-05-24 21:30:01] Waiting for SpokePool readiness (attempt 96/180, Ready: False, Synced: True)
+[2026-05-24 21:30:13] Waiting for SpokePool readiness (attempt 97/180, Ready: False, Synced: True)
+[2026-05-24 21:30:24] Waiting for SpokePool readiness (attempt 98/180, Ready: False, Synced: True)
+[2026-05-24 21:30:36] Waiting for SpokePool readiness (attempt 99/180, Ready: False, Synced: True)
+[2026-05-24 21:30:48] Waiting for SpokePool readiness (attempt 100/180, Ready: False, Synced: True)
+[2026-05-24 21:31:00] Waiting for SpokePool readiness (attempt 101/180, Ready: False, Synced: True)
+[2026-05-24 21:31:12] Waiting for SpokePool readiness (attempt 102/180, Ready: False, Synced: True)
+[2026-05-24 21:31:24] Waiting for SpokePool readiness (attempt 103/180, Ready: False, Synced: True)
+[2026-05-24 21:31:36] Waiting for SpokePool readiness (attempt 104/180, Ready: False, Synced: True)
+[2026-05-24 21:31:48] Waiting for SpokePool readiness (attempt 105/180, Ready: False, Synced: True)
+[2026-05-24 21:31:59] Waiting for SpokePool readiness (attempt 106/180, Ready: False, Synced: True)
+[2026-05-24 21:32:11] Waiting for SpokePool readiness (attempt 107/180, Ready: False, Synced: True)
+[2026-05-24 21:32:23] Waiting for SpokePool readiness (attempt 108/180, Ready: False, Synced: True)
+[2026-05-24 21:32:35] Waiting for SpokePool readiness (attempt 109/180, Ready: False, Synced: True)
+[2026-05-24 21:32:47] Waiting for SpokePool readiness (attempt 110/180, Ready: False, Synced: True)
+[2026-05-24 21:32:58] Waiting for SpokePool readiness (attempt 111/180, Ready: False, Synced: True)
+[2026-05-24 21:33:10] Waiting for SpokePool readiness (attempt 112/180, Ready: False, Synced: True)
+[2026-05-24 21:33:21] Waiting for SpokePool readiness (attempt 113/180, Ready: False, Synced: True)
+[2026-05-24 21:33:33] Waiting for SpokePool readiness (attempt 114/180, Ready: False, Synced: True)
+[2026-05-24 21:33:45] Waiting for SpokePool readiness (attempt 115/180, Ready: False, Synced: True)
+[2026-05-24 21:33:57] Waiting for SpokePool readiness (attempt 116/180, Ready: False, Synced: True)
+[2026-05-24 21:34:08] Waiting for SpokePool readiness (attempt 117/180, Ready: False, Synced: True)
+[2026-05-24 21:34:20] Waiting for SpokePool readiness (attempt 118/180, Ready: False, Synced: True)
+[2026-05-24 21:34:32] Waiting for SpokePool readiness (attempt 119/180, Ready: False, Synced: True)
+[2026-05-24 21:34:43] Waiting for SpokePool readiness (attempt 120/180, Ready: False, Synced: True)
+[2026-05-24 21:34:55] Waiting for SpokePool readiness (attempt 121/180, Ready: False, Synced: True)
+[2026-05-24 21:35:07] Waiting for SpokePool readiness (attempt 122/180, Ready: False, Synced: True)
+[2026-05-24 21:35:18] Waiting for SpokePool readiness (attempt 123/180, Ready: False, Synced: True)
+[2026-05-24 21:35:30] Waiting for SpokePool readiness (attempt 124/180, Ready: False, Synced: True)
+[2026-05-24 21:35:42] Waiting for SpokePool readiness (attempt 125/180, Ready: False, Synced: True)
+[2026-05-24 21:35:53] Waiting for SpokePool readiness (attempt 126/180, Ready: False, Synced: True)
+[2026-05-24 21:36:05] Waiting for SpokePool readiness (attempt 127/180, Ready: False, Synced: True)
+[2026-05-24 21:36:17] Waiting for SpokePool readiness (attempt 128/180, Ready: False, Synced: True)
+[2026-05-24 21:36:29] Waiting for SpokePool readiness (attempt 129/180, Ready: False, Synced: True)
+[2026-05-24 21:36:40] Waiting for SpokePool readiness (attempt 130/180, Ready: False, Synced: True)
+[2026-05-24 21:36:52] Waiting for SpokePool readiness (attempt 131/180, Ready: False, Synced: True)
+[2026-05-24 21:37:04] Waiting for SpokePool readiness (attempt 132/180, Ready: False, Synced: True)
+[2026-05-24 21:37:15] Waiting for SpokePool readiness (attempt 133/180, Ready: False, Synced: True)
+[2026-05-24 21:37:27] Waiting for SpokePool readiness (attempt 134/180, Ready: False, Synced: True)
+[2026-05-24 21:37:39] Waiting for SpokePool readiness (attempt 135/180, Ready: False, Synced: True)
+[2026-05-24 21:37:50] Waiting for SpokePool readiness (attempt 136/180, Ready: False, Synced: True)
+[2026-05-24 21:38:02] Waiting for SpokePool readiness (attempt 137/180, Ready: False, Synced: True)
+[2026-05-24 21:38:14] Waiting for SpokePool readiness (attempt 138/180, Ready: False, Synced: True)
+[2026-05-24 21:38:25] Waiting for SpokePool readiness (attempt 139/180, Ready: False, Synced: True)
+[2026-05-24 21:38:37] Waiting for SpokePool readiness (attempt 140/180, Ready: False, Synced: True)
+[2026-05-24 21:38:48] Waiting for SpokePool readiness (attempt 141/180, Ready: False, Synced: True)
+[2026-05-24 21:39:00] Waiting for SpokePool readiness (attempt 142/180, Ready: False, Synced: True)
+[2026-05-24 21:39:12] Waiting for SpokePool readiness (attempt 143/180, Ready: False, Synced: True)
+[2026-05-24 21:39:23] Waiting for SpokePool readiness (attempt 144/180, Ready: False, Synced: True)
+[2026-05-24 21:39:35] Waiting for SpokePool readiness (attempt 145/180, Ready: False, Synced: True)
+[2026-05-24 21:39:47] Waiting for SpokePool readiness (attempt 146/180, Ready: False, Synced: True)
+[2026-05-24 21:39:59] Waiting for SpokePool readiness (attempt 147/180, Ready: False, Synced: True)
+[2026-05-24 21:40:10] Waiting for SpokePool readiness (attempt 148/180, Ready: False, Synced: True)
+[2026-05-24 21:40:22] Waiting for SpokePool readiness (attempt 149/180, Ready: False, Synced: True)
+[2026-05-24 21:40:34] Waiting for SpokePool readiness (attempt 150/180, Ready: False, Synced: True)
+[2026-05-24 21:40:46] Waiting for SpokePool readiness (attempt 151/180, Ready: False, Synced: True)
+[2026-05-24 21:40:57] Waiting for SpokePool readiness (attempt 152/180, Ready: False, Synced: True)
+[2026-05-24 21:41:09] Waiting for SpokePool readiness (attempt 153/180, Ready: False, Synced: True)
+[2026-05-24 21:41:21] Waiting for SpokePool readiness (attempt 154/180, Ready: False, Synced: True)
+[2026-05-24 21:41:33] Waiting for SpokePool readiness (attempt 155/180, Ready: False, Synced: True)
+[2026-05-24 21:41:44] Waiting for SpokePool readiness (attempt 156/180, Ready: False, Synced: True)
+[2026-05-24 21:41:56] Waiting for SpokePool readiness (attempt 157/180, Ready: False, Synced: True)
+[2026-05-24 21:42:08] Waiting for SpokePool readiness (attempt 158/180, Ready: False, Synced: True)
+[2026-05-24 21:42:20] Waiting for SpokePool readiness (attempt 159/180, Ready: False, Synced: True)
+[2026-05-24 21:42:31] Waiting for SpokePool readiness (attempt 160/180, Ready: False, Synced: True)
+[2026-05-24 21:42:43] Waiting for SpokePool readiness (attempt 161/180, Ready: False, Synced: True)
+[2026-05-24 21:42:55] Waiting for SpokePool readiness (attempt 162/180, Ready: False, Synced: True)
+[2026-05-24 21:43:07] Waiting for SpokePool readiness (attempt 163/180, Ready: False, Synced: True)
+[2026-05-24 21:43:18] Waiting for SpokePool readiness (attempt 164/180, Ready: False, Synced: True)
+[2026-05-24 21:43:30] Waiting for SpokePool readiness (attempt 165/180, Ready: False, Synced: True)
+[2026-05-24 21:43:42] Waiting for SpokePool readiness (attempt 166/180, Ready: False, Synced: True)
+[2026-05-24 21:43:53] Waiting for SpokePool readiness (attempt 167/180, Ready: False, Synced: True)
+[2026-05-24 21:44:05] Waiting for SpokePool readiness (attempt 168/180, Ready: False, Synced: True)
+[2026-05-24 21:44:17] Waiting for SpokePool readiness (attempt 169/180, Ready: False, Synced: True)
+[2026-05-24 21:44:29] Waiting for SpokePool readiness (attempt 170/180, Ready: False, Synced: True)
+[2026-05-24 21:44:41] Waiting for SpokePool readiness (attempt 171/180, Ready: False, Synced: True)
+[2026-05-24 21:44:52] Waiting for SpokePool readiness (attempt 172/180, Ready: False, Synced: True)
+[2026-05-24 21:45:04] Waiting for SpokePool readiness (attempt 173/180, Ready: False, Synced: True)
+[2026-05-24 21:45:16] Waiting for SpokePool readiness (attempt 174/180, Ready: False, Synced: True)
+[2026-05-24 21:45:28] Waiting for SpokePool readiness (attempt 175/180, Ready: False, Synced: True)
+[2026-05-24 21:45:40] Waiting for SpokePool readiness (attempt 176/180, Ready: False, Synced: True)
+[2026-05-24 21:45:51] Waiting for SpokePool readiness (attempt 177/180, Ready: False, Synced: True)
+[2026-05-24 21:46:03] Waiting for SpokePool readiness (attempt 178/180, Ready: False, Synced: True)
+[2026-05-24 21:46:15] Waiting for SpokePool readiness (attempt 179/180, Ready: False, Synced: True)
+[2026-05-24 21:46:26] Waiting for SpokePool readiness (attempt 180/180, Ready: False, Synced: True)
+[2026-05-24 21:46:37] ❌ SpokePool did not become ready within expected time
+[2026-05-24 21:46:37] Current status: Ready=False, Synced=True
+[2026-05-24 21:46:37] ERROR: SpokePool readiness timeout
+[2026-05-25 12:13:08] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 12:13:08] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 12:13:08] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 12:13:08] Checking prerequisites...
+[2026-05-25 12:13:09]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 12:13:09]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 12:13:09]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 12:13:10]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 12:13:10]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 12:13:10]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 12:13:10]   ✓ hub binary found
+[2026-05-25 12:13:11]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 12:13:11]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 12:13:15]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-25 12:13:15] Prerequisites check passed
+[2026-05-25 12:13:16] Step 1: Bootstrapping Hub Cluster...
+[2026-05-25 12:13:16] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-25 15:11:52] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 15:11:52] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 15:11:52] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 15:11:52] Checking prerequisites...
+[2026-05-25 15:11:52]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 15:11:53]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 15:11:53]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 15:11:53]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 15:11:54]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 15:11:54]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 15:11:54]   ✓ hub binary found
+[2026-05-25 15:11:55]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 15:11:55]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 15:11:59]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-25 15:11:59] Prerequisites check passed
+[2026-05-25 15:12:00] Step 1: Bootstrapping Hub Cluster...
+[2026-05-25 15:12:00] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-25 15:17:35] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-25 15:17:35] Hub cluster bootstrap completed
+[2026-05-25 15:18:06] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-25 15:18:06] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-25 15:18:12] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-25 15:18:17] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-25 15:18:17] Attempting to use existing access keys...
+[2026-05-25 15:18:25] Existing keys may be invalid, attempting to recreate...
+[2026-05-25 15:18:25] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-25 15:18:34] All existing access keys deleted
+[2026-05-25 15:18:34] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-25 15:18:37] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-25 15:18:37] AWS Secrets Manager configuration completed
+[2026-05-25 15:18:53] Step 3: Configuring GitHub Access...
+[2026-05-25 15:18:53] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-25 15:18:55] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-25 15:18:55] GitHub access configuration completed
+[2026-05-25 15:19:11] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-25 15:23:16] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-25 15:23:18] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-25 15:23:18] ✅ platform-data namespace created by ArgoCD
+[2026-05-25 15:23:28] Step 5: Initializing bootstrap secrets...
+[2026-05-25 15:23:29] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-25 15:28:31] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-25 15:28:32] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-25 15:28:43] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-25 15:28:53] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-25 15:29:04] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-25 15:29:16] Infisical pod is ready
+[2026-05-25 15:29:16] Starting port-forward for Infisical...
+[2026-05-25 15:29:22] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-25 15:29:22] Bootstrap secrets initialization completed
+[2026-05-25 15:29:37] Step 6: Waiting for Infisical to be ready...
+[2026-05-25 15:29:37] Checking Infisical pods status...
+[2026-05-25 15:29:38] Waiting for Infisical to be ready (attempt 1/180, ready: False)
+[2026-05-25 15:29:49] Waiting for Infisical to be ready (attempt 2/180, ready: False)
+[2026-05-25 15:30:00] Waiting for Infisical to be ready (attempt 3/180, ready: False)
+[2026-05-25 15:30:11] Waiting for Infisical to be ready (attempt 4/180, ready: False)
+[2026-05-25 15:30:22] Waiting for Infisical to be ready (attempt 5/180, ready: False)
+[2026-05-25 15:30:33] Infisical is ready
+[2026-05-25 15:30:34] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-25 15:30:34] Infisical pods are running
+[2026-05-25 15:30:45] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-25 15:30:45] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-25 15:30:46] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-25 15:30:51] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-25 15:30:51] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-25 15:30:53] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-25 15:30:53] Database deployment completed
+[2026-05-25 15:31:03] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-25 15:31:04] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-25 15:31:04] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-25 15:31:06] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: True)
+[2026-05-25 15:31:17] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: True)
+[2026-05-25 15:31:29] Waiting for SpokePool readiness (attempt 3/180, Ready: False, Synced: True)
+[2026-05-25 15:31:41] Waiting for SpokePool readiness (attempt 4/180, Ready: False, Synced: True)
+[2026-05-25 15:31:53] ✅ SpokePool is Ready and Synced
+[2026-05-25 15:31:53] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-25 15:31:56] Waiting for CAPI Cluster (attempt 1/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 15:32:09] Waiting for CAPI Cluster (attempt 2/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 15:32:22] Waiting for CAPI Cluster (attempt 3/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:32:36] Waiting for CAPI Cluster (attempt 4/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:32:49] Waiting for CAPI Cluster (attempt 5/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:33:03] Waiting for CAPI Cluster (attempt 6/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:33:17] Waiting for CAPI Cluster (attempt 7/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:33:30] Waiting for CAPI Cluster (attempt 8/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:33:43] Waiting for CAPI Cluster (attempt 9/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:33:56] Waiting for CAPI Cluster (attempt 10/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:34:09] Waiting for CAPI Cluster (attempt 11/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:34:22] Waiting for CAPI Cluster (attempt 12/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:34:36] Waiting for CAPI Cluster (attempt 13/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:34:49] Waiting for CAPI Cluster (attempt 14/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:35:03] Waiting for CAPI Cluster (attempt 15/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:35:17] Waiting for CAPI Cluster (attempt 16/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:35:30] Waiting for CAPI Cluster (attempt 17/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:35:43] Waiting for CAPI Cluster (attempt 18/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:35:56] Waiting for CAPI Cluster (attempt 19/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:36:09] Waiting for CAPI Cluster (attempt 20/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:36:23] Waiting for CAPI Cluster (attempt 21/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:36:36] Waiting for CAPI Cluster (attempt 22/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:36:49] Waiting for CAPI Cluster (attempt 23/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:37:02] Waiting for CAPI Cluster (attempt 24/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:37:15] Waiting for CAPI Cluster (attempt 25/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:37:28] Waiting for CAPI Cluster (attempt 26/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:38:13] Waiting for CAPI Cluster (attempt 27/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:38:26] Waiting for CAPI Cluster (attempt 28/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:38:40] Waiting for CAPI Cluster (attempt 29/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:38:53] Waiting for CAPI Cluster (attempt 30/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:39:06] Waiting for CAPI Cluster (attempt 31/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:39:19] Waiting for CAPI Cluster (attempt 32/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:39:32] Waiting for CAPI Cluster (attempt 33/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:39:45] Waiting for CAPI Cluster (attempt 34/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:39:58] Waiting for CAPI Cluster (attempt 35/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:40:11] Waiting for CAPI Cluster (attempt 36/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:40:24] Waiting for CAPI Cluster (attempt 37/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:40:37] Waiting for CAPI Cluster (attempt 38/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:40:51] Waiting for CAPI Cluster (attempt 39/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:41:04] Waiting for CAPI Cluster (attempt 40/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:41:17] Waiting for CAPI Cluster (attempt 41/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:41:30] Waiting for CAPI Cluster (attempt 42/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:41:43] Waiting for CAPI Cluster (attempt 43/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:41:56] Waiting for CAPI Cluster (attempt 44/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:42:09] Waiting for CAPI Cluster (attempt 45/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:42:23] Waiting for CAPI Cluster (attempt 46/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:42:36] Waiting for CAPI Cluster (attempt 47/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:42:50] Waiting for CAPI Cluster (attempt 48/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:43:03] Waiting for CAPI Cluster (attempt 49/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:43:16] Waiting for CAPI Cluster (attempt 50/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:43:29] Waiting for CAPI Cluster (attempt 51/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:43:43] Waiting for CAPI Cluster (attempt 52/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:43:56] Waiting for CAPI Cluster (attempt 53/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:44:09] Waiting for CAPI Cluster (attempt 54/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:44:22] Waiting for CAPI Cluster (attempt 55/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:44:35] Waiting for CAPI Cluster (attempt 56/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:44:48] Waiting for CAPI Cluster (attempt 57/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:45:02] Waiting for CAPI Cluster (attempt 58/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:45:15] Waiting for CAPI Cluster (attempt 59/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:45:28] Waiting for CAPI Cluster (attempt 60/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:45:41] Waiting for CAPI Cluster (attempt 61/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:45:55] Waiting for CAPI Cluster (attempt 62/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:46:08] Waiting for CAPI Cluster (attempt 63/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:46:21] Waiting for CAPI Cluster (attempt 64/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:46:34] Waiting for CAPI Cluster (attempt 65/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:46:48] Waiting for CAPI Cluster (attempt 66/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:47:01] Waiting for CAPI Cluster (attempt 67/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:47:14] Waiting for CAPI Cluster (attempt 68/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:47:27] Waiting for CAPI Cluster (attempt 69/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:47:40] Waiting for CAPI Cluster (attempt 70/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:47:54] Waiting for CAPI Cluster (attempt 71/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:48:07] Waiting for CAPI Cluster (attempt 72/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:48:20] Waiting for CAPI Cluster (attempt 73/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:48:33] Waiting for CAPI Cluster (attempt 74/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:48:46] Waiting for CAPI Cluster (attempt 75/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:48:59] Waiting for CAPI Cluster (attempt 76/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:49:12] Waiting for CAPI Cluster (attempt 77/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:49:26] Waiting for CAPI Cluster (attempt 78/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:49:41] Waiting for CAPI Cluster (attempt 79/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:49:55] Waiting for CAPI Cluster (attempt 80/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:50:09] Waiting for CAPI Cluster (attempt 81/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:50:22] Waiting for CAPI Cluster (attempt 82/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:50:36] Waiting for CAPI Cluster (attempt 83/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:50:49] Waiting for CAPI Cluster (attempt 84/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:51:03] Waiting for CAPI Cluster (attempt 85/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:51:17] Waiting for CAPI Cluster (attempt 86/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:51:30] Waiting for CAPI Cluster (attempt 87/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:51:44] Waiting for CAPI Cluster (attempt 88/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:51:57] Waiting for CAPI Cluster (attempt 89/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:52:10] Waiting for CAPI Cluster (attempt 90/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 15:52:20] ❌ CAPI Cluster did not become ready within expected time
+[2026-05-25 15:52:21] ERROR: CAPI Cluster readiness timeout
+[2026-05-25 16:07:47] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 16:07:47] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 16:07:47] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 16:07:48] Checking prerequisites...
+[2026-05-25 16:07:48]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 16:07:48]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 16:07:48]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 16:07:49]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 16:07:49]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 16:07:49]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 16:07:50]   ✓ hub binary found
+[2026-05-25 16:07:50]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 16:07:50]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 16:07:54]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-25 16:07:54] Prerequisites check passed
+[2026-05-25 16:07:55] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-05-25 16:08:26] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-25 16:08:41] Step 3: GitHub access already configured, skipping
+[2026-05-25 16:08:57] Step 4: Namespaces already created, skipping
+[2026-05-25 16:09:07] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-25 16:09:23] Step 6: Infisical already ready, skipping
+[2026-05-25 16:09:34] Step 7-8: ESO configuration already completed, skipping
+[2026-05-25 16:09:39] Step 9: Database already ready, skipping
+[2026-05-25 16:09:50] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-25 16:09:50] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-25 16:09:50] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-25 16:09:52] Waiting for SpokePool readiness (attempt 1/180, Ready: True, Synced: )
+[2026-05-25 16:10:03] Waiting for SpokePool readiness (attempt 2/180, Ready: True, Synced: )
+[2026-05-25 16:10:15] Waiting for SpokePool readiness (attempt 3/180, Ready: True, Synced: )
+[2026-05-25 16:10:27] Waiting for SpokePool readiness (attempt 4/180, Ready: , Synced: )
+[2026-05-25 16:10:39] Waiting for SpokePool readiness (attempt 5/180, Ready: , Synced: True)
+[2026-05-25 16:10:51] ✅ SpokePool is Ready and Synced
+[2026-05-25 16:10:51] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-25 16:10:54] Waiting for CAPI Cluster (attempt 1/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:11:08] Waiting for CAPI Cluster (attempt 2/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:11:21] Waiting for CAPI Cluster (attempt 3/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:11:35] Waiting for CAPI Cluster (attempt 4/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:11:48] Waiting for CAPI Cluster (attempt 5/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:12:02] Waiting for CAPI Cluster (attempt 6/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:12:16] Waiting for CAPI Cluster (attempt 7/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:12:29] Waiting for CAPI Cluster (attempt 8/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:12:43] Waiting for CAPI Cluster (attempt 9/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:12:56] Waiting for CAPI Cluster (attempt 10/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:13:10] Waiting for CAPI Cluster (attempt 11/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:13:24] Waiting for CAPI Cluster (attempt 12/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:13:37] Waiting for CAPI Cluster (attempt 13/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:13:51] Waiting for CAPI Cluster (attempt 14/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:14:04] Waiting for CAPI Cluster (attempt 15/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:14:18] Waiting for CAPI Cluster (attempt 16/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:14:31] Waiting for CAPI Cluster (attempt 17/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:14:45] Waiting for CAPI Cluster (attempt 18/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:14:58] Waiting for CAPI Cluster (attempt 19/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:15:12] Waiting for CAPI Cluster (attempt 20/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:15:26] Waiting for CAPI Cluster (attempt 21/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:15:40] Waiting for CAPI Cluster (attempt 22/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:15:53] Waiting for CAPI Cluster (attempt 23/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:16:07] Waiting for CAPI Cluster (attempt 24/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:16:20] Waiting for CAPI Cluster (attempt 25/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:16:34] Waiting for CAPI Cluster (attempt 26/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:16:47] Waiting for CAPI Cluster (attempt 27/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:17:00] Waiting for CAPI Cluster (attempt 28/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:17:14] Waiting for CAPI Cluster (attempt 29/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:17:27] Waiting for CAPI Cluster (attempt 30/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:17:41] Waiting for CAPI Cluster (attempt 31/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:17:54] Waiting for CAPI Cluster (attempt 32/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 16:18:07] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-25 16:18:08] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-25 16:18:08] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-25 16:18:09] Step 10c: Checking certificate distribution resources...
+[2026-05-25 16:18:09] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-25 16:18:11] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-25 16:18:11] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-25 16:18:13] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-25 16:18:13] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-25 16:18:15] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-25 16:18:15] Step 10d: Verifying certificates in target namespaces...
+[2026-05-25 16:18:16] ✅ Namespace exists: platform-observability
+[2026-05-25 16:18:16] ✅ Namespace exists: platform-messaging
+[2026-05-25 16:18:17] ✅ Namespace exists: platform-ops
+[2026-05-25 16:18:18] Step 10e: Verifying worker nodes are Ready...
+[2026-05-25 16:18:19] Worker nodes: 3/3 Ready
+[2026-05-25 16:18:20] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-25 16:18:20] ✅ SpokePool readiness validation completed successfully
+[2026-05-25 16:18:21] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-25 16:18:21] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-25 16:18:21] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-25 16:18:21] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-25 16:18:21] 🎯 Hub cluster: Ready and operational
+[2026-05-25 16:18:21] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-25 16:18:22] 🔐 Certificate distribution: Complete
+[2026-05-25 16:18:22] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-25 16:18:22] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-25 16:18:22] 
+[2026-05-25 16:18:22] Running post-bootstrap core services validation...
+[2026-05-25 16:21:54] ⚠️  Post-bootstrap validation reported failures — review the summary above
+[2026-05-25 16:44:24] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 16:44:24] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 16:44:24] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 16:44:24] Checking prerequisites...
+[2026-05-25 16:44:24]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 16:44:24]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 16:44:25]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 16:44:25]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 16:44:25]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 16:44:25]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 16:44:26]   ✓ hub binary found
+[2026-05-25 16:44:26]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 16:44:26]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 16:44:29]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-25 16:44:29] Prerequisites check passed
+[2026-05-25 16:44:30] Step 1: Bootstrapping Hub Cluster...
+[2026-05-25 16:44:30] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-25 16:58:54] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-25 16:58:54] Hub cluster bootstrap completed
+[2026-05-25 16:59:25] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-25 16:59:25] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-25 16:59:30] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-25 16:59:34] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-25 16:59:34] Attempting to use existing access keys...
+[2026-05-25 16:59:37] Existing keys may be invalid, attempting to recreate...
+[2026-05-25 16:59:37] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-25 16:59:44] All existing access keys deleted
+[2026-05-25 16:59:45] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-25 16:59:47] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-25 16:59:47] AWS Secrets Manager configuration completed
+[2026-05-25 17:00:03] Step 3: Configuring GitHub Access...
+[2026-05-25 17:00:03] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-25 17:00:04] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-25 17:00:04] GitHub access configuration completed
+[2026-05-25 17:00:20] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-25 17:04:31] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-25 17:04:32] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-25 17:04:32] ✅ platform-data namespace created by ArgoCD
+[2026-05-25 17:04:43] Step 5: Initializing bootstrap secrets...
+[2026-05-25 17:04:43] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-25 17:09:45] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-25 17:09:46] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-25 17:09:57] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-25 17:10:08] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-25 17:10:19] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-25 17:10:29] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-25 17:10:40] Infisical pod is ready
+[2026-05-25 17:10:40] Starting port-forward for Infisical...
+[2026-05-25 17:10:46] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-25 17:10:46] Bootstrap secrets initialization completed
+[2026-05-25 17:11:02] Step 6: Waiting for Infisical to be ready...
+[2026-05-25 17:11:02] Checking Infisical pods status...
+[2026-05-25 17:11:02] Waiting for Infisical to be ready (attempt 1/180, ready: False)
+[2026-05-25 17:11:13] Infisical is ready
+[2026-05-25 17:11:14] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-25 17:11:14] Infisical pods are running
+[2026-05-25 17:11:24] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-25 17:11:25] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-25 17:11:25] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-25 17:11:31] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-25 17:11:31] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-25 17:11:32] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-25 17:11:32] Database deployment completed
+[2026-05-25 17:11:43] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-25 17:11:43] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-25 17:11:43] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-25 17:11:45] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: True)
+[2026-05-25 17:11:56] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: True)
+[2026-05-25 17:12:08] Waiting for SpokePool readiness (attempt 3/180, Ready: True, Synced: )
+[2026-05-25 17:12:19] ✅ SpokePool is Ready and Synced
+[2026-05-25 17:12:19] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-25 17:12:22] Waiting for CAPI Cluster (attempt 1/90): Phase=Provisioned, Infrastructure=False, ControlPlane=True, Workers=False
+[2026-05-25 17:12:35] Waiting for CAPI Cluster (attempt 2/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:12:48] Waiting for CAPI Cluster (attempt 3/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:13:01] Waiting for CAPI Cluster (attempt 4/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:13:13] Waiting for CAPI Cluster (attempt 5/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 17:13:26] Waiting for CAPI Cluster (attempt 6/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:13:39] Waiting for CAPI Cluster (attempt 7/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-25 17:13:52] Waiting for CAPI Cluster (attempt 8/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:14:05] Waiting for CAPI Cluster (attempt 9/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-25 17:14:17] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-25 17:14:18] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-25 17:14:18] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-25 17:14:18] Step 10c: Checking certificate distribution resources...
+[2026-05-25 17:14:18] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-25 17:14:20] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-25 17:14:20] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-25 17:14:21] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-25 17:14:22] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-25 17:14:23] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-25 17:14:23] Step 10d: Verifying certificates in target namespaces...
+[2026-05-25 17:14:24] ✅ Namespace exists: platform-observability
+[2026-05-25 17:14:25] ✅ Namespace exists: platform-messaging
+[2026-05-25 17:14:25] ✅ Namespace exists: platform-ops
+[2026-05-25 17:14:25] Step 10e: Verifying worker nodes are Ready...
+[2026-05-25 17:14:27] Worker nodes: 3/3 Ready
+[2026-05-25 17:14:28] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-25 17:14:28] ✅ SpokePool readiness validation completed successfully
+[2026-05-25 17:14:28] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-25 17:14:28] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-25 17:14:28] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-25 17:14:28] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-25 17:14:29] 🎯 Hub cluster: Ready and operational
+[2026-05-25 17:14:29] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-25 17:14:29] 🔐 Certificate distribution: Complete
+[2026-05-25 17:14:29] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-25 17:14:29] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-25 17:14:29] 
+[2026-05-25 17:14:29] Running post-bootstrap core services validation...
+[2026-05-25 17:17:27] ⚠️  Post-bootstrap validation reported failures — review the summary above
+[2026-05-25 20:32:10] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 20:32:10] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 20:32:10] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 20:32:10] Checking prerequisites...
+[2026-05-25 20:32:11]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 20:32:11]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 20:32:11]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 20:32:11]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 20:32:12]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 20:32:12]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 20:32:13]   ✓ hub binary found
+[2026-05-25 20:32:13]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 20:32:13]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 20:32:16]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-25 20:32:16] Prerequisites check passed
+[2026-05-25 20:32:17] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-05-25 20:32:47] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-25 20:33:03] Step 3: GitHub access already configured, skipping
+[2026-05-25 20:33:18] Step 4: Namespaces already created, skipping
+[2026-05-25 20:33:28] Step 5: Bootstrap secrets already initialized, skipping
+[2026-05-25 20:33:44] Step 6: Infisical already ready, skipping
+[2026-05-25 20:33:54] Step 7-8: ESO configuration already completed, skipping
+[2026-05-25 20:33:59] Step 9: Database already ready, skipping
+[2026-05-25 20:34:10] Step 10: SpokePool already ready, skipping
+[2026-05-25 20:34:10] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-25 20:34:10] 🎯 Hub cluster: Ready and operational
+[2026-05-25 20:34:10] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-25 20:34:10] 🔐 Certificate distribution: Complete
+[2026-05-25 20:34:10] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-25 20:34:10] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-25 20:34:11] 
+[2026-05-25 20:34:11] Running post-bootstrap core services validation...
+[2026-05-25 20:37:11] ⚠️  Post-bootstrap validation reported failures — review the summary above
+[2026-05-25 20:49:41] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-25 20:49:41] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-25 20:49:41] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-25 20:49:41] Checking prerequisites...
+[2026-05-25 20:49:41]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-25 20:49:41]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-25 20:49:42]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-25 20:49:42]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-25 20:49:42]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-25 20:49:42]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-25 20:49:43]   ✓ hub binary found
+[2026-05-25 20:49:43]   ✓ k8-secrets/hetzner/token found
+[2026-05-25 20:49:43]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-25 20:49:45] Script interrupted

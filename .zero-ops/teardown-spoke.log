@@ -2,6 +2,25 @@
 
 [spoke-teardown] ⚠️  Force deletion mode enabled
 [spoke-teardown] This will delete spoke resources directly via Hetzner API
-[spoke-teardown] No spoke clusters found
+[spoke-teardown] Found 4 spoke cluster(s) to delete
+[spoke-teardown] Deleting spoke cluster: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-z778j
+[spoke-teardown] Deleting server: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-z778j (ID: 132867119)
+[spoke-teardown] ✓ Deleted server: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-z778j
+[spoke-teardown] ✓ Deleted spoke cluster: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-z778j
+[spoke-teardown] Deleting spoke cluster: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-zthq6
+[spoke-teardown] Deleting server: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-zthq6 (ID: 132867126)
+[spoke-teardown] ✓ Deleted server: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-zthq6
+[spoke-teardown] ✓ Deleted spoke cluster: spoke-pool-eu-prod-01-md-0-rjxpf-h6cdn-zthq6
+[spoke-teardown] Deleting spoke cluster: spoke-pool-eu
+[spoke-teardown] Deleting server: spoke-pool-eu-prod-01-htxt9-7lvl5 (ID: 132866500)
+[spoke-teardown] ✓ Deleted server: spoke-pool-eu-prod-01-htxt9-7lvl5
+[spoke-teardown] Deleting load balancer: spoke-pool-eu-prod-01-s8ncn-kube-apiserver-6j6zq (ID: 6412224)
+[spoke-teardown] ✓ Deleted load balancer: spoke-pool-eu-prod-01-s8ncn-kube-apiserver-6j6zq
+[spoke-teardown] Deleting network: spoke-pool-eu-prod-01-s8ncn (ID: 12256993)
+[spoke-teardown] ✓ Deleted network: spoke-pool-eu-prod-01-s8ncn
+[spoke-teardown] ✓ Deleted spoke cluster: spoke-pool-eu
+[spoke-teardown] Deleting spoke cluster: spoke-pool-eu-prod-01-htxt9-7lvl5
+[spoke-teardown] ✓ Deleted spoke cluster: spoke-pool-eu-prod-01-htxt9-7lvl5
+[spoke-teardown] ✓ Spoke cluster deletion complete
 
 ✓ All Spoke Clusters successfully torn down

@@ -1,0 +1,91 @@
+---
+# All hub platform namespaces are managed here (ADR-015).
+# This is the canonical source of truth for namespace definitions.
+# sync-wave: -2 ensures namespaces exist before any other platform service deploys.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-ops
+  labels:
+    name: platform-ops
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-capi
+  labels:
+    name: platform-capi
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-data
+  labels:
+    name: platform-data
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-identity
+  labels:
+    name: platform-identity
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-billing
+  labels:
+    name: platform-billing
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-messaging
+  labels:
+    name: platform-messaging
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-observability
+  labels:
+    name: platform-observability
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-security
+  labels:
+    name: platform-security
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-edge
+  labels:
+    name: platform-edge
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-controlplane
+  labels:
+    name: platform-controlplane
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-network
+  labels:
+    name: platform-network
+    topology.platform.io/role: hub
