@@ -13,6 +13,11 @@
 #   - platform-ops        (hub-operator, infisical setup jobs)
 #   - platform-data       (internal CNPG cluster communication)
 #   - platform-security   (Infisical, SPIRE)
+#
+# CNPG operator (cnpg-system) must reach instance pods on port 8000
+# for status polling. Without this, CNPG reports "Instance Status Extraction
+# Error" and ArgoCD health check never transitions to Healthy, blocking
+# post-init Jobs (setup-infisical-role, etc.) from running.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -46,3 +51,11 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    # CNPG operator status polling (port 8000 — instance health HTTP endpoint)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8000
