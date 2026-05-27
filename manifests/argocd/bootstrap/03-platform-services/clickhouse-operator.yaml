@@ -4,7 +4,6 @@ kind: Application
 metadata:
   name: clickhouse-operator
   namespace: platform-ops
-  annotations:
 spec:
   project: default
   source:
@@ -30,18 +29,16 @@ spec:
     syncOptions:
       - CreateNamespace=false
       - ServerSideApply=true
-  # These three fields are injected by the Kubernetes API server defaulter when
-  # absent from a manifest. The upstream altinity-clickhouse-operator chart
-  # template does not set them (they are not configurable via chart values).
-  # ignoreDifferences is the ArgoCD-recommended pattern for API-server-defaulted
-  # fields on third-party charts — this is not masking a real sync issue.
+  # Scoped suppressions for fields injected by the Kubernetes API server defaulter.
+  # The upstream altinity-clickhouse-operator chart (auto-generated from raw k8s manifests)
+  # does not set these fields; they are not exposed via chart values and cannot be fixed upstream.
+  # Each entry is limited to the exact resource and field path — no broad suppression.
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jsonPointers:
-        - /spec/revisionHistoryLimit        # k8s default: 10
-        - /spec/progressDeadlineSeconds     # k8s default: 600
+        - /spec/revisionHistoryLimit      # k8s apps/v1 default: 10
+        - /spec/progressDeadlineSeconds   # k8s apps/v1 default: 600
       jqPathExpressions:
-        # k8s API stores zero-value resource.Quantity ("0") when divisor is
-        # omitted from resourceFieldRef; chart template never sets divisor
+        # k8s API serialises absent resource.Quantity as zero-value string "0"
         - .spec.template.spec.containers[].env[].valueFrom.resourceFieldRef.divisor
