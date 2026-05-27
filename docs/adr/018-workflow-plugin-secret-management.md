@@ -1,10 +1,11 @@
 # ADR-0018: Workflow Plugin Secret Management with Infisical Agent Injector
 
 **Date:** 2026-05-06  
-**Status:** Accepted  
-**Context:** Workflow Engine Plugin Secret Management
+**Status:** Superseded by [ADR-019: Waypoint Shared SaaS Platform Service](./019-waypoint-shared-saas-platform-service.md)
 
-See also: [ADR-003: ESO-Infisical Pattern](./003-eso-infisical-pattern.md), [ADR-009: Platform Security Architecture](./009-platform-security-architecture.md), [ADR-017: Workflow Engine Tenant Isolation](./017-workflow-engine-tenant-isolation.md)
+> **Note:** The init-mode injection pattern described here was designed for a per-tenant pod topology. With Waypoint operating as a shared SaaS service (one SDK pod per cell), static pod-startup injection cannot support per-tenant credential isolation. Plugin credential resolution has moved to runtime context resolution via Infisical SDK, as specified in ADR-019. The Infisical path convention (`/spoke-pool/{cellId}/tenants/{tenantId}/plugins/*`) and the Machine Identity per-tenant model remain valid and are carried forward in ADR-019.
+
+See also: [ADR-003: ESO-Infisical Pattern](./003-eso-infisical-pattern.md), [ADR-009: Platform Security Architecture](./009-platform-security-architecture.md), [ADR-019: Waypoint Shared SaaS Platform Service](./019-waypoint-shared-saas-platform-service.md)
 
 ## Context
 

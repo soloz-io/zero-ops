@@ -1,17 +1,18 @@
 # ADR 017: Workflow Engine Tenant Isolation Pattern
 
 **Date:** 2026-05-04  
-**Status:** Accepted  
+**Status:** Superseded by [ADR-019: Waypoint Shared SaaS Platform Service](./019-waypoint-shared-saas-platform-service.md)  
 **Authors:** Platform Engineering Team  
 **Related ADRs:** 
 - [ADR 006: Multi-Tenant Database Pattern](./006-multi-tenant-database-pattern.md)
 - [ADR 016: Account-Level User Isolation Pattern](./016-account-level-users-isolation-pattern.md)
+- [ADR-019: Waypoint Shared SaaS Platform Service](./019-waypoint-shared-saas-platform-service.md)
 
 ## Context
 
 The platform integrates Vercel Workflows SDK (world-postgres) as a durable workflow execution engine for SaaS applications. The world-postgres package hardcodes its tables to a specific schema (pgSchema('workflow')) and does not include tenant_id or account_id columns in its base engine tables (workflow_runs, workflow_events, workflow_steps, workflow_hooks). The package is an OSS dependency that cannot be forked without breaking upgrade compatibility. Each platform tenant (SaaS product) requires isolated workflow execution state while sharing the workflow engine infrastructure.
 
-## Decision
+## Original Decision (Superseded)
 
 Use **database-per-tenant isolation** for workflow engine state, where each platform tenant's logical database contains a dedicated workflow schema alongside their application data schema.
 
@@ -27,7 +28,15 @@ Worker pods receive WORKFLOW_POSTGRES_URL environment variable pointing to tenan
 **Isolation Levels:**
 Level 1 (Platform Tenant): Database boundary isolates SaaS products (tenant_acme_db vs tenant_techstart_db). Level 2 (Account): account_id column isolates user organizations within a SaaS product (Acme Corp vs TechStart Inc within same database). Workflow engine operates at Level 1 only, account-agnostic by design.
 
-## Consequences
+## Why This Decision Was Superseded
+
+The per-tenant pod model created operational overhead that did not scale: one Waypoint SDK pod per tenant per cell, one runtime database per tenant, duplicating the `workflow.*` schema for every onboarded customer. This was a consequence of treating Waypoint as a tenant-deployed runtime rather than a shared platform service.
+
+The revised stance in ADR-019 positions Waypoint as a shared SaaS platform service — one BFF, one SDK, one runtime database per cell — serving all platform tenants. Tenant isolation is enforced at the **BFF trust boundary** (tenant_id in control-plane DB) and at **Infisical credential path scope** (per-tenant secret paths resolved at runtime), not at the database boundary.
+
+The `world-postgres` OSS package remains unmodified. The single shared runtime database is exactly what it was designed for.
+
+## Consequences (Historical)
 
 **Positive:**
 - No OSS fork required, maintains upgrade compatibility with world-postgres
@@ -37,9 +46,9 @@ Level 1 (Platform Tenant): Database boundary isolates SaaS products (tenant_acme
 - Simple connection string configuration per tenant
 - No code changes to world-postgres schema or queries
 
-**Negative:**
-- Connection pooling calculated per database (PlanetScale limitation applies)
-- Storage overhead of ~8MB per tenant database for workflow schema
+**Negative (that drove supersession):**
+- Pod sprawl: one SDK pod per tenant × N cells = unsustainable at scale
+- Storage overhead of ~8MB per tenant database for workflow schema, duplicated per tenant
 - Won't scale beyond few hundred platform tenants per CNPG cluster
-- No cross-tenant workflow analytics without external data warehouse
 - Each tenant database duplicates workflow schema structure
+- Secret injection (ADR-018 init mode) required pod-per-tenant — coupling deployment topology to secret delivery model
