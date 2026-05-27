@@ -19,10 +19,10 @@ type NATSClient struct {
 
 // NewNATSClient creates a new NATS client
 // Requirement 8.1: Use NATS Go SDK
-// Requirement 8.3: Connect to nats://nats.platform-core.svc:4222
+// Requirement 8.3: Connect to nats://nats.platform-messaging.svc:4222
 func NewNATSClient(url string) (*NATSClient, error) {
 	if url == "" {
-		url = "nats://nats.platform-core.svc:4222"
+		url = "nats://nats.platform-messaging.svc:4222"
 	}
 
 	// Connect to NATS

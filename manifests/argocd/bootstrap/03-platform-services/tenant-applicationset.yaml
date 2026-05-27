@@ -39,8 +39,6 @@ spec:
             valueFiles:
               - $values/{{.path.path}}/values.yaml
             # Only render AINativeSaaS XR template
-            skipTests: true
-            includeCRDs: false
             parameters:
               - name: deployXR
                 value: "true"
@@ -129,8 +127,6 @@ spec:
           helm:
             valueFiles:
               - $values/{{.path.path}}/values.yaml
-            skipTests: true
-            includeCRDs: false
             parameters:
               - name: deployXR
                 value: "false"
