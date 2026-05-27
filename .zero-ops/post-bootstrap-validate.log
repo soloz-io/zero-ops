@@ -1,227 +1,200 @@
-
-[2026-05-26 10:38:01] ═══════════════════════════════════════════════════════
-[2026-05-26 10:38:01]  Zero-Ops Post-Bootstrap Core Services Validation
-[2026-05-26 10:38:01]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
-[2026-05-26 10:38:01]  SpokePool:  spoke-pool-eu-prod-01
-[2026-05-26 10:38:01] ═══════════════════════════════════════════════════════
-[2026-05-26 10:38:02] 
-[2026-05-26 10:38:02] ══════════════════════════════════════════
-[2026-05-26 10:38:02]   PREFLIGHT
-[2026-05-26 10:38:02] ══════════════════════════════════════════
-[2026-05-26 10:38:04]   ✅ Hub cluster reachable: https://49.12.22.19:443
-[2026-05-26 10:38:05]   ✅ Core namespaces present
-[2026-05-26 10:38:05] 
-[2026-05-26 10:38:05] ══════════════════════════════════════════
-[2026-05-26 10:38:06]   1. PLATFORM NAMESPACES
-[2026-05-26 10:38:06] ══════════════════════════════════════════
-[2026-05-26 10:38:07]   ✅ Namespace platform-ops exists
-[2026-05-26 10:38:08]   ✅ Namespace platform-capi exists
-[2026-05-26 10:38:09]   ✅ Namespace platform-data exists
-[2026-05-26 10:38:10]   ✅ Namespace platform-identity exists
-[2026-05-26 10:38:11]   ✅ Namespace platform-billing exists
-[2026-05-26 10:38:11]   ✅ Namespace platform-messaging exists
-[2026-05-26 10:38:12]   ✅ Namespace platform-observability exists
-[2026-05-26 10:38:13]   ✅ Namespace platform-security exists
-[2026-05-26 10:38:14]   ✅ Namespace platform-edge exists
-[2026-05-26 10:38:15]   ✅ Namespace platform-controlplane exists
-[2026-05-26 10:38:16]   ✅ Namespace cert-manager exists
-[2026-05-26 10:38:17]   ✅ Namespace cnpg-system exists
-[2026-05-26 10:38:17]   ✅ Namespace kube-system exists
-[2026-05-26 10:38:18] 
-[2026-05-26 10:38:18] ══════════════════════════════════════════
-[2026-05-26 10:38:18]   2. ARGOCD
-[2026-05-26 10:38:18] ══════════════════════════════════════════
-[2026-05-26 10:38:20]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-26 10:38:22]   ✅ Deployment platform-ops/argocd-server: 1/1 available
-[2026-05-26 10:38:24]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
-[2026-05-26 10:38:27]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
-[2026-05-26 10:38:30]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
-[2026-05-26 10:38:33]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
-[2026-05-26 10:38:33] 
-[2026-05-26 10:38:34] ══════════════════════════════════════════
-[2026-05-26 10:38:34]   3. CROSSPLANE
-[2026-05-26 10:38:34] ══════════════════════════════════════════
-[2026-05-26 10:38:37]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-26 10:38:39]   ✅ Deployment platform-ops/crossplane: 1/1 available
-[2026-05-26 10:38:41]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
-[2026-05-26 10:38:41]   Checking Crossplane providers...
-[2026-05-26 10:38:43]   ✅ Provider provider-kubernetes: True
-[2026-05-26 10:38:43] 
-[2026-05-26 10:38:44] ══════════════════════════════════════════
-[2026-05-26 10:38:44]   4. EXTERNAL SECRETS OPERATOR
-[2026-05-26 10:38:44] ══════════════════════════════════════════
-[2026-05-26 10:38:46]   ✅ Namespace platform-ops: all 1 pod(s) healthy
-[2026-05-26 10:38:47]   ✅ ClusterSecretStore infisical-backend: Ready
-[2026-05-26 10:38:48] 
-[2026-05-26 10:38:48] ══════════════════════════════════════════
-[2026-05-26 10:38:48]   5. INFISICAL
-[2026-05-26 10:38:48] ══════════════════════════════════════════
-[2026-05-26 10:38:51]   ✅ Namespace platform-security: all 5 pod(s) healthy
-[2026-05-26 10:38:53]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
-[2026-05-26 10:38:54]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
-[2026-05-26 10:38:56]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
-[2026-05-26 10:38:57]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
-[2026-05-26 10:38:59]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
-[2026-05-26 10:39:00]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
-[2026-05-26 10:39:00] 
-[2026-05-26 10:39:00] ══════════════════════════════════════════
-[2026-05-26 10:39:00]   6. DATABASES (CloudNative-PG)
-[2026-05-26 10:39:00] ══════════════════════════════════════════
-[2026-05-26 10:39:02]   ✅ Deployment cnpg-system/cloudnative-pg: 1/1 available
-[2026-05-26 10:39:03]   ✅ CNPG Cluster platform-db: Cluster in healthy state
-[2026-05-26 10:39:04]   ✅ Redis (platform-data): Running
-[2026-05-26 10:39:06]   ✅ Namespace platform-data: all 8 pod(s) healthy
-[2026-05-26 10:39:06] 
-[2026-05-26 10:39:06] ══════════════════════════════════════════
-[2026-05-26 10:39:06]   7. CLICKHOUSE
-[2026-05-26 10:39:06] ══════════════════════════════════════════
-[2026-05-26 10:39:08]   ✅ ArgoCD app platform-clickhouse: Sync=Synced Health=Healthy
-[2026-05-26 10:39:09]   ✅ ClickHouseInstallation platform-clickhouse: Completed
-[2026-05-26 10:39:10]   ✅ ClickHouse services present (2 found)
-[2026-05-26 10:39:10] 
-[2026-05-26 10:39:10] ══════════════════════════════════════════
-[2026-05-26 10:39:10]   8. OPENMETER
-[2026-05-26 10:39:11] ══════════════════════════════════════════
-[2026-05-26 10:39:12]   ✅ ArgoCD app openmeter: Sync=Synced Health=Healthy
-[2026-05-26 10:39:14]   ✅ OpenMeter openmeter-api: 1/1
-[2026-05-26 10:39:15]   ✅ OpenMeter openmeter-balance-worker: 1/1
-[2026-05-26 10:39:17]   ✅ OpenMeter openmeter-billing-worker: 1/1
-[2026-05-26 10:39:19]   ✅ OpenMeter openmeter-notification-service: 1/1
-[2026-05-26 10:39:20]   ✅ OpenMeter openmeter-sink-worker: 1/1
-[2026-05-26 10:39:22]   ✅ OpenMeter openmeter-svix: 1/1
-[2026-05-26 10:39:23]   ⚠️  OpenMeter Kafka: ready=0/0 (may still be starting)
-[2026-05-26 10:39:24] 
-[2026-05-26 10:39:24] ══════════════════════════════════════════
-[2026-05-26 10:39:24]   9. ORY IDENTITY STACK
-[2026-05-26 10:39:24] ══════════════════════════════════════════
-[2026-05-26 10:39:26]   ✅ ArgoCD app ory-kratos: Sync=Synced Health=Healthy
-[2026-05-26 10:39:27]   ✅ ArgoCD app ory-hydra: Sync=Synced Health=Healthy
-[2026-05-26 10:39:29]   ✅ ArgoCD app ory-keto: Sync=Synced Health=Healthy
-[2026-05-26 10:39:31]   ✅ Deployment platform-identity/kratos-selfservice-ui-node: 1/1 available
-[2026-05-26 10:39:33]   ✅ Deployment platform-identity/ory-hydra: 1/1 available
-[2026-05-26 10:39:36]   ✅ Deployment platform-identity/ory-keto: 1/1 available
-[2026-05-26 10:39:36] 
-[2026-05-26 10:39:36] ══════════════════════════════════════════
-[2026-05-26 10:39:36]   10. NATS MESSAGING
-[2026-05-26 10:39:36] ══════════════════════════════════════════
-[2026-05-26 10:39:38]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
-[2026-05-26 10:39:39]   ✅ NATS pods running: 2
-[2026-05-26 10:39:39] 
-[2026-05-26 10:39:39] ══════════════════════════════════════════
-[2026-05-26 10:39:39]   11. HUB-OPERATOR
-[2026-05-26 10:39:39] ══════════════════════════════════════════
-[2026-05-26 10:39:41]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
-[2026-05-26 10:39:42]   ✅ Deployment platform-ops/hub-operator: 2/2 available
-[2026-05-26 10:39:43]   ✅ Billing CRD meters.ops.nutgraf.in: installed
-[2026-05-26 10:39:44]   ✅ Billing CRD features.ops.nutgraf.in: installed
-[2026-05-26 10:39:45]   ✅ Billing CRD plans.ops.nutgraf.in: installed
-[2026-05-26 10:39:46]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
-[2026-05-26 10:39:46] 
-[2026-05-26 10:39:46] ══════════════════════════════════════════
-[2026-05-26 10:39:47]   12. KUBE-SBT API
-[2026-05-26 10:39:47] ══════════════════════════════════════════
-[2026-05-26 10:39:49]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
-[2026-05-26 10:39:51]   ✅ Namespace platform-ops: all 2 pod(s) healthy
-[2026-05-26 10:39:51]   ✅ kube-sbt-api Service: ClusterIP=10.111.157.26
-[2026-05-26 10:39:52] 
-[2026-05-26 10:39:52] ══════════════════════════════════════════
-[2026-05-26 10:39:52]   13. INGRESS & CERT-MANAGER
-[2026-05-26 10:39:52] ══════════════════════════════════════════
-[2026-05-26 10:39:53]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
-[2026-05-26 10:39:55]   ✅ Namespace cert-manager: all 3 pod(s) healthy
-[2026-05-26 10:39:57]   ✅ Deployment cert-manager/cert-manager: 1/1 available
-[2026-05-26 10:39:58]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
-[2026-05-26 10:39:59]   ✅ Ingress pods (platform-edge): 3 running
-[2026-05-26 10:39:59] 
-[2026-05-26 10:39:59] ══════════════════════════════════════════
-[2026-05-26 10:39:59]   14. SPOKE POOL & CAPI
-[2026-05-26 10:40:00] ══════════════════════════════════════════
-[2026-05-26 10:40:01]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
-[2026-05-26 10:40:02]   ✅ CAPI CoreProvider/cluster-api: Ready
-[2026-05-26 10:40:03]   ✅ CAPI BootstrapProvider/kubeadm: Ready
-[2026-05-26 10:40:04]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
-[2026-05-26 10:40:05]   ✅ CAPI InfrastructureProvider/hetzner: Ready
-[2026-05-26 10:40:06]   ✅ SpokePool spoke-pool-eu-prod-01: Ready+Synced
-[2026-05-26 10:40:07]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
-[2026-05-26 10:40:08]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
-[2026-05-26 10:40:10]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
-[2026-05-26 10:40:12]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
-[2026-05-26 10:40:12] 
-[2026-05-26 10:40:12] ══════════════════════════════════════════
-[2026-05-26 10:40:12]   15. CRITICAL ARGOCD APPS
-[2026-05-26 10:40:12] ══════════════════════════════════════════
-[2026-05-26 10:40:14]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
-[2026-05-26 10:40:15]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
-[2026-05-26 10:40:17]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
-[2026-05-26 10:40:18]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
-[2026-05-26 10:40:20]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
-[2026-05-26 10:40:21]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
-[2026-05-26 10:40:23]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
-[2026-05-26 10:40:24]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
-[2026-05-26 10:40:26]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
-[2026-05-26 10:40:27]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
-[2026-05-26 10:40:29]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Progressing
-[2026-05-26 10:40:30]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
-[2026-05-26 10:40:32]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
-[2026-05-26 10:40:34]   ⚠️  ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
-[2026-05-26 10:40:36]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
-[2026-05-26 10:40:38]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
-[2026-05-26 10:40:39]   ✅ ArgoCD app platform-clickhouse: Sync=Synced Health=Healthy
-[2026-05-26 10:40:42]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
-[2026-05-26 10:40:43]   ✅ ArgoCD app openmeter: Sync=Synced Health=Healthy
-[2026-05-26 10:40:45]   ✅ ArgoCD app ory-kratos: Sync=Synced Health=Healthy
-[2026-05-26 10:40:47]   ✅ ArgoCD app ory-hydra: Sync=Synced Health=Healthy
-[2026-05-26 10:40:53]   ✅ ArgoCD app ory-keto: Sync=Synced Health=Healthy
-[2026-05-26 10:40:56]   ⚠️  ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
-[2026-05-26 10:40:58]   ✅ ArgoCD app platform-spire: Sync=Synced Health=Progressing
-[2026-05-26 10:40:59]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
-[2026-05-26 10:40:59] 
-[2026-05-26 10:40:59] ══════════════════════════════════════════
-[2026-05-26 10:41:00]   16. OBSERVABILITY
-[2026-05-26 10:41:00] ══════════════════════════════════════════
-[2026-05-26 10:41:01]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
-[2026-05-26 10:41:03]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
-[2026-05-26 10:41:05]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
-[2026-05-26 10:41:06]   ✅ Observability pods (platform-observability): 7 running
-[2026-05-26 10:41:06] 
-[2026-05-26 10:41:06] ╔══════════════════════════════════════════╗
-[2026-05-26 10:41:06] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
-[2026-05-26 10:41:06] ╠══════════════════════════════════════════╣
-[2026-05-26 10:41:06] ║  ✅ PASSED : 103
-[2026-05-26 10:41:06] ║  ❌ FAILED : 0
-[2026-05-26 10:41:07] ║  ⚠️  WARNED : 7
-[2026-05-26 10:41:07] ╠══════════════════════════════════════════╣
-[2026-05-26 10:41:07] ║  WARNINGS:
-[2026-05-26 10:41:07] ║    ! OpenMeter Kafka: ready=0/0 (may still be starting)
-[2026-05-26 10:41:07] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
-[2026-05-26 10:41:07] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
-[2026-05-26 10:41:07] ║    ! ArgoCD app 01-platform-infra: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-external-secrets-crds )
-[2026-05-26 10:41:08] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: Application/platform-capi2argo Application/platform-spoke-pool-xrds ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
-[2026-05-26 10:41:08] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
-[2026-05-26 10:41:08] ║    ! ArgoCD app kube-sbt-api: Sync=Unknown Health=Healthy
-[2026-05-26 10:41:08] ╠══════════════════════════════════════════╣
-[2026-05-26 10:41:08] ║  🎉 ALL CRITICAL CHECKS PASSED           ║
-[2026-05-26 10:41:08] ╚══════════════════════════════════════════╝
-[2026-05-26 10:41:09]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log
-[2026-05-26 11:31:09] ═══════════════════════════════════════════════════════
-[2026-05-26 11:31:09]  Zero-Ops Post-Bootstrap Core Services Validation
-[2026-05-26 11:31:09]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
-[2026-05-26 11:31:10]  SpokePool:  spoke-pool-eu-prod-01
-[2026-05-26 11:31:10] ═══════════════════════════════════════════════════════
-[2026-05-26 11:31:10] 
-[2026-05-26 11:31:10] ══════════════════════════════════════════
-[2026-05-26 11:31:10]   PREFLIGHT
-[2026-05-26 11:31:10] ══════════════════════════════════════════
-[2026-05-26 11:31:12]   ✅ Hub cluster reachable: https://49.12.22.19:443
-[2026-05-26 11:31:13] ERROR: platform-ops namespace not found. Bootstrap may not have completed.
-[2026-05-26 11:31:33] ═══════════════════════════════════════════════════════
-[2026-05-26 11:31:33]  Zero-Ops Post-Bootstrap Core Services Validation
-[2026-05-26 11:31:34]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
-[2026-05-26 11:31:34]  SpokePool:  spoke-pool-eu-prod-01
-[2026-05-26 11:31:34] ═══════════════════════════════════════════════════════
-[2026-05-26 11:31:34] 
-[2026-05-26 11:31:34] ══════════════════════════════════════════
-[2026-05-26 11:31:35]   PREFLIGHT
-[2026-05-26 11:31:35] ══════════════════════════════════════════
-[2026-05-26 11:31:37]   ✅ Hub cluster reachable: https://49.12.22.19:443
-[2026-05-26 11:31:37] ERROR: platform-ops namespace not found. Bootstrap may not have completed.
+[2026-05-27 02:17:02] ═══════════════════════════════════════════════════════
+[2026-05-27 02:17:02]  Zero-Ops Post-Bootstrap Core Services Validation
+[2026-05-27 02:17:02]  Kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-27 02:17:03]  SpokePool:  spoke-pool-eu-prod-01
+[2026-05-27 02:17:03] ═══════════════════════════════════════════════════════
+[2026-05-27 02:17:03] 
+[2026-05-27 02:17:03] ══════════════════════════════════════════
+[2026-05-27 02:17:04]   PREFLIGHT
+[2026-05-27 02:17:04] ══════════════════════════════════════════
+[2026-05-27 02:17:05]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-27 02:17:06]   ✅ Core namespaces present
+[2026-05-27 02:17:06] 
+[2026-05-27 02:17:06] ══════════════════════════════════════════
+[2026-05-27 02:17:06]   1. PLATFORM NAMESPACES
+[2026-05-27 02:17:06] ══════════════════════════════════════════
+[2026-05-27 02:17:07]   ✅ Namespace platform-ops exists
+[2026-05-27 02:17:08]   ✅ Namespace platform-capi exists
+[2026-05-27 02:17:09]   ✅ Namespace platform-data exists
+[2026-05-27 02:17:10]   ✅ Namespace platform-identity exists
+[2026-05-27 02:17:10]   ✅ Namespace platform-billing exists
+[2026-05-27 02:17:11]   ✅ Namespace platform-messaging exists
+[2026-05-27 02:17:12]   ✅ Namespace platform-observability exists
+[2026-05-27 02:17:12]   ✅ Namespace platform-security exists
+[2026-05-27 02:17:13]   ✅ Namespace platform-edge exists
+[2026-05-27 02:17:14]   ✅ Namespace platform-controlplane exists
+[2026-05-27 02:17:15]   ✅ Namespace cert-manager exists
+[2026-05-27 02:17:15]   ✅ Namespace cnpg-system exists
+[2026-05-27 02:17:16]   ✅ Namespace kube-system exists
+[2026-05-27 02:17:17] 
+[2026-05-27 02:17:17] ══════════════════════════════════════════
+[2026-05-27 02:17:17]   2. ARGOCD
+[2026-05-27 02:17:17] ══════════════════════════════════════════
+[2026-05-27 02:17:19]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-27 02:17:20]   ✅ Deployment platform-ops/argocd-server: 1/1 available
+[2026-05-27 02:17:22]   ✅ Deployment platform-ops/argocd-repo-server: 1/1 available
+[2026-05-27 02:17:23]   ✅ Deployment platform-ops/argocd-applicationset-controller: 1/1 available
+[2026-05-27 02:17:25]   ✅ Deployment platform-ops/kyverno-admission-controller: 2/2 available
+[2026-05-27 02:17:26]   ✅ Deployment platform-ops/kyverno-background-controller: 1/1 available
+[2026-05-27 02:17:26] 
+[2026-05-27 02:17:26] ══════════════════════════════════════════
+[2026-05-27 02:17:27]   3. CROSSPLANE
+[2026-05-27 02:17:27] ══════════════════════════════════════════
+[2026-05-27 02:17:28]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-27 02:17:30]   ✅ Deployment platform-ops/crossplane: 1/1 available
+[2026-05-27 02:17:31]   ✅ Deployment platform-ops/crossplane-rbac-manager: 1/1 available
+[2026-05-27 02:17:31]   Checking Crossplane providers...
+[2026-05-27 02:17:32]   ✅ Provider provider-kubernetes: True
+[2026-05-27 02:17:33] 
+[2026-05-27 02:17:33] ══════════════════════════════════════════
+[2026-05-27 02:17:33]   4. EXTERNAL SECRETS OPERATOR
+[2026-05-27 02:17:33] ══════════════════════════════════════════
+[2026-05-27 02:17:35]   ✅ Namespace platform-ops: all 1 pod(s) healthy
+[2026-05-27 02:17:36]   ✅ ClusterSecretStore infisical-backend: Ready
+[2026-05-27 02:17:36] 
+[2026-05-27 02:17:36] ══════════════════════════════════════════
+[2026-05-27 02:17:36]   5. INFISICAL
+[2026-05-27 02:17:36] ══════════════════════════════════════════
+[2026-05-27 02:17:38]   ✅ Namespace platform-security: all 5 pod(s) healthy
+[2026-05-27 02:17:38]   ✅ ExternalSecret platform-data/hub-db-credentials: Ready
+[2026-05-27 02:17:39]   ✅ ExternalSecret platform-data/platform-db-app-credentials: Ready
+[2026-05-27 02:17:40]   ✅ ExternalSecret platform-data/control-plane-db-credentials: Ready
+[2026-05-27 02:17:41]   ✅ ExternalSecret platform-billing/openmeter-postgresql: Ready
+[2026-05-27 02:17:42]   ✅ ExternalSecret platform-billing/openmeter-clickhouse: Ready
+[2026-05-27 02:17:43]   ✅ ExternalSecret platform-billing/openmeter-svix: Ready
+[2026-05-27 02:17:43] 
+[2026-05-27 02:17:43] ══════════════════════════════════════════
+[2026-05-27 02:17:43]   6. DATABASES (CloudNative-PG)
+[2026-05-27 02:17:43] ══════════════════════════════════════════
+[2026-05-27 02:17:45]   ✅ Deployment cnpg-system/cloudnative-pg: 1/1 available
+[2026-05-27 02:17:46]   ✅ CNPG Cluster platform-db: Cluster in healthy state
+[2026-05-27 02:17:48]   ✅ Redis (platform-data): 1/1 Running
+[2026-05-27 02:17:50]   ✅ Namespace platform-data: all 6 pod(s) healthy
+[2026-05-27 02:17:50] 
+[2026-05-27 02:17:50] ══════════════════════════════════════════
+[2026-05-27 02:17:50]   7. CLICKHOUSE
+[2026-05-27 02:17:51] ══════════════════════════════════════════
+[2026-05-27 02:17:52]   ✅ ArgoCD app platform-clickhouse: Sync=Synced Health=Healthy
+[2026-05-27 02:17:53]   ✅ ClickHouseInstallation platform-clickhouse: Completed
+[2026-05-27 02:17:54]   ✅ ClickHouse services present (2 found)
+[2026-05-27 02:17:54] 
+[2026-05-27 02:17:54] ══════════════════════════════════════════
+[2026-05-27 02:17:54]   8. OPENMETER
+[2026-05-27 02:17:54] ══════════════════════════════════════════
+[2026-05-27 02:17:56]   ✅ ArgoCD app openmeter: Sync=Synced Health=Healthy
+[2026-05-27 02:17:57]   ✅ OpenMeter openmeter-api: 1/1
+[2026-05-27 02:17:59]   ✅ OpenMeter openmeter-balance-worker: 1/1
+[2026-05-27 02:18:00]   ✅ OpenMeter openmeter-billing-worker: 1/1
+[2026-05-27 02:18:02]   ✅ OpenMeter openmeter-notification-service: 1/1
+[2026-05-27 02:18:03]   ✅ OpenMeter openmeter-sink-worker: 1/1
+[2026-05-27 02:18:05]   ✅ OpenMeter openmeter-svix: 1/1
+[2026-05-27 02:18:06]   ✅ OpenMeter Kafka: 1/1 ready
+[2026-05-27 02:18:07] 
+[2026-05-27 02:18:07] ══════════════════════════════════════════
+[2026-05-27 02:18:07]   9. ORY IDENTITY STACK
+[2026-05-27 02:18:08] ══════════════════════════════════════════
+[2026-05-27 02:18:09]   ✅ ArgoCD app ory-kratos: Sync=Synced Health=Healthy
+[2026-05-27 02:18:10]   ✅ ArgoCD app ory-hydra: Sync=Synced Health=Healthy
+[2026-05-27 02:18:12]   ✅ ArgoCD app ory-keto: Sync=Synced Health=Healthy
+[2026-05-27 02:18:14]   ✅ Deployment platform-identity/ory-kratos: 1/1 available
+[2026-05-27 02:18:16]   ✅ Deployment platform-identity/ory-hydra: 1/1 available
+[2026-05-27 02:18:18]   ✅ Deployment platform-identity/ory-keto: 1/1 available
+[2026-05-27 02:18:19] 
+[2026-05-27 02:18:19] ══════════════════════════════════════════
+[2026-05-27 02:18:19]   10. NATS MESSAGING
+[2026-05-27 02:18:19] ══════════════════════════════════════════
+[2026-05-27 02:18:21]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Healthy
+[2026-05-27 02:18:21]   ✅ NATS pods running: 1
+[2026-05-27 02:18:22] 
+[2026-05-27 02:18:22] ══════════════════════════════════════════
+[2026-05-27 02:18:22]   11. HUB-OPERATOR
+[2026-05-27 02:18:22] ══════════════════════════════════════════
+[2026-05-27 02:18:23]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-27 02:18:25]   ✅ Deployment platform-ops/hub-operator: 2/2 available
+[2026-05-27 02:18:26]   ✅ Billing CRD meters.ops.nutgraf.in: installed
+[2026-05-27 02:18:26]   ✅ Billing CRD features.ops.nutgraf.in: installed
+[2026-05-27 02:18:27]   ✅ Billing CRD plans.ops.nutgraf.in: installed
+[2026-05-27 02:18:29]   ⚠️  HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-27 02:18:29] 
+[2026-05-27 02:18:29] ══════════════════════════════════════════
+[2026-05-27 02:18:29]   12. KUBE-SBT API
+[2026-05-27 02:18:29] ══════════════════════════════════════════
+[2026-05-27 02:18:31]   ✅ ArgoCD app kube-sbt-api: Sync=Synced Health=Healthy
+[2026-05-27 02:18:32]   ✅ Namespace platform-ops: all 2 pod(s) healthy
+[2026-05-27 02:18:33]   ✅ kube-sbt-api Service: ClusterIP=10.106.224.73
+[2026-05-27 02:18:33] 
+[2026-05-27 02:18:34] ══════════════════════════════════════════
+[2026-05-27 02:18:34]   13. INGRESS & CERT-MANAGER
+[2026-05-27 02:18:34] ══════════════════════════════════════════
+[2026-05-27 02:18:35]   ✅ ArgoCD app ingress-nginx: Sync=Synced Health=Healthy
+[2026-05-27 02:18:37]   ✅ Namespace cert-manager: all 3 pod(s) healthy
+[2026-05-27 02:18:39]   ✅ Deployment cert-manager/cert-manager: 1/1 available
+[2026-05-27 02:18:40]   ✅ Deployment cert-manager/cert-manager-webhook: 1/1 available
+[2026-05-27 02:18:41]   ✅ Ingress pods (platform-edge): 3 running
+[2026-05-27 02:18:41] 
+[2026-05-27 02:18:41] ══════════════════════════════════════════
+[2026-05-27 02:18:41]   14. SPOKE POOL & CAPI
+[2026-05-27 02:18:42] ══════════════════════════════════════════
+[2026-05-27 02:18:43]   ✅ Deployment platform-capi/capi-operator-controller-manager: 1/1 available
+[2026-05-27 02:18:44]   ✅ CAPI CoreProvider/cluster-api: Ready
+[2026-05-27 02:18:45]   ✅ CAPI BootstrapProvider/kubeadm: Ready
+[2026-05-27 02:18:45]   ✅ CAPI ControlPlaneProvider/kubeadm: Ready
+[2026-05-27 02:18:46]   ✅ CAPI InfrastructureProvider/hetzner: Ready
+[2026-05-27 02:18:48]   ✅ SpokePool spoke-pool-eu-prod-01: Ready+Synced
+[2026-05-27 02:18:49]   ✅ CAPI Cluster spoke-pool-eu-prod-01: Provisioned
+[2026-05-27 02:18:50]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-alloy-cert-dist: Ready+Synced
+[2026-05-27 02:18:51]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-nats-cert-dist: Ready+Synced
+[2026-05-27 02:18:53]   ✅ Crossplane object platform-ops/spoke-pool-eu-prod-01-argocd-cert-dist: Ready+Synced
+[2026-05-27 02:18:53] 
+[2026-05-27 02:18:53] ══════════════════════════════════════════
+[2026-05-27 02:18:54]   15. CRITICAL ARGOCD APPS
+[2026-05-27 02:18:54] ══════════════════════════════════════════
+[2026-05-27 02:18:55]   ✅ ArgoCD app platform-namespaces: Sync=Synced Health=Healthy
+[2026-05-27 02:18:56]   ✅ ArgoCD app 02-platform-data: Sync=Synced Health=Healthy
+[2026-05-27 02:18:58]   ✅ ArgoCD app platform-external-secrets: Sync=Synced Health=Healthy
+[2026-05-27 02:18:59]   ✅ ArgoCD app platform-crossplane: Sync=Synced Health=Healthy
+[2026-05-27 02:19:01]   ✅ ArgoCD app platform-crossplane-providers: Sync=Synced Health=Healthy
+[2026-05-27 02:19:02]   ✅ ArgoCD app platform-cluster-secret-store: Sync=Synced Health=Healthy
+[2026-05-27 02:19:04]   ✅ ArgoCD app platform-cloudnative-pg: Sync=Synced Health=Healthy
+[2026-05-27 02:19:05]   ✅ ArgoCD app platform-database: Sync=Synced Health=Healthy
+[2026-05-27 02:19:07]   ✅ ArgoCD app platform-identity: Sync=Synced Health=Healthy
+[2026-05-27 02:19:08]   ✅ ArgoCD app hub-environment: Sync=Synced Health=Healthy
+[2026-05-27 02:19:10]   ✅ ArgoCD app hub-operator: Sync=Synced Health=Healthy
+[2026-05-27 02:19:11]   ✅ ArgoCD app platform-nats: Sync=Synced Health=Healthy
+[2026-05-27 02:19:12]   ✅ ArgoCD app platform-redis: Sync=Synced Health=Healthy
+[2026-05-27 02:19:14]   ✅ ArgoCD app platform-security-certificates: Sync=Synced Health=Healthy
+[2026-05-27 02:19:15]   ✅ ArgoCD app 01-platform-infra: Sync=Synced Health=Healthy
+[2026-05-27 02:19:17]   ⚠️  ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-27 02:19:19]   ✅ ArgoCD app platform-kyverno: Sync=Synced Health=Healthy
+[2026-05-27 02:19:20]   ✅ ArgoCD app platform-clickhouse: Sync=Synced Health=Healthy
+[2026-05-27 02:19:22]   ⚠️  ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-27 02:19:24]   ✅ ArgoCD app openmeter: Sync=Synced Health=Healthy
+[2026-05-27 02:19:25]   ✅ ArgoCD app ory-kratos: Sync=Synced Health=Healthy
+[2026-05-27 02:19:27]   ✅ ArgoCD app ory-hydra: Sync=Synced Health=Healthy
+[2026-05-27 02:19:28]   ✅ ArgoCD app ory-keto: Sync=Synced Health=Healthy
+[2026-05-27 02:19:29]   ✅ ArgoCD app platform-spire: Sync=Synced Health=Healthy
+[2026-05-27 02:19:31]   ✅ ArgoCD app platform-infisical-prerequisites: Sync=Synced Health=Healthy
+[2026-05-27 02:19:31] 
+[2026-05-27 02:19:31] ══════════════════════════════════════════
+[2026-05-27 02:19:31]   16. OBSERVABILITY
+[2026-05-27 02:19:31] ══════════════════════════════════════════
+[2026-05-27 02:19:33]   ✅ ArgoCD app victoria-metrics-cluster: Sync=Synced Health=Healthy
+[2026-05-27 02:19:34]   ✅ ArgoCD app victoria-metrics-alerts: Sync=Synced Health=Healthy
+[2026-05-27 02:19:36]   ✅ ArgoCD app grafana-alloy: Sync=Synced Health=Healthy
+[2026-05-27 02:19:37]   ✅ Observability pods (platform-observability): 7 running
+[2026-05-27 02:19:37] 
+[2026-05-27 02:19:38] ╔══════════════════════════════════════════╗
+[2026-05-27 02:19:38] ║    POST-BOOTSTRAP VALIDATION SUMMARY     ║
+[2026-05-27 02:19:38] ╠══════════════════════════════════════════╣
+[2026-05-27 02:19:38] ║  ✅ PASSED : 107
+[2026-05-27 02:19:38] ║  ❌ FAILED : 0
+[2026-05-27 02:19:38] ║  ⚠️  WARNED : 3
+[2026-05-27 02:19:38] ╠══════════════════════════════════════════╣
+[2026-05-27 02:19:39] ║  WARNINGS:
+[2026-05-27 02:19:39] ║    ! HubEnvironment hub-production: Ready= (may still reconciling)
+[2026-05-27 02:19:39] ║    ! ArgoCD app 03-platform-services: Sync=OutOfSync Health=Healthy (OutOfSync: ApplicationSet/tenant-spoke-provisioning ApplicationSet/tenant-xr-provisioning )
+[2026-05-27 02:19:39] ║    ! ArgoCD app clickhouse-operator: Sync=OutOfSync Health=Healthy (OutOfSync: Deployment/clickhouse-operator-altinity-clickhouse-operator )
+[2026-05-27 02:19:39] ╠══════════════════════════════════════════╣
+[2026-05-27 02:19:39] ║  🎉 ALL CRITICAL CHECKS PASSED           ║
+[2026-05-27 02:19:39] ╚══════════════════════════════════════════╝
+[2026-05-27 02:19:40]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/post-bootstrap-validate.log

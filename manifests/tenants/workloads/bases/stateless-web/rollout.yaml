@@ -1,0 +1,93 @@
+# ADR-021 Blockers 1, 2, 5, 6, 9 / ADR-022: Hardened Rollout base.
+# All security, HA, and observability constraints are baked in here.
+# Tenants overlay: name, app label, image digest, env vars, ports.
+# Tenants CANNOT weaken: securityContext, topology spread, resource limits,
+# canary strategy, or probes — Kyverno enforces these at admission.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: workload
+spec:
+  replicas: 2
+  strategy:
+    canary:
+      steps:
+        - setWeight: 20
+        - pause:
+            duration: 5m
+        - setWeight: 50
+        - pause:
+            duration: 5m
+  selector:
+    matchLabels:
+      app: workload
+  template:
+    metadata:
+      labels:
+        app: workload
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      # Dedicated SA — name resolved after tenant namePrefix is applied.
+      serviceAccountName: workload-sa
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      # ADR-021 Blocker 9: Topology spread prevents all replicas on one node.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: workload
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: workload
+      # ADR-021 Blocker 5: Pod-level security context — non-root, seccomp.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # Tenant overlays this with their immutable digest via images: block.
+          image: placeholder
+          # ADR-021 Blocker 5: Container-level security context.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          # ADR-021 Blocker 8: Resource limits — tenants may raise via patch
+          # but cannot remove them (Kyverno enforces presence of limits).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

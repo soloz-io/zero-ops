@@ -1,0 +1,47 @@
+# ADR-021 Blocker 3 / ADR-022: Zero-trust CiliumNetworkPolicy baked into base.
+# Default-deny with explicit allowlist. Tenants add FQDN entries via patch
+# in their fleet-registry overlay — they cannot remove the default-deny posture.
+# The endpointSelector label (app: workload) is overridden by the tenant's
+# commonLabels in their kustomization, scoping the policy to their workload.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: strict-egress-contract
+spec:
+  endpointSelector:
+    matchLabels:
+      app: workload
+
+  egress:
+    # 1. DNS — required for all FQDN-based rules.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # 2. Internal CNPG database on the spoke.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform-data
+            k8s:cnpg.io/cluster: shared-cnpg
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+
+    # 3. Platform identity endpoints — present in every tenant workload.
+    #    Tenant overlays add their own FQDN entries on top of these.
+    - toFQDNs:
+        - matchName: "auth.nutgraf.in"
+        - matchName: "console.nutgraf.in"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

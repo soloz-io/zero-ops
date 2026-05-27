@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ADR-022: Platform-governed base for stateless web workloads.
+# Tenants import this via remote resource reference in fleet-registry.
+# This base hardcodes all enterprise constraints — tenants cannot weaken them.
+# Tenants overlay ONLY: image digest, env vars, name prefix, app labels.
+resources:
+  - service-account.yaml
+  - rollout.yaml
+  - service.yaml
+  - network-policy.yaml

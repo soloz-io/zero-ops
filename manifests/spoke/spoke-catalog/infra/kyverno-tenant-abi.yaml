@@ -1,0 +1,71 @@
+---
+# ADR-021: Kyverno Application Binary Interface (ABI) enforcement for tenant workloads.
+# These policies are cluster-scoped and apply to all tenant-* namespaces on the spoke.
+# They enforce the platform contract that all tenant workloads must satisfy.
+# validationFailureAction: Enforce means non-compliant resources are rejected at admission.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-tenant-abi
+  labels:
+    app.kubernetes.io/component: tenant-governance
+    app.kubernetes.io/managed-by: argocd
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+
+    # Rule 1: All Deployments, Jobs, and Rollouts in tenant namespaces must carry
+    # tenant-id and cost-center labels for attribution and chargeback.
+    - name: require-cost-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - Job
+                - argoproj.io/Rollout
+              namespaces:
+                - "tenant-*"
+      validate:
+        message: "tenant-id and cost-center labels are required on all tenant workloads"
+        pattern:
+          metadata:
+            labels:
+              tenant-id: "?*"
+              cost-center: "?*"
+
+    # Rule 2: All Pods in tenant namespaces must use immutable image digests.
+    # Tags like :latest or :main are mutable and violate supply chain integrity.
+    - name: require-image-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - "tenant-*"
+      validate:
+        message: "Container images must reference immutable sha256 digests, not mutable tags"
+        pattern:
+          spec:
+            containers:
+              - image: "*@sha256:*"
+
+    # Rule 3: All Pods in tenant namespaces must run as non-root.
+    # This is a defence-in-depth control complementing the PSA restricted label
+    # on the namespace — both must pass independently.
+    - name: require-non-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - "tenant-*"
+      validate:
+        message: "runAsNonRoot: true is required in pod securityContext"
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true

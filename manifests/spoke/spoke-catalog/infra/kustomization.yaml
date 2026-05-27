@@ -13,3 +13,4 @@ resources:
   - grafana-alloy.yaml
   - nats-leaf-node.yaml
   - spoke-controller.yaml
+  - kyverno-tenant-abi.yaml

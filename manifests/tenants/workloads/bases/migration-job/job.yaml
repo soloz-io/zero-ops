@@ -1,0 +1,75 @@
+# ADR-021 Blockers 5, 8, 11, 12 / ADR-022: Hardened Atlas migration Job base.
+# Tenants overlay: ConfigMap name (via volumes patch), secret name, SQL files.
+# All security, resource, hook, and deadline constraints are baked in here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: custom-schema-migration
+  labels:
+    workload-class: migration
+  annotations:
+    # ADR-021 Blocker 11: PreSync hook — migrations complete before Deployments.
+    # BeforeHookCreation makes the hook idempotent across ArgoCD sync cycles.
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  # ADR-021 Blocker 8: Hard deadline — a stuck migration cannot block the sync
+  # indefinitely or exhaust cluster resources.
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: migration
+    spec:
+      serviceAccountName: migration-sa
+      restartPolicy: Never
+      # ADR-021 Blocker 5: Pod-level security context.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: atlas-migrate
+          # Pinned release — not :latest. Kyverno digest policy enforced at admission.
+          image: arigaio/atlas:0.21.0
+          args:
+            - migrate
+            - apply
+            - --dir
+            - file:///migrations
+            - --url
+            - $(DATABASE_URL)
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  # Tenant overlays this secret name via patch.
+                  name: pooler-app
+                  key: url
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+          # ADR-021 Blocker 5: Container-level security context.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # ADR-021 Blocker 8: Resource limits — noisy-neighbour prevention.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: migrations
+          configMap:
+            # Tenant overlays this configMap name via patch.
+            name: custom-migrations

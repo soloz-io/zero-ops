@@ -3135,3 +3135,864 @@
 [2026-05-25 20:49:43]   ✓ k8-secrets/hetzner/token found
 [2026-05-25 20:49:43]   ✓ k8-secrets/github/github-pat-token found
 [2026-05-25 20:49:45] Script interrupted
+[2026-05-26 11:45:07] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-26 11:45:07] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-26 11:45:07] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-26 11:45:07] Checking prerequisites...
+[2026-05-26 11:45:07]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-26 11:45:08]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-26 11:45:08]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-26 11:45:08]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-26 11:45:08]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-26 11:45:09]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-26 11:45:09]   ✓ hub binary found
+[2026-05-26 11:45:09]   ✓ k8-secrets/hetzner/token found
+[2026-05-26 11:45:09]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-26 11:45:13]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-26 11:45:13] Prerequisites check passed
+[2026-05-26 11:45:13] Step 1: Bootstrapping Hub Cluster...
+[2026-05-26 11:45:14] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-26 11:57:41] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-26 11:57:41] Hub cluster bootstrap completed
+[2026-05-26 11:58:12] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-26 11:58:12] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-26 11:58:18] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-26 11:58:23] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-26 11:58:23] Attempting to use existing access keys...
+[2026-05-26 11:58:26] Existing keys may be invalid, attempting to recreate...
+[2026-05-26 11:58:26] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-26 11:58:35] All existing access keys deleted
+[2026-05-26 11:58:35] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-26 11:58:38] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-26 11:58:38] AWS Secrets Manager configuration completed
+[2026-05-26 11:58:54] Step 3: Configuring GitHub Access...
+[2026-05-26 11:58:54] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-26 11:58:56] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-26 11:58:56] GitHub access configuration completed
+[2026-05-26 11:59:11] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-26 12:04:48] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-26 12:04:50] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-26 12:04:51] ✅ platform-data namespace created by ArgoCD
+[2026-05-26 12:05:01] Step 5: Initializing bootstrap secrets...
+[2026-05-26 12:05:01] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-26 12:10:04] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-26 12:10:05] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-26 12:10:16] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-26 12:10:27] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-26 12:10:38] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-26 12:10:49] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-26 12:11:00] Waiting for Infisical pod to be ready (attempt 6/180, ready: False)
+[2026-05-26 12:11:11] Waiting for Infisical pod to be ready (attempt 7/180, ready: False)
+[2026-05-26 12:11:22] Waiting for Infisical pod to be ready (attempt 8/180, ready: False)
+[2026-05-26 12:11:33] Waiting for Infisical pod to be ready (attempt 9/180, ready: False)
+[2026-05-26 12:11:44] Waiting for Infisical pod to be ready (attempt 10/180, ready: False)
+[2026-05-26 12:11:55] Waiting for Infisical pod to be ready (attempt 11/180, ready: False)
+[2026-05-26 12:12:06] Waiting for Infisical pod to be ready (attempt 12/180, ready: False)
+[2026-05-26 12:12:17] Waiting for Infisical pod to be ready (attempt 13/180, ready: False)
+[2026-05-26 12:12:28] Waiting for Infisical pod to be ready (attempt 14/180, ready: False)
+[2026-05-26 12:12:39] Waiting for Infisical pod to be ready (attempt 15/180, ready: False)
+[2026-05-26 12:12:50] Waiting for Infisical pod to be ready (attempt 16/180, ready: False)
+[2026-05-26 12:13:01] Waiting for Infisical pod to be ready (attempt 17/180, ready: False)
+[2026-05-26 12:13:12] Waiting for Infisical pod to be ready (attempt 18/180, ready: False)
+[2026-05-26 12:13:23] Waiting for Infisical pod to be ready (attempt 19/180, ready: False)
+[2026-05-26 12:13:35] Waiting for Infisical pod to be ready (attempt 20/180, ready: False)
+[2026-05-26 12:13:46] Waiting for Infisical pod to be ready (attempt 21/180, ready: False)
+[2026-05-26 12:13:57] Waiting for Infisical pod to be ready (attempt 22/180, ready: False)
+[2026-05-26 12:14:08] Waiting for Infisical pod to be ready (attempt 23/180, ready: False)
+[2026-05-26 12:14:19] Waiting for Infisical pod to be ready (attempt 24/180, ready: False)
+[2026-05-26 12:14:30] Waiting for Infisical pod to be ready (attempt 25/180, ready: False)
+[2026-05-26 12:14:41] Waiting for Infisical pod to be ready (attempt 26/180, ready: False)
+[2026-05-26 12:14:52] Waiting for Infisical pod to be ready (attempt 27/180, ready: False)
+[2026-05-26 12:15:03] Waiting for Infisical pod to be ready (attempt 28/180, ready: False)
+[2026-05-26 12:15:14] Waiting for Infisical pod to be ready (attempt 29/180, ready: False)
+[2026-05-26 12:15:26] Waiting for Infisical pod to be ready (attempt 30/180, ready: False)
+[2026-05-26 12:15:39] Waiting for Infisical pod to be ready (attempt 31/180, ready: False)
+[2026-05-26 12:15:50] Waiting for Infisical pod to be ready (attempt 32/180, ready: False)
+[2026-05-26 12:16:02] Waiting for Infisical pod to be ready (attempt 33/180, ready: False)
+[2026-05-26 12:16:13] Waiting for Infisical pod to be ready (attempt 34/180, ready: False)
+[2026-05-26 12:16:24] Waiting for Infisical pod to be ready (attempt 35/180, ready: False)
+[2026-05-26 12:16:35] Waiting for Infisical pod to be ready (attempt 36/180, ready: False)
+[2026-05-26 12:16:46] Waiting for Infisical pod to be ready (attempt 37/180, ready: False)
+[2026-05-26 12:16:57] Waiting for Infisical pod to be ready (attempt 38/180, ready: False)
+[2026-05-26 12:17:07] Waiting for Infisical pod to be ready (attempt 39/180, ready: False)
+[2026-05-26 12:17:18] Waiting for Infisical pod to be ready (attempt 40/180, ready: False)
+[2026-05-26 12:17:29] Waiting for Infisical pod to be ready (attempt 41/180, ready: False)
+[2026-05-26 12:17:40] Waiting for Infisical pod to be ready (attempt 42/180, ready: False)
+[2026-05-26 12:17:51] Waiting for Infisical pod to be ready (attempt 43/180, ready: False)
+[2026-05-26 12:18:02] Waiting for Infisical pod to be ready (attempt 44/180, ready: False)
+[2026-05-26 12:18:13] Waiting for Infisical pod to be ready (attempt 45/180, ready: False)
+[2026-05-26 12:18:24] Waiting for Infisical pod to be ready (attempt 46/180, ready: False)
+[2026-05-26 12:18:35] Waiting for Infisical pod to be ready (attempt 47/180, ready: False)
+[2026-05-26 12:18:46] Waiting for Infisical pod to be ready (attempt 48/180, ready: False)
+[2026-05-26 12:18:57] Waiting for Infisical pod to be ready (attempt 49/180, ready: False)
+[2026-05-26 12:19:08] Waiting for Infisical pod to be ready (attempt 50/180, ready: False)
+[2026-05-26 12:19:19] Waiting for Infisical pod to be ready (attempt 51/180, ready: False)
+[2026-05-26 12:19:30] Waiting for Infisical pod to be ready (attempt 52/180, ready: False)
+[2026-05-26 12:19:41] Waiting for Infisical pod to be ready (attempt 53/180, ready: False)
+[2026-05-26 12:19:52] Waiting for Infisical pod to be ready (attempt 54/180, ready: False)
+[2026-05-26 12:20:03] Waiting for Infisical pod to be ready (attempt 55/180, ready: False)
+[2026-05-26 12:20:14] Waiting for Infisical pod to be ready (attempt 56/180, ready: False)
+[2026-05-26 12:20:25] Waiting for Infisical pod to be ready (attempt 57/180, ready: False)
+[2026-05-26 12:20:37] Waiting for Infisical pod to be ready (attempt 58/180, ready: False)
+[2026-05-26 12:20:48] Waiting for Infisical pod to be ready (attempt 59/180, ready: False)
+[2026-05-26 12:20:59] Waiting for Infisical pod to be ready (attempt 60/180, ready: False)
+[2026-05-26 12:21:10] Waiting for Infisical pod to be ready (attempt 61/180, ready: False)
+[2026-05-26 12:21:21] Waiting for Infisical pod to be ready (attempt 62/180, ready: False)
+[2026-05-26 12:21:32] Waiting for Infisical pod to be ready (attempt 63/180, ready: False)
+[2026-05-26 12:21:43] Waiting for Infisical pod to be ready (attempt 64/180, ready: False)
+[2026-05-26 12:21:54] Waiting for Infisical pod to be ready (attempt 65/180, ready: False)
+[2026-05-26 12:22:05] Waiting for Infisical pod to be ready (attempt 66/180, ready: False)
+[2026-05-26 12:22:16] Waiting for Infisical pod to be ready (attempt 67/180, ready: False)
+[2026-05-26 12:22:27] Waiting for Infisical pod to be ready (attempt 68/180, ready: False)
+[2026-05-26 12:22:38] Waiting for Infisical pod to be ready (attempt 69/180, ready: False)
+[2026-05-26 12:22:49] Waiting for Infisical pod to be ready (attempt 70/180, ready: False)
+[2026-05-26 12:23:01] Waiting for Infisical pod to be ready (attempt 71/180, ready: False)
+[2026-05-26 12:23:12] Waiting for Infisical pod to be ready (attempt 72/180, ready: False)
+[2026-05-26 12:23:23] Waiting for Infisical pod to be ready (attempt 73/180, ready: False)
+[2026-05-26 12:23:35] Waiting for Infisical pod to be ready (attempt 74/180, ready: False)
+[2026-05-26 12:23:46] Waiting for Infisical pod to be ready (attempt 75/180, ready: False)
+[2026-05-26 12:23:57] Waiting for Infisical pod to be ready (attempt 76/180, ready: False)
+[2026-05-26 12:24:10] Waiting for Infisical pod to be ready (attempt 77/180, ready: False)
+[2026-05-26 12:24:21] Waiting for Infisical pod to be ready (attempt 78/180, ready: False)
+[2026-05-26 12:24:32] Waiting for Infisical pod to be ready (attempt 79/180, ready: False)
+[2026-05-26 12:24:43] Waiting for Infisical pod to be ready (attempt 80/180, ready: False)
+[2026-05-26 12:24:54] Waiting for Infisical pod to be ready (attempt 81/180, ready: False)
+[2026-05-26 12:25:05] Waiting for Infisical pod to be ready (attempt 82/180, ready: False)
+[2026-05-26 12:25:16] Waiting for Infisical pod to be ready (attempt 83/180, ready: False)
+[2026-05-26 12:25:27] Waiting for Infisical pod to be ready (attempt 84/180, ready: False)
+[2026-05-26 12:25:38] Waiting for Infisical pod to be ready (attempt 85/180, ready: False)
+[2026-05-26 12:25:49] Waiting for Infisical pod to be ready (attempt 86/180, ready: False)
+[2026-05-26 12:25:59] Waiting for Infisical pod to be ready (attempt 87/180, ready: False)
+[2026-05-26 12:26:10] Waiting for Infisical pod to be ready (attempt 88/180, ready: False)
+[2026-05-26 12:26:21] Waiting for Infisical pod to be ready (attempt 89/180, ready: False)
+[2026-05-26 12:26:32] Waiting for Infisical pod to be ready (attempt 90/180, ready: False)
+[2026-05-26 12:26:43] Waiting for Infisical pod to be ready (attempt 91/180, ready: False)
+[2026-05-26 12:26:54] Waiting for Infisical pod to be ready (attempt 92/180, ready: False)
+[2026-05-26 12:27:06] Waiting for Infisical pod to be ready (attempt 93/180, ready: False)
+[2026-05-26 12:27:16] Waiting for Infisical pod to be ready (attempt 94/180, ready: False)
+[2026-05-26 12:27:27] Waiting for Infisical pod to be ready (attempt 95/180, ready: False)
+[2026-05-26 12:27:38] Waiting for Infisical pod to be ready (attempt 96/180, ready: False)
+[2026-05-26 12:27:49] Waiting for Infisical pod to be ready (attempt 97/180, ready: False)
+[2026-05-26 12:28:00] Waiting for Infisical pod to be ready (attempt 98/180, ready: False)
+[2026-05-26 12:28:11] Waiting for Infisical pod to be ready (attempt 99/180, ready: False)
+[2026-05-26 12:28:22] Waiting for Infisical pod to be ready (attempt 100/180, ready: False)
+[2026-05-26 12:28:33] Waiting for Infisical pod to be ready (attempt 101/180, ready: False)
+[2026-05-26 12:28:44] Waiting for Infisical pod to be ready (attempt 102/180, ready: False)
+[2026-05-26 12:28:55] Waiting for Infisical pod to be ready (attempt 103/180, ready: False)
+[2026-05-26 12:29:06] Waiting for Infisical pod to be ready (attempt 104/180, ready: False)
+[2026-05-26 12:29:17] Waiting for Infisical pod to be ready (attempt 105/180, ready: False)
+[2026-05-26 12:29:28] Waiting for Infisical pod to be ready (attempt 106/180, ready: False)
+[2026-05-26 12:29:39] Waiting for Infisical pod to be ready (attempt 107/180, ready: False)
+[2026-05-26 12:29:50] Waiting for Infisical pod to be ready (attempt 108/180, ready: False)
+[2026-05-26 12:30:01] Waiting for Infisical pod to be ready (attempt 109/180, ready: False)
+[2026-05-26 12:30:12] Waiting for Infisical pod to be ready (attempt 110/180, ready: False)
+[2026-05-26 12:30:23] Waiting for Infisical pod to be ready (attempt 111/180, ready: False)
+[2026-05-26 12:30:35] Waiting for Infisical pod to be ready (attempt 112/180, ready: False)
+[2026-05-26 12:30:46] Waiting for Infisical pod to be ready (attempt 113/180, ready: False)
+[2026-05-26 12:30:57] Waiting for Infisical pod to be ready (attempt 114/180, ready: False)
+[2026-05-26 12:31:08] Waiting for Infisical pod to be ready (attempt 115/180, ready: False)
+[2026-05-26 12:31:18] Waiting for Infisical pod to be ready (attempt 116/180, ready: False)
+[2026-05-26 12:31:30] Waiting for Infisical pod to be ready (attempt 117/180, ready: False)
+[2026-05-26 12:31:41] Waiting for Infisical pod to be ready (attempt 118/180, ready: False)
+[2026-05-26 12:31:52] Waiting for Infisical pod to be ready (attempt 119/180, ready: False)
+[2026-05-26 12:32:03] Waiting for Infisical pod to be ready (attempt 120/180, ready: False)
+[2026-05-26 12:32:14] Waiting for Infisical pod to be ready (attempt 121/180, ready: False)
+[2026-05-26 12:32:25] Waiting for Infisical pod to be ready (attempt 122/180, ready: False)
+[2026-05-26 12:32:36] Waiting for Infisical pod to be ready (attempt 123/180, ready: False)
+[2026-05-26 12:32:47] Waiting for Infisical pod to be ready (attempt 124/180, ready: False)
+[2026-05-26 12:32:57] Waiting for Infisical pod to be ready (attempt 125/180, ready: False)
+[2026-05-26 12:33:08] Waiting for Infisical pod to be ready (attempt 126/180, ready: False)
+[2026-05-26 12:33:20] Waiting for Infisical pod to be ready (attempt 127/180, ready: False)
+[2026-05-26 12:33:31] Waiting for Infisical pod to be ready (attempt 128/180, ready: False)
+[2026-05-26 12:33:42] Waiting for Infisical pod to be ready (attempt 129/180, ready: False)
+[2026-05-26 12:33:53] Waiting for Infisical pod to be ready (attempt 130/180, ready: False)
+[2026-05-26 12:34:04] Waiting for Infisical pod to be ready (attempt 131/180, ready: False)
+[2026-05-26 12:34:15] Waiting for Infisical pod to be ready (attempt 132/180, ready: False)
+[2026-05-26 12:34:26] Waiting for Infisical pod to be ready (attempt 133/180, ready: False)
+[2026-05-26 12:34:37] Waiting for Infisical pod to be ready (attempt 134/180, ready: False)
+[2026-05-26 12:34:48] Waiting for Infisical pod to be ready (attempt 135/180, ready: False)
+[2026-05-26 12:34:59] Waiting for Infisical pod to be ready (attempt 136/180, ready: False)
+[2026-05-26 12:35:10] Waiting for Infisical pod to be ready (attempt 137/180, ready: False)
+[2026-05-26 12:35:21] Waiting for Infisical pod to be ready (attempt 138/180, ready: False)
+[2026-05-26 12:35:32] Waiting for Infisical pod to be ready (attempt 139/180, ready: False)
+[2026-05-26 12:35:43] Waiting for Infisical pod to be ready (attempt 140/180, ready: False)
+[2026-05-26 12:35:54] Waiting for Infisical pod to be ready (attempt 141/180, ready: False)
+[2026-05-26 12:36:05] Waiting for Infisical pod to be ready (attempt 142/180, ready: False)
+[2026-05-26 12:36:16] Waiting for Infisical pod to be ready (attempt 143/180, ready: False)
+[2026-05-26 12:36:27] Waiting for Infisical pod to be ready (attempt 144/180, ready: False)
+[2026-05-26 12:36:38] Waiting for Infisical pod to be ready (attempt 145/180, ready: False)
+[2026-05-26 12:36:49] Waiting for Infisical pod to be ready (attempt 146/180, ready: False)
+[2026-05-26 12:37:00] Waiting for Infisical pod to be ready (attempt 147/180, ready: False)
+[2026-05-26 12:37:11] Waiting for Infisical pod to be ready (attempt 148/180, ready: False)
+[2026-05-26 12:37:21] Waiting for Infisical pod to be ready (attempt 149/180, ready: False)
+[2026-05-26 12:37:32] Waiting for Infisical pod to be ready (attempt 150/180, ready: False)
+[2026-05-26 12:37:43] Waiting for Infisical pod to be ready (attempt 151/180, ready: False)
+[2026-05-26 12:37:54] Waiting for Infisical pod to be ready (attempt 152/180, ready: False)
+[2026-05-26 12:38:05] Waiting for Infisical pod to be ready (attempt 153/180, ready: False)
+[2026-05-26 12:38:16] Waiting for Infisical pod to be ready (attempt 154/180, ready: False)
+[2026-05-26 12:38:27] Waiting for Infisical pod to be ready (attempt 155/180, ready: False)
+[2026-05-26 12:38:39] Waiting for Infisical pod to be ready (attempt 156/180, ready: False)
+[2026-05-26 12:38:50] Waiting for Infisical pod to be ready (attempt 157/180, ready: False)
+[2026-05-26 12:39:01] Waiting for Infisical pod to be ready (attempt 158/180, ready: False)
+[2026-05-26 12:39:12] Waiting for Infisical pod to be ready (attempt 159/180, ready: False)
+[2026-05-26 12:39:23] Waiting for Infisical pod to be ready (attempt 160/180, ready: False)
+[2026-05-26 12:39:34] Waiting for Infisical pod to be ready (attempt 161/180, ready: False)
+[2026-05-26 12:39:45] Waiting for Infisical pod to be ready (attempt 162/180, ready: False)
+[2026-05-26 12:39:56] Waiting for Infisical pod to be ready (attempt 163/180, ready: False)
+[2026-05-26 12:40:07] Waiting for Infisical pod to be ready (attempt 164/180, ready: False)
+[2026-05-26 12:40:19] Waiting for Infisical pod to be ready (attempt 165/180, ready: False)
+[2026-05-26 12:40:30] Waiting for Infisical pod to be ready (attempt 166/180, ready: False)
+[2026-05-26 12:40:41] Waiting for Infisical pod to be ready (attempt 167/180, ready: False)
+[2026-05-26 12:40:52] Waiting for Infisical pod to be ready (attempt 168/180, ready: False)
+[2026-05-26 12:41:03] Waiting for Infisical pod to be ready (attempt 169/180, ready: False)
+[2026-05-26 12:41:14] Waiting for Infisical pod to be ready (attempt 170/180, ready: False)
+[2026-05-26 12:41:25] Waiting for Infisical pod to be ready (attempt 171/180, ready: False)
+[2026-05-26 12:41:37] Waiting for Infisical pod to be ready (attempt 172/180, ready: False)
+[2026-05-26 12:41:48] Waiting for Infisical pod to be ready (attempt 173/180, ready: False)
+[2026-05-26 12:41:59] Waiting for Infisical pod to be ready (attempt 174/180, ready: False)
+[2026-05-26 12:42:10] Waiting for Infisical pod to be ready (attempt 175/180, ready: False)
+[2026-05-26 12:42:21] Waiting for Infisical pod to be ready (attempt 176/180, ready: False)
+[2026-05-26 12:42:32] Waiting for Infisical pod to be ready (attempt 177/180, ready: False)
+[2026-05-26 12:42:43] Waiting for Infisical pod to be ready (attempt 178/180, ready: False)
+[2026-05-26 12:42:54] Waiting for Infisical pod to be ready (attempt 179/180, ready: False)
+[2026-05-26 12:43:05] Waiting for Infisical pod to be ready (attempt 180/180, ready: False)
+[2026-05-26 12:43:15] ERROR: Infisical pod did not become ready within expected time
+[2026-05-26 12:59:52] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-26 12:59:52] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-26 12:59:52] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-26 12:59:52] Checking prerequisites...
+[2026-05-26 12:59:53]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-26 12:59:53]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-26 12:59:53]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-26 12:59:53]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-26 12:59:54]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-26 12:59:54]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-26 12:59:54]   ✓ hub binary found
+[2026-05-26 12:59:54]   ✓ k8-secrets/hetzner/token found
+[2026-05-26 12:59:55]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-26 12:59:59]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-26 12:59:59] Prerequisites check passed
+[2026-05-26 12:59:59] Step 1: Bootstrapping Hub Cluster...
+[2026-05-26 13:00:00] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-26 13:13:22] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-26 13:13:22] Hub cluster bootstrap completed
+[2026-05-26 13:13:53] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-26 13:13:53] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-26 13:13:58] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-26 13:14:03] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-26 13:14:03] Attempting to use existing access keys...
+[2026-05-26 13:14:06] Existing keys may be invalid, attempting to recreate...
+[2026-05-26 13:14:06] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-26 13:14:14] All existing access keys deleted
+[2026-05-26 13:14:14] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-26 13:14:17] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-26 13:14:17] AWS Secrets Manager configuration completed
+[2026-05-26 13:14:33] Step 3: Configuring GitHub Access...
+[2026-05-26 13:14:33] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-26 13:14:34] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-26 13:14:35] GitHub access configuration completed
+[2026-05-26 13:14:50] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-26 13:19:05] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-26 13:19:07] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-26 13:19:07] ✅ platform-data namespace created by ArgoCD
+[2026-05-26 13:19:17] Step 5: Initializing bootstrap secrets...
+[2026-05-26 13:19:17] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-26 13:24:27] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-26 13:24:28] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-26 13:24:39] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-26 13:24:50] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-26 13:25:01] Infisical pod is ready
+[2026-05-26 13:25:01] Starting port-forward for Infisical...
+[2026-05-26 13:25:07] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-26 13:25:07] Bootstrap secrets initialization completed
+[2026-05-26 13:25:23] Step 6: Waiting for Infisical to be ready...
+[2026-05-26 13:25:23] Checking Infisical pods status...
+[2026-05-26 13:25:23] Infisical is ready
+[2026-05-26 13:25:24] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-26 13:25:24] Infisical pods are running
+[2026-05-26 13:25:35] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-26 13:25:35] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-26 13:25:35] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-26 13:25:41] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-26 13:25:41] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-26 13:25:43] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-26 13:25:43] Database deployment completed
+[2026-05-26 13:25:54] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-26 13:25:54] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-26 13:25:54] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-26 13:25:56] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: True)
+[2026-05-26 13:26:08] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: True)
+[2026-05-26 13:26:20] Waiting for SpokePool readiness (attempt 3/180, Ready: , Synced: True)
+[2026-05-26 13:26:31] Waiting for SpokePool readiness (attempt 4/180, Ready: , Synced: )
+[2026-05-26 13:26:43] ✅ SpokePool is Ready and Synced
+[2026-05-26 13:26:43] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-26 13:26:46] Waiting for CAPI Cluster (attempt 1/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-26 13:26:59] Waiting for CAPI Cluster (attempt 2/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-26 13:27:12] Waiting for CAPI Cluster (attempt 3/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-26 13:27:24] Waiting for CAPI Cluster (attempt 4/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-26 13:27:38] Waiting for CAPI Cluster (attempt 5/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-26 13:27:51] Waiting for CAPI Cluster (attempt 6/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-26 13:28:04] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-26 13:28:04] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-26 13:28:04] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-26 13:28:05] Step 10c: Checking certificate distribution resources...
+[2026-05-26 13:28:05] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-26 13:28:06] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-26 13:28:06] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-26 13:28:08] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-26 13:28:08] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-26 13:28:10] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-26 13:28:10] Step 10d: Verifying certificates in target namespaces...
+[2026-05-26 13:28:10] ✅ Namespace exists: platform-observability
+[2026-05-26 13:28:11] ✅ Namespace exists: platform-messaging
+[2026-05-26 13:28:12] ✅ Namespace exists: platform-ops
+[2026-05-26 13:28:12] Step 10e: Verifying worker nodes are Ready...
+[2026-05-26 13:28:14] Worker nodes: 3/3 Ready
+[2026-05-26 13:28:14] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-26 13:28:15] ✅ SpokePool readiness validation completed successfully
+[2026-05-26 13:28:15] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-26 13:28:15] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-26 13:28:15] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-26 13:28:15] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-26 13:28:15] 🎯 Hub cluster: Ready and operational
+[2026-05-26 13:28:15] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-26 13:28:16] 🔐 Certificate distribution: Complete
+[2026-05-26 13:28:16] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-26 13:28:16] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-26 13:28:16] 
+[2026-05-26 13:28:16] Running post-bootstrap core services validation...
+[2026-05-26 13:31:13] ⚠️  Post-bootstrap validation reported failures — review the summary above
+[2026-05-26 16:52:15] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-26 16:52:15] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-26 16:52:15] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-26 16:52:15] Checking prerequisites...
+[2026-05-26 16:52:15]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-26 16:52:16]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-26 16:52:16]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-26 16:52:16]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-26 16:52:16]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-26 16:52:17]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-26 16:52:17]   ✓ hub binary found
+[2026-05-26 16:52:17]   ✓ k8-secrets/hetzner/token found
+[2026-05-26 16:52:17]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-26 16:52:20]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-26 16:52:21] Prerequisites check passed
+[2026-05-26 16:52:21] Step 1: Bootstrapping Hub Cluster...
+[2026-05-26 16:52:21] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-26 17:05:18] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-26 17:05:18] Hub cluster bootstrap completed
+[2026-05-26 17:05:48] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-26 17:05:49] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-26 17:05:53] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-26 17:05:57] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-26 17:05:57] Attempting to use existing access keys...
+[2026-05-26 17:06:00] Existing keys may be invalid, attempting to recreate...
+[2026-05-26 17:06:00] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-26 17:06:08] All existing access keys deleted
+[2026-05-26 17:06:08] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-26 17:06:11] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-26 17:06:11] AWS Secrets Manager configuration completed
+[2026-05-26 17:06:27] Step 3: Configuring GitHub Access...
+[2026-05-26 17:06:27] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-26 17:06:28] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-26 17:06:28] GitHub access configuration completed
+[2026-05-26 17:06:44] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-26 17:11:03] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-26 17:11:04] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-26 17:11:05] ✅ platform-data namespace created by ArgoCD
+[2026-05-26 17:11:15] Step 5: Initializing bootstrap secrets...
+[2026-05-26 17:11:15] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-26 17:16:17] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-26 17:16:18] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-26 17:16:29] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-26 17:16:39] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-26 17:16:50] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-26 17:17:01] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-26 17:17:12] Waiting for Infisical pod to be ready (attempt 6/180, ready: False)
+[2026-05-26 17:17:23] Waiting for Infisical pod to be ready (attempt 7/180, ready: False)
+[2026-05-26 17:17:34] Waiting for Infisical pod to be ready (attempt 8/180, ready: False)
+[2026-05-26 17:17:45] Waiting for Infisical pod to be ready (attempt 9/180, ready: False)
+[2026-05-26 17:17:56] Waiting for Infisical pod to be ready (attempt 10/180, ready: False)
+[2026-05-26 17:18:07] Waiting for Infisical pod to be ready (attempt 11/180, ready: False)
+[2026-05-26 17:18:18] Waiting for Infisical pod to be ready (attempt 12/180, ready: False)
+[2026-05-26 17:18:29] Waiting for Infisical pod to be ready (attempt 13/180, ready: False)
+[2026-05-26 17:18:39] Waiting for Infisical pod to be ready (attempt 14/180, ready: False)
+[2026-05-26 17:18:50] Waiting for Infisical pod to be ready (attempt 15/180, ready: False)
+[2026-05-26 17:19:01] Waiting for Infisical pod to be ready (attempt 16/180, ready: False)
+[2026-05-26 17:19:12] Waiting for Infisical pod to be ready (attempt 17/180, ready: False)
+[2026-05-26 17:19:23] Waiting for Infisical pod to be ready (attempt 18/180, ready: False)
+[2026-05-26 17:19:34] Waiting for Infisical pod to be ready (attempt 19/180, ready: False)
+[2026-05-26 17:19:45] Waiting for Infisical pod to be ready (attempt 20/180, ready: False)
+[2026-05-26 17:19:56] Waiting for Infisical pod to be ready (attempt 21/180, ready: False)
+[2026-05-26 17:20:07] Waiting for Infisical pod to be ready (attempt 22/180, ready: False)
+[2026-05-26 17:20:17] Waiting for Infisical pod to be ready (attempt 23/180, ready: False)
+[2026-05-26 17:20:28] Waiting for Infisical pod to be ready (attempt 24/180, ready: False)
+[2026-05-26 17:20:39] Waiting for Infisical pod to be ready (attempt 25/180, ready: False)
+[2026-05-26 17:20:50] Waiting for Infisical pod to be ready (attempt 26/180, ready: False)
+[2026-05-26 17:21:01] Waiting for Infisical pod to be ready (attempt 27/180, ready: False)
+[2026-05-26 17:21:12] Waiting for Infisical pod to be ready (attempt 28/180, ready: False)
+[2026-05-26 17:21:23] Waiting for Infisical pod to be ready (attempt 29/180, ready: False)
+[2026-05-26 17:21:34] Waiting for Infisical pod to be ready (attempt 30/180, ready: False)
+[2026-05-26 17:21:45] Waiting for Infisical pod to be ready (attempt 31/180, ready: False)
+[2026-05-26 17:21:55] Waiting for Infisical pod to be ready (attempt 32/180, ready: False)
+[2026-05-26 17:22:06] Waiting for Infisical pod to be ready (attempt 33/180, ready: False)
+[2026-05-26 17:22:17] Waiting for Infisical pod to be ready (attempt 34/180, ready: False)
+[2026-05-26 17:22:28] Waiting for Infisical pod to be ready (attempt 35/180, ready: False)
+[2026-05-26 17:22:39] Waiting for Infisical pod to be ready (attempt 36/180, ready: False)
+[2026-05-26 17:22:50] Waiting for Infisical pod to be ready (attempt 37/180, ready: False)
+[2026-05-26 17:23:01] Waiting for Infisical pod to be ready (attempt 38/180, ready: False)
+[2026-05-26 17:23:12] Waiting for Infisical pod to be ready (attempt 39/180, ready: False)
+[2026-05-26 17:23:23] Waiting for Infisical pod to be ready (attempt 40/180, ready: False)
+[2026-05-26 17:23:34] Waiting for Infisical pod to be ready (attempt 41/180, ready: False)
+[2026-05-26 17:23:46] Waiting for Infisical pod to be ready (attempt 42/180, ready: False)
+[2026-05-26 17:23:57] Waiting for Infisical pod to be ready (attempt 43/180, ready: False)
+[2026-05-26 17:24:08] Waiting for Infisical pod to be ready (attempt 44/180, ready: False)
+[2026-05-26 17:24:19] Waiting for Infisical pod to be ready (attempt 45/180, ready: False)
+[2026-05-26 17:24:30] Waiting for Infisical pod to be ready (attempt 46/180, ready: False)
+[2026-05-26 17:24:41] Waiting for Infisical pod to be ready (attempt 47/180, ready: False)
+[2026-05-26 17:24:52] Waiting for Infisical pod to be ready (attempt 48/180, ready: False)
+[2026-05-26 17:25:03] Waiting for Infisical pod to be ready (attempt 49/180, ready: False)
+[2026-05-26 17:25:14] Waiting for Infisical pod to be ready (attempt 50/180, ready: False)
+[2026-05-26 17:25:24] Waiting for Infisical pod to be ready (attempt 51/180, ready: False)
+[2026-05-26 17:25:35] Waiting for Infisical pod to be ready (attempt 52/180, ready: False)
+[2026-05-26 17:25:46] Waiting for Infisical pod to be ready (attempt 53/180, ready: False)
+[2026-05-26 17:25:57] Waiting for Infisical pod to be ready (attempt 54/180, ready: False)
+[2026-05-26 17:26:08] Waiting for Infisical pod to be ready (attempt 55/180, ready: False)
+[2026-05-26 17:26:19] Waiting for Infisical pod to be ready (attempt 56/180, ready: False)
+[2026-05-26 17:26:30] Waiting for Infisical pod to be ready (attempt 57/180, ready: False)
+[2026-05-26 17:26:41] Waiting for Infisical pod to be ready (attempt 58/180, ready: False)
+[2026-05-26 17:26:52] Waiting for Infisical pod to be ready (attempt 59/180, ready: False)
+[2026-05-26 17:27:03] Waiting for Infisical pod to be ready (attempt 60/180, ready: False)
+[2026-05-26 17:27:14] Waiting for Infisical pod to be ready (attempt 61/180, ready: False)
+[2026-05-26 17:27:25] Waiting for Infisical pod to be ready (attempt 62/180, ready: False)
+[2026-05-26 17:27:36] Waiting for Infisical pod to be ready (attempt 63/180, ready: False)
+[2026-05-26 17:27:46] Waiting for Infisical pod to be ready (attempt 64/180, ready: False)
+[2026-05-26 17:27:57] Waiting for Infisical pod to be ready (attempt 65/180, ready: False)
+[2026-05-26 17:28:08] Waiting for Infisical pod to be ready (attempt 66/180, ready: False)
+[2026-05-26 17:28:19] Waiting for Infisical pod to be ready (attempt 67/180, ready: False)
+[2026-05-26 17:28:30] Waiting for Infisical pod to be ready (attempt 68/180, ready: False)
+[2026-05-26 17:28:41] Waiting for Infisical pod to be ready (attempt 69/180, ready: False)
+[2026-05-26 17:28:52] Waiting for Infisical pod to be ready (attempt 70/180, ready: False)
+[2026-05-26 17:29:03] Waiting for Infisical pod to be ready (attempt 71/180, ready: False)
+[2026-05-26 17:29:14] Waiting for Infisical pod to be ready (attempt 72/180, ready: False)
+[2026-05-26 17:29:25] Waiting for Infisical pod to be ready (attempt 73/180, ready: False)
+[2026-05-26 17:29:36] Waiting for Infisical pod to be ready (attempt 74/180, ready: False)
+[2026-05-26 17:29:47] Waiting for Infisical pod to be ready (attempt 75/180, ready: False)
+[2026-05-26 17:29:58] Waiting for Infisical pod to be ready (attempt 76/180, ready: False)
+[2026-05-26 17:30:09] Waiting for Infisical pod to be ready (attempt 77/180, ready: False)
+[2026-05-26 17:30:20] Waiting for Infisical pod to be ready (attempt 78/180, ready: False)
+[2026-05-26 17:30:30] Waiting for Infisical pod to be ready (attempt 79/180, ready: False)
+[2026-05-26 17:30:41] Waiting for Infisical pod to be ready (attempt 80/180, ready: False)
+[2026-05-26 17:30:52] Waiting for Infisical pod to be ready (attempt 81/180, ready: False)
+[2026-05-26 17:31:03] Waiting for Infisical pod to be ready (attempt 82/180, ready: False)
+[2026-05-26 17:31:14] Waiting for Infisical pod to be ready (attempt 83/180, ready: False)
+[2026-05-26 17:31:25] Waiting for Infisical pod to be ready (attempt 84/180, ready: False)
+[2026-05-26 17:31:36] Waiting for Infisical pod to be ready (attempt 85/180, ready: False)
+[2026-05-26 17:31:47] Waiting for Infisical pod to be ready (attempt 86/180, ready: False)
+[2026-05-26 17:31:58] Waiting for Infisical pod to be ready (attempt 87/180, ready: False)
+[2026-05-26 17:32:09] Waiting for Infisical pod to be ready (attempt 88/180, ready: False)
+[2026-05-26 17:32:19] Waiting for Infisical pod to be ready (attempt 89/180, ready: False)
+[2026-05-26 17:32:30] Waiting for Infisical pod to be ready (attempt 90/180, ready: False)
+[2026-05-26 17:32:41] Waiting for Infisical pod to be ready (attempt 91/180, ready: False)
+[2026-05-26 17:32:52] Waiting for Infisical pod to be ready (attempt 92/180, ready: False)
+[2026-05-26 17:33:03] Waiting for Infisical pod to be ready (attempt 93/180, ready: False)
+[2026-05-26 17:33:14] Waiting for Infisical pod to be ready (attempt 94/180, ready: False)
+[2026-05-26 17:33:25] Waiting for Infisical pod to be ready (attempt 95/180, ready: False)
+[2026-05-26 17:33:36] Waiting for Infisical pod to be ready (attempt 96/180, ready: False)
+[2026-05-26 17:33:47] Waiting for Infisical pod to be ready (attempt 97/180, ready: False)
+[2026-05-26 17:33:58] Waiting for Infisical pod to be ready (attempt 98/180, ready: False)
+[2026-05-26 17:34:08] Waiting for Infisical pod to be ready (attempt 99/180, ready: False)
+[2026-05-26 17:34:19] Waiting for Infisical pod to be ready (attempt 100/180, ready: False)
+[2026-05-26 17:34:30] Waiting for Infisical pod to be ready (attempt 101/180, ready: False)
+[2026-05-26 17:34:41] Waiting for Infisical pod to be ready (attempt 102/180, ready: False)
+[2026-05-26 17:34:52] Waiting for Infisical pod to be ready (attempt 103/180, ready: False)
+[2026-05-26 17:35:03] Waiting for Infisical pod to be ready (attempt 104/180, ready: False)
+[2026-05-26 17:35:14] Waiting for Infisical pod to be ready (attempt 105/180, ready: False)
+[2026-05-26 17:35:25] Waiting for Infisical pod to be ready (attempt 106/180, ready: False)
+[2026-05-26 17:35:36] Waiting for Infisical pod to be ready (attempt 107/180, ready: False)
+[2026-05-26 17:35:47] Waiting for Infisical pod to be ready (attempt 108/180, ready: False)
+[2026-05-26 17:35:58] Waiting for Infisical pod to be ready (attempt 109/180, ready: False)
+[2026-05-26 17:36:08] Waiting for Infisical pod to be ready (attempt 110/180, ready: False)
+[2026-05-26 17:36:19] Waiting for Infisical pod to be ready (attempt 111/180, ready: False)
+[2026-05-26 17:36:30] Waiting for Infisical pod to be ready (attempt 112/180, ready: False)
+[2026-05-26 17:36:41] Waiting for Infisical pod to be ready (attempt 113/180, ready: False)
+[2026-05-26 17:36:52] Waiting for Infisical pod to be ready (attempt 114/180, ready: False)
+[2026-05-26 17:37:03] Waiting for Infisical pod to be ready (attempt 115/180, ready: False)
+[2026-05-26 17:37:14] Waiting for Infisical pod to be ready (attempt 116/180, ready: False)
+[2026-05-26 17:37:25] Waiting for Infisical pod to be ready (attempt 117/180, ready: False)
+[2026-05-26 17:37:36] Waiting for Infisical pod to be ready (attempt 118/180, ready: False)
+[2026-05-26 17:37:47] Waiting for Infisical pod to be ready (attempt 119/180, ready: False)
+[2026-05-26 17:37:58] Waiting for Infisical pod to be ready (attempt 120/180, ready: False)
+[2026-05-26 17:38:09] Waiting for Infisical pod to be ready (attempt 121/180, ready: False)
+[2026-05-26 17:38:20] Waiting for Infisical pod to be ready (attempt 122/180, ready: False)
+[2026-05-26 17:38:31] Waiting for Infisical pod to be ready (attempt 123/180, ready: False)
+[2026-05-26 17:38:42] Waiting for Infisical pod to be ready (attempt 124/180, ready: False)
+[2026-05-26 17:38:53] Waiting for Infisical pod to be ready (attempt 125/180, ready: False)
+[2026-05-26 17:39:05] Waiting for Infisical pod to be ready (attempt 126/180, ready: False)
+[2026-05-26 17:39:16] Waiting for Infisical pod to be ready (attempt 127/180, ready: False)
+[2026-05-26 17:39:27] Waiting for Infisical pod to be ready (attempt 128/180, ready: False)
+[2026-05-26 17:39:38] Waiting for Infisical pod to be ready (attempt 129/180, ready: False)
+[2026-05-26 17:39:48] Waiting for Infisical pod to be ready (attempt 130/180, ready: False)
+[2026-05-26 17:39:59] Waiting for Infisical pod to be ready (attempt 131/180, ready: False)
+[2026-05-26 17:40:10] Waiting for Infisical pod to be ready (attempt 132/180, ready: False)
+[2026-05-26 17:40:21] Waiting for Infisical pod to be ready (attempt 133/180, ready: False)
+[2026-05-26 17:40:32] Waiting for Infisical pod to be ready (attempt 134/180, ready: False)
+[2026-05-26 17:40:43] Waiting for Infisical pod to be ready (attempt 135/180, ready: False)
+[2026-05-26 17:40:54] Waiting for Infisical pod to be ready (attempt 136/180, ready: False)
+[2026-05-26 17:41:05] Waiting for Infisical pod to be ready (attempt 137/180, ready: False)
+[2026-05-26 17:41:16] Waiting for Infisical pod to be ready (attempt 138/180, ready: False)
+[2026-05-26 17:41:27] Waiting for Infisical pod to be ready (attempt 139/180, ready: False)
+[2026-05-26 17:41:38] Waiting for Infisical pod to be ready (attempt 140/180, ready: False)
+[2026-05-26 17:41:53] Waiting for Infisical pod to be ready (attempt 141/180, ready: False)
+[2026-05-26 17:42:04] Waiting for Infisical pod to be ready (attempt 142/180, ready: False)
+[2026-05-26 17:42:15] Waiting for Infisical pod to be ready (attempt 143/180, ready: False)
+[2026-05-26 17:42:26] Waiting for Infisical pod to be ready (attempt 144/180, ready: False)
+[2026-05-26 17:42:37] Waiting for Infisical pod to be ready (attempt 145/180, ready: False)
+[2026-05-26 17:42:48] Waiting for Infisical pod to be ready (attempt 146/180, ready: False)
+[2026-05-26 17:42:59] Waiting for Infisical pod to be ready (attempt 147/180, ready: False)
+[2026-05-26 17:43:10] Waiting for Infisical pod to be ready (attempt 148/180, ready: False)
+[2026-05-26 17:43:21] Waiting for Infisical pod to be ready (attempt 149/180, ready: False)
+[2026-05-26 17:43:32] Waiting for Infisical pod to be ready (attempt 150/180, ready: False)
+[2026-05-26 17:43:43] Waiting for Infisical pod to be ready (attempt 151/180, ready: False)
+[2026-05-26 17:43:54] Waiting for Infisical pod to be ready (attempt 152/180, ready: False)
+[2026-05-26 17:44:05] Waiting for Infisical pod to be ready (attempt 153/180, ready: False)
+[2026-05-26 17:44:16] Waiting for Infisical pod to be ready (attempt 154/180, ready: False)
+[2026-05-26 17:44:27] Waiting for Infisical pod to be ready (attempt 155/180, ready: False)
+[2026-05-26 17:44:37] Waiting for Infisical pod to be ready (attempt 156/180, ready: False)
+[2026-05-26 17:44:48] Waiting for Infisical pod to be ready (attempt 157/180, ready: False)
+[2026-05-26 17:44:59] Waiting for Infisical pod to be ready (attempt 158/180, ready: False)
+[2026-05-26 17:45:10] Waiting for Infisical pod to be ready (attempt 159/180, ready: False)
+[2026-05-26 17:45:21] Waiting for Infisical pod to be ready (attempt 160/180, ready: False)
+[2026-05-26 17:45:33] Waiting for Infisical pod to be ready (attempt 161/180, ready: False)
+[2026-05-26 17:45:44] Waiting for Infisical pod to be ready (attempt 162/180, ready: False)
+[2026-05-26 17:45:55] Waiting for Infisical pod to be ready (attempt 163/180, ready: False)
+[2026-05-26 17:46:06] Waiting for Infisical pod to be ready (attempt 164/180, ready: False)
+[2026-05-26 17:46:17] Waiting for Infisical pod to be ready (attempt 165/180, ready: False)
+[2026-05-26 17:46:28] Waiting for Infisical pod to be ready (attempt 166/180, ready: False)
+[2026-05-26 17:46:39] Waiting for Infisical pod to be ready (attempt 167/180, ready: False)
+[2026-05-26 17:46:50] Waiting for Infisical pod to be ready (attempt 168/180, ready: False)
+[2026-05-26 17:47:00] Waiting for Infisical pod to be ready (attempt 169/180, ready: False)
+[2026-05-26 17:47:11] Waiting for Infisical pod to be ready (attempt 170/180, ready: False)
+[2026-05-26 17:47:22] Waiting for Infisical pod to be ready (attempt 171/180, ready: False)
+[2026-05-26 17:47:33] Waiting for Infisical pod to be ready (attempt 172/180, ready: False)
+[2026-05-26 17:47:44] Waiting for Infisical pod to be ready (attempt 173/180, ready: False)
+[2026-05-26 17:47:55] Waiting for Infisical pod to be ready (attempt 174/180, ready: False)
+[2026-05-26 17:48:06] Waiting for Infisical pod to be ready (attempt 175/180, ready: False)
+[2026-05-26 17:48:17] Waiting for Infisical pod to be ready (attempt 176/180, ready: False)
+[2026-05-26 17:48:28] Waiting for Infisical pod to be ready (attempt 177/180, ready: False)
+[2026-05-26 17:48:39] Waiting for Infisical pod to be ready (attempt 178/180, ready: False)
+[2026-05-26 17:48:50] Waiting for Infisical pod to be ready (attempt 179/180, ready: False)
+[2026-05-26 17:49:01] Waiting for Infisical pod to be ready (attempt 180/180, ready: False)
+[2026-05-26 17:49:11] ERROR: Infisical pod did not become ready within expected time
+[2026-05-26 23:53:27] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-26 23:53:27] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-26 23:53:27] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-26 23:53:28] Checking prerequisites...
+[2026-05-26 23:53:28]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-26 23:53:28]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-26 23:53:28]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-26 23:53:28]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-26 23:53:29]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-26 23:53:29]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-26 23:53:29]   ✓ hub binary found
+[2026-05-26 23:53:29]   ✓ k8-secrets/hetzner/token found
+[2026-05-26 23:53:29]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-26 23:53:33]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-26 23:53:33] Prerequisites check passed
+[2026-05-26 23:53:33] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-05-26 23:54:04] Step 2: AWS Secrets Manager already configured, skipping
+[2026-05-26 23:54:19] Step 3: GitHub access already configured, skipping
+[2026-05-26 23:54:35] Step 4: Namespaces already created, skipping
+[2026-05-26 23:54:45] Step 5: Initializing bootstrap secrets...
+[2026-05-26 23:54:45] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-26 23:59:51] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-26 23:59:52] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-27 00:00:03] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-27 00:00:14] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-27 00:00:25] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-27 00:00:36] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-27 00:00:47] Waiting for Infisical pod to be ready (attempt 6/180, ready: False)
+[2026-05-27 00:00:58] Waiting for Infisical pod to be ready (attempt 7/180, ready: False)
+[2026-05-27 00:01:09] Waiting for Infisical pod to be ready (attempt 8/180, ready: False)
+[2026-05-27 00:01:20] Waiting for Infisical pod to be ready (attempt 9/180, ready: False)
+[2026-05-27 00:01:31] Waiting for Infisical pod to be ready (attempt 10/180, ready: False)
+[2026-05-27 00:01:42] Waiting for Infisical pod to be ready (attempt 11/180, ready: False)
+[2026-05-27 00:01:53] Waiting for Infisical pod to be ready (attempt 12/180, ready: False)
+[2026-05-27 00:02:04] Waiting for Infisical pod to be ready (attempt 13/180, ready: False)
+[2026-05-27 00:02:15] Waiting for Infisical pod to be ready (attempt 14/180, ready: False)
+[2026-05-27 00:02:26] Waiting for Infisical pod to be ready (attempt 15/180, ready: False)
+[2026-05-27 00:02:37] Waiting for Infisical pod to be ready (attempt 16/180, ready: False)
+[2026-05-27 00:02:49] Waiting for Infisical pod to be ready (attempt 17/180, ready: False)
+[2026-05-27 00:03:00] Waiting for Infisical pod to be ready (attempt 18/180, ready: False)
+[2026-05-27 00:03:11] Waiting for Infisical pod to be ready (attempt 19/180, ready: False)
+[2026-05-27 00:03:22] Waiting for Infisical pod to be ready (attempt 20/180, ready: False)
+[2026-05-27 00:03:33] Waiting for Infisical pod to be ready (attempt 21/180, ready: False)
+[2026-05-27 00:03:44] Waiting for Infisical pod to be ready (attempt 22/180, ready: False)
+[2026-05-27 00:03:55] Waiting for Infisical pod to be ready (attempt 23/180, ready: False)
+[2026-05-27 00:04:06] Waiting for Infisical pod to be ready (attempt 24/180, ready: False)
+[2026-05-27 00:04:17] Waiting for Infisical pod to be ready (attempt 25/180, ready: False)
+[2026-05-27 00:04:28] Waiting for Infisical pod to be ready (attempt 26/180, ready: False)
+[2026-05-27 00:04:40] Waiting for Infisical pod to be ready (attempt 27/180, ready: False)
+[2026-05-27 00:04:54] Waiting for Infisical pod to be ready (attempt 28/180, ready: False)
+[2026-05-27 00:05:07] Waiting for Infisical pod to be ready (attempt 29/180, ready: False)
+[2026-05-27 00:05:18] Waiting for Infisical pod to be ready (attempt 30/180, ready: False)
+[2026-05-27 00:05:29] Waiting for Infisical pod to be ready (attempt 31/180, ready: False)
+[2026-05-27 00:05:40] Waiting for Infisical pod to be ready (attempt 32/180, ready: False)
+[2026-05-27 00:05:51] Waiting for Infisical pod to be ready (attempt 33/180, ready: False)
+[2026-05-27 00:06:02] Waiting for Infisical pod to be ready (attempt 34/180, ready: False)
+[2026-05-27 00:06:13] Waiting for Infisical pod to be ready (attempt 35/180, ready: False)
+[2026-05-27 00:06:24] Waiting for Infisical pod to be ready (attempt 36/180, ready: False)
+[2026-05-27 00:06:35] Waiting for Infisical pod to be ready (attempt 37/180, ready: False)
+[2026-05-27 00:06:46] Waiting for Infisical pod to be ready (attempt 38/180, ready: False)
+[2026-05-27 00:06:56] Waiting for Infisical pod to be ready (attempt 39/180, ready: False)
+[2026-05-27 00:07:07] Waiting for Infisical pod to be ready (attempt 40/180, ready: False)
+[2026-05-27 00:07:18] Waiting for Infisical pod to be ready (attempt 41/180, ready: False)
+[2026-05-27 00:07:29] Waiting for Infisical pod to be ready (attempt 42/180, ready: False)
+[2026-05-27 00:07:40] Waiting for Infisical pod to be ready (attempt 43/180, ready: False)
+[2026-05-27 00:07:51] Waiting for Infisical pod to be ready (attempt 44/180, ready: False)
+[2026-05-27 00:08:02] Waiting for Infisical pod to be ready (attempt 45/180, ready: False)
+[2026-05-27 00:08:13] Waiting for Infisical pod to be ready (attempt 46/180, ready: False)
+[2026-05-27 00:08:24] Waiting for Infisical pod to be ready (attempt 47/180, ready: False)
+[2026-05-27 00:08:35] Waiting for Infisical pod to be ready (attempt 48/180, ready: False)
+[2026-05-27 00:08:45] Waiting for Infisical pod to be ready (attempt 49/180, ready: False)
+[2026-05-27 00:08:56] Waiting for Infisical pod to be ready (attempt 50/180, ready: False)
+[2026-05-27 00:09:07] Waiting for Infisical pod to be ready (attempt 51/180, ready: False)
+[2026-05-27 00:09:18] Waiting for Infisical pod to be ready (attempt 52/180, ready: False)
+[2026-05-27 00:09:29] Waiting for Infisical pod to be ready (attempt 53/180, ready: False)
+[2026-05-27 00:09:40] Waiting for Infisical pod to be ready (attempt 54/180, ready: False)
+[2026-05-27 00:09:51] Waiting for Infisical pod to be ready (attempt 55/180, ready: False)
+[2026-05-27 00:10:02] Waiting for Infisical pod to be ready (attempt 56/180, ready: False)
+[2026-05-27 00:10:13] Waiting for Infisical pod to be ready (attempt 57/180, ready: False)
+[2026-05-27 00:10:24] Waiting for Infisical pod to be ready (attempt 58/180, ready: False)
+[2026-05-27 00:10:35] Waiting for Infisical pod to be ready (attempt 59/180, ready: False)
+[2026-05-27 00:10:46] Waiting for Infisical pod to be ready (attempt 60/180, ready: False)
+[2026-05-27 00:10:57] Waiting for Infisical pod to be ready (attempt 61/180, ready: False)
+[2026-05-27 00:11:08] Waiting for Infisical pod to be ready (attempt 62/180, ready: False)
+[2026-05-27 00:11:19] Waiting for Infisical pod to be ready (attempt 63/180, ready: False)
+[2026-05-27 00:11:30] Waiting for Infisical pod to be ready (attempt 64/180, ready: False)
+[2026-05-27 00:11:41] Waiting for Infisical pod to be ready (attempt 65/180, ready: False)
+[2026-05-27 00:11:52] Waiting for Infisical pod to be ready (attempt 66/180, ready: False)
+[2026-05-27 00:12:03] Waiting for Infisical pod to be ready (attempt 67/180, ready: False)
+[2026-05-27 00:12:14] Waiting for Infisical pod to be ready (attempt 68/180, ready: False)
+[2026-05-27 00:12:24] Waiting for Infisical pod to be ready (attempt 69/180, ready: False)
+[2026-05-27 00:12:35] Waiting for Infisical pod to be ready (attempt 70/180, ready: False)
+[2026-05-27 00:12:47] Waiting for Infisical pod to be ready (attempt 71/180, ready: False)
+[2026-05-27 00:12:58] Waiting for Infisical pod to be ready (attempt 72/180, ready: False)
+[2026-05-27 00:13:09] Waiting for Infisical pod to be ready (attempt 73/180, ready: False)
+[2026-05-27 00:13:19] Waiting for Infisical pod to be ready (attempt 74/180, ready: False)
+[2026-05-27 00:13:30] Waiting for Infisical pod to be ready (attempt 75/180, ready: False)
+[2026-05-27 00:13:41] Waiting for Infisical pod to be ready (attempt 76/180, ready: False)
+[2026-05-27 00:13:52] Waiting for Infisical pod to be ready (attempt 77/180, ready: False)
+[2026-05-27 00:14:03] Waiting for Infisical pod to be ready (attempt 78/180, ready: False)
+[2026-05-27 00:14:14] Waiting for Infisical pod to be ready (attempt 79/180, ready: False)
+[2026-05-27 00:14:25] Waiting for Infisical pod to be ready (attempt 80/180, ready: False)
+[2026-05-27 00:14:36] Waiting for Infisical pod to be ready (attempt 81/180, ready: False)
+[2026-05-27 00:14:47] Waiting for Infisical pod to be ready (attempt 82/180, ready: False)
+[2026-05-27 00:14:58] Waiting for Infisical pod to be ready (attempt 83/180, ready: False)
+[2026-05-27 00:15:09] Waiting for Infisical pod to be ready (attempt 84/180, ready: False)
+[2026-05-27 00:15:20] Waiting for Infisical pod to be ready (attempt 85/180, ready: False)
+[2026-05-27 00:15:31] Waiting for Infisical pod to be ready (attempt 86/180, ready: False)
+[2026-05-27 00:15:42] Waiting for Infisical pod to be ready (attempt 87/180, ready: False)
+[2026-05-27 00:15:53] Waiting for Infisical pod to be ready (attempt 88/180, ready: False)
+[2026-05-27 00:16:04] Waiting for Infisical pod to be ready (attempt 89/180, ready: False)
+[2026-05-27 00:16:15] Waiting for Infisical pod to be ready (attempt 90/180, ready: False)
+[2026-05-27 00:16:26] Waiting for Infisical pod to be ready (attempt 91/180, ready: False)
+[2026-05-27 00:16:37] Waiting for Infisical pod to be ready (attempt 92/180, ready: False)
+[2026-05-27 00:16:47] Waiting for Infisical pod to be ready (attempt 93/180, ready: False)
+[2026-05-27 00:16:58] Waiting for Infisical pod to be ready (attempt 94/180, ready: False)
+[2026-05-27 00:17:10] Waiting for Infisical pod to be ready (attempt 95/180, ready: False)
+[2026-05-27 00:17:21] Waiting for Infisical pod to be ready (attempt 96/180, ready: False)
+[2026-05-27 00:17:32] Waiting for Infisical pod to be ready (attempt 97/180, ready: False)
+[2026-05-27 00:17:43] Waiting for Infisical pod to be ready (attempt 98/180, ready: False)
+[2026-05-27 00:17:54] Waiting for Infisical pod to be ready (attempt 99/180, ready: False)
+[2026-05-27 00:18:05] Waiting for Infisical pod to be ready (attempt 100/180, ready: False)
+[2026-05-27 00:18:16] Waiting for Infisical pod to be ready (attempt 101/180, ready: False)
+[2026-05-27 00:18:27] Waiting for Infisical pod to be ready (attempt 102/180, ready: False)
+[2026-05-27 00:18:38] Waiting for Infisical pod to be ready (attempt 103/180, ready: False)
+[2026-05-27 00:18:49] Waiting for Infisical pod to be ready (attempt 104/180, ready: False)
+[2026-05-27 00:19:00] Waiting for Infisical pod to be ready (attempt 105/180, ready: False)
+[2026-05-27 00:19:11] Waiting for Infisical pod to be ready (attempt 106/180, ready: False)
+[2026-05-27 00:19:22] Waiting for Infisical pod to be ready (attempt 107/180, ready: False)
+[2026-05-27 00:19:33] Waiting for Infisical pod to be ready (attempt 108/180, ready: False)
+[2026-05-27 00:19:44] Waiting for Infisical pod to be ready (attempt 109/180, ready: False)
+[2026-05-27 00:19:55] Waiting for Infisical pod to be ready (attempt 110/180, ready: False)
+[2026-05-27 00:20:06] Waiting for Infisical pod to be ready (attempt 111/180, ready: False)
+[2026-05-27 00:20:17] Waiting for Infisical pod to be ready (attempt 112/180, ready: False)
+[2026-05-27 00:20:28] Waiting for Infisical pod to be ready (attempt 113/180, ready: False)
+[2026-05-27 00:20:38] Waiting for Infisical pod to be ready (attempt 114/180, ready: False)
+[2026-05-27 00:20:49] Waiting for Infisical pod to be ready (attempt 115/180, ready: False)
+[2026-05-27 00:21:00] Waiting for Infisical pod to be ready (attempt 116/180, ready: False)
+[2026-05-27 00:21:11] Waiting for Infisical pod to be ready (attempt 117/180, ready: False)
+[2026-05-27 00:21:22] Waiting for Infisical pod to be ready (attempt 118/180, ready: False)
+[2026-05-27 00:21:33] Waiting for Infisical pod to be ready (attempt 119/180, ready: False)
+[2026-05-27 00:21:44] Waiting for Infisical pod to be ready (attempt 120/180, ready: False)
+[2026-05-27 00:21:56] Waiting for Infisical pod to be ready (attempt 121/180, ready: False)
+[2026-05-27 00:22:07] Waiting for Infisical pod to be ready (attempt 122/180, ready: False)
+[2026-05-27 00:22:18] Waiting for Infisical pod to be ready (attempt 123/180, ready: False)
+[2026-05-27 00:22:29] Waiting for Infisical pod to be ready (attempt 124/180, ready: False)
+[2026-05-27 00:22:40] Waiting for Infisical pod to be ready (attempt 125/180, ready: False)
+[2026-05-27 00:22:51] Waiting for Infisical pod to be ready (attempt 126/180, ready: False)
+[2026-05-27 00:23:02] Waiting for Infisical pod to be ready (attempt 127/180, ready: False)
+[2026-05-27 00:23:13] Waiting for Infisical pod to be ready (attempt 128/180, ready: False)
+[2026-05-27 00:23:24] Waiting for Infisical pod to be ready (attempt 129/180, ready: False)
+[2026-05-27 00:23:35] Waiting for Infisical pod to be ready (attempt 130/180, ready: False)
+[2026-05-27 00:23:46] Waiting for Infisical pod to be ready (attempt 131/180, ready: False)
+[2026-05-27 00:23:57] Waiting for Infisical pod to be ready (attempt 132/180, ready: False)
+[2026-05-27 00:24:08] Waiting for Infisical pod to be ready (attempt 133/180, ready: False)
+[2026-05-27 00:24:19] Waiting for Infisical pod to be ready (attempt 134/180, ready: False)
+[2026-05-27 00:24:30] Waiting for Infisical pod to be ready (attempt 135/180, ready: False)
+[2026-05-27 00:24:41] Waiting for Infisical pod to be ready (attempt 136/180, ready: False)
+[2026-05-27 00:24:52] Waiting for Infisical pod to be ready (attempt 137/180, ready: False)
+[2026-05-27 00:25:03] Waiting for Infisical pod to be ready (attempt 138/180, ready: False)
+[2026-05-27 00:25:14] Waiting for Infisical pod to be ready (attempt 139/180, ready: False)
+[2026-05-27 00:25:25] Waiting for Infisical pod to be ready (attempt 140/180, ready: False)
+[2026-05-27 00:25:36] Waiting for Infisical pod to be ready (attempt 141/180, ready: False)
+[2026-05-27 00:25:47] Waiting for Infisical pod to be ready (attempt 142/180, ready: False)
+[2026-05-27 00:25:58] Waiting for Infisical pod to be ready (attempt 143/180, ready: False)
+[2026-05-27 00:26:09] Waiting for Infisical pod to be ready (attempt 144/180, ready: False)
+[2026-05-27 00:26:19] Waiting for Infisical pod to be ready (attempt 145/180, ready: False)
+[2026-05-27 00:26:30] Waiting for Infisical pod to be ready (attempt 146/180, ready: False)
+[2026-05-27 00:26:41] Waiting for Infisical pod to be ready (attempt 147/180, ready: False)
+[2026-05-27 00:26:52] Waiting for Infisical pod to be ready (attempt 148/180, ready: False)
+[2026-05-27 00:27:03] Waiting for Infisical pod to be ready (attempt 149/180, ready: False)
+[2026-05-27 00:27:14] Waiting for Infisical pod to be ready (attempt 150/180, ready: False)
+[2026-05-27 00:27:25] Waiting for Infisical pod to be ready (attempt 151/180, ready: False)
+[2026-05-27 00:27:36] Waiting for Infisical pod to be ready (attempt 152/180, ready: False)
+[2026-05-27 00:27:47] Waiting for Infisical pod to be ready (attempt 153/180, ready: False)
+[2026-05-27 00:27:58] Waiting for Infisical pod to be ready (attempt 154/180, ready: False)
+[2026-05-27 00:28:09] Waiting for Infisical pod to be ready (attempt 155/180, ready: False)
+[2026-05-27 00:28:20] Waiting for Infisical pod to be ready (attempt 156/180, ready: False)
+[2026-05-27 00:28:31] Waiting for Infisical pod to be ready (attempt 157/180, ready: False)
+[2026-05-27 00:28:42] Waiting for Infisical pod to be ready (attempt 158/180, ready: False)
+[2026-05-27 00:28:53] Waiting for Infisical pod to be ready (attempt 159/180, ready: False)
+[2026-05-27 00:29:04] Waiting for Infisical pod to be ready (attempt 160/180, ready: False)
+[2026-05-27 00:29:15] Waiting for Infisical pod to be ready (attempt 161/180, ready: False)
+[2026-05-27 00:29:26] Waiting for Infisical pod to be ready (attempt 162/180, ready: False)
+[2026-05-27 00:29:37] Waiting for Infisical pod to be ready (attempt 163/180, ready: False)
+[2026-05-27 00:29:47] Waiting for Infisical pod to be ready (attempt 164/180, ready: False)
+[2026-05-27 00:29:58] Waiting for Infisical pod to be ready (attempt 165/180, ready: False)
+[2026-05-27 00:30:09] Waiting for Infisical pod to be ready (attempt 166/180, ready: False)
+[2026-05-27 00:30:20] Waiting for Infisical pod to be ready (attempt 167/180, ready: False)
+[2026-05-27 00:30:32] Waiting for Infisical pod to be ready (attempt 168/180, ready: False)
+[2026-05-27 00:30:43] Waiting for Infisical pod to be ready (attempt 169/180, ready: False)
+[2026-05-27 00:30:54] Waiting for Infisical pod to be ready (attempt 170/180, ready: False)
+[2026-05-27 00:31:05] Waiting for Infisical pod to be ready (attempt 171/180, ready: False)
+[2026-05-27 00:31:16] Waiting for Infisical pod to be ready (attempt 172/180, ready: False)
+[2026-05-27 00:31:27] Waiting for Infisical pod to be ready (attempt 173/180, ready: False)
+[2026-05-27 00:31:37] Waiting for Infisical pod to be ready (attempt 174/180, ready: False)
+[2026-05-27 00:31:48] Waiting for Infisical pod to be ready (attempt 175/180, ready: False)
+[2026-05-27 00:31:59] Waiting for Infisical pod to be ready (attempt 176/180, ready: False)
+[2026-05-27 00:32:10] Waiting for Infisical pod to be ready (attempt 177/180, ready: False)
+[2026-05-27 00:32:21] Waiting for Infisical pod to be ready (attempt 178/180, ready: False)
+[2026-05-27 00:32:32] Waiting for Infisical pod to be ready (attempt 179/180, ready: False)
+[2026-05-27 00:32:43] Waiting for Infisical pod to be ready (attempt 180/180, ready: False)
+[2026-05-27 00:32:54] ERROR: Infisical pod did not become ready within expected time
+[2026-05-27 00:49:49] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-27 00:49:50] Project root: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops
+[2026-05-27 00:49:50] Log directory: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops
+[2026-05-27 00:49:50] Checking prerequisites...
+[2026-05-27 00:49:50]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-27 00:49:50]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-27 00:49:51]   ✓ jq found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe/jq
+[2026-05-27 00:49:51]   ✓ kind found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe/kind
+[2026-05-27 00:49:51]   ✓ clusterctl found: /d/Users/Kavishree.Shanmugam/AppData/Local/Microsoft/WinGet/Packages/clusterctl/clusterctl
+[2026-05-27 00:49:51]   ✓ helm found: /d/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-27 00:49:51]   ✓ hub binary found
+[2026-05-27 00:49:52]   ✓ k8-secrets/hetzner/token found
+[2026-05-27 00:49:52]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-27 00:49:55]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-27 00:49:55] Prerequisites check passed
+[2026-05-27 00:49:55] Step 1: Bootstrapping Hub Cluster...
+[2026-05-27 00:49:55] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-27 01:13:36] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-27 01:13:36] Hub cluster bootstrap completed
+[2026-05-27 01:14:06] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-27 01:14:07] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-27 01:14:11] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-27 01:14:15] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-27 01:14:15] Attempting to use existing access keys...
+[2026-05-27 01:14:18] Existing keys may be invalid, attempting to recreate...
+[2026-05-27 01:14:18] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-27 01:14:25] All existing access keys deleted
+[2026-05-27 01:14:25] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-27 01:14:28] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-27 01:14:28] AWS Secrets Manager configuration completed
+[2026-05-27 01:14:44] Step 3: Configuring GitHub Access...
+[2026-05-27 01:14:44] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-27 01:14:46] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-27 01:14:46] GitHub access configuration completed
+[2026-05-27 01:15:01] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-27 01:19:23] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-27 01:19:25] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-27 01:19:25] ✅ platform-data namespace created by ArgoCD
+[2026-05-27 01:19:35] Step 5: Initializing bootstrap secrets...
+[2026-05-27 01:19:35] Running: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/bin/hub init-secrets
+[2026-05-27 01:24:37] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-05-27 01:24:38] Waiting for Infisical pod to be ready (attempt 1/180, ready: False)
+[2026-05-27 01:24:49] Waiting for Infisical pod to be ready (attempt 2/180, ready: False)
+[2026-05-27 01:25:00] Waiting for Infisical pod to be ready (attempt 3/180, ready: False)
+[2026-05-27 01:25:10] Waiting for Infisical pod to be ready (attempt 4/180, ready: False)
+[2026-05-27 01:25:21] Waiting for Infisical pod to be ready (attempt 5/180, ready: False)
+[2026-05-27 01:25:32] Waiting for Infisical pod to be ready (attempt 6/180, ready: False)
+[2026-05-27 01:25:43] Infisical pod is ready
+[2026-05-27 01:25:43] Starting port-forward for Infisical...
+[2026-05-27 01:25:49] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-05-27 01:25:49] Bootstrap secrets initialization completed
+[2026-05-27 01:26:05] Step 6: Waiting for Infisical to be ready...
+[2026-05-27 01:26:05] Checking Infisical pods status...
+[2026-05-27 01:26:06] Infisical is ready
+[2026-05-27 01:26:06] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-05-27 01:26:07] Infisical pods are running
+[2026-05-27 01:26:17] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-05-27 01:26:17] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-05-27 01:26:18] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-05-27 01:26:23] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-05-27 01:26:23] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-05-27 01:26:25] Step 'wait_database' marked as completed in bootstrap state file
+[2026-05-27 01:26:25] Database deployment completed
+[2026-05-27 01:26:36] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-05-27 01:26:36] SpokePool: spoke-pool-eu-prod-01 in namespace: platform-ops
+[2026-05-27 01:26:36] Checking SpokePool spoke-pool-eu-prod-01 status...
+[2026-05-27 01:26:37] Waiting for SpokePool readiness (attempt 1/180, Ready: False, Synced: )
+[2026-05-27 01:26:49] Waiting for SpokePool readiness (attempt 2/180, Ready: False, Synced: )
+[2026-05-27 01:27:00] ✅ SpokePool is Ready and Synced
+[2026-05-27 01:27:00] Step 10a: Checking CAPI Cluster readiness...
+[2026-05-27 01:27:03] Waiting for CAPI Cluster (attempt 1/90): Phase=Provisioned, Infrastructure=False, ControlPlane=True, Workers=False
+[2026-05-27 01:27:16] Waiting for CAPI Cluster (attempt 2/90): Phase=Provisioned, Infrastructure=False, ControlPlane=True, Workers=False
+[2026-05-27 01:27:29] Waiting for CAPI Cluster (attempt 3/90): Phase=Provisioned, Infrastructure=False, ControlPlane=True, Workers=False
+[2026-05-27 01:27:42] Waiting for CAPI Cluster (attempt 4/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-27 01:27:54] Waiting for CAPI Cluster (attempt 5/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-27 01:28:07] Waiting for CAPI Cluster (attempt 6/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-27 01:28:20] Waiting for CAPI Cluster (attempt 7/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
+[2026-05-27 01:28:33] Waiting for CAPI Cluster (attempt 8/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-27 01:28:46] Waiting for CAPI Cluster (attempt 9/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=False
+[2026-05-27 01:28:58] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-27 01:28:58] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-05-27 01:28:59] ✅ ProviderConfig for spoke cluster exists: spoke-pool-eu-prod-01
+[2026-05-27 01:28:59] Step 10c: Checking certificate distribution resources...
+[2026-05-27 01:29:00] Checking certificate distribution: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-27 01:29:01] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-alloy-cert-dist
+[2026-05-27 01:29:01] Checking certificate distribution: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-27 01:29:03] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-nats-cert-dist
+[2026-05-27 01:29:03] Checking certificate distribution: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-27 01:29:04] ✅ Certificate distribution ready: spoke-pool-eu-prod-01-argocd-cert-dist
+[2026-05-27 01:29:04] Step 10d: Verifying certificates in target namespaces...
+[2026-05-27 01:29:05] ✅ Namespace exists: platform-observability
+[2026-05-27 01:29:06] ✅ Namespace exists: platform-messaging
+[2026-05-27 01:29:06] ✅ Namespace exists: platform-ops
+[2026-05-27 01:29:07] Step 10e: Verifying worker nodes are Ready...
+[2026-05-27 01:29:08] Worker nodes: 3/3 Ready
+[2026-05-27 01:29:09] Step 'wait_spokepool' marked as completed in bootstrap state file
+[2026-05-27 01:29:09] ✅ SpokePool readiness validation completed successfully
+[2026-05-27 01:29:09] 📊 SpokePool Status: Ready=True, Synced=True
+[2026-05-27 01:29:09] 🔐 Certificate Distribution: All 3 certificates ready and synced
+[2026-05-27 01:29:09] 🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-05-27 01:29:09] Zero-Ops Hub Bootstrap Process completed successfully!
+[2026-05-27 01:29:10] 🎯 Hub cluster: Ready and operational
+[2026-05-27 01:29:10] 🌐 SpokePool: Provisioned and ready for tenant workloads
+[2026-05-27 01:29:10] 🔐 Certificate distribution: Complete
+[2026-05-27 01:29:10] 🏗️  Spoke cluster: Ready for tenant database provisioning
+[2026-05-27 01:29:10] You can now access your hub cluster using: kubectl --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-27 01:29:10] 
+[2026-05-27 01:29:10] Running post-bootstrap core services validation...
+[2026-05-27 01:31:56] ⚠️  Post-bootstrap validation reported failures — review the summary above

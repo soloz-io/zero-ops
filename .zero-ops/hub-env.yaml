@@ -1,0 +1,116 @@
+apiVersion: ops.nutgraf.in/v1alpha1
+kind: HubEnvironment
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  creationTimestamp: "2026-05-26T11:42:07Z"
+  generation: 1
+  labels:
+    argocd.argoproj.io/instance: hub-environment
+  name: hub-production
+  resourceVersion: "8720"
+  uid: b2eea467-80b3-4c21-862a-5143641341ad
+spec:
+  database:
+    clusterRef: platform-db
+    namespace: platform-data
+    roles:
+    - database: control_plane
+      name: hub_control_plane
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: infisical
+      name: infisical
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: hub
+      name: hub_centralized
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+    - database: spire
+      name: spire
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: hydra
+      name: hub_hydra
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: kratos
+      name: hub_kratos
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: keto
+      name: hub_keto
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - database: openmeter
+      name: openmeter
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+  domain: nutgraf.in
+  nats:
+    streams:
+    - name: spoke-events
+      retention: limits
+      storage: file
+      subjects:
+      - spoke.*.lifecycle.>
+      - spoke.*.billing.>
+    - name: hub-events
+      retention: interest
+      storage: file
+      subjects:
+      - hub.notifications.>
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: MCP Server
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      redirectUris:
+      - https://mcp.nutgraf.in/callback
+      responseTypes:
+      - code
+    - clientId: spoke-controller
+      clientName: Spoke Controller
+      grantTypes:
+      - client_credentials
+      redirectUris: []
+      responseTypes:
+      - token
+  observability:
+    grafanaAlloy:
+      scrapeInterval: 15s
+    victoriaMetrics:
+      retentionPeriod: 90d
+  secrets:
+    infisical:
+      environmentSlug: dev
+      projectSlug: hub-platform
+  tls:
+    email: ops@nutgraf.in
+    issuer: letsencrypt-prod

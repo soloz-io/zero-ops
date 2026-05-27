@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ADR-022: Platform-governed base for Atlas migration Jobs.
+# Tenants import this and overlay: ConfigMap name, secret name, SQL files.
+# All security, resource, and hook constraints are baked in here.
+resources:
+  - service-account.yaml
+  - job.yaml

@@ -25,6 +25,14 @@ database:
     # Path to migrations directory
     gitPath: "migrations/tenant-baseline"
 
+# Workload source (BYOWR — Bring Your Own Workload Repo)
+# Points to the tenant's application manifests (Deployments, Services, Ingress, etc.)
+# gitRevision should be a commit SHA in production, branch name in development.
+workloads:
+  gitRepo: ""
+  gitRevision: "main"
+  gitPath: ""
+
 # Resource quotas (tier-based defaults)
 resourceQuota:
   # CPU limits (millicores)

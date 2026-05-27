@@ -161,3 +161,76 @@ spec:
           kind: Deployment
           jsonPointers:
             - /spec/replicas
+
+---
+# ApplicationSet for tenant application workloads (BYOWR — Bring Your Own Workload Repo)
+# ADR-021: Workloads are deployed from the tenant's own gitPath, governed by
+# the tenant-workloads AppProject. The hub/spoke split is preserved:
+# XR provisioning (data layer) and workload provisioning (app layer) are
+# independent ArgoCD applications with separate failure blast radii.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-workload-provisioning
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - "missingkey=error"
+
+  generators:
+    # Matrix: only generate an application when BOTH the tenant values file
+    # exists in fleet-registry AND the target spoke cluster is registered.
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry.git
+              revision: main
+              files:
+                - path: 'tenants/*/values.yaml'
+          - clusters:
+              selector:
+                matchLabels:
+                  cell-id: '{{.cellId}}'
+
+  template:
+    metadata:
+      # ADR-021 Blocker 10: Stable, collision-free name using tenantId (not
+      # the cluster generator's .name variable which can collide across cells).
+      name: 'tenant-{{.tenantId}}-workloads'
+      labels:
+        tenant-id: '{{.tenantId}}'
+        resource-type: workload
+        # Cluster attribution as a label — not embedded in the app name.
+        target-cluster: '{{.name}}'
+
+    spec:
+      project: tenant-workloads
+
+      sources:
+        # Single source: the tenant's own workload repo/path from values.yaml.
+        # gitRepo and gitRevision are tenant-controlled — pinned to a digest
+        # in production, branch in development.
+        - repoURL: '{{.workloads.gitRepo}}'
+          targetRevision: '{{.workloads.gitRevision}}'
+          path: '{{.workloads.gitPath}}'
+
+      destination:
+        name: '{{.name}}'
+        namespace: 'tenant-{{.tenantId}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m

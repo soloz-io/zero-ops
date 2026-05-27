@@ -11,7 +11,6 @@ memory
 k8-secrets
 manifests/hub-core-services/eso/crds/
 internal
-operators/
 test
 scripts
 cmd

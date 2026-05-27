@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    tier: {{ .Values.tier }}
+    # ADR-021 Blocker 4: Pod Security Admission enforced at namespace level.
+    # The admission controller mathematically guarantees PSA compliance for all
+    # pods in this namespace — no workload can bypass it.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -3,29 +3,47 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
-[teardown] Deleting server: hub-rxphr-wtx74 (ID: 132838698)
-[teardown] ✓ Deleted server: hub-rxphr-wtx74
-[teardown] Deleting server: hub-md-0-shg44-w72s9-vrpvz (ID: 132839039)
-[teardown] ✓ Deleted server: hub-md-0-shg44-w72s9-vrpvz
-[teardown] Deleting server: hub-md-0-shg44-w72s9-h46hq (ID: 132839041)
-[teardown] ✓ Deleted server: hub-md-0-shg44-w72s9-h46hq
-[teardown] Deleting load balancer: hub-sm8kc-kube-apiserver-7wrvb (ID: 6410895)
-[teardown] ✓ Deleted load balancer: hub-sm8kc-kube-apiserver-7wrvb
-[teardown] Deleting load balancer: a7e0f10a6e19945dcaec3c0f241b32a4 (ID: 6412199)
-[teardown] ✓ Deleted load balancer: a7e0f10a6e19945dcaec3c0f241b32a4
-[teardown] Deleting network: hub-sm8kc (ID: 12256710)
-[teardown] ✓ Deleted network: hub-sm8kc
+[teardown] Deleting server: hub-lk5s8-dkgr4 (ID: 133122651)
+[teardown] ✓ Deleted server: hub-lk5s8-dkgr4
+[teardown] Deleting server: hub-md-0-h6p7n-9rrgz-bl2p6 (ID: 133122997)
+[teardown] ✓ Deleted server: hub-md-0-h6p7n-9rrgz-bl2p6
+[teardown] Deleting server: hub-md-0-h6p7n-9rrgz-ppkxn (ID: 133123015)
+[teardown] ✓ Deleted server: hub-md-0-h6p7n-9rrgz-ppkxn
+[teardown] Deleting load balancer: aaf30d15d18984f85975dede0b895500 (ID: 6424118)
+[teardown] ✓ Deleted load balancer: aaf30d15d18984f85975dede0b895500
+[teardown] Deleting load balancer: hub-6xmcx-kube-apiserver-mflss (ID: 6424150)
+[teardown] ✓ Deleted load balancer: hub-6xmcx-kube-apiserver-mflss
+[teardown] Deleting load balancer: a11e432e3ba8c4479ad3e0f7b559401e (ID: 6424272)
+[teardown] ✓ Deleted load balancer: a11e432e3ba8c4479ad3e0f7b559401e
+[teardown] Deleting network: hub-6xmcx (ID: 12261253)
+[teardown] ✓ Deleted network: hub-6xmcx
 [teardown] Deleting associated volumes...
-[teardown] Deleting volume: pvc-4fc16c1a-50c7-4643-a74c-b54080767b69 (ID: 105810012, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-4fc16c1a-50c7-4643-a74c-b54080767b69
-[teardown] Deleting volume: pvc-54f5dfc2-68ec-4e4d-9579-30ba283a9ade (ID: 105810030, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-54f5dfc2-68ec-4e4d-9579-30ba283a9ade
-[teardown] Deleting volume: pvc-aadccd45-76b8-479e-a7a7-dfab4f0bd07b (ID: 105810013, Size: 50 GB)
-[teardown] ✓ Deleted volume: pvc-aadccd45-76b8-479e-a7a7-dfab4f0bd07b
-[teardown] Deleting volume: pvc-baa138e3-4d37-4abd-bf89-eb1cdf7c355b (ID: 105810020, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-baa138e3-4d37-4abd-bf89-eb1cdf7c355b
-[teardown] Deleting volume: pvc-c765dd5c-bc67-40ec-94f0-b4eefeae6681 (ID: 105810025, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-c765dd5c-bc67-40ec-94f0-b4eefeae6681
+[teardown] Deleting volume: pvc-199afc46-cbb7-4a89-8430-89b802341421 (ID: 105818690, Size: 50 GB)
+[teardown] ✓ Deleted volume: pvc-199afc46-cbb7-4a89-8430-89b802341421
+[teardown] Deleting volume: pvc-2485eea5-88bc-4d70-bbb6-98dd01eb651f (ID: 105818691, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-2485eea5-88bc-4d70-bbb6-98dd01eb651f
+[teardown] Deleting volume: pvc-b03743f7-9e6b-4270-845d-8c3065184432 (ID: 105818689, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-b03743f7-9e6b-4270-845d-8c3065184432
+[teardown] Deleting volume: pvc-05904ac4-f7d1-4826-9a67-e2e1bd60fae2 (ID: 105818704, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-05904ac4-f7d1-4826-9a67-e2e1bd60fae2
+[teardown] Deleting volume: pvc-350c9a77-db2b-4079-a934-b1a8af7489ee (ID: 105818712, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-350c9a77-db2b-4079-a934-b1a8af7489ee
+[teardown] Deleting volume: pvc-f9ad5266-17f1-40da-8213-518201c6e22e (ID: 105819606, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-f9ad5266-17f1-40da-8213-518201c6e22e
+[teardown] Deleting volume: pvc-91a87d87-c18e-4f36-abcd-329cc15f1566 (ID: 105819605, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-91a87d87-c18e-4f36-abcd-329cc15f1566
+[teardown] Deleting volume: pvc-4505096c-04fa-4493-a497-c2f014bdd190 (ID: 105819604, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-4505096c-04fa-4493-a497-c2f014bdd190
+[teardown] Deleting volume: pvc-e9ccf34a-4822-490f-b304-9fe01b25e941 (ID: 105821618, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-e9ccf34a-4822-490f-b304-9fe01b25e941
+[teardown] Deleting volume: pvc-c9d38266-8ddd-4c75-a073-2ea95dd0fcc6 (ID: 105821606, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-c9d38266-8ddd-4c75-a073-2ea95dd0fcc6
+[teardown] Deleting volume: pvc-91e7518d-e432-4ede-9535-b78efeb58ba5 (ID: 105821607, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-91e7518d-e432-4ede-9535-b78efeb58ba5
+[teardown] Deleting volume: pvc-4466d5d6-ac85-4348-97ee-cb9d0dce47bc (ID: 105821604, Size: 50 GB)
+[teardown] ✓ Deleted volume: pvc-4466d5d6-ac85-4348-97ee-cb9d0dce47bc
+[teardown] Deleting volume: pvc-eb95e309-957f-441f-b000-2bc8b3a11a34 (ID: 105821658, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-eb95e309-957f-441f-b000-2bc8b3a11a34
 [teardown] ✓ Force deletion complete
 
 [teardown] Cleaning up local files...

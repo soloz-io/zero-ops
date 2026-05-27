@@ -63,73 +63,333 @@
 [cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...
 [cluster-provision] Waiting for cluster to be ready...
 
-NAME                           CLUSTERCLASS             PHASE     AGE   VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Pending   1s    v1.31.6
+NAME                           CLUSTERCLASS             PHASE          AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioning   1s    v1.31.6
 
 
 [cluster-provision] Current status:
 NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   31s   v1.31.6
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   32s   v1.31.6
 
 NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
-machine.cluster.x-k8s.io/hub-j9zb7-hhhv9              hub                               Provisioning   28s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-p2rfg   hub                                              0s    v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-vc65g   hub                               Pending        0s    v1.31.6
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        1s    v1.31.6
 
 NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
-kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub                                            1         1                  1         1             31s   v1.31.6
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             32s   v1.31.6
 
 
 [cluster-provision] Current status:
 NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   61s   v1.31.6
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   62s   v1.31.6
 
-NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
-machine.cluster.x-k8s.io/hub-j9zb7-hhhv9              hub                  hcloud://132879192   Provisioned   58s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-p2rfg   hub                                       Pending       30s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-vc65g   hub                                       Pending       30s   v1.31.6
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        31s   v1.31.6
 
 NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
-kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub                                            1         1                  1         1             61s   v1.31.6
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             62s   v1.31.6
 
 
 [cluster-provision] Current status:
 NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   91s   v1.31.6
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   92s   v1.31.6
 
-NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
-machine.cluster.x-k8s.io/hub-j9zb7-hhhv9              hub                  hcloud://132879192   Provisioned   88s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-p2rfg   hub                                       Pending       60s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-vc65g   hub                                       Pending       60s   v1.31.6
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   89s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        61s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        61s   v1.31.6
 
 NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
-kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub                                            1         1                  1         1             91s   v1.31.6
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             92s   v1.31.6
 
 
 [cluster-provision] Current status:
 NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   2m1s   v1.31.6
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   2m2s   v1.31.6
 
-NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE    VERSION
-machine.cluster.x-k8s.io/hub-j9zb7-hhhv9              hub                  hcloud://132879192   Provisioned   118s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-p2rfg   hub                                       Pending       90s    v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-vc65g   hub                                       Pending       90s    v1.31.6
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE    VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   119s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        91s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        91s    v1.31.6
 
 NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
-kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub                                            1         1                  1         1             2m1s   v1.31.6
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             2m2s   v1.31.6
 
 
 [cluster-provision] Current status:
 NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
-cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   2m31s   v1.31.6
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   2m32s   v1.31.6
 
-NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE     VERSION
-machine.cluster.x-k8s.io/hub-j9zb7-hhhv9              hub                  hcloud://132879192   Provisioned   2m28s   v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-p2rfg   hub                                       Pending       2m      v1.31.6
-machine.cluster.x-k8s.io/hub-md-0-qdk8c-n66d4-vc65g   hub                                       Pending       2m      v1.31.6
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   2m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        2m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        2m1s    v1.31.6
 
 NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
-kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub                                            1         1                  1         1             2m31s   v1.31.6
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             2m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   3m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   2m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        2m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        2m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             3m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   3m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   3m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        3m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        3m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             3m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   4m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   3m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        3m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        3m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             4m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   4m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   4m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        4m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        4m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             4m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   5m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   4m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        4m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        4m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             5m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   5m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   5m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        5m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        5m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             5m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   6m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   5m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        5m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        5m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             6m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   6m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   6m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        6m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        6m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             6m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   7m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   6m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        6m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        6m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             7m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   7m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   7m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        7m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        7m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             7m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   8m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   7m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        7m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        7m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             8m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   8m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   8m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        8m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        8m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             8m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE    VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   9m2s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   8m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        8m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        8m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE    VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             9m2s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE     VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   9m32s   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   9m29s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        9m1s    v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        9m1s    v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             9m32s   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   10m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE     VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   9m59s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        9m31s   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        9m31s   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             10m   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   10m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   10m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        10m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        10m   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             10m   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   11m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   10m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        10m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        10m   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             11m   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   11m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID   PHASE          AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                               Provisioning   11m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                               Pending        11m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                               Pending        11m   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             11m   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   12m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                  hcloud://133220248   Provisioned   11m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                                       Pending       11m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                                       Pending       11m   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             12m   v1.31.6
+
+
+[cluster-provision] Current status:
+NAME                           CLUSTERCLASS             PHASE         AGE   VERSION
+cluster.cluster.x-k8s.io/hub   hetzner-mgmt-ubuntu-v1   Provisioned   12m   v1.31.6
+
+NAME                                                  CLUSTER   NODENAME   PROVIDERID           PHASE         AGE   VERSION
+machine.cluster.x-k8s.io/hub-lg2bt-7pg9d              hub                  hcloud://133220248   Provisioned   12m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-xqcgw   hub                                       Pending       12m   v1.31.6
+machine.cluster.x-k8s.io/hub-md-0-d99cl-tkwqr-zh7wj   hub                                       Pending       12m   v1.31.6
+
+NAME                                                          CLUSTER   INITIALIZED   API SERVER AVAILABLE   DESIRED   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE   VERSION
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-lg2bt   hub                                            1         1                  1         1             12m   v1.31.6
 
 [cluster-provision] ✓ Cluster is ready
 [cluster-provision] ✓ Management Cluster ready
@@ -143,12 +403,11 @@ kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub               
 [DEBUG] Waiting for 3 machines to have nodes joined...
 [DEBUG] Waiting for 3 machines to have nodes joined...
 [DEBUG] Waiting for 3 machines to have nodes joined...
-[DEBUG] Waiting for 3 machines to have nodes joined...
 [DEBUG] Waiting for 2 machines to have nodes joined...
 [DEBUG] Waiting for 2 machines to have nodes joined...
 [DEBUG] Waiting for 2 machines to have nodes joined...
-[DEBUG] Waiting for 1 machines to have nodes joined...
-[DEBUG] Waiting for 1 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
+[DEBUG] Waiting for 2 machines to have nodes joined...
 [pivot] ✓ All nodes joined
 [pivot] ✓ Kubeconfig saved to k8-secrets\kubeconfig\hub.kubeconfig
 [pivot] Installing cert-manager...
@@ -209,7 +468,7 @@ kubeadmcontrolplane.controlplane.cluster.x-k8s.io/hub-j9zb7   hub               
   Cluster Name: hub
   Region: fsn1
   Kubeconfig: k8-secrets\kubeconfig\hub.kubeconfig
-  ArgoCD Password: 561XTHcx30tNUjvG
+  ArgoCD Password: Iu4FIWH82lcDGvgj
 
 Next steps:
 1. Verify cluster: kubectl --kubeconfig=k8-secrets\kubeconfig\hub.kubeconfig get nodes

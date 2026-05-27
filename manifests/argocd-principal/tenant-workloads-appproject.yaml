@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tenant-workloads
+  namespace: platform-ops
+spec:
+  description: "Strictly governed project for tenant application workloads (ADR-021)"
+
+  # No cluster-scoped resources — tenant workloads are namespace-scoped only.
+  # Cluster-level resources (Namespaces, CRDs, ClusterRoles) are owned by
+  # platform-infrastructure project, not tenant workloads.
+  clusterResourceWhitelist: []
+
+  # Workloads may only be deployed into tenant namespaces on spoke clusters.
+  destinations:
+    - namespace: 'tenant-*'
+      name: 'spoke-pool-*'
+
+  # Explicit allowlist — only the resource kinds tenant workloads are permitted
+  # to manage. Any resource not listed here is rejected by ArgoCD at sync time.
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: "Deployment"
+    - group: "argoproj.io"
+      kind: "Rollout"
+    - group: "batch"
+      kind: "Job"
+    - group: ""
+      kind: "Service"
+    - group: ""
+      kind: "ServiceAccount"
+    - group: ""
+      kind: "ConfigMap"
+    - group: "networking.k8s.io"
+      kind: "Ingress"
+    - group: "networking.k8s.io"
+      kind: "NetworkPolicy"
+    - group: "cilium.io"
+      kind: "CiliumNetworkPolicy"
+    - group: "autoscaling"
+      kind: "HorizontalPodAutoscaler"
+    - group: "policy"
+      kind: "PodDisruptionBudget"
+    - group: "monitoring.coreos.com"
+      kind: "ServiceMonitor"
