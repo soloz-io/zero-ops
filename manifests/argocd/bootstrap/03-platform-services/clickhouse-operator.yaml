@@ -5,6 +5,12 @@ metadata:
   name: clickhouse-operator
   namespace: platform-ops
   annotations:
+    # Server-Side Diff computes the predicted live state via `kubectl apply --dry-run=server`.
+    # This ensures the Kubernetes API server's own defaulting logic (e.g. revisionHistoryLimit,
+    # progressDeadlineSeconds, resourceFieldRef.divisor) is applied before diff comparison,
+    # eliminating false OutOfSync caused by API-server-injected default fields on this chart.
+    # Widely adopted pattern for third-party Helm operators; see: https://argo-cd.readthedocs.io/en/stable/user-guide/diff-strategies/#server-side-diff
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: default
   source:
