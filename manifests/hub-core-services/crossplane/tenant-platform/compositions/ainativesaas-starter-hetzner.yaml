@@ -349,7 +349,6 @@ spec:
             metadata:
               namespace: ""  # Patched
             spec:
-              baseline: "001"
               urlFrom:
                 secretKeyRef:
                   name: ""  # Patched: <tenantId>-pooler-app
