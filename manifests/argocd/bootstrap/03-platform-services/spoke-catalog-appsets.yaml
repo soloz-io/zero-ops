@@ -1,4 +1,55 @@
 ---
+# Argo Rollouts CRDs (Spoke)
+# Required to register the rollouts.argoproj.io API before tenant workloads deploy
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-argo-rollouts-crds
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-argo-rollouts-crds'
+      namespace: platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        # Runs at wave 0, ensuring CRDs exist before the operator at wave 1
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://github.com/argoproj/argo-rollouts
+        path: manifests/crds
+        targetRevision: v1.6.6
+      destination:
+        name: '{{.name}}'
+        namespace: argo-rollouts
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - Replace=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+
+---
 # Argo Rollouts Operator (Spoke)
 # Required for ADR-021/022: Progressive delivery for stateless web workloads.
 apiVersion: argoproj.io/v1alpha1
