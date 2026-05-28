@@ -4,6 +4,10 @@
 # Tenant identifier (required)
 tenantId: ""
 
+# Whether to deploy the tenant crossplane XR resources. If false, tenant workloads
+# and support resources are installed directly into the tenant namespace.
+deployXR: false
+
 # Tenant tier (required)
 # Valid values: starter, enterprise
 tier: starter

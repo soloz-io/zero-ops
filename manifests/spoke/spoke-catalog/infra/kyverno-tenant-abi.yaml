@@ -30,7 +30,7 @@ spec:
               kinds:
                 - Deployment
                 - Job
-                - argoproj.io/Rollout
+                - argoproj.io/v1alpha1/Rollout
               namespaces:
                 - "tenant-*"
       validate:

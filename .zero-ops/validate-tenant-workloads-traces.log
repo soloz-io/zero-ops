@@ -1,675 +1,42 @@
-### ArgoCD Application Describe: tenant-waypoint-workloads
-Name:         tenant-waypoint-workloads
-Namespace:    platform-ops
-Labels:       resource-type=workload
-              target-cluster=spoke-pool-eu-prod-01
-              tenant-id=waypoint
-Annotations:  <none>
-API Version:  argoproj.io/v1alpha1
-Kind:         Application
-Metadata:
-  Creation Timestamp:  2026-05-28T02:17:46Z
-  Finalizers:
-    resources-finalizer.argocd.argoproj.io
-  Generation:  322
-  Owner References:
-    API Version:           argoproj.io/v1alpha1
-    Block Owner Deletion:  true
-    Controller:            true
-    Kind:                  ApplicationSet
-    Name:                  tenant-workload-provisioning
-    UID:                   c304429e-612a-4757-91f7-027141a3d030
-  Resource Version:        5723144
-  UID:                     cc79ecc7-5c89-481d-b302-fb4f8712432f
-Spec:
-  Destination:
-    Name:       spoke-pool-eu-prod-01
-    Namespace:  tenant-waypoint
-  Project:      tenant-workloads
-  Sources:
-    Path:             tenants/waypoint/workloads
-    Repo URL:         https://github.com/soloz-io/fleet-registry.git
-    Target Revision:  main
-  Sync Policy:
-    Automated:
-      Prune:      true
-      Self Heal:  true
-    Retry:
-      Backoff:
-        Duration:      10s
-        Factor:        2
-        Max Duration:  5m
-      Limit:           10
-    Sync Options:
-      ServerSideApply=true
-      RespectIgnoreDifferences=true
-Status:
-  Controller Namespace:  platform-ops
-  Health:
-    Status:  Degraded
-  History:
-    Deploy Started At:  2026-05-28T07:12:52Z
-    Deployed At:        2026-05-28T07:12:53Z
-    Id:                 0
-    Initiated By:
-      Username:  admin
-    Revisions:
-      c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-    Source:
-      Repo URL:  
-    Sources:
-      Path:             tenants/waypoint/workloads
-      Repo URL:         https://github.com/soloz-io/fleet-registry.git
-      Target Revision:  main
-  Operation State:
-    Finished At:  2026-05-28T07:12:53Z
-    Message:      successfully synced (all tasks run)
-    Operation:
-      Initiated By:
-        Automated:  true
-        Username:   admin
-      Retry:
-        Backoff:
-          Duration:      10s
-          Factor:        2
-          Max Duration:  5m
-        Limit:           10
-      Sync:
-        Prune:  true
-        Revisions:
-          c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-        Sync Options:
-          ServerSideApply=true
-          RespectIgnoreDifferences=true
-        Sync Strategy:
-          Apply:
-            Force:  true
-    Phase:          Succeeded
-    Retry Count:    10
-    Started At:     2026-05-28T07:12:52Z
-    Sync Result:
-      Resources:
-        Group:       
-        Hook Phase:  Running
-        Kind:        ServiceAccount
-        Message:     serviceaccount/frontend-workload-sa created
-        Name:        frontend-workload-sa
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        ServiceAccount
-        Message:     serviceaccount/sdk-workload-sa created
-        Name:        sdk-workload-sa
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        ServiceAccount
-        Message:     serviceaccount/bff-workload-sa created
-        Name:        bff-workload-sa
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Service
-        Message:     service/sdk-workload created
-        Name:        sdk-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Service
-        Message:     service/frontend-workload created
-        Name:        frontend-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Service
-        Message:     service/bff-workload created
-        Name:        bff-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       networking.k8s.io
-        Hook Phase:  Running
-        Kind:        Ingress
-        Message:     ingress.networking.k8s.io/waypoint-ingress created
-        Name:        waypoint-ingress
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       cilium.io
-        Hook Phase:  Running
-        Kind:        CiliumNetworkPolicy
-        Message:     ciliumnetworkpolicy.cilium.io/bff-strict-egress-contract created
-        Name:        bff-strict-egress-contract
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v2
-        Group:       argoproj.io
-        Hook Phase:  Running
-        Kind:        Rollout
-        Message:     rollout.argoproj.io/bff-workload created
-        Name:        bff-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1alpha1
-        Group:       cilium.io
-        Hook Phase:  Running
-        Kind:        CiliumNetworkPolicy
-        Message:     ciliumnetworkpolicy.cilium.io/frontend-strict-egress-contract created
-        Name:        frontend-strict-egress-contract
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v2
-        Group:       argoproj.io
-        Hook Phase:  Running
-        Kind:        Rollout
-        Message:     rollout.argoproj.io/frontend-workload created
-        Name:        frontend-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1alpha1
-        Group:       cilium.io
-        Hook Phase:  Running
-        Kind:        CiliumNetworkPolicy
-        Message:     ciliumnetworkpolicy.cilium.io/sdk-strict-egress-contract created
-        Name:        sdk-strict-egress-contract
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v2
-        Group:       argoproj.io
-        Hook Phase:  Running
-        Kind:        Rollout
-        Message:     rollout.argoproj.io/sdk-workload created
-        Name:        sdk-workload
-        Namespace:   tenant-waypoint
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1alpha1
-      Revision:      
-      Revisions:
-        c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-      Source:
-        Repo URL:  
-      Sources:
-        Path:             tenants/waypoint/workloads
-        Repo URL:         https://github.com/soloz-io/fleet-registry.git
-        Target Revision:  main
-  Reconciled At:          2026-05-28T10:40:28Z
-  Resources:
-    Health:
-      Status:   Healthy
-    Kind:       Service
-    Name:       bff-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Health:
-      Status:   Healthy
-    Kind:       Service
-    Name:       frontend-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Health:
-      Status:   Healthy
-    Kind:       Service
-    Name:       sdk-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Kind:       ServiceAccount
-    Name:       bff-workload-sa
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Kind:       ServiceAccount
-    Name:       frontend-workload-sa
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Kind:       ServiceAccount
-    Name:       sdk-workload-sa
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-    Group:      argoproj.io
-    Health:
-      Message:  ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
-      Status:   Degraded
-    Kind:       Rollout
-    Name:       bff-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1alpha1
-    Group:      argoproj.io
-    Health:
-      Message:  ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
-      Status:   Degraded
-    Kind:       Rollout
-    Name:       frontend-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1alpha1
-    Group:      argoproj.io
-    Health:
-      Message:  ProgressDeadlineExceeded: ReplicaSet "sdk-workload-5546cb5c5" has timed out progressing.
-      Status:   Degraded
-    Kind:       Rollout
-    Name:       sdk-workload
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1alpha1
-    Group:      cilium.io
-    Kind:       CiliumNetworkPolicy
-    Name:       bff-strict-egress-contract
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v2
-    Group:      cilium.io
-    Kind:       CiliumNetworkPolicy
-    Name:       frontend-strict-egress-contract
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v2
-    Group:      cilium.io
-    Kind:       CiliumNetworkPolicy
-    Name:       sdk-strict-egress-contract
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v2
-    Group:      networking.k8s.io
-    Health:
-      Status:   Progressing
-    Kind:       Ingress
-    Name:       waypoint-ingress
-    Namespace:  tenant-waypoint
-    Status:     Synced
-    Version:    v1
-  Source Types:
-    Kustomize
-  Summary:
-    External UR Ls:
-      https://api.waypoint.nutgraf.in/
-      https://waypoint.nutgraf.in/
-  Sync:
-    Compared To:
-      Destination:
-        Name:       spoke-pool-eu-prod-01
-        Namespace:  tenant-waypoint
-      Source:
-        Repo URL:  
-      Sources:
-        Path:             tenants/waypoint/workloads
-        Repo URL:         https://github.com/soloz-io/fleet-registry.git
-        Target Revision:  main
-    Revisions:
-      727bdedb20167bb8817bd63d9dce953d7afa3323
-    Status:  Synced
-Events:      <none>
-
-### ArgoCD Application YAML: tenant-waypoint-workloads
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  creationTimestamp: "2026-05-28T02:17:46Z"
-  finalizers:
-  - resources-finalizer.argocd.argoproj.io
-  generation: 322
-  labels:
-    resource-type: workload
-    target-cluster: spoke-pool-eu-prod-01
-    tenant-id: waypoint
-  name: tenant-waypoint-workloads
-  namespace: platform-ops
-  ownerReferences:
-  - apiVersion: argoproj.io/v1alpha1
-    blockOwnerDeletion: true
-    controller: true
-    kind: ApplicationSet
-    name: tenant-workload-provisioning
-    uid: c304429e-612a-4757-91f7-027141a3d030
-  resourceVersion: "5723144"
-  uid: cc79ecc7-5c89-481d-b302-fb4f8712432f
-spec:
-  destination:
-    name: spoke-pool-eu-prod-01
-    namespace: tenant-waypoint
-  project: tenant-workloads
-  sources:
-  - path: tenants/waypoint/workloads
-    repoURL: https://github.com/soloz-io/fleet-registry.git
-    targetRevision: main
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    retry:
-      backoff:
-        duration: 10s
-        factor: 2
-        maxDuration: 5m
-      limit: 10
-    syncOptions:
-    - ServerSideApply=true
-    - RespectIgnoreDifferences=true
-status:
-  controllerNamespace: platform-ops
-  health:
-    status: Degraded
-  history:
-  - deployStartedAt: "2026-05-28T07:12:52Z"
-    deployedAt: "2026-05-28T07:12:53Z"
-    id: 0
-    initiatedBy:
-      username: admin
-    revisions:
-    - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-    source:
-      repoURL: ""
-    sources:
-    - path: tenants/waypoint/workloads
-      repoURL: https://github.com/soloz-io/fleet-registry.git
-      targetRevision: main
-  operationState:
-    finishedAt: "2026-05-28T07:12:53Z"
-    message: successfully synced (all tasks run)
-    operation:
-      initiatedBy:
-        automated: true
-        username: admin
-      retry:
-        backoff:
-          duration: 10s
-          factor: 2
-          maxDuration: 5m
-        limit: 10
-      sync:
-        prune: true
-        revisions:
-        - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-        syncOptions:
-        - ServerSideApply=true
-        - RespectIgnoreDifferences=true
-        syncStrategy:
-          apply:
-            force: true
-    phase: Succeeded
-    retryCount: 10
-    startedAt: "2026-05-28T07:12:52Z"
-    syncResult:
-      resources:
-      - group: ""
-        hookPhase: Running
-        kind: ServiceAccount
-        message: serviceaccount/frontend-workload-sa created
-        name: frontend-workload-sa
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: ""
-        hookPhase: Running
-        kind: ServiceAccount
-        message: serviceaccount/sdk-workload-sa created
-        name: sdk-workload-sa
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: ""
-        hookPhase: Running
-        kind: ServiceAccount
-        message: serviceaccount/bff-workload-sa created
-        name: bff-workload-sa
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: ""
-        hookPhase: Running
-        kind: Service
-        message: service/sdk-workload created
-        name: sdk-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: ""
-        hookPhase: Running
-        kind: Service
-        message: service/frontend-workload created
-        name: frontend-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: ""
-        hookPhase: Running
-        kind: Service
-        message: service/bff-workload created
-        name: bff-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: networking.k8s.io
-        hookPhase: Running
-        kind: Ingress
-        message: ingress.networking.k8s.io/waypoint-ingress created
-        name: waypoint-ingress
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1
-      - group: cilium.io
-        hookPhase: Running
-        kind: CiliumNetworkPolicy
-        message: ciliumnetworkpolicy.cilium.io/bff-strict-egress-contract created
-        name: bff-strict-egress-contract
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v2
-      - group: argoproj.io
-        hookPhase: Running
-        kind: Rollout
-        message: rollout.argoproj.io/bff-workload created
-        name: bff-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1alpha1
-      - group: cilium.io
-        hookPhase: Running
-        kind: CiliumNetworkPolicy
-        message: ciliumnetworkpolicy.cilium.io/frontend-strict-egress-contract created
-        name: frontend-strict-egress-contract
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v2
-      - group: argoproj.io
-        hookPhase: Running
-        kind: Rollout
-        message: rollout.argoproj.io/frontend-workload created
-        name: frontend-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1alpha1
-      - group: cilium.io
-        hookPhase: Running
-        kind: CiliumNetworkPolicy
-        message: ciliumnetworkpolicy.cilium.io/sdk-strict-egress-contract created
-        name: sdk-strict-egress-contract
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v2
-      - group: argoproj.io
-        hookPhase: Running
-        kind: Rollout
-        message: rollout.argoproj.io/sdk-workload created
-        name: sdk-workload
-        namespace: tenant-waypoint
-        status: Synced
-        syncPhase: Sync
-        version: v1alpha1
-      revision: ""
-      revisions:
-      - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-      source:
-        repoURL: ""
-      sources:
-      - path: tenants/waypoint/workloads
-        repoURL: https://github.com/soloz-io/fleet-registry.git
-        targetRevision: main
-  reconciledAt: "2026-05-28T10:40:28Z"
-  resources:
-  - health:
-      status: Healthy
-    kind: Service
-    name: bff-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - health:
-      status: Healthy
-    kind: Service
-    name: frontend-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - health:
-      status: Healthy
-    kind: Service
-    name: sdk-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - kind: ServiceAccount
-    name: bff-workload-sa
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - kind: ServiceAccount
-    name: frontend-workload-sa
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - kind: ServiceAccount
-    name: sdk-workload-sa
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  - group: argoproj.io
-    health:
-      message: 'ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has
-        timed out progressing.'
-      status: Degraded
-    kind: Rollout
-    name: bff-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1alpha1
-  - group: argoproj.io
-    health:
-      message: 'ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7"
-        has timed out progressing.'
-      status: Degraded
-    kind: Rollout
-    name: frontend-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1alpha1
-  - group: argoproj.io
-    health:
-      message: 'ProgressDeadlineExceeded: ReplicaSet "sdk-workload-5546cb5c5" has
-        timed out progressing.'
-      status: Degraded
-    kind: Rollout
-    name: sdk-workload
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1alpha1
-  - group: cilium.io
-    kind: CiliumNetworkPolicy
-    name: bff-strict-egress-contract
-    namespace: tenant-waypoint
-    status: Synced
-    version: v2
-  - group: cilium.io
-    kind: CiliumNetworkPolicy
-    name: frontend-strict-egress-contract
-    namespace: tenant-waypoint
-    status: Synced
-    version: v2
-  - group: cilium.io
-    kind: CiliumNetworkPolicy
-    name: sdk-strict-egress-contract
-    namespace: tenant-waypoint
-    status: Synced
-    version: v2
-  - group: networking.k8s.io
-    health:
-      status: Progressing
-    kind: Ingress
-    name: waypoint-ingress
-    namespace: tenant-waypoint
-    status: Synced
-    version: v1
-  sourceTypes:
-  - Kustomize
-  summary:
-    externalURLs:
-    - https://api.waypoint.nutgraf.in/
-    - https://waypoint.nutgraf.in/
-  sync:
-    comparedTo:
-      destination:
-        name: spoke-pool-eu-prod-01
-        namespace: tenant-waypoint
-      source:
-        repoURL: ""
-      sources:
-      - path: tenants/waypoint/workloads
-        repoURL: https://github.com/soloz-io/fleet-registry.git
-        targetRevision: main
-    revisions:
-    - 727bdedb20167bb8817bd63d9dce953d7afa3323
-    status: Synced
-
 ### Secret Get: tenant-waypoint/waypoint-pooler-app
 Error from server (NotFound): secrets "waypoint-pooler-app" not found
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m47s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m47s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m47s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-12s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-2s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+12m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+12m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+12m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m15s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m15s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m15s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m15s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m15s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m15s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m15s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m15s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m15s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m15s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m15s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m15s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m15s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m14s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m14s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m14s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m36s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m36s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m36s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m33s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m32s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m32s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m8s        Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m8s        Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m7s        Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m7s        Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m42s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m34s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m11s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m5s        Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+28s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
 
 ### TenantDatabase list: tenant-waypoint
 apiVersion: v1
@@ -682,11 +49,11 @@ items:
     creationTimestamp: "2026-05-26T20:02:05Z"
     finalizers:
     - composite.apiextensions.crossplane.io
-    generation: 4
+    generation: 5
     labels:
       crossplane.io/composite: app-creator
     name: app-creator
-    resourceVersion: "602806"
+    resourceVersion: "644414"
     uid: 2df11fd0-2054-433c-b731-1991750b0ca2
   spec:
     cellId: spoke-pool-eu-prod-01
@@ -696,14 +63,32 @@ items:
       name: tenantdatabase-spoke-439d252
     compositionUpdatePolicy: Automatic
     databaseName: tenant-app-creator-db
+    resourceRefs:
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: app-creator-db-credentials-restore
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: app-creator-pooler-app-secret
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: tenant-app-creator-db-database
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: DefaultPrivileges
+      name: tenant-app-creator-default-privileges-sequences
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: DefaultPrivileges
+      name: tenant-app-creator-default-privileges-tables
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: Role
+      name: tenant-app-creator-user
     tenantId: app-creator
   status:
     conditions:
-    - lastTransitionTime: "2026-05-26T20:02:05Z"
-      message: 'cannot compose resources: cannot run Composition pipeline step "patch-and-transform":
-        cannot get gRPC client connection for Function "function-patch-and-transform":
-        cannot find an active FunctionRevision (a FunctionRevision with spec.desiredState:
-        Active)'
+    - lastTransitionTime: "2026-05-28T11:23:26Z"
+      message: 'cannot compose resources: cannot apply composed resource "pooler-app-secret":
+        failed to create typed patch object (/app-creator-pooler-app-secret; kubernetes.crossplane.io/v1alpha2,
+        Kind=Object): .spec.readinessChecks: field not declared in schema'
       reason: ReconcileError
       status: "False"
       type: Synced
@@ -715,11 +100,11 @@ items:
     creationTimestamp: "2026-05-27T17:45:38Z"
     finalizers:
     - composite.apiextensions.crossplane.io
-    generation: 4
+    generation: 5
     labels:
       crossplane.io/composite: waypoint
     name: waypoint
-    resourceVersion: "602807"
+    resourceVersion: "643900"
     uid: bc3780ff-7043-4a91-8613-024e81f2638b
   spec:
     cellId: spoke-pool-eu-prod-01
@@ -729,14 +114,32 @@ items:
       name: tenantdatabase-spoke-439d252
     compositionUpdatePolicy: Automatic
     databaseName: tenant-waypoint-db
+    resourceRefs:
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: tenant-waypoint-db-database
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: waypoint-db-credentials-restore
+    - apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      name: waypoint-pooler-app-secret
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: DefaultPrivileges
+      name: tenant-waypoint-default-privileges-sequences
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: DefaultPrivileges
+      name: tenant-waypoint-default-privileges-tables
+    - apiVersion: postgresql.sql.crossplane.io/v1alpha1
+      kind: Role
+      name: tenant-waypoint-user
     tenantId: waypoint
   status:
     conditions:
-    - lastTransitionTime: "2026-05-27T17:45:38Z"
-      message: 'cannot compose resources: cannot run Composition pipeline step "patch-and-transform":
-        cannot get gRPC client connection for Function "function-patch-and-transform":
-        cannot find an active FunctionRevision (a FunctionRevision with spec.desiredState:
-        Active)'
+    - lastTransitionTime: "2026-05-28T11:22:12Z"
+      message: 'cannot compose resources: cannot apply composed resource "db-credentials-restore":
+        failed to create typed patch object (/waypoint-db-credentials-restore; kubernetes.crossplane.io/v1alpha2,
+        Kind=Object): .spec.readinessChecks: field not declared in schema'
       reason: ReconcileError
       status: "False"
       type: Synced
@@ -798,7 +201,7 @@ Metadata:
   Creation Timestamp:  2026-05-26T19:53:36Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  2532
+  Generation:  2702
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -806,7 +209,7 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  spoke-infrastructure
     UID:                   d0315216-e7cf-4776-b937-b7958edc1165
-  Resource Version:        5724040
+  Resource Version:        5830678
   UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
 Operation:
   Initiated By:
@@ -819,7 +222,7 @@ Operation:
     Limit:           5
   Sync:
     Prune:     true
-    Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+    Revision:  24c5d6030309da438385833007df7f162ff29ac3
     Sync Options:
       CreateNamespace=true
       SkipDryRunOnMissingResource=true
@@ -860,7 +263,8 @@ Status:
   Health:
     Status:  Degraded
   Operation State:
-    Message:  waiting for healthy state of external-secrets.io/ExternalSecret/crossplane-admin-credentials and 24 more resources
+    Finished At:  2026-05-28T11:23:00Z
+    Message:      one or more objects failed to apply, reason: admission webhook "validate-policy.kyverno.svc" denied the request: path: spec.rules[0].match.any[0].kinds: the kind defined in the all match resource is invalid: unable to convert GVK to GVR for kinds argoproj.io/Rollout, err: failed to find resource (*/*/argoproj.io/Rollout). Retrying attempt #5 at 11:24AM.
     Operation:
       Initiated By:
         Automated:  true
@@ -872,1176 +276,20 @@ Status:
         Limit:           5
       Sync:
         Prune:     true
-        Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+        Revision:  24c5d6030309da438385833007df7f162ff29ac3
         Sync Options:
           CreateNamespace=true
           SkipDryRunOnMissingResource=true
     Phase:        Running
-    Retry Count:  2
-    Started At:   2026-05-28T10:39:52Z
+    Retry Count:  5
+    Started At:   2026-05-28T11:15:00Z
     Sync Result:
       Resources:
         Group:       apiextensions.k8s.io
         Hook Phase:  Succeeded
         Kind:        CustomResourceDefinition
-        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
         Name:        rollouts.argoproj.io
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Namespace
-        Message:     namespace/platform-data unchanged
-        Name:        platform-data
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Namespace
-        Message:     namespace/platform-observability unchanged
-        Name:        platform-observability
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Namespace
-        Message:     namespace/kagent-system unchanged
-        Name:        kagent-system
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Running
-        Kind:        Namespace
-        Message:     namespace/platform-messaging unchanged
-        Name:        platform-messaging
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       external-secrets.io
-        Hook Phase:  Running
-        Kind:        ClusterSecretStore
-        Message:     clustersecretstore.external-secrets.io/infisical-backend unchanged
-        Name:        infisical-backend
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-      Revision:      b0945679b1b819ff2a545e95e5ba3f545dec6b0d
-      Source:
-        Kustomize:
-          Patches:
-            Patch:  - op: replace
-  path: /spec/data/0/remoteRef/key
-  value: spoke-pool-eu-prod-01-crossplane-admin-password
-
-            Target:
-              Kind:       ExternalSecret
-              Name:       crossplane-admin-credentials
-              Namespace:  platform-data
-        Path:             manifests/spoke/spoke-catalog/infra
-        Repo URL:         https://github.com/soloz-io/zero-ops
-        Target Revision:  HEAD
-  Reconciled At:          2026-05-28T10:40:45Z
-  Resources:
-    Kind:       ConfigMap
-    Name:       spoke-controller-config
-    Namespace:  kagent-system
-    Status:     Synced
-    Version:    v1
-    Health:
-      Status:   Missing
-    Kind:       ConfigMap
-    Name:       nats-config
-    Namespace:  platform-messaging
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Health:
-      Status:   Missing
-    Kind:       ConfigMap
-    Name:       alloy-config
-    Namespace:  platform-observability
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Kind:       Namespace
-    Name:       kagent-system
-    Status:     Synced
-    Sync Wave:  -2
-    Version:    v1
-    Kind:       Namespace
-    Name:       platform-data
-    Status:     Synced
-    Sync Wave:  -2
-    Version:    v1
-    Kind:       Namespace
-    Name:       platform-messaging
-    Status:     Synced
-    Sync Wave:  -2
-    Version:    v1
-    Kind:       Namespace
-    Name:       platform-observability
-    Status:     Synced
-    Sync Wave:  -2
-    Version:    v1
-    Kind:       Secret
-    Name:       spoke-controller-credentials
-    Namespace:  kagent-system
-    Status:     OutOfSync
-    Version:    v1
-    Health:
-      Status:   Missing
-    Kind:       Service
-    Name:       nats
-    Namespace:  platform-messaging
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Kind:       ServiceAccount
-    Name:       spoke-controller
-    Namespace:  kagent-system
-    Status:     Synced
-    Version:    v1
-    Health:
-      Status:   Missing
-    Kind:       ServiceAccount
-    Name:       grafana-alloy
-    Namespace:  platform-observability
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Kind:       ServiceAccount
-    Name:       provider-kubernetes
-    Namespace:  platform-ops
-    Status:     Synced
-    Version:    v1
-    Group:      apiextensions.k8s.io
-    Kind:       CustomResourceDefinition
-    Name:       rollouts.argoproj.io
-    Status:     Synced
-    Sync Wave:  -5
-    Version:    v1
-    Group:      apps
-    Health:
-      Status:   Missing
-    Kind:       DaemonSet
-    Name:       grafana-alloy
-    Namespace:  platform-observability
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Group:      apps
-    Health:
-      Message:  Deployment "spoke-controller" exceeded its progress deadline
-      Status:   Degraded
-    Kind:       Deployment
-    Name:       spoke-controller
-    Namespace:  kagent-system
-    Status:     Synced
-    Version:    v1
-    Group:      apps
-    Health:
-      Status:   Missing
-    Kind:       StatefulSet
-    Name:       nats
-    Namespace:  platform-messaging
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Group:      external-secrets.io
-    Health:
-      Message:  store validated
-      Status:   Healthy
-    Kind:       ClusterSecretStore
-    Name:       infisical-backend
-    Status:     Synced
-    Sync Wave:  -2
-    Version:    v1
-    Group:      external-secrets.io
-    Health:
-      Message:  secret synced
-      Status:   Healthy
-    Kind:       ExternalSecret
-    Name:       crossplane-admin-credentials
-    Namespace:  platform-data
-    Status:     Synced
-    Sync Wave:  -1
-    Version:    v1
-    Group:      kubernetes.crossplane.io
-    Health:
-      Status:   Missing
-    Kind:       ProviderConfig
-    Name:       default
-    Namespace:  platform-ops
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1alpha1
-    Group:      kyverno.io
-    Health:
-      Status:   Missing
-    Kind:       ClusterPolicy
-    Name:       enforce-tenant-abi
-    Status:     OutOfSync
-    Sync Wave:  5
-    Version:    v1
-    Group:      pkg.crossplane.io
-    Kind:       DeploymentRuntimeConfig
-    Name:       provider-kubernetes-runtime
-    Status:     Synced
-    Version:    v1beta1
-    Group:      pkg.crossplane.io
-    Health:
-      Status:   Missing
-    Kind:       Function
-    Name:       function-patch-and-transform
-    Status:     OutOfSync
-    Sync Wave:  1
-    Version:    v1beta1
-    Group:      pkg.crossplane.io
-    Health:
-      Status:   Missing
-    Kind:       Provider
-    Name:       provider-kubernetes
-    Status:     OutOfSync
-    Sync Wave:  1
-    Version:    v1
-    Group:      pkg.crossplane.io
-    Health:
-      Status:   Missing
-    Kind:       Provider
-    Name:       provider-sql
-    Status:     OutOfSync
-    Sync Wave:  1
-    Version:    v1
-    Group:      postgresql.cnpg.io
-    Health:
-      Status:   Missing
-    Kind:       Cluster
-    Name:       shared-cnpg
-    Namespace:  platform-data
-    Status:     OutOfSync
-    Sync Wave:  2
-    Version:    v1
-    Group:      postgresql.sql.crossplane.io
-    Health:
-      Status:   Missing
-    Kind:       ProviderConfig
-    Name:       default
-    Namespace:  platform-ops
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1alpha1
-    Group:      rbac.authorization.k8s.io
-    Health:
-      Status:   Missing
-    Kind:       ClusterRole
-    Name:       grafana-alloy
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Group:      rbac.authorization.k8s.io
-    Kind:       ClusterRole
-    Name:       spoke-controller
-    Status:     Synced
-    Version:    v1
-    Group:      rbac.authorization.k8s.io
-    Health:
-      Status:   Missing
-    Kind:       ClusterRoleBinding
-    Name:       grafana-alloy
-    Status:     OutOfSync
-    Sync Wave:  4
-    Version:    v1
-    Group:      rbac.authorization.k8s.io
-    Kind:       ClusterRoleBinding
-    Name:       spoke-controller
-    Status:     Synced
-    Version:    v1
-    Group:      rbac.authorization.k8s.io
-    Kind:       ClusterRoleBinding
-    Name:       spoke-provider-kubernetes-admin
-    Status:     Synced
-    Version:    v1
-  Source Type:  Kustomize
-  Summary:
-    Images:
-      ghcr.io/soloz-io/zero-ops/spoke-controller:latest
-  Sync:
-    Compared To:
-      Destination:
-        Name:       spoke-pool-eu-prod-01
-        Namespace:  platform-ops
-      Source:
-        Kustomize:
-          Patches:
-            Patch:  - op: replace
-  path: /spec/data/0/remoteRef/key
-  value: spoke-pool-eu-prod-01-crossplane-admin-password
-
-            Target:
-              Kind:       ExternalSecret
-              Name:       crossplane-admin-credentials
-              Namespace:  platform-data
-        Path:             manifests/spoke/spoke-catalog/infra
-        Repo URL:         https://github.com/soloz-io/zero-ops
-        Target Revision:  HEAD
-    Revision:             b0945679b1b819ff2a545e95e5ba3f545dec6b0d
-    Status:               OutOfSync
-Events:
-  Type     Reason              Age    From                           Message
-  ----     ------              ----   ----                           -------
-  Normal   OperationStarted    56m    argocd-application-controller  Initiated automated sync to '56bd74afa2ba041fd90e5433924173ccdee6ff1c'
-  Warning  OperationCompleted  50m    argocd-application-controller  Sync operation to 56bd74afa2ba041fd90e5433924173ccdee6ff1c failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    50m    argocd-application-controller  Initiated automated sync to '8b6736cefe6a278f2a45b4231e68a7feadf38b72'
-  Warning  OperationCompleted  43m    argocd-application-controller  Sync operation to 8b6736cefe6a278f2a45b4231e68a7feadf38b72 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    30m    argocd-application-controller  Initiated automated sync to '7dafc5e69c75f53b7dcf7381d9646dafad1c64e9'
-  Warning  OperationCompleted  24m    argocd-application-controller  Sync operation to 7dafc5e69c75f53b7dcf7381d9646dafad1c64e9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    24m    argocd-application-controller  Initiated automated sync to '86b48f026375f667d37d15b41233091aeff066f0'
-  Warning  OperationCompleted  17m    argocd-application-controller  Sync operation to 86b48f026375f667d37d15b41233091aeff066f0 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    7m24s  argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
-  Warning  OperationCompleted  61s    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    61s    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
-
-### AtlasMigration Describe: tenant-waypoint/waypoint-migrations
-Name:         waypoint-migrations
-Namespace:    tenant-waypoint
-Labels:       <none>
-Annotations:  <none>
-API Version:  db.atlasgo.io/v1alpha1
-Kind:         AtlasMigration
-Metadata:
-  Creation Timestamp:  2026-05-27T17:45:38Z
-  Generation:          1
-  Resource Version:    320230
-  UID:                 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
-Spec:
-  Dir:
-    Config Map Ref:
-      Name:    tenant-waypoint-migrations
-  Exec Order:  linear
-  URL From:
-    Secret Key Ref:
-      Key:   url
-      Name:  waypoint-pooler-app
-Status:
-  Conditions:
-    Last Transition Time:  2026-05-27T17:45:38Z
-    Message:               Secret "waypoint-pooler-app" not found
-    Reason:                ReadingMigrationData
-    Status:                False
-    Type:                  Ready
-  Last Applied:            0
-  observed_hash:           
-Events:
-  Type     Reason        Age                    From                       Message
-  ----     ------        ----                   ----                       -------
-  Warning  TransientErr  14s (x12156 over 16h)  atlasmigration-controller  Secret "waypoint-pooler-app" not found
-
-### AtlasMigration YAML: tenant-waypoint/waypoint-migrations
-apiVersion: db.atlasgo.io/v1alpha1
-kind: AtlasMigration
-metadata:
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"db.atlasgo.io/v1alpha1","kind":"AtlasMigration","metadata":{"name":"waypoint-migrations","namespace":"tenant-waypoint"},"spec":{"dir":{"configMapRef":{"name":"tenant-waypoint-migrations"}},"urlFrom":{"secretKeyRef":{"key":"url","name":"waypoint-pooler-app"}}}}'
-  creationTimestamp: "2026-05-27T17:45:38Z"
-  generation: 1
-  name: waypoint-migrations
-  namespace: tenant-waypoint
-  resourceVersion: "320230"
-  uid: 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
-spec:
-  dir:
-    configMapRef:
-      name: tenant-waypoint-migrations
-  execOrder: linear
-  urlFrom:
-    secretKeyRef:
-      key: url
-      name: waypoint-pooler-app
-status:
-  conditions:
-  - lastTransitionTime: "2026-05-27T17:45:38Z"
-    message: Secret "waypoint-pooler-app" not found
-    reason: ReadingMigrationData
-    status: "False"
-    type: Ready
-  lastApplied: 0
-  observed_hash: ""
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m49s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m49s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m49s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-14s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-4s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### ServiceAccount Get: tenant-waypoint/migration-sa
-Error from server (NotFound): serviceaccounts "migration-sa" not found
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m51s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m51s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m51s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-16s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-6s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### ConfigMap Get: tenant-waypoint/waypoint-custom-migrations
-Error from server (NotFound): configmaps "waypoint-custom-migrations" not found
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m53s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m53s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m53s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-18s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-8s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### Rollout YAML: tenant-waypoint/bff-workload
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
-metadata:
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: |
-      {"apiVersion":"argoproj.io/v1alpha1","kind":"Rollout","metadata":{"annotations":{},"labels":{"app":"bff","argocd.argoproj.io/instance":"tenant-waypoint-workloads","cost-center":"platform","tenant-id":"waypoint","workload-class":"stateless-web"},"name":"bff-workload","namespace":"tenant-waypoint"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"workload"}},"strategy":{"canary":{"steps":[{"setWeight":20},{"pause":{"duration":"5m"}},{"setWeight":50},{"pause":{"duration":"5m"}}]}},"template":{"metadata":{"annotations":{"prometheus.io/port":"9090","prometheus.io/scrape":"true"},"labels":{"app":"workload"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"workload"}},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"image":"ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":15,"periodSeconds":10},"name":"app","readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":5,"periodSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}}],"imagePullSecrets":[{"name":"ghcr-pull-secret"}],"securityContext":{"fsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}},"serviceAccountName":"workload-sa","topologySpreadConstraints":[{"labelSelector":{"matchLabels":{"app":"workload"}},"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"DoNotSchedule"}]}}}}
-    rollout.argoproj.io/revision: "1"
-  creationTimestamp: "2026-05-28T07:12:53Z"
-  generation: 1
-  labels:
-    app: bff
-    argocd.argoproj.io/instance: tenant-waypoint-workloads
-    cost-center: platform
-    tenant-id: waypoint
-    workload-class: stateless-web
-  name: bff-workload
-  namespace: tenant-waypoint
-  resourceVersion: "545113"
-  uid: b34ff8f8-affa-43ee-b4da-dff03b6d5169
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: workload
-  strategy:
-    canary:
-      steps:
-      - setWeight: 20
-      - pause:
-          duration: 5m
-      - setWeight: 50
-      - pause:
-          duration: 5m
-  template:
-    metadata:
-      annotations:
-        prometheus.io/port: "9090"
-        prometheus.io/scrape: "true"
-      labels:
-        app: workload
-    spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - podAffinityTerm:
-              labelSelector:
-                matchLabels:
-                  app: workload
-              topologyKey: kubernetes.io/hostname
-            weight: 100
-      containers:
-      - image: ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 15
-          periodSeconds: 10
-        name: app
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        resources:
-          limits:
-            cpu: 500m
-            memory: 512Mi
-          requests:
-            cpu: 100m
-            memory: 128Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-      imagePullSecrets:
-      - name: ghcr-pull-secret
-      securityContext:
-        fsGroup: 65532
-        runAsNonRoot: true
-        runAsUser: 65532
-        seccompProfile:
-          type: RuntimeDefault
-      serviceAccountName: workload-sa
-      topologySpreadConstraints:
-      - labelSelector:
-          matchLabels:
-            app: workload
-        maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-status:
-  blueGreen: {}
-  canary: {}
-  conditions:
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: Rollout does not have minimum availability
-    reason: AvailableReason
-    status: "False"
-    type: Available
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: RolloutCompleted
-    reason: RolloutCompleted
-    status: "True"
-    type: Completed
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: 'pods "bff-workload-79696579dd-" is forbidden: error looking up service
-      account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found'
-    reason: FailedCreate
-    status: "True"
-    type: ReplicaFailure
-  - lastTransitionTime: "2026-05-28T07:22:54Z"
-    lastUpdateTime: "2026-05-28T07:22:54Z"
-    message: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
-    reason: ProgressDeadlineExceeded
-    status: "False"
-    type: Progressing
-  currentPodHash: 79696579dd
-  currentStepHash: 688d98958
-  currentStepIndex: 4
-  message: 'ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed
-    out progressing.'
-  observedGeneration: "1"
-  phase: Degraded
-  selector: app=workload
-  stableRS: 79696579dd
-
-### Rollout Describe: tenant-waypoint/bff-workload
-Name:         bff-workload
-Namespace:    tenant-waypoint
-Labels:       app=bff
-              argocd.argoproj.io/instance=tenant-waypoint-workloads
-              cost-center=platform
-              tenant-id=waypoint
-              workload-class=stateless-web
-Annotations:  rollout.argoproj.io/revision: 1
-API Version:  argoproj.io/v1alpha1
-Kind:         Rollout
-Metadata:
-  Creation Timestamp:  2026-05-28T07:12:53Z
-  Generation:          1
-  Resource Version:    545113
-  UID:                 b34ff8f8-affa-43ee-b4da-dff03b6d5169
-Spec:
-  Replicas:  2
-  Selector:
-    Match Labels:
-      App:  workload
-  Strategy:
-    Canary:
-      Steps:
-        Set Weight:  20
-        Pause:
-          Duration:  5m
-        Set Weight:  50
-        Pause:
-          Duration:  5m
-  Template:
-    Metadata:
-      Annotations:
-        prometheus.io/port:    9090
-        prometheus.io/scrape:  true
-      Labels:
-        App:  workload
-    Spec:
-      Affinity:
-        Pod Anti Affinity:
-          Preferred During Scheduling Ignored During Execution:
-            Pod Affinity Term:
-              Label Selector:
-                Match Labels:
-                  App:       workload
-              Topology Key:  kubernetes.io/hostname
-            Weight:          100
-      Containers:
-        Image:  ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
-        Liveness Probe:
-          Failure Threshold:  3
-          Http Get:
-            Path:                 /health
-            Port:                 8080
-          Initial Delay Seconds:  15
-          Period Seconds:         10
-        Name:                     app
-        Readiness Probe:
-          Failure Threshold:  3
-          Http Get:
-            Path:                 /health
-            Port:                 8080
-          Initial Delay Seconds:  5
-          Period Seconds:         5
-        Resources:
-          Limits:
-            Cpu:     500m
-            Memory:  512Mi
-          Requests:
-            Cpu:     100m
-            Memory:  128Mi
-        Security Context:
-          Allow Privilege Escalation:  false
-          Capabilities:
-            Drop:
-              ALL
-          Read Only Root Filesystem:  true
-      Image Pull Secrets:
-        Name:  ghcr-pull-secret
-      Security Context:
-        Fs Group:         65532
-        Run As Non Root:  true
-        Run As User:      65532
-        Seccomp Profile:
-          Type:              RuntimeDefault
-      Service Account Name:  workload-sa
-      Topology Spread Constraints:
-        Label Selector:
-          Match Labels:
-            App:             workload
-        Max Skew:            1
-        Topology Key:        kubernetes.io/hostname
-        When Unsatisfiable:  DoNotSchedule
-Status:
-  Blue Green:
-  Canary:
-  Conditions:
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               Rollout does not have minimum availability
-    Reason:                AvailableReason
-    Status:                False
-    Type:                  Available
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               RolloutCompleted
-    Reason:                RolloutCompleted
-    Status:                True
-    Type:                  Completed
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-    Reason:                FailedCreate
-    Status:                True
-    Type:                  ReplicaFailure
-    Last Transition Time:  2026-05-28T07:22:54Z
-    Last Update Time:      2026-05-28T07:22:54Z
-    Message:               ReplicaSet "bff-workload-79696579dd" has timed out progressing.
-    Reason:                ProgressDeadlineExceeded
-    Status:                False
-    Type:                  Progressing
-  Current Pod Hash:        79696579dd
-  Current Step Hash:       688d98958
-  Current Step Index:      4
-  Message:                 ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
-  Observed Generation:     1
-  Phase:                   Degraded
-  Selector:                app=workload
-  Stable RS:               79696579dd
-Events:                    <none>
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m56s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m56s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m56s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-21s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-11s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### Endpoints YAML: tenant-waypoint/bff-workload
-apiVersion: v1
-kind: Endpoints
-metadata:
-  annotations:
-    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
-  creationTimestamp: "2026-05-28T07:12:53Z"
-  labels:
-    app: bff
-    argocd.argoproj.io/instance: tenant-waypoint-workloads
-    cost-center: platform
-    tenant-id: waypoint
-    workload-class: stateless-web
-  name: bff-workload
-  namespace: tenant-waypoint
-  resourceVersion: "540929"
-  uid: 653e2317-7961-4c92-8d6a-ed8fb67cacf0
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-2m57s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m57s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m57s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-22s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-12s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### Rollout YAML: tenant-waypoint/frontend-workload
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
-metadata:
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: |
-      {"apiVersion":"argoproj.io/v1alpha1","kind":"Rollout","metadata":{"annotations":{},"labels":{"app":"frontend","argocd.argoproj.io/instance":"tenant-waypoint-workloads","cost-center":"platform","tenant-id":"waypoint","workload-class":"stateless-web"},"name":"frontend-workload","namespace":"tenant-waypoint"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"workload"}},"strategy":{"canary":{"steps":[{"setWeight":20},{"pause":{"duration":"5m"}},{"setWeight":50},{"pause":{"duration":"5m"}}]}},"template":{"metadata":{"annotations":{"prometheus.io/port":"9090","prometheus.io/scrape":"true"},"labels":{"app":"workload"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"workload"}},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"image":"ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":15,"periodSeconds":10},"name":"app","readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":5,"periodSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}}],"imagePullSecrets":[{"name":"ghcr-pull-secret"}],"securityContext":{"fsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}},"serviceAccountName":"workload-sa","topologySpreadConstraints":[{"labelSelector":{"matchLabels":{"app":"workload"}},"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"DoNotSchedule"}]}}}}
-    rollout.argoproj.io/revision: "1"
-  creationTimestamp: "2026-05-28T07:12:53Z"
-  generation: 1
-  labels:
-    app: frontend
-    argocd.argoproj.io/instance: tenant-waypoint-workloads
-    cost-center: platform
-    tenant-id: waypoint
-    workload-class: stateless-web
-  name: frontend-workload
-  namespace: tenant-waypoint
-  resourceVersion: "545112"
-  uid: 4ebdb275-0cd9-4b06-8b72-f6f6106595df
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: workload
-  strategy:
-    canary:
-      steps:
-      - setWeight: 20
-      - pause:
-          duration: 5m
-      - setWeight: 50
-      - pause:
-          duration: 5m
-  template:
-    metadata:
-      annotations:
-        prometheus.io/port: "9090"
-        prometheus.io/scrape: "true"
-      labels:
-        app: workload
-    spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - podAffinityTerm:
-              labelSelector:
-                matchLabels:
-                  app: workload
-              topologyKey: kubernetes.io/hostname
-            weight: 100
-      containers:
-      - image: ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 15
-          periodSeconds: 10
-        name: app
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        resources:
-          limits:
-            cpu: 500m
-            memory: 512Mi
-          requests:
-            cpu: 100m
-            memory: 128Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-      imagePullSecrets:
-      - name: ghcr-pull-secret
-      securityContext:
-        fsGroup: 65532
-        runAsNonRoot: true
-        runAsUser: 65532
-        seccompProfile:
-          type: RuntimeDefault
-      serviceAccountName: workload-sa
-      topologySpreadConstraints:
-      - labelSelector:
-          matchLabels:
-            app: workload
-        maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-status:
-  blueGreen: {}
-  canary: {}
-  conditions:
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: Rollout does not have minimum availability
-    reason: AvailableReason
-    status: "False"
-    type: Available
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: RolloutCompleted
-    reason: RolloutCompleted
-    status: "True"
-    type: Completed
-  - lastTransitionTime: "2026-05-28T07:12:53Z"
-    lastUpdateTime: "2026-05-28T07:12:53Z"
-    message: 'pods "frontend-workload-68757c8bb7-" is forbidden: error looking up
-      service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not
-      found'
-    reason: FailedCreate
-    status: "True"
-    type: ReplicaFailure
-  - lastTransitionTime: "2026-05-28T07:22:54Z"
-    lastUpdateTime: "2026-05-28T07:22:54Z"
-    message: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
-    reason: ProgressDeadlineExceeded
-    status: "False"
-    type: Progressing
-  currentPodHash: 68757c8bb7
-  currentStepHash: 688d98958
-  currentStepIndex: 4
-  message: 'ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has
-    timed out progressing.'
-  observedGeneration: "1"
-  phase: Degraded
-  selector: app=workload
-  stableRS: 68757c8bb7
-
-### Rollout Describe: tenant-waypoint/frontend-workload
-Name:         frontend-workload
-Namespace:    tenant-waypoint
-Labels:       app=frontend
-              argocd.argoproj.io/instance=tenant-waypoint-workloads
-              cost-center=platform
-              tenant-id=waypoint
-              workload-class=stateless-web
-Annotations:  rollout.argoproj.io/revision: 1
-API Version:  argoproj.io/v1alpha1
-Kind:         Rollout
-Metadata:
-  Creation Timestamp:  2026-05-28T07:12:53Z
-  Generation:          1
-  Resource Version:    545112
-  UID:                 4ebdb275-0cd9-4b06-8b72-f6f6106595df
-Spec:
-  Replicas:  2
-  Selector:
-    Match Labels:
-      App:  workload
-  Strategy:
-    Canary:
-      Steps:
-        Set Weight:  20
-        Pause:
-          Duration:  5m
-        Set Weight:  50
-        Pause:
-          Duration:  5m
-  Template:
-    Metadata:
-      Annotations:
-        prometheus.io/port:    9090
-        prometheus.io/scrape:  true
-      Labels:
-        App:  workload
-    Spec:
-      Affinity:
-        Pod Anti Affinity:
-          Preferred During Scheduling Ignored During Execution:
-            Pod Affinity Term:
-              Label Selector:
-                Match Labels:
-                  App:       workload
-              Topology Key:  kubernetes.io/hostname
-            Weight:          100
-      Containers:
-        Image:  ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
-        Liveness Probe:
-          Failure Threshold:  3
-          Http Get:
-            Path:                 /health
-            Port:                 8080
-          Initial Delay Seconds:  15
-          Period Seconds:         10
-        Name:                     app
-        Readiness Probe:
-          Failure Threshold:  3
-          Http Get:
-            Path:                 /health
-            Port:                 8080
-          Initial Delay Seconds:  5
-          Period Seconds:         5
-        Resources:
-          Limits:
-            Cpu:     500m
-            Memory:  512Mi
-          Requests:
-            Cpu:     100m
-            Memory:  128Mi
-        Security Context:
-          Allow Privilege Escalation:  false
-          Capabilities:
-            Drop:
-              ALL
-          Read Only Root Filesystem:  true
-      Image Pull Secrets:
-        Name:  ghcr-pull-secret
-      Security Context:
-        Fs Group:         65532
-        Run As Non Root:  true
-        Run As User:      65532
-        Seccomp Profile:
-          Type:              RuntimeDefault
-      Service Account Name:  workload-sa
-      Topology Spread Constraints:
-        Label Selector:
-          Match Labels:
-            App:             workload
-        Max Skew:            1
-        Topology Key:        kubernetes.io/hostname
-        When Unsatisfiable:  DoNotSchedule
-Status:
-  Blue Green:
-  Canary:
-  Conditions:
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               Rollout does not have minimum availability
-    Reason:                AvailableReason
-    Status:                False
-    Type:                  Available
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               RolloutCompleted
-    Reason:                RolloutCompleted
-    Status:                True
-    Type:                  Completed
-    Last Transition Time:  2026-05-28T07:12:53Z
-    Last Update Time:      2026-05-28T07:12:53Z
-    Message:               pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-    Reason:                FailedCreate
-    Status:                True
-    Type:                  ReplicaFailure
-    Last Transition Time:  2026-05-28T07:22:54Z
-    Last Update Time:      2026-05-28T07:22:54Z
-    Message:               ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
-    Reason:                ProgressDeadlineExceeded
-    Status:                False
-    Type:                  Progressing
-  Current Pod Hash:        68757c8bb7
-  Current Step Hash:       688d98958
-  Current Step Index:      4
-  Message:                 ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
-  Observed Generation:     1
-  Phase:                   Degraded
-  Selector:                app=workload
-  Stable RS:               68757c8bb7
-Events:                    <none>
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-3m          Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m          Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m          Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-25s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-15s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### Endpoints YAML: tenant-waypoint/frontend-workload
-apiVersion: v1
-kind: Endpoints
-metadata:
-  annotations:
-    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
-  creationTimestamp: "2026-05-28T07:12:53Z"
-  labels:
-    app: frontend
-    argocd.argoproj.io/instance: tenant-waypoint-workloads
-    cost-center: platform
-    tenant-id: waypoint
-    workload-class: stateless-web
-  name: frontend-workload
-  namespace: tenant-waypoint
-  resourceVersion: "540926"
-  uid: f8204d19-8ac4-40fb-8542-baf1968a3c24
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-3m1s        Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m1s        Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m1s        Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-26s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-16s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### Secret Get: tenant-waypoint/waypoint-tls
-Error from server (NotFound): secrets "waypoint-tls" not found
-
-### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-3m3s        Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m3s        Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m3s        Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-28s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-18s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-
-### ClusterPolicy Get/Describe: enforce-tenant-abi
-Error from server (NotFound): clusterpolicies.kyverno.io "enforce-tenant-abi" not found
-
-### Spoke Infrastructure App Describe
-Name:         spoke-pool-eu-prod-01-infrastructure
-Namespace:    platform-ops
-Labels:       cell-id=spoke-pool-eu-prod-01
-Annotations:  argocd.argoproj.io/sync-wave: 4
-API Version:  argoproj.io/v1alpha1
-Kind:         Application
-Metadata:
-  Creation Timestamp:  2026-05-26T19:53:36Z
-  Finalizers:
-    resources-finalizer.argocd.argoproj.io
-  Generation:  2535
-  Owner References:
-    API Version:           argoproj.io/v1alpha1
-    Block Owner Deletion:  true
-    Controller:            true
-    Kind:                  ApplicationSet
-    Name:                  spoke-infrastructure
-    UID:                   d0315216-e7cf-4776-b937-b7958edc1165
-  Resource Version:        5724245
-  UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
-Operation:
-  Initiated By:
-    Automated:  true
-  Retry:
-    Backoff:
-      Duration:      5s
-      Factor:        2
-      Max Duration:  3m
-    Limit:           5
-  Sync:
-    Prune:     true
-    Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
-    Sync Options:
-      CreateNamespace=true
-      SkipDryRunOnMissingResource=true
-Spec:
-  Destination:
-    Name:       spoke-pool-eu-prod-01
-    Namespace:  platform-ops
-  Project:      platform-infrastructure
-  Source:
-    Kustomize:
-      Patches:
-        Patch:  - op: replace
-  path: /spec/data/0/remoteRef/key
-  value: spoke-pool-eu-prod-01-crossplane-admin-password
-
-        Target:
-          Kind:       ExternalSecret
-          Name:       crossplane-admin-credentials
-          Namespace:  platform-data
-    Path:             manifests/spoke/spoke-catalog/infra
-    Repo URL:         https://github.com/soloz-io/zero-ops
-    Target Revision:  HEAD
-  Sync Policy:
-    Automated:
-      Prune:      true
-      Self Heal:  true
-    Retry:
-      Backoff:
-        Duration:      5s
-        Factor:        2
-        Max Duration:  3m
-      Limit:           5
-    Sync Options:
-      CreateNamespace=true
-      SkipDryRunOnMissingResource=true
-Status:
-  Controller Namespace:  platform-ops
-  Health:
-    Status:  Degraded
-  Operation State:
-    Finished At:  2026-05-28T10:40:56Z
-    Message:      one or more synchronization tasks completed unsuccessfully. Retrying attempt #3 at 10:41AM.
-    Operation:
-      Initiated By:
-        Automated:  true
-      Retry:
-        Backoff:
-          Duration:      5s
-          Factor:        2
-          Max Duration:  3m
-        Limit:           5
-      Sync:
-        Prune:     true
-        Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
-        Sync Options:
-          CreateNamespace=true
-          SkipDryRunOnMissingResource=true
-    Phase:        Running
-    Retry Count:  3
-    Started At:   2026-05-28T10:39:52Z
-    Sync Result:
-      Resources:
-        Group:       apiextensions.k8s.io
-        Hook Phase:  Succeeded
-        Kind:        CustomResourceDefinition
-        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured
-        Name:        rollouts.argoproj.io
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        Namespace
-        Message:     namespace/platform-data unchanged
-        Name:        platform-data
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        Namespace
-        Message:     namespace/platform-observability unchanged
-        Name:        platform-observability
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
@@ -2060,6 +308,24 @@ Status:
         Kind:        Namespace
         Message:     namespace/platform-messaging unchanged
         Name:        platform-messaging
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-observability unchanged
+        Name:        platform-observability
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
@@ -2145,15 +411,6 @@ Status:
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1
-        Group:       apps
-        Hook Phase:  Failed
-        Kind:        Deployment
-        Message:     Deployment "spoke-controller" exceeded its progress deadline
-        Name:        spoke-controller
-        Namespace:   kagent-system
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
         Group:       pkg.crossplane.io
         Hook Phase:  Succeeded
         Kind:        DeploymentRuntimeConfig
@@ -2163,7 +420,142 @@ Status:
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1beta1
-      Revision:      b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Function
+        Message:     function.pkg.crossplane.io/function-patch-and-transform unchanged
+        Name:        function-patch-and-transform
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1beta1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Provider
+        Message:     provider.pkg.crossplane.io/provider-sql unchanged
+        Name:        provider-sql
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Provider
+        Message:     provider.pkg.crossplane.io/provider-kubernetes unchanged
+        Name:        provider-kubernetes
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       postgresql.cnpg.io
+        Hook Phase:  Succeeded
+        Kind:        Cluster
+        Message:     Cluster in healthy state
+        Name:        shared-cnpg
+        Namespace:   platform-data
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/nats-config unchanged
+        Name:        nats-config
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/alloy-config unchanged
+        Name:        alloy-config
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/grafana-alloy reconciled. clusterrole.rbac.authorization.k8s.io/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/grafana-alloy reconciled. clusterrolebinding.rbac.authorization.k8s.io/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/nats unchanged
+        Name:        nats
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        DaemonSet
+        Message:     daemonset.apps/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        StatefulSet
+        Message:     partitioned roll out complete: 1 new pods have been updated...
+        Name:        nats
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       kubernetes.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        ProviderConfig
+        Message:     providerconfig.kubernetes.crossplane.io/default unchanged
+        Name:        default
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       postgresql.sql.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        ProviderConfig
+        Message:     providerconfig.postgresql.sql.crossplane.io/default unchanged
+        Name:        default
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       kyverno.io
+        Hook Phase:  Failed
+        Kind:        ClusterPolicy
+        Message:     admission webhook "validate-policy.kyverno.svc" denied the request: path: spec.rules[0].match.any[0].kinds: the kind defined in the all match resource is invalid: unable to convert GVK to GVR for kinds argoproj.io/Rollout, err: failed to find resource (*/*/argoproj.io/Rollout)
+        Name:        enforce-tenant-abi
+        Namespace:   platform-ops
+        Status:      SyncFailed
+        Sync Phase:  Sync
+        Version:     v1
+      Revision:      24c5d6030309da438385833007df7f162ff29ac3
       Source:
         Kustomize:
           Patches:
@@ -2178,27 +570,23 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-  Reconciled At:          2026-05-28T10:40:45Z
+  Reconciled At:          2026-05-28T11:22:36Z
   Resources:
     Kind:       ConfigMap
     Name:       spoke-controller-config
     Namespace:  kagent-system
     Status:     Synced
     Version:    v1
-    Health:
-      Status:   Missing
     Kind:       ConfigMap
     Name:       nats-config
     Namespace:  platform-messaging
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
-    Health:
-      Status:   Missing
     Kind:       ConfigMap
     Name:       alloy-config
     Namespace:  platform-observability
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Kind:       Namespace
@@ -2227,11 +615,11 @@ Status:
     Status:     OutOfSync
     Version:    v1
     Health:
-      Status:   Missing
+      Status:   Healthy
     Kind:       Service
     Name:       nats
     Namespace:  platform-messaging
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Kind:       ServiceAccount
@@ -2239,12 +627,10 @@ Status:
     Namespace:  kagent-system
     Status:     Synced
     Version:    v1
-    Health:
-      Status:   Missing
     Kind:       ServiceAccount
     Name:       grafana-alloy
     Namespace:  platform-observability
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Kind:       ServiceAccount
@@ -2255,16 +641,16 @@ Status:
     Group:      apiextensions.k8s.io
     Kind:       CustomResourceDefinition
     Name:       rollouts.argoproj.io
-    Status:     Synced
+    Status:     OutOfSync
     Sync Wave:  -5
     Version:    v1
     Group:      apps
     Health:
-      Status:   Missing
+      Status:   Healthy
     Kind:       DaemonSet
     Name:       grafana-alloy
     Namespace:  platform-observability
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Group:      apps
@@ -2274,15 +660,17 @@ Status:
     Kind:       Deployment
     Name:       spoke-controller
     Namespace:  kagent-system
-    Status:     Synced
+    Status:     OutOfSync
+    Sync Wave:  10
     Version:    v1
     Group:      apps
     Health:
-      Status:   Missing
+      Message:  partitioned roll out complete: 1 new pods have been updated...
+      Status:   Healthy
     Kind:       StatefulSet
     Name:       nats
     Namespace:  platform-messaging
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Group:      external-secrets.io
@@ -2296,6 +684,15 @@ Status:
     Version:    v1
     Group:      external-secrets.io
     Health:
+      Status:   Missing
+    Kind:       ExternalSecret
+    Name:       ghcr-pull-secret-kagent
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Sync Wave:  9
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
       Message:  secret synced
       Status:   Healthy
     Kind:       ExternalSecret
@@ -2305,12 +702,9 @@ Status:
     Sync Wave:  -1
     Version:    v1
     Group:      kubernetes.crossplane.io
-    Health:
-      Status:   Missing
     Kind:       ProviderConfig
     Name:       default
-    Namespace:  platform-ops
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1alpha1
     Group:      kyverno.io
@@ -2328,52 +722,48 @@ Status:
     Version:    v1beta1
     Group:      pkg.crossplane.io
     Health:
-      Status:   Missing
+      Status:   Healthy
     Kind:       Function
     Name:       function-patch-and-transform
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  1
     Version:    v1beta1
     Group:      pkg.crossplane.io
     Health:
-      Status:   Missing
+      Status:   Healthy
     Kind:       Provider
     Name:       provider-kubernetes
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  1
     Version:    v1
     Group:      pkg.crossplane.io
     Health:
-      Status:   Missing
+      Status:   Healthy
     Kind:       Provider
     Name:       provider-sql
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  1
     Version:    v1
     Group:      postgresql.cnpg.io
     Health:
-      Status:   Missing
+      Message:  Cluster in healthy state
+      Status:   Healthy
     Kind:       Cluster
     Name:       shared-cnpg
     Namespace:  platform-data
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  2
     Version:    v1
     Group:      postgresql.sql.crossplane.io
-    Health:
-      Status:   Missing
     Kind:       ProviderConfig
     Name:       default
-    Namespace:  platform-ops
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1alpha1
     Group:      rbac.authorization.k8s.io
-    Health:
-      Status:   Missing
     Kind:       ClusterRole
     Name:       grafana-alloy
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Group:      rbac.authorization.k8s.io
@@ -2382,11 +772,9 @@ Status:
     Status:     Synced
     Version:    v1
     Group:      rbac.authorization.k8s.io
-    Health:
-      Status:   Missing
     Kind:       ClusterRoleBinding
     Name:       grafana-alloy
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  4
     Version:    v1
     Group:      rbac.authorization.k8s.io
@@ -2402,7 +790,11 @@ Status:
   Source Type:  Kustomize
   Summary:
     Images:
+      ghcr.io/cloudnative-pg/cloudnative-pg:1.29.0
+      ghcr.io/cloudnative-pg/postgresql:16.2
       ghcr.io/soloz-io/zero-ops/spoke-controller:latest
+      grafana/alloy:v1.0.0
+      nats:2.10.11-alpine
   Sync:
     Compared To:
       Destination:
@@ -2422,22 +814,1544 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-    Revision:             b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+    Revision:             24c5d6030309da438385833007df7f162ff29ac3
     Status:               OutOfSync
 Events:
   Type     Reason              Age    From                           Message
   ----     ------              ----   ----                           -------
-  Normal   OperationStarted    56m    argocd-application-controller  Initiated automated sync to '56bd74afa2ba041fd90e5433924173ccdee6ff1c'
-  Warning  OperationCompleted  50m    argocd-application-controller  Sync operation to 56bd74afa2ba041fd90e5433924173ccdee6ff1c failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    50m    argocd-application-controller  Initiated automated sync to '8b6736cefe6a278f2a45b4231e68a7feadf38b72'
-  Warning  OperationCompleted  44m    argocd-application-controller  Sync operation to 8b6736cefe6a278f2a45b4231e68a7feadf38b72 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    30m    argocd-application-controller  Initiated automated sync to '7dafc5e69c75f53b7dcf7381d9646dafad1c64e9'
-  Warning  OperationCompleted  24m    argocd-application-controller  Sync operation to 7dafc5e69c75f53b7dcf7381d9646dafad1c64e9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    24m    argocd-application-controller  Initiated automated sync to '86b48f026375f667d37d15b41233091aeff066f0'
-  Warning  OperationCompleted  17m    argocd-application-controller  Sync operation to 86b48f026375f667d37d15b41233091aeff066f0 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    7m40s  argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
-  Warning  OperationCompleted  77s    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-  Normal   OperationStarted    77s    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
+  Normal   OperationStarted    50m    argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
+  Warning  OperationCompleted  44m    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    44m    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
+  Warning  OperationCompleted  38m    argocd-application-controller  Sync operation to b0945679b1b819ff2a545e95e5ba3f545dec6b0d failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    15m    argocd-application-controller  Initiated automated sync to '56b2d3b9d34794221a36e79cfa825f2880cf0fc9'
+  Warning  OperationCompleted  9m24s  argocd-application-controller  Sync operation to 56b2d3b9d34794221a36e79cfa825f2880cf0fc9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    9m23s  argocd-application-controller  Initiated automated sync to '24c5d6030309da438385833007df7f162ff29ac3'
+
+### AtlasMigration Describe: tenant-waypoint/waypoint-migrations
+Name:         waypoint-migrations
+Namespace:    tenant-waypoint
+Labels:       <none>
+Annotations:  <none>
+API Version:  db.atlasgo.io/v1alpha1
+Kind:         AtlasMigration
+Metadata:
+  Creation Timestamp:  2026-05-27T17:45:38Z
+  Generation:          1
+  Resource Version:    320230
+  UID:                 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
+Spec:
+  Dir:
+    Config Map Ref:
+      Name:    tenant-waypoint-migrations
+  Exec Order:  linear
+  URL From:
+    Secret Key Ref:
+      Key:   url
+      Name:  waypoint-pooler-app
+Status:
+  Conditions:
+    Last Transition Time:  2026-05-27T17:45:38Z
+    Message:               Secret "waypoint-pooler-app" not found
+    Reason:                ReadingMigrationData
+    Status:                False
+    Type:                  Ready
+  Last Applied:            0
+  observed_hash:           
+Events:
+  Type     Reason        Age                      From                       Message
+  ----     ------        ----                     ----                       -------
+  Warning  TransientErr  3m43s (x12635 over 17h)  atlasmigration-controller  Secret "waypoint-pooler-app" not found
+
+### AtlasMigration YAML: tenant-waypoint/waypoint-migrations
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"db.atlasgo.io/v1alpha1","kind":"AtlasMigration","metadata":{"name":"waypoint-migrations","namespace":"tenant-waypoint"},"spec":{"dir":{"configMapRef":{"name":"tenant-waypoint-migrations"}},"urlFrom":{"secretKeyRef":{"key":"url","name":"waypoint-pooler-app"}}}}'
+  creationTimestamp: "2026-05-27T17:45:38Z"
+  generation: 1
+  name: waypoint-migrations
+  namespace: tenant-waypoint
+  resourceVersion: "320230"
+  uid: 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
+spec:
+  dir:
+    configMapRef:
+      name: tenant-waypoint-migrations
+  execOrder: linear
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: waypoint-pooler-app
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-27T17:45:38Z"
+    message: Secret "waypoint-pooler-app" not found
+    reason: ReadingMigrationData
+    status: "False"
+    type: Ready
+  lastApplied: 0
+  observed_hash: ""
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m17s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m17s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m17s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m17s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m17s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m17s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m17s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m17s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m17s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m17s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m17s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m17s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m17s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m16s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m16s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m16s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m38s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m38s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m38s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m35s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m34s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m34s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m10s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m10s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m9s        Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m9s        Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m44s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m36s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m13s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m7s        Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+30s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### ServiceAccount Get: tenant-waypoint/migration-sa
+Error from server (NotFound): serviceaccounts "migration-sa" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m19s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m19s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m19s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m19s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m19s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m19s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m19s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m19s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m19s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m19s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m19s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m19s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m19s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m18s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m18s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m18s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m40s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m40s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m40s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m37s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m36s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m36s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m12s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m12s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m11s       Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m11s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m46s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m38s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m15s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m9s        Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+32s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### ConfigMap Get: tenant-waypoint/waypoint-custom-migrations
+Error from server (NotFound): configmaps "waypoint-custom-migrations" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m21s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m21s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m21s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m21s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m21s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m21s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m21s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m21s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m21s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m21s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m21s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m21s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m21s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m20s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m20s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m20s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m42s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m42s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m42s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m39s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m38s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m38s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m14s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m14s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m13s       Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m13s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m48s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m40s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m17s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m11s       Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+34s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### Rollout YAML: tenant-waypoint/bff-workload
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  annotations:
+    rollout.argoproj.io/revision: "2"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  generation: 2
+  labels:
+    app: bff
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: bff-workload
+  namespace: tenant-waypoint
+  resourceVersion: "640867"
+  uid: b34ff8f8-affa-43ee-b4da-dff03b6d5169
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workload
+  strategy:
+    canary:
+      steps:
+      - setWeight: 20
+      - pause:
+          duration: 5m
+      - setWeight: 50
+      - pause:
+          duration: 5m
+  template:
+    metadata:
+      annotations:
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+      labels:
+        app: workload
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: workload
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - image: ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        name: app
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: ghcr-pull-secret
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: bff-workload-sa
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: workload
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+status:
+  HPAReplicas: 1
+  blueGreen: {}
+  canary: {}
+  conditions:
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: Rollout does not have minimum availability
+    reason: AvailableReason
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: 'pods "bff-workload-79696579dd-" is forbidden: error looking up service
+      account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found'
+    reason: FailedCreate
+    status: "True"
+    type: ReplicaFailure
+  - lastTransitionTime: "2026-05-28T11:16:08Z"
+    lastUpdateTime: "2026-05-28T11:16:08Z"
+    message: RolloutCompleted
+    reason: RolloutCompleted
+    status: "False"
+    type: Completed
+  - lastTransitionTime: "2026-05-28T11:16:08Z"
+    lastUpdateTime: "2026-05-28T11:16:08Z"
+    message: ReplicaSet "bff-workload-779f854bdf" is progressing.
+    reason: ReplicaSetUpdated
+    status: "True"
+    type: Progressing
+  currentPodHash: 779f854bdf
+  currentStepHash: 688d98958
+  currentStepIndex: 0
+  message: more replicas need to be updated
+  observedGeneration: "2"
+  phase: Progressing
+  replicas: 1
+  selector: app=workload
+  stableRS: 79696579dd
+  updatedReplicas: 1
+
+### Rollout Describe: tenant-waypoint/bff-workload
+Name:         bff-workload
+Namespace:    tenant-waypoint
+Labels:       app=bff
+              argocd.argoproj.io/instance=tenant-waypoint-workloads
+              cost-center=platform
+              tenant-id=waypoint
+              workload-class=stateless-web
+Annotations:  rollout.argoproj.io/revision: 2
+API Version:  argoproj.io/v1alpha1
+Kind:         Rollout
+Metadata:
+  Creation Timestamp:  2026-05-28T07:12:53Z
+  Generation:          2
+  Resource Version:    640867
+  UID:                 b34ff8f8-affa-43ee-b4da-dff03b6d5169
+Spec:
+  Replicas:  2
+  Selector:
+    Match Labels:
+      App:  workload
+  Strategy:
+    Canary:
+      Steps:
+        Set Weight:  20
+        Pause:
+          Duration:  5m
+        Set Weight:  50
+        Pause:
+          Duration:  5m
+  Template:
+    Metadata:
+      Annotations:
+        prometheus.io/port:    9090
+        prometheus.io/scrape:  true
+      Labels:
+        App:  workload
+    Spec:
+      Affinity:
+        Pod Anti Affinity:
+          Preferred During Scheduling Ignored During Execution:
+            Pod Affinity Term:
+              Label Selector:
+                Match Labels:
+                  App:       workload
+              Topology Key:  kubernetes.io/hostname
+            Weight:          100
+      Containers:
+        Image:  ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
+        Liveness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  15
+          Period Seconds:         10
+        Name:                     app
+        Readiness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  5
+          Period Seconds:         5
+        Resources:
+          Limits:
+            Cpu:     500m
+            Memory:  512Mi
+          Requests:
+            Cpu:     100m
+            Memory:  128Mi
+        Security Context:
+          Allow Privilege Escalation:  false
+          Capabilities:
+            Drop:
+              ALL
+          Read Only Root Filesystem:  true
+      Image Pull Secrets:
+        Name:  ghcr-pull-secret
+      Security Context:
+        Fs Group:         65532
+        Run As Non Root:  true
+        Run As User:      65532
+        Seccomp Profile:
+          Type:              RuntimeDefault
+      Service Account Name:  bff-workload-sa
+      Topology Spread Constraints:
+        Label Selector:
+          Match Labels:
+            App:             workload
+        Max Skew:            1
+        Topology Key:        kubernetes.io/hostname
+        When Unsatisfiable:  DoNotSchedule
+Status:
+  HPA Replicas:  1
+  Blue Green:
+  Canary:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               Rollout does not have minimum availability
+    Reason:                AvailableReason
+    Status:                False
+    Type:                  Available
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+    Reason:                FailedCreate
+    Status:                True
+    Type:                  ReplicaFailure
+    Last Transition Time:  2026-05-28T11:16:08Z
+    Last Update Time:      2026-05-28T11:16:08Z
+    Message:               RolloutCompleted
+    Reason:                RolloutCompleted
+    Status:                False
+    Type:                  Completed
+    Last Transition Time:  2026-05-28T11:16:08Z
+    Last Update Time:      2026-05-28T11:16:08Z
+    Message:               ReplicaSet "bff-workload-779f854bdf" is progressing.
+    Reason:                ReplicaSetUpdated
+    Status:                True
+    Type:                  Progressing
+  Current Pod Hash:        779f854bdf
+  Current Step Hash:       688d98958
+  Current Step Index:      0
+  Message:                 more replicas need to be updated
+  Observed Generation:     2
+  Phase:                   Progressing
+  Replicas:                1
+  Selector:                app=workload
+  Stable RS:               79696579dd
+  Updated Replicas:        1
+Events:
+  Type    Reason                Age    From                 Message
+  ----    ------                ----   ----                 -------
+  Normal  RolloutNotCompleted   8m23s  rollouts-controller  Rollout not completed, started update to revision 2 (779f854bdf)
+  Normal  RolloutUpdated        8m23s  rollouts-controller  Rollout updated to revision 2
+  Normal  NewReplicaSetCreated  8m23s  rollouts-controller  Created ReplicaSet bff-workload-779f854bdf (revision 2)
+  Normal  ScalingReplicaSet     8m23s  rollouts-controller  Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+
+### Endpoints YAML: tenant-waypoint/bff-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  labels:
+    app: bff
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: bff-workload
+  namespace: tenant-waypoint
+  resourceVersion: "540929"
+  uid: 653e2317-7961-4c92-8d6a-ed8fb67cacf0
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m25s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m25s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m25s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m25s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m25s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m25s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m25s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m25s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m25s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m25s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m25s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m25s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m25s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m24s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m24s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m24s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m46s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m46s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m46s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m43s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m42s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m42s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m18s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m18s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m17s       Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m17s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m52s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m44s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m21s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m15s       Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+38s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### Rollout YAML: tenant-waypoint/frontend-workload
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  annotations:
+    rollout.argoproj.io/revision: "2"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  generation: 2
+  labels:
+    app: frontend
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: frontend-workload
+  namespace: tenant-waypoint
+  resourceVersion: "640892"
+  uid: 4ebdb275-0cd9-4b06-8b72-f6f6106595df
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workload
+  strategy:
+    canary:
+      steps:
+      - setWeight: 20
+      - pause:
+          duration: 5m
+      - setWeight: 50
+      - pause:
+          duration: 5m
+  template:
+    metadata:
+      annotations:
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+      labels:
+        app: workload
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: workload
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - image: ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        name: app
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: ghcr-pull-secret
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: frontend-workload-sa
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: workload
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+status:
+  HPAReplicas: 1
+  blueGreen: {}
+  canary: {}
+  conditions:
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: Rollout does not have minimum availability
+    reason: AvailableReason
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: 'pods "frontend-workload-68757c8bb7-" is forbidden: error looking up
+      service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not
+      found'
+    reason: FailedCreate
+    status: "True"
+    type: ReplicaFailure
+  - lastTransitionTime: "2026-05-28T11:16:08Z"
+    lastUpdateTime: "2026-05-28T11:16:08Z"
+    message: RolloutCompleted
+    reason: RolloutCompleted
+    status: "False"
+    type: Completed
+  - lastTransitionTime: "2026-05-28T11:16:08Z"
+    lastUpdateTime: "2026-05-28T11:16:08Z"
+    message: ReplicaSet "frontend-workload-796574db54" is progressing.
+    reason: ReplicaSetUpdated
+    status: "True"
+    type: Progressing
+  currentPodHash: 796574db54
+  currentStepHash: 688d98958
+  currentStepIndex: 0
+  message: more replicas need to be updated
+  observedGeneration: "2"
+  phase: Progressing
+  replicas: 1
+  selector: app=workload
+  stableRS: 68757c8bb7
+  updatedReplicas: 1
+
+### Rollout Describe: tenant-waypoint/frontend-workload
+Name:         frontend-workload
+Namespace:    tenant-waypoint
+Labels:       app=frontend
+              argocd.argoproj.io/instance=tenant-waypoint-workloads
+              cost-center=platform
+              tenant-id=waypoint
+              workload-class=stateless-web
+Annotations:  rollout.argoproj.io/revision: 2
+API Version:  argoproj.io/v1alpha1
+Kind:         Rollout
+Metadata:
+  Creation Timestamp:  2026-05-28T07:12:53Z
+  Generation:          2
+  Resource Version:    640892
+  UID:                 4ebdb275-0cd9-4b06-8b72-f6f6106595df
+Spec:
+  Replicas:  2
+  Selector:
+    Match Labels:
+      App:  workload
+  Strategy:
+    Canary:
+      Steps:
+        Set Weight:  20
+        Pause:
+          Duration:  5m
+        Set Weight:  50
+        Pause:
+          Duration:  5m
+  Template:
+    Metadata:
+      Annotations:
+        prometheus.io/port:    9090
+        prometheus.io/scrape:  true
+      Labels:
+        App:  workload
+    Spec:
+      Affinity:
+        Pod Anti Affinity:
+          Preferred During Scheduling Ignored During Execution:
+            Pod Affinity Term:
+              Label Selector:
+                Match Labels:
+                  App:       workload
+              Topology Key:  kubernetes.io/hostname
+            Weight:          100
+      Containers:
+        Image:  ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
+        Liveness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  15
+          Period Seconds:         10
+        Name:                     app
+        Readiness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  5
+          Period Seconds:         5
+        Resources:
+          Limits:
+            Cpu:     500m
+            Memory:  512Mi
+          Requests:
+            Cpu:     100m
+            Memory:  128Mi
+        Security Context:
+          Allow Privilege Escalation:  false
+          Capabilities:
+            Drop:
+              ALL
+          Read Only Root Filesystem:  true
+      Image Pull Secrets:
+        Name:  ghcr-pull-secret
+      Security Context:
+        Fs Group:         65532
+        Run As Non Root:  true
+        Run As User:      65532
+        Seccomp Profile:
+          Type:              RuntimeDefault
+      Service Account Name:  frontend-workload-sa
+      Topology Spread Constraints:
+        Label Selector:
+          Match Labels:
+            App:             workload
+        Max Skew:            1
+        Topology Key:        kubernetes.io/hostname
+        When Unsatisfiable:  DoNotSchedule
+Status:
+  HPA Replicas:  1
+  Blue Green:
+  Canary:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               Rollout does not have minimum availability
+    Reason:                AvailableReason
+    Status:                False
+    Type:                  Available
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+    Reason:                FailedCreate
+    Status:                True
+    Type:                  ReplicaFailure
+    Last Transition Time:  2026-05-28T11:16:08Z
+    Last Update Time:      2026-05-28T11:16:08Z
+    Message:               RolloutCompleted
+    Reason:                RolloutCompleted
+    Status:                False
+    Type:                  Completed
+    Last Transition Time:  2026-05-28T11:16:08Z
+    Last Update Time:      2026-05-28T11:16:08Z
+    Message:               ReplicaSet "frontend-workload-796574db54" is progressing.
+    Reason:                ReplicaSetUpdated
+    Status:                True
+    Type:                  Progressing
+  Current Pod Hash:        796574db54
+  Current Step Hash:       688d98958
+  Current Step Index:      0
+  Message:                 more replicas need to be updated
+  Observed Generation:     2
+  Phase:                   Progressing
+  Replicas:                1
+  Selector:                app=workload
+  Stable RS:               68757c8bb7
+  Updated Replicas:        1
+Events:
+  Type    Reason                Age    From                 Message
+  ----    ------                ----   ----                 -------
+  Normal  RolloutNotCompleted   8m28s  rollouts-controller  Rollout not completed, started update to revision 2 (796574db54)
+  Normal  RolloutUpdated        8m28s  rollouts-controller  Rollout updated to revision 2
+  Normal  NewReplicaSetCreated  8m28s  rollouts-controller  Created ReplicaSet frontend-workload-796574db54 (revision 2)
+  Normal  ScalingReplicaSet     8m28s  rollouts-controller  Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+
+### Endpoints YAML: tenant-waypoint/frontend-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  labels:
+    app: frontend
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: frontend-workload
+  namespace: tenant-waypoint
+  resourceVersion: "540926"
+  uid: f8204d19-8ac4-40fb-8542-baf1968a3c24
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m29s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m29s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m29s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m29s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m29s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m29s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m29s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m29s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m29s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m29s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m29s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m29s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m29s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m28s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m28s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m28s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m50s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m50s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m50s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m47s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m46s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m46s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m22s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m22s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m21s       Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m21s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m56s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m48s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m25s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m19s       Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+42s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### Secret Get: tenant-waypoint/waypoint-tls
+Error from server (NotFound): secrets "waypoint-tls" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                            OBJECT                                    MESSAGE
+13m         Warning   FailedCreate                      replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+13m         Warning   FailedCreate                      replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+8m31s       Normal    NewReplicaSetCreated              rollout/frontend-workload                 Created ReplicaSet frontend-workload-796574db54 (revision 2)
+8m31s       Normal    ScalingReplicaSet                 rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-796574db54 (revision 2) from 0 to 1
+8m31s       Normal    RolloutNotCompleted               rollout/sdk-workload                      Rollout not completed, started update to revision 2 (59c9bc88d)
+8m31s       Normal    Scheduled                         pod/bff-workload-779f854bdf-fmpbv         Successfully assigned tenant-waypoint/bff-workload-779f854bdf-fmpbv to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-zhqn7
+8m31s       Normal    SuccessfulCreate                  replicaset/bff-workload-779f854bdf        Created pod: bff-workload-779f854bdf-fmpbv
+8m31s       Normal    RolloutUpdated                    rollout/frontend-workload                 Rollout updated to revision 2
+8m31s       Normal    RolloutNotCompleted               rollout/bff-workload                      Rollout not completed, started update to revision 2 (779f854bdf)
+8m31s       Normal    RolloutUpdated                    rollout/bff-workload                      Rollout updated to revision 2
+8m31s       Normal    NewReplicaSetCreated              rollout/bff-workload                      Created ReplicaSet bff-workload-779f854bdf (revision 2)
+8m31s       Normal    ScalingReplicaSet                 rollout/bff-workload                      Scaled up ReplicaSet bff-workload-779f854bdf (revision 2) from 0 to 1
+8m31s       Normal    RolloutNotCompleted               rollout/frontend-workload                 Rollout not completed, started update to revision 2 (796574db54)
+8m31s       Normal    Scheduled                         pod/frontend-workload-796574db54-r4j7j    Successfully assigned tenant-waypoint/frontend-workload-796574db54-r4j7j to spoke-pool-eu-prod-01-md-0-b7bgg-nh7m6-lh5zt
+8m31s       Normal    SuccessfulCreate                  replicaset/frontend-workload-796574db54   Created pod: frontend-workload-796574db54-r4j7j
+8m30s       Normal    SuccessfulCreate                  replicaset/sdk-workload-59c9bc88d         Created pod: sdk-workload-59c9bc88d-28jmt
+8m30s       Normal    ScalingReplicaSet                 rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-59c9bc88d (revision 2) from 0 to 1
+8m30s       Normal    RolloutUpdated                    rollout/sdk-workload                      Rollout updated to revision 2
+7m52s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Failed to pull image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to resolve reference "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Fbff%3Apull&service=ghcr.io: 401 Unauthorized
+7m52s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ErrImagePull
+7m52s       Normal    Pulling                           pod/bff-workload-779f854bdf-fmpbv         Pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m49s       Normal    Pulling                           pod/frontend-workload-796574db54-r4j7j    Pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m48s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Failed to pull image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to pull and unpack image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to resolve reference "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Asoloz-io%2Fwaypoint%2Ffrontend%3Apull&service=ghcr.io: 401 Unauthorized
+7m48s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ErrImagePull
+7m24s       Warning   Failed                            pod/frontend-workload-796574db54-r4j7j    Error: ImagePullBackOff
+7m24s       Normal    BackOff                           pod/frontend-workload-796574db54-r4j7j    Back-off pulling image "ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959"
+7m23s       Normal    BackOff                           pod/bff-workload-779f854bdf-fmpbv         Back-off pulling image "ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e"
+7m23s       Warning   Failed                            pod/bff-workload-779f854bdf-fmpbv         Error: ImagePullBackOff
+3m58s       Warning   TransientErr                      atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+3m50s       Normal    Pulled                            pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+3m27s       Warning   FailedToRetrieveImagePullSecret   pod/bff-workload-779f854bdf-fmpbv         Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+3m21s       Warning   FailedToRetrieveImagePullSecret   pod/frontend-workload-796574db54-r4j7j    Unable to retrieve some image pull secrets (ghcr-pull-secret); attempting to pull the image may not succeed.
+44s         Warning   FailedScheduling                  pod/sdk-workload-59c9bc88d-28jmt          0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match pod topology spread constraints. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
+
+### ClusterPolicy Get/Describe: enforce-tenant-abi
+Error from server (NotFound): clusterpolicies.kyverno.io "enforce-tenant-abi" not found
+
+### Spoke Infrastructure App Describe
+Name:         spoke-pool-eu-prod-01-infrastructure
+Namespace:    platform-ops
+Labels:       cell-id=spoke-pool-eu-prod-01
+Annotations:  argocd.argoproj.io/sync-wave: 4
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-26T19:53:36Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  2703
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  spoke-infrastructure
+    UID:                   d0315216-e7cf-4776-b937-b7958edc1165
+  Resource Version:        5834560
+  UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
+Operation:
+  Initiated By:
+    Automated:  true
+  Retry:
+    Backoff:
+      Duration:      5s
+      Factor:        2
+      Max Duration:  3m
+    Limit:           5
+  Sync:
+    Prune:     true
+    Revision:  24c5d6030309da438385833007df7f162ff29ac3
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  platform-ops
+  Project:      platform-infrastructure
+  Source:
+    Kustomize:
+      Patches:
+        Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+        Target:
+          Kind:       ExternalSecret
+          Name:       crossplane-admin-credentials
+          Namespace:  platform-data
+    Path:             manifests/spoke/spoke-catalog/infra
+    Repo URL:         https://github.com/soloz-io/zero-ops
+    Target Revision:  HEAD
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      5s
+        Factor:        2
+        Max Duration:  3m
+      Limit:           5
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
+Status:
+  Controller Namespace:  platform-ops
+  Health:
+    Status:  Degraded
+  Operation State:
+    Finished At:  2026-05-28T11:23:00Z
+    Message:      one or more objects failed to apply, reason: admission webhook "validate-policy.kyverno.svc" denied the request: path: spec.rules[0].match.any[0].kinds: the kind defined in the all match resource is invalid: unable to convert GVK to GVR for kinds argoproj.io/Rollout, err: failed to find resource (*/*/argoproj.io/Rollout). Retrying attempt #5 at 11:24AM.
+    Operation:
+      Initiated By:
+        Automated:  true
+      Retry:
+        Backoff:
+          Duration:      5s
+          Factor:        2
+          Max Duration:  3m
+        Limit:           5
+      Sync:
+        Prune:     true
+        Revision:  24c5d6030309da438385833007df7f162ff29ac3
+        Sync Options:
+          CreateNamespace=true
+          SkipDryRunOnMissingResource=true
+    Phase:        Running
+    Retry Count:  5
+    Started At:   2026-05-28T11:15:00Z
+    Sync Result:
+      Resources:
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
+        Name:        rollouts.argoproj.io
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/kagent-system unchanged
+        Name:        kagent-system
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-messaging unchanged
+        Name:        platform-messaging
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-observability unchanged
+        Name:        platform-observability
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterSecretStore
+        Message:     store validated
+        Name:        infisical-backend
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ExternalSecret
+        Message:     secret synced
+        Name:        crossplane-admin-credentials
+        Namespace:   platform-data
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/provider-kubernetes unchanged
+        Name:        provider-kubernetes
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Secret
+        Message:     secret/spoke-controller-credentials configured
+        Name:        spoke-controller-credentials
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/spoke-controller-config unchanged
+        Name:        spoke-controller-config
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrole.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin unchanged
+        Name:        spoke-provider-kubernetes-admin
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        DeploymentRuntimeConfig
+        Message:     deploymentruntimeconfig.pkg.crossplane.io/provider-kubernetes-runtime unchanged
+        Name:        provider-kubernetes-runtime
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1beta1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Function
+        Message:     function.pkg.crossplane.io/function-patch-and-transform unchanged
+        Name:        function-patch-and-transform
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1beta1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Provider
+        Message:     provider.pkg.crossplane.io/provider-sql unchanged
+        Name:        provider-sql
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        Provider
+        Message:     provider.pkg.crossplane.io/provider-kubernetes unchanged
+        Name:        provider-kubernetes
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       postgresql.cnpg.io
+        Hook Phase:  Succeeded
+        Kind:        Cluster
+        Message:     Cluster in healthy state
+        Name:        shared-cnpg
+        Namespace:   platform-data
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/nats-config unchanged
+        Name:        nats-config
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/alloy-config unchanged
+        Name:        alloy-config
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/grafana-alloy reconciled. clusterrole.rbac.authorization.k8s.io/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/grafana-alloy reconciled. clusterrolebinding.rbac.authorization.k8s.io/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/nats unchanged
+        Name:        nats
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        DaemonSet
+        Message:     daemonset.apps/grafana-alloy unchanged
+        Name:        grafana-alloy
+        Namespace:   platform-observability
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        StatefulSet
+        Message:     partitioned roll out complete: 1 new pods have been updated...
+        Name:        nats
+        Namespace:   platform-messaging
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       kubernetes.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        ProviderConfig
+        Message:     providerconfig.kubernetes.crossplane.io/default unchanged
+        Name:        default
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       postgresql.sql.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        ProviderConfig
+        Message:     providerconfig.postgresql.sql.crossplane.io/default unchanged
+        Name:        default
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       kyverno.io
+        Hook Phase:  Failed
+        Kind:        ClusterPolicy
+        Message:     admission webhook "validate-policy.kyverno.svc" denied the request: path: spec.rules[0].match.any[0].kinds: the kind defined in the all match resource is invalid: unable to convert GVK to GVR for kinds argoproj.io/Rollout, err: failed to find resource (*/*/argoproj.io/Rollout)
+        Name:        enforce-tenant-abi
+        Namespace:   platform-ops
+        Status:      SyncFailed
+        Sync Phase:  Sync
+        Version:     v1
+      Revision:      24c5d6030309da438385833007df7f162ff29ac3
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+  Reconciled At:          2026-05-28T11:24:27Z
+  Resources:
+    Kind:       ConfigMap
+    Name:       spoke-controller-config
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ConfigMap
+    Name:       nats-config
+    Namespace:  platform-messaging
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ConfigMap
+    Name:       alloy-config
+    Namespace:  platform-observability
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Kind:       Namespace
+    Name:       kagent-system
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-data
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-messaging
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-observability
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Secret
+    Name:       spoke-controller-credentials
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       provider-kubernetes
+    Namespace:  platform-ops
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       rollouts.argoproj.io
+    Status:     Synced
+    Sync Wave:  -5
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Healthy
+    Kind:       DaemonSet
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Group:      apps
+    Health:
+      Message:  Deployment "spoke-controller" exceeded its progress deadline
+      Status:   Degraded
+    Kind:       Deployment
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Sync Wave:  10
+    Version:    v1
+    Group:      apps
+    Health:
+      Message:  partitioned roll out complete: 1 new pods have been updated...
+      Status:   Healthy
+    Kind:       StatefulSet
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  store validated
+      Status:   Healthy
+    Kind:       ClusterSecretStore
+    Name:       infisical-backend
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Status:   Missing
+    Kind:       ExternalSecret
+    Name:       ghcr-pull-secret-kagent
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Sync Wave:  9
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  secret synced
+      Status:   Healthy
+    Kind:       ExternalSecret
+    Name:       crossplane-admin-credentials
+    Namespace:  platform-data
+    Status:     Synced
+    Sync Wave:  -1
+    Version:    v1
+    Group:      kubernetes.crossplane.io
+    Kind:       ProviderConfig
+    Name:       default
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      kyverno.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterPolicy
+    Name:       enforce-tenant-abi
+    Status:     OutOfSync
+    Sync Wave:  5
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Kind:       DeploymentRuntimeConfig
+    Name:       provider-kubernetes-runtime
+    Status:     Synced
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Healthy
+    Kind:       Function
+    Name:       function-patch-and-transform
+    Status:     Synced
+    Sync Wave:  1
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Healthy
+    Kind:       Provider
+    Name:       provider-kubernetes
+    Status:     Synced
+    Sync Wave:  1
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Healthy
+    Kind:       Provider
+    Name:       provider-sql
+    Status:     Synced
+    Sync Wave:  1
+    Version:    v1
+    Group:      postgresql.cnpg.io
+    Health:
+      Message:  Cluster in healthy state
+      Status:   Healthy
+    Kind:       Cluster
+    Name:       shared-cnpg
+    Namespace:  platform-data
+    Status:     Synced
+    Sync Wave:  2
+    Version:    v1
+    Group:      postgresql.sql.crossplane.io
+    Kind:       ProviderConfig
+    Name:       default
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       grafana-alloy
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       grafana-alloy
+    Status:     Synced
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-provider-kubernetes-admin
+    Status:     Synced
+    Version:    v1
+  Source Type:  Kustomize
+  Summary:
+    Images:
+      ghcr.io/cloudnative-pg/cloudnative-pg:1.29.0
+      ghcr.io/cloudnative-pg/postgresql:16.2
+      ghcr.io/soloz-io/zero-ops/spoke-controller:latest
+      grafana/alloy:v1.0.0
+      nats:2.10.11-alpine
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  platform-ops
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+    Revision:             24c5d6030309da438385833007df7f162ff29ac3
+    Status:               OutOfSync
+Events:
+  Type     Reason              Age    From                           Message
+  ----     ------              ----   ----                           -------
+  Normal   OperationStarted    51m    argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
+  Warning  OperationCompleted  44m    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    44m    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
+  Warning  OperationCompleted  38m    argocd-application-controller  Sync operation to b0945679b1b819ff2a545e95e5ba3f545dec6b0d failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    16m    argocd-application-controller  Initiated automated sync to '56b2d3b9d34794221a36e79cfa825f2880cf0fc9'
+  Warning  OperationCompleted  9m41s  argocd-application-controller  Sync operation to 56b2d3b9d34794221a36e79cfa825f2880cf0fc9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    9m40s  argocd-application-controller  Initiated automated sync to '24c5d6030309da438385833007df7f162ff29ac3'
 
 ### Spoke Kyverno App Describe
 Name:         spoke-pool-eu-prod-01-kyverno
@@ -2450,7 +2364,7 @@ Metadata:
   Creation Timestamp:  2026-05-28T04:41:24Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  362
+  Generation:  399
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -2458,7 +2372,7 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  spoke-kyverno
     UID:                   5feca28b-8662-4334-a089-6e35304259fb
-  Resource Version:        5721222
+  Resource Version:        5834583
   UID:                     b9aae8e5-63e0-4e8c-9334-6dee32f90dbc
 Operation:
   Initiated By:
@@ -3281,7 +3195,7 @@ crds:
 
         Repo URL:         https://kyverno.github.io/kyverno
         Target Revision:  3.2.6
-  Reconciled At:          2026-05-28T10:39:41Z
+  Reconciled At:          2026-05-28T11:24:27Z
   Resources:
     Kind:       ConfigMap
     Name:       kyverno

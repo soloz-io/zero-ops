@@ -31,13 +31,13 @@ spec:
               tenantId: ""       # Patched
               databaseName: ""   # Patched: database.name
               cellId: ""         # Patched: cellId
-        readinessChecks:
-          - type: MatchCondition
-            matchCondition:
-              type: Ready
-              status: "True"
         providerConfigRef:
           name: ""  # Patched: cellId (provider-kubernetes ProviderConfig for Spoke)
+    readinessChecks:
+      - type: MatchCondition
+        matchCondition:
+          type: Ready
+          status: "True"
     patches:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId
@@ -343,13 +343,13 @@ spec:
               dir:
                 configMapRef:
                   name: ""  # Patched: tenant-<tenantId>-migrations
-        readinessChecks:
-          - type: MatchCondition
-            matchCondition:
-              type: Ready
-              status: "True"
         providerConfigRef:
           name: ""  # Patched from cellId
+    readinessChecks:
+      - type: MatchCondition
+        matchCondition:
+          type: Ready
+          status: "True"
     patches:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId
