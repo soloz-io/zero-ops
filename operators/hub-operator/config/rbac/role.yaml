@@ -92,3 +92,19 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaas
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaas/status
+  verbs:
+  - get
+  - patch
+  - update
