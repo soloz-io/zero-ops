@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -388,11 +389,21 @@ func (c *InfisicalClient) updateSecret(ctx context.Context, workspaceId, environ
 // when later creating secrets inside non-existent paths.
 func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environmentSlug, folderPath string) error {
 	logger := log.FromContext(ctx)
-	
+
+	parentPath := path.Dir(folderPath)
+	if parentPath == "." {
+		parentPath = "/"
+	}
+	folderName := path.Base(folderPath)
+	if folderName == "." || folderName == "/" {
+		return fmt.Errorf("invalid Infisical folder path: %s", folderPath)
+	}
+
 	folderReq := map[string]interface{}{
-		"workspaceId": workspaceId,
+		"projectId":   workspaceId,
 		"environment": environmentSlug,
-		"folderName":  folderPath,
+		"path":        parentPath,
+		"name":        folderName,
 	}
 
 	body, err := json.Marshal(folderReq)
@@ -400,7 +411,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 		return fmt.Errorf("failed to marshal folder request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v3/folders", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v2/folders", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create folder request: %w", err)
 	}
