@@ -349,6 +349,69 @@ spec:
             maxDuration: 3m
 
 ---
+# Kyverno Operator (Spoke)
+# Required for ADR-021: Tenant ABI enforcement on spoke clusters.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-kyverno
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-kyverno'
+      namespace: platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        # Must run before spoke-infrastructure (which contains ClusterPolicies)
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://kyverno.github.io/kyverno
+        chart: kyverno
+        targetRevision: 3.2.6
+        helm:
+          releaseName: kyverno
+          values: |
+            admissionController:
+              replicas: 2
+            backgroundController:
+              enabled: true
+            cleanupController:
+              enabled: true
+            reportsController:
+              enabled: true
+            crds:
+              install: true
+      destination:
+        name: '{{.name}}'
+        namespace: kyverno-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+
+---
 # Spoke Infrastructure
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet

@@ -6,6 +6,12 @@ metadata:
 spec:
   description: "Strictly governed project for tenant application workloads (ADR-021)"
 
+  # Explicit repository trust boundary for BYOWR overlays and approved bases.
+  sourceRepos:
+    - 'https://github.com/soloz-io/fleet-registry.git'
+    - 'https://github.com/soloz-io/zero-ops'
+    - 'https://github.com/soloz-io/zero-ops.git'
+
   # No cluster-scoped resources — tenant workloads are namespace-scoped only.
   # Cluster-level resources (Namespaces, CRDs, ClusterRoles) are owned by
   # platform-infrastructure project, not tenant workloads.
