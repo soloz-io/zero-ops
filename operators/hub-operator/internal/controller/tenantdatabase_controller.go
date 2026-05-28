@@ -19,7 +19,13 @@ import (
 
 // TenantDatabaseReconciler seeds tenant DB credentials into Infisical when an
 // AINativeSaaS XR is created. This unblocks the Spoke ESO ExternalSecret which
-// waits for credentials at /spoke-pool/<cellId>/tenants/<tenantId>/db-credentials.
+// waits for a secret named "db-credentials" at the folder path
+// /spoke-pool/<cellId>/tenants/<tenantId>.
+//
+// ESO remoteRef.key=/spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
+// — the provider splits on the last '/' so the secret NAME is "db-credentials"
+// and the FOLDER path is the prefix. The property field (username/password)
+// extracts fields from the JSON secret value.
 //
 // Implements ADR-003 Pattern A2a: Kube-SBT → Infisical ONLY → ESO → Spoke K8s Secret.
 // Mirrors SpokePoolReconciler (ADR-003 Pattern A2b) for consistency.
@@ -80,24 +86,20 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// 4. IDEMPOTENCY: Infisical is the source of truth — check before generating.
 	// ADR-003: ESO remoteRef.key=/spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
-	// with property: username/password — ESO Infisical provider treats key as folder path
-	// and property as the secret name within that folder.
-	infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellId, tenantId)
+	// with property: username/password — ESO Infisical provider uses the last path segment
+	// as the secret name and the remaining prefix as the folder path. The secret value
+	// must be a JSON object with username and password properties.
+	infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellId, tenantId)
+	secretName := "db-credentials"
 
-	usernameExists, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, "username")
+	credentialsExist, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, secretName)
 	if err != nil {
-		logger.Error(err, "Failed to check Infisical for username", "tenant", tenantId, "path", infisicalPath)
+		logger.Error(err, "Failed to check Infisical for db-credentials", "tenant", tenantId, "path", infisicalPath)
 		return ctrl.Result{}, fmt.Errorf("failed to check Infisical: %w", err)
 	}
 
-	passwordExists, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, "password")
-	if err != nil {
-		logger.Error(err, "Failed to check Infisical for password", "tenant", tenantId, "path", infisicalPath)
-		return ctrl.Result{}, fmt.Errorf("failed to check Infisical: %w", err)
-	}
-
-	if usernameExists && passwordExists {
-		logger.Info("Credentials already exist in Infisical, skipping generation", "tenant", tenantId, "path", infisicalPath)
+	if credentialsExist {
+		logger.Info("Credentials already exist in Infisical, skipping generation", "tenant", tenantId, "path", infisicalPath, "secret", secretName)
 		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionAlreadyExists)
 	}
 
@@ -128,27 +130,25 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("Generated credentials for tenant", "tenant", tenantId, "usernameLength", len(username), "passwordLength", len(password))
 
-	// 7. Ensure full Infisical folder hierarchy including db-credentials subfolder.
-	// ESO Infisical provider uses key as folder path, property as secret name within it.
-	// All folders in the path must exist before secrets can be placed inside them.
+	// 7. Ensure Infisical folder hierarchy exists before creating secrets.
+	// Infisical V3 API requires the folder path to exist before placing secrets inside it.
+	// This creates the full chain: /spoke-pool/<cellId>/tenants/<tenantId>
 	if err := infisicalClient.EnsureTenantFolder(ctx, "hub-platform", "dev", cellId, tenantId); err != nil {
 		logger.Error(err, "Failed to ensure Infisical folder hierarchy", "tenant", tenantId, "cell", cellId)
 		return ctrl.Result{}, fmt.Errorf("failed to ensure Infisical folder hierarchy for tenant %s: %w", tenantId, err)
 	}
 
-	// 8. Upload username to Infisical at infisicalPath (the db-credentials folder)
-	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "username", username); err != nil {
-		logger.Error(err, "Failed to upload username to Infisical", "tenant", tenantId, "path", infisicalPath)
-		return ctrl.Result{}, fmt.Errorf("failed to upload username to Infisical for tenant %s: %w", tenantId, err)
+	// 8. Upload combined JSON secret at the tenant folder path. ESO remoteRef.key splits
+	// on the last '/' so the secret name is "db-credentials" and the folder path is
+	// /spoke-pool/<cellId>/tenants/<tenantId>. The property field (username/password)
+	// then extracts individual fields from the JSON value.
+	secretValue := fmt.Sprintf(`{"username":"%s","password":"%s"}`, username, password)
+	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, secretName, secretValue); err != nil {
+		logger.Error(err, "Failed to upload db-credentials to Infisical", "tenant", tenantId, "path", infisicalPath)
+		return ctrl.Result{}, fmt.Errorf("failed to upload db-credentials to Infisical for tenant %s: %w", tenantId, err)
 	}
 
-	// 9. Upload password to Infisical at infisicalPath (the db-credentials folder)
-	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "password", password); err != nil {
-		logger.Error(err, "Failed to upload password to Infisical", "tenant", tenantId, "path", infisicalPath)
-		return ctrl.Result{}, fmt.Errorf("failed to upload password to Infisical for tenant %s: %w", tenantId, err)
-	}
-
-	logger.Info("Tenant DB credentials seeded in Infisical", "tenant", tenantId, "path", infisicalPath)
+	logger.Info("Tenant DB credentials seeded in Infisical", "tenant", tenantId, "path", infisicalPath, "secret", secretName)
 
 	// 10. Set status condition — Crossplane composition can now proceed
 	return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)

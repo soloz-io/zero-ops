@@ -458,7 +458,9 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 
 // EnsureTenantFolder ensures the directory structure exists in Infisical before writing secrets.
 // This prevents the "Folder ... not found" API rejection from Infisical V3 API.
-// ADR-003: Infisical hierarchy must be created before secrets can be placed inside it.
+// ADR-003: The folder hierarchy /spoke-pool/<cellId>/tenants/<tenantId> must exist before
+// secrets can be placed inside it. The ESO Infisical provider splits remoteRef.key on the
+// last '/' so the secret name is the final segment and the folder path is the prefix.
 func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
 	logger := log.FromContext(ctx)
 	
@@ -473,16 +475,15 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 		return fmt.Errorf("failed to get workspace ID: %w", err)
 	}
 
-	// Build folder hierarchy from root to leaf including the db-credentials subfolder.
-	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
-	// ESO Infisical provider uses remoteRef.key as the folder path and property as the
-	// secret name within it — all folders in the path must exist before secrets can be placed.
+	// Build folder hierarchy from root to leaf. ESO remoteRef.key uses the last path
+	// segment as the secret name and the prefix as the folder path, so the folder
+	// hierarchy need only go to /spoke-pool/<cellId>/tenants/<tenantId>.
+	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>
 	foldersToEnsure := []string{
 		"/spoke-pool",
 		fmt.Sprintf("/spoke-pool/%s", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
-		fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellID, tenantID),
 	}
 
 	for _, folder := range foldersToEnsure {
