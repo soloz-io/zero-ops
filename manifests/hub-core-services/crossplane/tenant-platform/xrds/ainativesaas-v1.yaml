@@ -138,6 +138,11 @@ spec:
                 type: array
                 items:
                   type: object
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
                   properties:
                     type:
                       type: string
@@ -150,6 +155,10 @@ spec:
                       type: string
                     message:
                       type: string
+                    observedGeneration:
+                      type: integer
+                      format: int64
+                      description: "Generation of the resource that was observed when this condition was set"
               databaseReady:
                 type: boolean
                 description: "True when CNPG Database CR is Ready"

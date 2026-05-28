@@ -57,3 +57,34 @@ spec:
                   minimum: 1
                   maximum: 100
                   default: 100
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - type
+                  x-kubernetes-list-type: map
+                  items:
+                    type: object
+                    required:
+                    - lastTransitionTime
+                    - reason
+                    - status
+                    - type
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: "Generation of the resource that was observed when this condition was set"

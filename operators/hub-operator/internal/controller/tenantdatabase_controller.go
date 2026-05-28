@@ -175,7 +175,15 @@ func (r *TenantDatabaseReconciler) isConditionTrue(obj *unstructured.Unstructure
 func (r *TenantDatabaseReconciler) setCondition(ctx context.Context, obj *unstructured.Unstructured, tenantId string, state conditionState) error {
 	logger := log.FromContext(ctx)
 
-	existing, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	// Re-fetch the latest version to avoid resource version conflicts.
+	latest := &unstructured.Unstructured{}
+	latest.SetGroupVersionKind(obj.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKeyFromObject(obj), latest); err != nil {
+		logger.Error(err, "Failed to re-fetch AINativeSaaS before status update", "tenant", tenantId)
+		return err
+	}
+
+	existing, found, err := unstructured.NestedSlice(latest.Object, "status", "conditions")
 	if err != nil || !found {
 		existing = []interface{}{}
 	}
@@ -195,11 +203,10 @@ func (r *TenantDatabaseReconciler) setCondition(ctx context.Context, obj *unstru
 			continue
 		}
 		metaConditions = append(metaConditions, metav1.Condition{
-			Type:               typeVal,
-			Status:             metav1.ConditionStatus(statusVal),
-			Reason:             reasonVal,
-			Message:            messageVal,
-			ObservedGeneration: obj.GetGeneration(),
+			Type:    typeVal,
+			Status:  metav1.ConditionStatus(statusVal),
+			Reason:  reasonVal,
+			Message: messageVal,
 		})
 	}
 
@@ -207,33 +214,30 @@ func (r *TenantDatabaseReconciler) setCondition(ctx context.Context, obj *unstru
 	switch state {
 	case conditionSeeded:
 		cond = metav1.Condition{
-			Type:               "TenantDBCredentialsSeeded",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Seeded",
-			Message:            fmt.Sprintf("DB credentials generated and uploaded to Infisical for tenant %s", tenantId),
-			ObservedGeneration: obj.GetGeneration(),
+			Type:    "TenantDBCredentialsSeeded",
+			Status:  metav1.ConditionTrue,
+			Reason:  "Seeded",
+			Message: fmt.Sprintf("DB credentials generated and uploaded to Infisical for tenant %s", tenantId),
 		}
 	case conditionAlreadyExists:
 		cond = metav1.Condition{
-			Type:               "TenantDBCredentialsSeeded",
-			Status:             metav1.ConditionTrue,
-			Reason:             "AlreadyExists",
-			Message:            fmt.Sprintf("DB credentials already present in Infisical for tenant %s", tenantId),
-			ObservedGeneration: obj.GetGeneration(),
+			Type:    "TenantDBCredentialsSeeded",
+			Status:  metav1.ConditionTrue,
+			Reason:  "AlreadyExists",
+			Message: fmt.Sprintf("DB credentials already present in Infisical for tenant %s", tenantId),
 		}
 	case conditionMissing:
 		cond = metav1.Condition{
-			Type:               "TenantDBCredentialsSeeded",
-			Status:             metav1.ConditionFalse,
-			Reason:             "CredentialsMissing",
-			Message:            fmt.Sprintf("CRITICAL: DB credentials missing from Infisical for already-provisioned tenant %s. Manual recovery required.", tenantId),
-			ObservedGeneration: obj.GetGeneration(),
+			Type:    "TenantDBCredentialsSeeded",
+			Status:  metav1.ConditionFalse,
+			Reason:  "CredentialsMissing",
+			Message: fmt.Sprintf("CRITICAL: DB credentials missing from Infisical for already-provisioned tenant %s. Manual recovery required.", tenantId),
 		}
 	}
 
 	meta.SetStatusCondition(&metaConditions, cond)
 
-	// Serialise back to unstructured
+	// Serialise back including observedGeneration — now declared in AINativeSaaS XRD status schema.
 	var updated []interface{}
 	for _, c := range metaConditions {
 		updated = append(updated, map[string]interface{}{
@@ -241,17 +245,17 @@ func (r *TenantDatabaseReconciler) setCondition(ctx context.Context, obj *unstru
 			"status":             string(c.Status),
 			"reason":             c.Reason,
 			"message":            c.Message,
-			"observedGeneration": c.ObservedGeneration,
+			"observedGeneration": latest.GetGeneration(),
 			"lastTransitionTime": metav1.Now().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 
-	if err := unstructured.SetNestedSlice(obj.Object, updated, "status", "conditions"); err != nil {
+	if err := unstructured.SetNestedSlice(latest.Object, updated, "status", "conditions"); err != nil {
 		logger.Error(err, "Failed to set status conditions", "tenant", tenantId)
 		return err
 	}
 
-	if err := r.Status().Update(ctx, obj); err != nil {
+	if err := r.Status().Update(ctx, latest); err != nil {
 		logger.Error(err, "Failed to update status", "tenant", tenantId)
 		return err
 	}

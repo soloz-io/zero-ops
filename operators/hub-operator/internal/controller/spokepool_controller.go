@@ -151,8 +151,17 @@ func (r *SpokePoolReconciler) isStatusConditionTrue(spokePool *unstructured.Unst
 // updateStatusCondition sets CrossplaneAdminSecretGenerated condition on SpokePool XR
 func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePool *unstructured.Unstructured, spokeName string, success bool, alreadyExisted bool) error {
 	logger := log.FromContext(ctx)
-	
-	conditions, found, err := unstructured.NestedSlice(spokePool.Object, "status", "conditions")
+
+	// Re-fetch the latest version to avoid resource version conflicts when two
+	// replicas reconcile the same SpokePool simultaneously.
+	latest := &unstructured.Unstructured{}
+	latest.SetGroupVersionKind(spokePool.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKeyFromObject(spokePool), latest); err != nil {
+		logger.Error(err, "Failed to re-fetch SpokePool before status update", "spoke", spokeName)
+		return err
+	}
+
+	conditions, found, err := unstructured.NestedSlice(latest.Object, "status", "conditions")
 	if err != nil {
 		logger.Error(err, "Failed to get status conditions", "spoke", spokeName)
 		return err
@@ -171,19 +180,17 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 			statusVal, statusOk := condMap["status"].(string)
 			reasonVal, reasonOk := condMap["reason"].(string)
 			messageVal, messageOk := condMap["message"].(string)
-			
+
 			if !typeOk || !statusOk || !reasonOk || !messageOk {
 				continue
 			}
-			
-			cond := metav1.Condition{
-				Type:               typeVal,
-				Status:             metav1.ConditionStatus(statusVal),
-				Reason:             reasonVal,
-				Message:            messageVal,
-				ObservedGeneration: spokePool.GetGeneration(),
-			}
-			metaConditions = append(metaConditions, cond)
+
+			metaConditions = append(metaConditions, metav1.Condition{
+				Type:    typeVal,
+				Status:  metav1.ConditionStatus(statusVal),
+				Reason:  reasonVal,
+				Message: messageVal,
+			})
 		}
 	}
 
@@ -192,34 +199,31 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 	if success {
 		if alreadyExisted {
 			condition = metav1.Condition{
-				Type:               "CrossplaneAdminSecretGenerated",
-				Status:             metav1.ConditionTrue,
-				Reason:             "AlreadyExists",
-				Message:            fmt.Sprintf("Password already exists in Infisical at %s-crossplane-admin-password", spokeName),
-				ObservedGeneration: spokePool.GetGeneration(),
+				Type:    "CrossplaneAdminSecretGenerated",
+				Status:  metav1.ConditionTrue,
+				Reason:  "AlreadyExists",
+				Message: fmt.Sprintf("Password already exists in Infisical at %s-crossplane-admin-password", spokeName),
 			}
 		} else {
 			condition = metav1.Condition{
-				Type:               "CrossplaneAdminSecretGenerated",
-				Status:             metav1.ConditionTrue,
-				Reason:             "Generated",
-				Message:            fmt.Sprintf("Password generated and uploaded to Infisical at %s-crossplane-admin-password", spokeName),
-				ObservedGeneration: spokePool.GetGeneration(),
+				Type:    "CrossplaneAdminSecretGenerated",
+				Status:  metav1.ConditionTrue,
+				Reason:  "Generated",
+				Message: fmt.Sprintf("Password generated and uploaded to Infisical at %s-crossplane-admin-password", spokeName),
 			}
 		}
 	} else {
 		condition = metav1.Condition{
-			Type:               "CrossplaneAdminSecretGenerated",
-			Status:             metav1.ConditionFalse,
-			Reason:             "PasswordMissing",
-			Message:            "CRITICAL: Password missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
-			ObservedGeneration: spokePool.GetGeneration(),
+			Type:    "CrossplaneAdminSecretGenerated",
+			Status:  metav1.ConditionFalse,
+			Reason:  "PasswordMissing",
+			Message: "CRITICAL: Password missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
 		}
 	}
-	
+
 	meta.SetStatusCondition(&metaConditions, condition)
 
-	// Convert back to unstructured
+	// Serialise back including observedGeneration — now declared in SpokePool XRD status schema.
 	var newConditions []interface{}
 	for _, c := range metaConditions {
 		newConditions = append(newConditions, map[string]interface{}{
@@ -227,21 +231,21 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 			"status":             string(c.Status),
 			"reason":             c.Reason,
 			"message":            c.Message,
-			"observedGeneration": c.ObservedGeneration,
+			"observedGeneration": latest.GetGeneration(),
 			"lastTransitionTime": metav1.Now().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 
-	if err := unstructured.SetNestedSlice(spokePool.Object, newConditions, "status", "conditions"); err != nil {
+	if err := unstructured.SetNestedSlice(latest.Object, newConditions, "status", "conditions"); err != nil {
 		logger.Error(err, "Failed to set status conditions", "spoke", spokeName)
 		return err
 	}
 
-	if err := r.Status().Update(ctx, spokePool); err != nil {
+	if err := r.Status().Update(ctx, latest); err != nil {
 		logger.Error(err, "Failed to update status", "spoke", spokeName)
 		return err
 	}
-	
+
 	return nil
 }
 
