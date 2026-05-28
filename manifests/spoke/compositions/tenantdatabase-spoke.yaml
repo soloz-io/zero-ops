@@ -40,13 +40,12 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
-                # HARDENING (ADR-030): Crossplane halts pipeline until ESO confirms Ready=True,
-                # preventing provider-sql from racing ahead of credential availability.
-                readinessChecks:
-                  - type: MatchCondition
-                    matchCondition:
-                      type: Ready
-                      status: "True"
+                # ADR-030: Derive Object readiness from the ExternalSecret's own Ready condition.
+                # provider-kubernetes v0.13.0 native — equivalent to readinessChecks MatchCondition.
+                # Crossplane halts pipeline until ESO reports Ready=True, preventing provider-sql
+                # from racing ahead of credential availability.
+                readiness:
+                  policy: DeriveFromObject
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
@@ -183,7 +182,7 @@ spec:
           
           # Resource 3b: Pooler App Secret (for AtlasMigration & Workloads)
           # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
-          # Follows ADR-030: Discrete keys + urlquery-encoded DSN + readinessChecks
+          # Follows ADR-030: Discrete keys + urlquery-encoded DSN + readiness gate
           - name: pooler-app-secret
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -192,13 +191,12 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
-                # HARDENING (ADR-030): Crossplane halts pipeline until ESO confirms Ready=True,
-                # preventing AtlasMigration from racing ahead of credential availability.
-                readinessChecks:
-                  - type: MatchCondition
-                    matchCondition:
-                      type: Ready
-                      status: "True"
+                # ADR-030: Derive Object readiness from the ExternalSecret's own Ready condition.
+                # provider-kubernetes v0.13.0 native — equivalent to readinessChecks MatchCondition.
+                # Crossplane halts pipeline until ESO reports Ready=True, preventing AtlasMigration
+                # from racing ahead of credential availability.
+                readiness:
+                  policy: DeriveFromObject
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
