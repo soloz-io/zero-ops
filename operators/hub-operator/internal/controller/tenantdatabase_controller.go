@@ -79,7 +79,9 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	isFirstTime := !r.isConditionTrue(ainativesaas, "TenantDBCredentialsSeeded")
 
 	// 4. IDEMPOTENCY: Infisical is the source of truth — check before generating.
-	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
+	// ADR-003: ESO remoteRef.key=/spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
+	// with property: username/password — ESO Infisical provider treats key as folder path
+	// and property as the secret name within that folder.
 	infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellId, tenantId)
 
 	usernameExists, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, "username")
@@ -126,21 +128,21 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("Generated credentials for tenant", "tenant", tenantId, "usernameLength", len(username), "passwordLength", len(password))
 
-	// 7. Ensure Infisical folder hierarchy exists before creating secrets.
-	// Infisical V3 API requires folder paths to exist before placing secrets inside them.
-	// This prevents "Folder ... not found" 404 errors and ESO polling timeouts.
+	// 7. Ensure full Infisical folder hierarchy including db-credentials subfolder.
+	// ESO Infisical provider uses key as folder path, property as secret name within it.
+	// All folders in the path must exist before secrets can be placed inside them.
 	if err := infisicalClient.EnsureTenantFolder(ctx, "hub-platform", "dev", cellId, tenantId); err != nil {
 		logger.Error(err, "Failed to ensure Infisical folder hierarchy", "tenant", tenantId, "cell", cellId)
 		return ctrl.Result{}, fmt.Errorf("failed to ensure Infisical folder hierarchy for tenant %s: %w", tenantId, err)
 	}
 
-	// 8. Upload username to Infisical
+	// 8. Upload username to Infisical at infisicalPath (the db-credentials folder)
 	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "username", username); err != nil {
 		logger.Error(err, "Failed to upload username to Infisical", "tenant", tenantId, "path", infisicalPath)
 		return ctrl.Result{}, fmt.Errorf("failed to upload username to Infisical for tenant %s: %w", tenantId, err)
 	}
 
-	// 9. Upload password to Infisical
+	// 9. Upload password to Infisical at infisicalPath (the db-credentials folder)
 	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "password", password); err != nil {
 		logger.Error(err, "Failed to upload password to Infisical", "tenant", tenantId, "path", infisicalPath)
 		return ctrl.Result{}, fmt.Errorf("failed to upload password to Infisical for tenant %s: %w", tenantId, err)

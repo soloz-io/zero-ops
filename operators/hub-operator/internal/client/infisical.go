@@ -473,13 +473,16 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 		return fmt.Errorf("failed to get workspace ID: %w", err)
 	}
 
-	// Build folder hierarchy from root to leaf
-	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>
+	// Build folder hierarchy from root to leaf including the db-credentials subfolder.
+	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
+	// ESO Infisical provider uses remoteRef.key as the folder path and property as the
+	// secret name within it — all folders in the path must exist before secrets can be placed.
 	foldersToEnsure := []string{
 		"/spoke-pool",
 		fmt.Sprintf("/spoke-pool/%s", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s/db-credentials", cellID, tenantID),
 	}
 
 	for _, folder := range foldersToEnsure {
