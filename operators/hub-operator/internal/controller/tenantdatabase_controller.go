@@ -126,13 +126,21 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("Generated credentials for tenant", "tenant", tenantId, "usernameLength", len(username), "passwordLength", len(password))
 
-	// 7. Upload username to Infisical
+	// 7. Ensure Infisical folder hierarchy exists before creating secrets.
+	// Infisical V3 API requires folder paths to exist before placing secrets inside them.
+	// This prevents "Folder ... not found" 404 errors and ESO polling timeouts.
+	if err := infisicalClient.EnsureTenantFolder(ctx, "hub-platform", "dev", cellId, tenantId); err != nil {
+		logger.Error(err, "Failed to ensure Infisical folder hierarchy", "tenant", tenantId, "cell", cellId)
+		return ctrl.Result{}, fmt.Errorf("failed to ensure Infisical folder hierarchy for tenant %s: %w", tenantId, err)
+	}
+
+	// 8. Upload username to Infisical
 	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "username", username); err != nil {
 		logger.Error(err, "Failed to upload username to Infisical", "tenant", tenantId, "path", infisicalPath)
 		return ctrl.Result{}, fmt.Errorf("failed to upload username to Infisical for tenant %s: %w", tenantId, err)
 	}
 
-	// 8. Upload password to Infisical
+	// 9. Upload password to Infisical
 	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, "password", password); err != nil {
 		logger.Error(err, "Failed to upload password to Infisical", "tenant", tenantId, "path", infisicalPath)
 		return ctrl.Result{}, fmt.Errorf("failed to upload password to Infisical for tenant %s: %w", tenantId, err)
@@ -140,7 +148,7 @@ func (r *TenantDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("Tenant DB credentials seeded in Infisical", "tenant", tenantId, "path", infisicalPath)
 
-	// 9. Set status condition — Crossplane composition can now proceed
+	// 10. Set status condition — Crossplane composition can now proceed
 	return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)
 }
 

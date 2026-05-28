@@ -383,3 +383,90 @@ func (c *InfisicalClient) updateSecret(ctx context.Context, workspaceId, environ
 
 	return nil
 }
+
+// createFolder creates a folder hierarchy in Infisical to prevent 404 errors
+// when later creating secrets inside non-existent paths.
+func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environmentSlug, folderPath string) error {
+	logger := log.FromContext(ctx)
+	
+	folderReq := map[string]interface{}{
+		"workspaceId": workspaceId,
+		"environment": environmentSlug,
+		"folderName":  folderPath,
+	}
+
+	body, err := json.Marshal(folderReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal folder request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v3/folders", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create folder request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute folder request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Requirement 6.7: Retry logic for 5xx errors
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("failed to create folder with status %d (transient error)", resp.StatusCode)
+	}
+
+	// 409 Conflict means folder already exists — this is idempotent success
+	if resp.StatusCode == http.StatusConflict {
+		logger.Info("Folder already exists in Infisical", "folderPath", folderPath)
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create folder with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	
+	logger.Info("Folder created successfully in Infisical", "folderPath", folderPath)
+	return nil
+}
+
+// EnsureTenantFolder ensures the directory structure exists in Infisical before writing secrets.
+// This prevents the "Folder ... not found" API rejection from Infisical V3 API.
+// ADR-003: Infisical hierarchy must be created before secrets can be placed inside it.
+func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
+	logger := log.FromContext(ctx)
+	
+	// Ensure we have a valid token
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	// Convert projectSlug to workspaceId
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	// Build folder hierarchy from root to leaf
+	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>
+	foldersToEnsure := []string{
+		"/spoke-pool",
+		fmt.Sprintf("/spoke-pool/%s", cellID),
+		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
+	}
+
+	for _, folder := range foldersToEnsure {
+		if err := c.createFolder(ctx, workspaceId, environmentSlug, folder); err != nil {
+			logger.Error(err, "Failed to ensure Infisical folder", "folder", folder)
+			return fmt.Errorf("failed to ensure Infisical folder %s: %w", folder, err)
+		}
+	}
+
+	logger.Info("Tenant folder hierarchy ensured in Infisical", "cellID", cellID, "tenantID", tenantID)
+	return nil
+}

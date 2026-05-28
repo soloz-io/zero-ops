@@ -40,12 +40,6 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
-                # ADR-030: Derive Object readiness from the ExternalSecret's own Ready condition.
-                # provider-kubernetes v0.13.0 native — equivalent to readinessChecks MatchCondition.
-                # Crossplane halts pipeline until ESO reports Ready=True, preventing provider-sql
-                # from racing ahead of credential availability.
-                readiness:
-                  policy: DeriveFromObject
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
@@ -78,6 +72,11 @@ spec:
                           remoteRef:
                             key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
                             property: password
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
@@ -191,12 +190,6 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
-                # ADR-030: Derive Object readiness from the ExternalSecret's own Ready condition.
-                # provider-kubernetes v0.13.0 native — equivalent to readinessChecks MatchCondition.
-                # Crossplane halts pipeline until ESO reports Ready=True, preventing AtlasMigration
-                # from racing ahead of credential availability.
-                readiness:
-                  policy: DeriveFromObject
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
@@ -232,6 +225,11 @@ spec:
                           remoteRef:
                             key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
                             property: password
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
