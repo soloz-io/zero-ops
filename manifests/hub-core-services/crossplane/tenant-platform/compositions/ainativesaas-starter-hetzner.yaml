@@ -87,6 +87,7 @@ spec:
                 parameters:
                   max_client_conn: "100"
                   default_pool_size: "5"
+                  ignore_startup_parameters: "search_path, extra_float_digits"
                 authQueryUser:
                   secretRef:
                     name: ""   # Patched: <tenantId>-db-credentials
@@ -172,9 +173,21 @@ spec:
                   labels:
                     app: postgrest
                 spec:
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 65532
+                    fsGroup: 65532
+                    seccompProfile:
+                      type: RuntimeDefault
                   containers:
                   - name: postgrest
                     image: postgrest/postgrest:v12.0.2
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                        - ALL
                     ports:
                     - containerPort: 3000
                       name: http
