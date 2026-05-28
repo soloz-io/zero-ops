@@ -10,3 +10,9 @@ resources:
   - rollout.yaml
   - service.yaml
   - network-policy.yaml
+
+# Teach Kustomize to rewrite serviceAccountName inside Argo Rollout specs
+# when a namePrefix is applied. Without this, Kustomize ignores the field
+# in CRDs, leaving Pods pointing to a ServiceAccount that no longer exists.
+configurations:
+  - kustomizeconfig.yaml

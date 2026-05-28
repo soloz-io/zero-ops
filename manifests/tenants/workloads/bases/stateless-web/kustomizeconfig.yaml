@@ -1,0 +1,14 @@
+# ADR-022: Teach Kustomize how to rewrite ServiceAccount name references
+# inside Argo Rollout specs when a namePrefix is applied.
+#
+# Kustomize natively rewrites serviceAccountName for Deployment, StatefulSet,
+# DaemonSet etc. but not for CRDs. This configuration extends that behaviour
+# to argoproj.io/Rollout so that namePrefix: bff- correctly rewrites
+# spec.template.spec.serviceAccountName from "workload-sa" to "bff-workload-sa".
+nameReference:
+  - kind: ServiceAccount
+    version: v1
+    fieldSpecs:
+      - kind: Rollout
+        group: argoproj.io
+        path: spec/template/spec/serviceAccountName
