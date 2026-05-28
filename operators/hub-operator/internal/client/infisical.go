@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -425,22 +426,33 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
 	// Requirement 6.7: Retry logic for 5xx errors
 	if resp.StatusCode >= 500 {
 		return fmt.Errorf("failed to create folder with status %d (transient error)", resp.StatusCode)
 	}
 
-	// 409 Conflict means folder already exists — this is idempotent success
+	// 409 Conflict or 400 "already exists" — Infisical returns 400 (not 409) when a folder
+	// with the same name already exists at the given path. Both are idempotent success.
 	if resp.StatusCode == http.StatusConflict {
-		logger.Info("Folder already exists in Infisical", "folderPath", folderPath)
+		logger.Info("Folder already exists in Infisical (409)", "folderPath", folderPath)
 		return nil
 	}
 
+	if resp.StatusCode == http.StatusBadRequest {
+		bodyStr := string(bodyBytes)
+		if contains(bodyStr, "already exists") {
+			logger.Info("Folder already exists in Infisical (400)", "folderPath", folderPath)
+			return nil
+		}
+		return fmt.Errorf("failed to create folder with status 400: %s", bodyStr)
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create folder with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
-	
+
 	logger.Info("Folder created successfully in Infisical", "folderPath", folderPath)
 	return nil
 }
@@ -480,4 +492,9 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 
 	logger.Info("Tenant folder hierarchy ensured in Infisical", "cellID", cellID, "tenantID", tenantID)
 	return nil
+}
+
+// contains is a case-insensitive substring check used for Infisical error message matching.
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
