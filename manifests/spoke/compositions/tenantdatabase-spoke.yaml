@@ -31,6 +31,7 @@ spec:
         
         resources:
           # Resource 1: ESO ExternalSecret (restore credentials from Infisical on cluster rebuild)
+          # Aligns with ADR-003: Infisical as the single source of truth.
           - name: db-credentials-restore
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -39,6 +40,13 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
+                # HARDENING (ADR-030): Crossplane halts pipeline until ESO confirms Ready=True,
+                # preventing provider-sql from racing ahead of credential availability.
+                readinessChecks:
+                  - type: MatchCondition
+                    matchCondition:
+                      type: Ready
+                      status: "True"
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
@@ -46,13 +54,13 @@ spec:
                     metadata:
                       namespace: ""  # Patched to tenant-<id>
                     spec:
-                      refreshInterval: 1h
+                      refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
                       secretStoreRef:
                         name: infisical-backend
                         kind: ClusterSecretStore
                       target:
                         name: ""  # Patched to tenant-<id>-db-credentials
-                        creationPolicy: Owner  # ESO creates and owns the secret
+                        creationPolicy: Owner
                         template:
                           type: Opaque
                           data:
@@ -61,6 +69,7 @@ spec:
                             database: ""  # Patched dynamically from spec.databaseName
                             host: "shared-cnpg-rw.platform-data.svc.cluster.local"
                             port: "5432"
+                            sslmode: "require"  # HARDENING (ADR-030): Explicit TLS enforcement
                       data:
                         - secretKey: username
                           remoteRef:
@@ -172,9 +181,9 @@ spec:
                       type: Format
                       fmt: "tenant-%s-user"
           
-          # Resource 3b: Pooler App Secret (for AtlasMigration)
-          # Uses ESO to read credentials from Infisical and construct connection URL
-          # Follows Pattern B: Application Secrets (Infisical → ESO → Apps)
+          # Resource 3b: Pooler App Secret (for AtlasMigration & Workloads)
+          # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
+          # Follows ADR-030: Discrete keys + urlquery-encoded DSN + readinessChecks
           - name: pooler-app-secret
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -183,6 +192,13 @@ spec:
                 managementPolicies: ["*"]
                 providerConfigRef:
                   name: default
+                # HARDENING (ADR-030): Crossplane halts pipeline until ESO confirms Ready=True,
+                # preventing AtlasMigration from racing ahead of credential availability.
+                readinessChecks:
+                  - type: MatchCondition
+                    matchCondition:
+                      type: Ready
+                      status: "True"
                 forProvider:
                   manifest:
                     apiVersion: external-secrets.io/v1
@@ -190,7 +206,7 @@ spec:
                     metadata:
                       namespace: ""  # Patched to tenant-<id>
                     spec:
-                      refreshInterval: 1h
+                      refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
                       secretStoreRef:
                         name: infisical-backend
                         kind: ClusterSecretStore
@@ -201,15 +217,14 @@ spec:
                           type: Opaque
                           engineVersion: v2
                           data:
-                            # Only username and password from Infisical (secrets)
-                            # All else computed dynamically (configuration)
+                            # HARDENING (ADR-030): Discrete keys for poolers, sidecars, and audit tooling
                             username: "{{ .username }}"
                             password: "{{ .password }}"
-                            database: ""  # Patched dynamically
-                            host: "shared-cnpg-rw.platform-data.svc.cluster.local"
+                            database: ""   # Patched dynamically
+                            host: ""       # Patched dynamically (pooler host)
                             port: "5432"
-                            pooler-host: ""  # Patched dynamically
-                            url: ""  # Patched dynamically with template
+                            sslmode: "require"
+                            url: ""        # Patched dynamically with urlquery-encoded DSN
                       data:
                         - secretKey: username
                           remoteRef:
@@ -275,15 +290,16 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.target.template.data.pooler-host
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.host
                 transforms:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-pooler.platform-data.svc"
-              # Dynamic URL construction with secrets + config
+                      fmt: "%s-pooler.platform-data.svc.cluster.local"
+              # HARDENING (ADR-030): urlquery encodes high-entropy passwords (symbols) safely into DSN
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -291,7 +307,7 @@ spec:
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://{{ .username }}:{{ .password }}@%s-pooler.platform-data.svc:5432/%s"
+                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
           
           # Resource 4: provider-sql Role (tenant user)
