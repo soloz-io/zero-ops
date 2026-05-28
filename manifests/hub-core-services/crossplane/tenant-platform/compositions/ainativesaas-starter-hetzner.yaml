@@ -476,4 +476,114 @@ spec:
         string:
           fmt: "tenant-%s"
 
+  # 7. Infisical Credentials for SDK (ADR-003, ADR-019)
+  #    Pulls the tenant's Machine Identity credentials from Infisical into the tenant namespace.
+  #    Used by the Waypoint SDK to resolve runtime plugin credentials.
+  - name: infisical-credentials-secret
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              namespace: ""  # Patched to tenant-<id>
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: infisical-backend
+                kind: ClusterSecretStore
+              target:
+                name: ""  # Patched to <tenantId>-infisical-credentials
+                creationPolicy: Owner
+                template:
+                  type: Opaque
+                  engineVersion: v2
+                  data:
+                    client-id: "{{ .clientId }}"
+                    client-secret: "{{ .clientSecret }}"
+                    project-id: "{{ .projectId }}"
+              data:
+                - secretKey: clientId
+                  remoteRef:
+                    key: ""  # Patched dynamically: /spoke-pool/<cellId>/tenants/<tenantId>/infisical-credentials
+                    property: client-id
+                - secretKey: clientSecret
+                  remoteRef:
+                    key: ""  # Patched dynamically
+                    property: client-secret
+                - secretKey: projectId
+                  remoteRef:
+                    key: ""  # Patched dynamically
+                    property: project-id
+        providerConfigRef:
+          name: ""  # Patched to cellId
+    readinessChecks:
+      - type: MatchCondition
+        matchCondition:
+          type: Ready
+          status: "True"
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-infisical-credentials-es"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-infisical-credentials"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.target.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-infisical-credentials"
+    - type: CombineFromComposite
+      combine:
+        variables:
+          - fromFieldPath: spec.cellId
+          - fromFieldPath: spec.tenantId
+        strategy: string
+        string:
+          fmt: "/spoke-pool/%s/tenants/%s/infisical-credentials"
+      toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
+    - type: CombineFromComposite
+      combine:
+        variables:
+          - fromFieldPath: spec.cellId
+          - fromFieldPath: spec.tenantId
+        strategy: string
+        string:
+          fmt: "/spoke-pool/%s/tenants/%s/infisical-credentials"
+      toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
+    - type: CombineFromComposite
+      combine:
+        variables:
+          - fromFieldPath: spec.cellId
+          - fromFieldPath: spec.tenantId
+        strategy: string
+        string:
+          fmt: "/spoke-pool/%s/tenants/%s/infisical-credentials"
+      toFieldPath: spec.forProvider.manifest.spec.data[2].remoteRef.key
+
   
