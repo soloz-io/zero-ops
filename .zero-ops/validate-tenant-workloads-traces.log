@@ -1,0 +1,3943 @@
+### ArgoCD Application Describe: tenant-waypoint-workloads
+Name:         tenant-waypoint-workloads
+Namespace:    platform-ops
+Labels:       resource-type=workload
+              target-cluster=spoke-pool-eu-prod-01
+              tenant-id=waypoint
+Annotations:  <none>
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-28T02:17:46Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  210
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  tenant-workload-provisioning
+    UID:                   c304429e-612a-4757-91f7-027141a3d030
+  Resource Version:        5367291
+  UID:                     cc79ecc7-5c89-481d-b302-fb4f8712432f
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  tenant-waypoint
+  Project:      tenant-workloads
+  Sources:
+    Path:             tenants/waypoint/workloads
+    Repo URL:         https://github.com/soloz-io/fleet-registry.git
+    Target Revision:  main
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      10s
+        Factor:        2
+        Max Duration:  5m
+      Limit:           10
+    Sync Options:
+      ServerSideApply=true
+      RespectIgnoreDifferences=true
+Status:
+  Controller Namespace:  platform-ops
+  Health:
+    Status:  Degraded
+  History:
+    Deploy Started At:  2026-05-28T07:12:52Z
+    Deployed At:        2026-05-28T07:12:53Z
+    Id:                 0
+    Initiated By:
+      Username:  admin
+    Revisions:
+      c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+    Source:
+      Repo URL:  
+    Sources:
+      Path:             tenants/waypoint/workloads
+      Repo URL:         https://github.com/soloz-io/fleet-registry.git
+      Target Revision:  main
+  Operation State:
+    Finished At:  2026-05-28T07:12:53Z
+    Message:      successfully synced (all tasks run)
+    Operation:
+      Initiated By:
+        Automated:  true
+        Username:   admin
+      Retry:
+        Backoff:
+          Duration:      10s
+          Factor:        2
+          Max Duration:  5m
+        Limit:           10
+      Sync:
+        Prune:  true
+        Revisions:
+          c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+        Sync Options:
+          ServerSideApply=true
+          RespectIgnoreDifferences=true
+        Sync Strategy:
+          Apply:
+            Force:  true
+    Phase:          Succeeded
+    Retry Count:    10
+    Started At:     2026-05-28T07:12:52Z
+    Sync Result:
+      Resources:
+        Group:       
+        Hook Phase:  Running
+        Kind:        ServiceAccount
+        Message:     serviceaccount/frontend-workload-sa created
+        Name:        frontend-workload-sa
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Running
+        Kind:        ServiceAccount
+        Message:     serviceaccount/sdk-workload-sa created
+        Name:        sdk-workload-sa
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Running
+        Kind:        ServiceAccount
+        Message:     serviceaccount/bff-workload-sa created
+        Name:        bff-workload-sa
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Running
+        Kind:        Service
+        Message:     service/sdk-workload created
+        Name:        sdk-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Running
+        Kind:        Service
+        Message:     service/frontend-workload created
+        Name:        frontend-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Running
+        Kind:        Service
+        Message:     service/bff-workload created
+        Name:        bff-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       networking.k8s.io
+        Hook Phase:  Running
+        Kind:        Ingress
+        Message:     ingress.networking.k8s.io/waypoint-ingress created
+        Name:        waypoint-ingress
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       cilium.io
+        Hook Phase:  Running
+        Kind:        CiliumNetworkPolicy
+        Message:     ciliumnetworkpolicy.cilium.io/bff-strict-egress-contract created
+        Name:        bff-strict-egress-contract
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v2
+        Group:       argoproj.io
+        Hook Phase:  Running
+        Kind:        Rollout
+        Message:     rollout.argoproj.io/bff-workload created
+        Name:        bff-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       cilium.io
+        Hook Phase:  Running
+        Kind:        CiliumNetworkPolicy
+        Message:     ciliumnetworkpolicy.cilium.io/frontend-strict-egress-contract created
+        Name:        frontend-strict-egress-contract
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v2
+        Group:       argoproj.io
+        Hook Phase:  Running
+        Kind:        Rollout
+        Message:     rollout.argoproj.io/frontend-workload created
+        Name:        frontend-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+        Group:       cilium.io
+        Hook Phase:  Running
+        Kind:        CiliumNetworkPolicy
+        Message:     ciliumnetworkpolicy.cilium.io/sdk-strict-egress-contract created
+        Name:        sdk-strict-egress-contract
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v2
+        Group:       argoproj.io
+        Hook Phase:  Running
+        Kind:        Rollout
+        Message:     rollout.argoproj.io/sdk-workload created
+        Name:        sdk-workload
+        Namespace:   tenant-waypoint
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1alpha1
+      Revision:      
+      Revisions:
+        c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+      Source:
+        Repo URL:  
+      Sources:
+        Path:             tenants/waypoint/workloads
+        Repo URL:         https://github.com/soloz-io/fleet-registry.git
+        Target Revision:  main
+  Reconciled At:          2026-05-28T08:11:27Z
+  Resources:
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       bff-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       frontend-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       sdk-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       bff-workload-sa
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       frontend-workload-sa
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       sdk-workload-sa
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Group:      argoproj.io
+    Health:
+      Message:  ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
+      Status:   Degraded
+    Kind:       Rollout
+    Name:       bff-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      argoproj.io
+    Health:
+      Message:  ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
+      Status:   Degraded
+    Kind:       Rollout
+    Name:       frontend-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      argoproj.io
+    Health:
+      Message:  ProgressDeadlineExceeded: ReplicaSet "sdk-workload-5546cb5c5" has timed out progressing.
+      Status:   Degraded
+    Kind:       Rollout
+    Name:       sdk-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       bff-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v2
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       frontend-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v2
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       sdk-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v2
+    Group:      networking.k8s.io
+    Health:
+      Status:   Progressing
+    Kind:       Ingress
+    Name:       waypoint-ingress
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+  Source Types:
+    Kustomize
+  Summary:
+    External UR Ls:
+      https://api.waypoint.nutgraf.in/
+      https://waypoint.nutgraf.in/
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  tenant-waypoint
+      Source:
+        Repo URL:  
+      Sources:
+        Path:             tenants/waypoint/workloads
+        Repo URL:         https://github.com/soloz-io/fleet-registry.git
+        Target Revision:  main
+    Revisions:
+      727bdedb20167bb8817bd63d9dce953d7afa3323
+    Status:  Synced
+Events:
+  Type    Reason              Age   From                           Message
+  ----    ------              ----  ----                           -------
+  Normal  ResourceUpdated     59m   argocd-application-controller  Updated health status: Missing -> Progressing
+  Normal  ResourceUpdated     59m   argocd-application-controller  Updated sync status: OutOfSync -> Synced
+  Normal  OperationCompleted  59m   argocd-application-controller  Sync operation to  succeeded
+  Normal  ResourceUpdated     49m   argocd-application-controller  Updated health status: Progressing -> Degraded
+
+### ArgoCD Application YAML: tenant-waypoint-workloads
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  creationTimestamp: "2026-05-28T02:17:46Z"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  generation: 210
+  labels:
+    resource-type: workload
+    target-cluster: spoke-pool-eu-prod-01
+    tenant-id: waypoint
+  name: tenant-waypoint-workloads
+  namespace: platform-ops
+  ownerReferences:
+  - apiVersion: argoproj.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ApplicationSet
+    name: tenant-workload-provisioning
+    uid: c304429e-612a-4757-91f7-027141a3d030
+  resourceVersion: "5367291"
+  uid: cc79ecc7-5c89-481d-b302-fb4f8712432f
+spec:
+  destination:
+    name: spoke-pool-eu-prod-01
+    namespace: tenant-waypoint
+  project: tenant-workloads
+  sources:
+  - path: tenants/waypoint/workloads
+    repoURL: https://github.com/soloz-io/fleet-registry.git
+    targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+      limit: 10
+    syncOptions:
+    - ServerSideApply=true
+    - RespectIgnoreDifferences=true
+status:
+  controllerNamespace: platform-ops
+  health:
+    status: Degraded
+  history:
+  - deployStartedAt: "2026-05-28T07:12:52Z"
+    deployedAt: "2026-05-28T07:12:53Z"
+    id: 0
+    initiatedBy:
+      username: admin
+    revisions:
+    - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+    source:
+      repoURL: ""
+    sources:
+    - path: tenants/waypoint/workloads
+      repoURL: https://github.com/soloz-io/fleet-registry.git
+      targetRevision: main
+  operationState:
+    finishedAt: "2026-05-28T07:12:53Z"
+    message: successfully synced (all tasks run)
+    operation:
+      initiatedBy:
+        automated: true
+        username: admin
+      retry:
+        backoff:
+          duration: 10s
+          factor: 2
+          maxDuration: 5m
+        limit: 10
+      sync:
+        prune: true
+        revisions:
+        - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+        syncOptions:
+        - ServerSideApply=true
+        - RespectIgnoreDifferences=true
+        syncStrategy:
+          apply:
+            force: true
+    phase: Succeeded
+    retryCount: 10
+    startedAt: "2026-05-28T07:12:52Z"
+    syncResult:
+      resources:
+      - group: ""
+        hookPhase: Running
+        kind: ServiceAccount
+        message: serviceaccount/frontend-workload-sa created
+        name: frontend-workload-sa
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: ""
+        hookPhase: Running
+        kind: ServiceAccount
+        message: serviceaccount/sdk-workload-sa created
+        name: sdk-workload-sa
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: ""
+        hookPhase: Running
+        kind: ServiceAccount
+        message: serviceaccount/bff-workload-sa created
+        name: bff-workload-sa
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: ""
+        hookPhase: Running
+        kind: Service
+        message: service/sdk-workload created
+        name: sdk-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: ""
+        hookPhase: Running
+        kind: Service
+        message: service/frontend-workload created
+        name: frontend-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: ""
+        hookPhase: Running
+        kind: Service
+        message: service/bff-workload created
+        name: bff-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: networking.k8s.io
+        hookPhase: Running
+        kind: Ingress
+        message: ingress.networking.k8s.io/waypoint-ingress created
+        name: waypoint-ingress
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1
+      - group: cilium.io
+        hookPhase: Running
+        kind: CiliumNetworkPolicy
+        message: ciliumnetworkpolicy.cilium.io/bff-strict-egress-contract created
+        name: bff-strict-egress-contract
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v2
+      - group: argoproj.io
+        hookPhase: Running
+        kind: Rollout
+        message: rollout.argoproj.io/bff-workload created
+        name: bff-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1alpha1
+      - group: cilium.io
+        hookPhase: Running
+        kind: CiliumNetworkPolicy
+        message: ciliumnetworkpolicy.cilium.io/frontend-strict-egress-contract created
+        name: frontend-strict-egress-contract
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v2
+      - group: argoproj.io
+        hookPhase: Running
+        kind: Rollout
+        message: rollout.argoproj.io/frontend-workload created
+        name: frontend-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1alpha1
+      - group: cilium.io
+        hookPhase: Running
+        kind: CiliumNetworkPolicy
+        message: ciliumnetworkpolicy.cilium.io/sdk-strict-egress-contract created
+        name: sdk-strict-egress-contract
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v2
+      - group: argoproj.io
+        hookPhase: Running
+        kind: Rollout
+        message: rollout.argoproj.io/sdk-workload created
+        name: sdk-workload
+        namespace: tenant-waypoint
+        status: Synced
+        syncPhase: Sync
+        version: v1alpha1
+      revision: ""
+      revisions:
+      - c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+      source:
+        repoURL: ""
+      sources:
+      - path: tenants/waypoint/workloads
+        repoURL: https://github.com/soloz-io/fleet-registry.git
+        targetRevision: main
+  reconciledAt: "2026-05-28T08:11:27Z"
+  resources:
+  - health:
+      status: Healthy
+    kind: Service
+    name: bff-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - health:
+      status: Healthy
+    kind: Service
+    name: frontend-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - health:
+      status: Healthy
+    kind: Service
+    name: sdk-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - kind: ServiceAccount
+    name: bff-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - kind: ServiceAccount
+    name: frontend-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - kind: ServiceAccount
+    name: sdk-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - group: argoproj.io
+    health:
+      message: 'ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has
+        timed out progressing.'
+      status: Degraded
+    kind: Rollout
+    name: bff-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: argoproj.io
+    health:
+      message: 'ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7"
+        has timed out progressing.'
+      status: Degraded
+    kind: Rollout
+    name: frontend-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: argoproj.io
+    health:
+      message: 'ProgressDeadlineExceeded: ReplicaSet "sdk-workload-5546cb5c5" has
+        timed out progressing.'
+      status: Degraded
+    kind: Rollout
+    name: sdk-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: bff-strict-egress-contract
+    namespace: tenant-waypoint
+    status: Synced
+    version: v2
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: frontend-strict-egress-contract
+    namespace: tenant-waypoint
+    status: Synced
+    version: v2
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: sdk-strict-egress-contract
+    namespace: tenant-waypoint
+    status: Synced
+    version: v2
+  - group: networking.k8s.io
+    health:
+      status: Progressing
+    kind: Ingress
+    name: waypoint-ingress
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  sourceTypes:
+  - Kustomize
+  summary:
+    externalURLs:
+    - https://api.waypoint.nutgraf.in/
+    - https://waypoint.nutgraf.in/
+  sync:
+    comparedTo:
+      destination:
+        name: spoke-pool-eu-prod-01
+        namespace: tenant-waypoint
+      source:
+        repoURL: ""
+      sources:
+      - path: tenants/waypoint/workloads
+        repoURL: https://github.com/soloz-io/fleet-registry.git
+        targetRevision: main
+    revisions:
+    - 727bdedb20167bb8817bd63d9dce953d7afa3323
+    status: Synced
+
+### Secret Get: tenant-waypoint/waypoint-pooler-app
+Error from server (NotFound): secrets "waypoint-pooler-app" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m          Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m59s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m59s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+84s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+84s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### TenantDatabase list: tenant-waypoint
+apiVersion: v1
+items:
+- apiVersion: nutgraf.in/v1alpha1
+  kind: TenantDatabase
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"nutgraf.in/v1alpha1","kind":"TenantDatabase","metadata":{"name":"app-creator"},"spec":{"cellId":"spoke-pool-eu-prod-01","databaseName":"tenant-app-creator-db","tenantId":"app-creator"}}'
+    creationTimestamp: "2026-05-26T20:02:05Z"
+    finalizers:
+    - composite.apiextensions.crossplane.io
+    generation: 3
+    labels:
+      crossplane.io/composite: app-creator
+    name: app-creator
+    resourceVersion: "2954"
+    uid: 2df11fd0-2054-433c-b731-1991750b0ca2
+  spec:
+    cellId: spoke-pool-eu-prod-01
+    compositionRef:
+      name: tenantdatabase-spoke
+    compositionRevisionRef:
+      name: tenantdatabase-spoke-0a37ec3
+    compositionUpdatePolicy: Automatic
+    databaseName: tenant-app-creator-db
+    tenantId: app-creator
+  status:
+    conditions:
+    - lastTransitionTime: "2026-05-26T20:02:05Z"
+      message: 'cannot compose resources: cannot run Composition pipeline step "patch-and-transform":
+        cannot get gRPC client connection for Function "function-patch-and-transform":
+        cannot find an active FunctionRevision (a FunctionRevision with spec.desiredState:
+        Active)'
+      reason: ReconcileError
+      status: "False"
+      type: Synced
+- apiVersion: nutgraf.in/v1alpha1
+  kind: TenantDatabase
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"nutgraf.in/v1alpha1","kind":"TenantDatabase","metadata":{"name":"waypoint"},"spec":{"cellId":"spoke-pool-eu-prod-01","databaseName":"tenant-waypoint-db","tenantId":"waypoint"}}'
+    creationTimestamp: "2026-05-27T17:45:38Z"
+    finalizers:
+    - composite.apiextensions.crossplane.io
+    generation: 3
+    labels:
+      crossplane.io/composite: waypoint
+    name: waypoint
+    resourceVersion: "320222"
+    uid: bc3780ff-7043-4a91-8613-024e81f2638b
+  spec:
+    cellId: spoke-pool-eu-prod-01
+    compositionRef:
+      name: tenantdatabase-spoke
+    compositionRevisionRef:
+      name: tenantdatabase-spoke-0a37ec3
+    compositionUpdatePolicy: Automatic
+    databaseName: tenant-waypoint-db
+    tenantId: waypoint
+  status:
+    conditions:
+    - lastTransitionTime: "2026-05-27T17:45:38Z"
+      message: 'cannot compose resources: cannot run Composition pipeline step "patch-and-transform":
+        cannot get gRPC client connection for Function "function-patch-and-transform":
+        cannot find an active FunctionRevision (a FunctionRevision with spec.desiredState:
+        Active)'
+      reason: ReconcileError
+      status: "False"
+      type: Synced
+kind: List
+metadata:
+  resourceVersion: ""
+
+### Pooler list: tenant-waypoint
+apiVersion: v1
+items: []
+kind: List
+metadata:
+  resourceVersion: ""
+
+### AtlasMigration list: tenant-waypoint
+apiVersion: v1
+items:
+- apiVersion: db.atlasgo.io/v1alpha1
+  kind: AtlasMigration
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"db.atlasgo.io/v1alpha1","kind":"AtlasMigration","metadata":{"name":"waypoint-migrations","namespace":"tenant-waypoint"},"spec":{"dir":{"configMapRef":{"name":"tenant-waypoint-migrations"}},"urlFrom":{"secretKeyRef":{"key":"url","name":"waypoint-pooler-app"}}}}'
+    creationTimestamp: "2026-05-27T17:45:38Z"
+    generation: 1
+    name: waypoint-migrations
+    namespace: tenant-waypoint
+    resourceVersion: "320230"
+    uid: 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
+  spec:
+    dir:
+      configMapRef:
+        name: tenant-waypoint-migrations
+    execOrder: linear
+    urlFrom:
+      secretKeyRef:
+        key: url
+        name: waypoint-pooler-app
+  status:
+    conditions:
+    - lastTransitionTime: "2026-05-27T17:45:38Z"
+      message: Secret "waypoint-pooler-app" not found
+      reason: ReadingMigrationData
+      status: "False"
+      type: Ready
+    lastApplied: 0
+    observed_hash: ""
+kind: List
+metadata:
+  resourceVersion: ""
+
+### Spoke infrastructure app describe
+Name:         spoke-pool-eu-prod-01-infrastructure
+Namespace:    platform-ops
+Labels:       cell-id=spoke-pool-eu-prod-01
+Annotations:  argocd.argoproj.io/sync-wave: 4
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-26T19:53:36Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  2101
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  spoke-infrastructure
+    UID:                   d0315216-e7cf-4776-b937-b7958edc1165
+  Resource Version:        5364896
+  UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  platform-ops
+  Project:      platform-infrastructure
+  Source:
+    Kustomize:
+      Patches:
+        Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+        Target:
+          Kind:       ExternalSecret
+          Name:       crossplane-admin-credentials
+          Namespace:  platform-data
+    Path:             manifests/spoke/spoke-catalog/infra
+    Repo URL:         https://github.com/soloz-io/zero-ops
+    Target Revision:  HEAD
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      5s
+        Factor:        2
+        Max Duration:  3m
+      Limit:           5
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
+Status:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:20:58Z
+    Message:               Failed sync attempt to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Type:                  SyncError
+  Controller Namespace:    platform-ops
+  Health:
+    Status:  Degraded
+  Operation State:
+    Finished At:  2026-05-28T07:20:58Z
+    Message:      one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Operation:
+      Initiated By:
+        Automated:  true
+      Retry:
+        Backoff:
+          Duration:      5s
+          Factor:        2
+          Max Duration:  3m
+        Limit:           5
+      Sync:
+        Prune:     true
+        Revision:  2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+        Sync Options:
+          CreateNamespace=true
+          SkipDryRunOnMissingResource=true
+    Phase:        Failed
+    Retry Count:  5
+    Started At:   2026-05-28T07:04:30Z
+    Sync Result:
+      Resources:
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
+        Name:        rollouts.argoproj.io
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-messaging unchanged
+        Name:        platform-messaging
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-observability unchanged
+        Name:        platform-observability
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/kagent-system unchanged
+        Name:        kagent-system
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterSecretStore
+        Message:     store validated
+        Name:        infisical-backend
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ExternalSecret
+        Message:     secret synced
+        Name:        crossplane-admin-credentials
+        Namespace:   platform-data
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/provider-kubernetes unchanged
+        Name:        provider-kubernetes
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Secret
+        Message:     secret/spoke-controller-credentials configured
+        Name:        spoke-controller-credentials
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/spoke-controller-config unchanged
+        Name:        spoke-controller-config
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrole.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin unchanged
+        Name:        spoke-provider-kubernetes-admin
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Failed
+        Kind:        Deployment
+        Message:     Deployment "spoke-controller" exceeded its progress deadline
+        Name:        spoke-controller
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        DeploymentRuntimeConfig
+        Message:     deploymentruntimeconfig.pkg.crossplane.io/provider-kubernetes-runtime unchanged
+        Name:        provider-kubernetes-runtime
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1beta1
+      Revision:      2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+  Reconciled At:          2026-05-28T08:10:28Z
+  Resources:
+    Kind:       ConfigMap
+    Name:       spoke-controller-config
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ConfigMap
+    Name:       nats-config
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ConfigMap
+    Name:       alloy-config
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       Namespace
+    Name:       kagent-system
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-data
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-messaging
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-observability
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Secret
+    Name:       spoke-controller-credentials
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       Service
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ServiceAccount
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       provider-kubernetes
+    Namespace:  platform-ops
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       rollouts.argoproj.io
+    Status:     OutOfSync
+    Sync Wave:  -5
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Missing
+    Kind:       DaemonSet
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      apps
+    Health:
+      Message:  Deployment "spoke-controller" exceeded its progress deadline
+      Status:   Degraded
+    Kind:       Deployment
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Missing
+    Kind:       StatefulSet
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  store validated
+      Status:   Healthy
+    Kind:       ClusterSecretStore
+    Name:       infisical-backend
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  secret synced
+      Status:   Healthy
+    Kind:       ExternalSecret
+    Name:       crossplane-admin-credentials
+    Namespace:  platform-data
+    Status:     Synced
+    Sync Wave:  -1
+    Version:    v1
+    Group:      kubernetes.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       ProviderConfig
+    Name:       default
+    Namespace:  platform-ops
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      kyverno.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterPolicy
+    Name:       enforce-tenant-abi
+    Status:     OutOfSync
+    Sync Wave:  5
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Kind:       DeploymentRuntimeConfig
+    Name:       provider-kubernetes-runtime
+    Status:     Synced
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Function
+    Name:       function-patch-and-transform
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Provider
+    Name:       provider-kubernetes
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Provider
+    Name:       provider-sql
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1
+    Group:      postgresql.cnpg.io
+    Health:
+      Status:   Missing
+    Kind:       Cluster
+    Name:       shared-cnpg
+    Namespace:  platform-data
+    Status:     OutOfSync
+    Sync Wave:  2
+    Version:    v1
+    Group:      postgresql.sql.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       ProviderConfig
+    Name:       default
+    Namespace:  platform-ops
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      rbac.authorization.k8s.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterRole
+    Name:       grafana-alloy
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterRoleBinding
+    Name:       grafana-alloy
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-provider-kubernetes-admin
+    Status:     Synced
+    Version:    v1
+  Source Type:  Kustomize
+  Summary:
+    Images:
+      ghcr.io/soloz-io/zero-ops/spoke-controller:latest
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  platform-ops
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+    Revision:             2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+    Status:               OutOfSync
+Events:
+  Type     Reason              Age   From                           Message
+  ----     ------              ----  ----                           -------
+  Normal   ResourceUpdated     57m   argocd-application-controller  Updated health status: Missing -> Degraded
+  Warning  OperationCompleted  51m   argocd-application-controller  Sync operation to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+
+### AtlasMigration Describe: tenant-waypoint/waypoint-migrations
+Name:         waypoint-migrations
+Namespace:    tenant-waypoint
+Labels:       <none>
+Annotations:  <none>
+API Version:  db.atlasgo.io/v1alpha1
+Kind:         AtlasMigration
+Metadata:
+  Creation Timestamp:  2026-05-27T17:45:38Z
+  Generation:          1
+  Resource Version:    320230
+  UID:                 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
+Spec:
+  Dir:
+    Config Map Ref:
+      Name:    tenant-waypoint-migrations
+  Exec Order:  linear
+  URL From:
+    Secret Key Ref:
+      Key:   url
+      Name:  waypoint-pooler-app
+Status:
+  Conditions:
+    Last Transition Time:  2026-05-27T17:45:38Z
+    Message:               Secret "waypoint-pooler-app" not found
+    Reason:                ReadingMigrationData
+    Status:                False
+    Type:                  Ready
+  Last Applied:            0
+  observed_hash:           
+Events:
+  Type     Reason        Age                    From                       Message
+  ----     ------        ----                   ----                       -------
+  Warning  TransientErr  90s (x10360 over 14h)  atlasmigration-controller  Secret "waypoint-pooler-app" not found
+
+### AtlasMigration YAML: tenant-waypoint/waypoint-migrations
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"db.atlasgo.io/v1alpha1","kind":"AtlasMigration","metadata":{"name":"waypoint-migrations","namespace":"tenant-waypoint"},"spec":{"dir":{"configMapRef":{"name":"tenant-waypoint-migrations"}},"urlFrom":{"secretKeyRef":{"key":"url","name":"waypoint-pooler-app"}}}}'
+  creationTimestamp: "2026-05-27T17:45:38Z"
+  generation: 1
+  name: waypoint-migrations
+  namespace: tenant-waypoint
+  resourceVersion: "320230"
+  uid: 4705bf32-2ddb-4750-9b59-be9e8bd88e9b
+spec:
+  dir:
+    configMapRef:
+      name: tenant-waypoint-migrations
+  execOrder: linear
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: waypoint-pooler-app
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-27T17:45:38Z"
+    message: Secret "waypoint-pooler-app" not found
+    reason: ReadingMigrationData
+    status: "False"
+    type: Ready
+  lastApplied: 0
+  observed_hash: ""
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m7s        Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m6s        Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m6s        Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+91s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+91s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### ServiceAccount Get: tenant-waypoint/migration-sa
+Error from server (NotFound): serviceaccounts "migration-sa" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m12s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m11s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m11s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+96s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+96s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### ConfigMap Get: tenant-waypoint/waypoint-custom-migrations
+Error from server (NotFound): configmaps "waypoint-custom-migrations" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m17s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m16s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m16s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+101s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+101s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### Rollout YAML: tenant-waypoint/bff-workload
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"argoproj.io/v1alpha1","kind":"Rollout","metadata":{"annotations":{},"labels":{"app":"bff","argocd.argoproj.io/instance":"tenant-waypoint-workloads","cost-center":"platform","tenant-id":"waypoint","workload-class":"stateless-web"},"name":"bff-workload","namespace":"tenant-waypoint"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"workload"}},"strategy":{"canary":{"steps":[{"setWeight":20},{"pause":{"duration":"5m"}},{"setWeight":50},{"pause":{"duration":"5m"}}]}},"template":{"metadata":{"annotations":{"prometheus.io/port":"9090","prometheus.io/scrape":"true"},"labels":{"app":"workload"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"workload"}},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"image":"ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":15,"periodSeconds":10},"name":"app","readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":5,"periodSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}}],"imagePullSecrets":[{"name":"ghcr-pull-secret"}],"securityContext":{"fsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}},"serviceAccountName":"workload-sa","topologySpreadConstraints":[{"labelSelector":{"matchLabels":{"app":"workload"}},"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"DoNotSchedule"}]}}}}
+    rollout.argoproj.io/revision: "1"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  generation: 1
+  labels:
+    app: bff
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: bff-workload
+  namespace: tenant-waypoint
+  resourceVersion: "545113"
+  uid: b34ff8f8-affa-43ee-b4da-dff03b6d5169
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workload
+  strategy:
+    canary:
+      steps:
+      - setWeight: 20
+      - pause:
+          duration: 5m
+      - setWeight: 50
+      - pause:
+          duration: 5m
+  template:
+    metadata:
+      annotations:
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+      labels:
+        app: workload
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: workload
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - image: ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        name: app
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: ghcr-pull-secret
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: workload-sa
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: workload
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+status:
+  blueGreen: {}
+  canary: {}
+  conditions:
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: Rollout does not have minimum availability
+    reason: AvailableReason
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: RolloutCompleted
+    reason: RolloutCompleted
+    status: "True"
+    type: Completed
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: 'pods "bff-workload-79696579dd-" is forbidden: error looking up service
+      account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found'
+    reason: FailedCreate
+    status: "True"
+    type: ReplicaFailure
+  - lastTransitionTime: "2026-05-28T07:22:54Z"
+    lastUpdateTime: "2026-05-28T07:22:54Z"
+    message: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
+    reason: ProgressDeadlineExceeded
+    status: "False"
+    type: Progressing
+  currentPodHash: 79696579dd
+  currentStepHash: 688d98958
+  currentStepIndex: 4
+  message: 'ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed
+    out progressing.'
+  observedGeneration: "1"
+  phase: Degraded
+  selector: app=workload
+  stableRS: 79696579dd
+
+### Rollout Describe: tenant-waypoint/bff-workload
+Name:         bff-workload
+Namespace:    tenant-waypoint
+Labels:       app=bff
+              argocd.argoproj.io/instance=tenant-waypoint-workloads
+              cost-center=platform
+              tenant-id=waypoint
+              workload-class=stateless-web
+Annotations:  rollout.argoproj.io/revision: 1
+API Version:  argoproj.io/v1alpha1
+Kind:         Rollout
+Metadata:
+  Creation Timestamp:  2026-05-28T07:12:53Z
+  Generation:          1
+  Resource Version:    545113
+  UID:                 b34ff8f8-affa-43ee-b4da-dff03b6d5169
+Spec:
+  Replicas:  2
+  Selector:
+    Match Labels:
+      App:  workload
+  Strategy:
+    Canary:
+      Steps:
+        Set Weight:  20
+        Pause:
+          Duration:  5m
+        Set Weight:  50
+        Pause:
+          Duration:  5m
+  Template:
+    Metadata:
+      Annotations:
+        prometheus.io/port:    9090
+        prometheus.io/scrape:  true
+      Labels:
+        App:  workload
+    Spec:
+      Affinity:
+        Pod Anti Affinity:
+          Preferred During Scheduling Ignored During Execution:
+            Pod Affinity Term:
+              Label Selector:
+                Match Labels:
+                  App:       workload
+              Topology Key:  kubernetes.io/hostname
+            Weight:          100
+      Containers:
+        Image:  ghcr.io/soloz-io/waypoint/bff@sha256:a50e1dc0b14119a374cff7131b632235c9fdca8279ffcb4758b9fddfbf1d842e
+        Liveness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  15
+          Period Seconds:         10
+        Name:                     app
+        Readiness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  5
+          Period Seconds:         5
+        Resources:
+          Limits:
+            Cpu:     500m
+            Memory:  512Mi
+          Requests:
+            Cpu:     100m
+            Memory:  128Mi
+        Security Context:
+          Allow Privilege Escalation:  false
+          Capabilities:
+            Drop:
+              ALL
+          Read Only Root Filesystem:  true
+      Image Pull Secrets:
+        Name:  ghcr-pull-secret
+      Security Context:
+        Fs Group:         65532
+        Run As Non Root:  true
+        Run As User:      65532
+        Seccomp Profile:
+          Type:              RuntimeDefault
+      Service Account Name:  workload-sa
+      Topology Spread Constraints:
+        Label Selector:
+          Match Labels:
+            App:             workload
+        Max Skew:            1
+        Topology Key:        kubernetes.io/hostname
+        When Unsatisfiable:  DoNotSchedule
+Status:
+  Blue Green:
+  Canary:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               Rollout does not have minimum availability
+    Reason:                AvailableReason
+    Status:                False
+    Type:                  Available
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               RolloutCompleted
+    Reason:                RolloutCompleted
+    Status:                True
+    Type:                  Completed
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+    Reason:                FailedCreate
+    Status:                True
+    Type:                  ReplicaFailure
+    Last Transition Time:  2026-05-28T07:22:54Z
+    Last Update Time:      2026-05-28T07:22:54Z
+    Message:               ReplicaSet "bff-workload-79696579dd" has timed out progressing.
+    Reason:                ProgressDeadlineExceeded
+    Status:                False
+    Type:                  Progressing
+  Current Pod Hash:        79696579dd
+  Current Step Hash:       688d98958
+  Current Step Index:      4
+  Message:                 ProgressDeadlineExceeded: ReplicaSet "bff-workload-79696579dd" has timed out progressing.
+  Observed Generation:     1
+  Phase:                   Degraded
+  Selector:                app=workload
+  Stable RS:               79696579dd
+Events:
+  Type    Reason                  Age   From                 Message
+  ----    ------                  ----  ----                 -------
+  Normal  RolloutAddedToInformer  59m   rollouts-controller  Rollout resource added to informer: tenant-waypoint/bff-workload
+  Normal  RolloutNotCompleted     59m   rollouts-controller  Rollout not completed, started update to revision 1 (79696579dd)
+  Normal  RolloutUpdated          59m   rollouts-controller  Rollout updated to revision 1
+  Normal  NewReplicaSetCreated    59m   rollouts-controller  Created ReplicaSet bff-workload-79696579dd (revision 1)
+  Normal  ScalingReplicaSet       59m   rollouts-controller  Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+  Normal  RolloutCompleted        59m   rollouts-controller  Rollout completed update to revision 1 (79696579dd): Initial deploy
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m25s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m24s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m24s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+109s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+109s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### Endpoints YAML: tenant-waypoint/bff-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  labels:
+    app: bff
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: bff-workload
+  namespace: tenant-waypoint
+  resourceVersion: "540929"
+  uid: 653e2317-7961-4c92-8d6a-ed8fb67cacf0
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m27s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m26s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m26s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+111s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+111s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### Rollout YAML: tenant-waypoint/frontend-workload
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"argoproj.io/v1alpha1","kind":"Rollout","metadata":{"annotations":{},"labels":{"app":"frontend","argocd.argoproj.io/instance":"tenant-waypoint-workloads","cost-center":"platform","tenant-id":"waypoint","workload-class":"stateless-web"},"name":"frontend-workload","namespace":"tenant-waypoint"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"workload"}},"strategy":{"canary":{"steps":[{"setWeight":20},{"pause":{"duration":"5m"}},{"setWeight":50},{"pause":{"duration":"5m"}}]}},"template":{"metadata":{"annotations":{"prometheus.io/port":"9090","prometheus.io/scrape":"true"},"labels":{"app":"workload"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"workload"}},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"image":"ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":15,"periodSeconds":10},"name":"app","readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":5,"periodSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}}],"imagePullSecrets":[{"name":"ghcr-pull-secret"}],"securityContext":{"fsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}},"serviceAccountName":"workload-sa","topologySpreadConstraints":[{"labelSelector":{"matchLabels":{"app":"workload"}},"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"DoNotSchedule"}]}}}}
+    rollout.argoproj.io/revision: "1"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  generation: 1
+  labels:
+    app: frontend
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: frontend-workload
+  namespace: tenant-waypoint
+  resourceVersion: "545112"
+  uid: 4ebdb275-0cd9-4b06-8b72-f6f6106595df
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workload
+  strategy:
+    canary:
+      steps:
+      - setWeight: 20
+      - pause:
+          duration: 5m
+      - setWeight: 50
+      - pause:
+          duration: 5m
+  template:
+    metadata:
+      annotations:
+        prometheus.io/port: "9090"
+        prometheus.io/scrape: "true"
+      labels:
+        app: workload
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: workload
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - image: ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        name: app
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: ghcr-pull-secret
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: workload-sa
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: workload
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+status:
+  blueGreen: {}
+  canary: {}
+  conditions:
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: Rollout does not have minimum availability
+    reason: AvailableReason
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: RolloutCompleted
+    reason: RolloutCompleted
+    status: "True"
+    type: Completed
+  - lastTransitionTime: "2026-05-28T07:12:53Z"
+    lastUpdateTime: "2026-05-28T07:12:53Z"
+    message: 'pods "frontend-workload-68757c8bb7-" is forbidden: error looking up
+      service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not
+      found'
+    reason: FailedCreate
+    status: "True"
+    type: ReplicaFailure
+  - lastTransitionTime: "2026-05-28T07:22:54Z"
+    lastUpdateTime: "2026-05-28T07:22:54Z"
+    message: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
+    reason: ProgressDeadlineExceeded
+    status: "False"
+    type: Progressing
+  currentPodHash: 68757c8bb7
+  currentStepHash: 688d98958
+  currentStepIndex: 4
+  message: 'ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has
+    timed out progressing.'
+  observedGeneration: "1"
+  phase: Degraded
+  selector: app=workload
+  stableRS: 68757c8bb7
+
+### Rollout Describe: tenant-waypoint/frontend-workload
+Name:         frontend-workload
+Namespace:    tenant-waypoint
+Labels:       app=frontend
+              argocd.argoproj.io/instance=tenant-waypoint-workloads
+              cost-center=platform
+              tenant-id=waypoint
+              workload-class=stateless-web
+Annotations:  rollout.argoproj.io/revision: 1
+API Version:  argoproj.io/v1alpha1
+Kind:         Rollout
+Metadata:
+  Creation Timestamp:  2026-05-28T07:12:53Z
+  Generation:          1
+  Resource Version:    545112
+  UID:                 4ebdb275-0cd9-4b06-8b72-f6f6106595df
+Spec:
+  Replicas:  2
+  Selector:
+    Match Labels:
+      App:  workload
+  Strategy:
+    Canary:
+      Steps:
+        Set Weight:  20
+        Pause:
+          Duration:  5m
+        Set Weight:  50
+        Pause:
+          Duration:  5m
+  Template:
+    Metadata:
+      Annotations:
+        prometheus.io/port:    9090
+        prometheus.io/scrape:  true
+      Labels:
+        App:  workload
+    Spec:
+      Affinity:
+        Pod Anti Affinity:
+          Preferred During Scheduling Ignored During Execution:
+            Pod Affinity Term:
+              Label Selector:
+                Match Labels:
+                  App:       workload
+              Topology Key:  kubernetes.io/hostname
+            Weight:          100
+      Containers:
+        Image:  ghcr.io/soloz-io/waypoint/frontend@sha256:5757d449c3022efce6d548ac5651faca259ef6991785b74d429ff25d38e88959
+        Liveness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  15
+          Period Seconds:         10
+        Name:                     app
+        Readiness Probe:
+          Failure Threshold:  3
+          Http Get:
+            Path:                 /health
+            Port:                 8080
+          Initial Delay Seconds:  5
+          Period Seconds:         5
+        Resources:
+          Limits:
+            Cpu:     500m
+            Memory:  512Mi
+          Requests:
+            Cpu:     100m
+            Memory:  128Mi
+        Security Context:
+          Allow Privilege Escalation:  false
+          Capabilities:
+            Drop:
+              ALL
+          Read Only Root Filesystem:  true
+      Image Pull Secrets:
+        Name:  ghcr-pull-secret
+      Security Context:
+        Fs Group:         65532
+        Run As Non Root:  true
+        Run As User:      65532
+        Seccomp Profile:
+          Type:              RuntimeDefault
+      Service Account Name:  workload-sa
+      Topology Spread Constraints:
+        Label Selector:
+          Match Labels:
+            App:             workload
+        Max Skew:            1
+        Topology Key:        kubernetes.io/hostname
+        When Unsatisfiable:  DoNotSchedule
+Status:
+  Blue Green:
+  Canary:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               Rollout does not have minimum availability
+    Reason:                AvailableReason
+    Status:                False
+    Type:                  Available
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               RolloutCompleted
+    Reason:                RolloutCompleted
+    Status:                True
+    Type:                  Completed
+    Last Transition Time:  2026-05-28T07:12:53Z
+    Last Update Time:      2026-05-28T07:12:53Z
+    Message:               pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+    Reason:                FailedCreate
+    Status:                True
+    Type:                  ReplicaFailure
+    Last Transition Time:  2026-05-28T07:22:54Z
+    Last Update Time:      2026-05-28T07:22:54Z
+    Message:               ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
+    Reason:                ProgressDeadlineExceeded
+    Status:                False
+    Type:                  Progressing
+  Current Pod Hash:        68757c8bb7
+  Current Step Hash:       688d98958
+  Current Step Index:      4
+  Message:                 ProgressDeadlineExceeded: ReplicaSet "frontend-workload-68757c8bb7" has timed out progressing.
+  Observed Generation:     1
+  Phase:                   Degraded
+  Selector:                app=workload
+  Stable RS:               68757c8bb7
+Events:
+  Type    Reason                  Age   From                 Message
+  ----    ------                  ----  ----                 -------
+  Normal  RolloutAddedToInformer  59m   rollouts-controller  Rollout resource added to informer: tenant-waypoint/frontend-workload
+  Normal  RolloutNotCompleted     59m   rollouts-controller  Rollout not completed, started update to revision 1 (68757c8bb7)
+  Normal  RolloutUpdated          59m   rollouts-controller  Rollout updated to revision 1
+  Normal  NewReplicaSetCreated    59m   rollouts-controller  Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+  Normal  ScalingReplicaSet       59m   rollouts-controller  Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+  Normal  RolloutCompleted        59m   rollouts-controller  Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m35s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m34s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m34s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+119s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+119s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### Endpoints YAML: tenant-waypoint/frontend-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T07:12:53Z"
+  creationTimestamp: "2026-05-28T07:12:53Z"
+  labels:
+    app: frontend
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: frontend-workload
+  namespace: tenant-waypoint
+  resourceVersion: "540926"
+  uid: f8204d19-8ac4-40fb-8542-baf1968a3c24
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m37s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m36s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m36s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m1s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+2m1s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### Secret Get: tenant-waypoint/waypoint-tls
+Error from server (NotFound): secrets "waypoint-tls" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
+59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
+59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
+59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
+59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
+59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
+59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
+59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
+59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
+59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
+59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
+59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
+59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
+59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
+59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
+4m43s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m42s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+4m42s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m7s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
+2m7s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+
+### ClusterPolicy Get/Describe: enforce-tenant-abi
+Error from server (NotFound): clusterpolicies.kyverno.io "enforce-tenant-abi" not found
+
+### Spoke Infrastructure App Describe
+Name:         spoke-pool-eu-prod-01-infrastructure
+Namespace:    platform-ops
+Labels:       cell-id=spoke-pool-eu-prod-01
+Annotations:  argocd.argoproj.io/sync-wave: 4
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-26T19:53:36Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  2102
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  spoke-infrastructure
+    UID:                   d0315216-e7cf-4776-b937-b7958edc1165
+  Resource Version:        5369110
+  UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  platform-ops
+  Project:      platform-infrastructure
+  Source:
+    Kustomize:
+      Patches:
+        Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+        Target:
+          Kind:       ExternalSecret
+          Name:       crossplane-admin-credentials
+          Namespace:  platform-data
+    Path:             manifests/spoke/spoke-catalog/infra
+    Repo URL:         https://github.com/soloz-io/zero-ops
+    Target Revision:  HEAD
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      5s
+        Factor:        2
+        Max Duration:  3m
+      Limit:           5
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
+Status:
+  Conditions:
+    Last Transition Time:  2026-05-28T07:20:58Z
+    Message:               Failed sync attempt to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Type:                  SyncError
+  Controller Namespace:    platform-ops
+  Health:
+    Status:  Degraded
+  Operation State:
+    Finished At:  2026-05-28T07:20:58Z
+    Message:      one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Operation:
+      Initiated By:
+        Automated:  true
+      Retry:
+        Backoff:
+          Duration:      5s
+          Factor:        2
+          Max Duration:  3m
+        Limit:           5
+      Sync:
+        Prune:     true
+        Revision:  2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+        Sync Options:
+          CreateNamespace=true
+          SkipDryRunOnMissingResource=true
+    Phase:        Failed
+    Retry Count:  5
+    Started At:   2026-05-28T07:04:30Z
+    Sync Result:
+      Resources:
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
+        Name:        rollouts.argoproj.io
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-messaging unchanged
+        Name:        platform-messaging
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-observability unchanged
+        Name:        platform-observability
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/kagent-system unchanged
+        Name:        kagent-system
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Namespace
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterSecretStore
+        Message:     store validated
+        Name:        infisical-backend
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       external-secrets.io
+        Hook Phase:  Succeeded
+        Kind:        ExternalSecret
+        Message:     secret synced
+        Name:        crossplane-admin-credentials
+        Namespace:   platform-data
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/provider-kubernetes unchanged
+        Name:        provider-kubernetes
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Secret
+        Message:     secret/spoke-controller-credentials configured
+        Name:        spoke-controller-credentials
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/spoke-controller-config unchanged
+        Name:        spoke-controller-config
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrole.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-controller unchanged
+        Name:        spoke-controller
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin unchanged
+        Name:        spoke-provider-kubernetes-admin
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Failed
+        Kind:        Deployment
+        Message:     Deployment "spoke-controller" exceeded its progress deadline
+        Name:        spoke-controller
+        Namespace:   kagent-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       pkg.crossplane.io
+        Hook Phase:  Succeeded
+        Kind:        DeploymentRuntimeConfig
+        Message:     deploymentruntimeconfig.pkg.crossplane.io/provider-kubernetes-runtime unchanged
+        Name:        provider-kubernetes-runtime
+        Namespace:   platform-ops
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1beta1
+      Revision:      2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+  Reconciled At:          2026-05-28T08:12:13Z
+  Resources:
+    Kind:       ConfigMap
+    Name:       spoke-controller-config
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ConfigMap
+    Name:       nats-config
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ConfigMap
+    Name:       alloy-config
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       Namespace
+    Name:       kagent-system
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-data
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-messaging
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Namespace
+    Name:       platform-observability
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Kind:       Secret
+    Name:       spoke-controller-credentials
+    Namespace:  kagent-system
+    Status:     OutOfSync
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       Service
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Missing
+    Kind:       ServiceAccount
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       provider-kubernetes
+    Namespace:  platform-ops
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       rollouts.argoproj.io
+    Status:     OutOfSync
+    Sync Wave:  -5
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Missing
+    Kind:       DaemonSet
+    Name:       grafana-alloy
+    Namespace:  platform-observability
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      apps
+    Health:
+      Message:  Deployment "spoke-controller" exceeded its progress deadline
+      Status:   Degraded
+    Kind:       Deployment
+    Name:       spoke-controller
+    Namespace:  kagent-system
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Missing
+    Kind:       StatefulSet
+    Name:       nats
+    Namespace:  platform-messaging
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  store validated
+      Status:   Healthy
+    Kind:       ClusterSecretStore
+    Name:       infisical-backend
+    Status:     Synced
+    Sync Wave:  -2
+    Version:    v1
+    Group:      external-secrets.io
+    Health:
+      Message:  secret synced
+      Status:   Healthy
+    Kind:       ExternalSecret
+    Name:       crossplane-admin-credentials
+    Namespace:  platform-data
+    Status:     Synced
+    Sync Wave:  -1
+    Version:    v1
+    Group:      kubernetes.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       ProviderConfig
+    Name:       default
+    Namespace:  platform-ops
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      kyverno.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterPolicy
+    Name:       enforce-tenant-abi
+    Status:     OutOfSync
+    Sync Wave:  5
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Kind:       DeploymentRuntimeConfig
+    Name:       provider-kubernetes-runtime
+    Status:     Synced
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Function
+    Name:       function-patch-and-transform
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1beta1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Provider
+    Name:       provider-kubernetes
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1
+    Group:      pkg.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       Provider
+    Name:       provider-sql
+    Status:     OutOfSync
+    Sync Wave:  1
+    Version:    v1
+    Group:      postgresql.cnpg.io
+    Health:
+      Status:   Missing
+    Kind:       Cluster
+    Name:       shared-cnpg
+    Namespace:  platform-data
+    Status:     OutOfSync
+    Sync Wave:  2
+    Version:    v1
+    Group:      postgresql.sql.crossplane.io
+    Health:
+      Status:   Missing
+    Kind:       ProviderConfig
+    Name:       default
+    Namespace:  platform-ops
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1alpha1
+    Group:      rbac.authorization.k8s.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterRole
+    Name:       grafana-alloy
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Health:
+      Status:   Missing
+    Kind:       ClusterRoleBinding
+    Name:       grafana-alloy
+    Status:     OutOfSync
+    Sync Wave:  4
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       spoke-provider-kubernetes-admin
+    Status:     Synced
+    Version:    v1
+  Source Type:  Kustomize
+  Summary:
+    Images:
+      ghcr.io/soloz-io/zero-ops/spoke-controller:latest
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  platform-ops
+      Source:
+        Kustomize:
+          Patches:
+            Patch:  - op: replace
+  path: /spec/data/0/remoteRef/key
+  value: spoke-pool-eu-prod-01-crossplane-admin-password
+
+            Target:
+              Kind:       ExternalSecret
+              Name:       crossplane-admin-credentials
+              Namespace:  platform-data
+        Path:             manifests/spoke/spoke-catalog/infra
+        Repo URL:         https://github.com/soloz-io/zero-ops
+        Target Revision:  HEAD
+    Revision:             2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+    Status:               OutOfSync
+Events:
+  Type     Reason              Age   From                           Message
+  ----     ------              ----  ----                           -------
+  Normal   ResourceUpdated     58m   argocd-application-controller  Updated health status: Missing -> Degraded
+  Warning  OperationCompleted  51m   argocd-application-controller  Sync operation to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+
+### Spoke Kyverno App Describe
+Name:         spoke-pool-eu-prod-01-kyverno
+Namespace:    platform-ops
+Labels:       cell-id=spoke-pool-eu-prod-01
+Annotations:  argocd.argoproj.io/sync-wave: 2
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-28T04:41:24Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  224
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  spoke-kyverno
+    UID:                   5feca28b-8662-4334-a089-6e35304259fb
+  Resource Version:        5369929
+  UID:                     b9aae8e5-63e0-4e8c-9334-6dee32f90dbc
+Operation:
+  Initiated By:
+    Automated:  true
+  Retry:
+    Backoff:
+      Duration:      10s
+      Factor:        2
+      Max Duration:  5m
+    Limit:           10
+  Sync:
+    Prune:     true
+    Revision:  3.2.6
+    Sync Options:
+      CreateNamespace=true
+      ServerSideApply=true
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  kyverno-system
+  Project:      platform-infrastructure
+  Source:
+    Chart:  kyverno
+    Helm:
+      Release Name:  kyverno
+      Values:        admissionController:
+  replicas: 2
+backgroundController:
+  enabled: true
+cleanupController:
+  enabled: true
+reportsController:
+  enabled: true
+crds:
+  install: true
+
+    Repo URL:         https://kyverno.github.io/kyverno
+    Target Revision:  3.2.6
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      10s
+        Factor:        2
+        Max Duration:  5m
+      Limit:           10
+    Sync Options:
+      CreateNamespace=true
+      ServerSideApply=true
+Status:
+  Controller Namespace:  platform-ops
+  Health:
+    Status:  Healthy
+  Operation State:
+    Message:  waiting for completion of hook batch/Job/kyverno-clean-reports
+    Operation:
+      Initiated By:
+        Automated:  true
+      Retry:
+        Backoff:
+          Duration:      10s
+          Factor:        2
+          Max Duration:  5m
+        Limit:           10
+      Sync:
+        Prune:     true
+        Revision:  3.2.6
+        Sync Options:
+          CreateNamespace=true
+          ServerSideApply=true
+    Phase:       Running
+    Started At:  2026-05-28T04:41:25Z
+    Sync Result:
+      Resources:
+        Group:       
+        Hook Phase:  Running
+        Kind:        Namespace
+        Message:     namespace/kyverno-system serverside-applied
+        Name:        kyverno-system
+        Namespace:   
+        Status:      Synced
+        Sync Phase:  PreSync
+        Version:     v1
+        Group:       policy
+        Hook Phase:  Succeeded
+        Kind:        PodDisruptionBudget
+        Message:     PodDisruptionBudget has InsufficientPods
+        Name:        kyverno-admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/kyverno-reports-controller serverside-applied
+        Name:        kyverno-reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/kyverno-admission-controller serverside-applied
+        Name:        kyverno-admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/kyverno-cleanup-controller serverside-applied
+        Name:        kyverno-cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/kyverno-cleanup-jobs serverside-applied
+        Name:        kyverno-cleanup-jobs
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ServiceAccount
+        Message:     serviceaccount/kyverno-background-controller serverside-applied
+        Name:        kyverno-background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/kyverno-metrics serverside-applied
+        Name:        kyverno-metrics
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        ConfigMap
+        Message:     configmap/kyverno serverside-applied
+        Name:        kyverno
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/admissionreports.kyverno.io serverside-applied
+        Name:        admissionreports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clusteradmissionreports.kyverno.io serverside-applied
+        Name:        clusteradmissionreports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/policyreports.wgpolicyk8s.io serverside-applied
+        Name:        policyreports.wgpolicyk8s.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/globalcontextentries.kyverno.io serverside-applied
+        Name:        globalcontextentries.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/ephemeralreports.reports.kyverno.io serverside-applied
+        Name:        ephemeralreports.reports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/backgroundscanreports.kyverno.io serverside-applied
+        Name:        backgroundscanreports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clusterephemeralreports.reports.kyverno.io serverside-applied
+        Name:        clusterephemeralreports.reports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clusterbackgroundscanreports.kyverno.io serverside-applied
+        Name:        clusterbackgroundscanreports.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clusterpolicyreports.wgpolicyk8s.io serverside-applied
+        Name:        clusterpolicyreports.wgpolicyk8s.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/updaterequests.kyverno.io serverside-applied
+        Name:        updaterequests.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/policyexceptions.kyverno.io serverside-applied
+        Name:        policyexceptions.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clustercleanuppolicies.kyverno.io serverside-applied
+        Name:        clustercleanuppolicies.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/cleanuppolicies.kyverno.io serverside-applied
+        Name:        cleanuppolicies.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/clusterpolicies.kyverno.io serverside-applied
+        Name:        clusterpolicies.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apiextensions.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        CustomResourceDefinition
+        Message:     customresourcedefinition.apiextensions.k8s.io/policies.kyverno.io serverside-applied
+        Name:        policies.kyverno.io
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:policyreports reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[create delete get list patch update watch] APIGroups:[wgpolicyk8s.io] Resources:[policyreports clusterpolicyreports] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:policyreports serverside-applied
+        Name:        kyverno:rbac:admin:policyreports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:policies reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[create delete get list patch update watch] APIGroups:[kyverno.io] Resources:[cleanuppolicies clustercleanuppolicies policies clusterpolicies] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:policies serverside-applied
+        Name:        kyverno:rbac:admin:policies
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-controller:core reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get] APIGroups:[apiextensions.k8s.io] Resources:[customresourcedefinitions] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list update watch] APIGroups:[admissionregistration.k8s.io] Resources:[validatingwebhookconfigurations] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[namespaces] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[list watch] APIGroups:[kyverno.io] Resources:[clustercleanuppolicies cleanuppolicies] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[kyverno.io] Resources:[globalcontextentries globalcontextentries/status] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[update] APIGroups:[kyverno.io] Resources:[clustercleanuppolicies/status cleanuppolicies/status] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create patch update] APIGroups:[ events.k8s.io] Resources:[events] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create] APIGroups:[authorization.k8s.io] Resources:[subjectaccessreviews] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-controller:core serverside-applied
+        Name:        kyverno:cleanup-controller:core
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:background-controller reconciled. reconciliation required create. clusterrole.rbac.authorization.k8s.io/kyverno:background-controller serverside-applied
+        Name:        kyverno:background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:updaterequests reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[kyverno.io] Resources:[updaterequests] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:updaterequests serverside-applied
+        Name:        kyverno:rbac:view:updaterequests
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:admission-controller reconciled. reconciliation required create. clusterrole.rbac.authorization.k8s.io/kyverno:admission-controller serverside-applied
+        Name:        kyverno:admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:background-controller:core reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get] APIGroups:[apiextensions.k8s.io] Resources:[customresourcedefinitions] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[kyverno.io] Resources:[policies clusterpolicies policyexceptions updaterequests updaterequests/status globalcontextentries globalcontextentries/status] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[namespaces configmaps] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create get list patch update watch] APIGroups:[ events.k8s.io] Resources:[events] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[*] Resources:[*] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create update patch delete] APIGroups:[networking.k8s.io] Resources:[ingresses ingressclasses networkpolicies] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create update patch delete] APIGroups:[rbac.authorization.k8s.io] Resources:[rolebindings roles] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create update patch delete] APIGroups:[] Resources:[configmaps secrets resourcequotas limitranges] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:background-controller:core serverside-applied
+        Name:        kyverno:background-controller:core
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:policies reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[kyverno.io] Resources:[cleanuppolicies clustercleanuppolicies policies clusterpolicies] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:policies serverside-applied
+        Name:        kyverno:rbac:view:policies
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:reports-controller:core reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get] APIGroups:[apiextensions.k8s.io] Resources:[customresourcedefinitions] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[secrets configmaps namespaces] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[kyverno.io] Resources:[globalcontextentries globalcontextentries/status admissionreports clusteradmissionreports backgroundscanreports clusterbackgroundscanreports policyexceptions policies clusterpolicies] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[reports.kyverno.io] Resources:[ephemeralreports clusterephemeralreports] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[wgpolicyk8s.io] Resources:[policyreports policyreports/status clusterpolicyreports clusterpolicyreports/status] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create patch] APIGroups:[ events.k8s.io] Resources:[events] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[*] Resources:[*] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:reports-controller:core serverside-applied
+        Name:        kyverno:reports-controller:core
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:reports reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[kyverno.io] Resources:[admissionreports clusteradmissionreports backgroundscanreports clusterbackgroundscanreports] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[reports.kyverno.io] Resources:[ephemeralreports clusterephemeralreports] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:reports serverside-applied
+        Name:        kyverno:rbac:view:reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:updaterequests reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[create delete get list patch update watch] APIGroups:[kyverno.io] Resources:[updaterequests] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:updaterequests serverside-applied
+        Name:        kyverno:rbac:admin:updaterequests
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:reports reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[create delete get list patch update watch] APIGroups:[kyverno.io] Resources:[admissionreports clusteradmissionreports backgroundscanreports clusterbackgroundscanreports] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch] APIGroups:[reports.kyverno.io] Resources:[ephemeralreports clusterephemeralreports] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:admin:reports serverside-applied
+        Name:        kyverno:rbac:admin:reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:policyreports reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[wgpolicyk8s.io] Resources:[policyreports clusterpolicyreports] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:rbac:view:policyreports serverside-applied
+        Name:        kyverno:rbac:view:policyreports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-jobs reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[list deletecollection delete] APIGroups:[kyverno.io] Resources:[admissionreports clusteradmissionreports updaterequests] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[list deletecollection delete] APIGroups:[reports.kyverno.io] Resources:[ephemeralreports clusterephemeralreports] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-jobs serverside-applied
+        Name:        kyverno:cleanup-jobs
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-controller reconciled. reconciliation required create. clusterrole.rbac.authorization.k8s.io/kyverno:cleanup-controller serverside-applied
+        Name:        kyverno:cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:admission-controller:core reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get] APIGroups:[apiextensions.k8s.io] Resources:[customresourcedefinitions] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[admissionregistration.k8s.io] Resources:[mutatingwebhookconfigurations validatingwebhookconfigurations] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[list watch] APIGroups:[rbac.authorization.k8s.io] Resources:[roles clusterroles rolebindings clusterrolebindings] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[kyverno.io] Resources:[policies policies/status clusterpolicies clusterpolicies/status updaterequests updaterequests/status globalcontextentries globalcontextentries/status admissionreports clusteradmissionreports backgroundscanreports clusterbackgroundscanreports policyexceptions] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[reports.kyverno.io] Resources:[ephemeralreports clusterephemeralreports] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create delete get list patch update watch deletecollection] APIGroups:[wgpolicyk8s.io] Resources:[policyreports policyreports/status clusterpolicyreports clusterpolicyreports/status] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create update patch] APIGroups:[ events.k8s.io] Resources:[events] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create] APIGroups:[authorization.k8s.io] Resources:[subjectaccessreviews] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps namespaces] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[create update patch get list watch] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[*] Resources:[*] ResourceNames:[] NonResourceURLs:[]}. clusterrole.rbac.authorization.k8s.io/kyverno:admission-controller:core serverside-applied
+        Name:        kyverno:admission-controller:core
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRole
+        Message:     clusterrole.rbac.authorization.k8s.io/kyverno:reports-controller reconciled. reconciliation required create. clusterrole.rbac.authorization.k8s.io/kyverno:reports-controller serverside-applied
+        Name:        kyverno:reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/kyverno:cleanup-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-cleanup-controller Namespace:kyverno-system}. clusterrolebinding.rbac.authorization.k8s.io/kyverno:cleanup-controller serverside-applied
+        Name:        kyverno:cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/kyverno:cleanup-jobs reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-cleanup-jobs Namespace:kyverno-system}. clusterrolebinding.rbac.authorization.k8s.io/kyverno:cleanup-jobs serverside-applied
+        Name:        kyverno:cleanup-jobs
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/kyverno:reports-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-reports-controller Namespace:kyverno-system}. clusterrolebinding.rbac.authorization.k8s.io/kyverno:reports-controller serverside-applied
+        Name:        kyverno:reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/kyverno:background-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-background-controller Namespace:kyverno-system}. clusterrolebinding.rbac.authorization.k8s.io/kyverno:background-controller serverside-applied
+        Name:        kyverno:background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        ClusterRoleBinding
+        Message:     clusterrolebinding.rbac.authorization.k8s.io/kyverno:admission-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-admission-controller Namespace:kyverno-system}. clusterrolebinding.rbac.authorization.k8s.io/kyverno:admission-controller serverside-applied
+        Name:        kyverno:admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        Role
+        Message:     role.rbac.authorization.k8s.io/kyverno:reports-controller reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps] ResourceNames:[kyverno kyverno-metrics] NonResourceURLs:[]}
+                       {Verbs:[create] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[delete get patch update] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[kyverno-reports-controller] NonResourceURLs:[]}. role.rbac.authorization.k8s.io/kyverno:reports-controller serverside-applied
+        Name:        kyverno:reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        Role
+        Message:     role.rbac.authorization.k8s.io/kyverno:background-controller reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps] ResourceNames:[kyverno kyverno-metrics] NonResourceURLs:[]}
+                       {Verbs:[create] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[delete get patch update] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[kyverno-background-controller] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[secrets] ResourceNames:[] NonResourceURLs:[]}. role.rbac.authorization.k8s.io/kyverno:background-controller serverside-applied
+        Name:        kyverno:background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        Role
+        Message:     role.rbac.authorization.k8s.io/kyverno:cleanup-controller reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[create] APIGroups:[] Resources:[secrets] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[delete get list update watch] APIGroups:[] Resources:[secrets] ResourceNames:[kyverno-cleanup-controller.kyverno-system.svc.kyverno-tls-ca kyverno-cleanup-controller.kyverno-system.svc.kyverno-tls-pair] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps] ResourceNames:[kyverno kyverno-metrics] NonResourceURLs:[]}
+                       {Verbs:[create] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[delete get patch update] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[kyverno-cleanup-controller] NonResourceURLs:[]}. role.rbac.authorization.k8s.io/kyverno:cleanup-controller serverside-applied
+        Name:        kyverno:cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        Role
+        Message:     role.rbac.authorization.k8s.io/kyverno:admission-controller reconciled. reconciliation required create
+                     missing rules added:
+                       {Verbs:[get list watch create update delete] APIGroups:[] Resources:[secrets] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch] APIGroups:[] Resources:[configmaps] ResourceNames:[kyverno kyverno-metrics] NonResourceURLs:[]}
+                       {Verbs:[create delete get patch update] APIGroups:[coordination.k8s.io] Resources:[leases] ResourceNames:[] NonResourceURLs:[]}
+                       {Verbs:[get list watch patch update] APIGroups:[apps] Resources:[deployments deployments/scale] ResourceNames:[] NonResourceURLs:[]}. role.rbac.authorization.k8s.io/kyverno:admission-controller serverside-applied
+        Name:        kyverno:admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        RoleBinding
+        Message:     rolebinding.rbac.authorization.k8s.io/kyverno:background-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-background-controller Namespace:kyverno-system}. rolebinding.rbac.authorization.k8s.io/kyverno:background-controller serverside-applied
+        Name:        kyverno:background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        RoleBinding
+        Message:     rolebinding.rbac.authorization.k8s.io/kyverno:cleanup-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-cleanup-controller Namespace:kyverno-system}. rolebinding.rbac.authorization.k8s.io/kyverno:cleanup-controller serverside-applied
+        Name:        kyverno:cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        RoleBinding
+        Message:     rolebinding.rbac.authorization.k8s.io/kyverno:admission-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-admission-controller Namespace:kyverno-system}. rolebinding.rbac.authorization.k8s.io/kyverno:admission-controller serverside-applied
+        Name:        kyverno:admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       rbac.authorization.k8s.io
+        Hook Phase:  Succeeded
+        Kind:        RoleBinding
+        Message:     rolebinding.rbac.authorization.k8s.io/kyverno:reports-controller reconciled. reconciliation required create
+                     missing subjects added:
+                       {Kind:ServiceAccount APIGroup: Name:kyverno-reports-controller Namespace:kyverno-system}. rolebinding.rbac.authorization.k8s.io/kyverno:reports-controller serverside-applied
+        Name:        kyverno:reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-background-controller-metrics serverside-applied
+        Name:        kyverno-background-controller-metrics
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-cleanup-controller-metrics serverside-applied
+        Name:        kyverno-cleanup-controller-metrics
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-cleanup-controller serverside-applied
+        Name:        kyverno-cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-svc-metrics serverside-applied
+        Name:        kyverno-svc-metrics
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-svc serverside-applied
+        Name:        kyverno-svc
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Kind:        Service
+        Message:     service/kyverno-reports-controller-metrics serverside-applied
+        Name:        kyverno-reports-controller-metrics
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        Deployment
+        Message:     deployment.apps/kyverno-cleanup-controller serverside-applied
+        Name:        kyverno-cleanup-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        Deployment
+        Message:     deployment.apps/kyverno-reports-controller serverside-applied
+        Name:        kyverno-reports-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        Deployment
+        Message:     deployment.apps/kyverno-background-controller serverside-applied
+        Name:        kyverno-background-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       apps
+        Hook Phase:  Succeeded
+        Kind:        Deployment
+        Message:     deployment.apps/kyverno-admission-controller serverside-applied
+        Name:        kyverno-admission-controller
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Succeeded
+        Kind:        CronJob
+        Message:     cronjob.batch/kyverno-cleanup-ephemeral-reports serverside-applied
+        Name:        kyverno-cleanup-ephemeral-reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Succeeded
+        Kind:        CronJob
+        Message:     cronjob.batch/kyverno-cleanup-cluster-ephemeral-reports serverside-applied
+        Name:        kyverno-cleanup-cluster-ephemeral-reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Succeeded
+        Kind:        CronJob
+        Message:     cronjob.batch/kyverno-cleanup-admission-reports serverside-applied
+        Name:        kyverno-cleanup-admission-reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Succeeded
+        Kind:        CronJob
+        Message:     cronjob.batch/kyverno-cleanup-update-requests serverside-applied
+        Name:        kyverno-cleanup-update-requests
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Succeeded
+        Kind:        CronJob
+        Message:     cronjob.batch/kyverno-cleanup-cluster-admission-reports serverside-applied
+        Name:        kyverno-cleanup-cluster-admission-reports
+        Namespace:   kyverno-system
+        Status:      Synced
+        Sync Phase:  Sync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Running
+        Hook Type:   PostSync
+        Kind:        Job
+        Message:     job.batch/kyverno-clean-reports serverside-applied
+        Name:        kyverno-clean-reports
+        Namespace:   kyverno-system
+        Sync Phase:  PostSync
+        Version:     v1
+      Revision:      3.2.6
+      Source:
+        Chart:  kyverno
+        Helm:
+          Release Name:  kyverno
+          Values:        admissionController:
+  replicas: 2
+backgroundController:
+  enabled: true
+cleanupController:
+  enabled: true
+reportsController:
+  enabled: true
+crds:
+  install: true
+
+        Repo URL:         https://kyverno.github.io/kyverno
+        Target Revision:  3.2.6
+  Reconciled At:          2026-05-28T08:12:27Z
+  Resources:
+    Kind:       ConfigMap
+    Name:       kyverno
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ConfigMap
+    Name:       kyverno-metrics
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-background-controller-metrics
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-cleanup-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-cleanup-controller-metrics
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-reports-controller-metrics
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-svc
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       kyverno-svc-metrics
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       kyverno-admission-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       kyverno-background-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       kyverno-cleanup-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       kyverno-cleanup-jobs
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Kind:       ServiceAccount
+    Name:       kyverno-reports-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       admissionreports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       backgroundscanreports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       cleanuppolicies.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clusteradmissionreports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clusterbackgroundscanreports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clustercleanuppolicies.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clusterephemeralreports.reports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clusterpolicies.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       clusterpolicyreports.wgpolicyk8s.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       ephemeralreports.reports.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       globalcontextentries.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       policies.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       policyexceptions.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       policyreports.wgpolicyk8s.io
+    Status:     Synced
+    Version:    v1
+    Group:      apiextensions.k8s.io
+    Kind:       CustomResourceDefinition
+    Name:       updaterequests.kyverno.io
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Healthy
+    Kind:       Deployment
+    Name:       kyverno-admission-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Healthy
+    Kind:       Deployment
+    Name:       kyverno-background-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:   Healthy
+    Kind:       Deployment
+    Name:       kyverno-cleanup-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      apps
+    Health:
+      Status:          Healthy
+    Kind:              Deployment
+    Name:              kyverno-reports-controller
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Kind:              CronJob
+    Name:              kyverno-cleanup-admission-reports
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Kind:              CronJob
+    Name:              kyverno-cleanup-cluster-admission-reports
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Kind:              CronJob
+    Name:              kyverno-cleanup-cluster-ephemeral-reports
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Kind:              CronJob
+    Name:              kyverno-cleanup-ephemeral-reports
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Kind:              CronJob
+    Name:              kyverno-cleanup-update-requests
+    Namespace:         kyverno-system
+    Status:            Synced
+    Version:           v1
+    Group:             batch
+    Hook:              true
+    Kind:              Job
+    Name:              kyverno-clean-reports
+    Namespace:         kyverno-system
+    Requires Pruning:  true
+    Version:           v1
+    Group:             policy
+    Health:
+      Message:  PodDisruptionBudget has SufficientPods
+      Status:   Healthy
+    Kind:       PodDisruptionBudget
+    Name:       kyverno-admission-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:admission-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:admission-controller:core
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:background-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:background-controller:core
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:cleanup-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:cleanup-controller:core
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:cleanup-jobs
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:admin:policies
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:admin:policyreports
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:admin:reports
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:admin:updaterequests
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:view:policies
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:view:policyreports
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:view:reports
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:rbac:view:updaterequests
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:reports-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRole
+    Name:       kyverno:reports-controller:core
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       kyverno:admission-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       kyverno:background-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       kyverno:cleanup-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       kyverno:cleanup-jobs
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       ClusterRoleBinding
+    Name:       kyverno:reports-controller
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       Role
+    Name:       kyverno:admission-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       Role
+    Name:       kyverno:background-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       Role
+    Name:       kyverno:cleanup-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       Role
+    Name:       kyverno:reports-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       RoleBinding
+    Name:       kyverno:admission-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       RoleBinding
+    Name:       kyverno:background-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       RoleBinding
+    Name:       kyverno:cleanup-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+    Group:      rbac.authorization.k8s.io
+    Kind:       RoleBinding
+    Name:       kyverno:reports-controller
+    Namespace:  kyverno-system
+    Status:     Synced
+    Version:    v1
+  Source Type:  Helm
+  Summary:
+    Images:
+      bitnami/kubectl:1.28.5
+      ghcr.io/kyverno/background-controller:v1.12.5
+      ghcr.io/kyverno/cleanup-controller:v1.12.5
+      ghcr.io/kyverno/kyverno:v1.12.5
+      ghcr.io/kyverno/kyvernopre:v1.12.5
+      ghcr.io/kyverno/reports-controller:v1.12.5
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  kyverno-system
+      Source:
+        Chart:  kyverno
+        Helm:
+          Release Name:  kyverno
+          Values:        admissionController:
+  replicas: 2
+backgroundController:
+  enabled: true
+cleanupController:
+  enabled: true
+reportsController:
+  enabled: true
+crds:
+  install: true
+
+        Repo URL:         https://kyverno.github.io/kyverno
+        Target Revision:  3.2.6
+    Revision:             3.2.6
+    Status:               Synced
+Events:                   <none>
+

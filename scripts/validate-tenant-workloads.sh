@@ -20,7 +20,7 @@
 #   SPOKE_NAME   ArgoCD cluster name for the spoke (default: spoke-pool-eu-prod-01)
 #   ARGOCD_NS    Namespace where ArgoCD runs (default: platform-ops)
 
-set -uo pipefail
+set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,9 +30,11 @@ SPOKE_NAME="${SPOKE_NAME:-spoke-pool-eu-prod-01}"
 ARGOCD_NS="${ARGOCD_NS:-platform-ops}"
 LOG_DIR="$PROJECT_ROOT/.zero-ops"
 LOG_FILE="$LOG_DIR/validate-tenant-workloads.log"
+TRACE_FILE="$LOG_DIR/validate-tenant-workloads-traces.log"
 
 mkdir -p "$LOG_DIR"
 > "$LOG_FILE"
+> "$TRACE_FILE"
 
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 if [[ $# -lt 1 ]]; then
@@ -53,30 +55,81 @@ declare -a WARNINGS=()
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log()         { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
-log_pass()    { log "  ✅ $1"; ((PASS++)); }
-log_fail()    { log "  ❌ $1"; FAILURES+=("$1"); ((FAIL++)); }
-log_warn()    { log "  ⚠️  $1"; WARNINGS+=("$1"); ((WARN++)); }
+log_pass()    { log "  ✅ $1"; ((PASS+=1)); }
+log_fail()    { log "  ❌ $1"; FAILURES+=("$1"); ((FAIL+=1)); }
+log_warn()    { log "  ⚠️  $1"; WARNINGS+=("$1"); ((WARN+=1)); }
 log_section() { log ""; log "══════════════════════════════════════════"; log "  $1"; log "══════════════════════════════════════════"; }
+
+# Capture verbose error traces (describe/log outputs) for failed checks.
+capture_trace() {
+    local title="$1"
+    shift
+    {
+        echo "### $title"
+        "$@" 2>&1 || true
+        echo ""
+    } >> "$TRACE_FILE"
+}
+
+capture_ns_events() {
+    local ns="$1"
+    capture_trace "Namespace Events: $ns (last 50)" kc_spoke get events -n "$ns" --sort-by='.lastTimestamp'
+}
+
+capture_rollout_deep_trace() {
+    local ns="$1"
+    local rollout="$2"
+
+    capture_trace "Rollout YAML: $ns/$rollout" kc_spoke get rollout "$rollout" -n "$ns" -o yaml
+    capture_trace "Rollout Describe: $ns/$rollout" kc_spoke describe rollout "$rollout" -n "$ns"
+
+    local rs_names
+    rs_names=$(kc_spoke get rs -n "$ns" -l "rollouts.kubernetes.io/rollout-name=$rollout" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)
+    if [[ -n "${rs_names:-}" ]]; then
+        while IFS= read -r rs; do
+            [[ -z "$rs" ]] && continue
+            capture_trace "ReplicaSet Describe: $ns/$rs" kc_spoke describe rs "$rs" -n "$ns"
+        done <<< "$rs_names"
+    fi
+
+    local pod_names
+    pod_names=$(kc_spoke get pods -n "$ns" -l "rollouts.kubernetes.io/rollout-name=$rollout" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)
+    if [[ -n "${pod_names:-}" ]]; then
+        while IFS= read -r pod; do
+            [[ -z "$pod" ]] && continue
+            capture_trace "Pod Describe: $ns/$pod" kc_spoke describe pod "$pod" -n "$ns"
+
+            # Capture logs for all containers in the pod (best effort).
+            local containers
+            containers=$(kc_spoke get pod "$pod" -n "$ns" -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}' || true)
+            while IFS= read -r c; do
+                [[ -z "$c" ]] && continue
+                capture_trace "Pod Logs: $ns/$pod container=$c" kc_spoke logs "$pod" -n "$ns" -c "$c" --tail=120
+                capture_trace "Pod Previous Logs: $ns/$pod container=$c" kc_spoke logs "$pod" -n "$ns" -c "$c" --previous --tail=120
+            done <<< "$containers"
+        done <<< "$pod_names"
+    fi
+}
 
 # ─── kubectl wrappers ─────────────────────────────────────────────────────────
 # kc_hub: runs against the hub cluster (where ArgoCD and Crossplane live)
-kc_hub() { kubectl --kubeconfig="$KUBECONFIG" "$@" 2>/dev/null; }
+kc_hub() { kubectl --kubeconfig="$KUBECONFIG" "$@"; }
 
 # kc_spoke: runs against the spoke cluster (where tenant workloads live)
-# Uses the ArgoCD cluster secret to derive the spoke kubeconfig path.
-# Falls back to hub kubeconfig if spoke kubeconfig is not found (single-cluster dev).
+# Uses the spoke kubeconfig path derived from SPOKE_NAME.
+# No fallback is allowed: missing spoke kubeconfig is a hard failure.
 _SPOKE_KUBECONFIG=""
 _resolve_spoke_kubeconfig() {
     local spoke_kc="$PROJECT_ROOT/k8-secrets/kubeconfig/${SPOKE_NAME}.kubeconfig"
     if [[ -f "$spoke_kc" ]]; then
         _SPOKE_KUBECONFIG="$spoke_kc"
     else
-        # Fallback: hub and spoke may be the same cluster in dev
-        _SPOKE_KUBECONFIG="$KUBECONFIG"
-        log "  ℹ️  Spoke kubeconfig not found at $spoke_kc — using hub kubeconfig (single-cluster mode)"
+        log "ERROR: Spoke kubeconfig not found: $spoke_kc"
+        log "       Set SPOKE_NAME correctly or create the spoke kubeconfig file."
+        exit 1
     fi
 }
-kc_spoke() { kubectl --kubeconfig="$_SPOKE_KUBECONFIG" "$@" 2>/dev/null; }
+kc_spoke() { kubectl --kubeconfig="$_SPOKE_KUBECONFIG" "$@"; }
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,6 +149,8 @@ check_argocd_app() {
             log_warn "ArgoCD app '$app': not found (may not exist yet)"
         else
             log_fail "ArgoCD app '$app': not found"
+            capture_trace "ArgoCD Application Describe: $app" kc_hub describe application "$app" -n "$ARGOCD_NS"
+            capture_trace "ArgoCD Application YAML: $app" kc_hub get application "$app" -n "$ARGOCD_NS" -o yaml
         fi
         return
     fi
@@ -116,6 +171,8 @@ check_argocd_app() {
             log_warn "$msg"
         else
             log_fail "$msg"
+            capture_trace "ArgoCD Application Describe: $app" kc_hub describe application "$app" -n "$ARGOCD_NS"
+            capture_trace "ArgoCD Application YAML: $app" kc_hub get application "$app" -n "$ARGOCD_NS" -o yaml
         fi
     fi
 }
@@ -129,9 +186,9 @@ check_namespace_pods() {
 
     local total not_ready
     # shellcheck disable=SC2086
-    total=$(kc_spoke get pods -n "$ns" $label_arg --no-headers 2>/dev/null | grep -c '' || echo "0")
+    total=$(kc_spoke get pods -n "$ns" $label_arg --no-headers | wc -l | tr -d '[:space:]')
     # shellcheck disable=SC2086
-    not_ready=$(kc_spoke get pods -n "$ns" $label_arg --no-headers 2>/dev/null \
+    not_ready=$(kc_spoke get pods -n "$ns" $label_arg --no-headers \
         | grep -v -E '\s+(Running|Completed)\s+' | grep -v "^$" || true)
 
     if [[ "$total" -eq 0 ]]; then
@@ -168,6 +225,9 @@ check_deployment() {
         log_pass "Deployment $ns/$name: $available/$desired available"
     else
         log_fail "Deployment $ns/$name: $available/$desired available"
+        capture_trace "Deployment Describe: $ns/$name" kc_spoke describe deployment "$name" -n "$ns"
+        capture_trace "Deployment YAML: $ns/$name" kc_spoke get deployment "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
     fi
 }
 
@@ -186,12 +246,17 @@ check_rollout() {
 
     if [[ "$phase" == "NotFound" ]]; then
         log_fail "Rollout $ns/$name: not found"
+        capture_rollout_deep_trace "$ns" "$name"
+        capture_ns_events "$ns"
     elif [[ "$phase" == "Healthy" && "$available" -ge "$desired" ]]; then
         log_pass "Rollout $ns/$name: phase=$phase available=$available/$desired"
     elif [[ "$phase" == "Progressing" ]]; then
         log_warn "Rollout $ns/$name: phase=$phase available=$available/$desired (canary in progress)"
+        capture_rollout_deep_trace "$ns" "$name"
     else
         log_fail "Rollout $ns/$name: phase=$phase available=$available/$desired"
+        capture_rollout_deep_trace "$ns" "$name"
+        capture_ns_events "$ns"
     fi
 }
 
@@ -232,18 +297,22 @@ check_service() {
 
     if [[ -z "$cluster_ip" ]]; then
         log_fail "Service $ns/$name: not found"
+        capture_trace "Service Describe: $ns/$name" kc_spoke describe svc "$name" -n "$ns"
+        capture_ns_events "$ns"
         return
     fi
 
     local endpoint_count
     endpoint_count=$(kc_spoke get endpoints "$name" -n "$ns" \
-        -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{"\n"}{end}' 2>/dev/null \
-        | grep -c '.' || echo "0")
+        -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{"\n"}{end}' \
+        | wc -l | tr -d '[:space:]')
 
     if [[ "$endpoint_count" -gt 0 ]]; then
         log_pass "Service $ns/$name: ClusterIP=$cluster_ip endpoints=$endpoint_count${port:+ port=$port}"
     else
         log_warn "Service $ns/$name: ClusterIP=$cluster_ip but no ready endpoints (pods may still be starting)"
+        capture_trace "Endpoints YAML: $ns/$name" kc_spoke get endpoints "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
     fi
 }
 
@@ -286,6 +355,8 @@ check_configmap() {
         log_pass "ConfigMap $ns/$name: present"
     else
         log_fail "ConfigMap $ns/$name: not found"
+        capture_trace "ConfigMap Get: $ns/$name" kc_spoke get configmap "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
     fi
 }
 
@@ -297,6 +368,8 @@ check_serviceaccount() {
         log_pass "ServiceAccount $ns/$name: present"
     else
         log_fail "ServiceAccount $ns/$name: not found"
+        capture_trace "ServiceAccount Get: $ns/$name" kc_spoke get serviceaccount "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
     fi
 }
 
@@ -308,6 +381,16 @@ check_secret() {
         log_pass "Secret $ns/$name: present"
     else
         log_fail "Secret $ns/$name: not found (database provisioning may not have completed)"
+        capture_trace "Secret Get: $ns/$name" kc_spoke get secret "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
+
+        # Deep traces for known producer chain of DB credentials.
+        if [[ "$name" == *"pooler-app" ]]; then
+            capture_trace "TenantDatabase list: $ns" kc_spoke get tenantdatabase -n "$ns" -o yaml
+            capture_trace "Pooler list: $ns" kc_spoke get pooler -n "$ns" -o yaml
+            capture_trace "AtlasMigration list: $ns" kc_spoke get atlasmigration -n "$ns" -o yaml
+            capture_trace "Spoke infrastructure app describe" kc_hub describe application "${SPOKE_NAME}-infrastructure" -n "$ARGOCD_NS"
+        fi
     fi
 }
 
@@ -361,6 +444,9 @@ check_atlas_migration() {
         msg=$(kc_spoke get atlasmigration "$name" -n "$ns" \
             -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
         log_fail "AtlasMigration $ns/$name: Ready=$ready${msg:+  [$msg]}"
+        capture_trace "AtlasMigration Describe: $ns/$name" kc_spoke describe atlasmigration "$name" -n "$ns"
+        capture_trace "AtlasMigration YAML: $ns/$name" kc_spoke get atlasmigration "$name" -n "$ns" -o yaml
+        capture_ns_events "$ns"
     fi
 }
 
@@ -379,7 +465,8 @@ preflight() {
         exit 1
     fi
     local server
-    server=$(kc_hub cluster-info 2>/dev/null | grep "control plane" | sed 's/.*at //' | tr -d '\r' || echo "unknown")
+    server=$( (kc_hub cluster-info | sed -n 's/.*control plane.* at //p' | tr -d '\r') || true )
+    server="${server:-unknown}"
     log_pass "Hub cluster reachable: $server"
 
     _resolve_spoke_kubeconfig
@@ -405,7 +492,7 @@ check_argocd_apps() {
     check_argocd_app "${TENANT_ID}-spoke" "FAIL"
 
     # Workload application (spoke-side — provisions BFF, frontend, ingress)
-    check_argocd_app "${TENANT_ID}-workloads" "FAIL"
+    check_argocd_app "tenant-${TENANT_ID}-workloads" "FAIL"
 }
 
 # ─── 2. NAMESPACE ─────────────────────────────────────────────────────────────
@@ -525,12 +612,15 @@ check_kyverno_abi() {
         fi
     else
         log_fail "Kyverno ClusterPolicy 'enforce-tenant-abi': not found on spoke"
+        capture_trace "ClusterPolicy Get/Describe: enforce-tenant-abi" kc_spoke get clusterpolicy enforce-tenant-abi -o yaml
+        capture_trace "Spoke Infrastructure App Describe" kc_hub describe application "${SPOKE_NAME}-infrastructure" -n "$ARGOCD_NS"
+        capture_trace "Spoke Kyverno App Describe" kc_hub describe application "${SPOKE_NAME}-kyverno" -n "$ARGOCD_NS"
     fi
 
     # Verify at least one pod in the namespace has the required labels
     local labeled_pods
     labeled_pods=$(kc_spoke get pods -n "$TENANT_NS" \
-        -l "tenant-id=${TENANT_ID}" --no-headers 2>/dev/null | grep -c '' || echo "0")
+        -l "tenant-id=${TENANT_ID}" --no-headers | wc -l | tr -d '[:space:]')
     if [[ "$labeled_pods" -gt 0 ]]; then
         log_pass "Namespace $TENANT_NS: $labeled_pods pod(s) carry tenant-id=$TENANT_ID label"
     else
@@ -588,6 +678,14 @@ print_summary() {
         log "╠══════════════════════════════════════════════╣"
     fi
 
+    if [[ -s "$TRACE_FILE" ]]; then
+        log "║  ERROR TRACE EXTRACTS (describe/get):"
+        while IFS= read -r line; do
+            log "║    $line"
+        done < <(sed -n '1,120p' "$TRACE_FILE")
+        log "╠══════════════════════════════════════════════╣"
+    fi
+
     if [[ "$FAIL" -eq 0 ]]; then
         log "║  🎉 ALL CRITICAL CHECKS PASSED               ║"
     else
@@ -596,6 +694,7 @@ print_summary() {
     fi
     log "╚══════════════════════════════════════════════╝"
     log "  Full log: $LOG_FILE"
+    log "  Trace log: $TRACE_FILE"
 }
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
