@@ -181,7 +181,7 @@ spec:
                       type: RuntimeDefault
                   containers:
                   - name: postgrest
-                    image: postgrest/postgrest:v12.0.2
+                    image: postgrest/postgrest:v12.0.2@sha256:79369c0cdf9d7112ed4e327bc1b80156be11575dd66fbda245077a2d13b803bc
                     securityContext:
                       allowPrivilegeEscalation: false
                       readOnlyRootFilesystem: true
@@ -353,6 +353,7 @@ spec:
                 secretKeyRef:
                   name: ""  # Patched: <tenantId>-pooler-app
                   key: url
+              revisionsSchema: public
               dir:
                 configMapRef:
                   name: ""  # Patched: tenant-<tenantId>-migrations
