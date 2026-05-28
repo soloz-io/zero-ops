@@ -3,6 +3,11 @@ kind: Deployment
 metadata:
   name: spoke-controller
   namespace: kagent-system
+  annotations:
+    # Wave 10: foundational infra (CRDs, Kyverno policies at wave 5) must be
+    # Healthy before agent workloads are applied. Decouples agent degradation
+    # from blocking platform-level sync waves.
+    argocd.argoproj.io/sync-wave: "10"
   labels:
     app: spoke-controller
     component: agent-core
@@ -18,6 +23,8 @@ spec:
         component: agent-core
     spec:
       serviceAccountName: spoke-controller
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
       - name: spoke-controller
         image: ghcr.io/soloz-io/zero-ops/spoke-controller:latest
@@ -131,3 +138,29 @@ type: Opaque
 data:
   client-id:
   client-secret:
+---
+# ADR-003 Pattern B: Infisical → ESO → kagent-system/ghcr-pull-secret
+# Must be at wave 9 so the secret exists before the Deployment at wave 10 pulls the image.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ghcr-pull-secret-kagent
+  namespace: kagent-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: ghcr-pull-secret
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: "{{ .dockerconfigjson }}"
+  data:
+    - secretKey: dockerconfigjson
+      remoteRef:
+        key: ghcr-pull-secret

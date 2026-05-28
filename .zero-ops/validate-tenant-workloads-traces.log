@@ -11,7 +11,7 @@ Metadata:
   Creation Timestamp:  2026-05-28T02:17:46Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  210
+  Generation:  322
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -19,7 +19,7 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  tenant-workload-provisioning
     UID:                   c304429e-612a-4757-91f7-027141a3d030
-  Resource Version:        5367291
+  Resource Version:        5723144
   UID:                     cc79ecc7-5c89-481d-b302-fb4f8712432f
 Spec:
   Destination:
@@ -215,7 +215,7 @@ Status:
         Path:             tenants/waypoint/workloads
         Repo URL:         https://github.com/soloz-io/fleet-registry.git
         Target Revision:  main
-  Reconciled At:          2026-05-28T08:11:27Z
+  Reconciled At:          2026-05-28T10:40:28Z
   Resources:
     Health:
       Status:   Healthy
@@ -326,13 +326,7 @@ Status:
     Revisions:
       727bdedb20167bb8817bd63d9dce953d7afa3323
     Status:  Synced
-Events:
-  Type    Reason              Age   From                           Message
-  ----    ------              ----  ----                           -------
-  Normal  ResourceUpdated     59m   argocd-application-controller  Updated health status: Missing -> Progressing
-  Normal  ResourceUpdated     59m   argocd-application-controller  Updated sync status: OutOfSync -> Synced
-  Normal  OperationCompleted  59m   argocd-application-controller  Sync operation to  succeeded
-  Normal  ResourceUpdated     49m   argocd-application-controller  Updated health status: Progressing -> Degraded
+Events:      <none>
 
 ### ArgoCD Application YAML: tenant-waypoint-workloads
 apiVersion: argoproj.io/v1alpha1
@@ -341,7 +335,7 @@ metadata:
   creationTimestamp: "2026-05-28T02:17:46Z"
   finalizers:
   - resources-finalizer.argocd.argoproj.io
-  generation: 210
+  generation: 322
   labels:
     resource-type: workload
     target-cluster: spoke-pool-eu-prod-01
@@ -355,7 +349,7 @@ metadata:
     kind: ApplicationSet
     name: tenant-workload-provisioning
     uid: c304429e-612a-4757-91f7-027141a3d030
-  resourceVersion: "5367291"
+  resourceVersion: "5723144"
   uid: cc79ecc7-5c89-481d-b302-fb4f8712432f
 spec:
   destination:
@@ -551,7 +545,7 @@ status:
       - path: tenants/waypoint/workloads
         repoURL: https://github.com/soloz-io/fleet-registry.git
         targetRevision: main
-  reconciledAt: "2026-05-28T08:11:27Z"
+  reconciledAt: "2026-05-28T10:40:28Z"
   resources:
   - health:
       status: Healthy
@@ -670,30 +664,12 @@ status:
 Error from server (NotFound): secrets "waypoint-pooler-app" not found
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m          Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m59s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-3m59s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-84s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-84s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m47s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m47s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m47s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+12s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+2s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### TenantDatabase list: tenant-waypoint
 apiVersion: v1
@@ -706,18 +682,18 @@ items:
     creationTimestamp: "2026-05-26T20:02:05Z"
     finalizers:
     - composite.apiextensions.crossplane.io
-    generation: 3
+    generation: 4
     labels:
       crossplane.io/composite: app-creator
     name: app-creator
-    resourceVersion: "2954"
+    resourceVersion: "602806"
     uid: 2df11fd0-2054-433c-b731-1991750b0ca2
   spec:
     cellId: spoke-pool-eu-prod-01
     compositionRef:
       name: tenantdatabase-spoke
     compositionRevisionRef:
-      name: tenantdatabase-spoke-0a37ec3
+      name: tenantdatabase-spoke-439d252
     compositionUpdatePolicy: Automatic
     databaseName: tenant-app-creator-db
     tenantId: app-creator
@@ -739,18 +715,18 @@ items:
     creationTimestamp: "2026-05-27T17:45:38Z"
     finalizers:
     - composite.apiextensions.crossplane.io
-    generation: 3
+    generation: 4
     labels:
       crossplane.io/composite: waypoint
     name: waypoint
-    resourceVersion: "320222"
+    resourceVersion: "602807"
     uid: bc3780ff-7043-4a91-8613-024e81f2638b
   spec:
     cellId: spoke-pool-eu-prod-01
     compositionRef:
       name: tenantdatabase-spoke
     compositionRevisionRef:
-      name: tenantdatabase-spoke-0a37ec3
+      name: tenantdatabase-spoke-439d252
     compositionUpdatePolicy: Automatic
     databaseName: tenant-waypoint-db
     tenantId: waypoint
@@ -822,7 +798,7 @@ Metadata:
   Creation Timestamp:  2026-05-26T19:53:36Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  2101
+  Generation:  2532
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -830,8 +806,23 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  spoke-infrastructure
     UID:                   d0315216-e7cf-4776-b937-b7958edc1165
-  Resource Version:        5364896
+  Resource Version:        5724040
   UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
+Operation:
+  Initiated By:
+    Automated:  true
+  Retry:
+    Backoff:
+      Duration:      5s
+      Factor:        2
+      Max Duration:  3m
+    Limit:           5
+  Sync:
+    Prune:     true
+    Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
 Spec:
   Destination:
     Name:       spoke-pool-eu-prod-01
@@ -865,16 +856,11 @@ Spec:
       CreateNamespace=true
       SkipDryRunOnMissingResource=true
 Status:
-  Conditions:
-    Last Transition Time:  2026-05-28T07:20:58Z
-    Message:               Failed sync attempt to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-    Type:                  SyncError
-  Controller Namespace:    platform-ops
+  Controller Namespace:  platform-ops
   Health:
     Status:  Degraded
   Operation State:
-    Finished At:  2026-05-28T07:20:58Z
-    Message:      one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Message:  waiting for healthy state of external-secrets.io/ExternalSecret/crossplane-admin-credentials and 24 more resources
     Operation:
       Initiated By:
         Automated:  true
@@ -886,35 +872,35 @@ Status:
         Limit:           5
       Sync:
         Prune:     true
-        Revision:  2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+        Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
         Sync Options:
           CreateNamespace=true
           SkipDryRunOnMissingResource=true
-    Phase:        Failed
-    Retry Count:  5
-    Started At:   2026-05-28T07:04:30Z
+    Phase:        Running
+    Retry Count:  2
+    Started At:   2026-05-28T10:39:52Z
     Sync Result:
       Resources:
         Group:       apiextensions.k8s.io
         Hook Phase:  Succeeded
         Kind:        CustomResourceDefinition
-        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured
         Name:        rollouts.argoproj.io
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1
         Group:       
-        Hook Phase:  Succeeded
+        Hook Phase:  Running
         Kind:        Namespace
-        Message:     namespace/platform-messaging unchanged
-        Name:        platform-messaging
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1
         Group:       
-        Hook Phase:  Succeeded
+        Hook Phase:  Running
         Kind:        Namespace
         Message:     namespace/platform-observability unchanged
         Name:        platform-observability
@@ -923,7 +909,7 @@ Status:
         Sync Phase:  Sync
         Version:     v1
         Group:       
-        Hook Phase:  Succeeded
+        Hook Phase:  Running
         Kind:        Namespace
         Message:     namespace/kagent-system unchanged
         Name:        kagent-system
@@ -932,114 +918,24 @@ Status:
         Sync Phase:  Sync
         Version:     v1
         Group:       
-        Hook Phase:  Succeeded
+        Hook Phase:  Running
         Kind:        Namespace
-        Message:     namespace/platform-data unchanged
-        Name:        platform-data
+        Message:     namespace/platform-messaging unchanged
+        Name:        platform-messaging
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1
         Group:       external-secrets.io
-        Hook Phase:  Succeeded
+        Hook Phase:  Running
         Kind:        ClusterSecretStore
-        Message:     store validated
+        Message:     clustersecretstore.external-secrets.io/infisical-backend unchanged
         Name:        infisical-backend
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1
-        Group:       external-secrets.io
-        Hook Phase:  Succeeded
-        Kind:        ExternalSecret
-        Message:     secret synced
-        Name:        crossplane-admin-credentials
-        Namespace:   platform-data
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        ServiceAccount
-        Message:     serviceaccount/provider-kubernetes unchanged
-        Name:        provider-kubernetes
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        ServiceAccount
-        Message:     serviceaccount/spoke-controller unchanged
-        Name:        spoke-controller
-        Namespace:   kagent-system
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        Secret
-        Message:     secret/spoke-controller-credentials configured
-        Name:        spoke-controller-credentials
-        Namespace:   kagent-system
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       
-        Hook Phase:  Succeeded
-        Kind:        ConfigMap
-        Message:     configmap/spoke-controller-config unchanged
-        Name:        spoke-controller-config
-        Namespace:   kagent-system
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       rbac.authorization.k8s.io
-        Hook Phase:  Succeeded
-        Kind:        ClusterRole
-        Message:     clusterrole.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrole.rbac.authorization.k8s.io/spoke-controller unchanged
-        Name:        spoke-controller
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       rbac.authorization.k8s.io
-        Hook Phase:  Succeeded
-        Kind:        ClusterRoleBinding
-        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-controller reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-controller unchanged
-        Name:        spoke-controller
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       rbac.authorization.k8s.io
-        Hook Phase:  Succeeded
-        Kind:        ClusterRoleBinding
-        Message:     clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin reconciled. clusterrolebinding.rbac.authorization.k8s.io/spoke-provider-kubernetes-admin unchanged
-        Name:        spoke-provider-kubernetes-admin
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       apps
-        Hook Phase:  Failed
-        Kind:        Deployment
-        Message:     Deployment "spoke-controller" exceeded its progress deadline
-        Name:        spoke-controller
-        Namespace:   kagent-system
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1
-        Group:       pkg.crossplane.io
-        Hook Phase:  Succeeded
-        Kind:        DeploymentRuntimeConfig
-        Message:     deploymentruntimeconfig.pkg.crossplane.io/provider-kubernetes-runtime unchanged
-        Name:        provider-kubernetes-runtime
-        Namespace:   platform-ops
-        Status:      Synced
-        Sync Phase:  Sync
-        Version:     v1beta1
-      Revision:      2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+      Revision:      b0945679b1b819ff2a545e95e5ba3f545dec6b0d
       Source:
         Kustomize:
           Patches:
@@ -1054,7 +950,7 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-  Reconciled At:          2026-05-28T08:10:28Z
+  Reconciled At:          2026-05-28T10:40:45Z
   Resources:
     Kind:       ConfigMap
     Name:       spoke-controller-config
@@ -1131,7 +1027,7 @@ Status:
     Group:      apiextensions.k8s.io
     Kind:       CustomResourceDefinition
     Name:       rollouts.argoproj.io
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  -5
     Version:    v1
     Group:      apps
@@ -1298,13 +1194,22 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-    Revision:             2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+    Revision:             b0945679b1b819ff2a545e95e5ba3f545dec6b0d
     Status:               OutOfSync
 Events:
-  Type     Reason              Age   From                           Message
-  ----     ------              ----  ----                           -------
-  Normal   ResourceUpdated     57m   argocd-application-controller  Updated health status: Missing -> Degraded
-  Warning  OperationCompleted  51m   argocd-application-controller  Sync operation to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Type     Reason              Age    From                           Message
+  ----     ------              ----   ----                           -------
+  Normal   OperationStarted    56m    argocd-application-controller  Initiated automated sync to '56bd74afa2ba041fd90e5433924173ccdee6ff1c'
+  Warning  OperationCompleted  50m    argocd-application-controller  Sync operation to 56bd74afa2ba041fd90e5433924173ccdee6ff1c failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    50m    argocd-application-controller  Initiated automated sync to '8b6736cefe6a278f2a45b4231e68a7feadf38b72'
+  Warning  OperationCompleted  43m    argocd-application-controller  Sync operation to 8b6736cefe6a278f2a45b4231e68a7feadf38b72 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    30m    argocd-application-controller  Initiated automated sync to '7dafc5e69c75f53b7dcf7381d9646dafad1c64e9'
+  Warning  OperationCompleted  24m    argocd-application-controller  Sync operation to 7dafc5e69c75f53b7dcf7381d9646dafad1c64e9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    24m    argocd-application-controller  Initiated automated sync to '86b48f026375f667d37d15b41233091aeff066f0'
+  Warning  OperationCompleted  17m    argocd-application-controller  Sync operation to 86b48f026375f667d37d15b41233091aeff066f0 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    7m24s  argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
+  Warning  OperationCompleted  61s    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    61s    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
 
 ### AtlasMigration Describe: tenant-waypoint/waypoint-migrations
 Name:         waypoint-migrations
@@ -1339,7 +1244,7 @@ Status:
 Events:
   Type     Reason        Age                    From                       Message
   ----     ------        ----                   ----                       -------
-  Warning  TransientErr  90s (x10360 over 14h)  atlasmigration-controller  Secret "waypoint-pooler-app" not found
+  Warning  TransientErr  14s (x12156 over 16h)  atlasmigration-controller  Secret "waypoint-pooler-app" not found
 
 ### AtlasMigration YAML: tenant-waypoint/waypoint-migrations
 apiVersion: db.atlasgo.io/v1alpha1
@@ -1373,88 +1278,34 @@ status:
   observed_hash: ""
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m7s        Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m6s        Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m6s        Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-91s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-91s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m49s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m49s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m49s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+14s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+4s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### ServiceAccount Get: tenant-waypoint/migration-sa
 Error from server (NotFound): serviceaccounts "migration-sa" not found
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m12s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m11s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m11s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-96s         Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-96s         Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m51s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m51s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m51s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+16s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+6s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### ConfigMap Get: tenant-waypoint/waypoint-custom-migrations
 Error from server (NotFound): configmaps "waypoint-custom-migrations" not found
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m17s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m16s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m16s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-101s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-101s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m53s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m53s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m53s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+18s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+8s          Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### Rollout YAML: tenant-waypoint/bff-workload
 apiVersion: argoproj.io/v1alpha1
@@ -1721,41 +1572,15 @@ Status:
   Phase:                   Degraded
   Selector:                app=workload
   Stable RS:               79696579dd
-Events:
-  Type    Reason                  Age   From                 Message
-  ----    ------                  ----  ----                 -------
-  Normal  RolloutAddedToInformer  59m   rollouts-controller  Rollout resource added to informer: tenant-waypoint/bff-workload
-  Normal  RolloutNotCompleted     59m   rollouts-controller  Rollout not completed, started update to revision 1 (79696579dd)
-  Normal  RolloutUpdated          59m   rollouts-controller  Rollout updated to revision 1
-  Normal  NewReplicaSetCreated    59m   rollouts-controller  Created ReplicaSet bff-workload-79696579dd (revision 1)
-  Normal  ScalingReplicaSet       59m   rollouts-controller  Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-  Normal  RolloutCompleted        59m   rollouts-controller  Rollout completed update to revision 1 (79696579dd): Initial deploy
+Events:                    <none>
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m25s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m24s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m24s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-109s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-109s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m56s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m56s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m56s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+21s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+11s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### Endpoints YAML: tenant-waypoint/bff-workload
 apiVersion: v1
@@ -1776,30 +1601,12 @@ metadata:
   uid: 653e2317-7961-4c92-8d6a-ed8fb67cacf0
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m27s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m26s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m26s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-111s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-111s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+2m57s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m57s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+2m57s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+22s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+12s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### Rollout YAML: tenant-waypoint/frontend-workload
 apiVersion: argoproj.io/v1alpha1
@@ -2067,41 +1874,15 @@ Status:
   Phase:                   Degraded
   Selector:                app=workload
   Stable RS:               68757c8bb7
-Events:
-  Type    Reason                  Age   From                 Message
-  ----    ------                  ----  ----                 -------
-  Normal  RolloutAddedToInformer  59m   rollouts-controller  Rollout resource added to informer: tenant-waypoint/frontend-workload
-  Normal  RolloutNotCompleted     59m   rollouts-controller  Rollout not completed, started update to revision 1 (68757c8bb7)
-  Normal  RolloutUpdated          59m   rollouts-controller  Rollout updated to revision 1
-  Normal  NewReplicaSetCreated    59m   rollouts-controller  Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-  Normal  ScalingReplicaSet       59m   rollouts-controller  Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-  Normal  RolloutCompleted        59m   rollouts-controller  Rollout completed update to revision 1 (68757c8bb7): Initial deploy
+Events:                    <none>
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m35s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m34s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m34s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-119s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-119s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+3m          Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m          Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m          Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+25s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+15s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### Endpoints YAML: tenant-waypoint/frontend-workload
 apiVersion: v1
@@ -2122,59 +1903,23 @@ metadata:
   uid: f8204d19-8ac4-40fb-8542-baf1968a3c24
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m37s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m36s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m36s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m1s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-2m1s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+3m1s        Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m1s        Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m1s        Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+26s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+16s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### Secret Get: tenant-waypoint/waypoint-tls
 Error from server (NotFound): secrets "waypoint-tls" not found
 
 ### Namespace Events: tenant-waypoint (last 50)
-LAST SEEN   TYPE      REASON                   OBJECT                                    MESSAGE
-59m         Normal    RolloutUpdated           rollout/frontend-workload                 Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/frontend-workload                 Rollout resource added to informer: tenant-waypoint/frontend-workload
-59m         Normal    RolloutNotCompleted      rollout/bff-workload                      Rollout not completed, started update to revision 1 (79696579dd)
-59m         Normal    RolloutUpdated           rollout/bff-workload                      Rollout updated to revision 1
-59m         Normal    NewReplicaSetCreated     rollout/bff-workload                      Created ReplicaSet bff-workload-79696579dd (revision 1)
-59m         Normal    ScalingReplicaSet        rollout/bff-workload                      Scaled up ReplicaSet bff-workload-79696579dd (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/bff-workload                      Rollout completed update to revision 1 (79696579dd): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/frontend-workload                 Scaled up ReplicaSet frontend-workload-68757c8bb7 (revision 1) from 0 to 2
-59m         Normal    NewReplicaSetCreated     rollout/frontend-workload                 Created ReplicaSet frontend-workload-68757c8bb7 (revision 1)
-59m         Normal    RolloutNotCompleted      rollout/frontend-workload                 Rollout not completed, started update to revision 1 (68757c8bb7)
-59m         Normal    RolloutAddedToInformer   rollout/bff-workload                      Rollout resource added to informer: tenant-waypoint/bff-workload
-59m         Normal    RolloutCompleted         rollout/sdk-workload                      Rollout completed update to revision 1 (5546cb5c5): Initial deploy
-59m         Normal    ScalingReplicaSet        rollout/sdk-workload                      Scaled up ReplicaSet sdk-workload-5546cb5c5 (revision 1) from 0 to 2
-59m         Normal    RolloutCompleted         rollout/frontend-workload                 Rollout completed update to revision 1 (68757c8bb7): Initial deploy
-59m         Normal    NewReplicaSetCreated     rollout/sdk-workload                      Created ReplicaSet sdk-workload-5546cb5c5 (revision 1)
-59m         Normal    RolloutUpdated           rollout/sdk-workload                      Rollout updated to revision 1
-59m         Normal    RolloutAddedToInformer   rollout/sdk-workload                      Rollout resource added to informer: tenant-waypoint/sdk-workload
-59m         Normal    RolloutNotCompleted      rollout/sdk-workload                      Rollout not completed, started update to revision 1 (5546cb5c5)
-4m43s       Warning   FailedCreate             replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m42s       Warning   FailedCreate             replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-4m42s       Warning   FailedCreate             replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-2m7s        Normal    Pulled                   pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
-2m7s        Warning   TransientErr             atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+3m3s        Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m3s        Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+3m3s        Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+28s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+18s         Normal    Pulled         pod/postgrest-waypoint-7f4df87776-6xj6n   Container image "postgrest/postgrest:v12.0.2" already present on machine
 
 ### ClusterPolicy Get/Describe: enforce-tenant-abi
 Error from server (NotFound): clusterpolicies.kyverno.io "enforce-tenant-abi" not found
@@ -2190,7 +1935,7 @@ Metadata:
   Creation Timestamp:  2026-05-26T19:53:36Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  2102
+  Generation:  2535
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -2198,8 +1943,23 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  spoke-infrastructure
     UID:                   d0315216-e7cf-4776-b937-b7958edc1165
-  Resource Version:        5369110
+  Resource Version:        5724245
   UID:                     97e48cfb-3391-455c-a1d4-e3eda6c39c3d
+Operation:
+  Initiated By:
+    Automated:  true
+  Retry:
+    Backoff:
+      Duration:      5s
+      Factor:        2
+      Max Duration:  3m
+    Limit:           5
+  Sync:
+    Prune:     true
+    Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
+    Sync Options:
+      CreateNamespace=true
+      SkipDryRunOnMissingResource=true
 Spec:
   Destination:
     Name:       spoke-pool-eu-prod-01
@@ -2233,16 +1993,12 @@ Spec:
       CreateNamespace=true
       SkipDryRunOnMissingResource=true
 Status:
-  Conditions:
-    Last Transition Time:  2026-05-28T07:20:58Z
-    Message:               Failed sync attempt to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729: one or more synchronization tasks completed unsuccessfully (retried 5 times).
-    Type:                  SyncError
-  Controller Namespace:    platform-ops
+  Controller Namespace:  platform-ops
   Health:
     Status:  Degraded
   Operation State:
-    Finished At:  2026-05-28T07:20:58Z
-    Message:      one or more synchronization tasks completed unsuccessfully (retried 5 times).
+    Finished At:  2026-05-28T10:40:56Z
+    Message:      one or more synchronization tasks completed unsuccessfully. Retrying attempt #3 at 10:41AM.
     Operation:
       Initiated By:
         Automated:  true
@@ -2254,19 +2010,19 @@ Status:
         Limit:           5
       Sync:
         Prune:     true
-        Revision:  2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+        Revision:  b0945679b1b819ff2a545e95e5ba3f545dec6b0d
         Sync Options:
           CreateNamespace=true
           SkipDryRunOnMissingResource=true
-    Phase:        Failed
-    Retry Count:  5
-    Started At:   2026-05-28T07:04:30Z
+    Phase:        Running
+    Retry Count:  3
+    Started At:   2026-05-28T10:39:52Z
     Sync Result:
       Resources:
         Group:       apiextensions.k8s.io
         Hook Phase:  Succeeded
         Kind:        CustomResourceDefinition
-        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured. Warning: resource customresourcedefinitions/rollouts.argoproj.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by  apply.  apply should only be used on resources created declaratively by either  create --save-config or  apply. The missing annotation will be patched automatically.
+        Message:     customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io configured
         Name:        rollouts.argoproj.io
         Namespace:   platform-ops
         Status:      Synced
@@ -2275,8 +2031,8 @@ Status:
         Group:       
         Hook Phase:  Succeeded
         Kind:        Namespace
-        Message:     namespace/platform-messaging unchanged
-        Name:        platform-messaging
+        Message:     namespace/platform-data unchanged
+        Name:        platform-data
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
@@ -2302,8 +2058,8 @@ Status:
         Group:       
         Hook Phase:  Succeeded
         Kind:        Namespace
-        Message:     namespace/platform-data unchanged
-        Name:        platform-data
+        Message:     namespace/platform-messaging unchanged
+        Name:        platform-messaging
         Namespace:   platform-ops
         Status:      Synced
         Sync Phase:  Sync
@@ -2407,7 +2163,7 @@ Status:
         Status:      Synced
         Sync Phase:  Sync
         Version:     v1beta1
-      Revision:      2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+      Revision:      b0945679b1b819ff2a545e95e5ba3f545dec6b0d
       Source:
         Kustomize:
           Patches:
@@ -2422,7 +2178,7 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-  Reconciled At:          2026-05-28T08:12:13Z
+  Reconciled At:          2026-05-28T10:40:45Z
   Resources:
     Kind:       ConfigMap
     Name:       spoke-controller-config
@@ -2499,7 +2255,7 @@ Status:
     Group:      apiextensions.k8s.io
     Kind:       CustomResourceDefinition
     Name:       rollouts.argoproj.io
-    Status:     OutOfSync
+    Status:     Synced
     Sync Wave:  -5
     Version:    v1
     Group:      apps
@@ -2666,13 +2422,22 @@ Status:
         Path:             manifests/spoke/spoke-catalog/infra
         Repo URL:         https://github.com/soloz-io/zero-ops
         Target Revision:  HEAD
-    Revision:             2f31b3cd05b3d78f3dd0cec9758ce3f889e34729
+    Revision:             b0945679b1b819ff2a545e95e5ba3f545dec6b0d
     Status:               OutOfSync
 Events:
-  Type     Reason              Age   From                           Message
-  ----     ------              ----  ----                           -------
-  Normal   ResourceUpdated     58m   argocd-application-controller  Updated health status: Missing -> Degraded
-  Warning  OperationCompleted  51m   argocd-application-controller  Sync operation to 2f31b3cd05b3d78f3dd0cec9758ce3f889e34729 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Type     Reason              Age    From                           Message
+  ----     ------              ----   ----                           -------
+  Normal   OperationStarted    56m    argocd-application-controller  Initiated automated sync to '56bd74afa2ba041fd90e5433924173ccdee6ff1c'
+  Warning  OperationCompleted  50m    argocd-application-controller  Sync operation to 56bd74afa2ba041fd90e5433924173ccdee6ff1c failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    50m    argocd-application-controller  Initiated automated sync to '8b6736cefe6a278f2a45b4231e68a7feadf38b72'
+  Warning  OperationCompleted  44m    argocd-application-controller  Sync operation to 8b6736cefe6a278f2a45b4231e68a7feadf38b72 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    30m    argocd-application-controller  Initiated automated sync to '7dafc5e69c75f53b7dcf7381d9646dafad1c64e9'
+  Warning  OperationCompleted  24m    argocd-application-controller  Sync operation to 7dafc5e69c75f53b7dcf7381d9646dafad1c64e9 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    24m    argocd-application-controller  Initiated automated sync to '86b48f026375f667d37d15b41233091aeff066f0'
+  Warning  OperationCompleted  17m    argocd-application-controller  Sync operation to 86b48f026375f667d37d15b41233091aeff066f0 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    7m40s  argocd-application-controller  Initiated automated sync to '8299eb7fedced9d6a1eec44634ca22fe218dfd29'
+  Warning  OperationCompleted  77s    argocd-application-controller  Sync operation to 8299eb7fedced9d6a1eec44634ca22fe218dfd29 failed: one or more synchronization tasks completed unsuccessfully (retried 5 times).
+  Normal   OperationStarted    77s    argocd-application-controller  Initiated automated sync to 'b0945679b1b819ff2a545e95e5ba3f545dec6b0d'
 
 ### Spoke Kyverno App Describe
 Name:         spoke-pool-eu-prod-01-kyverno
@@ -2685,7 +2450,7 @@ Metadata:
   Creation Timestamp:  2026-05-28T04:41:24Z
   Finalizers:
     resources-finalizer.argocd.argoproj.io
-  Generation:  224
+  Generation:  362
   Owner References:
     API Version:           argoproj.io/v1alpha1
     Block Owner Deletion:  true
@@ -2693,7 +2458,7 @@ Metadata:
     Kind:                  ApplicationSet
     Name:                  spoke-kyverno
     UID:                   5feca28b-8662-4334-a089-6e35304259fb
-  Resource Version:        5369929
+  Resource Version:        5721222
   UID:                     b9aae8e5-63e0-4e8c-9334-6dee32f90dbc
 Operation:
   Initiated By:
@@ -3516,7 +3281,7 @@ crds:
 
         Repo URL:         https://kyverno.github.io/kyverno
         Target Revision:  3.2.6
-  Reconciled At:          2026-05-28T08:12:27Z
+  Reconciled At:          2026-05-28T10:39:41Z
   Resources:
     Kind:       ConfigMap
     Name:       kyverno

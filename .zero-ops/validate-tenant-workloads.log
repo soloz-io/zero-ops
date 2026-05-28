@@ -1,249 +1,249 @@
-[2026-05-28 13:41:46] ═══════════════════════════════════════════════════════════
-[2026-05-28 13:41:47]  Tenant Workload Validation — ADR-021 / ADR-022
-[2026-05-28 13:41:47]  Tenant:     waypoint
-[2026-05-28 13:41:47]  Namespace:  tenant-waypoint
-[2026-05-28 13:41:47]  Hub config: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
-[2026-05-28 13:41:47]  Spoke:      spoke-pool-eu-prod-01
-[2026-05-28 13:41:47] ═══════════════════════════════════════════════════════════
-[2026-05-28 13:41:47] 
-[2026-05-28 13:41:48] ══════════════════════════════════════════
-[2026-05-28 13:41:48]   0. PREFLIGHT
-[2026-05-28 13:41:48] ══════════════════════════════════════════
-[2026-05-28 13:41:50]   ✅ Hub cluster reachable: https://49.12.22.19:443
-[2026-05-28 13:41:51]   ✅ Spoke cluster reachable (kubeconfig: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/k8-secrets/kubeconfig/spoke-pool-eu-prod-01.kubeconfig)
-[2026-05-28 13:41:51]   ✅ Tenant ID: waypoint
-[2026-05-28 13:41:51]   ✅ Tenant namespace: tenant-waypoint
-[2026-05-28 13:41:51] 
-[2026-05-28 13:41:51] ══════════════════════════════════════════
-[2026-05-28 13:41:51]   1. ARGOCD APPLICATIONS
-[2026-05-28 13:41:51] ══════════════════════════════════════════
-[2026-05-28 13:41:53]   ✅ ArgoCD app 'waypoint-xr': Synced + Healthy
-[2026-05-28 13:41:54]   ✅ ArgoCD app 'waypoint-spoke': Synced + Healthy
-[2026-05-28 13:41:56]   ❌ ArgoCD app 'tenant-waypoint-workloads': Sync=Synced Health=Degraded
-[2026-05-28 13:41:58] 
-[2026-05-28 13:41:58] ══════════════════════════════════════════
-[2026-05-28 13:41:58]   2. NAMESPACE
-[2026-05-28 13:41:58] ══════════════════════════════════════════
-[2026-05-28 13:41:59]   ✅ Namespace tenant-waypoint: exists
-[2026-05-28 13:42:00]   ✅ Namespace tenant-waypoint: PSA enforce=restricted
-[2026-05-28 13:42:00] 
-[2026-05-28 13:42:00] ══════════════════════════════════════════
-[2026-05-28 13:42:00]   3. DATA LAYER (XR + DATABASE)
-[2026-05-28 13:42:00] ══════════════════════════════════════════
-[2026-05-28 13:42:02]   ✅ AINativeSaaS XR 'waypoint': Ready + Synced
-[2026-05-28 13:42:03]   ❌ Secret tenant-waypoint/waypoint-pooler-app: not found (database provisioning may not have completed)
-[2026-05-28 13:42:09]   ❌ AtlasMigration tenant-waypoint/waypoint-migrations: Ready=False  [Secret "waypoint-pooler-app" not found]
-[2026-05-28 13:42:12]   ✅ ConfigMap tenant-waypoint/tenant-waypoint-migrations: present
-[2026-05-28 13:42:12] 
-[2026-05-28 13:42:12] ══════════════════════════════════════════
-[2026-05-28 13:42:12]   4. SERVICE ACCOUNTS (ADR-021 Blocker 6)
-[2026-05-28 13:42:12] ══════════════════════════════════════════
-[2026-05-28 13:42:13]   ✅ ServiceAccount tenant-waypoint/bff-workload-sa: present
-[2026-05-28 13:42:14]   ✅ ServiceAccount tenant-waypoint/frontend-workload-sa: present
-[2026-05-28 13:42:15]   ❌ ServiceAccount tenant-waypoint/migration-sa: not found
-[2026-05-28 13:42:16] 
-[2026-05-28 13:42:17] ══════════════════════════════════════════
-[2026-05-28 13:42:17]   5. NETWORK POLICY (ADR-021 Blocker 3)
-[2026-05-28 13:42:17] ══════════════════════════════════════════
-[2026-05-28 13:42:18]   ✅ CiliumNetworkPolicy tenant-waypoint/bff-strict-egress-contract: present
-[2026-05-28 13:42:18]   ✅ CiliumNetworkPolicy tenant-waypoint/frontend-strict-egress-contract: present
-[2026-05-28 13:42:19] 
-[2026-05-28 13:42:19] ══════════════════════════════════════════
-[2026-05-28 13:42:19]   6. MIGRATION JOB (ADR-021 Blockers 5, 8, 11, 12)
-[2026-05-28 13:42:19] ══════════════════════════════════════════
-[2026-05-28 13:42:20]   ❌ ConfigMap tenant-waypoint/waypoint-custom-migrations: not found
-[2026-05-28 13:42:23]   ⚠️  Job tenant-waypoint/custom-schema-migration: not found (may have been cleaned up by TTL — check events)
-[2026-05-28 13:42:23] 
-[2026-05-28 13:42:24] ══════════════════════════════════════════
-[2026-05-28 13:42:24]   7. BFF WORKLOAD
-[2026-05-28 13:42:24] ══════════════════════════════════════════
-[2026-05-28 13:42:26]   ❌ Rollout tenant-waypoint/bff-workload: phase=Degraded available=0/2
-[2026-05-28 13:42:30]   ⚠️  Service tenant-waypoint/bff-workload: ClusterIP=10.98.43.192 but no ready endpoints (pods may still be starting)
-[2026-05-28 13:42:33]   ⚠️  Namespace tenant-waypoint: no pods found (label: app=bff)
-[2026-05-28 13:42:33] 
-[2026-05-28 13:42:33] ══════════════════════════════════════════
-[2026-05-28 13:42:33]   8. FRONTEND WORKLOAD
-[2026-05-28 13:42:34] ══════════════════════════════════════════
-[2026-05-28 13:42:36]   ❌ Rollout tenant-waypoint/frontend-workload: phase=Degraded available=0/2
-[2026-05-28 13:42:40]   ⚠️  Service tenant-waypoint/frontend-workload: ClusterIP=10.98.99.30 but no ready endpoints (pods may still be starting)
-[2026-05-28 13:42:43]   ⚠️  Namespace tenant-waypoint: no pods found (label: app=frontend)
-[2026-05-28 13:42:43] 
-[2026-05-28 13:42:43] ══════════════════════════════════════════
-[2026-05-28 13:42:43]   9. INGRESS (ADR-021 Blocker 7)
-[2026-05-28 13:42:43] ══════════════════════════════════════════
-[2026-05-28 13:42:45]   ⚠️  Ingress tenant-waypoint/waypoint-ingress: no address assigned yet (cert-manager may still be issuing TLS)
-[2026-05-28 13:42:46]   ❌ Secret tenant-waypoint/waypoint-tls: not found (database provisioning may not have completed)
-[2026-05-28 13:42:47] 
-[2026-05-28 13:42:47] ══════════════════════════════════════════
-[2026-05-28 13:42:47]   10. KYVERNO ABI ENFORCEMENT (ADR-021)
-[2026-05-28 13:42:47] ══════════════════════════════════════════
-[2026-05-28 13:42:48]   ❌ Kyverno ClusterPolicy 'enforce-tenant-abi': not found on spoke
-[2026-05-28 13:42:51]   ✅ Namespace tenant-waypoint: 1 pod(s) carry tenant-id=waypoint label
-[2026-05-28 13:42:51] 
-[2026-05-28 13:42:51] ══════════════════════════════════════════
-[2026-05-28 13:42:51]   11. RECENT WARNING EVENTS
-[2026-05-28 13:42:51] ══════════════════════════════════════════
-[2026-05-28 13:42:52]   ⚠️  Namespace tenant-waypoint: recent Warning events (last 10):
-[2026-05-28 13:42:52]      LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
-[2026-05-28 13:42:52]      4m48s       Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-[2026-05-28 13:42:53]      4m47s       Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-[2026-05-28 13:42:53]      4m47s       Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
-[2026-05-28 13:42:53]      2m12s       Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
-[2026-05-28 13:42:53] 
-[2026-05-28 13:42:53] ╔══════════════════════════════════════════════╗
-[2026-05-28 13:42:53] ║   TENANT WORKLOAD VALIDATION SUMMARY         ║
-[2026-05-28 13:42:54] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:42:54] ║  Tenant:   waypoint
-[2026-05-28 13:42:54] ║  Namespace: tenant-waypoint
-[2026-05-28 13:42:54] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:42:54] ║  ✅ PASSED : 15
-[2026-05-28 13:42:54] ║  ❌ FAILED : 9
-[2026-05-28 13:42:54] ║  ⚠️  WARNED : 7
-[2026-05-28 13:42:55] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:42:55] ║  FAILURES:
-[2026-05-28 13:42:55] ║    ✗ ArgoCD app 'tenant-waypoint-workloads': Sync=Synced Health=Degraded
-[2026-05-28 13:42:55] ║    ✗ Secret tenant-waypoint/waypoint-pooler-app: not found (database provisioning may not have completed)
-[2026-05-28 13:42:55] ║    ✗ AtlasMigration tenant-waypoint/waypoint-migrations: Ready=False  [Secret "waypoint-pooler-app" not found]
-[2026-05-28 13:42:55] ║    ✗ ServiceAccount tenant-waypoint/migration-sa: not found
-[2026-05-28 13:42:56] ║    ✗ ConfigMap tenant-waypoint/waypoint-custom-migrations: not found
-[2026-05-28 13:42:56] ║    ✗ Rollout tenant-waypoint/bff-workload: phase=Degraded available=0/2
-[2026-05-28 13:42:56] ║    ✗ Rollout tenant-waypoint/frontend-workload: phase=Degraded available=0/2
-[2026-05-28 13:42:56] ║    ✗ Secret tenant-waypoint/waypoint-tls: not found (database provisioning may not have completed)
-[2026-05-28 13:42:56] ║    ✗ Kyverno ClusterPolicy 'enforce-tenant-abi': not found on spoke
-[2026-05-28 13:42:57] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:42:57] ║  WARNINGS:
-[2026-05-28 13:42:57] ║    ! Job tenant-waypoint/custom-schema-migration: not found (may have been cleaned up by TTL — check events)
-[2026-05-28 13:42:57] ║    ! Service tenant-waypoint/bff-workload: ClusterIP=10.98.43.192 but no ready endpoints (pods may still be starting)
-[2026-05-28 13:42:57] ║    ! Namespace tenant-waypoint: no pods found (label: app=bff)
-[2026-05-28 13:42:57] ║    ! Service tenant-waypoint/frontend-workload: ClusterIP=10.98.99.30 but no ready endpoints (pods may still be starting)
-[2026-05-28 13:42:57] ║    ! Namespace tenant-waypoint: no pods found (label: app=frontend)
-[2026-05-28 13:42:58] ║    ! Ingress tenant-waypoint/waypoint-ingress: no address assigned yet (cert-manager may still be issuing TLS)
-[2026-05-28 13:42:58] ║    ! Namespace tenant-waypoint: recent Warning events (last 10):
-[2026-05-28 13:42:58] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:42:58] ║  ERROR TRACE EXTRACTS (describe/get):
-[2026-05-28 13:42:58] ║    ### ArgoCD Application Describe: tenant-waypoint-workloads
-[2026-05-28 13:42:58] ║    Name:         tenant-waypoint-workloads
-[2026-05-28 13:42:59] ║    Namespace:    platform-ops
-[2026-05-28 13:42:59] ║    Labels:       resource-type=workload
-[2026-05-28 13:42:59] ║                  target-cluster=spoke-pool-eu-prod-01
-[2026-05-28 13:42:59] ║                  tenant-id=waypoint
-[2026-05-28 13:42:59] ║    Annotations:  <none>
-[2026-05-28 13:42:59] ║    API Version:  argoproj.io/v1alpha1
-[2026-05-28 13:43:00] ║    Kind:         Application
-[2026-05-28 13:43:00] ║    Metadata:
-[2026-05-28 13:43:00] ║      Creation Timestamp:  2026-05-28T02:17:46Z
-[2026-05-28 13:43:00] ║      Finalizers:
-[2026-05-28 13:43:00] ║        resources-finalizer.argocd.argoproj.io
-[2026-05-28 13:43:00] ║      Generation:  210
-[2026-05-28 13:43:01] ║      Owner References:
-[2026-05-28 13:43:01] ║        API Version:           argoproj.io/v1alpha1
-[2026-05-28 13:43:01] ║        Block Owner Deletion:  true
-[2026-05-28 13:43:01] ║        Controller:            true
-[2026-05-28 13:43:01] ║        Kind:                  ApplicationSet
-[2026-05-28 13:43:01] ║        Name:                  tenant-workload-provisioning
-[2026-05-28 13:43:02] ║        UID:                   c304429e-612a-4757-91f7-027141a3d030
-[2026-05-28 13:43:02] ║      Resource Version:        5367291
-[2026-05-28 13:43:02] ║      UID:                     cc79ecc7-5c89-481d-b302-fb4f8712432f
-[2026-05-28 13:43:02] ║    Spec:
-[2026-05-28 13:43:02] ║      Destination:
-[2026-05-28 13:43:02] ║        Name:       spoke-pool-eu-prod-01
-[2026-05-28 13:43:03] ║        Namespace:  tenant-waypoint
-[2026-05-28 13:43:03] ║      Project:      tenant-workloads
-[2026-05-28 13:43:03] ║      Sources:
-[2026-05-28 13:43:03] ║        Path:             tenants/waypoint/workloads
-[2026-05-28 13:43:03] ║        Repo URL:         https://github.com/soloz-io/fleet-registry.git
-[2026-05-28 13:43:04] ║        Target Revision:  main
-[2026-05-28 13:43:04] ║      Sync Policy:
-[2026-05-28 13:43:04] ║        Automated:
-[2026-05-28 13:43:04] ║          Prune:      true
-[2026-05-28 13:43:04] ║          Self Heal:  true
-[2026-05-28 13:43:04] ║        Retry:
-[2026-05-28 13:43:05] ║          Backoff:
-[2026-05-28 13:43:05] ║            Duration:      10s
-[2026-05-28 13:43:05] ║            Factor:        2
-[2026-05-28 13:43:05] ║            Max Duration:  5m
-[2026-05-28 13:43:05] ║          Limit:           10
-[2026-05-28 13:43:05] ║        Sync Options:
-[2026-05-28 13:43:05] ║          ServerSideApply=true
-[2026-05-28 13:43:06] ║          RespectIgnoreDifferences=true
-[2026-05-28 13:43:06] ║    Status:
-[2026-05-28 13:43:06] ║      Controller Namespace:  platform-ops
-[2026-05-28 13:43:06] ║      Health:
-[2026-05-28 13:43:06] ║        Status:  Degraded
-[2026-05-28 13:43:06] ║      History:
-[2026-05-28 13:43:07] ║        Deploy Started At:  2026-05-28T07:12:52Z
-[2026-05-28 13:43:07] ║        Deployed At:        2026-05-28T07:12:53Z
-[2026-05-28 13:43:07] ║        Id:                 0
-[2026-05-28 13:43:07] ║        Initiated By:
-[2026-05-28 13:43:07] ║          Username:  admin
-[2026-05-28 13:43:08] ║        Revisions:
-[2026-05-28 13:43:08] ║          c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-[2026-05-28 13:43:08] ║        Source:
-[2026-05-28 13:43:08] ║          Repo URL:  
-[2026-05-28 13:43:08] ║        Sources:
-[2026-05-28 13:43:08] ║          Path:             tenants/waypoint/workloads
-[2026-05-28 13:43:09] ║          Repo URL:         https://github.com/soloz-io/fleet-registry.git
-[2026-05-28 13:43:09] ║          Target Revision:  main
-[2026-05-28 13:43:09] ║      Operation State:
-[2026-05-28 13:43:09] ║        Finished At:  2026-05-28T07:12:53Z
-[2026-05-28 13:43:09] ║        Message:      successfully synced (all tasks run)
-[2026-05-28 13:43:09] ║        Operation:
-[2026-05-28 13:43:09] ║          Initiated By:
-[2026-05-28 13:43:10] ║            Automated:  true
-[2026-05-28 13:43:10] ║            Username:   admin
-[2026-05-28 13:43:10] ║          Retry:
-[2026-05-28 13:43:10] ║            Backoff:
-[2026-05-28 13:43:10] ║              Duration:      10s
-[2026-05-28 13:43:11] ║              Factor:        2
-[2026-05-28 13:43:11] ║              Max Duration:  5m
-[2026-05-28 13:43:11] ║            Limit:           10
-[2026-05-28 13:43:11] ║          Sync:
-[2026-05-28 13:43:11] ║            Prune:  true
-[2026-05-28 13:43:11] ║            Revisions:
-[2026-05-28 13:43:12] ║              c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
-[2026-05-28 13:43:12] ║            Sync Options:
-[2026-05-28 13:43:12] ║              ServerSideApply=true
-[2026-05-28 13:43:12] ║              RespectIgnoreDifferences=true
-[2026-05-28 13:43:12] ║            Sync Strategy:
-[2026-05-28 13:43:12] ║              Apply:
-[2026-05-28 13:43:12] ║                Force:  true
-[2026-05-28 13:43:13] ║        Phase:          Succeeded
-[2026-05-28 13:43:13] ║        Retry Count:    10
-[2026-05-28 13:43:13] ║        Started At:     2026-05-28T07:12:52Z
-[2026-05-28 13:43:13] ║        Sync Result:
-[2026-05-28 13:43:13] ║          Resources:
-[2026-05-28 13:43:14] ║            Group:       
-[2026-05-28 13:43:14] ║            Hook Phase:  Running
-[2026-05-28 13:43:14] ║            Kind:        ServiceAccount
-[2026-05-28 13:43:14] ║            Message:     serviceaccount/frontend-workload-sa created
-[2026-05-28 13:43:15] ║            Name:        frontend-workload-sa
-[2026-05-28 13:43:15] ║            Namespace:   tenant-waypoint
-[2026-05-28 13:43:15] ║            Status:      Synced
-[2026-05-28 13:43:15] ║            Sync Phase:  Sync
-[2026-05-28 13:43:15] ║            Version:     v1
-[2026-05-28 13:43:15] ║            Group:       
-[2026-05-28 13:43:16] ║            Hook Phase:  Running
-[2026-05-28 13:43:16] ║            Kind:        ServiceAccount
-[2026-05-28 13:43:16] ║            Message:     serviceaccount/sdk-workload-sa created
-[2026-05-28 13:43:16] ║            Name:        sdk-workload-sa
-[2026-05-28 13:43:16] ║            Namespace:   tenant-waypoint
-[2026-05-28 13:43:16] ║            Status:      Synced
-[2026-05-28 13:43:16] ║            Sync Phase:  Sync
-[2026-05-28 13:43:17] ║            Version:     v1
-[2026-05-28 13:43:17] ║            Group:       
-[2026-05-28 13:43:17] ║            Hook Phase:  Running
-[2026-05-28 13:43:17] ║            Kind:        ServiceAccount
-[2026-05-28 13:43:17] ║            Message:     serviceaccount/bff-workload-sa created
-[2026-05-28 13:43:17] ║            Name:        bff-workload-sa
-[2026-05-28 13:43:17] ║            Namespace:   tenant-waypoint
-[2026-05-28 13:43:18] ║            Status:      Synced
-[2026-05-28 13:43:18] ║            Sync Phase:  Sync
-[2026-05-28 13:43:18] ║            Version:     v1
-[2026-05-28 13:43:18] ║            Group:       
-[2026-05-28 13:43:19] ║            Hook Phase:  Running
-[2026-05-28 13:43:19] ╠══════════════════════════════════════════════╣
-[2026-05-28 13:43:19] ║  💥 9 CRITICAL CHECK(S) FAILED            ║
-[2026-05-28 13:43:19] ║  Review failures above before proceeding      ║
-[2026-05-28 13:43:19] ╚══════════════════════════════════════════════╝
-[2026-05-28 13:43:19]   Full log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/validate-tenant-workloads.log
-[2026-05-28 13:43:19]   Trace log: /d/Users/Kavishree.Shanmugam/Documents/GitHub/zero-ops/.zero-ops/validate-tenant-workloads-traces.log
+[2026-05-28 12:40:44] ═══════════════════════════════════════════════════════════
+[2026-05-28 12:40:44]  Tenant Workload Validation — ADR-021 / ADR-022
+[2026-05-28 12:40:44]  Tenant:     waypoint
+[2026-05-28 12:40:44]  Namespace:  tenant-waypoint
+[2026-05-28 12:40:45]  Hub config: /c/Users/Administrator/zero-ops/k8-secrets/kubeconfig/hub.kubeconfig
+[2026-05-28 12:40:45]  Spoke:      spoke-pool-eu-prod-01
+[2026-05-28 12:40:45] ═══════════════════════════════════════════════════════════
+[2026-05-28 12:40:45] 
+[2026-05-28 12:40:45] ══════════════════════════════════════════
+[2026-05-28 12:40:45]   0. PREFLIGHT
+[2026-05-28 12:40:45] ══════════════════════════════════════════
+[2026-05-28 12:40:46]   ✅ Hub cluster reachable: https://49.12.22.19:443
+[2026-05-28 12:40:46]   ✅ Spoke cluster reachable (kubeconfig: /c/Users/Administrator/zero-ops/k8-secrets/kubeconfig/spoke-pool-eu-prod-01.kubeconfig)
+[2026-05-28 12:40:46]   ✅ Tenant ID: waypoint
+[2026-05-28 12:40:46]   ✅ Tenant namespace: tenant-waypoint
+[2026-05-28 12:40:46] 
+[2026-05-28 12:40:46] ══════════════════════════════════════════
+[2026-05-28 12:40:46]   1. ARGOCD APPLICATIONS
+[2026-05-28 12:40:47] ══════════════════════════════════════════
+[2026-05-28 12:40:47]   ✅ ArgoCD app 'waypoint-xr': Synced + Healthy
+[2026-05-28 12:40:48]   ✅ ArgoCD app 'waypoint-spoke': Synced + Healthy
+[2026-05-28 12:40:49]   ❌ ArgoCD app 'tenant-waypoint-workloads': Sync=Synced Health=Degraded
+[2026-05-28 12:40:49] 
+[2026-05-28 12:40:49] ══════════════════════════════════════════
+[2026-05-28 12:40:49]   2. NAMESPACE
+[2026-05-28 12:40:49] ══════════════════════════════════════════
+[2026-05-28 12:40:50]   ✅ Namespace tenant-waypoint: exists
+[2026-05-28 12:40:50]   ✅ Namespace tenant-waypoint: PSA enforce=restricted
+[2026-05-28 12:40:50] 
+[2026-05-28 12:40:50] ══════════════════════════════════════════
+[2026-05-28 12:40:50]   3. DATA LAYER (XR + DATABASE)
+[2026-05-28 12:40:50] ══════════════════════════════════════════
+[2026-05-28 12:40:51]   ✅ AINativeSaaS XR 'waypoint': Ready + Synced
+[2026-05-28 12:40:51]   ❌ Secret tenant-waypoint/waypoint-pooler-app: not found (database provisioning may not have completed)
+[2026-05-28 12:40:53]   ❌ AtlasMigration tenant-waypoint/waypoint-migrations: Ready=False  [Secret "waypoint-pooler-app" not found]
+[2026-05-28 12:40:54]   ✅ ConfigMap tenant-waypoint/tenant-waypoint-migrations: present
+[2026-05-28 12:40:54] 
+[2026-05-28 12:40:54] ══════════════════════════════════════════
+[2026-05-28 12:40:55]   4. SERVICE ACCOUNTS (ADR-021 Blocker 6)
+[2026-05-28 12:40:55] ══════════════════════════════════════════
+[2026-05-28 12:40:55]   ✅ ServiceAccount tenant-waypoint/bff-workload-sa: present
+[2026-05-28 12:40:55]   ✅ ServiceAccount tenant-waypoint/frontend-workload-sa: present
+[2026-05-28 12:40:56]   ❌ ServiceAccount tenant-waypoint/migration-sa: not found
+[2026-05-28 12:40:56] 
+[2026-05-28 12:40:56] ══════════════════════════════════════════
+[2026-05-28 12:40:56]   5. NETWORK POLICY (ADR-021 Blocker 3)
+[2026-05-28 12:40:56] ══════════════════════════════════════════
+[2026-05-28 12:40:57]   ✅ CiliumNetworkPolicy tenant-waypoint/bff-strict-egress-contract: present
+[2026-05-28 12:40:57]   ✅ CiliumNetworkPolicy tenant-waypoint/frontend-strict-egress-contract: present
+[2026-05-28 12:40:57] 
+[2026-05-28 12:40:57] ══════════════════════════════════════════
+[2026-05-28 12:40:57]   6. MIGRATION JOB (ADR-021 Blockers 5, 8, 11, 12)
+[2026-05-28 12:40:57] ══════════════════════════════════════════
+[2026-05-28 12:40:58]   ❌ ConfigMap tenant-waypoint/waypoint-custom-migrations: not found
+[2026-05-28 12:40:59]   ⚠️  Job tenant-waypoint/custom-schema-migration: not found (may have been cleaned up by TTL — check events)
+[2026-05-28 12:40:59] 
+[2026-05-28 12:40:59] ══════════════════════════════════════════
+[2026-05-28 12:40:59]   7. BFF WORKLOAD
+[2026-05-28 12:40:59] ══════════════════════════════════════════
+[2026-05-28 12:41:00]   ❌ Rollout tenant-waypoint/bff-workload: phase=Degraded available=0/2
+[2026-05-28 12:41:02]   ⚠️  Service tenant-waypoint/bff-workload: ClusterIP=10.98.43.192 but no ready endpoints (pods may still be starting)
+[2026-05-28 12:41:03]   ⚠️  Namespace tenant-waypoint: no pods found (label: app=bff)
+[2026-05-28 12:41:03] 
+[2026-05-28 12:41:03] ══════════════════════════════════════════
+[2026-05-28 12:41:03]   8. FRONTEND WORKLOAD
+[2026-05-28 12:41:03] ══════════════════════════════════════════
+[2026-05-28 12:41:04]   ❌ Rollout tenant-waypoint/frontend-workload: phase=Degraded available=0/2
+[2026-05-28 12:41:06]   ⚠️  Service tenant-waypoint/frontend-workload: ClusterIP=10.98.99.30 but no ready endpoints (pods may still be starting)
+[2026-05-28 12:41:07]   ⚠️  Namespace tenant-waypoint: no pods found (label: app=frontend)
+[2026-05-28 12:41:07] 
+[2026-05-28 12:41:07] ══════════════════════════════════════════
+[2026-05-28 12:41:07]   9. INGRESS (ADR-021 Blocker 7)
+[2026-05-28 12:41:07] ══════════════════════════════════════════
+[2026-05-28 12:41:08]   ⚠️  Ingress tenant-waypoint/waypoint-ingress: no address assigned yet (cert-manager may still be issuing TLS)
+[2026-05-28 12:41:08]   ❌ Secret tenant-waypoint/waypoint-tls: not found (database provisioning may not have completed)
+[2026-05-28 12:41:08] 
+[2026-05-28 12:41:08] ══════════════════════════════════════════
+[2026-05-28 12:41:08]   10. KYVERNO ABI ENFORCEMENT (ADR-021)
+[2026-05-28 12:41:09] ══════════════════════════════════════════
+[2026-05-28 12:41:09]   ❌ Kyverno ClusterPolicy 'enforce-tenant-abi': not found on spoke
+[2026-05-28 12:41:10]   ✅ Namespace tenant-waypoint: 1 pod(s) carry tenant-id=waypoint label
+[2026-05-28 12:41:10] 
+[2026-05-28 12:41:10] ══════════════════════════════════════════
+[2026-05-28 12:41:10]   11. RECENT WARNING EVENTS
+[2026-05-28 12:41:10] ══════════════════════════════════════════
+[2026-05-28 12:41:11]   ⚠️  Namespace tenant-waypoint: recent Warning events (last 10):
+[2026-05-28 12:41:11]      LAST SEEN   TYPE      REASON         OBJECT                                    MESSAGE
+[2026-05-28 12:41:11]      3m6s        Warning   FailedCreate   replicaset/bff-workload-79696579dd        Error creating: pods "bff-workload-79696579dd-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+[2026-05-28 12:41:11]      3m6s        Warning   FailedCreate   replicaset/frontend-workload-68757c8bb7   Error creating: pods "frontend-workload-68757c8bb7-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+[2026-05-28 12:41:11]      3m6s        Warning   FailedCreate   replicaset/sdk-workload-5546cb5c5         Error creating: pods "sdk-workload-5546cb5c5-" is forbidden: error looking up service account tenant-waypoint/workload-sa: serviceaccount "workload-sa" not found
+[2026-05-28 12:41:11]      31s         Warning   TransientErr   atlasmigration/waypoint-migrations        Secret "waypoint-pooler-app" not found
+[2026-05-28 12:41:11] 
+[2026-05-28 12:41:11] ╔══════════════════════════════════════════════╗
+[2026-05-28 12:41:11] ║   TENANT WORKLOAD VALIDATION SUMMARY         ║
+[2026-05-28 12:41:11] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:12] ║  Tenant:   waypoint
+[2026-05-28 12:41:12] ║  Namespace: tenant-waypoint
+[2026-05-28 12:41:12] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:12] ║  ✅ PASSED : 15
+[2026-05-28 12:41:12] ║  ❌ FAILED : 9
+[2026-05-28 12:41:12] ║  ⚠️  WARNED : 7
+[2026-05-28 12:41:12] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:12] ║  FAILURES:
+[2026-05-28 12:41:12] ║    ✗ ArgoCD app 'tenant-waypoint-workloads': Sync=Synced Health=Degraded
+[2026-05-28 12:41:12] ║    ✗ Secret tenant-waypoint/waypoint-pooler-app: not found (database provisioning may not have completed)
+[2026-05-28 12:41:12] ║    ✗ AtlasMigration tenant-waypoint/waypoint-migrations: Ready=False  [Secret "waypoint-pooler-app" not found]
+[2026-05-28 12:41:13] ║    ✗ ServiceAccount tenant-waypoint/migration-sa: not found
+[2026-05-28 12:41:13] ║    ✗ ConfigMap tenant-waypoint/waypoint-custom-migrations: not found
+[2026-05-28 12:41:13] ║    ✗ Rollout tenant-waypoint/bff-workload: phase=Degraded available=0/2
+[2026-05-28 12:41:13] ║    ✗ Rollout tenant-waypoint/frontend-workload: phase=Degraded available=0/2
+[2026-05-28 12:41:13] ║    ✗ Secret tenant-waypoint/waypoint-tls: not found (database provisioning may not have completed)
+[2026-05-28 12:41:13] ║    ✗ Kyverno ClusterPolicy 'enforce-tenant-abi': not found on spoke
+[2026-05-28 12:41:13] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:13] ║  WARNINGS:
+[2026-05-28 12:41:13] ║    ! Job tenant-waypoint/custom-schema-migration: not found (may have been cleaned up by TTL — check events)
+[2026-05-28 12:41:13] ║    ! Service tenant-waypoint/bff-workload: ClusterIP=10.98.43.192 but no ready endpoints (pods may still be starting)
+[2026-05-28 12:41:13] ║    ! Namespace tenant-waypoint: no pods found (label: app=bff)
+[2026-05-28 12:41:13] ║    ! Service tenant-waypoint/frontend-workload: ClusterIP=10.98.99.30 but no ready endpoints (pods may still be starting)
+[2026-05-28 12:41:14] ║    ! Namespace tenant-waypoint: no pods found (label: app=frontend)
+[2026-05-28 12:41:14] ║    ! Ingress tenant-waypoint/waypoint-ingress: no address assigned yet (cert-manager may still be issuing TLS)
+[2026-05-28 12:41:14] ║    ! Namespace tenant-waypoint: recent Warning events (last 10):
+[2026-05-28 12:41:14] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:14] ║  ERROR TRACE EXTRACTS (describe/get):
+[2026-05-28 12:41:14] ║    ### ArgoCD Application Describe: tenant-waypoint-workloads
+[2026-05-28 12:41:14] ║    Name:         tenant-waypoint-workloads
+[2026-05-28 12:41:14] ║    Namespace:    platform-ops
+[2026-05-28 12:41:14] ║    Labels:       resource-type=workload
+[2026-05-28 12:41:14] ║                  target-cluster=spoke-pool-eu-prod-01
+[2026-05-28 12:41:14] ║                  tenant-id=waypoint
+[2026-05-28 12:41:15] ║    Annotations:  <none>
+[2026-05-28 12:41:15] ║    API Version:  argoproj.io/v1alpha1
+[2026-05-28 12:41:15] ║    Kind:         Application
+[2026-05-28 12:41:15] ║    Metadata:
+[2026-05-28 12:41:15] ║      Creation Timestamp:  2026-05-28T02:17:46Z
+[2026-05-28 12:41:15] ║      Finalizers:
+[2026-05-28 12:41:15] ║        resources-finalizer.argocd.argoproj.io
+[2026-05-28 12:41:15] ║      Generation:  322
+[2026-05-28 12:41:15] ║      Owner References:
+[2026-05-28 12:41:15] ║        API Version:           argoproj.io/v1alpha1
+[2026-05-28 12:41:16] ║        Block Owner Deletion:  true
+[2026-05-28 12:41:16] ║        Controller:            true
+[2026-05-28 12:41:16] ║        Kind:                  ApplicationSet
+[2026-05-28 12:41:16] ║        Name:                  tenant-workload-provisioning
+[2026-05-28 12:41:16] ║        UID:                   c304429e-612a-4757-91f7-027141a3d030
+[2026-05-28 12:41:16] ║      Resource Version:        5723144
+[2026-05-28 12:41:16] ║      UID:                     cc79ecc7-5c89-481d-b302-fb4f8712432f
+[2026-05-28 12:41:16] ║    Spec:
+[2026-05-28 12:41:16] ║      Destination:
+[2026-05-28 12:41:17] ║        Name:       spoke-pool-eu-prod-01
+[2026-05-28 12:41:17] ║        Namespace:  tenant-waypoint
+[2026-05-28 12:41:17] ║      Project:      tenant-workloads
+[2026-05-28 12:41:17] ║      Sources:
+[2026-05-28 12:41:17] ║        Path:             tenants/waypoint/workloads
+[2026-05-28 12:41:17] ║        Repo URL:         https://github.com/soloz-io/fleet-registry.git
+[2026-05-28 12:41:17] ║        Target Revision:  main
+[2026-05-28 12:41:17] ║      Sync Policy:
+[2026-05-28 12:41:17] ║        Automated:
+[2026-05-28 12:41:18] ║          Prune:      true
+[2026-05-28 12:41:18] ║          Self Heal:  true
+[2026-05-28 12:41:18] ║        Retry:
+[2026-05-28 12:41:18] ║          Backoff:
+[2026-05-28 12:41:18] ║            Duration:      10s
+[2026-05-28 12:41:18] ║            Factor:        2
+[2026-05-28 12:41:18] ║            Max Duration:  5m
+[2026-05-28 12:41:18] ║          Limit:           10
+[2026-05-28 12:41:18] ║        Sync Options:
+[2026-05-28 12:41:18] ║          ServerSideApply=true
+[2026-05-28 12:41:19] ║          RespectIgnoreDifferences=true
+[2026-05-28 12:41:19] ║    Status:
+[2026-05-28 12:41:19] ║      Controller Namespace:  platform-ops
+[2026-05-28 12:41:19] ║      Health:
+[2026-05-28 12:41:19] ║        Status:  Degraded
+[2026-05-28 12:41:19] ║      History:
+[2026-05-28 12:41:19] ║        Deploy Started At:  2026-05-28T07:12:52Z
+[2026-05-28 12:41:19] ║        Deployed At:        2026-05-28T07:12:53Z
+[2026-05-28 12:41:20] ║        Id:                 0
+[2026-05-28 12:41:20] ║        Initiated By:
+[2026-05-28 12:41:20] ║          Username:  admin
+[2026-05-28 12:41:20] ║        Revisions:
+[2026-05-28 12:41:20] ║          c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+[2026-05-28 12:41:20] ║        Source:
+[2026-05-28 12:41:20] ║          Repo URL:  
+[2026-05-28 12:41:20] ║        Sources:
+[2026-05-28 12:41:21] ║          Path:             tenants/waypoint/workloads
+[2026-05-28 12:41:21] ║          Repo URL:         https://github.com/soloz-io/fleet-registry.git
+[2026-05-28 12:41:21] ║          Target Revision:  main
+[2026-05-28 12:41:21] ║      Operation State:
+[2026-05-28 12:41:21] ║        Finished At:  2026-05-28T07:12:53Z
+[2026-05-28 12:41:22] ║        Message:      successfully synced (all tasks run)
+[2026-05-28 12:41:22] ║        Operation:
+[2026-05-28 12:41:22] ║          Initiated By:
+[2026-05-28 12:41:22] ║            Automated:  true
+[2026-05-28 12:41:22] ║            Username:   admin
+[2026-05-28 12:41:22] ║          Retry:
+[2026-05-28 12:41:22] ║            Backoff:
+[2026-05-28 12:41:22] ║              Duration:      10s
+[2026-05-28 12:41:23] ║              Factor:        2
+[2026-05-28 12:41:23] ║              Max Duration:  5m
+[2026-05-28 12:41:23] ║            Limit:           10
+[2026-05-28 12:41:23] ║          Sync:
+[2026-05-28 12:41:23] ║            Prune:  true
+[2026-05-28 12:41:23] ║            Revisions:
+[2026-05-28 12:41:23] ║              c7e4ce0f4481f5f5e8b6970d0a49e4b783d31aa7
+[2026-05-28 12:41:23] ║            Sync Options:
+[2026-05-28 12:41:24] ║              ServerSideApply=true
+[2026-05-28 12:41:24] ║              RespectIgnoreDifferences=true
+[2026-05-28 12:41:24] ║            Sync Strategy:
+[2026-05-28 12:41:24] ║              Apply:
+[2026-05-28 12:41:24] ║                Force:  true
+[2026-05-28 12:41:24] ║        Phase:          Succeeded
+[2026-05-28 12:41:24] ║        Retry Count:    10
+[2026-05-28 12:41:25] ║        Started At:     2026-05-28T07:12:52Z
+[2026-05-28 12:41:25] ║        Sync Result:
+[2026-05-28 12:41:25] ║          Resources:
+[2026-05-28 12:41:25] ║            Group:       
+[2026-05-28 12:41:25] ║            Hook Phase:  Running
+[2026-05-28 12:41:25] ║            Kind:        ServiceAccount
+[2026-05-28 12:41:25] ║            Message:     serviceaccount/frontend-workload-sa created
+[2026-05-28 12:41:25] ║            Name:        frontend-workload-sa
+[2026-05-28 12:41:26] ║            Namespace:   tenant-waypoint
+[2026-05-28 12:41:26] ║            Status:      Synced
+[2026-05-28 12:41:26] ║            Sync Phase:  Sync
+[2026-05-28 12:41:26] ║            Version:     v1
+[2026-05-28 12:41:26] ║            Group:       
+[2026-05-28 12:41:26] ║            Hook Phase:  Running
+[2026-05-28 12:41:26] ║            Kind:        ServiceAccount
+[2026-05-28 12:41:26] ║            Message:     serviceaccount/sdk-workload-sa created
+[2026-05-28 12:41:27] ║            Name:        sdk-workload-sa
+[2026-05-28 12:41:27] ║            Namespace:   tenant-waypoint
+[2026-05-28 12:41:27] ║            Status:      Synced
+[2026-05-28 12:41:27] ║            Sync Phase:  Sync
+[2026-05-28 12:41:28] ║            Version:     v1
+[2026-05-28 12:41:28] ║            Group:       
+[2026-05-28 12:41:28] ║            Hook Phase:  Running
+[2026-05-28 12:41:28] ║            Kind:        ServiceAccount
+[2026-05-28 12:41:29] ║            Message:     serviceaccount/bff-workload-sa created
+[2026-05-28 12:41:29] ║            Name:        bff-workload-sa
+[2026-05-28 12:41:29] ║            Namespace:   tenant-waypoint
+[2026-05-28 12:41:29] ║            Status:      Synced
+[2026-05-28 12:41:29] ║            Sync Phase:  Sync
+[2026-05-28 12:41:29] ║            Version:     v1
+[2026-05-28 12:41:30] ║            Group:       
+[2026-05-28 12:41:30] ║            Hook Phase:  Running
+[2026-05-28 12:41:30] ╠══════════════════════════════════════════════╣
+[2026-05-28 12:41:30] ║  💥 9 CRITICAL CHECK(S) FAILED            ║
+[2026-05-28 12:41:30] ║  Review failures above before proceeding      ║
+[2026-05-28 12:41:30] ╚══════════════════════════════════════════════╝
+[2026-05-28 12:41:30]   Full log: /c/Users/Administrator/zero-ops/.zero-ops/validate-tenant-workloads.log
+[2026-05-28 12:41:30]   Trace log: /c/Users/Administrator/zero-ops/.zero-ops/validate-tenant-workloads-traces.log
