@@ -20,12 +20,12 @@ spec:
       apiVersion: postgresql.sql.crossplane.io/v1alpha1
       kind: ProviderConfig
       metadata:
-        name: "spoke-pool-eu-prod-01"  # Patched default: cellId (e.g., spoke-pool-eu-prod-01)
+        name: ""  # Patched: cellId (e.g., spoke-pool-eu-prod-01)
       spec:
         credentials:
-          source: PostgreSQLConnectionString
+          source: PostgreSQLConnectionSecret
           connectionSecretRef:
             namespace: platform-data
             name: shared-cnpg-superuser  # CNPG-generated superuser secret
   providerConfigRef:
-    name: "spoke-pool-eu-prod-01"  # Patched default: cellId (provider-kubernetes ProviderConfig for the spoke)
+    name: ""  # Patched: cellId

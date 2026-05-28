@@ -403,4 +403,63 @@ spec:
           convert:
             toType: bool
 
+  # 6. PostgREST JWT Secret Distribution - Wrapped in provider-kubernetes Object
+  #    Pulls the centralized auth secret from Infisical into the tenant namespace.
+  #    Follows ADR-003 Pattern B: Infisical → ESO → Spoke K8s Secret.
+  - name: postgrest-jwt-secret
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: hub-ory-jwt-secret
+              namespace: ""  # Patched
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: infisical-backend
+                kind: ClusterSecretStore
+              target:
+                name: hub-ory-jwt-secret
+                creationPolicy: Owner
+                template:
+                  type: Opaque
+                  engineVersion: v2
+                  data:
+                    secret: "{{ .secret }}"
+              data:
+                - secretKey: secret
+                  remoteRef:
+                    key: hub-hydra-system-secret
+        providerConfigRef:
+          name: ""  # Patched from cellId
+    readinessChecks:
+      - type: MatchCondition
+        matchCondition:
+          type: Ready
+          status: "True"
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-postgrest-jwt-secret"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string:
+          fmt: "tenant-%s"
+
   
