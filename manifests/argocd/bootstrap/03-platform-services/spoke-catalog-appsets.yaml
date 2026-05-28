@@ -1,4 +1,55 @@
 ---
+# Argo Rollouts Operator (Spoke)
+# Required for ADR-021/022: Progressive delivery for stateless web workloads.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: spoke-argo-rollouts
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: '{{.name}}-argo-rollouts'
+      namespace: platform-ops
+      labels:
+        cell-id: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: platform-infrastructure
+      source:
+        repoURL: https://argoproj.github.io/argo-helm
+        chart: argo-rollouts
+        targetRevision: 2.37.1
+        helm:
+          releaseName: argo-rollouts
+      destination:
+        name: '{{.name}}'
+        namespace: argo-rollouts
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+
+---
 # CNPG CRDs
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
