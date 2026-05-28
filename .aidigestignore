@@ -10,7 +10,8 @@ docs
 memory
 k8-secrets
 manifests/hub-core-services/eso/crds/
-internal
 test
 scripts
 cmd
+internal
+!internal\hub-cli

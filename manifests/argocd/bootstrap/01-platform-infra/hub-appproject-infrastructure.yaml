@@ -12,7 +12,7 @@ spec:
     repoURL: https://github.com/soloz-io/zero-ops
     targetRevision: HEAD
     directory:
-      include: appproject.yaml
+      include: '*appproject.yaml'
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops
