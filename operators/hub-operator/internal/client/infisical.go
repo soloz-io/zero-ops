@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"path"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -494,7 +493,3 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 	return nil
 }
 
-// contains is a case-insensitive substring check used for Infisical error message matching.
-func contains(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
-}
