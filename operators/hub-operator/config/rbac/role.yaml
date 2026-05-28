@@ -95,7 +95,7 @@ rules:
 - apiGroups:
   - nutgraf.in
   resources:
-  - ainativesaas
+  - ainativesaases
   verbs:
   - get
   - list
@@ -103,7 +103,7 @@ rules:
 - apiGroups:
   - nutgraf.in
   resources:
-  - ainativesaas/status
+  - ainativesaases/status
   verbs:
   - get
   - patch

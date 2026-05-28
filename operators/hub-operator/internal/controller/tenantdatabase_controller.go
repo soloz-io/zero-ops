@@ -30,8 +30,8 @@ type TenantDatabaseReconciler struct {
 	Scheme         *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaas,verbs=get;list;watch
-//+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaas/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaases,verbs=get;list;watch
+//+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaases/status,verbs=get;update;patch
 
 // Reconcile seeds tenant database credentials into Infisical on first-time AINativeSaaS creation.
 //
