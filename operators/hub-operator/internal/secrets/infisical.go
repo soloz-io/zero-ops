@@ -322,17 +322,17 @@ func (c *InfisicalClient) getOrganizationID(ctx context.Context) (string, error)
 	}
 
 	var claims struct {
-		OrganizationID string `json:"organizationId"`
+		OrgID string `json:"orgId"`
 	}
 	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
 		return "", fmt.Errorf("failed to parse access token claims: %w", err)
 	}
 
-	if claims.OrganizationID == "" {
-		return "", fmt.Errorf("organizationId not found in access token claims")
+	if claims.OrgID == "" {
+		return "", fmt.Errorf("orgId not found in access token claims (payload: %s)", string(claimsBytes))
 	}
 
-	return claims.OrganizationID, nil
+	return claims.OrgID, nil
 }
 
 // createMachineIdentityInInfisical creates a Machine Identity in Infisical
