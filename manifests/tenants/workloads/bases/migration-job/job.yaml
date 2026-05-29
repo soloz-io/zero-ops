@@ -35,7 +35,7 @@ spec:
       containers:
         - name: atlas-migrate
           # Pinned release — not :latest. Kyverno digest policy enforced at admission.
-          image: arigaio/atlas:0.21.0
+          image: arigaio/atlas@sha256:8e29f4254f81bc3d5b0ccca2ace7ea8c0e9c0299930ddf5a2bbd2925ce109c7a
           args:
             - migrate
             - apply
