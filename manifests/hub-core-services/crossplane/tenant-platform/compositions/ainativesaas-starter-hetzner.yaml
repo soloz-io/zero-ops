@@ -161,6 +161,9 @@ spec:
             kind: Deployment
             metadata:
               namespace: ""  # Patched
+              labels:
+                app: postgrest
+                cost-center: data-plane
             spec:
               replicas: 1
               selector:
@@ -170,6 +173,7 @@ spec:
                 metadata:
                   labels:
                     app: postgrest
+                    cost-center: data-plane
                 spec:
                   securityContext:
                     runAsNonRoot: true

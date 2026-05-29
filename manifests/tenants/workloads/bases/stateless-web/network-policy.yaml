@@ -22,9 +22,8 @@ spec:
         - ports:
             - port: "53"
               protocol: UDP
-          rules:
-            dns:
-              - matchPattern: "*"
+            - port: "53"
+              protocol: TCP
 
     # 2. Internal CNPG database on the spoke.
     - toEndpoints:
