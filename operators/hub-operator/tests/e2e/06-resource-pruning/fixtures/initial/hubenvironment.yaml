@@ -27,10 +27,6 @@ spec:
       passwordRef:
         name: infisical-db-credentials
         key: password
-    - name: spoke_controller
-      passwordRef:
-        name: spoke-controller-db-credentials
-        key: password
   nats:
     streams:
     - name: spoke_events

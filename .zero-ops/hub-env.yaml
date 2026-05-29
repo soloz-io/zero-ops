@@ -95,13 +95,6 @@ spec:
       - https://mcp.nutgraf.in/callback
       responseTypes:
       - code
-    - clientId: spoke-controller
-      clientName: Spoke Controller
-      grantTypes:
-      - client_credentials
-      redirectUris: []
-      responseTypes:
-      - token
   observability:
     grafanaAlloy:
       scrapeInterval: 15s

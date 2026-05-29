@@ -34,8 +34,7 @@ HYDRA_URL="https://hydra-admin.ory-system.svc"
 assert "mcp-server OAuth client exists in Hydra" \
   "curl -sf '$HYDRA_URL/admin/clients/mcp-server' -o /dev/null"
 
-assert "spoke-controller OAuth client exists in Hydra" \
-  "curl -sf '$HYDRA_URL/admin/clients/spoke-controller' -o /dev/null"
+
 
 # AC 18.12: Verify NATS streams exist via NATS CLI
 NATS_POD=$(kubectl get pod -n hub-platform-core -l app.kubernetes.io/name=nats -o jsonpath='{.items[0].metadata.name}')

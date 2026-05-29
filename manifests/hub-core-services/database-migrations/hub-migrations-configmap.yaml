@@ -9,13 +9,6 @@ metadata:
     app.kubernetes.io/name: hub-migrations
     app.kubernetes.io/component: database-migrations
 data:
-  20260511020613_spoke_controller_grants.sql: |
-    -- Migration: Spoke Controller Grants
-    -- Description: Grant CREATE privilege to spoke_controller role
-    -- Idempotent: Yes (GRANT is idempotent in PostgreSQL)
-
-    GRANT CREATE ON SCHEMA public TO spoke_controller;
-
   20260511020614_agent_infra_status.sql: |
     -- Migration: Agent Infra Status Table
     -- Description: Create agent_infra_status table with indexes and notification trigger
@@ -98,7 +91,6 @@ data:
     END $$;
 
   atlas.sum: |
-    h1:oTOJxiEdZd9SkN5fEVUzSJbQa6Xh/qAyqwNt+3dfo+0=
-    20260511020613_spoke_controller_grants.sql h1:TgIdhlZOaBZDUrBm9uID/h/mulM7xnnnLoBxo8U1UK0=
+    h1:RGLajB96Yjj9VCQJ6F9HNdk2FJGQKQxFsS3d7ggC1Yg=
     20260511020614_agent_infra_status.sql h1:g7bHBqPuTU7UHAoOTrmkm34ceGb34zNDDYLzjQ5fYmo=
     20260511020615_agent_infra_status_rls.sql h1:LG8DGZNbDgr/h6jg6J/04wlvcI1kYlinNUf1gQHn40M=

@@ -32,7 +32,7 @@ assert_not_exists() {
 
 echo "=== Resource Pruning Assertions (Final State) ==="
 
-# AC 21.5: Verify only 2 roles exist (spoke_controller deleted)
+# AC 21.5: Verify 2 roles exist
 echo ""
 echo "Checking database roles..."
 
@@ -41,10 +41,6 @@ for role in mcp_server infisical; do
     "kubectl exec -n $NAMESPACE $DB_POD -- psql -U postgres -tAc \
       \"SELECT 1 FROM pg_roles WHERE rolname='$role'\" | grep -q 1"
 done
-
-assert_not_exists "role spoke_controller deleted" \
-  "kubectl exec -n $NAMESPACE $DB_POD -- psql -U postgres -tAc \
-    \"SELECT 1 FROM pg_roles WHERE rolname='spoke_controller'\" | grep -q 1"
 
 # AC 21.6: Verify 2 OAuth clients exist (web-ui deleted)
 echo ""

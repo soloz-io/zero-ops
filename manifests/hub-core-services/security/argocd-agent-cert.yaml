@@ -84,7 +84,7 @@ spec:
               names:
                 - argocd-agent-ca-secret-source
               namespaces:
-                - platform-ops
+                - platform-capi
       context:
         - name: caCrt
           variable:

@@ -947,7 +947,6 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 			"keto":             {"Deployment", "keto", "platform-identity"},
 			"spire_server":     {"StatefulSet", "spire-server", "platform-security"},
 			"mcp_server":       {"Deployment", "mcp-server", "platform-ops"},
-			"spoke_controller": {"Deployment", "spoke-controller", namespace},
 		}
 
 		if svc, ok := serviceMap[serviceName]; ok {

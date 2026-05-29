@@ -1,31 +1,5 @@
-# ProviderConfig for provider-sql pointing to the shared CNPG cluster on each Spoke Pool.
-# This is deployed as a provider-kubernetes Object so Crossplane (running on Hub)
-# creates the ProviderConfig on the Spoke cluster where CNPG runs.
-#
-# One ProviderConfig per Spoke Pool cell (named after the cellId).
-# The AINativeSaaS Composition references this ProviderConfig by cellId.
-#
-# Connection uses the shared-cnpg superuser (postgres) for user/grant management.
-# The postgres superuser credentials are stored in the CNPG-generated secret:
-#   shared-cnpg-superuser in platform-data namespace.
-apiVersion: kubernetes.crossplane.io/v1alpha2
-kind: Object
-metadata:
-  name: provider-sql-config  # Overridden per cell in Composition
-spec:
-  managementPolicies:
-    - "*"
-  forProvider:
-    manifest:
-      apiVersion: postgresql.sql.crossplane.io/v1alpha1
-      kind: ProviderConfig
-      metadata:
-        name: ""  # Patched: cellId (e.g., spoke-pool-eu-prod-01)
-      spec:
-        credentials:
-          source: PostgreSQLConnectionSecret
-          connectionSecretRef:
-            namespace: platform-data
-            name: shared-cnpg-superuser  # CNPG-generated superuser secret
-  providerConfigRef:
-    name: ""  # Patched: cellId
+# Deleted: This ProviderConfig is natively managed by the Spoke catalog
+# via spoke-catalog/infra/crossplane-providerconfig-sql.yaml.
+# The Hub-level Object resource had an empty providerConfigRef.name,
+# causing continuous reconciliation failures (6,484+ retries).
+# The Spoke cluster already deploys a fully functional default ProviderConfig locally.

@@ -1,6 +1,6 @@
 ---
 # GitOps-compliant resource pruning trigger
-# Patches ArgoCD Application to sync updated CR with 2 roles (removed spoke_controller)
+# Patches ArgoCD Application to sync updated CR with 2 roles
 # and 2 NATS streams (removed audit_events), 2 OAuth clients (removed web-ui)
 apiVersion: argoproj.io/v1alpha1
 kind: Application

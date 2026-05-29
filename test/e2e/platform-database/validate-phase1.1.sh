@@ -144,11 +144,7 @@ check_sql "hub" \
     "2" \
     "RLS policies exist on agent_infra_status (spoke_cluster_isolation + tenant_isolation)"
 
-# 1.2.5 - Verify spoke_controller role exists
-check_sql "postgres" \
-    "SELECT COUNT(*) FROM pg_roles WHERE rolname = 'spoke_controller';" \
-    "1" \
-    "spoke_controller database role exists"
+
 
 # 1.2.6 - Verify hub-db-credentials secret exists
 echo -n "Checking: hub-db-credentials secret exists... "

@@ -12,12 +12,6 @@ metadata:
   name: infisical-db-credentials
   namespace: platform-data
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: spoke-controller-db-credentials
-  namespace: platform-data
----
 # AC 21.3: Assert 3 OAuth clients exist
 # AC 21.3: Assert 3 NATS streams exist
 apiVersion: ops.nutgraf.in/v1alpha1

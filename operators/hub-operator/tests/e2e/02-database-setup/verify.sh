@@ -29,7 +29,7 @@ assert "schema_migrations table exists" \
   "psql_query \"SELECT COUNT(*) FROM schema_migrations\" | grep -qv '^0$'"
 
 # AC 17.7-17.13: Verify all roles exist
-for role in mcp_server infisical spoke_controller spire_server hydra kratos keto; do
+for role in mcp_server infisical spire_server hydra kratos keto; do
   assert "Role '$role' exists in PostgreSQL" \
     "psql_query \"SELECT 1 FROM pg_roles WHERE rolname='$role'\" | grep -q 1"
 done

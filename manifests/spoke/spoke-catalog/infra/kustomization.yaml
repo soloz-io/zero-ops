@@ -15,5 +15,5 @@ resources:
   - cluster-secret-store.yaml
   - grafana-alloy.yaml
   - nats-leaf-node.yaml
-  - spoke-controller.yaml
   - kyverno-tenant-abi.yaml
+  - s3-credentials-es.yaml

@@ -56,11 +56,7 @@ echo ""
 echo "6. Validating required SPIFFE identities..."
 ENTRIES=$(kubectl exec -n spire-system "$SERVER_POD" -- /opt/spire/bin/spire-server entry show -socketPath /run/spire/sockets/server.sock)
 
-if echo "$ENTRIES" | grep -q "spiffe://zero-ops.nutgraf.in/spoke-controller"; then
-  echo "✓ Spoke Controller identity registered"
-else
-  echo "✗ Spoke Controller identity NOT found"
-fi
+
 
 if echo "$ENTRIES" | grep -q "spiffe://zero-ops.nutgraf.in/grafana-alloy"; then
   echo "✓ Grafana Alloy identity registered"

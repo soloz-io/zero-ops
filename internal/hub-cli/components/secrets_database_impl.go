@@ -168,7 +168,6 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 //
 // 2. Generates Layer 2 (Application) credentials and stores in Infisical:
 //   - control-plane-db-* (mcp_server, agentregistry)
-//   - hub-db-* (spoke_controller)
 //
 // 3. ExternalSecrets Operator syncs all credentials from Infisical to K8s
 //
@@ -250,15 +249,7 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		password string
 	}{
 		{"control-plane-db", "mcp_server", controlPlanePassword},
-		{"hub-db", "spoke_controller", ""},
 	}
-
-	// Generate hub password
-	hubPassword, err := generateSecurePassword(32)
-	if err != nil {
-		return false, fmt.Errorf("failed to generate hub password: %w", err)
-	}
-	credentials[1].password = hubPassword
 
 	// Store only username and password in Infisical (host/port/database are static in manifests)
 	for _, cred := range credentials {

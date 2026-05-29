@@ -88,13 +88,6 @@ spec:
       - refresh_token
       responseTypes:
       - code
-    - clientId: spoke-controller
-      clientName: "Spoke Controller"
-      redirectUris: []
-      grantTypes:
-      - client_credentials
-      responseTypes:
-      - token
   secrets:
     infisical:
       projectSlug: hub-platform
