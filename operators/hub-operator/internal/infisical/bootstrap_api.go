@@ -272,6 +272,7 @@ func (api *BootstrapAPI) CreateIdentity(ctx context.Context, adminToken, identit
 	payload := map[string]string{
 		"name":           identityName,
 		"organizationId": orgID,
+		"role":           "admin",
 	}
 
 	body, err := json.Marshal(payload)

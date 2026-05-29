@@ -21,7 +21,7 @@ const (
 	ProjectName      = "Hub-Platform"
 	ProjectSlug      = "hub-platform"
 	OrganizationName = "hub-ops"
-	IdentityName     = "eso-operator"
+	IdentityName     = "hub-operator"
 	IdentityRole     = "admin"
 	EnvironmentSlug  = "dev"
 
