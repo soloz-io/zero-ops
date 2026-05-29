@@ -161,6 +161,11 @@ spec:
           kind: Deployment
           jsonPointers:
             - /spec/replicas
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /spec/target/template/data
+            - /status
 
 ---
 # ApplicationSet for tenant application workloads (BYOWR — Bring Your Own Workload Repo)
