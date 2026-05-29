@@ -44,11 +44,12 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	spokeName := spokePool.GetName()
 	logger.Info("Reconciling SpokePool", "spoke", spokeName)
 
-	// 3. Check if this is first-time creation (status condition not set)
-	isFirstTime := !r.isStatusConditionTrue(spokePool, "CrossplaneAdminSecretGenerated")
-
-	// ADR-031: Delegate to InfisicalClient for Machine Identity lifecycle
-	result, err := r.InfisicalClient.EnsureInfisicalCredentials(ctx, spokeName, isFirstTime)
+	// ADR-031: Delegate to InfisicalClient for Machine Identity lifecycle.
+	// isFirstTime is always true because EnsureInfisicalCredentials performs its own
+	// idempotency check by querying Infisical directly. Passing false would prevent
+	// credential creation for existing SpokePools whose Infisical paths are empty
+	// (e.g. first deployment of ADR-031 controller code).
+	result, err := r.InfisicalClient.EnsureInfisicalCredentials(ctx, spokeName, true)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Infisical credentials for SpokePool", "spoke", spokeName)
 		if result != nil && result.Result == secrets.EnsureMissing {

@@ -71,11 +71,11 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	logger.Info("Reconciling TenantDatabase credentials", "tenant", tenantId, "cell", cellId)
 
-	// 2. Determine first-time vs subsequent reconcile via status condition
-	isFirstTime := !r.isConditionTrue(ainativesaas, "TenantDBCredentialsSeeded")
-
-	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime)
+	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning.
+	// isFirstTime is always true because EnsureTenantFolderAndCredentials has its own
+	// idempotency check. This handles existing tenants that were provisioned before
+	// the ADR-031 controller code was deployed.
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, true)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {

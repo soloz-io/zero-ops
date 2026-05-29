@@ -64,7 +64,22 @@ patches:
       path: /spec/template/spec/containers/0/env
       value:
         - name: INFISICAL_BASE_URL
-          value: "https://infisical.platform-ops.svc"
+          value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+        - name: INFISICAL_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-id
+        - name: INFISICAL_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-secret
+        - name: INFISICAL_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-admin
+              key: project-id
         - name: HYDRA_BASE_URL
           value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
         - name: NATS_URL
