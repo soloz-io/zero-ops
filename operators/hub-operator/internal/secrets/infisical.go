@@ -3,7 +3,6 @@ package secrets
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,6 +28,7 @@ type InfisicalClient struct {
 	ClientID        string
 	ClientSecret    string
 	ProjectID       string
+	OrganizationID  string
 	EnvironmentSlug string
 
 	httpClient  *http.Client
@@ -37,7 +37,7 @@ type InfisicalClient struct {
 }
 
 // NewInfisicalClient creates a new InfisicalClient from env-provided credentials.
-func NewInfisicalClient(baseURL, clientID, clientSecret, projectID string) *InfisicalClient {
+func NewInfisicalClient(baseURL, clientID, clientSecret, projectID, organizationID string) *InfisicalClient {
 	if baseURL == "" {
 		baseURL = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
 	}
@@ -46,6 +46,7 @@ func NewInfisicalClient(baseURL, clientID, clientSecret, projectID string) *Infi
 		ClientID:        clientID,
 		ClientSecret:    clientSecret,
 		ProjectID:       projectID,
+		OrganizationID:  organizationID,
 		EnvironmentSlug: "dev",
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -303,36 +304,14 @@ func (c *InfisicalClient) CreateSecret(ctx context.Context, secretPath, secretNa
 // MACHINE IDENTITY API OPERATIONS
 // ============================================================================
 
-// getOrganizationID extracts the organization ID from the current JWT access
-// token claims. The token is a JWT whose payload contains the organizationId
-// claim set by Infisical during Universal Auth login.
+// getOrganizationID returns the pre-configured OrganizationID for this InfisicalClient.
+// Machine Identity access tokens do not include orgId in their JWT claims, so we
+// rely on the bootstrap-stored org ID (sourced from INFISICAL_ORGANIZATION_ID env var).
 func (c *InfisicalClient) getOrganizationID(ctx context.Context) (string, error) {
-	if err := c.ensureAuthenticated(ctx); err != nil {
-		return "", err
+	if c.OrganizationID != "" {
+		return c.OrganizationID, nil
 	}
-
-	parts := strings.Split(c.token, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid access token format")
-	}
-
-	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", fmt.Errorf("failed to decode access token payload: %w", err)
-	}
-
-	var claims struct {
-		OrgID string `json:"orgId"`
-	}
-	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
-		return "", fmt.Errorf("failed to parse access token claims: %w", err)
-	}
-
-	if claims.OrgID == "" {
-		return "", fmt.Errorf("orgId not found in access token claims (payload: %s)", string(claimsBytes))
-	}
-
-	return claims.OrgID, nil
+	return "", fmt.Errorf("OrganizationID not configured — set INFISICAL_ORGANIZATION_ID env var")
 }
 
 // createMachineIdentityInInfisical creates a Machine Identity in Infisical
