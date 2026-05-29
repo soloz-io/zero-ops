@@ -666,7 +666,7 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 // EnsureTenantFolderAndCredentials creates the tenant folder, copies the shared
 // Machine Identity credentials into the tenant's path (for SDK identity resolution
 // per ADR-019), and generates DB credentials for the tenant database.
-//
+// 
 // Idempotency contract (ADR-003):
 //   - If db-credentials exist in tenant path → AlreadyExists.
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
