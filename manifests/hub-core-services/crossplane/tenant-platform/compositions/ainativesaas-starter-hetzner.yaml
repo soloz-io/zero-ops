@@ -246,6 +246,20 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels['cost-center']
+      transforms:
+      - type: string
+        string:
+          fmt: "platform"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels['cost-center']
+      transforms:
+      - type: string
+        string:
+          fmt: "platform"
     # PGRST_DB_URI sourced from tenant-specific credentials secret (not shared postgres user)
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
@@ -501,15 +515,15 @@ spec:
                 - secretKey: client-id
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: client-id
+                    property: clientId
                 - secretKey: client-secret
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: client-secret
+                    property: clientSecret
                 - secretKey: project-id
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: project-id
+                    property: projectId
         providerConfigRef:
           name: ""  # Patched to cellId
     readinessChecks:

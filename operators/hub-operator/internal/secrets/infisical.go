@@ -393,10 +393,11 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 	}
 
 	// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
+	// Keys must be camelCase to match ESO Infisical provider remoteRef.property
 	creds := map[string]string{
-		"client-id":     identity.ClientID,
-		"client-secret": identity.ClientSecret,
-		"project-id":    c.ProjectID,
+		"clientId":     identity.ClientID,
+		"clientSecret": identity.ClientSecret,
+		"projectId":    c.ProjectID,
 	}
 	jsonBytes, err := json.Marshal(creds)
 	if err != nil {
