@@ -3,6 +3,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -299,36 +300,250 @@ func (c *InfisicalClient) CreateSecret(ctx context.Context, secretPath, secretNa
 }
 
 // ============================================================================
-// MACHINE IDENTITY CREDENTIAL GENERATION
+// MACHINE IDENTITY API OPERATIONS
 // ============================================================================
 
-// machineIdentity holds the generated credentials for a Spoke-scoped identity.
-type machineIdentity struct {
-	ClientID     string
-	ClientSecret string
+// getOrganizationID extracts the organization ID from the current JWT access
+// token claims. The token is a JWT whose payload contains the organizationId
+// claim set by Infisical during Universal Auth login.
+func (c *InfisicalClient) getOrganizationID(ctx context.Context) (string, error) {
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return "", err
+	}
+
+	parts := strings.Split(c.token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid access token format")
+	}
+
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode access token payload: %w", err)
+	}
+
+	var claims struct {
+		OrganizationID string `json:"organizationId"`
+	}
+	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
+		return "", fmt.Errorf("failed to parse access token claims: %w", err)
+	}
+
+	if claims.OrganizationID == "" {
+		return "", fmt.Errorf("organizationId not found in access token claims")
+	}
+
+	return claims.OrganizationID, nil
 }
 
-// generateMachineCredentials generates cryptographically strong client-id and
-// client-secret values for a Spoke-scoped Machine Identity.
-//
-// NOTE: These are static credential pairs stored in Infisical for ESO consumption.
-// They are NOT real Infisical Machine Identities created via the API (which
-// requires an org-level admin token). To provision actual Infisical Machine
-// Identities, use the BootstrapAPI in internal/infisical/bootstrap_api.go with
-// the infisical-admin token from the infisical-admin K8s secret.
-func (c *InfisicalClient) generateMachineCredentials(ctx context.Context, identityName string) (*machineIdentity, error) {
-	clientID, err := GenerateSecurePassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate client-id for %s: %w", identityName, err)
+// createMachineIdentityInInfisical creates a Machine Identity in Infisical
+// via POST /api/v1/identities and returns the new identity's UUID.
+func (c *InfisicalClient) createMachineIdentityInInfisical(ctx context.Context, name, orgID string) (string, error) {
+	payload := map[string]string{
+		"name":           name,
+		"organizationId": orgID,
 	}
-	clientSecret, err := GenerateSecurePassword()
+
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate client-secret for %s: %w", identityName, err)
+		return "", fmt.Errorf("failed to marshal identity request: %w", err)
 	}
-	return &machineIdentity{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-	}, nil
+
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+"/api/v1/identities", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to create identity: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create identity failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var identityResp struct {
+		Identity struct {
+			ID string `json:"id"`
+		} `json:"identity"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&identityResp); err != nil {
+		return "", fmt.Errorf("failed to decode identity response: %w", err)
+	}
+
+	return identityResp.Identity.ID, nil
+}
+
+// attachUniversalAuth attaches Universal Auth to a Machine Identity via
+// POST /api/v1/auth/universal-auth/identities/{identityId}.
+// Idempotent: if UA is already configured, returns nil (no error).
+func (c *InfisicalClient) attachUniversalAuth(ctx context.Context, identityID string) error {
+	payload := map[string]interface{}{
+		"clientSecretTrustedIps": []map[string]string{
+			{"ipAddress": "0.0.0.0/0"},
+			{"ipAddress": "::/0"},
+		},
+		"accessTokenTrustedIps": []map[string]string{
+			{"ipAddress": "0.0.0.0/0"},
+			{"ipAddress": "::/0"},
+		},
+		"accessTokenTTL":             2592000,
+		"accessTokenMaxTTL":          2592000,
+		"accessTokenNumUsesLimit":    0,
+		"lockoutEnabled":             true,
+		"lockoutThreshold":           3,
+		"lockoutDurationSeconds":     300,
+		"lockoutCounterResetSeconds": 30,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attach auth request: %w", err)
+	}
+
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+"/api/v1/auth/universal-auth/identities/"+identityID, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to attach universal auth: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	// Idempotent: UA already configured for this identity
+	if resp.StatusCode == http.StatusBadRequest && bytes.Contains(respBody, []byte("already configured")) {
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("attach universal auth failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// getClientIDFromUniversalAuth retrieves the clientId from the Universal Auth
+// configuration via GET /api/v1/auth/universal-auth/identities/{identityId}.
+func (c *InfisicalClient) getClientIDFromUniversalAuth(ctx context.Context, identityID string) (string, error) {
+	req, err := c.newAuthenticatedRequest(ctx, "GET", c.BaseURL+"/api/v1/auth/universal-auth/identities/"+identityID, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get universal auth: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("get universal auth failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var uaResp struct {
+		IdentityUniversalAuth struct {
+			ClientID string `json:"clientId"`
+		} `json:"identityUniversalAuth"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&uaResp); err != nil {
+		return "", fmt.Errorf("failed to decode universal auth response: %w", err)
+	}
+
+	return uaResp.IdentityUniversalAuth.ClientID, nil
+}
+
+// generateClientSecret generates a client secret for a Machine Identity via
+// POST /api/v1/auth/universal-auth/identities/{identityId}/client-secrets.
+// Returns the plaintext secret (shown only once by the API).
+func (c *InfisicalClient) generateClientSecret(ctx context.Context, identityID string) (string, error) {
+	payload := map[string]interface{}{
+		"description":   "",
+		"numUsesLimit":  0,
+		"ttl":           0,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal client secret request: %w", err)
+	}
+
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+"/api/v1/auth/universal-auth/identities/"+identityID+"/client-secrets", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate client secret: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("generate client secret failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var credsResp struct {
+		ClientSecret string `json:"clientSecret"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&credsResp); err != nil {
+		return "", fmt.Errorf("failed to decode client secret response: %w", err)
+	}
+
+	return credsResp.ClientSecret, nil
+}
+
+// grantProjectAccess grants a Machine Identity access to the hub-platform
+// project via POST /api/v1/projects/{projectId}/memberships/identities/{identityId}.
+// Idempotent: if the identity already has project access, returns nil.
+func (c *InfisicalClient) grantProjectAccess(ctx context.Context, identityID, role string) error {
+	payload := map[string]string{
+		"role": role,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal grant access request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/projects/%s/memberships/identities/%s", c.BaseURL, c.ProjectID, identityID)
+	req, err := c.newAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to grant project access: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	// Idempotent: identity might already have project access
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusConflict {
+		if bytes.Contains(respBody, []byte("already")) || bytes.Contains(respBody, []byte("exists")) {
+			return nil
+		}
+		return fmt.Errorf("grant project access failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("grant project access failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }
 
 // ============================================================================
@@ -355,10 +570,18 @@ type EnsureTenantCredentialsResult struct {
 	InfisicalCredsOutcome EnsureResult
 }
 
-// EnsureInfisicalCredentials creates a Spoke-scoped Machine Identity and stores it in the shared path.
+// EnsureInfisicalCredentials provisions a REAL Machine Identity in Infisical
+// and stores its credentials in the shared path.
+//
+// Per ADR-031 this replaces the previous fake credential generation with actual
+// Infisical Machine Identity API calls so that the tenant SecretStore can
+// authenticate (the old fake hex strings had no corresponding Machine Identity
+// registered in Infisical, causing "Invalid credentials" / 401 on login).
+//
 // Idempotency contract (ADR-003):
 //   - If infisical-credentials exist in shared path → AlreadyExists.
-//   - If missing AND isFirstTime → create identity, attach policy, upload, return Created.
+//   - If missing AND isFirstTime → create MI, attach Universal Auth, generate
+//     client secret, grant project viewer access, upload creds, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
 func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId string, isFirstTime bool) (*EnsureInfisicalCredentialsResult, error) {
 	logger := log.FromContext(ctx)
@@ -383,19 +606,62 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 			fmt.Errorf("infisical-credentials missing from Infisical for already-provisioned SpokePool %s — manual recovery required", cellId)
 	}
 
-	// Generate Machine Identity credentials for this Spoke Pool
+	// Provision a REAL Machine Identity via Infisical API
 	identityName := fmt.Sprintf("spoke-pool-%s", cellId)
-	logger.Info("First-time creation: generating Machine Identity credentials", "cell", cellId, "identity", identityName)
-	identity, err := c.generateMachineCredentials(ctx, identityName)
+	logger.Info("First-time creation: provisioning real Machine Identity in Infisical", "cell", cellId, "identity", identityName)
+
+	// Step 1: Resolve the organization ID from the current auth context
+	orgID, err := c.getOrganizationID(ctx)
 	if err != nil {
-		logger.Error(err, "Failed to generate machine identity credentials", "cell", cellId)
-		return nil, fmt.Errorf("failed to generate machine identity credentials: %w", err)
+		logger.Error(err, "Failed to get organization ID from auth context", "cell", cellId)
+		return nil, fmt.Errorf("failed to get organization ID: %w", err)
 	}
 
-	// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
+	// Step 2: Create the Machine Identity
+	identityID, err := c.createMachineIdentityInInfisical(ctx, identityName, orgID)
+	if err != nil {
+		logger.Error(err, "Failed to create Machine Identity in Infisical", "cell", cellId, "identity", identityName)
+		return nil, fmt.Errorf("failed to create Machine Identity %s: %w", identityName, err)
+	}
+	logger.Info("Machine Identity created in Infisical", "cell", cellId, "identityID", identityID)
+
+	// Step 3: Attach Universal Auth
+	if err := c.attachUniversalAuth(ctx, identityID); err != nil {
+		logger.Error(err, "Failed to attach Universal Auth to Machine Identity", "cell", cellId, "identityID", identityID)
+		return nil, fmt.Errorf("failed to attach Universal Auth to identity %s: %w", identityID, err)
+	}
+	logger.Info("Universal Auth attached to Machine Identity", "cell", cellId, "identityID", identityID)
+
+	// Step 4: Retrieve the clientId from the UA configuration
+	clientID, err := c.getClientIDFromUniversalAuth(ctx, identityID)
+	if err != nil {
+		logger.Error(err, "Failed to get clientId from Universal Auth", "cell", cellId, "identityID", identityID)
+		return nil, fmt.Errorf("failed to get clientId for identity %s: %w", identityID, err)
+	}
+	logger.Info("Retrieved clientId for Machine Identity", "cell", cellId)
+
+	// Step 5: Generate a client secret (plaintext, shown once by API)
+	clientSecret, err := c.generateClientSecret(ctx, identityID)
+	if err != nil {
+		logger.Error(err, "Failed to generate client secret", "cell", cellId, "identityID", identityID)
+		return nil, fmt.Errorf("failed to generate client secret for identity %s: %w", identityID, err)
+	}
+	logger.Info("Client secret generated for Machine Identity", "cell", cellId)
+
+	// Step 6: Grant project-level viewer access (least privilege for ESO)
+	if err := c.grantProjectAccess(ctx, identityID, "viewer"); err != nil {
+		logger.Error(err, "Failed to grant project access to Machine Identity", "cell", cellId, "identityID", identityID)
+		// Continue — credentials still exist, just without project scope
+		// The tenant SecretStore will fail with "no access" rather than "invalid credentials"
+		logger.Info("Continuing despite partial project access failure; this MI will need manual role assignment")
+	} else {
+		logger.Info("Project viewer access granted to Machine Identity", "cell", cellId, "identityID", identityID)
+	}
+
+	// Store the real credentials at the shared path
 	creds := map[string]string{
-		"client-id":     identity.ClientID,
-		"client-secret": identity.ClientSecret,
+		"client-id":     clientID,
+		"client-secret": clientSecret,
 		"project-id":    c.ProjectID,
 	}
 	jsonBytes, err := json.Marshal(creds)
@@ -403,13 +669,13 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 		return nil, fmt.Errorf("failed to marshal infisical credentials: %w", err)
 	}
 
-	logger.Info("Uploading Machine Identity credentials to Infisical", "cell", cellId, "path", sharedPath)
+	logger.Info("Uploading real Machine Identity credentials to Infisical", "cell", cellId, "path", sharedPath)
 	if err := c.CreateSecret(ctx, sharedPath, "infisical-credentials", string(jsonBytes)); err != nil {
 		logger.Error(err, "Failed to push infisical-credentials secret to Infisical", "cell", cellId, "path", sharedPath)
 		return nil, fmt.Errorf("failed to push infisical-credentials secret: %w", err)
 	}
 
-	logger.Info("SpokePool Machine Identity credentials seeded in Infisical", "cell", cellId, "path", sharedPath)
+	logger.Info("SpokePool real Machine Identity credentials seeded in Infisical", "cell", cellId, "path", sharedPath)
 	return &EnsureInfisicalCredentialsResult{Result: EnsureCreated}, nil
 }
 
