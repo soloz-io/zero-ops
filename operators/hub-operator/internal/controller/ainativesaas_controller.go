@@ -7,13 +7,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
 
@@ -32,9 +30,7 @@ import (
 // Mirrors SpokePoolReconciler (ADR-003 Pattern A2b) for consistency.
 type AINativeSaaSReconciler struct {
 	client.Client
-	// UncachedClient reads secrets directly from API server (bypasses cache transformer)
-	UncachedClient client.Client
-	Scheme         *runtime.Scheme
+	InfisicalClient *secrets.InfisicalClient
 }
 
 //+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaases,verbs=get;list;watch
@@ -75,97 +71,27 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	logger.Info("Reconciling TenantDatabase credentials", "tenant", tenantId, "cell", cellId)
 
-	// 2. Create Infisical client (authenticates via infisical-auth secret in platform-ops)
-	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
-	if err != nil {
-		logger.Error(err, "Failed to create Infisical client", "tenant", tenantId)
-		return ctrl.Result{}, fmt.Errorf("failed to create Infisical client: %w", err)
-	}
-
-	// 3. Determine first-time vs subsequent reconcile via status condition
+	// 2. Determine first-time vs subsequent reconcile via status condition
 	isFirstTime := !r.isConditionTrue(ainativesaas, "TenantDBCredentialsSeeded")
 
-	// 4. Ensure Infisical folder hierarchy exists before creating secrets.
-	// Infisical V3 API requires the folder path to exist before placing secrets inside it.
-	// This creates the full chain: /spoke-pool/<cellId>/tenants/<tenantId>
-	infisicalPath := fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellId, tenantId)
-	if err := infisicalClient.EnsureTenantFolder(ctx, "hub-platform", "dev", cellId, tenantId); err != nil {
-		logger.Error(err, "Failed to ensure Infisical folder hierarchy", "tenant", tenantId, "cell", cellId)
-		return ctrl.Result{}, fmt.Errorf("failed to ensure Infisical folder hierarchy for tenant %s: %w", tenantId, err)
-	}
-
-	// 5. Seed Infisical Machine Identity credentials for SDK (ADR-003, ADR-019)
-	//    The SDK workload needs its own scoped Machine Identity to resolve runtime
-	//    plugin credentials from Infisical. The ExternalSecret at
-	//    remoteRef.key=/spoke-pool/<cellId>/tenants/<tenantId>/infisical-credentials
-	//    waits for these three properties: client-id, client-secret, project-id.
-	//
-	//    TODO: In production, replace generated mock values with a real Infisical
-	//    Machine Identity created via CreateIdentity + AttachUniversalAuth +
-	//    GenerateClientCredentials + GrantProjectAccess (see internal/infisical/bootstrap_api.go).
-	if err := r.ensureInfisicalCredentials(ctx, infisicalClient, tenantId, infisicalPath); err != nil {
+	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime)
+	if err != nil {
+		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
+		if result != nil && result.Result == secrets.EnsureMissing {
+			_ = r.setCondition(ctx, ainativesaas, tenantId, conditionMissing)
+		}
 		return ctrl.Result{}, err
 	}
 
-	// 6. IDEMPOTENCY: Infisical is the source of truth — check before generating.
-	// ADR-003: ESO remoteRef.key=/spoke-pool/<cellId>/tenants/<tenantId>/db-credentials
-	// with property: username/password — ESO Infisical provider uses the last path segment
-	// as the secret name and the remaining prefix as the folder path. The secret value
-	// must be a JSON object with username and password properties.
-	secretName := "db-credentials"
-
-	credentialsExist, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, secretName)
-	if err != nil {
-		logger.Error(err, "Failed to check Infisical for db-credentials", "tenant", tenantId, "path", infisicalPath)
-		return ctrl.Result{}, fmt.Errorf("failed to check Infisical: %w", err)
-	}
-
-	if credentialsExist {
-		logger.Info("Credentials already exist in Infisical, skipping generation", "tenant", tenantId, "path", infisicalPath, "secret", secretName)
+	switch result.Result {
+	case secrets.EnsureAlreadyExists:
 		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionAlreadyExists)
+	case secrets.EnsureCreated:
+		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)
+	default:
+		return ctrl.Result{}, nil
 	}
-
-	// 7. Credentials missing — enforce idempotency contract
-	if !isFirstTime {
-		// ADR-003: credentials missing post-provisioning → FAIL, do not regenerate.
-		// Regenerating would silently break the live PostgreSQL role.
-		logger.Error(nil,
-			"CRITICAL: DB credentials missing from Infisical for already-provisioned tenant. Manual intervention required.",
-			"tenant", tenantId, "path", infisicalPath)
-		if err := r.setCondition(ctx, ainativesaas, tenantId, conditionMissing); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, fmt.Errorf(
-			"DB credentials missing from Infisical for already-provisioned tenant %s — manual recovery required", tenantId)
-	}
-
-	// 8. First-time: generate credentials and upload to Infisical ONLY (no Hub K8s secret).
-	// Username follows the convention used in tenantdatabase-spoke.yaml: tenant-<id>-user
-	username := fmt.Sprintf("tenant-%s-user", tenantId)
-
-	// ADR-030: full-entropy password; urlquery encoding handled by ESO template at consumption.
-	password, err := secrets.GenerateSecurePassword()
-	if err != nil {
-		logger.Error(err, "Failed to generate password", "tenant", tenantId)
-		return ctrl.Result{}, fmt.Errorf("failed to generate password for tenant %s: %w", tenantId, err)
-	}
-
-	logger.Info("Generated credentials for tenant", "tenant", tenantId, "usernameLength", len(username), "passwordLength", len(password))
-
-	// 9. Upload combined JSON secret at the tenant folder path. ESO remoteRef.key splits
-	// on the last '/' so the secret name is "db-credentials" and the folder path is
-	// /spoke-pool/<cellId>/tenants/<tenantId>. The property field (username/password)
-	// then extracts individual fields from the JSON value.
-	secretValue := fmt.Sprintf(`{"username":"%s","password":"%s"}`, username, password)
-	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, secretName, secretValue); err != nil {
-		logger.Error(err, "Failed to upload db-credentials to Infisical", "tenant", tenantId, "path", infisicalPath)
-		return ctrl.Result{}, fmt.Errorf("failed to upload db-credentials to Infisical for tenant %s: %w", tenantId, err)
-	}
-
-	logger.Info("Tenant DB credentials seeded in Infisical", "tenant", tenantId, "path", infisicalPath, "secret", secretName)
-
-	// 10. Set status condition — Crossplane composition can now proceed
-	return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)
 }
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.
@@ -284,57 +210,6 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 		return err
 	}
 
-	return nil
-}
-
-// ensureInfisicalCredentials checks for existing infisical-credentials in Infisical and
-// generates+uploads them if absent. This is independent of the db-credentials flow so
-// that existing tenants with db-credentials already seeded will also get their SDK
-// Machine Identity credentials on the next reconcile.
-func (r *AINativeSaaSReconciler) ensureInfisicalCredentials(ctx context.Context, infisicalClient *infisicalclient.InfisicalClient, tenantId, infisicalPath string) error {
-	logger := log.FromContext(ctx)
-
-	infisicalSecretName := "infisical-credentials"
-	exists, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", infisicalPath, infisicalSecretName)
-	if err != nil {
-		logger.Error(err, "Failed to check Infisical for infisical-credentials", "tenant", tenantId, "path", infisicalPath)
-		return fmt.Errorf("failed to check Infisical for infisical-credentials: %w", err)
-	}
-
-	if exists {
-		logger.Info("Infisical credentials already exist in Infisical, skipping generation", "tenant", tenantId, "path", infisicalPath, "secret", infisicalSecretName)
-		return nil
-	}
-
-	// Generate unique credentials for the tenant's Machine Identity.
-	// TODO: Replace with real Infisical Machine Identity creation:
-	//   1. CreateIdentity(ctx, name)
-	//   2. AttachUniversalAuth(ctx, identityID)
-	//   3. GenerateClientCredentials(ctx, identityID)
-	//   4. GrantProjectAccess(ctx, identityID, workspaceID)
-	clientID, err := secrets.GenerateSecurePassword()
-	if err != nil {
-		logger.Error(err, "Failed to generate client-id", "tenant", tenantId)
-		return fmt.Errorf("failed to generate client-id for tenant %s: %w", tenantId, err)
-	}
-	clientSecret, err := secrets.GenerateSecurePassword()
-	if err != nil {
-		logger.Error(err, "Failed to generate client-secret", "tenant", tenantId)
-		return fmt.Errorf("failed to generate client-secret for tenant %s: %w", tenantId, err)
-	}
-	projectID, err := secrets.GenerateSecurePassword()
-	if err != nil {
-		logger.Error(err, "Failed to generate project-id", "tenant", tenantId)
-		return fmt.Errorf("failed to generate project-id for tenant %s: %w", tenantId, err)
-	}
-
-	secretValue := fmt.Sprintf(`{"client-id":"%s","client-secret":"%s","project-id":"%s"}`, clientID, clientSecret, projectID)
-	if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, "hub-platform", "dev", infisicalPath, infisicalSecretName, secretValue); err != nil {
-		logger.Error(err, "Failed to upload infisical-credentials to Infisical", "tenant", tenantId, "path", infisicalPath)
-		return fmt.Errorf("failed to upload infisical-credentials to Infisical for tenant %s: %w", tenantId, err)
-	}
-
-	logger.Info("Tenant Infisical credentials seeded in Infisical", "tenant", tenantId, "path", infisicalPath, "secret", infisicalSecretName)
 	return nil
 }
 

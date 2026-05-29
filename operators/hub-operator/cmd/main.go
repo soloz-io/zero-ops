@@ -41,6 +41,7 @@ import (
 
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/controller"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -218,19 +219,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize the Infisical Client for ADR-031 topology management
+	// These env vars are injected by your hub-operator Deployment manifest
+	infisicalClient := secrets.NewInfisicalClient(
+		os.Getenv("INFISICAL_BASE_URL"),
+		os.Getenv("INFISICAL_CLIENT_ID"),
+		os.Getenv("INFISICAL_CLIENT_SECRET"),
+		os.Getenv("INFISICAL_PROJECT_ID"),
+	)
+	if envSlug := os.Getenv("INFISICAL_ENVIRONMENT_SLUG"); envSlug != "" {
+		infisicalClient.EnvironmentSlug = envSlug
+	}
+
 	if err := (&controller.SpokePoolReconciler{
-		Client:         mgr.GetClient(),
-		UncachedClient: uncachedClient,
-		Scheme:         mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		InfisicalClient: infisicalClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "SpokePool")
 		os.Exit(1)
 	}
 
 	if err := (&controller.AINativeSaaSReconciler{
-		Client:         mgr.GetClient(),
-		UncachedClient: uncachedClient,
-		Scheme:         mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		InfisicalClient: infisicalClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
 		os.Exit(1)

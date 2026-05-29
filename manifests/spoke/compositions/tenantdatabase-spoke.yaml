@@ -49,8 +49,8 @@ spec:
                     spec:
                       refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
                       secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
+                        name: tenant-secret-store  # ISOLATION: Explicitly scoped to the tenant
+                        kind: SecretStore
                       target:
                         name: ""  # Patched to tenant-<id>-db-credentials
                         creationPolicy: Owner
@@ -66,11 +66,11 @@ spec:
                       data:
                         - secretKey: username
                           remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            key: ""  # Patched
                             property: username
                         - secretKey: password
                           remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            key: ""  # Patched
                             property: password
             readinessChecks:
               - type: MatchCondition
@@ -114,7 +114,7 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
-              # Patch Infisical path for username
+              # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -124,7 +124,6 @@ spec:
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              # Patch Infisical path for password
               - type: CombineFromComposite
                 combine:
                   variables:
@@ -199,8 +198,8 @@ spec:
                     spec:
                       refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
                       secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
+                        name: tenant-secret-store  # ISOLATION: Explicitly scoped to the tenant
+                        kind: SecretStore
                       target:
                         name: ""  # Patched to <tenantId>-pooler-app
                         creationPolicy: Owner
@@ -219,11 +218,11 @@ spec:
                       data:
                         - secretKey: username
                           remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            key: ""  # Patched
                             property: username
                         - secretKey: password
                           remoteRef:
-                            key: ""  # Patched to /spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials
+                            key: ""  # Patched
                             property: password
             readinessChecks:
               - type: MatchCondition
@@ -263,7 +262,7 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-pooler-app"
-              # Dynamic Infisical path construction
+              # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
               - type: CombineFromComposite
                 combine:
                   variables:

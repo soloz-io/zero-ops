@@ -7,22 +7,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
 
 // SpokePoolReconciler reconciles SpokePool XRs to generate per-spoke secrets
 type SpokePoolReconciler struct {
 	client.Client
-	// UncachedClient reads secrets directly from API server (bypasses cache)
-	UncachedClient client.Client
-	Scheme         *runtime.Scheme
+	InfisicalClient *secrets.InfisicalClient
 }
 
 //+kubebuilder:rbac:groups=nutgraf.in,resources=spokepools,verbs=get;list;watch
@@ -48,86 +44,20 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	spokeName := spokePool.GetName()
 	logger.Info("Reconciling SpokePool", "spoke", spokeName)
 
-	// 2. Create Infisical client
-	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
-	if err != nil {
-		logger.Error(err, "Failed to create Infisical client", "spoke", spokeName)
-		return ctrl.Result{}, fmt.Errorf("failed to create Infisical client: %w", err)
-	}
-
 	// 3. Check if this is first-time creation (status condition not set)
 	isFirstTime := !r.isStatusConditionTrue(spokePool, "CrossplaneAdminSecretGenerated")
-	
-	// 4. IDEMPOTENCY: Check if password already exists in Infisical (SOURCE OF TRUTH)
-	infisicalKey := fmt.Sprintf("%s-crossplane-admin-password", spokeName)
-	exists, err := infisicalClient.SecretExists(ctx, "hub-platform", "dev", "/", infisicalKey)
+
+	// ADR-031: Delegate to InfisicalClient for Machine Identity lifecycle
+	result, err := r.InfisicalClient.EnsureInfisicalCredentials(ctx, spokeName, isFirstTime)
 	if err != nil {
-		logger.Error(err, "Failed to check Infisical for existing password", "spoke", spokeName, "key", infisicalKey)
-		return ctrl.Result{}, fmt.Errorf("failed to check Infisical: %w", err)
-	}
-
-	if exists {
-		// Password already in Infisical, skip generation
-		logger.Info("Password already exists in Infisical, skipping generation", "spoke", spokeName, "key", infisicalKey)
-		
-		// Set status condition with accurate message (already exists, not generated)
-		if err := r.updateStatusCondition(ctx, spokePool, spokeName, true, true); err != nil {
-			// Don't fail reconciliation if status update fails
-			return ctrl.Result{}, nil
+		logger.Error(err, "Failed to ensure Infisical credentials for SpokePool", "spoke", spokeName)
+		if result != nil && result.Result == secrets.EnsureMissing {
+			_ = r.updateStatusCondition(ctx, spokePool, spokeName, false, false)
 		}
-		
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
-	// 5. Password missing in Infisical
-	if !isFirstTime {
-		// NOT first-time creation AND password missing → CRITICAL ERROR
-		// This means password was deleted from Infisical after initial creation
-		// Require manual intervention to prevent breaking Spoke's CNPG connection
-		logger.Error(nil, "CRITICAL: Password missing from Infisical but SpokePool was already provisioned. Manual intervention required.", 
-			"spoke", spokeName, "key", infisicalKey)
-		
-		if err := r.updateStatusCondition(ctx, spokePool, spokeName, false, false); err != nil {
-			return ctrl.Result{}, nil
-		}
-		
-		return ctrl.Result{}, fmt.Errorf("password missing from Infisical for already-provisioned SpokePool %s - manual recovery required", spokeName)
-	}
-
-	// 6. First-time creation: Generate new password
-	// SECURITY: Use secrets.GenerateSecurePassword() (32-char hex, crypto/rand)
-	// NEVER use metadata.uid (not cryptographically secure, visible to cluster readers)
-	password, err := secrets.GenerateSecurePassword()
-	if err != nil {
-		logger.Error(err, "Failed to generate password", "spoke", spokeName)
-		return ctrl.Result{}, fmt.Errorf("failed to generate password: %w", err)
-	}
-
-	logger.Info("First-time creation: generated new password", "spoke", spokeName, "passwordLength", len(password))
-
-	// 7. Upload to Infisical (idempotent - CreateOrUpdateSecretRaw handles upsert)
-	if err := infisicalClient.CreateOrUpdateSecretRaw(
-		ctx,
-		"hub-platform",  // projectSlug
-		"dev",           // environmentSlug
-		"/",             // secretPath
-		infisicalKey,    // key
-		password,        // value
-	); err != nil {
-		logger.Error(err, "Failed to upload secret to Infisical", "spoke", spokeName, "key", infisicalKey)
-		return ctrl.Result{}, fmt.Errorf("failed to upload to Infisical: %w", err)
-	}
-
-	logger.Info("Uploaded secret to Infisical", "spoke", spokeName, "key", infisicalKey)
-
-	// 8. Set status condition with accurate message (generated, not already existed)
-	if err := r.updateStatusCondition(ctx, spokePool, spokeName, true, false); err != nil {
-		// Don't fail reconciliation if status update fails
-		return ctrl.Result{}, nil
-	}
-
-	logger.Info("SpokePool reconciliation complete", "spoke", spokeName)
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists)
 }
 
 // isStatusConditionTrue checks if a condition is set to True
@@ -148,7 +78,9 @@ func (r *SpokePoolReconciler) isStatusConditionTrue(spokePool *unstructured.Unst
 	return false
 }
 
-// updateStatusCondition sets CrossplaneAdminSecretGenerated condition on SpokePool XR
+// updateStatusCondition sets CrossplaneAdminSecretGenerated condition on SpokePool XR.
+// The condition tracks Machine Identity credentials at /spoke-pool/<cellId>/shared/infisical-credentials
+// (ADR-031 Cell-Based Identity Topology).
 func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePool *unstructured.Unstructured, spokeName string, success bool, alreadyExisted bool) error {
 	logger := log.FromContext(ctx)
 
@@ -194,7 +126,7 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 		}
 	}
 
-	// Set or update condition based on success/failure and whether password already existed
+	// Set or update condition based on success/failure and whether credentials already existed
 	var condition metav1.Condition
 	if success {
 		if alreadyExisted {
@@ -202,22 +134,22 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 				Type:    "CrossplaneAdminSecretGenerated",
 				Status:  metav1.ConditionTrue,
 				Reason:  "AlreadyExists",
-				Message: fmt.Sprintf("Password already exists in Infisical at %s-crossplane-admin-password", spokeName),
+				Message: fmt.Sprintf("Machine Identity credentials already exist in Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
 			}
 		} else {
 			condition = metav1.Condition{
 				Type:    "CrossplaneAdminSecretGenerated",
 				Status:  metav1.ConditionTrue,
 				Reason:  "Generated",
-				Message: fmt.Sprintf("Password generated and uploaded to Infisical at %s-crossplane-admin-password", spokeName),
+				Message: fmt.Sprintf("Machine Identity created and credentials uploaded to Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
 			}
 		}
 	} else {
 		condition = metav1.Condition{
 			Type:    "CrossplaneAdminSecretGenerated",
 			Status:  metav1.ConditionFalse,
-			Reason:  "PasswordMissing",
-			Message: "CRITICAL: Password missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
+			Reason:  "CredentialsMissing",
+			Message: "CRITICAL: Machine Identity credentials missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
 		}
 	}
 
@@ -249,17 +181,14 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 	return nil
 }
 
-// SetupWithManager sets up the controller with the Manager
+// SetupWithManager registers the controller to watch SpokePool XRs.
 func (r *SpokePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Watch SpokePool XRs using unstructured client
-	spokePoolGVK := schema.GroupVersionKind{
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "nutgraf.in",
 		Version: "v1alpha1",
 		Kind:    "SpokePool",
-	}
-
-	u := &unstructured.Unstructured{}
-	u.SetGroupVersionKind(spokePoolGVK)
+	})
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(u).
