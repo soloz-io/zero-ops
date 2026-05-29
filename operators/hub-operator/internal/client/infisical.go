@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infisical "github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 )
 
@@ -61,8 +61,8 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 		return fmt.Errorf("failed to get infisical-auth secret: %w", err)
 	}
 
-	clientID := string(secret.Data[infisical.KeyClientID])
-	clientSecret := string(secret.Data[infisical.KeyClientSecret])
+	clientID := string(secret.Data[constant.KeyClientID])
+	clientSecret := string(secret.Data[constant.KeyClientSecret])
 
 	if clientID == "" || clientSecret == "" {
 		return fmt.Errorf("infisical-auth secret missing client-id or client-secret")
