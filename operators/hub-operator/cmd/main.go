@@ -226,6 +226,7 @@ func main() {
 		os.Getenv("INFISICAL_CLIENT_ID"),
 		os.Getenv("INFISICAL_CLIENT_SECRET"),
 		os.Getenv("INFISICAL_PROJECT_ID"),
+		os.Getenv("INFISICAL_ORGANIZATION_ID"),
 	)
 	if envSlug := os.Getenv("INFISICAL_ENVIRONMENT_SLUG"); envSlug != "" {
 		infisicalClient.EnvironmentSlug = envSlug

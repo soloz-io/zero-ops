@@ -80,6 +80,11 @@ patches:
             secretKeyRef:
               name: infisical-admin
               key: project-id
+        - name: INFISICAL_ORGANIZATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-admin
+              key: org-id
         - name: HYDRA_BASE_URL
           value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
         - name: NATS_URL
