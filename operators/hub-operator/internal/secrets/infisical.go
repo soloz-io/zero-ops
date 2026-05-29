@@ -302,6 +302,48 @@ func (c *InfisicalClient) CreateSecret(ctx context.Context, secretPath, secretNa
 	return nil
 }
 
+// UpdateSecret updates an existing secret in Infisical.
+// Returns an error if the secret doesn't exist (use CreateSecret instead).
+func (c *InfisicalClient) UpdateSecret(ctx context.Context, secretPath, secretName, secretValue string) error {
+	updateReq := map[string]interface{}{
+		"workspaceId": c.ProjectID,
+		"environment": c.EnvironmentSlug,
+		"secretPath":  secretPath,
+		"secretValue": secretValue,
+		"type":        "shared",
+	}
+
+	body, err := json.Marshal(updateReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal update secret request: %w", err)
+	}
+
+	req, err := c.newAuthenticatedRequest(ctx, "PATCH", c.BaseURL+"/api/v3/secrets/raw/"+secretName, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to update secret %s at %s: %w", secretName, secretPath, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("secret %s not found at path %s (use CreateSecret)", secretName, secretPath)
+	}
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("update secret %s at %s returned status %d (transient)", secretName, secretPath, resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update secret %s at %s returned status %d: %s", secretName, secretPath, resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 // ============================================================================
 // MACHINE IDENTITY API OPERATIONS
 // ============================================================================
@@ -484,6 +526,47 @@ func (c *InfisicalClient) generateClientSecret(ctx context.Context, identityID s
 	return credsResp.ClientSecret, nil
 }
 
+// findIdentityByName looks up a Machine Identity by name within the organization.
+// Returns the identity ID if found, or empty string and nil if not found.
+func (c *InfisicalClient) findIdentityByName(ctx context.Context, name, orgID string) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/identities?orgId=%s&limit=100", c.BaseURL, orgID)
+	req, err := c.newAuthenticatedRequest(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to list identities: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("list identities failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var listResp struct {
+		Identities []struct {
+			Identity struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"identity"`
+		} `json:"identities"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+		return "", fmt.Errorf("failed to decode identities list: %w", err)
+	}
+
+	for _, item := range listResp.Identities {
+		if item.Identity.Name == name {
+			return item.Identity.ID, nil
+		}
+	}
+
+	return "", nil
+}
+
 // grantProjectAccess grants a Machine Identity access to the hub-platform
 // project via POST /api/v1/projects/{projectId}/memberships/identities/{identityId}.
 // Idempotent: if the identity already has project access, returns nil.
@@ -561,7 +644,8 @@ type EnsureTenantCredentialsResult struct {
 //
 // Idempotency contract (ADR-003):
 //   - If infisical-credentials exist in shared path → AlreadyExists.
-//   - If missing AND isFirstTime → create MI, attach Universal Auth, generate
+//   - If missing AND isFirstTime → look for existing identity by name; if found
+//     reuse it, otherwise create a new MI. Then attach Universal Auth, generate
 //     client secret, grant project viewer access, upload creds, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
 func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId string, isFirstTime bool) (*EnsureInfisicalCredentialsResult, error) {
@@ -589,7 +673,6 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 
 	// Provision a REAL Machine Identity via Infisical API
 	identityName := fmt.Sprintf("spoke-pool-%s", cellId)
-	logger.Info("First-time creation: provisioning real Machine Identity in Infisical", "cell", cellId, "identity", identityName)
 
 	// Step 1: Resolve the organization ID from the current auth context
 	orgID, err := c.getOrganizationID(ctx)
@@ -598,13 +681,24 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 		return nil, fmt.Errorf("failed to get organization ID: %w", err)
 	}
 
-	// Step 2: Create the Machine Identity
-	identityID, err := c.createMachineIdentityInInfisical(ctx, identityName, orgID)
+	// Step 2: Look for an existing identity with this name (idempotent recovery)
+	identityID, err := c.findIdentityByName(ctx, identityName, orgID)
 	if err != nil {
-		logger.Error(err, "Failed to create Machine Identity in Infisical", "cell", cellId, "identity", identityName)
-		return nil, fmt.Errorf("failed to create Machine Identity %s: %w", identityName, err)
+		logger.Error(err, "Failed to search for existing Machine Identity", "cell", cellId, "identity", identityName)
+		return nil, fmt.Errorf("failed to search for Machine Identity %s: %w", identityName, err)
 	}
-	logger.Info("Machine Identity created in Infisical", "cell", cellId, "identityID", identityID)
+
+	if identityID != "" {
+		logger.Info("Found existing Machine Identity, reusing", "cell", cellId, "identityID", identityID, "identity", identityName)
+	} else {
+		// Step 2a: Create a new Machine Identity
+		identityID, err = c.createMachineIdentityInInfisical(ctx, identityName, orgID)
+		if err != nil {
+			logger.Error(err, "Failed to create Machine Identity in Infisical", "cell", cellId, "identity", identityName)
+			return nil, fmt.Errorf("failed to create Machine Identity %s: %w", identityName, err)
+		}
+		logger.Info("Machine Identity created in Infisical", "cell", cellId, "identityID", identityID)
+	}
 
 	// Step 3: Attach Universal Auth
 	if err := c.attachUniversalAuth(ctx, identityID); err != nil {
@@ -663,12 +757,17 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 	return &EnsureInfisicalCredentialsResult{Result: EnsureCreated}, nil
 }
 
-// EnsureTenantFolderAndCredentials creates the tenant folder, copies the shared
+// EnsureTenantFolderAndCredentials creates the tenant folder, syncs shared
 // Machine Identity credentials into the tenant's path (for SDK identity resolution
 // per ADR-019), and generates DB credentials for the tenant database.
-// 
+//
+// Unlike EnsureInfisicalCredentials, this does NOT read the shared path first to
+// short-circuit — it always reads shared and converges tenant to match, ensuring
+// stale credentials are fixed on the next reconcile.
+//
 // Idempotency contract (ADR-003):
-//   - If db-credentials exist in tenant path → AlreadyExists.
+//   - If db-credentials exist in tenant path → AlreadyExists (infisical-credentials
+//     may still be synced if stale).
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
@@ -682,25 +781,43 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		return nil, fmt.Errorf("failed to create tenant folder: %w", err)
 	}
 
-	// Step 1: Copy shared Machine Identity credentials to tenant-specific path
+	// Step 1: Sync shared Machine Identity credentials to tenant path
+	// Always reads shared and updates tenant if missing or stale.
 	infisicalCredsOutcome := EnsureAlreadyExists
 	infisicalSecretName := "infisical-credentials"
-	infisicalExists, err := c.SecretExists(ctx, tenantPath, infisicalSecretName)
+	sharedPath := fmt.Sprintf(InfisicalSharedPathFormat, cellId)
+
+	sharedValue, err := c.GetSecret(ctx, sharedPath, infisicalSecretName)
+	if err != nil {
+		logger.Error(err, "Failed to read shared infisical-credentials", "sharedPath", sharedPath)
+		return nil, fmt.Errorf("failed to read shared %s for tenant %s: %w", infisicalSecretName, tenantId, err)
+	}
+
+	tenantExists, err := c.SecretExists(ctx, tenantPath, infisicalSecretName)
 	if err != nil {
 		logger.Error(err, "Failed to check Infisical for infisical-credentials", "path", tenantPath)
 		return nil, fmt.Errorf("failed to check Infisical for %s: %w", infisicalSecretName, err)
 	}
 
-	if !infisicalExists {
-		// Copy from shared path
-		sharedPath := fmt.Sprintf(InfisicalSharedPathFormat, cellId)
-		logger.Info("Copying shared Machine Identity credentials to tenant path", "sharedPath", sharedPath)
-		sharedValue, err := c.GetSecret(ctx, sharedPath, infisicalSecretName)
+	if tenantExists {
+		tenantValue, err := c.GetSecret(ctx, tenantPath, infisicalSecretName)
 		if err != nil {
-			logger.Error(err, "Failed to read shared infisical-credentials", "sharedPath", sharedPath)
-			return nil, fmt.Errorf("failed to read shared %s for tenant %s: %w", infisicalSecretName, tenantId, err)
+			logger.Error(err, "Failed to read tenant infisical-credentials", "path", tenantPath)
+			return nil, fmt.Errorf("failed to read tenant %s at %s: %w", infisicalSecretName, tenantPath, err)
 		}
-
+		if tenantValue == sharedValue {
+			logger.Info("Tenant infisical-credentials already up-to-date", "path", tenantPath)
+		} else {
+			logger.Info("Updating stale tenant infisical-credentials from shared", "path", tenantPath)
+			if err := c.UpdateSecret(ctx, tenantPath, infisicalSecretName, sharedValue); err != nil {
+				logger.Error(err, "Failed to update infisical-credentials in tenant path", "path", tenantPath)
+				return nil, fmt.Errorf("failed to update %s for tenant %s: %w", infisicalSecretName, tenantId, err)
+			}
+			infisicalCredsOutcome = EnsureCreated
+			logger.Info("Tenant infisical-credentials updated from shared", "path", tenantPath)
+		}
+	} else {
+		logger.Info("Copying shared Machine Identity credentials to tenant path", "sharedPath", sharedPath)
 		if err := c.CreateSecret(ctx, tenantPath, infisicalSecretName, sharedValue); err != nil {
 			logger.Error(err, "Failed to push infisical-credentials to tenant path", "path", tenantPath)
 			return nil, fmt.Errorf("failed to push %s for tenant %s: %w", infisicalSecretName, tenantId, err)
