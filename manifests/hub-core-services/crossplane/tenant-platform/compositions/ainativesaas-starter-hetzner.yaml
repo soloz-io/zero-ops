@@ -523,15 +523,15 @@ spec:
                 - secretKey: client-id
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: clientId
+                    property: client-id
                 - secretKey: client-secret
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: clientSecret
+                    property: client-secret
                 - secretKey: project-id
                   remoteRef:
                     key: ""  # Patched dynamically
-                    property: projectId
+                    property: project-id
         providerConfigRef:
           name: ""  # Patched to cellId
     readinessChecks:

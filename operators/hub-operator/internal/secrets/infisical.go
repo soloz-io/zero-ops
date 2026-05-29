@@ -638,11 +638,13 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 	}
 
 	// Store the real credentials at the shared path
-	// Keys must be camelCase to match ESO Infisical provider remoteRef.property
+	// Keys use kebab-case to match the actual data stored in Infisical
+	// (the deployed operator creates kebab-case keys; remoteRef.property
+	// in the ExternalSecret composition must match these JSON keys directly)
 	creds := map[string]string{
-		"clientId":     clientID,
-		"clientSecret": clientSecret,
-		"projectId":    c.ProjectID,
+		"client-id":     clientID,
+		"client-secret": clientSecret,
+		"project-id":    c.ProjectID,
 	}
 	jsonBytes, err := json.Marshal(creds)
 	if err != nil {
