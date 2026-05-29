@@ -13,7 +13,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infisical "github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 )
 
 const (
@@ -644,9 +644,9 @@ func (c *InfisicalClient) EnsureInfisicalCredentials(ctx context.Context, cellId
 	// (the deployed operator creates kebab-case keys; remoteRef.property
 	// in the ExternalSecret composition must match these JSON keys directly)
 	creds := map[string]string{
-		infisical.KeyClientID:     clientID,
-		infisical.KeyClientSecret: clientSecret,
-		infisical.KeyProjectID:    c.ProjectID,
+		constant.KeyClientID:     clientID,
+		constant.KeyClientSecret: clientSecret,
+		constant.KeyProjectID:    c.ProjectID,
 	}
 	jsonBytes, err := json.Marshal(creds)
 	if err != nil {

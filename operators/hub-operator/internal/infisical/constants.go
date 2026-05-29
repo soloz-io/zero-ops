@@ -1,5 +1,7 @@
 package infisical
 
+import "github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
+
 const (
 	// Infisical Service Configuration
 	InfisicalServiceName      = "platform-infisical-infisical-standalone-infisical"
@@ -49,12 +51,12 @@ const (
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey        = "hetzner-dns-api-key"
 	KeyHCloudToken             = "hcloud-token"
-	KeyClientID                = "client-id"
-	KeyClientSecret            = "client-secret"
+	KeyClientID                = constant.KeyClientID
+	KeyClientSecret            = constant.KeyClientSecret
 	KeyAdminToken              = "admin-token"
 	KeyAdminEmail              = "admin-email"
 	KeyOrgID                   = "org-id"
-	KeyProjectID               = "project-id"
+	KeyProjectID               = constant.KeyProjectID
 	KeyProjectSlug             = "project-slug"
 	KeyAPIKey                  = "api-key"
 	KeyToken                   = "token"
