@@ -227,12 +227,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TenantDatabaseReconciler{
+	if err := (&controller.AINativeSaaSReconciler{
 		Client:         mgr.GetClient(),
 		UncachedClient: uncachedClient,
 		Scheme:         mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "TenantDatabase")
+		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
