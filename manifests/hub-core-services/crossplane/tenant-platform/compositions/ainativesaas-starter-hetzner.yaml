@@ -511,6 +511,14 @@ spec:
               target:
                 name: ""  # Patched to <tenantId>-infisical-credentials
                 creationPolicy: Owner
+                template:
+                  data:
+                    client-id: '{{ index . "client-id" }}'
+                    client-secret: '{{ index . "client-secret" }}'
+                    project-id: '{{ index . "project-id" }}'
+                  engineVersion: v2
+                  mergePolicy: Replace
+                  type: Opaque
               data:
                 - secretKey: client-id
                   remoteRef:
