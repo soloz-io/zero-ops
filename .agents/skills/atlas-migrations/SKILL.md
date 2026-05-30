@@ -130,23 +130,43 @@ atlas migrate hash --dir file://zero-ops/manifests/hub-core-services/database-mi
 atlas migrate hash --dir file://zero-ops/manifests/hub-core-services/database-migrations/hub
 ```
 
+> **Platform note:** The `file://` URL scheme does NOT work on Windows
+> (Go's `url.Parse` produces broken paths like `\C:\path`). Run the CLI
+> on Linux/macOS/WSL, or use the manual computation method in
+> `references/CHECKSUM-ANTIPATTERNS.md`.
+
+**If the CLI is unavailable**, compute hashes manually with `openssl`:
+```bash
+FILENAME="20250101000001_description.sql"
+CONTENT_FILE="path/to/${FILENAME}"
+printf '%s' "${FILENAME}" > /tmp/_h
+cat "${CONTENT_FILE}" >> /tmp/_h
+FILE_HASH=$(openssl sha256 -binary /tmp/_h | openssl base64 -A)
+GLOBAL_SUM=$(printf '%s' "${FILENAME}${FILE_HASH}" | openssl sha256 -binary | openssl base64 -A)
+echo "h1:${GLOBAL_SUM}"
+echo "${FILENAME} h1:${FILE_HASH}"
+```
+Refer to `references/CHECKSUM-ANTIPATTERNS.md` for the full algorithm.
+
 ### atlas.sum format
 
 ```
-h1:<directory-hash>=
-<filename> h1:<file-hash>=
-<filename> h1:<file-hash>=
+h1:<directory-hash>
+<filename> h1:<file-hash>
+<filename> h1:<file-hash>
 ```
 
-- Line 1: SHA-256 hash of all file-hash lines concatenated
-- Subsequent lines: one entry per migration file, in filename order
-- Hashes are base64-encoded SHA-256 digests prefixed with `h1:`
+- Line 1: **Directory hash** = `base64(sha256(filename1 || filehash1 || filename2 || filehash2 || ...))`
+- Subsequent lines: one entry per `*.sql` migration file, sorted by filename
+- **File hash** = `base64(sha256(filename || file_content))` — **both** the filename and content are fed into the same sha256 instance (see `NewHashFile` in `sql/migrate/dir.go`)
+- All hashes use standard base64 encoding (with `=` padding)
 
 ### Critical rules
 
 - ✅ Always commit `atlas.sum` in the same commit as the SQL file changes
 - ✅ Regenerate after every add, remove, or rename of a migration file
-- ❌ Never hand-edit `atlas.sum` — always regenerate with the CLI
+- ✅ If the Atlas CLI is unavailable, compute hashes manually using the algorithm in `references/CHECKSUM-ANTIPATTERNS.md`
+- ❌ Never hand-edit `atlas.sum` without verifying both the file hash AND the directory hash against the algorithm
 - ❌ Never commit SQL changes without updating `atlas.sum` — the operator will reject the sync
 
 ---
@@ -283,9 +303,14 @@ When adding schema extensions for a new or existing tenant:
 ### Checksum mismatch
 ```
 Error: checksum mismatch for file "20260527000001_foo.sql"
+Error: L<N>: <filename> was edited
 ```
-**Cause:** `atlas.sum` is out of date.
-**Fix:** Regenerate with `atlas migrate hash` and commit.
+**Cause:** `atlas.sum` is out of date. The file hash (which includes both
+the filename and the content in the sha256) does not match what is stored
+in `atlas.sum`.
+**Fix:** Regenerate with `atlas migrate hash` and commit. If the CLI is
+unavailable, see `references/CHECKSUM-ANTIPATTERNS.md` for manual
+computation.
 
 ### Migration already applied with different content
 ```
@@ -314,7 +339,9 @@ Error: atlas_schema_revisions already exists with different content
 
 - ❌ Never edit a migration file after it has been committed and applied
 - ❌ Never hand-edit `atlas.sum` — always use `atlas migrate hash`
+- ❌ Never hash `content` alone — file hash = `base64(sha256(filename || content))`
 - ❌ Never commit SQL changes without updating `atlas.sum` in the same commit
+- ❌ Never use `file://` URLs on Windows — they produce broken paths
 - ❌ Never use unqualified table names — always prefix with the schema (`public.`)
 - ❌ Never apply migrations via `kubectl exec` or `psql` directly — always via GitOps
 - ❌ Never inline database credentials in the AtlasMigration CR — always use `urlFrom.secretKeyRef`
@@ -325,6 +352,8 @@ Error: atlas_schema_revisions already exists with different content
 
 - [Atlas Operator docs](https://atlasgo.io/integrations/kubernetes/operator)
 - [Atlas migrate hash CLI](https://atlasgo.io/versioned/hash)
+- [Atlas hash algorithm source](https://github.com/ariga/atlas/blob/master/sql/migrate/dir.go) — `NewHashFile` and `Sum` methods
+- `references/CHECKSUM-ANTIPATTERNS.md` — manual hash computation and platform-specific workarounds
 - Platform examples:
   - `zero-ops/manifests/hub-core-services/database-migrations/` — platform-level AtlasMigration CRs and ConfigMaps
   - `fleet-registry/tenants/waypoint/migrations/` — tenant-specific migration example
