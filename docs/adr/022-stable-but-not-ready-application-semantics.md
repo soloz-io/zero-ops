@@ -21,7 +21,23 @@ We will adopt **Stable-but-Not-Ready** semantics across the platform, leaning fu
    - `readinessProbes` must report `False` until all dependencies are connected (keeping traffic away from the pod).
    - `startupProbes` must be configured with wide failure thresholds (e.g., 5-10 minutes) for third-party apps (Ory, Spire) to allow infrastructure convergence without triggering restarts.
 
+## Amendment (2026-05-28): Retry Constraints
+
+### Context
+Infinite exponential backoff loops in custom controllers and applications mask systemic failures, create thundering herd scenarios, and prevent accurate observability of degraded dependencies.
+
+### Decision
+All custom applications and controllers implementing retry logic for external dependencies (Databases, NATS, APIs) must enforce strict boundaries.
+
+**Retry Constraints:**
+- Maximum backoff duration is capped at 5 minutes.
+- Full jitter must be applied to all backoff calculations to prevent synchronized retries across the fleet.
+- Applications must expose a `dependency_unavailable_total` Prometheus counter metric, incremented upon every failed connection attempt.
+- Applications must expose a `dependency_status` Prometheus gauge metric (0=unavailable, 1=available) for each dependency, enabling immediate determination of current failure state.
+
 ## Consequences
 * **Positive:** Significant reduction in restart storms and false-positive alerts during cluster convergence.
 * **Positive:** Preserves memory state and provides cleaner logs for debugging dependency failures.
+* **Positive:** Prevents thundering herd scenarios through jittered backoff.
+* **Positive:** Enables observability of dependency health via Prometheus metrics.
 * **Negative:** Requires strict adherence to connection retry logic in all custom software development.

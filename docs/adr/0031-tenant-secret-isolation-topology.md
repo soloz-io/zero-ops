@@ -40,6 +40,25 @@ Because the Spoke-scoped Machine Identity has access to *all* tenants within tha
 * **Shared Cell Risk**: A complete compromise of the Kubernetes API on a Spoke cluster would expose all tenant secrets on that Spoke. (Mitigated by the fact that a K8s API compromise already implies full cluster compromise).
 * **Two-Hop Resolution**: Bootstrapping a tenant requires a two-hop secret resolution: ESO must first use the `ClusterSecretStore` to fetch the Machine Identity, and then use the local `SecretStore` to fetch the actual application secrets.
 
+## Amendment (2026-05-28): Tenant Classification and Spoke Silo Model
+
+### Context
+The shared blast radius of Spoke Pools—where one Machine Identity accesses all tenant secrets within a cell—is acceptable for standard workloads but violates compliance requirements for highly regulated data.
+
+### Decision
+Tenant workloads are strictly categorized and placed into distinct Spoke topologies based on compliance requirements.
+
+**Spoke Pool Model:**
+Utilized exclusively for non-regulated, standard commercial tenants. A single Spoke-scoped Machine Identity manages secrets for all tenants within the shared cluster.
+
+**Spoke Silo Model:**
+Mandatory for tenants requiring PCI, HIPAA, or SOC2 strict compliance. These tenants are provisioned into dedicated, single-tenant Spoke clusters. The Machine Identity is scoped exclusively to the single tenant, ensuring total physical and cryptographic isolation. Platform operators are forbidden from scheduling regulated workloads onto Spoke Pools.
+
+### Consequences
+- **Positive:** Provides clear regulatory isolation for compliance-bound tenants.
+- **Negative:** Increases operational cost for siloed Spoke clusters.
+- **Negative:** Requires tenant classification at provisioning time.
+
 ## References
 * **ADR-003**: Infisical as Single Source of Truth
 * **ADR-019**: Runtime Plugin Credential Resolution

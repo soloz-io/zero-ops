@@ -1,0 +1,586 @@
+### ArgoCD Application Describe: tenant-waypoint-workloads
+Name:         tenant-waypoint-workloads
+Namespace:    platform-ops
+Labels:       resource-type=workload
+              target-cluster=spoke-pool-eu-prod-01
+              tenant-id=waypoint
+Annotations:  <none>
+API Version:  argoproj.io/v1alpha1
+Kind:         Application
+Metadata:
+  Creation Timestamp:  2026-05-28T20:48:26Z
+  Finalizers:
+    resources-finalizer.argocd.argoproj.io
+  Generation:  1629
+  Owner References:
+    API Version:           argoproj.io/v1alpha1
+    Block Owner Deletion:  true
+    Controller:            true
+    Kind:                  ApplicationSet
+    Name:                  tenant-workload-provisioning
+    UID:                   c304429e-612a-4757-91f7-027141a3d030
+  Resource Version:        12917595
+  UID:                     31b287f3-071f-4243-b6cb-6c210e57b922
+Spec:
+  Destination:
+    Name:       spoke-pool-eu-prod-01
+    Namespace:  tenant-waypoint
+  Project:      tenant-workloads
+  Sources:
+    Path:             tenants/waypoint/workloads
+    Repo URL:         https://github.com/soloz-io/fleet-registry.git
+    Target Revision:  main
+  Sync Policy:
+    Automated:
+      Prune:      true
+      Self Heal:  true
+    Retry:
+      Backoff:
+        Duration:      10s
+        Factor:        2
+        Max Duration:  5m
+      Limit:           10
+    Sync Options:
+      ServerSideApply=true
+      RespectIgnoreDifferences=true
+Status:
+  Conditions:
+    Last Transition Time:  2026-05-29T22:19:52Z
+    Message:               Failed sync attempt to : one or more synchronization tasks completed unsuccessfully (retried 10 times).
+    Type:                  SyncError
+  Controller Namespace:    platform-ops
+  Health:
+    Status:  Degraded
+  History:
+    Deploy Started At:  2026-05-28T20:48:26Z
+    Deployed At:        2026-05-28T20:48:29Z
+    Id:                 0
+    Initiated By:
+      Automated:  true
+    Revisions:
+      93a0f8af36e5934d76b2f144d10d9e3ca3b935c2
+    Source:
+      Repo URL:  
+    Sources:
+      Path:             tenants/waypoint/workloads
+      Repo URL:         https://github.com/soloz-io/fleet-registry.git
+      Target Revision:  main
+  Operation State:
+    Finished At:  2026-05-29T22:19:52Z
+    Message:      one or more synchronization tasks completed unsuccessfully (retried 10 times).
+    Operation:
+      Initiated By:
+        Automated:  true
+      Retry:
+        Backoff:
+          Duration:      10s
+          Factor:        2
+          Max Duration:  5m
+        Limit:           10
+      Sync:
+        Prune:  true
+        Revisions:
+          e366967dbf740fe02080d4835c3cab0b7afd529a
+        Sync Options:
+          ServerSideApply=true
+          RespectIgnoreDifferences=true
+    Phase:        Failed
+    Retry Count:  10
+    Started At:   2026-05-29T21:40:19Z
+    Sync Result:
+      Resources:
+        Group:       
+        Hook Phase:  Succeeded
+        Hook Type:   PreSync
+        Kind:        ServiceAccount
+        Message:     migration-sa created
+        Name:        migration-sa
+        Namespace:   tenant-waypoint
+        Sync Phase:  PreSync
+        Version:     v1
+        Group:       
+        Hook Phase:  Succeeded
+        Hook Type:   PreSync
+        Kind:        ConfigMap
+        Message:     waypoint-custom-migrations created
+        Name:        waypoint-custom-migrations
+        Namespace:   tenant-waypoint
+        Sync Phase:  PreSync
+        Version:     v1
+        Group:       batch
+        Hook Phase:  Failed
+        Hook Type:   PreSync
+        Kind:        Job
+        Message:     Job has reached the specified backoff limit
+        Name:        custom-schema-migration
+        Namespace:   tenant-waypoint
+        Sync Phase:  PreSync
+        Version:     v1
+      Revision:      
+      Revisions:
+        e366967dbf740fe02080d4835c3cab0b7afd529a
+      Source:
+        Repo URL:  
+      Sources:
+        Path:             tenants/waypoint/workloads
+        Repo URL:         https://github.com/soloz-io/fleet-registry.git
+        Target Revision:  main
+  Reconciled At:          2026-05-30T03:53:47Z
+  Resources:
+    Hook:              true
+    Kind:              ConfigMap
+    Name:              waypoint-custom-migrations
+    Namespace:         tenant-waypoint
+    Requires Pruning:  true
+    Version:           v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       bff-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:   Healthy
+    Kind:       Service
+    Name:       frontend-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+    Health:
+      Status:          Healthy
+    Kind:              Service
+    Name:              sdk-workload
+    Namespace:         tenant-waypoint
+    Status:            Synced
+    Version:           v1
+    Kind:              ServiceAccount
+    Name:              bff-workload-sa
+    Namespace:         tenant-waypoint
+    Status:            Synced
+    Version:           v1
+    Kind:              ServiceAccount
+    Name:              frontend-workload-sa
+    Namespace:         tenant-waypoint
+    Status:            Synced
+    Version:           v1
+    Hook:              true
+    Kind:              ServiceAccount
+    Name:              migration-sa
+    Namespace:         tenant-waypoint
+    Requires Pruning:  true
+    Version:           v1
+    Kind:              ServiceAccount
+    Name:              sdk-workload-sa
+    Namespace:         tenant-waypoint
+    Status:            Synced
+    Version:           v1
+    Group:             argoproj.io
+    Health:
+      Status:   Healthy
+    Kind:       Rollout
+    Name:       bff-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      argoproj.io
+    Health:
+      Status:   Healthy
+    Kind:       Rollout
+    Name:       frontend-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      argoproj.io
+    Health:
+      Message:  ProgressDeadlineExceeded: ReplicaSet "sdk-workload-d474497d7" has timed out progressing.
+      Status:   Degraded
+    Kind:       Rollout
+    Name:       sdk-workload
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1alpha1
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       bff-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     OutOfSync
+    Version:    v2
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       frontend-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     OutOfSync
+    Version:    v2
+    Group:      cilium.io
+    Kind:       CiliumNetworkPolicy
+    Name:       sdk-strict-egress-contract
+    Namespace:  tenant-waypoint
+    Status:     OutOfSync
+    Version:    v2
+    Group:      networking.k8s.io
+    Health:
+      Status:   Progressing
+    Kind:       Ingress
+    Name:       waypoint-ingress
+    Namespace:  tenant-waypoint
+    Status:     Synced
+    Version:    v1
+  Source Types:
+    Kustomize
+  Summary:
+    External UR Ls:
+      https://api.waypoint.nutgraf.in/
+      https://waypoint.nutgraf.in/
+  Sync:
+    Compared To:
+      Destination:
+        Name:       spoke-pool-eu-prod-01
+        Namespace:  tenant-waypoint
+      Source:
+        Repo URL:  
+      Sources:
+        Path:             tenants/waypoint/workloads
+        Repo URL:         https://github.com/soloz-io/fleet-registry.git
+        Target Revision:  main
+    Revisions:
+      e366967dbf740fe02080d4835c3cab0b7afd529a
+    Status:  OutOfSync
+Events:      <none>
+
+### ArgoCD Application YAML: tenant-waypoint-workloads
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  creationTimestamp: "2026-05-28T20:48:26Z"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  generation: 1629
+  labels:
+    resource-type: workload
+    target-cluster: spoke-pool-eu-prod-01
+    tenant-id: waypoint
+  name: tenant-waypoint-workloads
+  namespace: platform-ops
+  ownerReferences:
+  - apiVersion: argoproj.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ApplicationSet
+    name: tenant-workload-provisioning
+    uid: c304429e-612a-4757-91f7-027141a3d030
+  resourceVersion: "12917595"
+  uid: 31b287f3-071f-4243-b6cb-6c210e57b922
+spec:
+  destination:
+    name: spoke-pool-eu-prod-01
+    namespace: tenant-waypoint
+  project: tenant-workloads
+  sources:
+  - path: tenants/waypoint/workloads
+    repoURL: https://github.com/soloz-io/fleet-registry.git
+    targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+      limit: 10
+    syncOptions:
+    - ServerSideApply=true
+    - RespectIgnoreDifferences=true
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-29T22:19:52Z"
+    message: 'Failed sync attempt to : one or more synchronization tasks completed
+      unsuccessfully (retried 10 times).'
+    type: SyncError
+  controllerNamespace: platform-ops
+  health:
+    status: Degraded
+  history:
+  - deployStartedAt: "2026-05-28T20:48:26Z"
+    deployedAt: "2026-05-28T20:48:29Z"
+    id: 0
+    initiatedBy:
+      automated: true
+    revisions:
+    - 93a0f8af36e5934d76b2f144d10d9e3ca3b935c2
+    source:
+      repoURL: ""
+    sources:
+    - path: tenants/waypoint/workloads
+      repoURL: https://github.com/soloz-io/fleet-registry.git
+      targetRevision: main
+  operationState:
+    finishedAt: "2026-05-29T22:19:52Z"
+    message: one or more synchronization tasks completed unsuccessfully (retried 10
+      times).
+    operation:
+      initiatedBy:
+        automated: true
+      retry:
+        backoff:
+          duration: 10s
+          factor: 2
+          maxDuration: 5m
+        limit: 10
+      sync:
+        prune: true
+        revisions:
+        - e366967dbf740fe02080d4835c3cab0b7afd529a
+        syncOptions:
+        - ServerSideApply=true
+        - RespectIgnoreDifferences=true
+    phase: Failed
+    retryCount: 10
+    startedAt: "2026-05-29T21:40:19Z"
+    syncResult:
+      resources:
+      - group: ""
+        hookPhase: Succeeded
+        hookType: PreSync
+        kind: ServiceAccount
+        message: migration-sa created
+        name: migration-sa
+        namespace: tenant-waypoint
+        syncPhase: PreSync
+        version: v1
+      - group: ""
+        hookPhase: Succeeded
+        hookType: PreSync
+        kind: ConfigMap
+        message: waypoint-custom-migrations created
+        name: waypoint-custom-migrations
+        namespace: tenant-waypoint
+        syncPhase: PreSync
+        version: v1
+      - group: batch
+        hookPhase: Failed
+        hookType: PreSync
+        kind: Job
+        message: Job has reached the specified backoff limit
+        name: custom-schema-migration
+        namespace: tenant-waypoint
+        syncPhase: PreSync
+        version: v1
+      revision: ""
+      revisions:
+      - e366967dbf740fe02080d4835c3cab0b7afd529a
+      source:
+        repoURL: ""
+      sources:
+      - path: tenants/waypoint/workloads
+        repoURL: https://github.com/soloz-io/fleet-registry.git
+        targetRevision: main
+  reconciledAt: "2026-05-30T03:53:47Z"
+  resources:
+  - hook: true
+    kind: ConfigMap
+    name: waypoint-custom-migrations
+    namespace: tenant-waypoint
+    requiresPruning: true
+    version: v1
+  - health:
+      status: Healthy
+    kind: Service
+    name: bff-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - health:
+      status: Healthy
+    kind: Service
+    name: frontend-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - health:
+      status: Healthy
+    kind: Service
+    name: sdk-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - kind: ServiceAccount
+    name: bff-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - kind: ServiceAccount
+    name: frontend-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - hook: true
+    kind: ServiceAccount
+    name: migration-sa
+    namespace: tenant-waypoint
+    requiresPruning: true
+    version: v1
+  - kind: ServiceAccount
+    name: sdk-workload-sa
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  - group: argoproj.io
+    health:
+      status: Healthy
+    kind: Rollout
+    name: bff-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: argoproj.io
+    health:
+      status: Healthy
+    kind: Rollout
+    name: frontend-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: argoproj.io
+    health:
+      message: 'ProgressDeadlineExceeded: ReplicaSet "sdk-workload-d474497d7" has
+        timed out progressing.'
+      status: Degraded
+    kind: Rollout
+    name: sdk-workload
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1alpha1
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: bff-strict-egress-contract
+    namespace: tenant-waypoint
+    status: OutOfSync
+    version: v2
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: frontend-strict-egress-contract
+    namespace: tenant-waypoint
+    status: OutOfSync
+    version: v2
+  - group: cilium.io
+    kind: CiliumNetworkPolicy
+    name: sdk-strict-egress-contract
+    namespace: tenant-waypoint
+    status: OutOfSync
+    version: v2
+  - group: networking.k8s.io
+    health:
+      status: Progressing
+    kind: Ingress
+    name: waypoint-ingress
+    namespace: tenant-waypoint
+    status: Synced
+    version: v1
+  sourceTypes:
+  - Kustomize
+  summary:
+    externalURLs:
+    - https://api.waypoint.nutgraf.in/
+    - https://waypoint.nutgraf.in/
+  sync:
+    comparedTo:
+      destination:
+        name: spoke-pool-eu-prod-01
+        namespace: tenant-waypoint
+      source:
+        repoURL: ""
+      sources:
+      - path: tenants/waypoint/workloads
+        repoURL: https://github.com/soloz-io/fleet-registry.git
+        targetRevision: main
+    revisions:
+    - e366967dbf740fe02080d4835c3cab0b7afd529a
+    status: OutOfSync
+
+### Endpoints YAML: tenant-waypoint/bff-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T20:48:28Z"
+  creationTimestamp: "2026-05-28T20:48:28Z"
+  labels:
+    app: bff
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: bff-workload
+  namespace: tenant-waypoint
+  resourceVersion: "880053"
+  uid: d8500a0e-1478-40cc-87a2-a65686d50e20
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON            OBJECT                                     MESSAGE
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-non-root fail: validation error: runAsNonRoot: true is required in pod securityContext. rule autogen-require-non-root failed at path /spec/template/spec/securityContext/runAsNonRoot/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-8456c8f9b    policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   deployment/postgrest-waypoint              policy enforce-tenant-abi/require-cost-labels fail: validation error: tenant-id and cost-center labels are required on all tenant workloads. rule require-cost-labels failed at path /metadata/labels/
+30m         Normal    Pulled            pod/sdk-workload-d474497d7-hxbnw           Container image "ghcr.io/soloz-io/waypoint/sdk@sha256:6954202f653d93121cd0851ce333ec3d903f98e166b3a3fcde78ab503907d041" already present on machine
+25m         Warning   Unhealthy         pod/sdk-workload-d474497d7-4tklt           Readiness probe failed: Get "http://10.244.1.129:3000/health": dial tcp 10.244.1.129:3000: connect: connection refused
+20m         Warning   Failed            pod/psql-client                            Failed to pull image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": failed to resolve reference "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09: not found
+9m51s       Normal    Pulling           pod/psql-client                            Pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+4m56s       Normal    BackOff           pod/psql-client                            Back-off pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+2m4s        Normal    Valid             secretstore/tenant-secret-store            store validated
+64s         Warning   BackOff           pod/sdk-workload-d474497d7-hxbnw           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-hxbnw_tenant-waypoint(9bf684ce-0cb3-4e6a-a770-0fbfa2440ecd)
+52s         Warning   BackOff           pod/sdk-workload-d474497d7-4tklt           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-4tklt_tenant-waypoint(378c73af-5e26-4b22-842f-2c436f01b44e)
+
+### Endpoints YAML: tenant-waypoint/frontend-workload
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    endpoints.kubernetes.io/last-change-trigger-time: "2026-05-28T20:48:28Z"
+  creationTimestamp: "2026-05-28T20:48:28Z"
+  labels:
+    app: frontend
+    argocd.argoproj.io/instance: tenant-waypoint-workloads
+    cost-center: platform
+    tenant-id: waypoint
+    workload-class: stateless-web
+  name: frontend-workload
+  namespace: tenant-waypoint
+  resourceVersion: "880058"
+  uid: 07e55504-5f47-401c-b705-f3eba943e0dc
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON            OBJECT                                     MESSAGE
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-non-root fail: validation error: runAsNonRoot: true is required in pod securityContext. rule autogen-require-non-root failed at path /spec/template/spec/securityContext/runAsNonRoot/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-8456c8f9b    policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   deployment/postgrest-waypoint              policy enforce-tenant-abi/require-cost-labels fail: validation error: tenant-id and cost-center labels are required on all tenant workloads. rule require-cost-labels failed at path /metadata/labels/
+31m         Normal    Pulled            pod/sdk-workload-d474497d7-hxbnw           Container image "ghcr.io/soloz-io/waypoint/sdk@sha256:6954202f653d93121cd0851ce333ec3d903f98e166b3a3fcde78ab503907d041" already present on machine
+26m         Warning   Unhealthy         pod/sdk-workload-d474497d7-4tklt           Readiness probe failed: Get "http://10.244.1.129:3000/health": dial tcp 10.244.1.129:3000: connect: connection refused
+20m         Warning   Failed            pod/psql-client                            Failed to pull image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": failed to resolve reference "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09: not found
+9m54s       Normal    Pulling           pod/psql-client                            Pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+4m59s       Normal    BackOff           pod/psql-client                            Back-off pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+2m7s        Normal    Valid             secretstore/tenant-secret-store            store validated
+67s         Warning   BackOff           pod/sdk-workload-d474497d7-hxbnw           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-hxbnw_tenant-waypoint(9bf684ce-0cb3-4e6a-a770-0fbfa2440ecd)
+55s         Warning   BackOff           pod/sdk-workload-d474497d7-4tklt           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-4tklt_tenant-waypoint(378c73af-5e26-4b22-842f-2c436f01b44e)
+
+### Secret Get: tenant-waypoint/waypoint-tls
+Error from server (NotFound): secrets "waypoint-tls" not found
+
+### Namespace Events: tenant-waypoint (last 50)
+LAST SEEN   TYPE      REASON            OBJECT                                     MESSAGE
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-7f4df87776   policy enforce-tenant-abi/autogen-require-non-root fail: validation error: runAsNonRoot: true is required in pod securityContext. rule autogen-require-non-root failed at path /spec/template/spec/securityContext/runAsNonRoot/
+46m         Warning   PolicyViolation   replicaset/postgrest-waypoint-8456c8f9b    policy enforce-tenant-abi/autogen-require-image-digest fail: validation error: Container images must reference immutable sha256 digests, not mutable tags. rule autogen-require-image-digest failed at path /spec/template/spec/containers/0/image/
+46m         Warning   PolicyViolation   deployment/postgrest-waypoint              policy enforce-tenant-abi/require-cost-labels fail: validation error: tenant-id and cost-center labels are required on all tenant workloads. rule require-cost-labels failed at path /metadata/labels/
+31m         Normal    Pulled            pod/sdk-workload-d474497d7-hxbnw           Container image "ghcr.io/soloz-io/waypoint/sdk@sha256:6954202f653d93121cd0851ce333ec3d903f98e166b3a3fcde78ab503907d041" already present on machine
+26m         Warning   Unhealthy         pod/sdk-workload-d474497d7-4tklt           Readiness probe failed: Get "http://10.244.1.129:3000/health": dial tcp 10.244.1.129:3000: connect: connection refused
+20m         Warning   Failed            pod/psql-client                            Failed to pull image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": failed to resolve reference "docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09": docker.io/library/postgres@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09: not found
+9m56s       Normal    Pulling           pod/psql-client                            Pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+2m9s        Normal    Valid             secretstore/tenant-secret-store            store validated
+69s         Warning   BackOff           pod/sdk-workload-d474497d7-hxbnw           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-hxbnw_tenant-waypoint(9bf684ce-0cb3-4e6a-a770-0fbfa2440ecd)
+57s         Warning   BackOff           pod/sdk-workload-d474497d7-4tklt           Back-off restarting failed container sdk in pod sdk-workload-d474497d7-4tklt_tenant-waypoint(378c73af-5e26-4b22-842f-2c436f01b44e)
+0s          Normal    BackOff           pod/psql-client                            Back-off pulling image "postgres:16-alpine@sha256:6cda5ba65c0a14c5d0e45a507bcbc10e79812f73d4f57b3c067c39f9c79d7f09"
+

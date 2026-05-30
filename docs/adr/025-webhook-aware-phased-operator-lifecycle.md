@@ -1,10 +1,13 @@
 # ADR-025: Webhook-Aware Phased Operator and CRD Lifecycle Management
 
-**Date:** 2026-05-12
-**Status:** Proposed
+**Date:** 2026-05-28
+**Status:** Accepted
+**Supersedes:** Proposed Status
 **Related ADRs:** ADR-001 (Bootstrap Ubuntu Management Cluster), ADR-004 (Dual-Repo GitOps Pattern)
 
 ## Context
+
+Deterministic CRD establishment and webhook CA injection are foundational to platform stability. Proceeding with a "Proposed" state for core bootstrap architecture introduces unacceptable operational risk.
 
 During the bootstrap of the Hub (management) and Spoke clusters, several core infrastructure operators (e.g., Cluster API Operator, cert-manager, External Secrets Operator) must be installed. These operator manifests contain highly complex, cross-resource dependency graphs consisting of:
 
@@ -28,6 +31,8 @@ These approaches are rejected for production environments due to severe operatio
 3. **Implicit Webhook Deadlocks:** Waiting for CRDs to become established *before* applying the Certificate/Issuer resources that define their CAs leads to terminal bootstrap deadlocks
 
 ## Decision
+
+The Phased Operator and CRD Lifecycle Management strategy is formally Accepted. All automated and manual cluster bootstraps must utilize the 5-phase deterministic apply sequence. Fire-and-forget apply strategies, error suppression, and monolithic Server-Side Apply operations are permanently banned for foundational operators.
 
 We will enforce a **Deterministic, Webhook-Aware, Phased Bootstrap Sequence** for all core operator installations. This sequence respects the asynchronous nature of Kubernetes controller loops and prevents API server resource starvation.
 
