@@ -16,6 +16,8 @@ spec:
       values: |
         configs:
           cm:
+            # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
+            url: "https://argocd.nutgraf.in"
             admin.enabled: "true"
             application.instanceLabelKey: argocd.argoproj.io/instance
             exec.enabled: "false"
@@ -102,6 +104,21 @@ spec:
               hs.status = "Progressing"
               hs.message = "Waiting for Crossplane function to be installed and healthy"
               return hs
+
+        # Expose argocd-server via NGINX Ingress for Web UI and CLI access
+        server:
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              nginx.ingress.kubernetes.io/ssl-redirect: "true"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+            hostname: argocd.nutgraf.in
+            tls:
+              - hosts:
+                  - argocd.nutgraf.in
+                secretName: argocd-server-tls
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops

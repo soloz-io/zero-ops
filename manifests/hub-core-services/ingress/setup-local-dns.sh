@@ -23,6 +23,7 @@ sudo tee -a /etc/hosts > /dev/null <<EOF
 $INGRESS_IP api.nutgraf.in
 $INGRESS_IP auth.nutgraf.in
 $INGRESS_IP console.nutgraf.in
+$INGRESS_IP argocd.nutgraf.in
 EOF
 
 echo "✅ DNS entries added to /etc/hosts"

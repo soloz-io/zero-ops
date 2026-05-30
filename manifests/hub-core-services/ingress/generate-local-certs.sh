@@ -35,9 +35,14 @@ mkcert -cert-file certs/console.nutgraf.in.crt \
        -key-file certs/console.nutgraf.in.key \
        console.nutgraf.in
 
+mkcert -cert-file certs/argocd.nutgraf.in.crt \
+       -key-file certs/argocd.nutgraf.in.key \
+       argocd.nutgraf.in
+
 echo "✅ Certificates generated in ./certs/"
 echo ""
 echo "Create Kubernetes secrets with:"
 echo "  kubectl create secret tls api-zero-ops-tls --cert=certs/api.nutgraf.in.crt --key=certs/api.nutgraf.in.key -n api-gateway"
 echo "  kubectl create secret tls auth-zero-ops-tls --cert=certs/auth.nutgraf.in.crt --key=certs/auth.nutgraf.in.key -n identity-services"
 echo "  kubectl create secret tls console-zero-ops-tls --cert=certs/console.nutgraf.in.crt --key=certs/console.nutgraf.in.key -n ory-system"
+echo "  kubectl create secret tls argocd-server-tls --cert=certs/argocd.nutgraf.in.crt --key=certs/argocd.nutgraf.in.key -n platform-ops"
