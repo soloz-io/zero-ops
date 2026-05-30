@@ -34,12 +34,20 @@ The platform implements a strict three-tier enterprise trust hierarchy:
 2. **Fleet Intermediate CA**: Managed within Infisical OSS PKI.
 3. **Spoke Intermediate CA**: Dedicated per Spoke cluster, managed within Infisical OSS PKI.
 
+Every SpokePool and SpokeSilo SHALL own a dedicated Intermediate CA, mapped one-to-one with its `cellId`. Every InfisicalIssuer SHALL be bound to the Intermediate CA associated with its cellId. Cross-cell issuance is forbidden — a compromised Spoke MUST NOT be able to issue certificates valid for another cell.
+
 The Intermediate CA private keys never leave Infisical. The Spoke never possesses Intermediate CA key material at any point.
 
 **Certificate Issuance:**
-Spoke-local `cert-manager` instances use [infisical-issuer](https://github.com/Infisical/infisical-issuer) — a cert-manager external issuer — to request leaf certificates from Infisical PKI via the `POST /api/v1/cert-manager/certificates` API. The issuer authenticates via an Infisical Machine Identity provisioned to each Spoke.
+Spoke-local `cert-manager` instances use [infisical-issuer](https://github.com/Infisical/infisical-issuer) — a cert-manager external issuer — to request leaf certificates from Infisical PKI via the `POST /api/v1/cert-manager/certificates` API. The issuer authenticates via an Infisical Machine Identity provisioned to each Spoke, scoped to the Spoke's dedicated Intermediate CA.
 
 This pattern is consistent with how the platform handles all other lifecycle operations: secrets (ESO + Infisical), GitOps (ArgoCD + Hub), and provisioning (Crossplane + Hub) all depend on a centralized authority. Certificate issuance follows the same model.
+
+**Trust Anchor Distribution:**
+Hub-side trust stores SHALL trust the Offline Root CA and Fleet Intermediate CA only. Individual Spoke Intermediate certificates SHALL NOT be distributed as trust anchors. Every Spoke-issued leaf certificate chains through its Spoke Intermediate → Fleet Intermediate → Offline Root, so Hub services validate any Spoke leaf naturally without managing per-Spoke trust anchors.
+
+**Hub Operator Boundary:**
+The Hub Operator participates only in Day-0 PKI provisioning: it ensures a Spoke Intermediate CA exists in Infisical at provisioning time and creates it if absent. The Hub Operator SHALL NOT continuously reconcile, rotate, renew, or otherwise manage Intermediate CA lifecycle after Day-0. Intermediate lifecycle governance (rotation, renewal, revocation) remains within Infisical and is driven by its native TTL and policy engine. This preserves the ADR-005 ownership boundary: the Hub Operator is a provisioning orchestrator, not a PKI control plane.
 
 **Security Boundary:**
 A Spoke never possesses Intermediate CA private keys. Compromise of a Spoke cluster permits misuse of issued leaf certificates only. Compromise of the Intermediate CA requires compromise of Infisical itself. Attack surface is reduced from 500 distributed Intermediate CA keys (at ADR-033 scale) to a single Fleet Intermediate within Infisical.
