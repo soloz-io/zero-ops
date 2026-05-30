@@ -5,8 +5,11 @@
 .windsurf
 archived
 bin
-docs
-!docs/adr/
+docs/inspirations
+docs/analysis
+docs/hub-operator
+docs/infisical
+docs/prds
 memory
 k8-secrets
 manifests/hub-core-services/eso/crds/
@@ -14,4 +17,4 @@ test
 scripts
 cmd
 internal
-!internal\hub-cli
+!internal/hub-cli
