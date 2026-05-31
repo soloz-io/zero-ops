@@ -187,6 +187,15 @@ install_kubectl
 install_argocd
 install_gh
 
+# Export GitHub token for gh CLI
+GH_TOKEN_FILE="${SCRIPT_DIR}/../../k8-secrets/github/github-pat-token"
+if [[ -f "$GH_TOKEN_FILE" ]]; then
+  export GH_TOKEN="$(cat "$GH_TOKEN_FILE")"
+  echo "✓ GH_TOKEN exported from $GH_TOKEN_FILE"
+else
+  echo "⚠️  GitHub PAT not found at $GH_TOKEN_FILE — gh won't authenticate"
+fi
+
 echo ""
 echo "---"
 echo "Go was installed to ~/go/bin. Run the following in your current shell:"
