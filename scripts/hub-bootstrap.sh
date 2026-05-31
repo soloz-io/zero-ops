@@ -542,7 +542,19 @@ step5_init_secrets() {
     # Initialize secrets first (this will create the infisical-secrets secret)
     log "Running: $HUB_BINARY init-secrets"
     "$HUB_BINARY" init-secrets \
-        --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
+        --kubeconfig="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig" 2>&1 | tee "$LOG_DIR/init-secrets.log"
+    
+    # Mark Infisical healthy state if the log contains the success message
+    if grep -q "✓ Infisical is healthy" "$LOG_DIR/init-secrets.log" 2>/dev/null; then
+        mark_step_completed "infisical_healthy"
+        log "  State recorded: infisical_healthy"
+    fi
+    
+    # Mark infisical-auth ready state if the log contains the success message
+    if grep -q "✓ infisical-auth secret found" "$LOG_DIR/init-secrets.log" 2>/dev/null; then
+        mark_step_completed "infisical_auth_ready"
+        log "  State recorded: infisical_auth_ready"
+    fi
     
     # Wait for Infisical pod to be ready after secrets are created
     log "Waiting for Infisical pod to be ready after secrets initialization..."
