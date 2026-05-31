@@ -118,6 +118,31 @@ install_argocd() {
   echo "argocd CLI installed to ~/bin/argocd${EXT:-}"
 }
 
+install_gh() {
+  if command -v gh &>/dev/null; then
+    echo "gh already installed: $(gh version 2>/dev/null | head -1 || true)"
+    return
+  fi
+  echo "Installing gh CLI..."
+  rm -f ~/bin/gh*
+
+  if [ "${OS}" = "windows" ]; then
+    local gh_zip="${HOME}/bin/gh.zip"
+    curl -sSL -o "${gh_zip}" "https://github.com/cli/cli/releases/latest/download/gh_2.70.0_windows_amd64.zip"
+    unzip -jo "${gh_zip}" "bin/gh.exe" -d "${HOME}/bin" 2>/dev/null
+    rm -f "${gh_zip}"
+  else
+    local gh_tar="${HOME}/bin/gh.tar.gz"
+    curl -sSL -o "${gh_tar}" "https://github.com/cli/cli/releases/latest/download/gh_2.70.0_${OS}_${ARCH}.tar.gz"
+    tar -xzf "${gh_tar}" -C /tmp
+    mv /tmp/gh_*/bin/gh "${HOME}/bin/gh${EXT:-}"
+    rm -rf /tmp/gh_*
+    rm -f "${gh_tar}"
+  fi
+  chmod +x ~/bin/gh${EXT:-}
+  echo "gh CLI installed to ~/bin/gh${EXT:-}"
+}
+
 sync_via_argo() {
   local app="$1"
 
@@ -160,6 +185,7 @@ sync_apps() {
 install_go
 install_kubectl
 install_argocd
+install_gh
 
 echo ""
 echo "---"
