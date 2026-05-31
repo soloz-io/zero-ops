@@ -26,3 +26,17 @@ metadata:
   name: kagent-system
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
