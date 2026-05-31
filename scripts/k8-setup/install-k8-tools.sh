@@ -189,24 +189,30 @@ install_gh
 
 # Persist GitHub token to ~/.bashrc so gh works in all shells
 GH_TOKEN_FILE="${SCRIPT_DIR}/../../k8-secrets/github/github-pat-token"
-if [[ -f "$GH_TOKEN_FILE" ]]; then
-  gh_token_value="$(cat "$GH_TOKEN_FILE")"
-  export GH_TOKEN="$gh_token_value"
-  rc_file="${HOME}/.bashrc"
-  if [ -f "${HOME}/.zshrc" ]; then
-    rc_file="${HOME}/.zshrc"
-  fi
-  if ! grep -q 'export GH_TOKEN=' "$rc_file" 2>/dev/null; then
-    echo "" >> "$rc_file"
-    echo '# GitHub CLI token' >> "$rc_file"
-    echo "export GH_TOKEN=\"$gh_token_value\"" >> "$rc_file"
-    echo "✓ GH_TOKEN persisted to $rc_file"
-  else
-    echo "✓ GH_TOKEN already in $rc_file"
-  fi
-else
-  echo "⚠️  GitHub PAT not found at $GH_TOKEN_FILE — gh won't authenticate"
+if [[ ! -f "$GH_TOKEN_FILE" ]]; then
+  echo "ERROR: GitHub PAT not found at $GH_TOKEN_FILE"
+  echo "  Create the file with your GitHub Personal Access Token:"
+  echo "  echo 'ghp_your_token_here' > $GH_TOKEN_FILE"
+  exit 1
 fi
+
+gh_token_value="$(cat "$GH_TOKEN_FILE")"
+export GH_TOKEN="$gh_token_value"
+rc_file="${HOME}/.bashrc"
+if [ -f "${HOME}/.zshrc" ]; then
+  rc_file="${HOME}/.zshrc"
+fi
+if ! grep -q 'export GH_TOKEN=' "$rc_file" 2>/dev/null; then
+  echo "" >> "$rc_file"
+  echo '# GitHub CLI token' >> "$rc_file"
+  echo "export GH_TOKEN=\"$gh_token_value\"" >> "$rc_file"
+  echo "✓ GH_TOKEN persisted to $rc_file"
+else
+  echo "✓ GH_TOKEN already in $rc_file"
+fi
+echo ""
+echo "Run the following for gh to pick up the token in this shell:"
+echo "  source ~/.bashrc"
 
 echo ""
 echo "---"
