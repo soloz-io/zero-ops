@@ -146,7 +146,7 @@ func (c *Client) GetProfileIdBySlug(ctx context.Context, slug string) (string, e
 
 // GetOrCreateMachineIdentity finds or creates a Machine Identity in Infisical.
 func (c *Client) GetOrCreateMachineIdentity(ctx context.Context, name, orgID string) (*Identity, error) {
-	existing, err := c.findIdentityByName(ctx, name)
+	existing, err := c.findIdentityByName(ctx, name, orgID)
 	if err == nil && existing != "" {
 		ua, err := c.getUniversalAuth(ctx, existing)
 		if err != nil {
@@ -219,9 +219,9 @@ func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, 
 
 // --- private helpers ---
 
-func (c *Client) findIdentityByName(ctx context.Context, name string) (string, error) {
+func (c *Client) findIdentityByName(ctx context.Context, name, orgID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("%s/api/v1/identities?limit=100", c.BaseURL), nil)
+		fmt.Sprintf("%s/api/v1/identities?limit=100&orgId=%s", c.BaseURL, orgID), nil)
 	if err != nil {
 		return "", err
 	}
