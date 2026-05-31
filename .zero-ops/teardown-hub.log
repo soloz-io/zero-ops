@@ -3,52 +3,33 @@
 [teardown] ⚠️  Force deletion mode enabled
 [teardown] This will delete resources directly via Hetzner API
 [teardown] Querying Hetzner resources with label pattern: caph-cluster-hub-*
-[teardown] Deleting server: hub-lg2bt-7pg9d (ID: 133220248)
-[teardown] ✓ Deleted server: hub-lg2bt-7pg9d
-[teardown] Deleting server: hub-md-0-d99cl-tkwqr-xqcgw (ID: 133220579)
-[teardown] ✓ Deleted server: hub-md-0-d99cl-tkwqr-xqcgw
-[teardown] Deleting server: hub-md-0-d99cl-tkwqr-zh7wj (ID: 133220653)
-[teardown] ✓ Deleted server: hub-md-0-d99cl-tkwqr-zh7wj
-[teardown] Deleting load balancer: hub-hzspz-kube-apiserver-shv6h (ID: 6428592)
-[teardown] ✓ Deleted load balancer: hub-hzspz-kube-apiserver-shv6h
-[teardown] Deleting load balancer: a18d16062ba42457e8388f7c40bdae7b (ID: 6428782)
-[teardown] ✓ Deleted load balancer: a18d16062ba42457e8388f7c40bdae7b
-[teardown] Deleting network: hub-hzspz (ID: 12263343)
-[teardown] ✓ Deleted network: hub-hzspz
+[teardown] Deleting server: hub-mmtq4-9b2nm (ID: 134589807)
+[teardown] ✓ Deleted server: hub-mmtq4-9b2nm
+[teardown] Deleting server: hub-md-0-tbwdz-jj6gm-s979f (ID: 134590607)
+[teardown] ✓ Deleted server: hub-md-0-tbwdz-jj6gm-s979f
+[teardown] Deleting server: hub-md-0-tbwdz-jj6gm-69zpp (ID: 134590690)
+[teardown] ✓ Deleted server: hub-md-0-tbwdz-jj6gm-69zpp
+[teardown] Deleting load balancer: hub-ltr9t-kube-apiserver-zfzjv (ID: 6482350)
+[teardown] ✓ Deleted load balancer: hub-ltr9t-kube-apiserver-zfzjv
+[teardown] Deleting load balancer: ad248b6314be74575bddf9f8ee9b16f6 (ID: 6482506)
+[teardown] ✓ Deleted load balancer: ad248b6314be74575bddf9f8ee9b16f6
+[teardown] Deleting network: hub-ltr9t (ID: 12283927)
+[teardown] ✓ Deleted network: hub-ltr9t
 [teardown] Deleting associated volumes...
-[teardown] Deleting volume: pvc-38b2d854-f40a-42ee-b3aa-4bb54f6649f6 (ID: 105845464, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-38b2d854-f40a-42ee-b3aa-4bb54f6649f6
-[teardown] Deleting volume: pvc-a406e471-93d1-4002-bd85-18b0d1aaba91 (ID: 105826401, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-a406e471-93d1-4002-bd85-18b0d1aaba91
-[teardown] Deleting volume: pvc-a1dc402e-ba92-4dc9-b128-f2ad3daa6d9f (ID: 105826343, Size: 50 GB)
-[teardown] ✓ Deleted volume: pvc-a1dc402e-ba92-4dc9-b128-f2ad3daa6d9f
-[teardown] Deleting volume: pvc-81d7180d-414f-44b9-9971-b677851ac293 (ID: 105826346, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-81d7180d-414f-44b9-9971-b677851ac293
-[teardown] Deleting volume: pvc-819d70b8-85c1-44bf-aab4-61f0103035ea (ID: 105826476, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-819d70b8-85c1-44bf-aab4-61f0103035ea
-[teardown] Deleting volume: pvc-e4b91d5c-6294-46a6-9915-351d9689c711 (ID: 105826372, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-e4b91d5c-6294-46a6-9915-351d9689c711
-[teardown] Deleting volume: pvc-2384c951-3da3-4967-88f6-1626654a21b8 (ID: 105826342, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-2384c951-3da3-4967-88f6-1626654a21b8
-[teardown] Deleting volume: pvc-32206ced-c7c2-41c3-a427-bc7205b7ea79 (ID: 105826362, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-32206ced-c7c2-41c3-a427-bc7205b7ea79
-[teardown] Deleting volume: pvc-89d3a735-792a-44e5-88cf-959b99c36ae4 (ID: 105826477, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-89d3a735-792a-44e5-88cf-959b99c36ae4
-[teardown] Deleting volume: pvc-271519a7-bf22-4316-b379-df77e4d55977 (ID: 105845455, Size: 100 GB)
-[teardown] ✓ Deleted volume: pvc-271519a7-bf22-4316-b379-df77e4d55977
-[teardown] Deleting volume: pvc-0d17c030-2457-4ab1-b330-e6ce17d20329 (ID: 105845432, Size: 100 GB)
-[teardown] ✓ Deleted volume: pvc-0d17c030-2457-4ab1-b330-e6ce17d20329
-[teardown] Deleting volume: pvc-877c4a96-635f-424b-88f8-18c436bf4950 (ID: 105845446, Size: 100 GB)
-[teardown] ✓ Deleted volume: pvc-877c4a96-635f-424b-88f8-18c436bf4950
-[teardown] Deleting volume: pvc-735a58bf-66d7-4d24-bc26-b1f953414e48 (ID: 105868847, Size: 10 GB)
-[teardown] ✓ Deleted volume: pvc-735a58bf-66d7-4d24-bc26-b1f953414e48
+[teardown] Deleting volume: pvc-9ef6bb84-7490-43cc-97e6-24cbeef71ba0 (ID: 105872687, Size: 50 GB)
+[teardown] ✓ Deleted volume: pvc-9ef6bb84-7490-43cc-97e6-24cbeef71ba0
+[teardown] Deleting volume: pvc-e46a5b89-fe7c-4c9a-ad59-6f42b25138a0 (ID: 105872686, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-e46a5b89-fe7c-4c9a-ad59-6f42b25138a0
+[teardown] Deleting volume: pvc-5322024c-912c-46f2-9182-0943f158076b (ID: 105872690, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-5322024c-912c-46f2-9182-0943f158076b
+[teardown] Deleting volume: pvc-c9353736-4f7c-41c3-82d5-6c44e8dce701 (ID: 105872705, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-c9353736-4f7c-41c3-82d5-6c44e8dce701
+[teardown] Deleting volume: pvc-e9f76118-890d-460e-ba82-57ff813c4f4b (ID: 105872711, Size: 10 GB)
+[teardown] ✓ Deleted volume: pvc-e9f76118-890d-460e-ba82-57ff813c4f4b
 [teardown] ✓ Force deletion complete
 
 [teardown] Cleaning up local files...
 [teardown] Deleting kind cluster: hub...
-[teardown] ⚠️  Failed to delete kind cluster: exec: "kind": executable file not found in %PATH%
-
-[teardown] ✓ Removed k8-secrets/kubeconfig/hub.kubeconfig
 [teardown] ✓ Removed state file
 [teardown] ✓ Removed bootstrap state file
 [teardown] ✓ Local cleanup complete
