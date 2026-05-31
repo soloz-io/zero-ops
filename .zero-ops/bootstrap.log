@@ -364,3 +364,62 @@
 [2026-05-31 14:06:26] Waiting for CAPI Cluster (attempt 90/90): Phase=Provisioned, Infrastructure=True, ControlPlane=True, Workers=Unknown
 [2026-05-31 14:06:36] ❌ CAPI Cluster did not become ready within expected time
 [2026-05-31 14:06:36] ERROR: CAPI Cluster readiness timeout
+[2026-05-31 15:50:12] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 15:50:13] Project root: /c/Users/Administrator/zero-ops
+[2026-05-31 15:50:13] Log directory: /c/Users/Administrator/zero-ops/.zero-ops
+[2026-05-31 15:50:13] Checking prerequisites...
+[2026-05-31 15:50:13]   ✓ kubectl found: /c/WINDOWS/system32/kubectl
+[2026-05-31 15:50:13]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 15:50:13]   ✓ jq found: /c/Users/Administrator/bin/jq
+[2026-05-31 15:50:13]   ✓ kind found: /c/Users/Administrator/bin/kind
+[2026-05-31 15:50:13]   ✓ clusterctl found: /c/Users/Administrator/bin/clusterctl
+[2026-05-31 15:50:13]   ✓ helm found: /c/Users/Administrator/bin/helm
+[2026-05-31 15:50:14]   ✓ docker daemon running
+[2026-05-31 15:50:14]   ✓ hub binary found
+[2026-05-31 15:50:14]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 15:50:14]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 15:50:16]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 15:50:16] Prerequisites check passed
+[2026-05-31 15:50:16] Step 1: Bootstrapping Hub Cluster...
+[2026-05-31 15:50:16] Running: /c/Users/Administrator/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-31 16:26:44] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 16:26:44] Project root: /c/Users/Administrator/zero-ops
+[2026-05-31 16:26:45] Log directory: /c/Users/Administrator/zero-ops/.zero-ops
+[2026-05-31 16:26:45] Checking prerequisites...
+[2026-05-31 16:26:45]   ✓ kubectl found: /c/WINDOWS/system32/kubectl
+[2026-05-31 16:26:45]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 16:26:46]   ✓ jq found: /c/Users/Administrator/bin/jq
+[2026-05-31 16:26:46]   ✓ kind found: /c/Users/Administrator/bin/kind
+[2026-05-31 16:26:46]   ✓ clusterctl found: /c/Users/Administrator/bin/clusterctl
+[2026-05-31 16:26:46]   ✓ helm found: /c/Users/Administrator/bin/helm
+[2026-05-31 16:26:49]   ✓ docker daemon running
+[2026-05-31 16:26:49]   ✓ hub binary found
+[2026-05-31 16:26:50]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 16:26:50]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 16:26:52]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 16:26:52] Prerequisites check passed
+[2026-05-31 16:26:53] Step 1: Bootstrapping Hub Cluster...
+[2026-05-31 16:26:53] Running: /c/Users/Administrator/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-31 16:31:30] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-05-31 16:31:30] Hub cluster bootstrap completed
+[2026-05-31 16:32:00] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-05-31 16:32:00] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-05-31 16:32:04] IAM user hub-operator-secrets-manager-development already exists
+[2026-05-31 16:32:06] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-05-31 16:32:07] Attempting to use existing access keys...
+[2026-05-31 16:32:08] Existing keys may be invalid, attempting to recreate...
+[2026-05-31 16:32:08] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-05-31 16:32:14] All existing access keys deleted
+[2026-05-31 16:32:14] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-05-31 16:32:17] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-05-31 16:32:17] AWS Secrets Manager configuration completed
+[2026-05-31 16:32:32] Step 3: Configuring GitHub Access...
+[2026-05-31 16:32:32] Running: /c/Users/Administrator/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-05-31 16:32:33] Step 'configure_github' marked as completed in bootstrap state file
+[2026-05-31 16:32:33] GitHub access configuration completed
+[2026-05-31 16:32:48] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)...
+[2026-05-31 16:37:10] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-05-31 16:37:10] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-05-31 16:37:10] ✅ platform-data namespace created by ArgoCD
+[2026-05-31 16:37:21] Step 5: Initializing bootstrap secrets...
+[2026-05-31 16:37:21] Running: /c/Users/Administrator/zero-ops/bin/hub init-secrets

@@ -51,59 +51,148 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Patch deployment with production settings
+# [CUSTOM] Patch replica count
 - patch: |-
     - op: replace
       path: /spec/replicas
       value: 2
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Add image pull secret for GHCR
+- patch: |-
     - op: add
       path: /spec/template/spec/imagePullSecrets
       value:
         - name: ghcr-pull-secret
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Infisical base URL
+- patch: |-
     - op: add
-      path: /spec/template/spec/containers/0/env
+      path: /spec/template/spec/containers/0/env/-
       value:
-        - name: INFISICAL_BASE_URL
-          value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
-        - name: INFISICAL_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: infisical-auth
-              key: client-id
-        - name: INFISICAL_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: infisical-auth
-              key: client-secret
-        - name: INFISICAL_PROJECT_ID
-          valueFrom:
-            configMapKeyRef:
-              name: hub-bootstrap-config
-              key: INFISICAL_PROJECT_ID
-        - name: INFISICAL_ORGANIZATION_ID
-          valueFrom:
-            configMapKeyRef:
-              name: hub-bootstrap-config
-              key: INFISICAL_ORGANIZATION_ID
-        - name: HYDRA_BASE_URL
-          value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
-        - name: NATS_URL
-          value: "nats://nats.platform-core.svc:4222"
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_ACCESS_KEY_ID
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_SECRET_ACCESS_KEY
-        - name: AWS_REGION
-          valueFrom:
-            secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_REGION
+        name: INFISICAL_BASE_URL
+        value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Infisical client ID (optional — created during bootstrap)
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: INFISICAL_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: infisical-auth
+            key: client-id
+            optional: true
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Infisical client secret (optional — created during bootstrap)
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: INFISICAL_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: infisical-auth
+            key: client-secret
+            optional: true
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Infisical project ID
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: INFISICAL_PROJECT_ID
+        valueFrom:
+          configMapKeyRef:
+            name: hub-bootstrap-config
+            key: INFISICAL_PROJECT_ID
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Infisical organization ID
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: INFISICAL_ORGANIZATION_ID
+        valueFrom:
+          configMapKeyRef:
+            name: hub-bootstrap-config
+            key: INFISICAL_ORGANIZATION_ID
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append Hydra base URL
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: HYDRA_BASE_URL
+        value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append NATS URL
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: NATS_URL
+        value: "nats://nats.platform-core.svc:4222"
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append AWS access key ID
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: hub-operator-aws-credentials
+            key: AWS_ACCESS_KEY_ID
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append AWS secret access key
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: hub-operator-aws-credentials
+            key: AWS_SECRET_ACCESS_KEY
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Append AWS region
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: AWS_REGION
+        valueFrom:
+          secretKeyRef:
+            name: hub-operator-aws-credentials
+            key: AWS_REGION
+  target:
+    kind: Deployment
+    name: hub-operator
+# [CUSTOM] Patch resource requests/limits for production
+- patch: |-
     - op: replace
       path: /spec/template/spec/containers/0/resources/requests/cpu
       value: 100m
