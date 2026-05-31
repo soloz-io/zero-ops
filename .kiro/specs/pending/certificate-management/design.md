@@ -20,8 +20,11 @@ The Fleet Intermediate CA is hosted within Infisical PKI, is the sole issuing au
 ### Leaf Certificates
 Leaf certificates are issued through cert-manager, infisical-issuer, and Infisical PKI. All certificates chain through: Offline Root CA -> Fleet Intermediate CA -> Leaf Certificate.
 
+# Certificate Profiles
+All certificate issuance SHALL occur through centrally managed certificate profiles (not by CA ID). Profiles define the issuance boundary: Machine Identity → Project-level PKI permissions → Certificate Profile (profileId) → Fleet Intermediate CA. The Hub Operator resolves the bootstrap profile slug to UUID at runtime via GET /api/v1/cert-manager/certificate-profiles/slug/:slug.
+
 # Certificate Issuance Model
-Each Spoke cluster deploys cert-manager and infisical-issuer. Leaf certificates are requested locally. The Fleet Intermediate CA signs the certificate. The private key is generated and stored locally in the Spoke cluster. Crossplane is never involved.
+Each Spoke cluster deploys cert-manager and infisical-issuer. Leaf certificates are requested locally through the Infisical /api/v1/cert-manager/* API family (not deprecated /api/v1/pki/* endpoints). The Fleet Intermediate CA signs the certificate. The private key is generated and stored locally in the Spoke cluster. Crossplane is never involved.
 
 # Bootstrap Exception
 ADR-025 requires deterministic cluster bootstrap. The ArgoCD Agent must establish an mTLS connection before GitOps becomes available.
@@ -34,6 +37,9 @@ Characteristics:
 * ArgoCD Agent only
 * Delivered through ClusterResourceSet
 * Replaced after GitOps initialization
+
+## Bootstrap Private Key Handling
+The Hub Operator temporarily receives bootstrap certificate private key material during Day-0 provisioning. This is a controlled exception — the private key is received in-memory from the POST /api/v1/cert-manager/certificates/ API response, embedded directly into a ClusterResourceSet payload, and never stored in Hub-side persistent storage. After the Spoke receives the payload, the private key exists only on the Spoke cluster and cert-manager takes ownership. This exception is limited exclusively to the 72-hour ArgoCD bootstrap certificate and does not extend to Day-1+ lifecycle operations.
 
 # Trust Distribution
 The Offline Root CA public certificate is injected during Hub bootstrap. No per-Spoke trust bundles exist. No Intermediate CA bundles are distributed.
@@ -120,7 +126,7 @@ resources:
                           spoke-type: pool
                       resources:
                         - name: offline-root-ca-crs
-                          kind: Secret
+                          kind: ConfigMap
                         - name: "" # Patched to <spokeName>-machine-identity-crs
                           kind: Secret
                         - name: "" # Patched to <spokeName>-bootstrap-cert-crs
@@ -208,27 +214,27 @@ Never generate Root CA during hub bootstrap. Never store Root private key in the
 
 The Offline Root CA must already exist (generated and stored offline by the PKI operator). Hub bootstrap imports only the public certificate for trust distribution.
 
+**Note:** The Offline Root CA public certificate is public information. A ConfigMap communicates intent more clearly than a Secret and avoids unnecessary RBAC restrictions. Use ConfigMap, not Secret.
+
 **File: `manifests/platform-capi/offline-root-ca-crs.yaml`**
 ```yaml
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
   name: offline-root-ca-crs
   namespace: platform-capi
   labels:
     addons.cluster.x-k8s.io/resource-set: "true"
-type: addons.cluster.x-k8s.io/resource-set
-stringData:
+binaryData:
   root-ca.yaml: |
     apiVersion: v1
-    kind: Secret
+    kind: ConfigMap
     metadata:
       name: offline-root-ca
       namespace: argocd
       labels:
         platform.nutgraf.in/trust-anchor: "true"
-    type: Opaque
-    stringData:
+    data:
       ca.crt: "PLACEHOLDER_IMPORTED_DURING_HUB_BOOTSTRAP"
 ```
 
@@ -571,8 +577,8 @@ Before implementing the changes in section 5, consolidate onto one client. The `
               secret:
                 secretName: argocd-agent-client-cert
             - name: root-ca
-              secret:
-                secretName: offline-root-ca
+              configMap:
+                name: offline-root-ca
 ```
 
 ### 6.5. infisical-issuer CRD Verification

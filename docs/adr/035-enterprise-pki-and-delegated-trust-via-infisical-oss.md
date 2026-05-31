@@ -167,6 +167,36 @@ Leaf Certificate
 
 ---
 
+# Certificate Profiles
+
+All certificate issuance SHALL occur through centrally managed certificate profiles. Direct issuance against Certificate Authorities by ID is not supported by the platform.
+
+A certificate profile defines:
+
+| Field | Description |
+|---|---|
+| `slug` | Human-readable identifier (survives backup/restore) |
+| `caId` | The issuing Certificate Authority (the Fleet Intermediate CA) |
+| `enrollmentType` | Issuance method: `api`, `acme`, `scep`, `est` |
+| `defaults` | Default TTL, key algorithm, subject fields |
+| `issuerType` | `ca` or `self_signed` |
+
+The effective issuance boundary is:
+
+```text
+Machine Identity
+     ↓
+Project-level PKI permissions
+     ↓
+Certificate Profile (profileId)
+     ↓
+Fleet Intermediate CA
+```
+
+Profiles are identified by UUID internally but resolved by `slug` for operational use. The Hub Operator resolves the bootstrap profile slug to UUID at runtime via `GET /api/v1/cert-manager/certificate-profiles/slug/:slug`.
+
+---
+
 # Certificate Issuance Model
 
 Each Spoke cluster deploys:
@@ -183,7 +213,7 @@ cert-manager
    ↓
 infisical-issuer
    ↓
-Infisical PKI API
+Infisical /api/v1/cert-manager/* API
 ```
 
 The Fleet Intermediate CA signs the certificate.
@@ -191,6 +221,8 @@ The Fleet Intermediate CA signs the certificate.
 The private key is generated and stored locally in the Spoke cluster.
 
 Crossplane is never involved.
+
+The implementation depends on the Infisical certificate-management API family (`/api/v1/cert-manager/*`). The platform does not rely on any `/api/v1/pki/*` endpoints (those are deprecated in the Infisical OSS codebase).
 
 ---
 
@@ -235,6 +267,25 @@ cert-manager Takes Ownership
        ↓
 Bootstrap Certificate Replaced
 ```
+
+## Bootstrap Private Key Handling
+
+The Hub Operator temporarily receives bootstrap certificate private key material during Day-0 provisioning.
+
+This is a controlled exception:
+
+* The private key is received in-memory from the `POST /api/v1/cert-manager/certificates/` API response.
+* It is embedded directly into a ClusterResourceSet payload and written to the Kubernetes API Server.
+* It exists in Hub Operator process memory only during the reconcile loop.
+* It is never stored in Hub-side persistent storage, Secrets, ConfigMaps, or the Infisical API.
+
+After the Spoke cluster receives the ClusterResourceSet payload:
+
+* The private key exists only on the Spoke cluster.
+* cert-manager takes ownership and replaces the certificate within 72 hours.
+* The Hub Operator never reads, rotates, renews, or reconciles this private key.
+
+**This exception is limited exclusively to the 72-hour ArgoCD bootstrap certificate and does not extend to any Day-1+ lifecycle operations.**
 
 The bootstrap certificate is the only exception to delegated issuance.
 
@@ -331,9 +382,9 @@ SPIRE SHALL NOT be used for infrastructure certificates.
 
 ---
 
-# PKI Profiles
+# PKI Profile TTLs
 
-Certificate validity is governed centrally.
+Certificate validity is governed centrally through certificate profiles.
 
 | Profile                 | TTL |
 | ----------------------- | --- |
@@ -342,6 +393,8 @@ Certificate validity is governed centrally.
 | Service Mesh Components | 1h  |
 | Human Access            | 15m |
 | Bootstrap Certificate   | 72h |
+
+Each profile maps to a named PKI policy in Infisical. TTLs are enforced server-side by the certificate profile configuration.
 
 ---
 
