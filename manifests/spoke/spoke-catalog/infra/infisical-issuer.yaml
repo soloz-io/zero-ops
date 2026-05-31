@@ -1,0 +1,88 @@
+---
+# infisical-issuer CRDs and Controller
+# Version: v0.1.0
+# Manages InfisicalClusterIssuer resources on spoke clusters
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infisical-issuer
+  namespace: cert-manager
+  labels:
+    app: infisical-issuer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: infisical-issuer
+  template:
+    metadata:
+      labels:
+        app: infisical-issuer
+    spec:
+      serviceAccountName: infisical-issuer
+      containers:
+      - name: infisical-issuer
+        image: ghcr.io/infisical/infisical-issuer:v0.1.0
+        args:
+        - --v=2
+        - --leader-election-namespace=cert-manager
+        env:
+        - name: INFISICAL_API_URL
+          value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+        - name: INFISICAL_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-id
+        - name: INFISICAL_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-secret
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: infisical-issuer
+  namespace: cert-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: infisical-issuer
+rules:
+- apiGroups: ["infisical.cert-manager.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificates", "certificaterequests"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["secrets", "events", "configmaps"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: infisical-issuer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: infisical-issuer
+subjects:
+- kind: ServiceAccount
+  name: infisical-issuer
+  namespace: cert-manager

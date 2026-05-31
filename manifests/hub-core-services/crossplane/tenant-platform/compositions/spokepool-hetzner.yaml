@@ -93,189 +93,9 @@ spec:
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
           
-          # Dynamic Certificate generation per Spoke Pool (Phase 2)
-          # Generates unique client certificate with CN matching cluster name
-          # cert-manager creates Secret with label cert-type: argocd-agent-client
-          # Kyverno watches for this label and generates CRS-compatible Secret
-          - name: argocd-agent-client-cert
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: cert-manager.io/v1
-                    kind: Certificate
-                    # Enterprise Fix: Co-locate Certificate request with its Issuer
-                    metadata:
-                      namespace: platform-capi
-                    spec:
-                      secretName: ""  # Patched below
-                      duration: 2160h  # 90 days
-                      renewBefore: 168h  # 7 days
-                      usages:
-                        - client auth
-                        - digital signature
-                        - key encipherment
-                      commonName: ""  # Patched below - CRITICAL: Must match cluster name
-                      issuerRef:
-                        name: argocd-agent-issuer
-                        kind: Issuer
-
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.secretName
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.commonName
-          
-          # Dynamic Certificate generation for Alloy (Observability mTLS)
-          # Generates unique client certificate with CN matching cluster name
-          # cert-manager creates Secret with label cert-type: alloy-client
-          # Kyverno watches for this label and generates CRS-compatible Secret
-          - name: alloy-client-cert
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: cert-manager.io/v1
-                    kind: Certificate
-                    metadata:
-                      namespace: platform-observability
-                    spec:
-                      secretName: ""  # Patched below
-                      duration: 2160h  # 90 days
-                      renewBefore: 168h  # 7 days
-                      usages:
-                        - client auth
-                        - digital signature
-                        - key encipherment
-                      commonName: ""  # Patched below - CRITICAL: Must match cluster name
-                      issuerRef:
-                        name: observability-issuer
-                        kind: Issuer
-
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.secretName
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.commonName
-          
-          # Dynamic Certificate generation for NATS Leafnode (mTLS)
-          # Generates unique client certificate with CN matching cluster name
-          # cert-manager creates Secret with label cert-type: nats-leafnode-client
-          # Kyverno watches for this label and generates CRS-compatible Secret
-          - name: nats-leafnode-client-cert
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: cert-manager.io/v1
-                    kind: Certificate
-                    metadata:
-                      namespace: platform-messaging
-                    spec:
-                      secretName: ""  # Patched below
-                      duration: 2160h  # 90 days
-                      renewBefore: 168h  # 7 days
-                      usages:
-                        - client auth
-                        - digital signature
-                        - key encipherment
-                      commonName: ""  # Patched below - CRITICAL: Must match cluster name
-                      issuerRef:
-                        name: nats-leafnode-issuer
-                        kind: Issuer
-
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leafnode-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leafnode-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.secretName
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leafnode-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.commonName
+          # Bootstrap PKI Secrets created by cert-operator
+          # cert-operator watches SpokePool creation, creates Machine Identity and 72h bootstrap cert
+          # See operators/cert-operator for implementation
           
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
@@ -337,17 +157,14 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        # CA certificates (static, bootstrap-only)
-                        - name: argocd-agent-ca-secret
+                        # Bootstrap PKI (created by cert-operator, strategy: Once)
+                        # Machine Identity credentials for ESO ClusterSecretStore on Spoke
+                        - name: ""
                           kind: Secret
-                        - name: observability-ca-secret
+                        # 72-hour bootstrap certificate for ArgoCD Agent mTLS
+                        - name: ""
                           kind: Secret
-                        - name: nats-leafnode-ca-secret
-                          kind: Secret
-                        # Infisical auth for ESO ClusterSecretStore on Spoke
-                        - name: infisical-auth-crs
-                          kind: Secret
-                      strategy: Reconcile
+                      strategy: Once
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -410,6 +227,22 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-argocd-agent-params"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-machine-identity"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-bootstrap-cert"
           
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object
@@ -821,207 +654,7 @@ spec:
                       fmt: "%s-kubeconfig"
 
           # ========================================================================
-          # mTLS Certificate Distribution via Crossplane Objects (v2.0 Pattern)
-          # Replaces Kyverno+CRS hybrid with pure continuous reconciliation
+          # PKI Distribution via CRS (cert-operator creates per-spoke CRS Secrets)
+          # See manifests/platform-capi/ and operators/cert-operator/
+          # ADR-035: cert-operator handles Day-0 PKI, spoke cert-manager handles Day-2
           # ========================================================================
-
-          # Alloy Client Certificate Distribution
-          # Copies cert-manager generated secret from Hub to Spoke
-          - name: alloy-client-cert-distribution
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                references:
-                  - patchesFrom:
-                      apiVersion: v1
-                      kind: Secret
-                      namespace: platform-observability
-                      fieldPath: data
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      name: alloy-client-cert
-                      namespace: platform-observability
-                      labels:
-                        managed-by: crossplane
-                        source-cluster: hub
-                        source-namespace: platform-observability
-                        cert-type: alloy-client
-                    type: kubernetes.io/tls
-                providerConfigRef:
-                  name: ""  # Patched to spoke-specific provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-cert-dist"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.references[0].patchesFrom.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-alloy-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.providerConfigRef.name
-          
-          # NATS Leafnode Client Certificate Distribution
-          # Copies cert-manager generated secret from Hub to Spoke
-          - name: nats-leafnode-cert-distribution
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                references:
-                  - patchesFrom:
-                      apiVersion: v1
-                      kind: Secret
-                      namespace: platform-messaging
-                      fieldPath: data
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      name: nats-leafnode-client-cert
-                      namespace: platform-messaging
-                      labels:
-                        managed-by: crossplane
-                        source-cluster: hub
-                        source-namespace: platform-messaging
-                        cert-type: nats-leafnode-client
-                    type: kubernetes.io/tls
-                providerConfigRef:
-                  name: ""  # Patched to spoke-specific provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-cert-dist"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.references[0].patchesFrom.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leafnode-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.providerConfigRef.name
-          
-          # ArgoCD Agent Client Certificate Distribution
-          # Copies cert-manager generated secret from Hub to Spoke
-          - name: argocd-agent-cert-distribution
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                references:
-                  - patchesFrom:
-                      apiVersion: v1
-                      kind: Secret
-                      # Enterprise Fix: Read the generated cert from the Issuer's namespace
-                      namespace: platform-capi
-                      fieldPath: data
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      name: argocd-agent-client-cert
-                      namespace: argocd
-                      labels:
-                        managed-by: crossplane
-                        source-cluster: hub
-                        source-namespace: platform-capi
-                        cert-type: argocd-agent-client
-                    type: kubernetes.io/tls
-                providerConfigRef:
-                  name: ""  # Patched to spoke-specific provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-cert-dist"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.references[0].patchesFrom.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-argocd-agent-client-cert"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.providerConfigRef.name
-
-          # Infisical Auth Secret Distribution
-          # Actively syncs the infisical-auth secret from Hub to Spoke, bypassing CAPI CRS
-          - name: infisical-auth-distribution
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                references:
-                  - patchesFrom:
-                      apiVersion: v1
-                      kind: Secret
-                      namespace: platform-ops
-                      name: infisical-auth
-                      fieldPath: data
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      name: infisical-auth
-                      namespace: platform-ops
-                      labels:
-                        managed-by: crossplane
-                        source-cluster: hub
-                    type: Opaque
-                providerConfigRef:
-                  name: ""  # Patched to spoke-specific provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-infisical-auth-dist"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.providerConfigRef.name
-    # Step 2: Stateful Certificate Distribution using Composition Function
-    # This must be at the same indentation level as the first '- step'
-    - step: distribute-certificates
-      functionRef:
-        name: function-cert-distribution

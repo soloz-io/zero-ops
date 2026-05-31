@@ -1,0 +1,18 @@
+---
+# Offline Root CA Public Certificate
+# Stored as ConfigMap (public information) for reference.
+# The actual root CA certificate is generated offline and stored securely.
+# This ConfigMap is consumed by spoke clusters for trust chain validation.
+# After ADR-035 migration, this is replaced by cert-manager's CA injection.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: offline-root-ca
+  namespace: platform-capi
+  labels:
+    addons.cluster.x-k8s.io/resource-set: "true"
+data:
+  ca.crt: |
+    # Offline Root CA certificate
+    # Generated offline per security policy
+    # TODO: Replace with actual root CA certificate PEM

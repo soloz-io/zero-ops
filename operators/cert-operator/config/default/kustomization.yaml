@@ -1,0 +1,14 @@
+namespace: platform-ops
+
+resources:
+- ../rbac
+- ../manager
+
+patches:
+- patch: |-
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+      value: "1"
+  target:
+    kind: Deployment
+    name: cert-operator
