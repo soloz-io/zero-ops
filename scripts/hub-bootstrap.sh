@@ -181,6 +181,49 @@ auto_install_tool() {
                 return 1
             fi
             ;;
+        aws)
+            log "  Auto-installing aws CLI..."
+            # Try winget first (non-interactive)
+            if winget install -e --id Amazon.AWSCLI --silent --accept-package-agreements 2>/dev/null; then
+                # winget installed to Program Files — find the exe and symlink/copy to ~/bin
+                local aws_src="/c/Program Files/Amazon/AWSCLIV2/aws.exe"
+                if [[ -f "$aws_src" ]]; then
+                    ln -sf "$aws_src" "$install_dir/aws.exe" 2>/dev/null || cp "$aws_src" "$install_dir/aws.exe"
+                    export PATH="$PATH:$install_dir"
+                    log "  ✓ aws installed via winget to $install_dir/aws.exe"
+                fi
+            elif command -v aws >/dev/null 2>&1; then
+                log "  ✓ aws found after install"
+            else
+                # Fallback: download MSI and install silently
+                log "  Attempting AWS CLI MSI install..."
+                local msi="$install_dir/AWSCLIV2.msi"
+                if curl -fsSLo "$msi" "https://awscli.amazonaws.com/AWSCLIV2.msi" 2>/dev/null; then
+                    msiexec //i "$msi" //quiet //norestart 2>/dev/null || true
+                    rm -f "$msi"
+                    local aws_src="/c/Program Files/Amazon/AWSCLIV2/aws.exe"
+                    if [[ -f "$aws_src" ]]; then
+                        ln -sf "$aws_src" "$install_dir/aws.exe" 2>/dev/null || cp "$aws_src" "$install_dir/aws.exe"
+                        export PATH="$PATH:$install_dir"
+                        log "  ✓ aws installed via MSI to $install_dir/aws.exe"
+                    else
+                        return 1
+                    fi
+                else
+                    return 1
+                fi
+            fi
+            ;;
+        jq)
+            log "  Auto-installing jq..."
+            if curl -fsSLo "$install_dir/jq.exe" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe" 2>/dev/null; then
+                chmod +x "$install_dir/jq.exe"
+                export PATH="$PATH:$install_dir"
+                log "  ✓ jq installed to $install_dir/jq.exe"
+            else
+                return 1
+            fi
+            ;;
         *)
             return 1
             ;;
@@ -203,7 +246,7 @@ check_prerequisites() {
     for tool in kubectl aws jq kind clusterctl helm; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             case "$tool" in
-                kind|clusterctl|helm)
+                kind|clusterctl|helm|aws|jq)
                     log "  '$tool' not found — attempting auto-install..."
                     if auto_install_tool "$tool" && command -v "$tool" >/dev/null 2>&1; then
                         log "  ✓ $tool found: $(command -v "$tool")"
@@ -225,6 +268,16 @@ check_prerequisites() {
                                 log "  Or download: https://get.helm.sh/helm-v3.17.3-windows-amd64.zip"
                                 log "  Docs: https://helm.sh/docs/intro/install/"
                                 ;;
+                            aws)
+                                log "  Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi"
+                                log "  Or: winget install -e --id Amazon.AWSCLI"
+                                log "  Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+                                ;;
+                            jq)
+                                log "  Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=\$PATH:~"
+                                log "  Or (Windows): winget install -e --id jqlang.jq"
+                                log "  Docs: https://jqlang.github.io/jq/download/"
+                                ;;
                         esac
                         failed=1
                     fi
@@ -236,16 +289,6 @@ check_prerequisites() {
                             log "  Install (Windows): winget install -e --id Kubernetes.kubectl"
                             log "  Or download: https://dl.k8s.io/release/v1.30.0/bin/windows/amd64/kubectl.exe"
                             log "  Docs: https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/"
-                            ;;
-                        aws)
-                            log "  Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi"
-                            log "  Or: winget install -e --id Amazon.AWSCLI"
-                            log "  Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
-                            ;;
-                        jq)
-                            log "  Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=\$PATH:~"
-                            log "  Or (Windows): winget install -e --id jqlang.jq"
-                            log "  Docs: https://jqlang.github.io/jq/download/"
                             ;;
                     esac
                     failed=1
