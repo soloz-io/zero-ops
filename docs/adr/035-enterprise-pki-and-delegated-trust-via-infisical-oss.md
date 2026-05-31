@@ -123,6 +123,8 @@ The platform implements a three-tier trust hierarchy:
 2. Fleet Intermediate CA
 3. Leaf Certificates
 
+Infisical OSS cannot enforce CA-scoped authorization boundaries for Machine Identities. Therefore Intermediate CA delegation is not treated as a security boundary. The platform uses a single Fleet Intermediate CA.
+
 ### Offline Root CA
 
 The Offline Root CA:
