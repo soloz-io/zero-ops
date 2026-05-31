@@ -187,11 +187,23 @@ install_kubectl
 install_argocd
 install_gh
 
-# Export GitHub token for gh CLI
+# Persist GitHub token to ~/.bashrc so gh works in all shells
 GH_TOKEN_FILE="${SCRIPT_DIR}/../../k8-secrets/github/github-pat-token"
 if [[ -f "$GH_TOKEN_FILE" ]]; then
-  export GH_TOKEN="$(cat "$GH_TOKEN_FILE")"
-  echo "✓ GH_TOKEN exported from $GH_TOKEN_FILE"
+  gh_token_value="$(cat "$GH_TOKEN_FILE")"
+  export GH_TOKEN="$gh_token_value"
+  rc_file="${HOME}/.bashrc"
+  if [ -f "${HOME}/.zshrc" ]; then
+    rc_file="${HOME}/.zshrc"
+  fi
+  if ! grep -q 'export GH_TOKEN=' "$rc_file" 2>/dev/null; then
+    echo "" >> "$rc_file"
+    echo '# GitHub CLI token' >> "$rc_file"
+    echo "export GH_TOKEN=\"$gh_token_value\"" >> "$rc_file"
+    echo "✓ GH_TOKEN persisted to $rc_file"
+  else
+    echo "✓ GH_TOKEN already in $rc_file"
+  fi
 else
   echo "⚠️  GitHub PAT not found at $GH_TOKEN_FILE — gh won't authenticate"
 fi
