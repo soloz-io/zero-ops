@@ -7,23 +7,107 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"sync"
 	"time"
 )
 
 type Client struct {
-	BaseURL string
-	Token   string
-	HTTP    *http.Client
+	BaseURL       string
+	clientID      string
+	clientSecret  string
+	token         string
+	tokenExp      time.Time
+	mu            sync.RWMutex
+	HTTP          *http.Client
 }
 
-func NewClient(baseURL, token string) *Client {
+func NewClient(baseURL string) *Client {
+	clientID := os.Getenv("INFISICAL_CLIENT_ID")
+	clientSecret := os.Getenv("INFISICAL_CLIENT_SECRET")
 	return &Client{
-		BaseURL: baseURL,
-		Token:   token,
+		BaseURL:      baseURL,
+		clientID:     clientID,
+		clientSecret: clientSecret,
 		HTTP: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+func (c *Client) authenticate(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	clientID := c.clientID
+	if clientID == "" {
+		clientID = os.Getenv("INFISICAL_CLIENT_ID")
+	}
+	clientSecret := c.clientSecret
+	if clientSecret == "" {
+		clientSecret = os.Getenv("INFISICAL_CLIENT_SECRET")
+	}
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET must be set")
+	}
+
+	loginReq := map[string]string{
+		"clientId":     clientID,
+		"clientSecret": clientSecret,
+	}
+	body, err := json.Marshal(loginReq)
+	if err != nil {
+		return fmt.Errorf("marshal login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.BaseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("universal auth login failed: status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var loginResp struct {
+		AccessToken string `json:"accessToken"`
+		ExpiresIn   int    `json:"expiresIn"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
+		return fmt.Errorf("decode login response: %w", err)
+	}
+
+	c.token = loginResp.AccessToken
+	c.tokenExp = time.Now().Add(time.Duration(loginResp.ExpiresIn) * time.Second)
+	return nil
+}
+
+func (c *Client) ensureAuthenticated(ctx context.Context) error {
+	c.mu.RLock()
+	valid := c.token != "" && time.Now().Add(5*time.Minute).Before(c.tokenExp)
+	c.mu.RUnlock()
+	if valid {
+		return nil
+	}
+	return c.authenticate(ctx)
+}
+
+func (c *Client) getToken(ctx context.Context) (string, error) {
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return "", err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token, nil
 }
 
 // IssueCertRequest matches the verified Infisical /api/v1/cert-manager/certificates endpoint
@@ -66,6 +150,11 @@ type Profile struct {
 
 // IssueBootstrapCertificate mints a 72-hour cert for ArgoCD Agent bootstrap.
 func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commonName string) (*CertData, error) {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authenticate: %w", err)
+	}
+
 	reqBody := IssueCertRequest{
 		ProfileId: profileId,
 		Attributes: IssueCertAttributes{
@@ -86,7 +175,7 @@ func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commo
 		return nil, fmt.Errorf("create issue cert request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -113,15 +202,19 @@ func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commo
 }
 
 // GetProfileIdBySlug resolves a certificate profile slug to its UUID.
-// GET /api/v1/cert-manager/certificate-profiles/slug/:slug
 func (c *Client) GetProfileIdBySlug(ctx context.Context, slug string) (string, error) {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("authenticate: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf("%s/api/v1/cert-manager/certificate-profiles/slug/%s", c.BaseURL, slug), nil)
 	if err != nil {
 		return "", fmt.Errorf("create get profile request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -146,6 +239,12 @@ func (c *Client) GetProfileIdBySlug(ctx context.Context, slug string) (string, e
 
 // GetOrCreateMachineIdentity finds or creates a Machine Identity in Infisical.
 func (c *Client) GetOrCreateMachineIdentity(ctx context.Context, name, orgID string) (*Identity, error) {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authenticate: %w", err)
+	}
+	c.token = token // reuse for private helpers
+
 	existing, err := c.findIdentityByName(ctx, name, orgID)
 	if err == nil && existing != "" {
 		ua, err := c.getUniversalAuth(ctx, existing)
@@ -179,6 +278,11 @@ func (c *Client) GetOrCreateMachineIdentity(ctx context.Context, name, orgID str
 
 // GrantProjectAccess grants a Machine Identity access to the Infisical project.
 func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, role string) error {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate: %w", err)
+	}
+
 	payload := map[string]string{"role": role}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -192,7 +296,7 @@ func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, 
 		return fmt.Errorf("create grant access request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -225,7 +329,7 @@ func (c *Client) findIdentityByName(ctx context.Context, name, orgID string) (st
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -269,7 +373,7 @@ func (c *Client) getUniversalAuth(ctx context.Context, identityID string) (*univ
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -303,7 +407,7 @@ func (c *Client) createIdentity(ctx context.Context, name, orgID string) (string
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -352,7 +456,7 @@ func (c *Client) attachUniversalAuth(ctx context.Context, identityID string) err
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -398,7 +502,7 @@ func (c *Client) generateClientSecret(ctx context.Context, identityID string) (s
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)

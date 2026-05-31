@@ -9,10 +9,13 @@ data:
   # Cluster Identity
   CLUSTER_ID: "hub-production"
   CLUSTER_REGION: "ap-south-1"
-  
-  # Infisical Configuration
+
+  # Infisical Configuration (Consolidated)
   INFISICAL_PROJECT_SLUG: "hub-platform"
   INFISICAL_ENVIRONMENT_SLUG: "dev"
-  
+  INFISICAL_PROJECT_ID: "PLACEHOLDER_PROJECT_ID"
+  INFISICAL_ORGANIZATION_ID: "PLACEHOLDER_ORG_ID"
+  INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"
+
   # Domain Configuration
   DOMAIN: "nutgraf.in"
