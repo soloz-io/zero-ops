@@ -33,6 +33,64 @@ detect_platform() {
 
 detect_platform
 
+install_go() {
+  if command -v go &>/dev/null; then
+    echo "Go already installed: $(go version 2>/dev/null || true)"
+    return
+  fi
+
+  # Read required Go version from go.mod
+  local required_version
+  required_version="$(grep '^go ' "${SCRIPT_DIR}/../../go.mod" | awk '{print $2}')"
+  if [ -z "${required_version}" ]; then
+    required_version="1.26.0"
+  fi
+  echo "Installing Go ${required_version}..."
+
+  local go_tarball="go${required_version}.${OS}-${ARCH}.tar.gz"
+  local go_url="https://go.dev/dl/${go_tarball}"
+
+  if [ "${OS}" = "windows" ]; then
+    go_tarball="go${required_version}.${OS}-${ARCH}.zip"
+    go_url="https://go.dev/dl/${go_tarball}"
+    curl -sSL -o "/tmp/${go_tarball}" "${go_url}"
+    rm -rf "${HOME}/go"
+    unzip -qo "/tmp/${go_tarball}" -d "${HOME}" 2>/dev/null || {
+      # If unzip not available, try PowerShell
+      powershell -Command "Expand-Archive -Path '/tmp/${go_tarball}' -DestinationPath '${HOME}' -Force"
+    }
+  else
+    curl -sSL -o "/tmp/${go_tarball}" "${go_url}"
+    # Extract to a temp dir then move — avoids nesting if ~/go already exists
+    rm -rf "/tmp/go-extract"
+    mkdir -p "/tmp/go-extract"
+    tar -C "/tmp/go-extract" -xzf "/tmp/${go_tarball}"
+    rm -rf "${HOME}/go"
+    mv "/tmp/go-extract/go" "${HOME}/go"
+    rm -rf "/tmp/go-extract"
+  fi
+  rm -f "/tmp/${go_tarball}"
+
+  # Add go/bin to PATH if not already there
+  case ":$PATH:" in
+    *":${HOME}/go/bin:"*) ;;
+    *) export PATH="${HOME}/go/bin:${PATH}" ;;
+  esac
+
+  # Also append to ~/.bashrc / ~/.zshrc for future shells
+  local rc_file="${HOME}/.bashrc"
+  if [ -f "${HOME}/.zshrc" ]; then
+    rc_file="${HOME}/.zshrc"
+  fi
+  if ! grep -q 'export PATH="${HOME}/go/bin:${PATH}"' "${rc_file}" 2>/dev/null; then
+    echo "" >> "${rc_file}"
+    echo '# Go' >> "${rc_file}"
+    echo 'export PATH="${HOME}/go/bin:${PATH}"' >> "${rc_file}"
+  fi
+
+  echo "Go ${required_version} installed to ${HOME}/go"
+}
+
 install_kubectl() {
   if command -v kubectl &>/dev/null; then
     echo "kubectl already installed: $(kubectl version --client --short 2>/dev/null || true)"
@@ -99,6 +157,17 @@ sync_apps() {
   fi
 }
 
+install_go
 install_kubectl
 install_argocd
+
+echo ""
+echo "---"
+echo "Go was installed to ~/go/bin. Run the following in your current shell:"
+echo "  source ~/.bashrc"
+echo "Or add ~/go/bin to PATH manually:"
+echo "  export PATH=\"\$HOME/go/bin:\$PATH\""
+echo "---"
+echo ""
+
 sync_apps "$@"
