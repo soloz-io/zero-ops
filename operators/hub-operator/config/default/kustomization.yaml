@@ -152,45 +152,8 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Append AWS access key ID
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: hub-operator-aws-credentials
-            key: AWS_ACCESS_KEY_ID
-  target:
-    kind: Deployment
-    name: hub-operator
-# [CUSTOM] Append AWS secret access key
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: hub-operator-aws-credentials
-            key: AWS_SECRET_ACCESS_KEY
-  target:
-    kind: Deployment
-    name: hub-operator
-# [CUSTOM] Append AWS region
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: AWS_REGION
-        valueFrom:
-          secretKeyRef:
-            name: hub-operator-aws-credentials
-            key: AWS_REGION
-  target:
-    kind: Deployment
-    name: hub-operator
+# Note: AWS env vars (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+# are already defined in config/manager/manager.yaml — not duplicated here.
 # [CUSTOM] Patch resource requests/limits for production
 - patch: |-
     - op: replace
