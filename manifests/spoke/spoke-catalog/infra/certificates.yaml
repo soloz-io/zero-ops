@@ -1,42 +1,51 @@
 ---
-# Spoke-managed certificates using Infisical CA issuer
-# These replace the hub-distributed certificates from ADR-035
-# cert-manager on the spoke handles renewal automatically
-
-# Alloy (Grafana Alloy) client mTLS certificate
+# Adopts the Day-0 bootstrap secret and handles continuous rotation
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-agent-client-cert
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  secretName: argocd-agent-client-cert
+  duration: 24h
+  renewBefore: 8h
+  commonName: argocd-agent:{{ .Values.spokeName }}
+  issuerRef:
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+---
+# FIX: Added document separator here
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: alloy-client-cert
   namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   secretName: alloy-client-cert
-  duration: 2160h  # 90 days
-  renewBefore: 168h  # 7 days
-  usages:
-    - client auth
-    - digital signature
-    - key encipherment
-  commonName: alloy-client
+  duration: 24h
+  renewBefore: 8h
+  commonName: alloy:{{ .Values.spokeName }}
   issuerRef:
-    name: infisical-ca
+    name: infisical-fleet-issuer
     kind: ClusterIssuer
-
-# NATS Leafnode client mTLS certificate
+---
+# FIX: Added document separator here
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nats-leafnode-client-cert
   namespace: platform-messaging
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   secretName: nats-leafnode-client-cert
-  duration: 2160h  # 90 days
-  renewBefore: 168h  # 7 days
-  usages:
-    - client auth
-    - digital signature
-    - key encipherment
-  commonName: nats-leafnode-client
+  duration: 24h
+  renewBefore: 8h
+  commonName: nats:{{ .Values.spokeName }}
   issuerRef:
-    name: infisical-ca
+    name: infisical-fleet-issuer
     kind: ClusterIssuer
