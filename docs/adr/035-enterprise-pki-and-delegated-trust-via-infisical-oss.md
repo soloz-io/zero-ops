@@ -2,121 +2,114 @@
 
 **Date:** 2026-05-31
 **Status:** Accepted
-**Supersedes:** ADR-032 (Partial: Implementation of Delegated Spoke Issuance)
 
 ---
 
 # Context
 
-The platform requires a scalable Public Key Infrastructure (PKI) to support mTLS across hundreds of Spoke clusters while maintaining strict separation between provisioning responsibilities, runtime operations, and workload identity systems.
+The platform requires a scalable PKI architecture capable of supporting hundreds of Spoke clusters while respecting the architectural boundaries established by:
 
-Crossplane is explicitly prohibited from traversing, distributing, or managing certificate private keys. The PKI architecture must support:
+* ADR-005 (Ownership Boundaries)
+* ADR-025 (Deterministic Bootstrap)
+* ADR-031 (Security Isolation)
+* ADR-034 (Runtime vs Lifecycle Autonomy)
 
-* Secure infrastructure mTLS
-* Centralized lifecycle governance
-* Short-lived certificates
-* Auditability
-* Separation between infrastructure identity and workload identity
-* Consistency with ADR-034's Runtime Autonomy vs Lifecycle Autonomy model
+Historically, certificate issuance was performed on the Hub and distributed to Spokes through Crossplane Composition Functions and Kubernetes Secret traversal.
 
-Per ADR-034:
+This approach created several problems:
 
-* **Runtime Autonomy** is guaranteed.
-* **Lifecycle Autonomy** is not guaranteed.
+1. Crossplane became a secret distribution plane.
+2. Private key material traversed Hub control-plane components.
+3. Certificate lifecycle logic became tightly coupled to provisioning.
+4. Certificate distribution violated the ownership boundaries established by ADR-005.
+5. Blast radius increased because certificate issuance and distribution were centralized inside provisioning workflows.
 
-Existing workloads, certificates, and secrets must continue operating during Hub outages. However, certificate issuance, renewal, secret rotation, GitOps reconciliation, and provisioning are lifecycle operations and may pause when centralized systems are unavailable.
+The platform requires a model where:
 
-The original ADR-035 design proposed a dedicated Intermediate CA per Spoke cluster to provide cryptographic blast-radius isolation.
-
-Subsequent validation of the Infisical OSS permission model demonstrated that this isolation cannot be enforced in OSS.
-
-Specifically:
-
-* PKI authorization enforcement relies on Enterprise-only permission services.
-* Certificate Authority permissions support name-based conditions only.
-* OSS Machine Identities cannot be restricted to a specific Intermediate CA.
-* A Machine Identity with PKI issuance permissions may issue certificates against any accessible CA within the same Infisical project.
-
-As a result, a "one Intermediate per Spoke" hierarchy introduces substantial operational complexity without providing the intended security boundary.
-
-The architecture therefore converges on a single Fleet Intermediate CA model.
+* Crossplane never handles private keys.
+* Spokes manage their own certificate lifecycle.
+* PKI remains centrally governed.
+* Certificate issuance follows the same lifecycle dependency model already used by GitOps, provisioning, and secret management.
 
 ---
 
 # Alternatives Considered
 
-## A. ESO Synchronizes PKI Objects
+## Alternative A: ESO Synchronizes Certificates
 
-The ESO Infisical provider wraps the Infisical Secrets API and supports secret retrieval only.
+External Secrets Operator retrieves certificates directly from Infisical and distributes them into clusters.
+
+### Rejected
+
+The ESO Infisical provider only supports secret retrieval.
+
+The provider exposes:
+
+* SecretStoreReadOnly capability
+* `/api/v3/secrets/*` endpoints
 
 It does not support:
 
-* PKI issuance
-* CA management
-* Certificate retrieval
-* PKI lifecycle operations
+* `/api/v1/pki/*`
+* `/api/v1/cert-manager/*`
 
-This approach is infeasible.
-
-**Decision:** Rejected.
+Certificate issuance cannot be implemented through ESO.
 
 ---
 
-## B. Hub Operator Fetches and Distributes Private Keys
+## Alternative B: Hub Operator Performs Certificate Distribution
 
-The Hub Operator would retrieve certificate private keys from Infisical and distribute them to Spokes.
+The Hub Operator issues and distributes leaf certificates to Spokes.
 
-This violates multiple architectural principles:
+### Rejected
 
-* ADR-005 ownership boundaries
-* ADR-032 secret traversal restrictions
-* ADR-035 private key custody requirements
+This turns the Hub Operator into a PKI control plane.
 
-It would effectively transform the Hub Operator into a PKI control plane.
+Consequences:
 
-**Decision:** Rejected.
+* Violates ADR-005.
+* Requires private key handling on the Hub.
+* Recreates the same secret traversal problem ADR-035 is intended to eliminate.
 
 ---
 
-## C. Dedicated Intermediate CA Per Spoke
+## Alternative C: Dedicated Intermediate CA Per Spoke
 
 Each Spoke receives its own Intermediate CA.
 
-Advantages:
+### Rejected
 
-* Theoretical blast-radius isolation
-* Independent trust branches
+Investigation of the Infisical OSS codebase revealed:
 
-Disadvantages:
+* CA-level authorization is not available in OSS.
+* Machine Identities cannot be restricted to a specific Intermediate CA.
+* Authorization enforcement is implemented in Enterprise-only permission services.
+* PKI permissions are effectively project scoped.
 
-* Infisical OSS cannot enforce CA-specific authorization boundaries.
-* Machine Identities cannot be scoped to individual Intermediate CAs.
-* Intermediate lifecycle management becomes operationally expensive at ADR-033 scale.
-* Hundreds of Intermediate CAs provide little practical security benefit when authorization isolation does not exist.
+As a result:
 
-**Decision:** Rejected.
+* Multiple Intermediate CAs do not provide enforceable isolation.
+* A Machine Identity with PKI issuance permissions can issue certificates against any CA available within the project.
+
+The additional operational complexity provides no measurable security benefit.
 
 ---
 
-## D. cert-manager + infisical-issuer + Fleet Intermediate CA (Selected)
+## Alternative D: Single Fleet Intermediate CA + Delegated Issuance
 
-Spoke-local cert-manager instances use the Infisical PKI API through `infisical-issuer`.
+Spokes perform leaf certificate issuance through `cert-manager` and `infisical-issuer`.
 
-All infrastructure certificates are issued from a centrally managed Fleet Intermediate CA.
+A single Fleet Intermediate CA remains inside Infisical.
 
-No Intermediate CA private keys leave Infisical.
-
-Certificate issuance depends on Infisical availability, which is acceptable under ADR-034 because issuance and renewal are lifecycle operations.
+### Selected
 
 This model:
 
-* Eliminates private key distribution.
-* Simplifies PKI governance.
-* Aligns with ADR-034.
-* Aligns with Infisical OSS capabilities.
-* Removes unenforceable isolation assumptions.
-
-**Decision:** Accepted.
+* Eliminates secret traversal.
+* Eliminates distributed Intermediate CA private keys.
+* Preserves centralized governance.
+* Aligns with ADR-034 lifecycle dependency rules.
+* Matches Infisical OSS authorization capabilities.
 
 ---
 
@@ -124,147 +117,189 @@ This model:
 
 ## Trust Hierarchy
 
-The platform implements a two-tier operational trust hierarchy:
+The platform implements a three-tier trust hierarchy:
 
-1. **Offline Root CA**
+1. Offline Root CA
+2. Fleet Intermediate CA
+3. Leaf Certificates
 
-   * Air-gapped
-   * Irrecoverable
-   * Created and stored outside Infisical
-   * Used solely to sign the Fleet Intermediate CA
+### Offline Root CA
 
-2. **Fleet Intermediate CA**
+The Offline Root CA:
 
-   * Managed within Infisical OSS PKI
-   * Sole issuer for platform infrastructure certificates
-   * Private key never leaves Infisical
+* Is generated outside Infisical.
+* Is stored offline.
+* Is never connected to production systems.
+* Signs the Fleet Intermediate CA.
 
-All infrastructure certificates issued across all Spokes chain through:
+The Offline Root private key is never stored in Kubernetes.
 
-```text
-Offline Root CA
-        |
-Fleet Intermediate CA
-        |
-Infrastructure Leaf Certificates
-```
+### Fleet Intermediate CA
 
----
+The Fleet Intermediate CA:
 
-## Certificate Issuance
+* Is hosted within Infisical PKI.
+* Is the sole issuing authority for platform certificates.
+* Signs all infrastructure certificates.
+* Signs all Spoke-issued certificates.
 
-Spoke clusters deploy:
+The Fleet Intermediate private key never leaves Infisical.
 
-* cert-manager
-* infisical-issuer
+### Leaf Certificates
 
-Certificate requests are processed through the Infisical PKI API.
-
-The issuance flow is:
-
-```text
-Certificate CR
-      |
-cert-manager
-      |
-infisical-issuer
-      |
-Infisical PKI API
-      |
-Fleet Intermediate CA
-      |
-Issued Certificate
-```
-
-The Fleet Intermediate CA private key remains exclusively within Infisical.
-
-No CA private keys are distributed to Spokes.
-
----
-
-## Hub Operator Boundary
-
-The Hub Operator is not a PKI control plane.
-
-The Hub Operator SHALL:
-
-* Provision Infisical Machine Identities during Day-0 bootstrap.
-* Inject Machine Identity credentials through the bootstrap trust channel.
-* Provision temporary bootstrap certificates required for deterministic cluster bootstrap.
-
-The Hub Operator SHALL NOT:
-
-* Generate certificates continuously.
-* Manage Intermediate CAs.
-* Reconcile certificate lifecycles.
-* Rotate trust anchors.
-* Distribute private keys.
-
-All ongoing certificate lifecycle management remains between:
+Leaf certificates are issued through:
 
 * cert-manager
 * infisical-issuer
 * Infisical PKI
 
----
+All certificates chain through:
 
-## Bootstrap Certificate Exception
-
-A bootstrap exception is required for ArgoCD Agent initialization.
-
-The ArgoCD Agent must establish mTLS connectivity before:
-
-* cert-manager exists
-* infisical-issuer exists
-* GitOps reconciliation begins
-
-Therefore:
-
-* The Hub Operator SHALL issue a temporary bootstrap certificate.
-* The certificate SHALL have a maximum TTL of 72 hours.
-* The certificate SHALL be delivered through the trusted bootstrap channel and ClusterResourceSet mechanism.
-
-After GitOps becomes operational:
-
-* cert-manager assumes ownership of the same Secret.
-* The bootstrap certificate is automatically replaced.
-* All subsequent renewals use infisical-issuer.
-
-This exception is limited exclusively to deterministic cluster bootstrap.
+```
+Offline Root CA
+    ↓
+Fleet Intermediate CA
+    ↓
+Leaf Certificate
+```
 
 ---
 
-## Trust Anchor Distribution
+# Certificate Issuance Model
 
-The Offline Root CA public certificate SHALL be distributed during Hub bootstrap.
+Each Spoke cluster deploys:
 
-Hub services SHALL trust:
+* cert-manager
+* infisical-issuer
 
-* Offline Root CA
-
-Spoke-issued certificates chain through:
+Leaf certificates are requested locally through:
 
 ```text
-Leaf Certificate
-       |
-Fleet Intermediate
-       |
-Offline Root
+Certificate
+   ↓
+cert-manager
+   ↓
+infisical-issuer
+   ↓
+Infisical PKI API
 ```
+
+The Fleet Intermediate CA signs the certificate.
+
+The private key is generated and stored locally in the Spoke cluster.
+
+Crossplane is never involved.
+
+---
+
+# Bootstrap Exception
+
+ADR-025 requires deterministic cluster bootstrap.
+
+The ArgoCD Agent must establish an mTLS connection before GitOps becomes available.
+
+Therefore a controlled exception exists.
+
+## Bootstrap Certificate
+
+The Hub Operator SHALL issue a temporary bootstrap certificate.
+
+Characteristics:
+
+* TTL: 72 hours
+* Single purpose
+* ArgoCD Agent only
+* Delivered through ClusterResourceSet
+* Replaced after GitOps initialization
+
+Workflow:
+
+```text
+SpokePool Created
+       ↓
+Hub Operator
+       ↓
+Issue 72h Bootstrap Certificate
+       ↓
+ClusterResourceSet
+       ↓
+Spoke Cluster
+       ↓
+ArgoCD Agent Connects
+       ↓
+GitOps Starts
+       ↓
+cert-manager Takes Ownership
+       ↓
+Bootstrap Certificate Replaced
+```
+
+The bootstrap certificate is the only exception to delegated issuance.
+
+---
+
+# Trust Distribution
+
+The Offline Root CA public certificate is injected during Hub bootstrap.
+
+The Root CA public certificate is distributed to:
+
+* ArgoCD Principal
+* NATS
+* VictoriaMetrics
+* Spoke bootstrap payloads
 
 No per-Spoke trust bundles exist.
 
-No Intermediate CA distribution is required.
+No Intermediate CA bundles are distributed.
 
-No dual-bundle Intermediate rotation process exists.
+Trust is established through the common Root CA hierarchy.
 
 ---
 
-## Identity Separation
+# Hub Operator Responsibilities
 
-The platform maintains strict separation between infrastructure identity and workload identity.
+The Hub Operator participates only in Day-0 bootstrap.
 
-### Infrastructure Identity
+Responsibilities:
+
+* Create Machine Identity.
+* Generate bootstrap certificate.
+* Store bootstrap artifacts in ClusterResourceSet payloads.
+
+The Hub Operator SHALL NOT:
+
+* Rotate certificates.
+* Renew certificates.
+* Reconcile certificate state.
+* Distribute leaf certificates.
+* Act as a PKI control plane.
+
+---
+
+# Crossplane Responsibilities
+
+Crossplane SHALL NOT:
+
+* Generate certificates.
+* Copy certificates.
+* Copy secrets.
+* Read private keys.
+* Traverse secret material.
+
+Crossplane remains responsible only for:
+
+* Infrastructure provisioning.
+* Cluster lifecycle management.
+* ClusterResourceSet attachment.
+
+---
+
+# Identity Separation
+
+Infrastructure identity and workload identity remain separated.
+
+## Infrastructure Identity
 
 Managed through:
 
@@ -276,11 +311,11 @@ Examples:
 
 * ArgoCD Agent
 * NATS Leaf Nodes
-* Grafana Alloy
+* Alloy
 * Admission Webhooks
-* Platform Infrastructure Components
+* Controllers
 
-### Workload Identity
+## Workload Identity
 
 Managed through SPIRE.
 
@@ -288,42 +323,69 @@ Examples:
 
 * Tenant workloads
 * Service mesh identities
-* Internal service-to-service authentication
+* Application-to-application authentication
 
-SPIRE and cert-manager serve distinct trust domains and SHALL NOT overlap responsibilities.
-
----
-
-## PKI Profiles
-
-Certificate TTLs are centrally governed through Infisical PKI profiles.
-
-| Certificate Type            | TTL |
-| --------------------------- | --- |
-| Infrastructure/Webhooks     | 24h |
-| Database Clients            | 4h  |
-| Service Mesh Infrastructure | 1h  |
-| Human Access                | 15m |
-
-Short-lived certificates replace traditional revocation mechanisms.
+SPIRE SHALL NOT be used for infrastructure certificates.
 
 ---
 
-## Compromise Mitigation
+# PKI Profiles
 
-The platform does not operate:
+Certificate validity is governed centrally.
+
+| Profile                 | TTL |
+| ----------------------- | --- |
+| Infrastructure Services | 24h |
+| Database Clients        | 4h  |
+| Service Mesh Components | 1h  |
+| Human Access            | 15m |
+| Bootstrap Certificate   | 72h |
+
+---
+
+# Revocation Strategy
+
+The platform does not implement:
 
 * CRLs
-* OCSP responders
+* OCSP
+* Online revocation infrastructure
 
 Compromise mitigation relies on:
 
-1. Short certificate lifetimes.
+1. Short certificate TTLs.
 2. Machine Identity rotation.
-3. Fleet Intermediate replacement when required.
-4. Offline Root trust anchor replacement during catastrophic compromise.
+3. Fleet Intermediate replacement.
+4. Trust anchor replacement when required.
 
-Compromised certificates expire naturally according to their TTL profile.
+Compromised certificates expire naturally.
+
+---
+
+# Infisical OSS Authorization Limitation
+
+Investigation of the Infisical OSS codebase revealed a critical limitation.
+
+Machine Identity permissions are project scoped.
+
+Infisical OSS does not provide:
+
+* CA-level authorization
+* Intermediate-specific authorization
+* CA-ID-based permission constraints
+
+Therefore:
+
+* PKI authorization boundaries cannot be enforced per Intermediate CA.
+* Multiple Intermediate CAs do not provide enforceable isolation in OSS.
+* Security isolation relies on:
+
+  * Project boundaries
+  * Machine Identity protection
+  * Short certificate TTLs
+  * SPIRE workload identity separation
+
+This limitation is accepted by the platform architecture.
 
 ---
 
@@ -331,44 +393,20 @@ Compromised certificates expire naturally according to their TTL profile.
 
 ## Positive
 
-* Crossplane Composition Functions are completely removed from certificate distribution.
-* Crossplane never traverses private keys or certificate material.
-* No CA private keys are distributed to Spoke clusters.
-* PKI architecture aligns with actual Infisical OSS security boundaries.
-* Simplified operational model with a single Fleet Intermediate CA.
-* Eliminates management of hundreds of Intermediate CAs.
-* Eliminates Intermediate CA rotation complexity.
-* Centralized issuance audit trail through Infisical.
-* Consistent lifecycle model across:
-
-  * Secrets
-  * Certificates
-  * GitOps
-  * Provisioning
-* Reduced attack surface compared to distributed Intermediate ownership.
-* Disaster recovery and trust governance remain centralized.
+* Crossplane secret traversal is eliminated.
+* Certificate lifecycle ownership moves to Spokes.
+* No Intermediate CA private keys leave Infisical.
+* Simpler operational model.
+* Centralized issuance audit trail.
+* Consistent lifecycle dependency model.
+* Reduced platform complexity.
+* Eliminates false security assumptions around per-Spoke Intermediate CAs.
 
 ## Negative
 
-* Certificate issuance and renewal depend on Infisical availability.
-* Certificate lifecycle operations pause during Infisical outages.
-* Bootstrap requires a temporary certificate exception for ArgoCD Agent initialization.
-* The Fleet Intermediate CA becomes a higher-value target than a distributed hierarchy.
-* Runtime autonomy is preserved, but lifecycle autonomy is intentionally not provided.
+* Certificate issuance depends on Infisical availability.
+* Lifecycle autonomy is not provided.
+* Machine Identity PKI permissions remain project scoped in Infisical OSS.
+* A compromised Machine Identity could issue additional certificates within the same Infisical project.
 
----
-
-# Architectural Rationale
-
-The platform intentionally prioritizes:
-
-* Simplicity
-* Auditability
-* Operational scalability
-* Alignment with Infisical OSS capabilities
-
-over theoretical isolation properties that cannot be enforced by the underlying PKI platform.
-
-At ADR-033 scale, a single Fleet Intermediate CA provides a simpler and more honest security model than maintaining hundreds of Intermediate CAs whose authorization boundaries cannot be guaranteed.
-
-The resulting architecture aligns with ADR-034's Runtime Autonomy model while preserving strong infrastructure identity controls through short-lived certificates, centralized issuance governance, and strict separation between infrastructure and workload identity systems.
+This trade-off is accepted because it aligns with ADR-034's distinction between Runtime Autonomy and Lifecycle Autonomy.
