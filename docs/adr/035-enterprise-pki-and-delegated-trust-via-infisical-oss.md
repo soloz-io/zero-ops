@@ -236,7 +236,7 @@ Therefore a controlled exception exists.
 
 ## Bootstrap Certificate
 
-The Hub Operator SHALL issue a temporary bootstrap certificate.
+The Cert Operator SHALL issue a temporary bootstrap certificate.
 
 Characteristics:
 
@@ -251,7 +251,7 @@ Workflow:
 ```text
 SpokePool Created
        ↓
-Hub Operator
+Cert Operator
        ↓
 Issue 72h Bootstrap Certificate
        ↓
@@ -270,20 +270,20 @@ Bootstrap Certificate Replaced
 
 ## Bootstrap Private Key Handling
 
-The Hub Operator temporarily receives bootstrap certificate private key material during Day-0 provisioning.
+The Cert Operator temporarily receives bootstrap certificate private key material during Day-0 provisioning.
 
 This is a controlled exception:
 
 * The private key is received in-memory from the `POST /api/v1/cert-manager/certificates/` API response.
 * It is embedded directly into a ClusterResourceSet payload and written to the Kubernetes API Server.
-* It exists in Hub Operator process memory only during the reconcile loop.
-* It is never stored in Hub-side persistent storage, Secrets, ConfigMaps, or the Infisical API.
+* It exists in Cert Operator process memory only during the reconcile loop.
+* It is never stored in operator-side persistent storage, Secrets, ConfigMaps, or the Infisical API.
 
 After the Spoke cluster receives the ClusterResourceSet payload:
 
 * The private key exists only on the Spoke cluster.
 * cert-manager takes ownership and replaces the certificate within 72 hours.
-* The Hub Operator never reads, rotates, renews, or reconciles this private key.
+* The Cert Operator never reads, rotates, renews, or reconciles this private key.
 
 **This exception is limited exclusively to the 72-hour ArgoCD bootstrap certificate and does not extend to any Day-1+ lifecycle operations.**
 
@@ -308,24 +308,57 @@ No Intermediate CA bundles are distributed.
 
 Trust is established through the common Root CA hierarchy.
 
+## Trust Artifact Type
+
+The Offline Root CA public certificate is stored as a **ConfigMap**, not a Secret.
+
+Rationale:
+
+* The root certificate is public information — no sensitivity requires Secret RBAC.
+* A ConfigMap communicates intent more clearly to operators.
+* `cert-manager` and the ArgoCD Agent consume it as a PEM file, not as sensitive credential material.
+* Avoids unnecessary RBAS restrictions for read-only trust consumers.
+
+ClusterResourceSet payloads deliver the root CA ConfigMap to Spoke clusters using `kind: ConfigMap`.
+
 ---
 
-# Hub Operator Responsibilities
+# Operator Responsibility Split
 
-The Hub Operator participates only in Day-0 bootstrap.
+PKI and identity bootstrapping are extracted from the Hub Operator into a dedicated **Cert Operator** to maintain modularity and single-responsibility boundaries.
+
+## Cert Operator Responsibilities
+
+The Cert Operator participates only in Day-0 bootstrap.
 
 Responsibilities:
 
-* Create Machine Identity.
-* Generate bootstrap certificate.
-* Store bootstrap artifacts in ClusterResourceSet payloads.
+* Watch `SpokePool` provisioning events.
+* Create Machine Identities in Infisical.
+* Generate the 72h bootstrap certificate via Infisical PKI.
+* Store bootstrap artifacts as ClusterResourceSet payloads in the `platform-capi` namespace.
+
+The Cert Operator SHALL NOT:
+
+* Rotate, renew, or reconcile Spoke leaf certificates (Day-1+).
+* Act as an active PKI proxy for workloads.
+
+## Hub Operator Responsibilities
+
+The Hub Operator is completely decoupled from PKI and Machine Identity management.
+
+The Hub Operator remains responsible for:
+
+* SaaS control plane management.
+* Tenant environment provisioning.
+* API routing and database setup.
 
 The Hub Operator SHALL NOT:
 
-* Rotate certificates.
-* Renew certificates.
-* Reconcile certificate state.
-* Distribute leaf certificates.
+* Create or manage Machine Identities.
+* Issue, rotate, renew, or reconcile any certificate.
+* Handle private key material.
+* Store PKI artifacts in ClusterResourceSet payloads.
 * Act as a PKI control plane.
 
 ---
