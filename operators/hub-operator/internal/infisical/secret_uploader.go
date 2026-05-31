@@ -3,6 +3,7 @@ package infisical
 import (
 	"context"
 	"fmt"
+	"os"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -39,17 +40,12 @@ func (su *SecretUploader) UploadCLISecrets(ctx context.Context) error {
 		return fmt.Errorf("failed to create Infisical client: %w", err)
 	}
 
-	// Get project configuration from infisical-admin secret
-	// Use uncached client to avoid cache staleness after secret creation
-	adminSecret := &corev1.Secret{}
-	if err := su.uncachedK8sClient.Get(ctx, client.ObjectKey{
-		Name:      SecretInfisicalAdmin,
-		Namespace: NamespaceOps,
-	}, adminSecret); err != nil {
-		return fmt.Errorf("failed to get infisical-admin secret: %w", err)
+	// Get project slug from environment variable (set via configmap hub-bootstrap-config)
+	projectSlug := os.Getenv("INFISICAL_PROJECT_SLUG")
+	if projectSlug == "" {
+		return fmt.Errorf("INFISICAL_PROJECT_SLUG environment variable not set")
 	}
 
-	projectSlug := string(adminSecret.Data[KeyProjectSlug])
 	environmentSlug := EnvironmentSlug
 	secretPath := "/"
 

@@ -25,6 +25,10 @@ const (
 	bootstrapCertCRS   = "%s-bootstrap-cert"
 )
 
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=nutgraf.in,resources=spokepools,verbs=get;list;watch
+
 // SpokePKIReconciler watches SpokePool provisioning and generates Day-0
 // bootstrap PKI artifacts (Machine Identity + bootstrap certificate).
 type SpokePKIReconciler struct {

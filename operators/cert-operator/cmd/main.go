@@ -119,12 +119,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	infisicalToken := os.Getenv("INFISICAL_TOKEN")
-	if infisicalToken == "" {
-		setupLog.Info("INFISICAL_TOKEN not set, attempting Universal Auth login")
-	}
-
-	infisicalClient := infisical.NewClient(infisicalURL, infisicalToken)
+	infisicalClient := infisical.NewClient(infisicalURL)
 
 	if err = (&controller.SpokePKIReconciler{
 		Client:          mgr.GetClient(),

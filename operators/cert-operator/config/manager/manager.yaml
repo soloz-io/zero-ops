@@ -60,25 +60,32 @@ spec:
             cpu: 10m
             memory: 64Mi
         env:
-        - name: INFISICAL_TOKEN
+        # Universal Auth (Machine Identity) - matches ESO and Hub Operator
+        - name: INFISICAL_CLIENT_ID
           valueFrom:
             secretKeyRef:
-              name: cert-operator-infisical-token
-              key: INFISICAL_TOKEN
+              name: infisical-auth
+              key: client-id
+        - name: INFISICAL_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-secret
+        # Central ConfigMap for non-sensitive UUIDs
         - name: INFISICAL_BOOTSTRAP_PROFILE_SLUG
           valueFrom:
             configMapKeyRef:
-              name: cert-operator-config
+              name: hub-bootstrap-config
               key: INFISICAL_BOOTSTRAP_PROFILE_SLUG
         - name: INFISICAL_ORGANIZATION_ID
           valueFrom:
             configMapKeyRef:
-              name: cert-operator-config
+              name: hub-bootstrap-config
               key: INFISICAL_ORGANIZATION_ID
         - name: INFISICAL_PROJECT_ID
           valueFrom:
             configMapKeyRef:
-              name: cert-operator-config
+              name: hub-bootstrap-config
               key: INFISICAL_PROJECT_ID
         volumeMounts: []
       volumes: []

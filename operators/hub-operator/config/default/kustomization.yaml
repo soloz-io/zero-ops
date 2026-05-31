@@ -77,14 +77,14 @@ patches:
               key: client-secret
         - name: INFISICAL_PROJECT_ID
           valueFrom:
-            secretKeyRef:
-              name: infisical-admin
-              key: project-id
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_PROJECT_ID
         - name: INFISICAL_ORGANIZATION_ID
           valueFrom:
-            secretKeyRef:
-              name: infisical-admin
-              key: org-id
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_ORGANIZATION_ID
         - name: HYDRA_BASE_URL
           value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
         - name: NATS_URL
