@@ -14,7 +14,7 @@ Handles database schema migrations using golang-migrate/migrate.
 - Dirty database detection
 - Transient error classification
 
-**Usage:**
+**Usage:** 
 ```go
 migrator, err := database.NewMigrator(ctx, k8sClient, namespace)
 if err != nil {
