@@ -143,7 +143,10 @@ resources:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                      strategy: Reconcile
+                      # NOTE: Must use "Once" not "Reconcile". "Reconcile" causes CAPI to fight with
+                      # cert-manager — CRS restores the original bootstrap payload, cert-manager
+                      # overwrites it with the renewed cert, creating an infinite loop.
+                      strategy: Once
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -273,16 +276,26 @@ import (
 	"net/http"
 )
 
+// NOTE: The Infisical API expects the request body at:
+// POST /api/v1/cert-manager/certificates/
+// With profileId at the top level and certificate attributes nested under "attributes".
+// Verified against backend/src/server/routes/v1/certificate-router.ts:127-173
+
+type IssueCertRequestAttributes struct {
+	CommonName string `json:"commonName,omitempty"`
+	TTL        string `json:"ttl,omitempty"`
+}
+
 type IssueCertRequest struct {
-	ProfileId  string `json:"profileId"`
-	CommonName string `json:"commonName"`
-	TTL        string `json:"ttl"`
+	ProfileId    string                      `json:"profileId"`
+	Attributes   *IssueCertRequestAttributes `json:"attributes,omitempty"`
 }
 
 type IssueCertResponseWrapper struct {
-	Certificate          IssueCertData `json:"certificate"`
-	CertificateRequestId string        `json:"certificateRequestId"`
-	Status               string        `json:"status"`
+	Certificate          *IssueCertData `json:"certificate"`
+	CertificateRequestId string         `json:"certificateRequestId"`
+	Status               string         `json:"status"`
+	Message              string         `json:"message,omitempty"`
 }
 
 type IssueCertData struct {
@@ -295,11 +308,14 @@ type IssueCertData struct {
 }
 
 // IssueBootstrapCertificate mints a 72-hour cert for ArgoCD Agent bootstrap.
+// The Machine Identity must already have project-level PKI permissions (via grantProjectAccess).
 func (c *InfisicalClient) IssueBootstrapCertificate(ctx context.Context, profileId, commonName string) (*IssueCertData, error) {
 	reqBody := IssueCertRequest{
-		ProfileId:  profileId,
-		CommonName: commonName,
-		TTL:        "72h",
+		ProfileId: profileId,
+		Attributes: &IssueCertRequestAttributes{
+			CommonName: commonName,
+			TTL:        "72h",
+		},
 	}
 
 	payload, err := json.Marshal(reqBody)
@@ -324,7 +340,8 @@ func (c *InfisicalClient) IssueBootstrapCertificate(ctx context.Context, profile
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to issue bootstrap cert: status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to issue bootstrap cert: status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var result IssueCertResponseWrapper
@@ -332,7 +349,11 @@ func (c *InfisicalClient) IssueBootstrapCertificate(ctx context.Context, profile
 		return nil, err
 	}
 
-	return &result.Certificate, nil
+	if result.Certificate == nil {
+		return nil, fmt.Errorf("bootstrap certificate issuance returned nil (likely async/order flow for external CA): %s", result.Message)
+	}
+
+	return result.Certificate, nil
 }
 ```
 
@@ -361,15 +382,26 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Resolve profile slug to ID (slugs survive backup/restore, UUIDs do not)
+	// IMPLEMENT: ProfileSlugToID must call GET /api/v1/cert-manager/certificate-profiles/slug/:slug
+	// and return the profile.id (UUID). This endpoint is confirmed in the Infisical OSS codebase
+	// at backend/src/server/routes/v1/certificate-profiles-router.ts:496.
 	pkiProfileId, err := r.Infisical.ProfileSlugToID(ctx, bootstrapProfileSlug)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("resolve bootstrap profile: %w", err)
 	}
 
-	// 1. Generate Machine Identity
+	// 1. Generate Machine Identity (leveraging existing /api/v1/identities + UA auth flow)
 	machineIdentity, err := r.Infisical.GetOrCreateSpokeMachineIdentity(ctx, spoke.Name)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// 1a. Grant project-level PKI access to the Machine Identity
+	// Without this, the identity's API calls will get 403 Forbidden.
+	// Use the highest PKI role ("admin" or custom PKI role) since the identity
+	// needs to issue certificates under the project's PKI profiles.
+	if err := r.Infisical.grantProjectAccess(ctx, machineIdentity.ID, "admin"); err != nil {
+		return ctrl.Result{}, fmt.Errorf("grant project access to machine identity: %w", err)
 	}
 
 	// 2. Mint 72h Bootstrap Certificate (ADR-035 Exception)
@@ -499,9 +531,23 @@ func (r *SpokePoolReconciler) BootstrapAdoptionCheck(ctx context.Context, spoke 
 }
 
 func indent(text string) string {
-	// standard multiline indention logic
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = "  " + line // 2-space YAML indent
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 ```
+
+### 5.5. Hub Operator Consolidation Notice
+
+**Critical: There are now two `InfisicalClient` implementations in the hub-operator:**
+- `operators/hub-operator/internal/client/infisical.go` — older client (authenticates via k8s secret)
+- `operators/hub-operator/internal/secrets/infisical.go` — newer client (env-based credentials, already has Machine Identity CRUD)
+
+Before implementing the changes in section 5, consolidate onto one client. The `secrets.InfisicalClient` is more complete (it already has `createMachineIdentityInInfisical`, `attachUniversalAuth`, `generateClientSecret`, `grantProjectAccess`, `findIdentityByName`). Add `IssueBootstrapCertificate` and `ProfileSlugToID` to that client rather than creating a third variant.
 
 ### 6. ArgoCD Agent Day-0 Configuration
 
