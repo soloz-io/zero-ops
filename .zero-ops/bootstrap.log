@@ -3996,3 +3996,253 @@
 [2026-05-27 01:29:10] 
 [2026-05-27 01:29:10] Running post-bootstrap core services validation...
 [2026-05-27 01:31:56] ⚠️  Post-bootstrap validation reported failures — review the summary above
+[2026-05-31 13:37:43] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:37:43] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:37:43] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:37:43] Checking prerequisites...
+[2026-05-31 13:37:44]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:37:44] ERROR: 'aws' is not installed or not in PATH
+[2026-05-31 13:37:44]   Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi
+[2026-05-31 13:37:44]   Or: winget install -e --id Amazon.AWSCLI
+[2026-05-31 13:37:44]   Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+[2026-05-31 13:37:44] ERROR: 'jq' is not installed or not in PATH
+[2026-05-31 13:37:45]   Install (Git Bash): curl -L -o ~/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe && chmod +x ~/jq.exe && export PATH=$PATH:~
+[2026-05-31 13:37:45]   Or (Windows): winget install -e --id jqlang.jq
+[2026-05-31 13:37:45]   Docs: https://jqlang.github.io/jq/download/
+[2026-05-31 13:37:45]   'kind' not found — attempting auto-install...
+[2026-05-31 13:37:45]   Auto-installing kind...
+[2026-05-31 13:37:50]   ✓ kind installed to /c/Users/Kavishree.Shanmugam/bin/kind.exe
+[2026-05-31 13:37:50]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:37:50]   'clusterctl' not found — attempting auto-install...
+[2026-05-31 13:37:51]   Auto-installing clusterctl...
+[2026-05-31 13:38:01]   ✓ clusterctl installed to /c/Users/Kavishree.Shanmugam/bin/clusterctl.exe
+[2026-05-31 13:38:01]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:38:02]   'helm' not found — attempting auto-install...
+[2026-05-31 13:38:02]   Auto-installing helm...
+[2026-05-31 13:38:11]   ✓ helm installed to /c/Users/Kavishree.Shanmugam/bin/helm.exe
+[2026-05-31 13:38:11]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:38:12]   ✓ hub binary found
+[2026-05-31 13:38:12]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:38:13]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:38:13] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:40:20] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:40:20] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:40:20] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:40:20] Checking prerequisites...
+[2026-05-31 13:40:20]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:40:20]   'aws' not found — attempting auto-install...
+[2026-05-31 13:40:21]   Auto-installing aws CLI...
+[2026-05-31 13:41:32]   Attempting AWS CLI MSI install...
+[2026-05-31 13:41:33] ERROR: 'aws' could not be auto-installed
+[2026-05-31 13:41:33]   Install (Windows): https://awscli.amazonaws.com/AWSCLIV2.msi
+[2026-05-31 13:41:33]   Or: winget install -e --id Amazon.AWSCLI
+[2026-05-31 13:41:33]   Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+[2026-05-31 13:41:33]   'jq' not found — attempting auto-install...
+[2026-05-31 13:41:34]   Auto-installing jq...
+[2026-05-31 13:41:35]   ✓ jq installed to /c/Users/Kavishree.Shanmugam/bin/jq.exe
+[2026-05-31 13:41:35]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:41:35]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:41:36]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:41:36]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:41:36]   ✓ hub binary found
+[2026-05-31 13:41:36]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:41:36]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:41:36] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:43:39] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:43:39] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:43:39] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:43:39] Checking prerequisites...
+[2026-05-31 13:43:39]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:43:40]   'aws' not found — attempting auto-install...
+[2026-05-31 13:43:40]   Auto-installing aws CLI...
+[2026-05-31 13:43:42]   Attempting AWS CLI MSI install...
+[2026-05-31 13:43:43]   ✓ aws installed via MSI to /c/Users/Kavishree.Shanmugam/bin/aws.exe
+[2026-05-31 13:43:44]   ✓ aws found: /c/Users/Kavishree.Shanmugam/bin/aws
+[2026-05-31 13:43:44]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:43:44]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:43:44]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:43:44]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:43:45]   ✓ hub binary found
+[2026-05-31 13:43:45]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:43:45]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:43:47] ERROR: AWS profile 'zerotouch-platform-admin' not configured
+[2026-05-31 13:43:47]   Fix: aws configure --profile zerotouch-platform-admin
+[2026-05-31 13:43:47] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:45:46] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:45:46] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:45:46] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:45:46] Checking prerequisites...
+[2026-05-31 13:45:46]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:45:47]   ✓ aws found: /c/Users/Kavishree.Shanmugam/bin/aws
+[2026-05-31 13:45:47]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:45:47]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:45:47]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:45:47]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:45:48]   ✓ hub binary found
+[2026-05-31 13:45:48]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:45:48]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:45:49] ERROR: AWS profile 'zerotouch-platform-admin' not configured
+[2026-05-31 13:45:49]   Fix: aws configure --profile zerotouch-platform-admin
+[2026-05-31 13:45:49] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:46:38] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:46:38] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:46:38] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:46:38] Checking prerequisites...
+[2026-05-31 13:46:38]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:46:39]   'aws' not found — attempting auto-install...
+[2026-05-31 13:46:39]   Auto-installing aws CLI...
+[2026-05-31 13:46:39]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws.exe
+[2026-05-31 13:46:39]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:46:39]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:46:40]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:46:40]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:46:40]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:46:40]   ✓ hub binary found
+[2026-05-31 13:46:40]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:46:41]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:46:42] ERROR: AWS profile 'zerotouch-platform-admin' not configured
+[2026-05-31 13:46:42]   Fix: aws configure --profile zerotouch-platform-admin
+[2026-05-31 13:46:42] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:47:11] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:47:11] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:47:11] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:47:11] Checking prerequisites...
+[2026-05-31 13:47:12]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:47:12]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:47:12]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:47:12]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:47:13]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:47:13]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:47:13]   ✓ hub binary found
+[2026-05-31 13:47:13]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:47:13]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:47:14] ERROR: AWS profile 'zerotouch-platform-admin' not configured
+[2026-05-31 13:47:14]   Fix: aws configure --profile zerotouch-platform-admin
+[2026-05-31 13:47:15] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 13:49:27] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:49:27] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:49:27] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:49:27] Checking prerequisites...
+[2026-05-31 13:49:28]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:49:28]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:49:28]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:49:28]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:49:28]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:49:29]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:49:29]   ✓ hub binary found
+[2026-05-31 13:49:29]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:49:29]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:49:30]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 13:49:30] Prerequisites check passed
+[2026-05-31 13:49:31] Step 1: Bootstrapping Hub Cluster...
+[2026-05-31 13:49:31] Running: /c/Users/Kavishree.Shanmugam/projects/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-31 13:51:34] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:51:35] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:51:35] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:51:35] Checking prerequisites...
+[2026-05-31 13:51:35]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:51:36]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:51:36]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:51:36]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:51:36]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:51:36]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:51:37]   ✓ hub binary found
+[2026-05-31 13:51:37]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:51:37]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:51:38]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 13:51:39] Prerequisites check passed
+[2026-05-31 13:51:39] Step 1: Bootstrapping Hub Cluster...
+[2026-05-31 13:51:39] Running: /c/Users/Kavishree.Shanmugam/projects/zero-ops/bin/hub bootstrap --name=hub --region=fsn1 --debug
+[2026-05-31 13:52:36] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:52:36] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:52:36] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:52:36] Checking prerequisites...
+[2026-05-31 13:52:36]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:52:37]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:52:37]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:52:37]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:52:37]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:52:37]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:53:02] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 13:53:02] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 13:53:02] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 13:53:02] Checking prerequisites...
+[2026-05-31 13:53:03]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 13:53:03]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 13:53:03]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 13:53:03]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 13:53:04]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 13:53:04]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 13:53:04]   ✓ docker found: /c/Program Files/Docker/Docker/resources/bin/docker.exe
+[2026-05-31 13:53:11] WARNING: Docker is installed but the daemon is not running.
+[2026-05-31 13:53:11]   Attempting to start Docker Desktop...
+[2026-05-31 13:53:12]   Docker Desktop launched — waiting 30s for daemon to initialize...
+[2026-05-31 13:53:43]   ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray.
+[2026-05-31 13:53:43]   If it fails, start Docker Desktop manually and re-run.
+[2026-05-31 13:53:43]   ✓ hub binary found
+[2026-05-31 13:53:43]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 13:53:44]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 13:53:45]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 13:53:45] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 14:13:46] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 14:13:46] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 14:13:46] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 14:13:46] Checking prerequisites...
+[2026-05-31 14:13:46]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 14:13:46]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 14:13:47]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 14:13:47]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 14:13:47]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 14:13:47]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 14:13:47]   ✓ docker found: /c/Program Files/Docker/Docker/resources/bin/docker.exe
+[2026-05-31 14:13:49] WARNING: Docker is installed but the daemon is not running.
+[2026-05-31 14:13:49]   Attempting to start Docker Desktop...
+[2026-05-31 14:13:49]   Docker Desktop launched — waiting 30s for daemon to initialize...
+[2026-05-31 14:14:20]   ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray.
+[2026-05-31 14:14:21]   If it fails, start Docker Desktop manually and re-run.
+[2026-05-31 14:14:21]   ✓ hub binary found
+[2026-05-31 14:14:21]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 14:14:21]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 14:14:22]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 14:14:22] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 14:15:40] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 14:15:40] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 14:15:40] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 14:15:40] Checking prerequisites...
+[2026-05-31 14:15:41]   ✓ kubectl found: /c/Users/Kavishree.Shanmugam/bin/kubectl
+[2026-05-31 14:15:41]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 14:15:41]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 14:15:41]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 14:15:42]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 14:15:42]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 14:15:42]   ✓ docker found: /c/Program Files/Docker/Docker/resources/bin/docker.exe
+[2026-05-31 14:15:43] WARNING: Docker is installed but the daemon is not running.
+[2026-05-31 14:15:43]   Attempting to start Docker Desktop...
+[2026-05-31 14:15:44]   Docker Desktop launched — waiting 30s for daemon to initialize...
+[2026-05-31 14:16:15]   ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray.
+[2026-05-31 14:16:15]   If it fails, start Docker Desktop manually and re-run.
+[2026-05-31 14:16:16]   ✓ hub binary found
+[2026-05-31 14:16:16]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 14:16:16]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 14:16:18]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 14:16:18] ERROR: Prerequisites check failed. Fix the errors above and re-run.
+[2026-05-31 14:38:43] Starting Zero-Ops Hub Bootstrap Process
+[2026-05-31 14:38:44] Project root: /c/Users/Kavishree.Shanmugam/projects/zero-ops
+[2026-05-31 14:38:44] Log directory: /c/Users/Kavishree.Shanmugam/projects/zero-ops/.zero-ops
+[2026-05-31 14:38:44] Checking prerequisites...
+[2026-05-31 14:38:44]   ✓ kubectl found: /c/Program Files/Docker/Docker/resources/bin/kubectl
+[2026-05-31 14:38:44]   ✓ aws found: /c/Program Files/Amazon/AWSCLIV2/aws
+[2026-05-31 14:38:45]   ✓ jq found: /c/Users/Kavishree.Shanmugam/bin/jq
+[2026-05-31 14:38:45]   ✓ kind found: /c/Users/Kavishree.Shanmugam/bin/kind
+[2026-05-31 14:38:45]   ✓ clusterctl found: /c/Users/Kavishree.Shanmugam/bin/clusterctl
+[2026-05-31 14:38:45]   ✓ helm found: /c/Users/Kavishree.Shanmugam/bin/helm
+[2026-05-31 14:38:47] WARNING: Docker is installed but the daemon is not running.
+[2026-05-31 14:38:47]   Attempting to start Docker Desktop...
+[2026-05-31 14:38:47]   Docker Desktop launched — waiting 30s for daemon to initialize...
+[2026-05-31 14:39:18]   ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray.
+[2026-05-31 14:39:18]   If it fails, start Docker Desktop manually and re-run.
+[2026-05-31 14:39:19]   ✓ hub binary found
+[2026-05-31 14:39:19]   ✓ k8-secrets/hetzner/token found
+[2026-05-31 14:39:19]   ✓ k8-secrets/github/github-pat-token found
+[2026-05-31 14:39:21]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-05-31 14:39:21] ERROR: Prerequisites check failed. Fix the errors above and re-run.
