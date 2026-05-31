@@ -183,35 +183,29 @@ auto_install_tool() {
             ;;
         aws)
             log "  Auto-installing aws CLI..."
-            # Try winget first (non-interactive)
-            if winget install -e --id Amazon.AWSCLI --silent --accept-package-agreements 2>/dev/null; then
-                # winget installed to Program Files — find the exe and symlink/copy to ~/bin
-                local aws_src="/c/Program Files/Amazon/AWSCLIV2/aws.exe"
-                if [[ -f "$aws_src" ]]; then
-                    ln -sf "$aws_src" "$install_dir/aws.exe" 2>/dev/null || cp "$aws_src" "$install_dir/aws.exe"
-                    export PATH="$PATH:$install_dir"
-                    log "  ✓ aws installed via winget to $install_dir/aws.exe"
-                fi
-            elif command -v aws >/dev/null 2>&1; then
-                log "  ✓ aws found after install"
-            else
-                # Fallback: download MSI and install silently
-                log "  Attempting AWS CLI MSI install..."
-                local msi="$install_dir/AWSCLIV2.msi"
-                if curl -fsSLo "$msi" "https://awscli.amazonaws.com/AWSCLIV2.msi" 2>/dev/null; then
-                    msiexec //i "$msi" //quiet //norestart 2>/dev/null || true
-                    rm -f "$msi"
-                    local aws_src="/c/Program Files/Amazon/AWSCLIV2/aws.exe"
-                    if [[ -f "$aws_src" ]]; then
-                        ln -sf "$aws_src" "$install_dir/aws.exe" 2>/dev/null || cp "$aws_src" "$install_dir/aws.exe"
-                        export PATH="$PATH:$install_dir"
-                        log "  ✓ aws installed via MSI to $install_dir/aws.exe"
-                    else
-                        return 1
-                    fi
+            # Use winget if aws not already installed via MSI
+            local aws_dir="/c/Program Files/Amazon/AWSCLIV2"
+            if [[ ! -f "$aws_dir/aws.exe" ]]; then
+                if winget install -e --id Amazon.AWSCLI --silent --accept-package-agreements 2>/dev/null; then
+                    log "  ✓ aws installed via winget"
                 else
-                    return 1
+                    log "  Attempting AWS CLI MSI install..."
+                    local msi="$install_dir/AWSCLIV2.msi"
+                    if curl -fsSLo "$msi" "https://awscli.amazonaws.com/AWSCLIV2.msi" 2>/dev/null; then
+                        msiexec //i "$msi" //quiet //norestart 2>/dev/null || true
+                        rm -f "$msi"
+                    fi
                 fi
+            fi
+            # Add the real AWSCLIV2 dir to PATH (aws.exe needs sibling DLLs)
+            if [[ -f "$aws_dir/aws.exe" ]]; then
+                case ":$PATH:" in
+                    *":$aws_dir:"*) ;;
+                    *) export PATH="$aws_dir:$PATH" ;;
+                esac
+                log "  ✓ aws found: $aws_dir/aws.exe"
+            else
+                return 1
             fi
             ;;
         jq)
@@ -231,8 +225,13 @@ auto_install_tool() {
 
     # Persist to ~/.bashrc if not already there
     local bashrc="$HOME/.bashrc"
-    local path_line="export PATH=\"\$PATH:$install_dir\""
-    if ! grep -qF "$install_dir" "$bashrc" 2>/dev/null; then
+    # For aws, use the Program Files dir instead of ~/bin
+    local persist_dir="$install_dir"
+    if [[ "$tool" == "aws" ]]; then
+        persist_dir="/c/Program Files/Amazon/AWSCLIV2"
+    fi
+    local path_line="export PATH=\"\$PATH:$persist_dir\""
+    if ! grep -qF "$persist_dir" "$bashrc" 2>/dev/null; then
         echo -e "\n# auto-installed tools\n$path_line" >> "$bashrc"
     fi
 }
@@ -298,6 +297,54 @@ check_prerequisites() {
             log "  ✓ $tool found: $(command -v "$tool")"
         fi
     done
+
+    # --- Docker (required for kind) ---
+    local docker_dirs=(
+        "/c/Program Files/Docker/Docker/resources/bin"
+        "/c/Program Files/Docker/Docker"
+        "$HOME/bin"
+    )
+    if ! command -v docker >/dev/null 2>&1; then
+        for d in "${docker_dirs[@]}"; do
+            if [[ -f "$d/docker.exe" ]]; then
+                export PATH="$d:$PATH"
+                log "  ✓ docker found: $d/docker.exe"
+                break
+            fi
+        done
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
+        log "ERROR: 'docker' not found"
+        log "  Install Docker Desktop: https://docs.docker.com/desktop/setup/install/windows-install/"
+        log "  Or: winget install -e --id Docker.DockerDesktop"
+        log "  Then start Docker Desktop and re-run."
+        failed=1
+    elif ! docker info >/dev/null 2>&1; then
+        log "WARNING: Docker is installed but the daemon is not running."
+        log "  Attempting to start Docker Desktop..."
+        local docker_exe
+        docker_exe="$(command -v docker)"
+        local docker_dir
+        docker_dir="$(dirname "$docker_exe")"
+        local desktop_exe="${docker_dir}/../Docker Desktop.exe"
+        if [[ -f "$desktop_exe" ]]; then
+            "$desktop_exe" &>/dev/null &
+            log "  Docker Desktop launched — waiting 30s for daemon to initialize..."
+            sleep 30
+            if docker info >/dev/null 2>&1; then
+                log "  ✓ Docker daemon is now running"
+            else
+                log "  ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray."
+                log "  If it fails, start Docker Desktop manually and re-run."
+                failed=1
+            fi
+        else
+            log "  ⚠️ Docker CLI found but daemon not running. Start Docker Desktop manually."
+            failed=1
+        fi
+    else
+        log "  ✓ docker daemon running"
+    fi
 
     # --- Hub binary ---
     if [[ ! -f "$HUB_BINARY" ]]; then
