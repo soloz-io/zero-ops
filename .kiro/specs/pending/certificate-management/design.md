@@ -9,6 +9,8 @@ The platform implements a three-tier trust hierarchy:
 2. Fleet Intermediate CA
 3. Leaf Certificates
 
+Infisical OSS cannot enforce CA-scoped authorization boundaries for Machine Identities. Therefore Intermediate CA delegation is not treated as a security boundary. The platform uses a single Fleet Intermediate CA.
+
 ### Offline Root CA
 The Offline Root CA is generated outside Infisical, stored offline, never connected to production systems, and signs the Fleet Intermediate CA. The Offline Root private key is never stored in Kubernetes.
 
@@ -198,6 +200,11 @@ resources:
 
 ### 3. Static Root CA Distribution (Day-0)
 
+**Important — Import existing Offline Root public certificate.**
+Never generate Root CA during hub bootstrap. Never store Root private key in the platform.
+
+The Offline Root CA must already exist (generated and stored offline by the PKI operator). Hub bootstrap imports only the public certificate for trust distribution.
+
 **File: `manifests/platform-capi/offline-root-ca-crs.yaml`**
 ```yaml
 apiVersion: v1
@@ -219,7 +226,7 @@ stringData:
         platform.nutgraf.in/trust-anchor: "true"
     type: Opaque
     stringData:
-      ca.crt: "PLACEHOLDER_REPLACED_DURING_HUB_BOOTSTRAP"
+      ca.crt: "PLACEHOLDER_IMPORTED_DURING_HUB_BOOTSTRAP"
 ```
 
 ### 4. Configuration Updates
@@ -239,17 +246,17 @@ data:
   INFISICAL_PROJECT_SLUG: "hub-platform"
   INFISICAL_ENVIRONMENT_SLUG: "dev"
   DOMAIN: "nutgraf.in"
-  INFISICAL_PKI_PROFILE_ID: "PLACEHOLDER_REPLACED_DURING_HUB_BOOTSTRAP"
+  INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"
 ```
 
 **File: `operators/hub-operator/config/manager/manager.yaml`**
 ```yaml
 # Under the container env section:
-        - name: INFISICAL_PKI_PROFILE_ID
+        - name: INFISICAL_BOOTSTRAP_PROFILE_SLUG
           valueFrom:
             configMapKeyRef:
               name: hub-bootstrap-config
-              key: INFISICAL_PKI_PROFILE_ID
+              key: INFISICAL_BOOTSTRAP_PROFILE_SLUG
 ```
 
 ### 5. Hub Operator Implementation
@@ -341,15 +348,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // Reconcile handles the creation of the Spoke's bootstrap payloads
 func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// ... fetch SpokePool CR ...
 
-	pkiProfileId := os.Getenv("INFISICAL_PKI_PROFILE_ID")
-	if pkiProfileId == "" {
-		return ctrl.Result{}, fmt.Errorf("INFISICAL_PKI_PROFILE_ID is not set")
+	bootstrapProfileSlug := os.Getenv("INFISICAL_BOOTSTRAP_PROFILE_SLUG")
+	if bootstrapProfileSlug == "" {
+		return ctrl.Result{}, fmt.Errorf("INFISICAL_BOOTSTRAP_PROFILE_SLUG is not set")
+	}
+
+	// Resolve profile slug to ID (slugs survive backup/restore, UUIDs do not)
+	pkiProfileId, err := r.Infisical.ProfileSlugToID(ctx, bootstrapProfileSlug)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolve bootstrap profile: %w", err)
 	}
 
 	// 1. Generate Machine Identity
@@ -359,7 +373,8 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// 2. Mint 72h Bootstrap Certificate (ADR-035 Exception)
-	cert, err := r.Infisical.IssueBootstrapCertificate(ctx, pkiProfileId, spoke.Name)
+	commonName := fmt.Sprintf("argocd-agent:%s", spoke.Name)
+	cert, err := r.Infisical.IssueBootstrapCertificate(ctx, pkiProfileId, commonName)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -391,7 +406,9 @@ stringData:
 %s
   tls.key: |
 %s
-`, indent(cert.Certificate), indent(cert.PrivateKey))
+  ca.crt: |
+%s
+`, indent(cert.Certificate), indent(cert.PrivateKey), indent(cert.IssuingCaCertificate))
 
 	identityCRS := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -421,15 +438,64 @@ stringData:
 		},
 	}
 
-	// Apply CRS Secrets to API Server...
-	if err := r.Client.Create(ctx, identityCRS); client.IgnoreAlreadyExists(err) != nil {
+	// Apply CRS Secrets to API Server (must be fully idempotent)
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, identityCRS, func() error {
+		identityCRS.Labels = map[string]string{
+			"addons.cluster.x-k8s.io/resource-set": "true",
+		}
+		identityCRS.Type = "addons.cluster.x-k8s.io/resource-set"
+		identityCRS.StringData = map[string]string{
+			"identity.yaml": identityYAML,
+		}
+		return nil
+	})
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.Client.Create(ctx, certCRS); client.IgnoreAlreadyExists(err) != nil {
+
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, certCRS, func() error {
+		certCRS.Labels = map[string]string{
+			"addons.cluster.x-k8s.io/resource-set": "true",
+		}
+		certCRS.Type = "addons.cluster.x-k8s.io/resource-set"
+		certCRS.StringData = map[string]string{
+			"bootstrap-cert.yaml": certYAML,
+		}
+		return nil
+	})
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// BootstrapAdoptionCheck verifies cert-manager has adopted the bootstrap secret.
+// Once adopted, the bootstrap label is removed and status is recorded.
+func (r *SpokePoolReconciler) BootstrapAdoptionCheck(ctx context.Context, spoke *SpokePool) error {
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{
+		Name:      "argocd-agent-client-cert",
+		Namespace: "argocd",
+	}, secret); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	// cert-manager sets its own labels when it adopts a secret.
+	// Detect adoption by checking for cert-manager controller labels.
+	_, adopted := secret.Labels["cert-manager.io/certificate-name"]
+	if adopted {
+		spoke.Status.BootstrapCertificateAdopted = true
+		spoke.Status.BootstrapCertificateExpires = nil
+
+		// Remove bootstrap label to signal cleanup to operators
+		delete(secret.Labels, "platform.nutgraf.in/bootstrap")
+		if err := r.Client.Update(ctx, secret); err != nil {
+			return err
+		}
+		return r.Client.Status().Update(ctx, spoke)
+	}
+	return nil
 }
 
 func indent(text string) string {
@@ -463,7 +529,82 @@ func indent(text string) string {
                 secretName: offline-root-ca
 ```
 
+### 6.5. infisical-issuer CRD Verification
+
+The `ClusterIssuer` spec shown below assumes a `spec.infisical` field. The actual [infisical-issuer](https://github.com/Infisical/infisical-issuer) project introduces its own issuer CRD (likely `InfisicalIssuer` or similar) rather than extending cert-manager's native issuer schema.
+
+**Before implementation:**
+- Verify the actual CRD shape from the infisical-issuer project
+- Confirm whether a `ClusterIssuer` extension or a separate `InfisicalIssuer` CRD is used
+- Validate the authentication fields match the released API
+
+The following manifests use the assumed schema. Adjust to match the real CRD before merging.
+
 ### 7. Spoke-Local PKI Issuance (Day-1+)
+
+Sync waves (ADR-025 deterministic bootstrap):
+
+| Wave | Resource |
+|------|----------|
+| 0    | cert-manager CRDs |
+| 1    | cert-manager controller |
+| 2    | infisical-issuer |
+| 3    | InfisicalIssuer / ClusterIssuer |
+| 4    | Certificate objects |
+
+**File: `manifests/spoke/spoke-catalog/infra/cert-manager-crds.yaml`**
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-crds
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform-infrastructure
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform-infrastructure
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.0
+    helm:
+      values: |
+        installCRDs: false
+        crds:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
 
 **File: `manifests/spoke/spoke-catalog/infra/infisical-issuer.yaml`**
 ```yaml
@@ -529,7 +670,7 @@ spec:
   secretName: argocd-agent-client-cert
   duration: 24h
   renewBefore: 8h
-  commonName: argocd-agent-client
+  commonName: argocd-agent:{{ .Values.spokeName }}
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
@@ -545,7 +686,7 @@ spec:
   secretName: alloy-client-cert
   duration: 24h
   renewBefore: 8h
-  commonName: alloy-client
+  commonName: alloy:{{ .Values.spokeName }}
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
@@ -561,7 +702,7 @@ spec:
   secretName: nats-leafnode-client-cert
   duration: 24h
   renewBefore: 8h
-  commonName: nats-leafnode-client
+  commonName: nats:{{ .Values.spokeName }}
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
@@ -571,6 +712,8 @@ spec:
 ```yaml
 resources:
   # ... existing ...
+  - cert-manager-crds.yaml
+  - cert-manager.yaml
   - infisical-issuer.yaml
   - cluster-issuer.yaml
   - certificates.yaml
