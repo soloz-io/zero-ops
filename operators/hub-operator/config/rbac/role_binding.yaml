@@ -4,11 +4,11 @@ metadata:
   labels:
     app.kubernetes.io/name: hub-operator
     app.kubernetes.io/managed-by: kustomize
-  name: manager-rolebinding
+  name: hub-operator-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: manager-role
+  name: hub-operator-manager-role
 subjects:
 - kind: ServiceAccount
   name: hub-operator

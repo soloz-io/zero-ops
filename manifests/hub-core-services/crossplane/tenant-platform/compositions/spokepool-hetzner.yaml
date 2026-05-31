@@ -164,7 +164,7 @@ spec:
                         # 72-hour bootstrap certificate for ArgoCD Agent mTLS
                         - name: ""
                           kind: Secret
-                      strategy: Once
+                      strategy: ApplyOnce
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
