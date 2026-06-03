@@ -257,6 +257,11 @@ check_prerequisites() {
 
     # --- Required CLI tools ---
     for tool in kubectl aws jq kind clusterctl helm; do
+        # Also check ~/bin since auto-installed tools live there but
+        # non-interactive shells don't source ~/.bashrc (where PATH is persisted)
+        if [[ -x "$HOME/bin/$tool" ]]; then
+            export PATH="$HOME/bin:$PATH"
+        fi
         if ! command -v "$tool" >/dev/null 2>&1; then
             case "$tool" in
                 kind|clusterctl|helm|aws|jq)
