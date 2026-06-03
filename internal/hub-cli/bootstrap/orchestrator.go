@@ -61,6 +61,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 
 		fmt.Printf("[recovery] Resuming from next phase...\n")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Completed phases: %v\n", bootstrapState.CompletedPhases)
+		}
 	} else {
 		if err := o.checkKindClusterExists(); err != nil {
 			return err
@@ -98,9 +101,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 3: Bootstrap Cluster Creation
 	if !contains(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate) {
 		fmt.Println("\n[bootstrap-create] Creating ephemeral bootstrap cluster...")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseBootstrapCreate)
+		}
 
 		if bootstrapContext != "" {
 			fmt.Printf("[bootstrap-create] Using existing context: %s\n", bootstrapContext)
+			if o.Debug {
+				fmt.Printf("[DEBUG] Bootstrap context provided: %s\n", bootstrapContext)
+			}
 			homeDir, _ := os.UserHomeDir()
 			kubeconfig = filepath.Join(homeDir, ".kube", "config")
 			bootstrapState.BootstrapContext = bootstrapContext
@@ -113,6 +122,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			if kindMgr.Exists(ctx) {
 				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
 			} else {
+				if o.Debug {
+					fmt.Printf("[DEBUG] Creating Kind cluster: %s\n", o.ClusterName)
+				}
 				if err := kindMgr.Create(ctx); err != nil {
 					return fmt.Errorf("failed to create Kind cluster: %w", err)
 				}
@@ -149,6 +161,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 4: CAPI Initialization
 	if !contains(bootstrapState.CompletedPhases, state.PhaseCAPIInit) {
 		fmt.Println("\n[capi-init] Installing cluster-api-operator...")
+		if o.Debug {
+			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseCAPIInit)
+		}
 
 		capiInstaller := &capi.OperatorInstaller{
 			Kubeconfig: kubeconfig,
@@ -232,15 +247,18 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 
 		// Apply ArgoCD bootstrap boundaries in sequence (ADR-021)
-		fmt.Println("[postboot] Applying 01-platform-infra boundary...")
-		cmd := exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/01-platform-infra.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 01-platform-infra: %w\n%s", err, output)
+		// Detect current git branch and inject as targetRevision so ArgoCD
+		// syncs from the correct branch (ADR-037 §2: single source of truth).
+		gitBranch := currentGitBranch()
+		if gitBranch != "" && gitBranch != "main" {
+			fmt.Printf("[postboot] Git branch: %s (injecting as targetRevision)\n", gitBranch)
+		} else {
+			gitBranch = "HEAD"
 		}
-		fmt.Println("[postboot] ✓ 01-platform-infra boundary applied")
+
+		if err := applyArgoCDBootstrapApp(ctx, mgmtKubeconfig, "01-platform-infra", gitBranch); err != nil {
+			return err
+		}
 
 		fmt.Println("[postboot] Waiting for operators to establish webhooks...")
 		if err := o.waitForOperators(ctx, mgmtKubeconfig); err != nil {
@@ -248,25 +266,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 		fmt.Println("[postboot] ✓ Operators ready")
 
-		fmt.Println("[postboot] Applying 02-platform-data boundary...")
-		cmd = exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/02-platform-data.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 02-platform-data: %w\n%s", err, output)
+		if err := applyArgoCDBootstrapApp(ctx, mgmtKubeconfig, "02-platform-data", gitBranch); err != nil {
+			return err
 		}
-		fmt.Println("[postboot] ✓ 02-platform-data boundary applied")
 
-		fmt.Println("[postboot] Applying 03-platform-services boundary...")
-		cmd = exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/03-platform-services.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 03-platform-services: %w\n%s", err, output)
+		if err := applyArgoCDBootstrapApp(ctx, mgmtKubeconfig, "03-platform-services", gitBranch); err != nil {
+			return err
 		}
-		fmt.Println("[postboot] ✓ 03-platform-services boundary applied")
+		fmt.Println("[postboot] ✓ All bootstrap boundaries applied")
 
 		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
 		bootstrapState.CurrentPhase = state.PhaseComplete
@@ -799,4 +806,41 @@ func waitForDeployment(ctx context.Context, kubeconfig, namespace, deployment st
 			}
 		}
 	}
+}
+// currentGitBranch returns the current git branch name, or empty string if not in a git repo.
+func currentGitBranch() string {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// applyArgoCDBootstrapApp reads a bootstrap Application YAML, injects the
+// correct targetRevision, and applies it via kubectl. This ensures the ArgoCD
+// Application points to the current feature branch instead of hardcoded HEAD
+// (ADR-037 §2: environment-bound hubs must reconcile from a single source of truth).
+func applyArgoCDBootstrapApp(ctx context.Context, kubeconfig, boundaryName, targetRevision string) error {
+	manifestPath := fmt.Sprintf("manifests/argocd/bootstrap/%s.yaml", boundaryName)
+	fmt.Printf("[postboot] Applying %s boundary...\n", boundaryName)
+
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", manifestPath, err)
+	}
+
+	// Replace targetRevision: HEAD with the current branch (unless already HEAD/main)
+	patched := strings.Replace(string(raw), "targetRevision: HEAD", "targetRevision: "+targetRevision, 1)
+
+	cmd := exec.CommandContext(ctx, "kubectl", "apply",
+		"--kubeconfig", kubeconfig,
+		"-f", "-",
+	)
+	cmd.Stdin = strings.NewReader(patched)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply %s: %w\n%s", boundaryName, err, output)
+	}
+	fmt.Printf("[postboot] ✓ %s boundary applied\n", boundaryName)
+	return nil
 }

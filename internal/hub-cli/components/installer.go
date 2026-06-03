@@ -193,6 +193,8 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 		"--kubeconfig", i.Kubeconfig,
 		"--set", "networkPolicy.enabled=true",
 		"--set", "networkPolicy.defaultDeny=false",
+		"--set", "repoServer.env[0].name=ARGOCD_EXEC_TIMEOUT",
+		"--set", "repoServer.env[0].value=600s",
 		"--wait",
 		"--timeout", "10m",
 	)
