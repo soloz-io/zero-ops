@@ -445,7 +445,7 @@ step1_bootstrap_hub() {
 
     if is_step_completed "bootstrap_hub"; then
         # Verify the Go bootstrap actually completed all phases (incl. postboot)
-        if [[ -f "$go_state_file" ]] && grep -q '"postboot"' "$go_state_file"; then
+		if [[ -f "$go_state_file" ]] && grep -q '"complete"' "$go_state_file"; then
             log "Step 1: Hub bootstrap already completed (postboot confirmed), skipping"
             read_kubeconfig_from_state
             return

@@ -223,6 +223,10 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Completion ────────────────────────────────────────────────────
+	bs.CompletedPhases = append(bs.CompletedPhases, state.PhaseComplete)
+	bs.CurrentPhase = state.PhaseComplete
+	stateMgr.Save(bs)
+
 	argoCDPwd := o.getArgoCDPassword(ctx, mgmtKubeconfig)
 	fmt.Println("\n✓ Hub Cluster bootstrap complete!")
 	fmt.Printf("  Provider: %s\n", o.Provider.Name())
@@ -357,7 +361,6 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	}
 	fmt.Println("[platform-deploy] ✓ ArgoCD installed")
 
-	// Apply ArgoCD bootstrap boundaries
 	gitBranch := currentGitBranch()
 	if gitBranch == "" || gitBranch == "main" {
 		gitBranch = "HEAD"
@@ -365,17 +368,24 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		fmt.Printf("[platform-deploy] Git branch: %s (injecting as targetRevision)\n", gitBranch)
 	}
 
-	boundaries := []string{"01-platform-infra", "02-platform-data", "03-platform-services"}
-	for _, b := range boundaries {
-		if err := applyArgoCDApp(ctx, kubeconfig, b, gitBranch); err != nil {
-			return err
-		}
+	// Apply 01-infra first, then wait for operators before data workloads
+	if err := applyArgoCDApp(ctx, kubeconfig, "01-platform-infra", gitBranch); err != nil {
+		return err
 	}
 
 	fmt.Println("[platform-deploy] Waiting for operators to establish webhooks...")
 	if err := waitForOperators(ctx, kubeconfig); err != nil {
 		return fmt.Errorf("operators not ready: %w", err)
 	}
+	fmt.Println("[platform-deploy] ✓ Operators ready")
+
+	if err := applyArgoCDApp(ctx, kubeconfig, "02-platform-data", gitBranch); err != nil {
+		return err
+	}
+	if err := applyArgoCDApp(ctx, kubeconfig, "03-platform-services", gitBranch); err != nil {
+		return err
+	}
+
 	fmt.Println("[platform-deploy] ✓ All bootstrap boundaries applied")
 	return nil
 }

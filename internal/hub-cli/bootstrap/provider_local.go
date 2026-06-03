@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/capi"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
 )
@@ -20,7 +22,8 @@ import (
 // ADR-036 §3: CAPD is the official local development and integration testing
 // provider. It is NOT production-supported.
 type LocalProvider struct {
-	Debug bool
+	Debug       bool
+	GitHubToken string
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
@@ -119,7 +122,29 @@ func (p *LocalProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 // ── Phase 10: Platform Pre-Requisites ───────────────────────────────────────
 
 func (p *LocalProvider) OnPlatformPreReqs(ctx context.Context, kubeconfig string) error {
-	fmt.Println("[platform-pre] ✓ No additional pre-requisites for local provider")
+	fmt.Println("[platform-pre] Creating platform-ops namespace and ArgoCD git credentials...")
+	createNS := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"create", "namespace", constants.NamespaceOps, "--dry-run=client", "-o", "yaml")
+	nsYAML, err := createNS.Output()
+	if err != nil {
+		return fmt.Errorf("failed to generate namespace yaml: %w", err)
+	}
+	applyNS := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
+	applyNS.Stdin = bytes.NewReader(nsYAML)
+	if out, err := applyNS.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create platform-ops namespace: %w\n%s", err, out)
+	}
+	fmt.Println("[platform-pre] ✓ Namespace platform-ops created")
+
+	if p.GitHubToken != "" {
+		ci := &components.Installer{Kubeconfig: kubeconfig}
+		if err := ci.FixArgoCDGitHubAuth(ctx, p.GitHubToken); err != nil {
+			return fmt.Errorf("failed to create ArgoCD git secret: %w", err)
+		}
+	} else {
+		fmt.Println("[platform-pre] No GitHub token provided — git credentials will be created by configure-github-access")
+	}
+	fmt.Println("[platform-pre] ✓ Platform pre-requisites complete")
 	return nil
 }
 

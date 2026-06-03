@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/bootstrap"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
@@ -156,7 +157,8 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
 	case "docker":
 		bp = &bootstrap.LocalProvider{
-			Debug: debug,
+			Debug:       debug,
+			GitHubToken: readGitHubToken(),
 		}
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)
@@ -201,4 +203,15 @@ func maskToken(token string) string {
 		return "***"
 	}
 	return token[:4] + "..." + token[len(token)-4:]
+}
+
+func readGitHubToken() string {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token
+	}
+	data, err := os.ReadFile("k8-secrets/github/github-pat-token")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
