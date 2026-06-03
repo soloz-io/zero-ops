@@ -105,7 +105,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			kubeconfig = filepath.Join(homeDir, ".kube", "config")
 			bootstrapState.BootstrapContext = bootstrapContext
 		} else {
-			kindMgr := &KindManager{ClusterName: o.ClusterName}
+			kindMgr := &KindManager{
+				ClusterName: o.ClusterName,
+				ConfigPath:  o.Provider.KindConfigPath(),
+			}
 
 			if kindMgr.Exists(ctx) {
 				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
@@ -276,18 +279,46 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Save kubeconfig
 	fmt.Println("\n[config] Saving kubeconfig...")
-	configMgr := &config.Manager{
-		BootstrapKubeconfig: mgmtKubeconfig,
-		ClusterName:         o.ClusterName,
-		Namespace:           constants.NamespaceCAPI,
-	}
-	kubeconfigPath, err := configMgr.SaveKubeconfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to save kubeconfig: %w", err)
+	var kubeconfigPath string
+	if o.isSelfProvisioning() {
+		// For self-provisioning providers (CAPD/Docker), the bootstrap kubeconfig IS the management kubeconfig.
+		kubeconfigPath = filepath.Join("k8-secrets", "kubeconfig", fmt.Sprintf("%s.kubeconfig", o.ClusterName))
+		if err := os.MkdirAll(filepath.Dir(kubeconfigPath), 0755); err != nil {
+			return fmt.Errorf("failed to create kubeconfig directory: %w", err)
+		}
+		content, err := os.ReadFile(mgmtKubeconfig)
+		if err != nil {
+			return fmt.Errorf("failed to read bootstrap kubeconfig: %w", err)
+		}
+		if err := os.WriteFile(kubeconfigPath, content, 0600); err != nil {
+			return fmt.Errorf("failed to write kubeconfig: %w", err)
+		}
+	} else {
+		configMgr := &config.Manager{
+			BootstrapKubeconfig: mgmtKubeconfig,
+			ClusterName:         o.ClusterName,
+			Namespace:           constants.NamespaceCAPI,
+		}
+		var err error
+		kubeconfigPath, err = configMgr.SaveKubeconfig(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to save kubeconfig: %w", err)
+		}
 	}
 	fmt.Printf("[config] ✓ Kubeconfig saved to: %s\n", kubeconfigPath)
 
-	if o.MergeKubeconfig {
+	// Persist kubeconfig path to bootstrap state so downstream steps can find it
+	bootstrapState.MgmtKubeconfig = kubeconfigPath
+	if err := stateMgr.Save(bootstrapState); err != nil {
+		return fmt.Errorf("failed to save kubeconfig path to state: %w", err)
+	}
+
+	if !o.isSelfProvisioning() && o.MergeKubeconfig {
+		configMgr := &config.Manager{
+			BootstrapKubeconfig: mgmtKubeconfig,
+			ClusterName:         o.ClusterName,
+			Namespace:           constants.NamespaceCAPI,
+		}
 		if err := configMgr.MergeKubeconfig(ctx, kubeconfigPath); err != nil {
 			fmt.Printf("[config] Warning: failed to merge kubeconfig: %v\n", err)
 		} else {

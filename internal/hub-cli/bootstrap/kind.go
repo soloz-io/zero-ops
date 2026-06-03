@@ -10,13 +10,18 @@ import (
 // KindManager manages Kind cluster lifecycle
 type KindManager struct {
 	ClusterName string
+	ConfigPath  string // optional path to kind config (e.g., for extraPortMappings)
 }
 
 func (m *KindManager) Create(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "kind", "create", "cluster",
+	args := []string{"create", "cluster",
 		"--name", m.ClusterName,
 		"--wait", "2m",
-	)
+	}
+	if m.ConfigPath != "" {
+		args = append(args, "--config", m.ConfigPath)
+	}
+	cmd := exec.CommandContext(ctx, "kind", args...)
 	
 	output, err := cmd.CombinedOutput()
 	if err != nil {

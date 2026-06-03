@@ -4,5 +4,6 @@ kind: Component
 resources:
   - kind-ingress.yaml
   - crossplane-provider-docker.yaml
+  - storage-class.yaml
   - https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
   - https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml

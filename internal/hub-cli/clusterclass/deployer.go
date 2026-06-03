@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 )
@@ -41,25 +42,20 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 }
 
 func (d *Deployer) verify(ctx context.Context) error {
-	// Ensure at least one ClusterClass is present
 	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", d.Kubeconfig,
 		"get", "clusterclass",
 		"-n", d.Namespace,
+		"--no-headers",
 	)
-
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to verify ClusterClasses: %w", err)
 	}
 
-	// Verify each expected class exists
-	for _, classPath := range d.ClassPaths {
-		// Derive expected name from path (e.g., "classes/hetzner-mgmt-ubuntu-v1.yaml" -> "hetzner-mgmt-ubuntu-v1")
-		// The actual name is embedded in the manifest, but we check presence generically
-		if !bytes.Contains(output, []byte("clusterclass")) {
-			return fmt.Errorf("no ClusterClass found after applying %s", classPath)
-		}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
+		return fmt.Errorf("no ClusterClass found after applying manifests")
 	}
 
 	return nil

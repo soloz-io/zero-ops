@@ -43,6 +43,10 @@ func (p *DockerProvider) ClusterClassPaths() []string {
 	}
 }
 
+func (p *DockerProvider) KindConfigPath() string {
+	return "manifests/providers/local/kind-config.yaml"
+}
+
 func (p *DockerProvider) OnCAPIInit(ctx context.Context, kubeconfig, context, namespace string) error {
 	fmt.Println("[capi-init] ✓ CAPD does not require provider credentials")
 	return nil

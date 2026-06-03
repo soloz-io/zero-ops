@@ -91,6 +91,10 @@ func (p *HetznerProvider) ClusterClassPaths() []string {
 	}
 }
 
+func (p *HetznerProvider) KindConfigPath() string {
+	return ""
+}
+
 func (p *HetznerProvider) OnCAPIInit(ctx context.Context, kubeconfig, context, namespace string) error {
 	secretMgr := &capi.SecretManager{
 		Kubeconfig: kubeconfig,
