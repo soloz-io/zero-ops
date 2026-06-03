@@ -27,6 +27,7 @@ const (
 type BootstrapState struct {
 	Version          string            `json:"version"`
 	ClusterName      string            `json:"clusterName"`
+	Provider         string            `json:"provider"`
 	Region           string            `json:"region"`
 	BootstrapID      string            `json:"bootstrapId"`
 	CurrentPhase     BootstrapPhase    `json:"currentPhase"`

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crossplane-provider-config-local
+  namespace: platform-ops
+data:
+  provider: docker
+  composition-label: "provider=docker"
