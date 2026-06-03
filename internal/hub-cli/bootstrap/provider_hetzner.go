@@ -110,7 +110,16 @@ func (p *HetznerProvider) OnCAPIInit(ctx context.Context, kubeconfig, context, n
 	return nil
 }
 
-func (p *HetznerProvider) PostBootComponents(ctx context.Context, kubeconfig string) error {
+// --- Day-Zero Infrastructure (ADR-036 §6) ---
+
+// DayZeroInfra returns no declarative manifests. The hcloud-csi driver
+// (installed imperatively in OnDayZeroInit from embedded assets) creates
+// the "hcloud-volumes" StorageClass dynamically.
+func (p *HetznerProvider) DayZeroInfra() []InfraManifest {
+	return nil
+}
+
+func (p *HetznerProvider) OnDayZeroInit(ctx context.Context, kubeconfig string) error {
 	secretCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", kubeconfig,
 		"create", "secret", "generic", "hetzner",
@@ -152,4 +161,17 @@ func (p *HetznerProvider) PostBootComponents(ctx context.Context, kubeconfig str
 	fmt.Println("[postboot] ✓ hetzner-csi ready")
 
 	return nil
+}
+
+// --- Capability Contract (ADR-036 §5) ---
+
+func (p *HetznerProvider) Capabilities() CapabilityContract {
+	return CapabilityContract{
+		Version:      "1.0.0",
+		StorageClass: "hcloud-volumes",
+		BlockStorage: true,
+		LoadBalancer: true,
+		GPU:          true,
+		MaxNodes:     0, // no provider-enforced limit
+	}
 }

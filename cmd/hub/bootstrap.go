@@ -137,7 +137,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build provider based on --provider flag
-	var cloudProvider bootstrap.CloudProvider
+	var cloudProvider bootstrap.Provider
 
 	switch provider {
 	case "hetzner":

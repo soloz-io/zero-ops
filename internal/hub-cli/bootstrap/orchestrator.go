@@ -23,7 +23,7 @@ import (
 
 // Orchestrator manages the bootstrap process
 type Orchestrator struct {
-	Provider          CloudProvider
+	Provider          Provider
 	ClusterName       string
 	Region            string
 	OSType            string
@@ -241,9 +241,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 		fmt.Println("[postboot] ✓ ArgoCD installed")
 
-		// Provider-specific post-boot components (e.g., Hetzner CSI)
-		if err := o.Provider.PostBootComponents(ctx, mgmtKubeconfig); err != nil {
-			return fmt.Errorf("provider post-boot failed: %w", err)
+		// Provider-specific Day-0 infrastructure (ADR-036 §6)
+		// Applied BEFORE ArgoCD bootstrap boundaries so core platform PVCs
+		// can bind (StorageClass, CSI drivers).
+		for _, m := range o.Provider.DayZeroInfra() {
+			fmt.Printf("[postboot] Applying %s...\n", m.Name)
+			if err := kubectlApplyPath(ctx, mgmtKubeconfig, m.Path); err != nil {
+				return fmt.Errorf("failed to apply %s: %w", m.Path, err)
+			}
+			fmt.Printf("[postboot] ✓ %s applied\n", m.Name)
+		}
+
+		// Provider-specific Day-0 imperative init (secrets, CSI readiness)
+		if err := o.Provider.OnDayZeroInit(ctx, mgmtKubeconfig); err != nil {
+			return fmt.Errorf("provider Day-0 init failed: %w", err)
 		}
 
 		// Apply ArgoCD bootstrap boundaries in sequence (ADR-021)
@@ -842,5 +853,18 @@ func applyArgoCDBootstrapApp(ctx context.Context, kubeconfig, boundaryName, targ
 		return fmt.Errorf("failed to apply %s: %w\n%s", boundaryName, err, output)
 	}
 	fmt.Printf("[postboot] ✓ %s boundary applied\n", boundaryName)
+	return nil
+}
+
+// kubectlApplyPath applies a YAML manifest file via kubectl apply.
+// Used for provider-owned Day-0 infrastructure manifests (ADR-036 §6).
+func kubectlApplyPath(ctx context.Context, kubeconfig, path string) error {
+	cmd := exec.CommandContext(ctx, "kubectl", "apply",
+		"--kubeconfig", kubeconfig,
+		"-f", path,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("kubectl apply -f %s: %w\n%s", path, err, output)
+	}
 	return nil
 }
