@@ -398,6 +398,11 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		return fmt.Errorf("CRDs not queryable: %w", err)
 	}
 
+	fmt.Println("[platform-deploy] Waiting for operator pods to be Ready...")
+	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("operator pods not ready: %w", err)
+	}
+
 	if err := applyArgoCDApp(ctx, kubeconfig, "02-platform-data", gitBranch); err != nil {
 		return err
 	}
@@ -654,6 +659,45 @@ func (o *Orchestrator) waitForCRDs(ctx context.Context, kubeconfig string) error
 			}
 			if allFound {
 				fmt.Println("[platform-deploy] ✓ CRDs queryable")
+				return nil
+			}
+		}
+	}
+}
+
+// waitForOperatorPods polls until critical operator pods are Ready. Webhooks
+// and CRDs may exist, but webhook endpoints return 503 until their pods start.
+func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig string) error {
+	operators := map[string]string{
+		"cnpg-system":             "app.kubernetes.io/name=cloudnative-pg",
+		"platform-ops":            "app.kubernetes.io/name=external-secrets",
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for operator pods to be Ready")
+			}
+			allReady := true
+			for ns, label := range operators {
+				cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+					"get", "pods", "-n", ns,
+					"-l", label,
+					"-o", "jsonpath={.items[?(@.status.phase=='Running')].metadata.name}")
+				out, err := cmd.Output()
+				if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+					allReady = false
+					break
+				}
+			}
+			if allReady {
+				fmt.Println("[platform-deploy] ✓ Operator pods Ready")
 				return nil
 			}
 		}

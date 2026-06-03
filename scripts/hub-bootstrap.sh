@@ -366,12 +366,12 @@ check_prerequisites() {
     fi
 
     # --- Hub binary ---
-    if [[ ! -f "$HUB_BINARY" ]]; then
-        log "ERROR: Hub binary not found at $HUB_BINARY"
-        log "  Fix: go build -mod=mod -o bin/hub ./cmd/hub"
-        failed=1
+    log "Building hub binary..."
+    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -o bin/hub ./cmd/hub 2>&1); then
+        log "  ✓ hub binary built"
     else
-        log "  ✓ hub binary found"
+        log "ERROR: Hub binary build failed"
+        failed=1
     fi
 
     # --- Secret files ---
