@@ -202,6 +202,20 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 11: Platform deploy (ArgoCD + bootstrap apps) ───────────
+	// Wait for CRDs to be queryable before applying data workloads (webhooks
+	// guarantee CRDs exist, but API server needs extra seconds to register).
+	if err := o.waitForCRDs(ctx, mgmtKubeconfig); err != nil {
+		return fmt.Errorf("CRDs not ready: %w", err)
+	}
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePlatformDeploy, "platform-deploy",
+		"Installing platform components...",
+		func() error { return o.deployPlatform(ctx, mgmtKubeconfig) },
+		nil,
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 12: Finalize ────────────────────────────────────────────
 	var kubeconfigPath string
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseFinalize, "finalize",
@@ -368,7 +382,7 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		fmt.Printf("[platform-deploy] Git branch: %s (injecting as targetRevision)\n", gitBranch)
 	}
 
-	// Apply 01-infra first, then wait for operators before data workloads
+	// Apply 01-infra first, then wait for CRDs AND webhooks before data workloads
 	if err := applyArgoCDApp(ctx, kubeconfig, "01-platform-infra", gitBranch); err != nil {
 		return err
 	}
@@ -378,6 +392,11 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		return fmt.Errorf("operators not ready: %w", err)
 	}
 	fmt.Println("[platform-deploy] ✓ Operators ready")
+
+	fmt.Println("[platform-deploy] Verifying CRDs are queryable...")
+	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("CRDs not queryable: %w", err)
+	}
 
 	if err := applyArgoCDApp(ctx, kubeconfig, "02-platform-data", gitBranch); err != nil {
 		return err
@@ -596,6 +615,47 @@ func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []st
 				if hasCAPI && hasCertManager && hasCNPG && hasExternalSecret && allExtra {
 					return nil
 				}
+		}
+	}
+}
+
+// waitForCRDs polls the API server until critical CRDs are registered in
+// resource discovery. Validating webhooks existing does not guarantee the
+// CRD is registerable — there is a propagation delay.
+func (o *Orchestrator) waitForCRDs(ctx context.Context, kubeconfig string) error {
+	required := []string{
+		"externalsecrets.external-secrets.io",
+		"clusters.postgresql.cnpg.io",
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for CRDs to be queryable")
+			}
+			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+				"get", "crd", "-o", "name")
+			out, err := cmd.Output()
+			if err != nil {
+				continue
+			}
+			allFound := true
+			for _, crd := range required {
+				if !strings.Contains(string(out), crd) {
+					allFound = false
+					break
+				}
+			}
+			if allFound {
+				fmt.Println("[platform-deploy] ✓ CRDs queryable")
+				return nil
+			}
 		}
 	}
 }
