@@ -20,7 +20,10 @@ BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 
 # Defaults (overridable via flags)
 CLUSTER_NAME="${CLUSTER_NAME:-hub}"
-PROVIDER="${PROVIDER:-hetzner}"
+PROVIDER="${PROVIDER:-local}"
+
+# Teardown existing cluster before bootstrap
+TEARDOWN="${TEARDOWN:-false}"
 
 # SpokePool Configuration (provider-agnostic)
 SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
@@ -420,6 +423,21 @@ read_kubeconfig_from_state() {
 step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
     local go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    # Handle teardown-on-bootstrap: clean up existing cluster before starting
+    if [[ "$TEARDOWN" == "true" ]]; then
+        log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
+        if "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm; then
+            log "✓ Cluster '${CLUSTER_NAME}' torn down successfully"
+            # Reset bootstrap state so all steps re-run
+            rm -f "$BOOTSTRAP_STATE_FILE"
+            rm -f "$go_state_file"
+            log "✓ Bootstrap state reset for fresh start"
+        else
+            log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
+        fi
+        sleep 10  # let the smoke clear
+    fi
+
     if is_step_completed "bootstrap_hub"; then
         # Verify the Go bootstrap actually completed all phases (incl. postboot)
         if [[ -f "$go_state_file" ]] && grep -q '"postboot"' "$go_state_file"; then
@@ -924,6 +942,10 @@ main() {
             --provider)
                 PROVIDER="$2"
                 shift 2
+                ;;
+            --teardown)
+                TEARDOWN="true"
+                shift
                 ;;
             *)
                 log "WARNING: Unknown argument: $1"
