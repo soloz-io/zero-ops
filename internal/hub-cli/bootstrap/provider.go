@@ -90,6 +90,12 @@ type Provider interface {
 	// Persists the management kubeconfig and returns its path.
 	// Cloud extracts from CAPI secret; local copies the kind kubeconfig.
 	Finalize(ctx context.Context, cfg *FinalizeConfig) (string, error)
+
+	// ── Webhook validation ────────────────────────────────────────────────
+	// OperatorWebhookPatterns returns additional webhook name substrings that
+	// must be present before data-plane workloads (Phase 11 gating).
+	// Local returns empty; cloud returns ["caph"] for Hetzner provider.
+	OperatorWebhookPatterns() []string
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

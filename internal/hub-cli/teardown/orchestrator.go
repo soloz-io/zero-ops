@@ -328,6 +328,19 @@ func (o *Orchestrator) localCleanup() error {
 		fmt.Printf("[teardown] ✓ Deleted kind cluster: %s\n", o.ClusterName)
 	}
 
+	// Prune Docker artifacts left by kind + local-path-storage PVCs
+	fmt.Println("[teardown] Pruning Docker volumes, containers, and networks...")
+	pruneContainers := exec.Command("docker", "container", "prune", "-f")
+	pruneContainers.Run()
+	pruneVolumes := exec.Command("docker", "volume", "prune", "-f")
+	if out, err := pruneVolumes.CombinedOutput(); err != nil {
+		fmt.Printf("[teardown] ⚠️  Docker volume prune: %v\n%s\n", err, out)
+	} else {
+		fmt.Println("[teardown] ✓ Docker volumes pruned")
+	}
+	pruneBuildCache := exec.Command("docker", "builder", "prune", "-f")
+	pruneBuildCache.Run()
+
 	// Remove kubeconfig from k8-secrets/kubeconfig/
 	kubeconfigPath := fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName)
 	if err := os.Remove(kubeconfigPath); err != nil && !os.IsNotExist(err) {

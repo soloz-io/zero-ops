@@ -433,6 +433,10 @@ step1_bootstrap_hub() {
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
         if "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm; then
             log "✓ Cluster '${CLUSTER_NAME}' torn down successfully"
+            # Docker cleanup: prune images, containers, volumes, and build cache from kind
+            log "Cleaning up Docker resources (containers, volumes, networks, dangling images)..."
+            docker system prune -f --volumes 2>/dev/null || true
+            log "✓ Docker cleanup complete"
             # Reset bootstrap state so all steps re-run
             rm -f "$BOOTSTRAP_STATE_FILE"
             rm -f "$go_state_file"

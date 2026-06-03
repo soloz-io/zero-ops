@@ -374,7 +374,7 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	}
 
 	fmt.Println("[platform-deploy] Waiting for operators to establish webhooks...")
-	if err := waitForOperators(ctx, kubeconfig); err != nil {
+	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
 		return fmt.Errorf("operators not ready: %w", err)
 	}
 	fmt.Println("[platform-deploy] ✓ Operators ready")
@@ -539,7 +539,7 @@ func applyArgoCDApp(ctx context.Context, kubeconfig, boundaryName, targetRevisio
 	return nil
 }
 
-func waitForOperators(ctx context.Context, kubeconfig string) error {
+func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
 	deadline := time.Now().Add(10 * time.Minute)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -558,11 +558,44 @@ func waitForOperators(ctx context.Context, kubeconfig string) error {
 			if err != nil {
 				continue
 			}
-			for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-				if strings.Contains(line, "capi") || strings.Contains(line, "caph") || strings.Contains(line, "cert-manager") {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+				hasCAPI := false
+				hasCertManager := false
+				hasCNPG := false
+				hasExternalSecret := false
+				extraFound := make(map[string]bool)
+				for _, p := range extraPatterns {
+					extraFound[p] = false
+				}
+				for _, line := range lines {
+					if strings.Contains(line, "capi") {
+						hasCAPI = true
+					}
+					if strings.Contains(line, "cert-manager") {
+						hasCertManager = true
+					}
+					if strings.Contains(line, "cnpg") {
+						hasCNPG = true
+					}
+					if strings.Contains(line, "externalsecret") || strings.Contains(line, "secretstore") {
+						hasExternalSecret = true
+					}
+					for _, p := range extraPatterns {
+						if strings.Contains(line, p) {
+							extraFound[p] = true
+						}
+					}
+				}
+				allExtra := true
+				for _, found := range extraFound {
+					if !found {
+						allExtra = false
+						break
+					}
+				}
+				if hasCAPI && hasCertManager && hasCNPG && hasExternalSecret && allExtra {
 					return nil
 				}
-			}
 		}
 	}
 }

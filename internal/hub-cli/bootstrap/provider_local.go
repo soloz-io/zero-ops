@@ -168,6 +168,7 @@ func (p *LocalProvider) Finalize(ctx context.Context, cfg *FinalizeConfig) (stri
 
 // ── Capability Contract ─────────────────────────────────────────────────────
 
+func (p *LocalProvider) OperatorWebhookPatterns() []string { return nil }
 func (p *LocalProvider) Capabilities() CapabilityContract {
 	return CapabilityContract{
 		Version:      "1.0.0",

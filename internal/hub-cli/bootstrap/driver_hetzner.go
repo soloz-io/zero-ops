@@ -192,6 +192,9 @@ func (d *HetznerDriver) ClusterClassPaths() []string {
 
 // ── Capabilities ────────────────────────────────────────────────────────────
 
+func (d *HetznerDriver) OperatorWebhookPatterns() []string {
+	return []string{"caph"}
+}
 func (d *HetznerDriver) Capabilities() CapabilityContract {
 	return CapabilityContract{
 		Version:      "1.0.0",

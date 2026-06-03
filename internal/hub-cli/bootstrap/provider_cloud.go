@@ -233,6 +233,9 @@ func (p *CloudProvider) Finalize(ctx context.Context, cfg *FinalizeConfig) (stri
 
 // ── Capability Contract ─────────────────────────────────────────────────────
 
+func (p *CloudProvider) OperatorWebhookPatterns() []string {
+	return p.driver.OperatorWebhookPatterns()
+}
 func (p *CloudProvider) Capabilities() CapabilityContract {
 	return p.driver.Capabilities()
 }
@@ -276,6 +279,9 @@ type CloudDriver interface {
 
 	// ── Phase 9: ClusterClass paths ──────────────────────────────────────
 	ClusterClassPaths() []string
+
+	// ── Operator webhook patterns ───────────────────────────────────────
+	OperatorWebhookPatterns() []string
 
 	// ── Capabilities (ADR-036 §5) ────────────────────────────────────────
 	Capabilities() CapabilityContract
