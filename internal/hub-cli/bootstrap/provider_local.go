@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -64,14 +65,16 @@ func (p *LocalProvider) ProvisionDayZero(ctx context.Context, kubeconfig string)
 	fmt.Println("[day0] ✓ Node labeled as worker")
 
 	// 3. Remove the control-plane NoSchedule taint so hub workloads
-	//    (Redis, ClickHouse, kube-sbt-api) can schedule on the single node
+	//    (Redis, ClickHouse, kube-sbt-api) can schedule on the single node.
+	//    Not all kind/kubeadm versions add this taint — treat "not found" as success.
 	fmt.Println("[day0] Removing control-plane NoSchedule taint...")
 	untaintCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 		"taint", "node", "--all", "node-role.kubernetes.io/control-plane:NoSchedule-")
-	if out, err := untaintCmd.CombinedOutput(); err != nil {
+	out, err := untaintCmd.CombinedOutput()
+	if err != nil && !bytes.Contains(out, []byte("not found")) {
 		return fmt.Errorf("failed to remove control-plane taint: %w\n%s", err, out)
 	}
-	fmt.Println("[day0] ✓ Control-plane taint removed")
+	fmt.Println("[day0] ✓ Control-plane taint handled")
 
 	return nil
 }
