@@ -568,11 +568,11 @@ step4_wait_namespaces() {
         return
     fi
 
-    log "Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 300s)..."
+    log "Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 600s)..."
 
     # Correct polling logic for a resource that doesn't exist yet
     # kubectl wait fails if namespace doesn't exist, so we must poll first
-    timeout=300
+    timeout=600
     elapsed=0
     while ! kubectl get namespace platform-data --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; do
         if [ $elapsed -ge $timeout ]; then
