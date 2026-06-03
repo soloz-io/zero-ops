@@ -330,12 +330,12 @@ func (o *Orchestrator) handleCloudProvisioning(ctx context.Context, bootstrapSta
 			imageID = "ubuntu-24.04"
 		}
 
-		ciliumRaw, err := o.readClusterBIOSManifest("cilium-addon-template.yaml", "cilium.yaml")
+		ciliumRaw, err := o.readClusterBIOSManifest("manifests/spoke/spoke-bootstrap/", "cilium-addon-template.yaml", "cilium.yaml")
 		if err != nil {
 			return fmt.Errorf("failed to read cilium manifest: %w", err)
 		}
 
-		ccmRaw, err := o.readClusterBIOSManifest("ccm-addon-template.yaml", "ccm.yaml")
+		ccmRaw, err := o.readClusterBIOSManifest("manifests/providers/hetzner/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
 		if err != nil {
 			return fmt.Errorf("failed to read ccm manifest: %w", err)
 		}
@@ -599,8 +599,8 @@ func (o *Orchestrator) checkVersionCompatibility(ctx context.Context, kubeconfig
 }
 
 // readClusterBIOSManifest reads a manifest from the spoke-bootstrap directory
-func (o *Orchestrator) readClusterBIOSManifest(templateFile, dataKey string) ([]byte, error) {
-	biosPath := "manifests/spoke/spoke-bootstrap/" + templateFile
+func (o *Orchestrator) readClusterBIOSManifest(basePath, templateFile, dataKey string) ([]byte, error) {
+	biosPath := basePath + templateFile
 	data, err := os.ReadFile(biosPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", biosPath, err)

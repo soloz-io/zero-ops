@@ -1,0 +1,36 @@
+name: PR Fast-Fail Validation
+on:
+  pull_request:
+    paths:
+      - 'manifests/**'
+
+jobs:
+  validate-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Build and Validate Dev Environment
+        run: |
+          kustomize build manifests/environments/dev > dev-render.yaml
+
+      - name: Build and Validate Staging Environment
+        run: |
+          kustomize build manifests/environments/stg > stg-render.yaml
+
+      - name: Build and Validate Production Environment
+        run: |
+          kustomize build manifests/environments/prod > prod-render.yaml
+
+      - name: Verify All Environments Build Successfully
+        run: |
+          for env in dev stg prod; do
+            if [ ! -s "${env}-render.yaml" ]; then
+              echo "FAIL: ${env}-render.yaml is empty"
+              exit 1
+            fi
+            echo "PASS: $env environment builds successfully"
+          done

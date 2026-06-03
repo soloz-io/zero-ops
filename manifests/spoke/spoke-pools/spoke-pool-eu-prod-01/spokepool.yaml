@@ -9,6 +9,10 @@ metadata:
     environment: production
     region: eu-central
 spec:
+  compositionSelector:
+    matchLabels:
+      provider: hetzner
+      cluster-type: spoke-pool
   # Hetzner Falkenstein datacenter (best price/performance)
   region: fsn1
   

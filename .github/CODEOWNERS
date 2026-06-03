@@ -1,0 +1,2 @@
+# Enforce Platform Admin approval for ANY production infrastructure or configuration changes
+/manifests/environments/prod/* @soloz-io/platform-admins
