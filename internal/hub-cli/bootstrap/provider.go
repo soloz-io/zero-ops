@@ -7,134 +7,129 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
 )
 
-// Provider defines the contract all infrastructure providers must fulfill.
+// ──────────────────────────────────────────────────────────────────────────────
+// Provider — uniform 12-phase bootstrap pipeline (ADR-036 §1)
+// ──────────────────────────────────────────────────────────────────────────────
 //
-// ADR-036 §1 (Hub CLI Strategy Pattern):
+// Every provider implements the same interface. The orchestrator calls methods
+// in a fixed linear sequence with zero branching on provider type.
 //
-//	The orchestrator calls this interface in sequence — it never branches on
-//	provider name. Adding a provider means implementing this interface and
-//	registering it in cmd/hub/bootstrap.go.
+//  Phase   Method                        Local              Cloud
+//  ─────   ──────                        ─────              ─────
+//  1       PreflightValidators()         docker+kind        +cloud credentials
+//  2       KindConfigPath()              kind-config.yaml   "" (default)
+//  3       ProvisionDayZero()            SC+labels+taints   secret+CSI+wait
+//  4       CAPIProviders()+OnCAPIInit()  CAPD providers     cloud providers
+//  5       ProvisionManagementCluster()  identity (no-op)   provision VMs
+//  6       PivotMove()                   identity (no-op)   clusterctl pivot
+//  7       PivotReady()                  no-op              wait reconcile
+//  8       (orchestrator cleanup)        skip               delete kind
+//  9       ClusterClassPaths()           capd-spoke-pool    cloud clusterclass
+//  10      OnPlatformPreReqs()           no-op              no-op (reserved)
+//  11      (orchestrator ArgoCD+apps)    identical          identical
+//  12      Finalize()                    copy kind cfg      extract CAPI secret
 //
-// ADR-036 §2 (Strict Provider Isolation):
-//
-//	The orchestrator imports only this package. No provider-specific package
-//	is imported into core orchestration logic. This boundary is enforceable at
-//	code review.
-//
-// ADR-036 §5 (Capability Contract):
-//
-//	Capabilities() declares what the provider supports. Used by admission and
-//	validation workflows to prevent silent cross-cloud failures.
-//
-// ADR-036 §6 (Provider Kustomize Components):
-//
-//	DayZeroInfra() returns declarative manifest paths owned by the provider
-//	(under manifests/providers/<name>/). The orchestrator applies them
-//	imperatively before ArgoCD takes over.
+// The orchestrator is the single source of truth for phases 8 and 11 — these
+// are not provider methods because they are identical across all providers.
 type Provider interface {
-	// --- Identity ---
-
-	// Name returns the provider name ("docker", "hetzner").
+	// ── Identity ──────────────────────────────────────────────────────────
 	Name() string
+	Capabilities() CapabilityContract
 
-	// --- Bootstrap Configuration (ADR-036 §3) ---
+	// IsLocal returns true for self-hosting providers where the bootstrap
+	// cluster IS the management cluster (CAPD/kind). Cloud providers return
+	// false because they provision separate management VMs and pivot into them.
+	IsLocal() bool
 
-	// PreflightValidators returns validators run before any infrastructure
-	// is created. Each validator checks a required tool or environment condition.
+	// ── Phase 1: Preflight ────────────────────────────────────────────────
 	PreflightValidators() []preflight.Validator
 
-	// KindConfigPath returns the path to a Kind cluster configuration file,
-	// or "" if no custom config is needed.
+	// ── Phase 2: Bootstrap Cluster (kind) ─────────────────────────────────
+	// KindConfigPath returns a kind config YAML path, or "" for defaults.
 	KindConfigPath() string
 
-	// IsSelfProvisioning reports whether the kind bootstrap cluster IS the
-	// management cluster. True for CAPD/Docker; false for cloud providers
-	// where a separate management cluster is provisioned and pivoted into.
-	IsSelfProvisioning() bool
+	// ── Phase 3: Day-0 Infrastructure ─────────────────────────────────────
+	// Applied BEFORE CAPI and any workload scheduling. This is the first
+	// opportunity to configure the cluster for provider-specific primitives.
+	//
+	// Local:   applies StorageClass (rancher.io/local-path → hcloud-volumes),
+	//          labels the control-plane node as worker, removes NoSchedule
+	//          taint so hub workloads (Redis, ClickHouse, etc.) can schedule.
+	// Cloud:   creates cloud credentials secret, installs CSI driver, waits
+	//          for StorageClass to be dynamically provisioned.
+	ProvisionDayZero(ctx context.Context, kubeconfig string) error
 
-	// --- CAPI Infrastructure (ADR-036 §1) ---
-
-	// CAPIProviders returns the Cluster API infrastructure providers to
-	// install during operator initialization.
+	// ── Phase 4: CAPI Initialization ──────────────────────────────────────
 	CAPIProviders() []capi.CAPIProvider
-
-	// OnCAPIInit is called after CAPI operator installation completes.
-	// Providers use this to create credentials secrets, or perform any
-	// provider-specific initialization before cluster provisioning.
 	OnCAPIInit(ctx context.Context, kubeconfig, kubeContext, namespace string) error
 
-	// --- ClusterClass Templates (ADR-036 §4) ---
+	// ── Phase 5: Management Cluster Provisioning ──────────────────────────
+	// Local is a no-op. Cloud provisions VMs via CAPI and waits for ready.
+	ProvisionManagementCluster(ctx context.Context, cfg *ProvisionConfig) error
 
-	// ClusterClassPaths returns paths to ClusterClass YAML manifests for
-	// spoke pool provisioning.
+	// ── Phase 6: Pivot Move ───────────────────────────────────────────────
+	// Returns the management cluster kubeconfig path.
+	// Local returns the bootstrap kubeconfig (identity — no pivot needed).
+	// Cloud retrieves the CAPI kubeconfig, installs the operator on the
+	// management cluster, and executes clusterctl move.
+	PivotMove(ctx context.Context, cfg *PivotConfig) (string, error)
+
+	// ── Phase 7: Pivot Ready ──────────────────────────────────────────────
+	// Cloud waits for CAPI reconciliation after pivot. Local no-ops.
+	PivotReady(ctx context.Context, mgmtKubeconfig string) error
+
+	// ── Phase 9: ClusterClass ─────────────────────────────────────────────
 	ClusterClassPaths() []string
 
-	// --- Day-Zero Infrastructure (ADR-036 §6) ---
+	// ── Phase 10: Platform Pre-Requisites ─────────────────────────────────
+	// Final provider-specific setup before ArgoCD bootstrap apps are applied.
+	// Reserved for future use (currently no-op for all providers).
+	OnPlatformPreReqs(ctx context.Context, kubeconfig string) error
 
-	// DayZeroInfra returns declarative manifest paths for provider-owned
-	// infrastructure that must exist BEFORE ArgoCD bootstrap boundaries are
-	// applied. The orchestrator applies each manifest via kubectl apply -f.
-	//
-	// These are infrastructure primitives the provider needs (StorageClass,
-	// CSI drivers) that ArgoCD cannot self-provision. Manifest paths are
-	// relative to the project root and live under manifests/providers/<name>/.
-	DayZeroInfra() []InfraManifest
-
-	// OnDayZeroInit is called after DayZeroInfra manifests have been applied.
-	// Providers use this for imperative work that depends on runtime data
-	// (e.g., creating secrets from CLI-provided tokens, waiting for CSI pods).
-	OnDayZeroInit(ctx context.Context, kubeconfig string) error
-
-	// --- Capability Contract (ADR-036 §5) ---
-
-	// Capabilities returns the provider's declared platform capabilities.
-	// Versioned and backwards-compatible; used by admission and validation
-	// workflows to reject tenant requests for unsupported features.
-	Capabilities() CapabilityContract
+	// ── Phase 12: Finalize ────────────────────────────────────────────────
+	// Persists the management kubeconfig and returns its path.
+	// Cloud extracts from CAPI secret; local copies the kind kubeconfig.
+	Finalize(ctx context.Context, cfg *FinalizeConfig) (string, error)
 }
 
-// InfraManifest describes a single provider-owned Day-0 Kubernetes manifest
-// applied by the orchestrator before ArgoCD bootstrap boundaries.
-//
-// ADR-036 §6: cloud-specific manifests are isolated into provider-owned
-// directories (manifests/providers/<name>/) and injected dynamically.
-type InfraManifest struct {
-	// Name is a human-readable label for log output
-	// (e.g., "local-path StorageClass (hcloud-volumes)").
-	Name string
+// ──────────────────────────────────────────────────────────────────────────────
+// Config types passed between orchestrator and provider phases
+// ──────────────────────────────────────────────────────────────────────────────
 
-	// Path is the manifest file path relative to the project root
-	// (e.g., "manifests/providers/local/storage-class.yaml").
-	Path string
+// ProvisionConfig carries state from the orchestrator into Phase 5.
+type ProvisionConfig struct {
+	ClusterName      string
+	BootstrapKubeconfig string
+	BootstrapContext string
+	Debug            bool
 }
 
-// CapabilityContract declares the platform capabilities a provider supports.
-//
-// ADR-036 §5: versioned and backwards-compatible across provider releases.
-// Used by admission webhooks and validation logic to reject tenant requests
-// for unsupported features (e.g., GPUs on a provider that doesn't offer them,
-// LoadBalancer services on local CAPD).
-//
-// Zero-value fields indicate the capability is not supported.
+// PivotConfig carries state from the orchestrator into Phase 6.
+type PivotConfig struct {
+	ClusterName      string
+	BootstrapKubeconfig string
+	BootstrapContext string
+	Debug            bool
+}
+
+// FinalizeConfig carries state from the orchestrator into Phase 12.
+type FinalizeConfig struct {
+	MgmtKubeconfig  string
+	ClusterName     string
+	Namespace       string
+	MergeKubeconfig bool
+	Debug           bool
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Capability Contract (ADR-036 §5)
+// ──────────────────────────────────────────────────────────────────────────────
+
 type CapabilityContract struct {
-	// Version is the semantic version of this capability contract.
-	// Incremented when capabilities are added or removed.
-	Version string
-
-	// StorageClass is the name of the StorageClass this provider provisions
-	// for PersistentVolumeClaims (e.g., "hcloud-volumes").
+	Version      string
 	StorageClass string
-
-	// BlockStorage indicates support for PVC-based persistent block storage.
 	BlockStorage bool
-
-	// LoadBalancer indicates support for LoadBalancer Service types.
 	LoadBalancer bool
-
-	// GPU indicates support for GPU-accelerated instances.
-	GPU bool
-
-	// MaxNodes is the maximum number of worker nodes per spoke cluster.
-	// 0 means no provider-enforced limit.
-	MaxNodes int
+	GPU          bool
+	MaxNodes     int
 }

@@ -14,12 +14,16 @@ type BootstrapPhase string
 const (
 	PhasePreFlight          BootstrapPhase = "preflight"
 	PhaseBootstrapCreate    BootstrapPhase = "bootstrap-create"
+	PhaseDayZero            BootstrapPhase = "day0-infra"
 	PhaseCAPIInit           BootstrapPhase = "capi-init"
 	PhaseClusterProvision   BootstrapPhase = "cluster-provision"
 	PhasePivotMove          BootstrapPhase = "pivot-move"
 	PhasePivotReady         BootstrapPhase = "pivot-ready"
+	PhaseCleanup            BootstrapPhase = "cleanup"
 	PhaseClusterClassDeploy BootstrapPhase = "clusterclass-deploy"
-	PhasePostBoot           BootstrapPhase = "postboot"
+	PhasePlatformPreReqs    BootstrapPhase = "platform-pre-reqs"
+	PhasePlatformDeploy     BootstrapPhase = "platform-deploy"
+	PhaseFinalize           BootstrapPhase = "finalize"
 	PhaseComplete           BootstrapPhase = "complete"
 )
 

@@ -137,15 +137,15 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build provider based on --provider flag
-	var cloudProvider bootstrap.Provider
+	var bp bootstrap.Provider
 
 	switch provider {
 	case "hetzner":
 		hcloudToken := os.Getenv("HCLOUD_TOKEN")
-		cloudProvider = &bootstrap.HetznerProvider{
+		driver := &bootstrap.HetznerDriver{
 			Token:             hcloudToken,
 			Region:            region,
-			OSType:            osType,
+			OS:                osType,
 			ImageID:           imageID,
 			NetworkCIDR:       networkCIDR,
 			SSHKey:            sshKey,
@@ -153,18 +153,19 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 		}
+		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
 	case "docker":
-		cloudProvider = &bootstrap.DockerProvider{
+		bp = &bootstrap.LocalProvider{
 			Debug: debug,
 		}
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
 
-	// Phase 2: Preflight Validation using provider-specific validators
+	// Phase 1: Preflight Validation
 	fmt.Println("\n[preflight] Running validation checks...")
 	runner := preflight.NewRunner()
-	for _, v := range cloudProvider.PreflightValidators() {
+	for _, v := range bp.PreflightValidators() {
 		runner.Add(v)
 	}
 	if err := runner.Run(ctx); err != nil {
@@ -178,20 +179,14 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Phase 3+: Bootstrap Cluster Creation
+	// Phase 2-12: Bootstrap pipeline
 	orchestrator := &bootstrap.Orchestrator{
-		Provider:          cloudProvider,
-		ClusterName:       clusterName,
-		Region:            region,
-		OSType:            osType,
-		ImageID:           imageID,
-		NetworkCIDR:       networkCIDR,
-		SSHKey:            sshKey,
-		BootstrapContext:  bootstrapContext,
-		KeepBootstrap:     keepBootstrap,
-		MergeKubeconfig:   mergeKubeconfig,
-		HCloudToken:       os.Getenv("HCLOUD_TOKEN"),
-		Debug:             debug,
+		Provider:         bp,
+		ClusterName:      clusterName,
+		BootstrapContext: bootstrapContext,
+		KeepBootstrap:    keepBootstrap,
+		MergeKubeconfig:  mergeKubeconfig,
+		Debug:            debug,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {
