@@ -1,9 +1,0 @@
-appName: platform-victoriametrics-infisical
-destinationNamespace: platform-observability
-isPlatformOwned: true
-repoURL: https://github.com/soloz-io/zero-ops
-path: manifests/hub-core-services/victoriametrics
-directoryRecurse: false
-directoryInclude: infisical-integration.yaml
-syncOptions:
-- CreateNamespace=false

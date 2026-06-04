@@ -1,0 +1,74 @@
+[2026-06-04 14:48:57] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 14:48:57] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 14:48:57] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 14:48:57] Provider: local
+[2026-06-04 14:48:57] Cluster name: hub
+[2026-06-04 14:48:57] Checking prerequisites...
+[2026-06-04 14:48:57]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 14:48:57]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 14:48:57]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 14:48:57]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 14:48:57]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 14:48:57]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 14:48:58]   ✓ docker daemon running
+[2026-06-04 14:48:58] Building hub binary...
+[2026-06-04 14:49:07]   ✓ hub binary built
+[2026-06-04 14:49:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 14:49:10]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 14:49:10] Prerequisites check passed
+[2026-06-04 14:49:10] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 14:49:11] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 14:49:14] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 14:49:26] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 14:49:26] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 14:49:26] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 14:49:26] Provider: local
+[2026-06-04 14:49:26] Cluster name: hub
+[2026-06-04 14:49:26] Checking prerequisites...
+[2026-06-04 14:49:26]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 14:49:26]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 14:49:26]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 14:49:26]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 14:49:26]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 14:49:26]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 14:49:27]   ✓ docker daemon running
+[2026-06-04 14:49:27] Building hub binary...
+[2026-06-04 14:49:27]   ✓ hub binary built
+[2026-06-04 14:49:27]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 14:49:28]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 14:49:28] Prerequisites check passed
+[2026-06-04 14:49:28] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-04 14:49:47] ✓ Cluster 'hub' torn down successfully
+[2026-06-04 14:49:47] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-04 14:49:48] ✓ Docker cleanup complete
+[2026-06-04 14:49:48] ✓ Bootstrap state reset for fresh start
+[2026-06-04 14:49:58] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 14:49:58] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 14:50:01] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 15:32:15] ERROR: Invalid provider: local. (must be 'hetzner' or 'local')
+[2026-06-04 15:32:18] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 15:32:18] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 15:32:18] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 15:32:18] Provider: local
+[2026-06-04 15:32:18] Cluster name: hub
+[2026-06-04 15:32:18] Checking prerequisites...
+[2026-06-04 15:32:18]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 15:32:18]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 15:32:18]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 15:32:18]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 15:32:18]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 15:32:18]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 15:32:19]   ✓ docker daemon running
+[2026-06-04 15:32:19] Building hub binary...
+[2026-06-04 15:32:20]   ✓ hub binary built
+[2026-06-04 15:32:20]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 15:32:20]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 15:32:20] Prerequisites check passed
+[2026-06-04 15:32:20] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-04 15:32:30] ✓ Cluster 'hub' torn down successfully
+[2026-06-04 15:32:30] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-04 15:32:30] ✓ Docker cleanup complete
+[2026-06-04 15:32:30] ✓ Bootstrap state reset for fresh start
+[2026-06-04 15:32:40] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 15:32:40] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 15:32:43] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug

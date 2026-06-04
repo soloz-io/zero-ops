@@ -9,44 +9,466 @@ spec:
   syncPolicy:
     preserveResourcesOnDeletion: false
   generators:
-    - matrix:
-        generators:
-          - list:
-              elements:
-                - envRevision: "{{ .Values.environmentRevision }}"
-          - git:
-              repoURL: https://github.com/soloz-io/zero-ops.git
-              revision: "{{ .Values.environmentRevision }}"
-              files:
-                - path: "manifests/argocd/boundaries/01-platform-infra/*.yaml"
+    - list:
+        elements:
+          - appName: 'cert-manager-webhook-hetzner'
+            destinationNamespace: 'platform-edge'
+            isPlatformOwned: 'false'
+            syncWave: '1'
+            repoURL: 'https://vadimkim.github.io/cert-manager-webhook-hetzner'
+            targetRevision: '1.4.2'
+            path: ''
+            chart: 'cert-manager-webhook-hetzner'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'secretName:
+  - hetzner-dns
+resources:
+  requests:
+    cpu: 5m
+    memory: 16Mi
+  limits:
+    cpu: 50m
+    memory: 64Mi
+'
+            helmReleaseName: ''
+          - appName: 'platform-appproject-infrastructure'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '-2'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/argocd-principal'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: '"*appproject.yaml"'
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-argocd'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '1'
+            repoURL: 'https://argoproj.github.io/argo-helm'
+            targetRevision: '7.7.12'
+            path: ''
+            chart: 'argo-cd'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'configs:
+  cm:
+    # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
+    url: \"https://argocd.nutgraf.in\"
+    admin.enabled: \"true\"
+    application.instanceLabelKey: argocd.argoproj.io/instance
+    exec.enabled: \"false\"
+    server.rbac.log.enforce.enable: \"false\"
+    timeout.hard.reconciliation: \"0s\"
+    timeout.reconciliation: \"60s\"
+    
+    # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
+    # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
+    # Used by: OpenMeter deployment (manifests/hub-core-services/openmeter/kustomization.yaml)
+    # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
+    kustomize.buildOptions: --enable-helm
+    
+    # CNPG Cluster health check
+    resource.customizations.health.postgresql.cnpg.io_Cluster: |
+      hs = {}
+      if obj.status ~= nil and obj.status.phase ~= nil then
+        if obj.status.phase == \"Cluster in healthy state\" then
+          hs.status = \"Healthy\"
+          hs.message = obj.status.phase
+          return hs
+        end
+      end
+      hs.status = \"Progressing\"
+      hs.message = \"Waiting for cluster to be healthy\"
+      return hs
+
+    # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
+    # Cilium copies argocd.argoproj.io/instance labels from pods onto CiliumIdentity
+    # objects it creates. ArgoCD then treats them as orphaned managed resources and
+    # marks the owning app as OutOfSync. Excluding them globally prevents this.
+    resource.exclusions: |
+      - apiGroups:
+          - cilium.io
+        kinds:
+          - CiliumIdentity
+        clusters:
+          - ''*''
+    # Ensures ArgoCD waits for the Provider CRD to be fully registered before
+    # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
+    resource.customizations.health.pkg.crossplane.io_Provider: |
+      hs = {}
+      if obj.status ~= nil then
+        if obj.status.conditions ~= nil then
+          for i, condition in ipairs(obj.status.conditions) do
+            if condition.type == \"Healthy\" and condition.status == \"True\" then
+              hs.status = \"Healthy\"
+              hs.message = condition.message
+              return hs
+            end
+            if condition.type == \"Healthy\" and condition.status == \"False\" then
+              hs.status = \"Degraded\"
+              hs.message = condition.message
+              return hs
+            end
+          end
+        end
+      end
+      hs.status = \"Progressing\"
+      hs.message = \"Waiting for Crossplane provider to be installed and healthy\"
+      return hs
+
+    # CROSSPLANE Function health check
+    # Ensures ArgoCD waits for the Function CRD to be fully registered before
+    # advancing to dependent waves, preventing the FunctionRevision-not-found race condition.
+    resource.customizations.health.pkg.crossplane.io_Function: |
+      hs = {}
+      if obj.status ~= nil then
+        if obj.status.conditions ~= nil then
+          for i, condition in ipairs(obj.status.conditions) do
+            if condition.type == \"Healthy\" and condition.status == \"True\" then
+              hs.status = \"Healthy\"
+              hs.message = condition.message
+              return hs
+            end
+            if condition.type == \"Healthy\" and condition.status == \"False\" then
+              hs.status = \"Degraded\"
+              hs.message = condition.message
+              return hs
+            end
+          end
+        end
+      end
+      hs.status = \"Progressing\"
+      hs.message = \"Waiting for Crossplane function to be installed and healthy\"
+      return hs
+
+# Expose argocd-server via NGINX Ingress for Web UI and CLI access
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: \"true\"
+      nginx.ingress.kubernetes.io/backend-protocol: \"HTTPS\"
+    hostname: argocd.nutgraf.in
+    tls:
+      - hosts:
+          - argocd.nutgraf.in
+        secretName: argocd-server-tls
+'
+            helmReleaseName: 'argocd'
+          - appName: 'platform-atlas-operator'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '2'
+            repoURL: 'https://github.com/atlasgo/atlas-operator'
+            targetRevision: 'v0.2.0'
+            path: ''
+            chart: 'atlas-operator'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: 'atlas-operator'
+          - appName: 'platform-cloudnative-pg'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '2'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/cloudnative-pg'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-cluster-secret-store'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '5'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/cluster-secret-store'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-crossplane-config'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '4'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/crossplane/config'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-crossplane-providers'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '3'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/crossplane/providers'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-crossplane'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '2'
+            repoURL: 'https://charts.crossplane.io/stable'
+            targetRevision: '1.20.5'
+            path: ''
+            chart: 'crossplane'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'webhooks:
+  enabled: true
+'
+            helmReleaseName: 'crossplane'
+          - appName: 'platform-external-secrets-crds'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/eso/crds'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-external-secrets'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '4'
+            repoURL: 'https://charts.external-secrets.io'
+            targetRevision: '2.2.0'
+            path: ''
+            chart: 'external-secrets'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'installCRDs: false
+
+crds:
+  createClusterExternalSecret: true
+  createClusterSecretStore: true
+  createSecretStore: true
+  createClusterGenerator: true
+  createClusterPushSecret: true
+  createPushSecret: true
+
+replicaCount: 1
+
+processClusterPushSecret: true
+processPushSecret: true
+
+image:
+  repository: ghcr.io/external-secrets/external-secrets
+  tag: \"v2.2.0\"
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+processClusterExternalSecret: true
+processClusterStore: true
+processSecretStore: true
+
+metrics:
+  service:
+    enabled: true
+    port: 8080
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+securityContext:
+  enabled: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+'
+            helmReleaseName: ''
+          - appName: 'platform-kyverno'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '-1'
+            repoURL: 'https://kyverno.github.io/kyverno'
+            targetRevision: '3.2.6'
+            path: ''
+            chart: 'kyverno'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: '# Kyverno configuration for hub cluster
+replicaCount: 3
+
+# Resource limits
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Enable background controller for generate policies
+backgroundController:
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Enable cleanup controller
+cleanupController:
+  enabled: true
+  resources:
+    limits:
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Enable reports controller
+reportsController:
+  enabled: true
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Admission controller configuration
+admissionController:
+  replicas: 2
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Enable metrics
+metricsService:
+  create: true
+  type: ClusterIP
+  port: 8000
+
+# Webhook configuration
+webhooksCleanup:
+  enabled: true
+
+# CRDs
+crds:
+  install: true
+'
+            helmReleaseName: 'kyverno'
+          - appName: 'platform-capi-resources'
+            destinationNamespace: 'platform-capi'
+            isPlatformOwned: 'true'
+            syncWave: '2'
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: ''
+            path: 'manifests/platform-capi'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-namespaces'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '-2'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/platform-namespaces'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-security-certificates'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '0'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/security'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'ingress-config'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/ingress'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'ingress-nginx'
+            destinationNamespace: 'platform-edge'
+            isPlatformOwned: 'false'
+            syncWave: '1'
+            repoURL: 'https://kubernetes.github.io/ingress-nginx'
+            targetRevision: '4.15.0'
+            path: ''
+            chart: 'ingress-nginx'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'tcp:
+  8443: \"platform-ops/argocd-agent-principal:443\"
+  7422: \"platform-messaging/nats:7422\"
+controller:
+  admissionWebhooks:
+    enabled: false
+  service:
+    type: LoadBalancer
+    annotations:
+      load-balancer.hetzner.cloud/location: fsn1
+      external-dns.alpha.kubernetes.io/hostname: \"argocd-principal.nutgraf.in\"
+  extraArgs:
+    enable-ssl-passthrough: \"true\"
+'
+            helmReleaseName: ''
   template:
     metadata:
-      name: '{{.appName}}'
+      name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
       annotations:
-        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: default
       source:
-        repoURL: '{{.repoURL}}'
-        targetRevision: '{{ if eq (printf "%v" .isPlatformOwned) "true" }}{{.envRevision}}{{ else }}{{.targetRevision}}{{ end }}'
-        {{ if .path }}path: '{{.path}}'{{ end }}
-        {{ if .chart }}chart: '{{.chart}}'{{ end }}
-        {{ if .helmValues }}
-        helm:
-          releaseName: '{{.helmReleaseName}}'
-          values: |
-            {{.helmValues | nindent 12}}
-        {{ end }}
-        {{ if .directoryRecurse }}
-        directory:
-          recurse: true{{ if .directoryInclude }}
-          include: '{{.directoryInclude}}'{{ end }}{{ if .directoryExclude }}
-          exclude: '{{.directoryExclude}}'{{ end }}
-        {{ end }}
+        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        path: '{{"{{"}} .path {{"}}"}}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{.destinationNamespace}}'
+        namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
       syncPolicy:
         automated:
           prune: true
@@ -54,13 +476,3 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
-      {{ if .retryLimit }}
-        retry:
-          limit: {{.retryLimit}}
-          backoff:
-            duration: {{.retryDuration}}
-            maxDuration: {{.retryMaxDuration}}
-      {{ end }}
-      {{ if .ignoreDifferences }}
-        ignoreDifferences: {{.ignoreDifferences}}
-      {{ end }}

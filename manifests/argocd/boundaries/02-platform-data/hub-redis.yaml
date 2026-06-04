@@ -1,8 +1,0 @@
-appName: platform-redis
-destinationNamespace: platform-data
-isPlatformOwned: true
-repoURL: https://github.com/soloz-io/zero-ops
-path: manifests/hub-core-services/redis
-directoryRecurse: true
-syncOptions:
-- CreateNamespace=true

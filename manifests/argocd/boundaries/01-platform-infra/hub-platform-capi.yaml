@@ -1,9 +1,0 @@
-appName: platform-capi-resources
-destinationNamespace: platform-capi
-isPlatformOwned: true
-repoURL: https://github.com/soloz-io/zero-ops.git
-path: manifests/platform-capi
-syncWave: '2'
-syncOptions:
-- CreateNamespace=true
-- ServerSideApply=true

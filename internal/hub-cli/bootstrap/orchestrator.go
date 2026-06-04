@@ -375,10 +375,6 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	}
 	fmt.Println("[platform-deploy] ✓ ArgoCD installed")
 
-	// Render environment-manager Helm chart with the environment revision.
-	// This generates three boundary ApplicationSets that ArgoCD's controller
-	// will continuously reconcile, producing child Applications that track
-	// the feature branch for ephemeral environments or main for long-lived ones.
 	gitBranch := currentGitBranch()
 	envRevision := "main"
 	if gitBranch != "" && gitBranch != "main" {
@@ -386,9 +382,9 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		fmt.Printf("[platform-deploy] Environment revision: %s\n", envRevision)
 	}
 
-	// Helm template the environment-manager chart into memory and apply.
-	// The chart generates 01-platform-infra, 02-platform-data, and
-	// 03-platform-services ApplicationSets.
+	// Helm template the environment-manager chart and apply the three boundary
+	// ApplicationSets. ArgoCD's ApplicationSet controller generates child
+	// Applications with revision from envRevision for platform-owned apps.
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",
 		"--set", "environmentRevision="+envRevision,
@@ -397,7 +393,6 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	if err != nil {
 		return fmt.Errorf("helm template failed: %w\n%s", err, rendered)
 	}
-
 	applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
 	applyCmd.Stdin = bytes.NewReader(rendered)
 	if out, err := applyCmd.CombinedOutput(); err != nil {
@@ -405,13 +400,6 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	}
 	fmt.Println("[platform-deploy] ✓ Boundary ApplicationSets applied")
 
-	// Wait for ArgoCD ApplicationSet controller to generate child Applications
-	fmt.Println("[platform-deploy] Waiting for ApplicationSet controller to generate children...")
-	if err := waitForAppSetChildren(ctx, kubeconfig, "01-platform-infra", 5*time.Minute); err != nil {
-		return fmt.Errorf("01-platform-infra children not generated: %w", err)
-	}
-
-	// Three-stage gate: operators, CRDs, operator pods
 	fmt.Println("[platform-deploy] Waiting for operators to establish webhooks...")
 	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
 		return fmt.Errorf("operators not ready: %w", err)
@@ -428,15 +416,7 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 		return fmt.Errorf("operator pods not ready: %w", err)
 	}
 
-	// Wait for 02 and 03 children
-	if err := waitForAppSetChildren(ctx, kubeconfig, "02-platform-data", 5*time.Minute); err != nil {
-		return fmt.Errorf("02-platform-data children not generated: %w", err)
-	}
-	if err := waitForAppSetChildren(ctx, kubeconfig, "03-platform-services", 5*time.Minute); err != nil {
-		return fmt.Errorf("03-platform-services children not generated: %w", err)
-	}
-
-	fmt.Println("[platform-deploy] ✓ All boundary ApplicationSets deployed and children generated")
+	fmt.Println("[platform-deploy] ✓ All platform components deployed")
 	return nil
 }
 
@@ -569,36 +549,6 @@ func (o *Orchestrator) checkKindClusterExists() error {
 // ──────────────────────────────────────────────────────────────────────────
 // Shared kubectl / git helpers
 // ──────────────────────────────────────────────────────────────────────────
-
-func waitForAppSetChildren(ctx context.Context, kubeconfig, appSetName string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for child Applications of %s", appSetName)
-			}
-			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-				"get", "applications", "-n", "platform-ops",
-				"-l", "argocd.argoproj.io/instance="+appSetName,
-				"-o", "jsonpath={.items[?(@.status.health.status!='')].metadata.name}",
-			)
-			out, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-			if len(strings.TrimSpace(string(out))) > 0 {
-				fmt.Printf("[platform-deploy] ✓ Child Applications for %s are being generated\n", appSetName)
-				return nil
-			}
-		}
-	}
-}
 
 func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
 	deadline := time.Now().Add(10 * time.Minute)

@@ -9,44 +9,455 @@ spec:
   syncPolicy:
     preserveResourcesOnDeletion: false
   generators:
-    - matrix:
-        generators:
-          - list:
-              elements:
-                - envRevision: "{{ .Values.environmentRevision }}"
-          - git:
-              repoURL: https://github.com/soloz-io/zero-ops.git
-              revision: "{{ .Values.environmentRevision }}"
-              files:
-                - path: "manifests/argocd/boundaries/03-platform-services/*.yaml"
+    - list:
+        elements:
+          - appName: 'api-gateway'
+            destinationNamespace: 'platform-controlplane'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/api-gateway'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'cert-operator'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '3'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'operators/cert-operator/config/default'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'clickhouse-operator'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://helm.altinity.com'
+            targetRevision: '0.26.3'
+            path: ''
+            chart: 'altinity-clickhouse-operator'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: 'clickhouse-operator'
+          - appName: 'external-dns'
+            destinationNamespace: 'platform-edge'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://kubernetes-sigs.github.io/external-dns'
+            targetRevision: '1.20.0'
+            path: ''
+            chart: 'external-dns'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'provider:
+  name: webhook
+  webhook:
+    image:
+      repository: docker.io/hetzner/external-dns-hetzner-webhook
+      tag: v0.3.2
+    env:
+      - name: HETZNER_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: hetzner-dns
+            key: api-key
+txtOwnerId: zero-ops-mothership
+domainFilters:
+  - nutgraf.in
+managedRecordTypes:
+  - A
+  - CNAME
+sources:
+  - ingress
+  - service
+'
+            helmReleaseName: ''
+          - appName: 'hcloud-ccm'
+            destinationNamespace: 'kube-system'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://charts.hetzner.cloud'
+            targetRevision: '1.20.0'
+            path: ''
+            chart: 'hcloud-cloud-controller-manager'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'env:
+  HCLOUD_TOKEN:
+    valueFrom:
+      secretKeyRef:
+        name: hetzner
+        key: hcloud
+networking:
+  enabled: false
+'
+            helmReleaseName: ''
+          - appName: 'platform-argocd-fleet-registry-auth'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/argocd-fleet-registry-auth'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-argocd-github-auth'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/argocd-github-auth'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-capi2argo'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/capi2argo'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'hub-environment'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/hub-environment'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-external-dns-secrets'
+            destinationNamespace: 'platform-edge'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: 'main'
+            path: 'manifests/hub-core-services/external-dns'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'grafana-alloy'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: 'main'
+            path: 'manifests/hub-core-services/grafana-alloy'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-identity'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/identity/argocd'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-infisical-prerequisites'
+            destinationNamespace: 'platform-security'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/infisical'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-infisical'
+            destinationNamespace: 'platform-security'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: ''
+            targetRevision: 'HEAD'
+            path: ''
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'hub-operator'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'operators/hub-operator/config/default'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'prometheus-operator'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://prometheus-community.github.io/helm-charts'
+            targetRevision: '82.15.0'
+            path: ''
+            chart: 'kube-prometheus-stack'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'prometheus:
+  enabled: false
+alertmanager:
+  enabled: false
+grafana:
+  enabled: false
+prometheusOperator:
+  enabled: true
+kubeStateMetrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+'
+            helmReleaseName: ''
+          - appName: 'platform-spire'
+            destinationNamespace: 'platform-security'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/spire'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'victoria-metrics-alerts'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/victoriametrics-alerts'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-victoriametrics-infisical'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/victoriametrics'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: 'infisical-integration.yaml'
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'victoriametrics-ingress'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: 'main'
+            path: 'manifests/hub-core-services/victoriametrics'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: 'ingress.yaml'
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'victoria-metrics-operator'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://victoriametrics.github.io/helm-charts'
+            targetRevision: '0.59.3'
+            path: ''
+            chart: 'victoria-metrics-operator'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'victoria-metrics-cluster'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://victoriametrics.github.io/helm-charts'
+            targetRevision: '0.37.0'
+            path: ''
+            chart: 'victoria-metrics-cluster'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: 'vmselect:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+vminsert:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+vmstorage:
+  replicaCount: 1
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+retentionPeriod: 30d
+'
+            helmReleaseName: ''
+          - appName: 'kube-sbt-api'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/kube-sbt-api'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'network-policies'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/identity'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: 'network-policies.yaml'
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'openmeter-secrets'
+            destinationNamespace: 'platform-billing'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/openmeter/secrets'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'openmeter'
+            destinationNamespace: 'platform-billing'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/openmeter'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-spoke-bootstrap-templates'
+            destinationNamespace: 'platform-capi'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: ''
+            path: 'manifests/spoke/spoke-bootstrap'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-spoke-pool-xrds'
+            destinationNamespace: 'default'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/spoke/xrds'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-spoke-pools'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '10'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/spoke/spoke-pools'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-tenant-platform'
+            destinationNamespace: 'default'
+            isPlatformOwned: 'true'
+            syncWave: '5'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/crossplane/tenant-platform'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
   template:
     metadata:
-      name: '{{.appName}}'
+      name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
       annotations:
-        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: default
       source:
-        repoURL: '{{.repoURL}}'
-        targetRevision: '{{ if eq (printf "%v" .isPlatformOwned) "true" }}{{.envRevision}}{{ else }}{{.targetRevision}}{{ end }}'
-        {{ if .path }}path: '{{.path}}'{{ end }}
-        {{ if .chart }}chart: '{{.chart}}'{{ end }}
-        {{ if .helmValues }}
-        helm:
-          releaseName: '{{.helmReleaseName}}'
-          values: |
-            {{.helmValues | nindent 12}}
-        {{ end }}
-        {{ if .directoryRecurse }}
-        directory:
-          recurse: true{{ if .directoryInclude }}
-          include: '{{.directoryInclude}}'{{ end }}{{ if .directoryExclude }}
-          exclude: '{{.directoryExclude}}'{{ end }}
-        {{ end }}
+        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        path: '{{"{{"}} .path {{"}}"}}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{.destinationNamespace}}'
+        namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
       syncPolicy:
         automated:
           prune: true
@@ -54,13 +465,3 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
-      {{ if .retryLimit }}
-        retry:
-          limit: {{.retryLimit}}
-          backoff:
-            duration: {{.retryDuration}}
-            maxDuration: {{.retryMaxDuration}}
-      {{ end }}
-      {{ if .ignoreDifferences }}
-        ignoreDifferences: {{.ignoreDifferences}}
-      {{ end }}

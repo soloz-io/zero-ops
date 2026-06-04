@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "clusterName": "hub",
+  "provider": "docker",
+  "region": "",
+  "bootstrapId": "",
+  "currentPhase": "platform-pre-reqs",
+  "completedPhases": [
+    "bootstrap-create",
+    "day0-infra",
+    "capi-init",
+    "cluster-provision",
+    "pivot-move",
+    "pivot-ready",
+    "cleanup",
+    "clusterclass-deploy",
+    "platform-pre-reqs"
+  ],
+  "bootstrapContext": "kind-hub",
+  "mgmtKubeconfig": "/Users/arun_subramanian/.kube/config",
+  "talosConfig": "",
+  "talosImageId": "",
+  "networkCIDR": "",
+  "timestamp": "0001-01-01T00:00:00Z",
+  "metadata": null
+}
