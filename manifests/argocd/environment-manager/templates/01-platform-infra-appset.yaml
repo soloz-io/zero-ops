@@ -58,7 +58,7 @@ spec:
               configs:
                 cm:
                   # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
-                  url: \"https://argocd.nutgraf.in\"
+                  url: "https://argocd.nutgraf.in"
                   admin.enabled: \"true\"
                   application.instanceLabelKey: argocd.argoproj.io/instance
                   exec.enabled: \"false\"
@@ -275,7 +275,7 @@ spec:
 
               image:
                 repository: ghcr.io/external-secrets/external-secrets
-                tag: \"v2.2.0\"
+                tag: "v2.2.0"
                 pullPolicy: IfNotPresent
 
               resources:
