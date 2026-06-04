@@ -460,11 +460,19 @@ step1_bootstrap_hub() {
     log "Step 1: Bootstrapping Hub Cluster..."
 
     if [[ "$PROVIDER" == "local" ]]; then
-        SPOKEPOOL_NAME="local-dev"
-        log "Step 10: Using local SpokePool: $SPOKEPOOL_NAME"
-        step10_wait_spokepool
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker --keep-bootstrap --debug"
+        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+            --name="${CLUSTER_NAME}" \
+            --provider=docker \
+            --keep-bootstrap \
+            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
-        step10_wait_spokepool
+        export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 --debug"
+        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+            --name="${CLUSTER_NAME}" \
+            --region=fsn1 \
+            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     fi
 
     # Read the result contract produced by the Go bootstrap
@@ -639,18 +647,6 @@ step5_init_secrets() {
     if [[ $attempt -gt $max_attempts ]]; then
         error_exit "Infisical pod did not become ready within expected time"
     fi
-
-    # Now start port-forward for any additional operations if needed
-    log "Starting port-forward for Infisical..."
-    kubectl port-forward -n platform-security svc/platform-infisical-infisical-standalone-infisical 8080:8080 \
-        --kubeconfig="$KUBECONFIG_PATH" &
-    PORT_FORWARD_PID=$!
-
-    # Wait a bit for port-forward to be ready
-    sleep 5
-
-    # Clean up port-forward (not needed for init-secrets but good practice)
-    kill $PORT_FORWARD_PID 2>/dev/null || true
 
     mark_step_completed "init_secrets"
     log "Bootstrap secrets initialization completed"
@@ -993,6 +989,10 @@ main() {
     step9_wait_database
     sleep 10  # Wait between steps
 
+    if [[ "$PROVIDER" == "local" ]]; then
+        SPOKEPOOL_NAME="local-dev"
+        log "Step 10: Using local SpokePool: $SPOKEPOOL_NAME"
+    fi
     step10_wait_spokepool
 
     log "Zero-Ops Hub Bootstrap Process completed successfully!"

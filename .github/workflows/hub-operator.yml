@@ -2,7 +2,7 @@ name: hub-operator
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/**]
     paths:
       - operators/hub-operator/**
 
