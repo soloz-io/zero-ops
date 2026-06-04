@@ -21,16 +21,16 @@ spec:
             chart: 'cert-manager-webhook-hetzner'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'secretName:
-  - hetzner-dns
-resources:
-  requests:
-    cpu: 5m
-    memory: 16Mi
-  limits:
-    cpu: 50m
-    memory: 64Mi
-'
+            helmValues: |
+              secretName:
+                - hetzner-dns
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 64Mi
             helmReleaseName: ''
           - appName: 'platform-appproject-infrastructure'
             destinationNamespace: 'platform-ops'
@@ -54,112 +54,112 @@ resources:
             chart: 'argo-cd'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'configs:
-  cm:
-    # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
-    url: \"https://argocd.nutgraf.in\"
-    admin.enabled: \"true\"
-    application.instanceLabelKey: argocd.argoproj.io/instance
-    exec.enabled: \"false\"
-    server.rbac.log.enforce.enable: \"false\"
-    timeout.hard.reconciliation: \"0s\"
-    timeout.reconciliation: \"60s\"
-    
-    # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
-    # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
-    # Used by: OpenMeter deployment (manifests/hub-core-services/openmeter/kustomization.yaml)
-    # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
-    kustomize.buildOptions: --enable-helm
-    
-    # CNPG Cluster health check
-    resource.customizations.health.postgresql.cnpg.io_Cluster: |
-      hs = {}
-      if obj.status ~= nil and obj.status.phase ~= nil then
-        if obj.status.phase == \"Cluster in healthy state\" then
-          hs.status = \"Healthy\"
-          hs.message = obj.status.phase
-          return hs
-        end
-      end
-      hs.status = \"Progressing\"
-      hs.message = \"Waiting for cluster to be healthy\"
-      return hs
+            helmValues: |
+              configs:
+                cm:
+                  # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
+                  url: \"https://argocd.nutgraf.in\"
+                  admin.enabled: \"true\"
+                  application.instanceLabelKey: argocd.argoproj.io/instance
+                  exec.enabled: \"false\"
+                  server.rbac.log.enforce.enable: \"false\"
+                  timeout.hard.reconciliation: \"0s\"
+                  timeout.reconciliation: \"60s\"
 
-    # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
-    # Cilium copies argocd.argoproj.io/instance labels from pods onto CiliumIdentity
-    # objects it creates. ArgoCD then treats them as orphaned managed resources and
-    # marks the owning app as OutOfSync. Excluding them globally prevents this.
-    resource.exclusions: |
-      - apiGroups:
-          - cilium.io
-        kinds:
-          - CiliumIdentity
-        clusters:
-          - ''*''
-    # Ensures ArgoCD waits for the Provider CRD to be fully registered before
-    # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
-    resource.customizations.health.pkg.crossplane.io_Provider: |
-      hs = {}
-      if obj.status ~= nil then
-        if obj.status.conditions ~= nil then
-          for i, condition in ipairs(obj.status.conditions) do
-            if condition.type == \"Healthy\" and condition.status == \"True\" then
-              hs.status = \"Healthy\"
-              hs.message = condition.message
-              return hs
-            end
-            if condition.type == \"Healthy\" and condition.status == \"False\" then
-              hs.status = \"Degraded\"
-              hs.message = condition.message
-              return hs
-            end
-          end
-        end
-      end
-      hs.status = \"Progressing\"
-      hs.message = \"Waiting for Crossplane provider to be installed and healthy\"
-      return hs
+                  # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
+                  # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
+                  # Used by: OpenMeter deployment (manifests/hub-core-services/openmeter/kustomization.yaml)
+                  # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
+                  kustomize.buildOptions: --enable-helm
 
-    # CROSSPLANE Function health check
-    # Ensures ArgoCD waits for the Function CRD to be fully registered before
-    # advancing to dependent waves, preventing the FunctionRevision-not-found race condition.
-    resource.customizations.health.pkg.crossplane.io_Function: |
-      hs = {}
-      if obj.status ~= nil then
-        if obj.status.conditions ~= nil then
-          for i, condition in ipairs(obj.status.conditions) do
-            if condition.type == \"Healthy\" and condition.status == \"True\" then
-              hs.status = \"Healthy\"
-              hs.message = condition.message
-              return hs
-            end
-            if condition.type == \"Healthy\" and condition.status == \"False\" then
-              hs.status = \"Degraded\"
-              hs.message = condition.message
-              return hs
-            end
-          end
-        end
-      end
-      hs.status = \"Progressing\"
-      hs.message = \"Waiting for Crossplane function to be installed and healthy\"
-      return hs
+                  # CNPG Cluster health check
+                  resource.customizations.health.postgresql.cnpg.io_Cluster: |
+                    hs = {}
+                    if obj.status ~= nil and obj.status.phase ~= nil then
+                      if obj.status.phase == \"Cluster in healthy state\" then
+                        hs.status = \"Healthy\"
+                        hs.message = obj.status.phase
+                        return hs
+                      end
+                    end
+                    hs.status = \"Progressing\"
+                    hs.message = \"Waiting for cluster to be healthy\"
+                    return hs
 
-# Expose argocd-server via NGINX Ingress for Web UI and CLI access
-server:
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-      nginx.ingress.kubernetes.io/ssl-redirect: \"true\"
-      nginx.ingress.kubernetes.io/backend-protocol: \"HTTPS\"
-    hostname: argocd.nutgraf.in
-    tls:
-      - hosts:
-          - argocd.nutgraf.in
-        secretName: argocd-server-tls
-'
+                  # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
+                  # Cilium copies argocd.argoproj.io/instance labels from pods onto CiliumIdentity
+                  # objects it creates. ArgoCD then treats them as orphaned managed resources and
+                  # marks the owning app as OutOfSync. Excluding them globally prevents this.
+                  resource.exclusions: |
+                    - apiGroups:
+                        - cilium.io
+                      kinds:
+                        - CiliumIdentity
+                      clusters:
+                        - ''*''
+                  # Ensures ArgoCD waits for the Provider CRD to be fully registered before
+                  # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
+                  resource.customizations.health.pkg.crossplane.io_Provider: |
+                    hs = {}
+                    if obj.status ~= nil then
+                      if obj.status.conditions ~= nil then
+                        for i, condition in ipairs(obj.status.conditions) do
+                          if condition.type == \"Healthy\" and condition.status == \"True\" then
+                            hs.status = \"Healthy\"
+                            hs.message = condition.message
+                            return hs
+                          end
+                          if condition.type == \"Healthy\" and condition.status == \"False\" then
+                            hs.status = \"Degraded\"
+                            hs.message = condition.message
+                            return hs
+                          end
+                        end
+                      end
+                    end
+                    hs.status = \"Progressing\"
+                    hs.message = \"Waiting for Crossplane provider to be installed and healthy\"
+                    return hs
+
+                  # CROSSPLANE Function health check
+                  # Ensures ArgoCD waits for the Function CRD to be fully registered before
+                  # advancing to dependent waves, preventing the FunctionRevision-not-found race condition.
+                  resource.customizations.health.pkg.crossplane.io_Function: |
+                    hs = {}
+                    if obj.status ~= nil then
+                      if obj.status.conditions ~= nil then
+                        for i, condition in ipairs(obj.status.conditions) do
+                          if condition.type == \"Healthy\" and condition.status == \"True\" then
+                            hs.status = \"Healthy\"
+                            hs.message = condition.message
+                            return hs
+                          end
+                          if condition.type == \"Healthy\" and condition.status == \"False\" then
+                            hs.status = \"Degraded\"
+                            hs.message = condition.message
+                            return hs
+                          end
+                        end
+                      end
+                    end
+                    hs.status = \"Progressing\"
+                    hs.message = \"Waiting for Crossplane function to be installed and healthy\"
+                    return hs
+
+              # Expose argocd-server via NGINX Ingress for Web UI and CLI access
+              server:
+                ingress:
+                  enabled: true
+                  ingressClassName: nginx
+                  annotations:
+                    cert-manager.io/cluster-issuer: letsencrypt-prod
+                    nginx.ingress.kubernetes.io/ssl-redirect: \"true\"
+                    nginx.ingress.kubernetes.io/backend-protocol: \"HTTPS\"
+                  hostname: argocd.nutgraf.in
+                  tls:
+                    - hosts:
+                        - argocd.nutgraf.in
+                      secretName: argocd-server-tls
             helmReleaseName: 'argocd'
           - appName: 'platform-atlas-operator'
             destinationNamespace: 'platform-ops'
@@ -231,9 +231,9 @@ server:
             chart: 'crossplane'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'webhooks:
-  enabled: true
-'
+            helmValues: |
+              webhooks:
+                enabled: true
             helmReleaseName: 'crossplane'
           - appName: 'platform-external-secrets-crds'
             destinationNamespace: 'platform-ops'
@@ -257,52 +257,52 @@ server:
             chart: 'external-secrets'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'installCRDs: false
+            helmValues: |
+              installCRDs: false
 
-crds:
-  createClusterExternalSecret: true
-  createClusterSecretStore: true
-  createSecretStore: true
-  createClusterGenerator: true
-  createClusterPushSecret: true
-  createPushSecret: true
+              crds:
+                createClusterExternalSecret: true
+                createClusterSecretStore: true
+                createSecretStore: true
+                createClusterGenerator: true
+                createClusterPushSecret: true
+                createPushSecret: true
 
-replicaCount: 1
+              replicaCount: 1
 
-processClusterPushSecret: true
-processPushSecret: true
+              processClusterPushSecret: true
+              processPushSecret: true
 
-image:
-  repository: ghcr.io/external-secrets/external-secrets
-  tag: \"v2.2.0\"
-  pullPolicy: IfNotPresent
+              image:
+                repository: ghcr.io/external-secrets/external-secrets
+                tag: \"v2.2.0\"
+                pullPolicy: IfNotPresent
 
-resources:
-  requests:
-    cpu: 10m
-    memory: 64Mi
-  limits:
-    memory: 128Mi
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
 
-processClusterExternalSecret: true
-processClusterStore: true
-processSecretStore: true
+              processClusterExternalSecret: true
+              processClusterStore: true
+              processSecretStore: true
 
-metrics:
-  service:
-    enabled: true
-    port: 8080
+              metrics:
+                service:
+                  enabled: true
+                  port: 8080
 
-serviceMonitor:
-  enabled: true
-  interval: 30s
+              serviceMonitor:
+                enabled: true
+                interval: 30s
 
-securityContext:
-  enabled: true
-  runAsNonRoot: true
-  runAsUser: 1000
-  readOnlyRootFilesystem: true
-'
+              securityContext:
+                enabled: true
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
             helmReleaseName: ''
           - appName: 'platform-kyverno'
             destinationNamespace: 'platform-ops'
@@ -314,72 +314,72 @@ securityContext:
             chart: 'kyverno'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: '# Kyverno configuration for hub cluster
-replicaCount: 3
+            helmValues: |
+              # Kyverno configuration for hub cluster
+              replicaCount: 3
 
-# Resource limits
-resources:
-  limits:
-    memory: 512Mi
-  requests:
-    cpu: 100m
-    memory: 256Mi
+              # Resource limits
+              resources:
+                limits:
+                  memory: 512Mi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
 
-# Enable background controller for generate policies
-backgroundController:
-  enabled: true
-  replicas: 1
-  resources:
-    limits:
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
+              # Enable background controller for generate policies
+              backgroundController:
+                enabled: true
+                replicas: 1
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
 
-# Enable cleanup controller
-cleanupController:
-  enabled: true
-  resources:
-    limits:
-      memory: 256Mi
-    requests:
-      cpu: 50m
-      memory: 128Mi
+              # Enable cleanup controller
+              cleanupController:
+                enabled: true
+                resources:
+                  limits:
+                    memory: 256Mi
+                  requests:
+                    cpu: 50m
+                    memory: 128Mi
 
-# Enable reports controller
-reportsController:
-  enabled: true
-  resources:
-    limits:
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
+              # Enable reports controller
+              reportsController:
+                enabled: true
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
 
-# Admission controller configuration
-admissionController:
-  replicas: 2
-  resources:
-    limits:
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
+              # Admission controller configuration
+              admissionController:
+                replicas: 2
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
 
-# Enable metrics
-metricsService:
-  create: true
-  type: ClusterIP
-  port: 8000
+              # Enable metrics
+              metricsService:
+                create: true
+                type: ClusterIP
+                port: 8000
 
-# Webhook configuration
-webhooksCleanup:
-  enabled: true
+              # Webhook configuration
+              webhooksCleanup:
+                enabled: true
 
-# CRDs
-crds:
-  install: true
-'
+              # CRDs
+              crds:
+                install: true
             helmReleaseName: 'kyverno'
           - appName: 'platform-capi-resources'
             destinationNamespace: 'platform-capi'
@@ -427,20 +427,20 @@ crds:
             chart: 'ingress-nginx'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'tcp:
-  8443: \"platform-ops/argocd-agent-principal:443\"
-  7422: \"platform-messaging/nats:7422\"
-controller:
-  admissionWebhooks:
-    enabled: false
-  service:
-    type: LoadBalancer
-    annotations:
-      load-balancer.hetzner.cloud/location: fsn1
-      external-dns.alpha.kubernetes.io/hostname: \"argocd-principal.nutgraf.in\"
-  extraArgs:
-    enable-ssl-passthrough: \"true\"
-'
+            helmValues: |
+              tcp:
+                8443: \"platform-ops/argocd-agent-principal:443\"
+                7422: \"platform-messaging/nats:7422\"
+              controller:
+                admissionWebhooks:
+                  enabled: false
+                service:
+                  type: LoadBalancer
+                  annotations:
+                    load-balancer.hetzner.cloud/location: fsn1
+                    external-dns.alpha.kubernetes.io/hostname: \"argocd-principal.nutgraf.in\"
+                extraArgs:
+                  enable-ssl-passthrough: \"true\"
             helmReleaseName: ''
   template:
     metadata:

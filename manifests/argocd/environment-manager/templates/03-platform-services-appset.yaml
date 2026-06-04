@@ -57,28 +57,28 @@ spec:
             chart: 'external-dns'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'provider:
-  name: webhook
-  webhook:
-    image:
-      repository: docker.io/hetzner/external-dns-hetzner-webhook
-      tag: v0.3.2
-    env:
-      - name: HETZNER_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: hetzner-dns
-            key: api-key
-txtOwnerId: zero-ops-mothership
-domainFilters:
-  - nutgraf.in
-managedRecordTypes:
-  - A
-  - CNAME
-sources:
-  - ingress
-  - service
-'
+            helmValues: |
+              provider:
+                name: webhook
+                webhook:
+                  image:
+                    repository: docker.io/hetzner/external-dns-hetzner-webhook
+                    tag: v0.3.2
+                  env:
+                    - name: HETZNER_TOKEN
+                      valueFrom:
+                        secretKeyRef:
+                          name: hetzner-dns
+                          key: api-key
+              txtOwnerId: zero-ops-mothership
+              domainFilters:
+                - nutgraf.in
+              managedRecordTypes:
+                - A
+                - CNAME
+              sources:
+                - ingress
+                - service
             helmReleaseName: ''
           - appName: 'hcloud-ccm'
             destinationNamespace: 'kube-system'
@@ -90,15 +90,15 @@ sources:
             chart: 'hcloud-cloud-controller-manager'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'env:
-  HCLOUD_TOKEN:
-    valueFrom:
-      secretKeyRef:
-        name: hetzner
-        key: hcloud
-networking:
-  enabled: false
-'
+            helmValues: |
+              env:
+                HCLOUD_TOKEN:
+                  valueFrom:
+                    secretKeyRef:
+                      name: hetzner
+                      key: hcloud
+              networking:
+                enabled: false
             helmReleaseName: ''
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
@@ -219,19 +219,19 @@ networking:
             chart: 'kube-prometheus-stack'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'prometheus:
-  enabled: false
-alertmanager:
-  enabled: false
-grafana:
-  enabled: false
-prometheusOperator:
-  enabled: true
-kubeStateMetrics:
-  enabled: false
-nodeExporter:
-  enabled: false
-'
+            helmValues: |
+              prometheus:
+                enabled: false
+              alertmanager:
+                enabled: false
+              grafana:
+                enabled: false
+              prometheusOperator:
+                enabled: true
+              kubeStateMetrics:
+                enabled: false
+              nodeExporter:
+                enabled: false
             helmReleaseName: ''
           - appName: 'platform-spire'
             destinationNamespace: 'platform-security'
@@ -303,38 +303,38 @@ nodeExporter:
             chart: 'victoria-metrics-cluster'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: 'vmselect:
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-vminsert:
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-vmstorage:
-  replicaCount: 1
-  persistentVolume:
-    enabled: true
-    size: 50Gi
-  resources:
-    requests:
-      cpu: 500m
-      memory: 512Mi
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-retentionPeriod: 30d
-'
+            helmValues: |
+              vmselect:
+                replicaCount: 1
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 256Mi
+                  limits:
+                    cpu: 1000m
+                    memory: 2Gi
+              vminsert:
+                replicaCount: 1
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 256Mi
+                  limits:
+                    cpu: 1000m
+                    memory: 2Gi
+              vmstorage:
+                replicaCount: 1
+                persistentVolume:
+                  enabled: true
+                  size: 50Gi
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 512Mi
+                  limits:
+                    cpu: 2000m
+                    memory: 4Gi
+              retentionPeriod: 30d
             helmReleaseName: ''
           - appName: 'kube-sbt-api'
             destinationNamespace: 'platform-ops'
