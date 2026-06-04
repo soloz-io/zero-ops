@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: 03-platform-services-multi
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - list:
+        elements:
+          - appName: 'platform-infisical'
+            destinationNamespace: 'platform-security'
+            syncWave: ''
+            repoURL: 'https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/'
+            targetRevision: '1.7.5'
+            chart: 'infisical-standalone'
+            valueFilesPath: 'manifests/hub-core-services/infisical/values.yaml'
+            helmReleaseName: 'infisical-standalone'
+  template:
+    metadata:
+      name: '{{"{{"}} .appName {{"}}"}}'
+      namespace: platform-ops
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
+    spec:
+      project: default
+      sources:
+        - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+          chart: '{{"{{"}} .chart {{"}}"}}'
+          targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'
+          helm:
+            releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+            valueFiles:
+              - $values/{{"{{"}} .valueFilesPath {{"}}"}}
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
