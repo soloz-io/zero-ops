@@ -1,6 +1,7 @@
 - Keelings pattern
 - Dont add any assumptions.
-- Dont add any alternatives considered.
+- Add any alternatives only if considered and you were part of the discussion. Do not assume.
+- Impact section highlighting changes that this adr brings to existing platform
 - No config or code
 - Focus only the final decision.
 - Keep it to the point 

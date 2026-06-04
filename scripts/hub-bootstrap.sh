@@ -639,7 +639,7 @@ step5_init_secrets() {
             break
         fi
 
-        log "Waiting for Infisical pod to be ready (attempt $attempt/$max_attempts, ready: $pod_ready)"
+        log "Waiting for Infisical pod to be ready (attempt $attempt/$max_attempts, ready: $pod_ready). It mostly get ready by 50"
         sleep 10
         ((attempt++))
     done
@@ -754,7 +754,7 @@ step10_wait_spokepool() {
             break
         fi
 
-        log "Waiting for SpokePool readiness (attempt $attempt/$max_attempts, Ready: $spokepool_status, Synced: $spokepool_synced)"
+        log "Waiting for SpokePool readiness (attempt $attempt/$max_attempts, Ready: $spokepool_status, Synced: $spokepool_synced). It mostly get ready by 130"
         sleep 10
         ((attempt++))
     done
