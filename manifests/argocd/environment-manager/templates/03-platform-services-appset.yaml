@@ -461,7 +461,7 @@ retentionPeriod: 30d
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'
           valueFiles:
-            - '{{"{{"}} if .remoteValuesUrl {{"}}"}}{{"{{"}} .remoteValuesUrl {{"}}"}}{{"{{"}} end {{"}}"}}'
+            - '{{"{{"}} .remoteValuesUrl {{"}}"}}'
 
       destination:
         server: https://kubernetes.default.svc
