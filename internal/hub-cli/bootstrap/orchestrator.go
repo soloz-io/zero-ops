@@ -551,7 +551,7 @@ func (o *Orchestrator) checkKindClusterExists() error {
 // ──────────────────────────────────────────────────────────────────────────
 
 func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(20 * time.Minute)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
