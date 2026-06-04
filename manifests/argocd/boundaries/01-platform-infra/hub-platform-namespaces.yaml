@@ -1,0 +1,11 @@
+appName: platform-namespaces
+destinationNamespace: platform-ops
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/platform-namespaces
+syncWave: '-2'
+syncOptions:
+- ServerSideApply=true
+retryLimit: 5
+retryDuration: 5s
+retryMaxDuration: 3m

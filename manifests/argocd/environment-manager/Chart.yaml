@@ -1,0 +1,4 @@
+apiVersion: v2
+name: environment-manager
+description: Orchestrates boundary ApplicationSets for environment lifecycle management
+version: 1.0.0

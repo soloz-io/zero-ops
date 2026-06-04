@@ -1,0 +1,9 @@
+appName: platform-crossplane-providers
+destinationNamespace: platform-ops
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/crossplane/providers
+syncWave: '3'
+retryLimit: 5
+retryDuration: 5s
+retryMaxDuration: 3m

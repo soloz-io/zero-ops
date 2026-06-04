@@ -1,0 +1,12 @@
+appName: cert-operator
+destinationNamespace: platform-ops
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: operators/cert-operator/config/default
+syncWave: '3'
+syncOptions:
+- CreateNamespace=true
+- ServerSideApply=true
+retryLimit: 15
+retryDuration: 30s
+retryMaxDuration: 10m

@@ -1,0 +1,12 @@
+appName: platform-infisical-prerequisites
+destinationNamespace: platform-security
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/infisical
+directoryRecurse: true
+directoryExclude: '*.md'
+syncOptions:
+- CreateNamespace=true
+retryLimit: 15
+retryDuration: 30s
+retryMaxDuration: 10m

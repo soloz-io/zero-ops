@@ -1,0 +1,9 @@
+appName: network-policies
+destinationNamespace: platform-ops
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/identity
+directoryRecurse: false
+directoryInclude: network-policies.yaml
+syncOptions:
+- ServerSideApply=true

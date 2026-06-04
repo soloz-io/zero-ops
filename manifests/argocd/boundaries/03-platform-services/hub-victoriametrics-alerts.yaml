@@ -1,0 +1,10 @@
+appName: victoria-metrics-alerts
+destinationNamespace: platform-observability
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/victoriametrics-alerts
+syncOptions:
+- CreateNamespace=true
+retryLimit: 5
+retryDuration: 5s
+retryMaxDuration: 3m

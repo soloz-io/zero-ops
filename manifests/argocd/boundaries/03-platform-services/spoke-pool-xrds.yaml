@@ -1,0 +1,8 @@
+appName: platform-spoke-pool-xrds
+destinationNamespace: default
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/spoke/xrds
+syncWave: '1'
+syncOptions:
+- CreateNamespace=true

@@ -1,0 +1,24 @@
+appName: ingress-nginx
+destinationNamespace: platform-edge
+isPlatformOwned: false
+targetRevision: 4.15.0
+repoURL: https://kubernetes.github.io/ingress-nginx
+chart: ingress-nginx
+helmValues: "tcp:\n  8443: \"platform-ops/argocd-agent-principal:443\"\n  7422: \"\
+  platform-messaging/nats:7422\"\ncontroller:\n  admissionWebhooks:\n    enabled:\
+  \ false\n  service:\n    type: LoadBalancer\n    annotations:\n      load-balancer.hetzner.cloud/location:\
+  \ fsn1\n      external-dns.alpha.kubernetes.io/hostname: \"argocd-principal.nutgraf.in\"\
+  \n  extraArgs:\n    enable-ssl-passthrough: \"true\"\n"
+syncWave: '1'
+syncOptions:
+- CreateNamespace=true
+- ServerSideApply=true
+- RespectIgnoreDifferences=true
+retryLimit: 15
+retryDuration: 30s
+retryMaxDuration: 10m
+ignoreDifferences:
+- group: ''
+  kind: Service
+  jsonPointers:
+  - /status

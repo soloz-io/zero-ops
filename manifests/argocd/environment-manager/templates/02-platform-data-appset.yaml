@@ -1,0 +1,66 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: 02-platform-data
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - envRevision: "{{ .Values.environmentRevision }}"
+          - git:
+              repoURL: https://github.com/soloz-io/zero-ops.git
+              revision: "{{ .Values.environmentRevision }}"
+              files:
+                - path: "manifests/argocd/boundaries/02-platform-data/*.yaml"
+  template:
+    metadata:
+      name: '{{.appName}}'
+      namespace: platform-ops
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+    spec:
+      project: default
+      source:
+        repoURL: '{{.repoURL}}'
+        targetRevision: '{{ if eq (printf "%v" .isPlatformOwned) "true" }}{{.envRevision}}{{ else }}{{.targetRevision}}{{ end }}'
+        {{ if .path }}path: '{{.path}}'{{ end }}
+        {{ if .chart }}chart: '{{.chart}}'{{ end }}
+        {{ if .helmValues }}
+        helm:
+          releaseName: '{{.helmReleaseName}}'
+          values: |
+            {{.helmValues | nindent 12}}
+        {{ end }}
+        {{ if .directoryRecurse }}
+        directory:
+          recurse: true{{ if .directoryInclude }}
+          include: '{{.directoryInclude}}'{{ end }}{{ if .directoryExclude }}
+          exclude: '{{.directoryExclude}}'{{ end }}
+        {{ end }}
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{.destinationNamespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+      {{ if .retryLimit }}
+        retry:
+          limit: {{.retryLimit}}
+          backoff:
+            duration: {{.retryDuration}}
+            maxDuration: {{.retryMaxDuration}}
+      {{ end }}
+      {{ if .ignoreDifferences }}
+        ignoreDifferences: {{.ignoreDifferences}}
+      {{ end }}

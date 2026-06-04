@@ -1,0 +1,18 @@
+appName: openmeter
+destinationNamespace: platform-billing
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops.git
+path: manifests/hub-core-services/openmeter
+syncOptions:
+- CreateNamespace=true
+- ServerSideApply=true
+retryLimit: 15
+retryDuration: 30s
+retryMaxDuration: 10m
+ignoreDifferences:
+- group: ''
+  kind: Secret
+  name: openmeter-kafka-kraft-cluster-id
+  namespace: platform-billing
+  jsonPointers:
+  - /data

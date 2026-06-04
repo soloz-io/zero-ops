@@ -1,0 +1,7 @@
+appName: platform-nats
+destinationNamespace: platform-messaging
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/nats
+syncOptions:
+- CreateNamespace=true

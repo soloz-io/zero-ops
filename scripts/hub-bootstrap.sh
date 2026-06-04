@@ -460,6 +460,14 @@ step1_bootstrap_hub() {
     log "Step 1: Bootstrapping Hub Cluster..."
 
     if [[ "$PROVIDER" == "local" ]]; then
+        # Push current branch to remote so ArgoCD's Git generator can read boundary configs
+        local current_branch
+        current_branch=$(cd "$ZERO_OPS_DIR" && git rev-parse --abbrev-ref HEAD)
+        if [[ "$current_branch" != "main" ]]; then
+            log "Pushing current branch '$current_branch' to remote for ArgoCD reconciliation..."
+            (cd "$ZERO_OPS_DIR" && git push origin "$current_branch" 2>&1) || \
+                log "WARNING: git push failed — ArgoCD may not be able to read configs from remote"
+        fi
         log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker --keep-bootstrap --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \

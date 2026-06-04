@@ -1,0 +1,24 @@
+appName: platform-spoke-bootstrap-templates
+destinationNamespace: platform-capi
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops.git
+path: manifests/spoke/spoke-bootstrap
+directoryRecurse: true
+syncWave: '1'
+syncOptions:
+- CreateNamespace=true
+- PrunePropagationPolicy=foreground
+- PruneLast=true
+- ServerSideApply=true
+retryLimit: 5
+retryDuration: 5s
+retryMaxDuration: 3m
+ignoreDifferences:
+- group: ''
+  kind: Secret
+  jsonPointers:
+  - /metadata/creationTimestamp
+- group: ''
+  kind: ConfigMap
+  jsonPointers:
+  - /metadata/creationTimestamp

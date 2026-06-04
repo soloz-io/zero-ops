@@ -1,0 +1,16 @@
+appName: platform-clickhouse
+destinationNamespace: platform-data
+isPlatformOwned: true
+repoURL: https://github.com/soloz-io/zero-ops
+path: manifests/hub-core-services/clickhouse
+directoryRecurse: true
+syncOptions:
+- CreateNamespace=true
+retryLimit: 15
+retryDuration: 30s
+retryMaxDuration: 10m
+ignoreDifferences:
+- group: cilium.io
+  kind: CiliumIdentity
+  jsonPointers:
+  - /security-labels
