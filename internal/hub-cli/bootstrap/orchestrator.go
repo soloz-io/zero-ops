@@ -369,6 +369,12 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) error {
+	// Fast check: if all operator webhooks are present, the entire phase is done
+	if o.allOperatorsReady(ctx, kubeconfig) {
+		fmt.Println("[platform-deploy] ✓ All operators already deployed, skipping")
+		return nil
+	}
+
 	ci := &components.Installer{Kubeconfig: kubeconfig}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
@@ -549,6 +555,47 @@ func (o *Orchestrator) checkKindClusterExists() error {
 // ──────────────────────────────────────────────────────────────────────────
 // Shared kubectl / git helpers
 // ──────────────────────────────────────────────────────────────────────────
+
+// allOperatorsReady is a one-shot check that returns true if all operator
+// webhooks are already registered. Used by deployPlatform to skip the
+// entire phase on re-run if the cluster is already fully deployed.
+func (o *Orchestrator) allOperatorsReady(ctx context.Context, kubeconfig string) bool {
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "validatingwebhookconfigurations", "-o", "name")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	hasCAPI, hasCertManager, hasCNPG, hasExternalSecret := false, false, false, false
+	for _, line := range lines {
+		if strings.Contains(line, "capi") {
+			hasCAPI = true
+		}
+		if strings.Contains(line, "cert-manager") {
+			hasCertManager = true
+		}
+		if strings.Contains(line, "cnpg") {
+			hasCNPG = true
+		}
+		if strings.Contains(line, "externalsecret") || strings.Contains(line, "secretstore") {
+			hasExternalSecret = true
+		}
+	}
+	for _, p := range o.Provider.OperatorWebhookPatterns() {
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, p) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return hasCAPI && hasCertManager && hasCNPG && hasExternalSecret
+}
 
 func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
 	deadline := time.Now().Add(20 * time.Minute)
