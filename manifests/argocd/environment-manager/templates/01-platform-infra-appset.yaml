@@ -470,8 +470,6 @@ controller:
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'
-          valueFiles:
-            - '{{"{{"}} .remoteValuesUrl {{"}}"}}'
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
