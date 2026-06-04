@@ -132,7 +132,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapContext:  bootstrapCtx,
 		Debug:             o.Debug,
 	}
-	var mgmtKubeconfig string
+	mgmtKubeconfig := bs.MgmtKubeconfig
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotMove, "pivot-move",
 		"",
 		func() error {
@@ -144,7 +144,9 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	); err != nil {
 		return err
 	}
-	bs.MgmtKubeconfig = mgmtKubeconfig
+	if mgmtKubeconfig != "" {
+		bs.MgmtKubeconfig = mgmtKubeconfig
+	}
 
 	// ── Phase 7: Pivot ready ──────────────────────────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotReady, "pivot-ready",
