@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: helm-lint-environment-manager
+        name: Helm Lint Environment Manager
+        entry: helm lint manifests/argocd/environment-manager/
+        language: system
+        files: 'manifests/argocd/environment-manager/.*'
+      - id: schema-validate-environment-manager
+        name: Kubernetes Schema Validation
+        entry: bash -c "helm template environment-manager manifests/argocd/environment-manager/ --set environmentRevision=dry-run | kubeconform -summary -ignore-missing-schemas"
+        language: system
+        files: 'manifests/argocd/environment-manager/.*'
