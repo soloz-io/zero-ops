@@ -96,7 +96,7 @@ spec:
                       kinds:
                         - CiliumIdentity
                       clusters:
-                        - ''*''
+                        - '*'
                   # Ensures ArgoCD waits for the Provider CRD to be fully registered before
                   # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
                   resource.customizations.health.pkg.crossplane.io_Provider: |
