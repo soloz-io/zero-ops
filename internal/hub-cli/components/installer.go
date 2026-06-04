@@ -169,6 +169,16 @@ func (i *Installer) GetArgoCDPassword(ctx context.Context) (string, error) {
 
 // InstallArgoCD installs ArgoCD via Helm
 func (i *Installer) InstallArgoCD(ctx context.Context) error {
+	// Check if ArgoCD is already deployed and running
+	checkCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", i.Kubeconfig,
+		"get", "deployment", "argocd-server",
+		"--namespace", constants.NamespaceOps,
+	)
+	if err := checkCmd.Run(); err == nil {
+		fmt.Println("[postboot] ✓ argocd already installed")
+		return nil
+	}
+
 	fmt.Println("[postboot] Installing argocd...")
 	
 	// Add ArgoCD Helm repo
