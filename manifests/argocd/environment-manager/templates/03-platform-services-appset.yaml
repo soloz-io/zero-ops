@@ -200,14 +200,15 @@ networking:
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'false'
             syncWave: ''
-            repoURL: ''
-            targetRevision: 'HEAD'
+            repoURL: 'https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/'
+            targetRevision: '1.7.5'
             path: ''
-            chart: ''
+            chart: 'infisical-standalone'
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
-            helmReleaseName: ''
+            helmReleaseName: 'infisical-standalone'
+            remoteValuesUrl: 'https://raw.githubusercontent.com/soloz-io/zero-ops/{{ .Values.environmentRevision }}/manifests/hub-core-services/infisical/values.yaml'
           - appName: 'hub-operator'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -456,6 +457,12 @@ retentionPeriod: 30d
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+        helm:
+          releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+          values: '{{"{{"}} .helmValues {{"}}"}}'
+          valueFiles:
+            - '{{"{{"}} if .remoteValuesUrl {{"}}"}}{{"{{"}} .remoteValuesUrl {{"}}"}}{{"{{"}} end {{"}}"}}'
+
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'

@@ -467,6 +467,11 @@ controller:
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+        helm:
+          releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+          values: '{{"{{"}} .helmValues {{"}}"}}'
+          valueFiles:
+            - '{{"{{"}} if .remoteValuesUrl {{"}}"}}{{"{{"}} .remoteValuesUrl {{"}}"}}{{"{{"}} end {{"}}"}}'
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'

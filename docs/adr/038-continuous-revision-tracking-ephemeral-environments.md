@@ -20,14 +20,28 @@ These boundaries provide deployment sequencing, operational isolation, and visib
 
 ## Decision
 
-The platform shall implement continuous revision tracking using a hierarchical ApplicationSet architecture.
+The platform shall implement continuous revision tracking using boundary ApplicationSets with a list generator. The `environment-manager` Helm chart renders three ApplicationSets (`01-platform-infra`, `02-platform-data`, `03-platform-services`) into the cluster. Each ApplicationSet contains a list generator with inline elements. The orchestrator calls `helm template --set environmentRevision=<branch>` at bootstrap time and applies the rendered output. ArgoCD's ApplicationSet controller generates child Applications with the revision injected into platform-owned apps.
 
-The deployment hierarchy is:
+The deployment hierarchy varies by environment type:
 
 ```text
-Pull Request Generator
+# Local CAPD (orchestrator-driven)
+Hub CLI (helm template --set)
         ↓
-Environment Application
+Environment Manager Helm Chart
+        ↓
+01-platform-infra ApplicationSet
+02-platform-data ApplicationSet
+03-platform-services ApplicationSet
+        ↓
+Generated Child Applications
+
+# Ephemeral Preview (PR-driven)
+GitHub PR labeled preview-environment
+        ↓
+Pull Request Generator ApplicationSet ({{.head_sha}})
+        ↓
+Environment Manager Helm Chart (environmentRevision={{.head_sha}})
         ↓
 01-platform-infra ApplicationSet
 02-platform-data ApplicationSet
@@ -36,7 +50,7 @@ Environment Application
 Generated Child Applications
 ```
 
-The Pull Request Generator is the authoritative source of environment lifecycle and revision selection.
+Both paths converge at the `environment-manager` Helm chart — the orchestrator calls `helm template` directly for local CAPD, while the PR Generator delegates to the chart for GitHub PRs.
 
 The Environment Application establishes the deployment boundaries and propagates the environment revision into those boundaries.
 
@@ -102,6 +116,7 @@ Operational workflows continue to use the existing boundary structure while gain
 * Operational boundaries remain intact.
 * No environment-specific repository artifacts are required.
 * No bootstrap-time revision mutation is required.
+* Adding a new platform Application requires adding one list element to the appropriate boundary template.
 
 ### Negative
 
