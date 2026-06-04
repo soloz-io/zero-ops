@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-operator-provider-registry
+  labels:
+    app.kubernetes.io/component: provider-registry
+data:
+  hetzner: "spokepool-hetzner"
+  capd: "spokepool-capd"
+  aws: "spokepool-aws"

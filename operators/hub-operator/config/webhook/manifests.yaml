@@ -1,0 +1,50 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: spokepool-mutating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: platform-ops/hub-operator-serving-cert
+webhooks:
+  - name: mspokepool.kb.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    matchPolicy: Equivalent
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: hub-operator-webhook-service
+        namespace: system
+        path: /mutate-nutgraf-in-v1alpha1-spokepool
+        port: 443
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["nutgraf.in"]
+        apiVersions: ["v1alpha1"]
+        resources: ["spokepools"]
+        scope: "Namespaced"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: spokepool-validating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: platform-ops/hub-operator-serving-cert
+webhooks:
+  - name: vspokepool.kb.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    matchPolicy: Equivalent
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: hub-operator-webhook-service
+        namespace: system
+        path: /validate-nutgraf-in-v1alpha1-spokepool
+        port: 443
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["nutgraf.in"]
+        apiVersions: ["v1alpha1"]
+        resources: ["spokepools"]
+        scope: "Namespaced"

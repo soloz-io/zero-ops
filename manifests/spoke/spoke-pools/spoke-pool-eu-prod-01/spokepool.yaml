@@ -9,17 +9,9 @@ metadata:
     environment: production
     region: eu-central
 spec:
-  compositionSelector:
-    matchLabels:
-      provider: hetzner
-      cluster-type: spoke-pool
-  # Hetzner Falkenstein datacenter (best price/performance)
+  provider: hetzner
   region: fsn1
-  
-  # Worker node pool configuration
   nodePool:
     count: 2
-    instanceType: cx33  # 4 vCPU, 16GB RAM
-  
-  # Maximum tenant capacity for this cell
+    instanceType: cx33
   maxTenantCapacity: 100

@@ -460,19 +460,11 @@ step1_bootstrap_hub() {
     log "Step 1: Bootstrapping Hub Cluster..."
 
     if [[ "$PROVIDER" == "local" ]]; then
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker --keep-bootstrap --debug"
-        "$HUB_BINARY" bootstrap \
-            --name="${CLUSTER_NAME}" \
-            --provider=docker \
-            --keep-bootstrap \
-            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log"
+        SPOKEPOOL_NAME="local-dev"
+        log "Step 10: Using local SpokePool: $SPOKEPOOL_NAME"
+        step10_wait_spokepool
     else
-        export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 --debug"
-        "$HUB_BINARY" bootstrap \
-            --name="${CLUSTER_NAME}" \
-            --region=fsn1 \
-            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log"
+        step10_wait_spokepool
     fi
 
     # Read the result contract produced by the Go bootstrap

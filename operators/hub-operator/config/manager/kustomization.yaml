@@ -1,5 +1,6 @@
 resources:
 - manager.yaml
+- provider-registry.yaml
 
 images:
 - digest: sha256:feff42ef5738523237bf11e6bae6c458c4f323041cd3c7754df2ba41cd97293b

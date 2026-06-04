@@ -1,0 +1,16 @@
+---
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: local-dev
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: local
+spec:
+  provider: capd
+  region: local
+  nodePool:
+    count: 1
+    instanceType: capd
+  maxTenantCapacity: 5

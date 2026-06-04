@@ -23,13 +23,22 @@ spec:
               type: object
               additionalProperties: true
               required:
+                - provider
                 - region
                 - nodePool
                 - maxTenantCapacity
               properties:
+                provider:
+                  type: string
+                  minLength: 1
+                  description: >
+                    Infrastructure provider for this spoke cell (e.g., hetzner, capd, aws).
+                    The platform maps this to the internal composition at admission time.
+                    Changing the provider after provisioning requires a full teardown and
+                    re-provision.
                 region:
                   type: string
-                  description: "Cloud provider region or local context (e.g., fsn1, nbg1, hel1, local)"
+                  description: "Provider region (e.g., fsn1, nbg1, hel1) or 'local' for CAPD"
                 nodePool:
                   type: object
                   required:
@@ -43,10 +52,7 @@ spec:
                       maximum: 10
                     instanceType:
                       type: string
-                      description: "Hetzner server type for worker nodes"
-                      enum:
-                        - cx33
-                      default: cx33
+                      description: "Provider-specific machine type for worker nodes"
                 maxTenantCapacity:
                   type: integer
                   description: "Maximum number of tenant schemas this cell can host"
@@ -56,6 +62,12 @@ spec:
             status:
               type: object
               properties:
+                resolvedProvider:
+                  type: string
+                  description: "Platform-resolved provider from spec.provider after validation"
+                resolvedComposition:
+                  type: string
+                  description: "Platform-resolved composition name used for Crossplane provisioning"
                 conditions:
                   type: array
                   x-kubernetes-list-map-keys:
