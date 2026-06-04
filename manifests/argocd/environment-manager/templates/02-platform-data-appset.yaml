@@ -71,6 +71,7 @@ spec:
         repoURL: '{{"{{"}} .repoURL {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
+        chart: '{{"{{"}} .chart {{"}}"}}'
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
