@@ -1,0 +1,37 @@
+extends: default
+
+rules:
+  indentation:
+    spaces: 2
+    indent-sequences: true
+
+  # Block scalars inside helmValues contain Lua code (ArgoCD health checks)
+  # and YAML exemplars (resource.exclusions) with their own indentation rules.
+  # Checking their content produces false positives. The outermost YAML
+  # structure is validated by yq -P normalization. The Lua/YAML content
+  # inside block scalars is validated at Helm render time by argo-cd chart.
+  # check-multi-line-strings: true
+
+  line-length:
+    max: 120
+    level: warning
+
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+    level: warning
+
+  document-start: disable
+
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  comments:
+    min-spaces-from-content: 1
+
+  empty-lines:
+    level: warning

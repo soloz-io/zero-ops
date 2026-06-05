@@ -408,24 +408,24 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		// CORRECT DEPLOYMENT NAME
-		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "platform-infisical-infisical-standalone-infisical", metav1.GetOptions{})
+		// CORRECT STATEFULSET NAME (Helm release name + chart name)
+		sts, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, "infisical-standalone-infisical", metav1.GetOptions{})
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
-				fmt.Println("   Infisical deployment not found yet, waiting...")
+				fmt.Println("   Infisical StatefulSet not found yet, waiting...")
 				time.Sleep(checkInterval)
 				continue
 			}
-			return fmt.Errorf("failed to get infisical deployment: %w", err)
+			return fmt.Errorf("failed to get infisical StatefulSet: %w", err)
 		}
 
-		if deployment.Status.ReadyReplicas > 0 {
+		if sts.Status.ReadyReplicas > 0 {
 			fmt.Println("✓ Infisical is healthy")
 			return nil
 		}
 
 		fmt.Printf("   Infisical not ready yet (%d/%d replicas ready), waiting...\n",
-			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+			sts.Status.ReadyReplicas, sts.Status.Replicas)
 		time.Sleep(checkInterval)
 	}
 
@@ -457,10 +457,10 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 		}
 	}
 
-	// Restart Infisical Deployment (Infisical is in platform-security and uses the long Helm name)
-	if _, err = clientset.AppsV1().Deployments(securityNamespace).Patch(ctx, "platform-infisical-infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+	// Restart Infisical StatefulSet (Infisical is in platform-security, chart creates a StatefulSet)
+	if _, err = clientset.AppsV1().StatefulSets(securityNamespace).Patch(ctx, "infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to restart infisical deployment: %w", err)
+			return fmt.Errorf("failed to restart infisical StatefulSet: %w", err)
 		}
 	}
 

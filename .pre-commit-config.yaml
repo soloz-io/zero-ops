@@ -13,9 +13,10 @@ repos:
         language: system
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
-      - id: helm-template-no-backslash-quote
-        name: Helm Template Backslash-Quote Check
-        entry: scripts/lint-helm-no-backslash-quote.sh
-        language: system
+      - id: helm-lint-values-yaml
+        name: Helm Values YAML Lint
+        entry: scripts/lint-helm-values-yaml.sh
+        language: python
+        additional_dependencies: ['yamllint']
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'

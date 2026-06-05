@@ -34,3 +34,13 @@ jobs:
             fi
             echo "PASS: $env environment builds successfully"
           done
+
+      - name: Install yq and yamllint
+        run: |
+          pip install yamllint
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Validate environment-manager helmValues
+        run: |
+          scripts/lint-helm-values-yaml.sh
