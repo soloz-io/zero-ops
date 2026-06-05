@@ -72,3 +72,1066 @@
 [2026-06-04 15:32:40] Step 1: Bootstrapping Hub Cluster...
 [2026-06-04 15:32:40] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
 [2026-06-04 15:32:43] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 19:46:10] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 19:46:10] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 19:46:10] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 19:46:10] Provider: local
+[2026-06-04 19:46:10] Cluster name: hub
+[2026-06-04 19:46:10] Checking prerequisites...
+[2026-06-04 19:46:10]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 19:46:10]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 19:46:10]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 19:46:10]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 19:46:10]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 19:46:10]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 19:46:11]   ✓ docker daemon running
+[2026-06-04 19:46:11] Building hub binary...
+[2026-06-04 19:46:22]   ✓ hub binary built
+[2026-06-04 19:46:22]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 19:46:23]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 19:46:23] Prerequisites check passed
+[2026-06-04 19:46:23] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-04 19:46:43] ✓ Cluster 'hub' torn down successfully
+[2026-06-04 19:46:43] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-04 19:46:55] ✓ Docker cleanup complete
+[2026-06-04 19:46:55] ✓ Bootstrap state reset for fresh start
+[2026-06-04 19:47:05] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 19:47:05] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 19:47:08] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 20:18:56] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 20:18:56] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 20:18:56] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 20:18:56] Provider: local
+[2026-06-04 20:18:56] Cluster name: hub
+[2026-06-04 20:18:56] Checking prerequisites...
+[2026-06-04 20:18:56]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 20:18:56]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 20:18:56]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 20:18:56]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 20:18:56]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 20:18:56]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 20:18:56]   ✓ docker daemon running
+[2026-06-04 20:18:56] Building hub binary...
+[2026-06-04 20:19:04]   ✓ hub binary built
+[2026-06-04 20:19:04]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 20:19:05]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 20:19:05] Prerequisites check passed
+[2026-06-04 20:19:05] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 20:19:05] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 20:19:07] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 20:20:14] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 20:20:14] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 20:20:14] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 20:20:14] Provider: local
+[2026-06-04 20:20:14] Cluster name: hub
+[2026-06-04 20:20:14] Checking prerequisites...
+[2026-06-04 20:20:14]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 20:20:14]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 20:20:14]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 20:20:14]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 20:20:14]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 20:20:14]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 20:20:15]   ✓ docker daemon running
+[2026-06-04 20:20:15] Building hub binary...
+[2026-06-04 20:20:16]   ✓ hub binary built
+[2026-06-04 20:20:16]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 20:20:16]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 20:20:16] Prerequisites check passed
+[2026-06-04 20:20:16] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-04 20:20:30] ✓ Cluster 'hub' torn down successfully
+[2026-06-04 20:20:30] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-04 20:20:31] ✓ Docker cleanup complete
+[2026-06-04 20:20:31] ✓ Bootstrap state reset for fresh start
+[2026-06-04 20:20:41] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 20:20:41] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 20:20:44] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 22:39:38] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 22:39:38] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 22:39:38] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 22:39:38] Provider: local
+[2026-06-04 22:39:38] Cluster name: hub
+[2026-06-04 22:39:38] Checking prerequisites...
+[2026-06-04 22:39:38]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 22:39:38]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 22:39:38]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 22:39:38]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 22:39:38]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 22:39:38]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 22:39:39]   ✓ docker daemon running
+[2026-06-04 22:39:39] Building hub binary...
+[2026-06-04 22:39:47]   ✓ hub binary built
+[2026-06-04 22:39:47]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 22:39:48]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 22:39:48] Prerequisites check passed
+[2026-06-04 22:39:48] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 22:39:48] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 22:39:51] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 22:40:06] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 22:40:06] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 22:40:06] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 22:40:06] Provider: local
+[2026-06-04 22:40:06] Cluster name: hub
+[2026-06-04 22:40:06] Checking prerequisites...
+[2026-06-04 22:40:06]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 22:40:06]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 22:40:06]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 22:40:06]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 22:40:06]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 22:40:06]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 22:40:06]   ✓ docker daemon running
+[2026-06-04 22:40:06] Building hub binary...
+[2026-06-04 22:40:07]   ✓ hub binary built
+[2026-06-04 22:40:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 22:40:08]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 22:40:08] Prerequisites check passed
+[2026-06-04 22:40:08] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-04 22:40:23] ✓ Cluster 'hub' torn down successfully
+[2026-06-04 22:40:23] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-04 22:40:24] ✓ Docker cleanup complete
+[2026-06-04 22:40:24] ✓ Bootstrap state reset for fresh start
+[2026-06-04 22:40:34] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 22:40:34] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 22:40:37] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 23:37:27] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 23:37:27] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 23:37:27] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 23:37:27] Provider: local
+[2026-06-04 23:37:27] Cluster name: hub
+[2026-06-04 23:37:27] Checking prerequisites...
+[2026-06-04 23:37:27]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 23:37:27]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 23:37:27]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 23:37:27]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 23:37:27]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 23:37:27]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 23:37:28]   ✓ docker daemon running
+[2026-06-04 23:37:28] Building hub binary...
+[2026-06-04 23:37:29] Script interrupted
+[2026-06-04 23:37:35] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 23:37:35] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 23:37:35] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 23:37:35] Provider: local
+[2026-06-04 23:37:35] Cluster name: hub
+[2026-06-04 23:37:35] Checking prerequisites...
+[2026-06-04 23:37:35]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 23:37:35]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 23:37:35]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 23:37:35]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 23:37:35]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 23:37:35]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 23:37:35]   ✓ docker daemon running
+[2026-06-04 23:37:35] Building hub binary...
+[2026-06-04 23:37:43]   ✓ hub binary built
+[2026-06-04 23:37:43]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 23:37:43]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 23:37:43] Prerequisites check passed
+[2026-06-04 23:37:43] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 23:37:43] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 23:37:46] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 23:40:41] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 23:40:41] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 23:40:41] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 23:40:41] Provider: local
+[2026-06-04 23:40:41] Cluster name: hub
+[2026-06-04 23:40:41] Checking prerequisites...
+[2026-06-04 23:40:41]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 23:40:41]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 23:40:41]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 23:40:41]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 23:40:41]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 23:40:41]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 23:40:41]   ✓ docker daemon running
+[2026-06-04 23:40:41] Building hub binary...
+[2026-06-04 23:40:49]   ✓ hub binary built
+[2026-06-04 23:40:49]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 23:40:50]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 23:40:50] Prerequisites check passed
+[2026-06-04 23:40:50] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 23:40:50] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 23:40:53] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-04 23:51:48] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-04 23:51:48] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-04 23:51:48] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-04 23:51:48] Provider: local
+[2026-06-04 23:51:48] Cluster name: hub
+[2026-06-04 23:51:48] Checking prerequisites...
+[2026-06-04 23:51:48]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-04 23:51:48]   ✓ aws found: /usr/local/bin/aws
+[2026-06-04 23:51:48]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-04 23:51:48]   ✓ kind found: /usr/local/bin/kind
+[2026-06-04 23:51:48]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-04 23:51:48]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-04 23:51:48]   ✓ docker daemon running
+[2026-06-04 23:51:48] Building hub binary...
+[2026-06-04 23:51:56]   ✓ hub binary built
+[2026-06-04 23:51:56]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-04 23:51:57]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-04 23:51:57] Prerequisites check passed
+[2026-06-04 23:51:57] Step 1: Bootstrapping Hub Cluster...
+[2026-06-04 23:51:57] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-04 23:52:00] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-05 00:19:43] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 00:19:43] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 00:19:43] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 00:19:43] Provider: local
+[2026-06-05 00:19:43] Cluster name: hub
+[2026-06-05 00:19:43] Checking prerequisites...
+[2026-06-05 00:19:43]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 00:19:43]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 00:19:43]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 00:19:43]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 00:19:43]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 00:19:43]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 00:19:44]   ✓ docker daemon running
+[2026-06-05 00:19:44] Building hub binary...
+[2026-06-05 00:19:51]   ✓ hub binary built
+[2026-06-05 00:19:51]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 00:19:52]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 00:19:52] Prerequisites check passed
+[2026-06-05 00:19:52] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-05 00:20:07] ✓ Cluster 'hub' torn down successfully
+[2026-06-05 00:20:07] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-05 00:20:08] ✓ Docker cleanup complete
+[2026-06-05 00:20:08] ✓ Bootstrap state reset for fresh start
+[2026-06-05 00:20:18] Step 1: Bootstrapping Hub Cluster...
+[2026-06-05 00:20:18] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-05 00:20:21] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-05 11:43:36] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 11:43:36] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 11:43:36] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 11:43:36] Provider: local
+[2026-06-05 11:43:36] Cluster name: hub
+[2026-06-05 11:43:36] Checking prerequisites...
+[2026-06-05 11:43:36]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 11:43:36]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 11:43:36]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 11:43:36]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 11:43:36]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 11:43:36]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 11:43:37]   ✓ docker daemon running
+[2026-06-05 11:43:37] Building hub binary...
+[2026-06-05 11:43:38]   ✓ hub binary built
+[2026-06-05 11:43:38]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 11:43:39]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 11:43:39] Prerequisites check passed
+[2026-06-05 11:43:39] TEARDOWN=true — tearing down existing cluster 'hub'...
+[2026-06-05 11:44:02] ✓ Cluster 'hub' torn down successfully
+[2026-06-05 11:44:02] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-05 11:44:03] ✓ Docker cleanup complete
+[2026-06-05 11:44:03] ✓ Bootstrap state reset for fresh start
+[2026-06-05 11:44:13] Step 1: Bootstrapping Hub Cluster...
+[2026-06-05 11:44:13] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-05 11:44:16] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-05 12:34:58] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 12:34:58] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 12:34:58] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 12:34:58] Provider: local
+[2026-06-05 12:34:58] Cluster name: hub
+[2026-06-05 12:34:58] Checking prerequisites...
+[2026-06-05 12:34:58]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 12:34:58]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 12:34:58]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 12:34:58]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 12:34:58]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 12:34:58]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 12:34:59]   ✓ docker daemon running
+[2026-06-05 12:34:59] Building hub binary...
+[2026-06-05 12:35:07]   ✓ hub binary built
+[2026-06-05 12:35:07]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 12:35:08]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 12:35:08] Prerequisites check passed
+[2026-06-05 12:35:08] Step 1: Bootstrapping Hub Cluster...
+[2026-06-05 12:35:08] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-05 12:35:11] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub --provider=docker --keep-bootstrap --debug
+[2026-06-05 13:25:59] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 13:25:59] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 13:25:59] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 13:25:59] Provider: local
+[2026-06-05 13:25:59] Cluster name: hub-local
+[2026-06-05 13:25:59] Checking prerequisites...
+[2026-06-05 13:25:59]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 13:25:59]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 13:25:59]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 13:25:59]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 13:25:59]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 13:25:59]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 13:26:00]   ✓ docker daemon running
+[2026-06-05 13:26:00] Building hub binary...
+[2026-06-05 13:26:00]   ✓ hub binary built
+[2026-06-05 13:26:00]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 13:26:01]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 13:26:01] Prerequisites check passed
+[2026-06-05 13:26:01] Step 1: Bootstrapping Hub Cluster...
+[2026-06-05 13:26:01] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-05 13:26:04] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub-local --provider=docker --keep-bootstrap --debug
+[2026-06-05 13:43:22] Kubeconfig path: /Users/arun_subramanian/.kube/config
+[2026-06-05 13:43:22] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-06-05 13:43:22] Hub cluster bootstrap completed
+[2026-06-05 13:43:52] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-06-05 13:43:52] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-06-05 13:43:54] IAM user hub-operator-secrets-manager-development already exists
+[2026-06-05 13:43:56] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-06-05 13:43:56] Attempting to use existing access keys...
+[2026-06-05 13:43:58] Existing keys may be invalid, attempting to recreate...
+[2026-06-05 13:43:58] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-06-05 13:44:02] All existing access keys deleted
+[2026-06-05 13:44:02] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-06-05 13:44:05] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-06-05 13:44:05] AWS Secrets Manager configuration completed
+[2026-06-05 13:44:20] Step 3: Configuring GitHub Access...
+[2026-06-05 13:44:20] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-06-05 13:44:20] Step 'configure_github' marked as completed in bootstrap state file
+[2026-06-05 13:44:20] GitHub access configuration completed
+[2026-06-05 13:44:35] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 600s)...
+[2026-06-05 13:44:36] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-06-05 13:44:36] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-06-05 13:44:36] ✅ platform-data namespace created by ArgoCD
+[2026-06-05 13:44:46] Step 5: Initializing bootstrap secrets...
+[2026-06-05 13:44:46] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-06-05 13:49:47] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-06-05 13:49:47] Waiting for Infisical pod to be ready (attempt 1/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:49:57] Waiting for Infisical pod to be ready (attempt 2/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:07] Waiting for Infisical pod to be ready (attempt 3/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:18] Waiting for Infisical pod to be ready (attempt 4/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:28] Waiting for Infisical pod to be ready (attempt 5/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:38] Waiting for Infisical pod to be ready (attempt 6/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:48] Waiting for Infisical pod to be ready (attempt 7/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:50:58] Waiting for Infisical pod to be ready (attempt 8/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:51:08] Waiting for Infisical pod to be ready (attempt 9/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:51:19] Waiting for Infisical pod to be ready (attempt 10/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:51:29] Waiting for Infisical pod to be ready (attempt 11/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:51:39] Waiting for Infisical pod to be ready (attempt 12/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:51:49] Waiting for Infisical pod to be ready (attempt 13/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:00] Waiting for Infisical pod to be ready (attempt 14/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:10] Waiting for Infisical pod to be ready (attempt 15/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:21] Waiting for Infisical pod to be ready (attempt 16/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:31] Waiting for Infisical pod to be ready (attempt 17/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:41] Waiting for Infisical pod to be ready (attempt 18/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:52:51] Waiting for Infisical pod to be ready (attempt 19/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:01] Waiting for Infisical pod to be ready (attempt 20/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:12] Waiting for Infisical pod to be ready (attempt 21/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:22] Waiting for Infisical pod to be ready (attempt 22/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:32] Waiting for Infisical pod to be ready (attempt 23/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:42] Waiting for Infisical pod to be ready (attempt 24/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:53:52] Waiting for Infisical pod to be ready (attempt 25/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:03] Waiting for Infisical pod to be ready (attempt 26/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:13] Waiting for Infisical pod to be ready (attempt 27/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:23] Waiting for Infisical pod to be ready (attempt 28/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:33] Waiting for Infisical pod to be ready (attempt 29/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:43] Waiting for Infisical pod to be ready (attempt 30/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:54:54] Waiting for Infisical pod to be ready (attempt 31/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:04] Waiting for Infisical pod to be ready (attempt 32/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:14] Waiting for Infisical pod to be ready (attempt 33/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:24] Waiting for Infisical pod to be ready (attempt 34/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:34] Waiting for Infisical pod to be ready (attempt 35/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:45] Waiting for Infisical pod to be ready (attempt 36/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:55:55] Waiting for Infisical pod to be ready (attempt 37/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:05] Waiting for Infisical pod to be ready (attempt 38/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:15] Waiting for Infisical pod to be ready (attempt 39/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:25] Waiting for Infisical pod to be ready (attempt 40/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:36] Waiting for Infisical pod to be ready (attempt 41/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:46] Waiting for Infisical pod to be ready (attempt 42/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:56:56] Waiting for Infisical pod to be ready (attempt 43/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:06] Waiting for Infisical pod to be ready (attempt 44/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:17] Waiting for Infisical pod to be ready (attempt 45/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:27] Waiting for Infisical pod to be ready (attempt 46/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:37] Waiting for Infisical pod to be ready (attempt 47/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:47] Waiting for Infisical pod to be ready (attempt 48/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:57:58] Waiting for Infisical pod to be ready (attempt 49/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:08] Waiting for Infisical pod to be ready (attempt 50/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:18] Waiting for Infisical pod to be ready (attempt 51/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:28] Waiting for Infisical pod to be ready (attempt 52/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:38] Waiting for Infisical pod to be ready (attempt 53/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:48] Waiting for Infisical pod to be ready (attempt 54/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:58:58] Waiting for Infisical pod to be ready (attempt 55/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:59:09] Waiting for Infisical pod to be ready (attempt 56/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:59:19] Waiting for Infisical pod to be ready (attempt 57/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:59:29] Waiting for Infisical pod to be ready (attempt 58/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:59:39] Waiting for Infisical pod to be ready (attempt 59/180, ready: False). It mostly get ready by 50
+[2026-06-05 13:59:49] Waiting for Infisical pod to be ready (attempt 60/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:00] Waiting for Infisical pod to be ready (attempt 61/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:10] Waiting for Infisical pod to be ready (attempt 62/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:20] Waiting for Infisical pod to be ready (attempt 63/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:30] Waiting for Infisical pod to be ready (attempt 64/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:40] Waiting for Infisical pod to be ready (attempt 65/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:00:51] Waiting for Infisical pod to be ready (attempt 66/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:01] Waiting for Infisical pod to be ready (attempt 67/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:11] Waiting for Infisical pod to be ready (attempt 68/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:21] Waiting for Infisical pod to be ready (attempt 69/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:32] Waiting for Infisical pod to be ready (attempt 70/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:42] Waiting for Infisical pod to be ready (attempt 71/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:01:52] Waiting for Infisical pod to be ready (attempt 72/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:02] Waiting for Infisical pod to be ready (attempt 73/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:12] Waiting for Infisical pod to be ready (attempt 74/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:22] Waiting for Infisical pod to be ready (attempt 75/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:33] Waiting for Infisical pod to be ready (attempt 76/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:43] Waiting for Infisical pod to be ready (attempt 77/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:02:53] Waiting for Infisical pod to be ready (attempt 78/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:03] Waiting for Infisical pod to be ready (attempt 79/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:14] Waiting for Infisical pod to be ready (attempt 80/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:24] Waiting for Infisical pod to be ready (attempt 81/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:34] Waiting for Infisical pod to be ready (attempt 82/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:44] Waiting for Infisical pod to be ready (attempt 83/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:03:55] Waiting for Infisical pod to be ready (attempt 84/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:05] Waiting for Infisical pod to be ready (attempt 85/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:15] Waiting for Infisical pod to be ready (attempt 86/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:25] Waiting for Infisical pod to be ready (attempt 87/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:35] Waiting for Infisical pod to be ready (attempt 88/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:45] Waiting for Infisical pod to be ready (attempt 89/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:04:55] Waiting for Infisical pod to be ready (attempt 90/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:05] Waiting for Infisical pod to be ready (attempt 91/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:16] Waiting for Infisical pod to be ready (attempt 92/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:26] Waiting for Infisical pod to be ready (attempt 93/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:36] Waiting for Infisical pod to be ready (attempt 94/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:46] Waiting for Infisical pod to be ready (attempt 95/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:05:56] Waiting for Infisical pod to be ready (attempt 96/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:06] Waiting for Infisical pod to be ready (attempt 97/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:17] Waiting for Infisical pod to be ready (attempt 98/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:27] Waiting for Infisical pod to be ready (attempt 99/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:37] Waiting for Infisical pod to be ready (attempt 100/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:47] Waiting for Infisical pod to be ready (attempt 101/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:06:58] Waiting for Infisical pod to be ready (attempt 102/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:08] Waiting for Infisical pod to be ready (attempt 103/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:18] Waiting for Infisical pod to be ready (attempt 104/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:28] Waiting for Infisical pod to be ready (attempt 105/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:38] Waiting for Infisical pod to be ready (attempt 106/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:48] Waiting for Infisical pod to be ready (attempt 107/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:07:59] Waiting for Infisical pod to be ready (attempt 108/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:08:09] Waiting for Infisical pod to be ready (attempt 109/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:08:19] Waiting for Infisical pod to be ready (attempt 110/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:08:29] Waiting for Infisical pod to be ready (attempt 111/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:08:39] Waiting for Infisical pod to be ready (attempt 112/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:08:50] Waiting for Infisical pod to be ready (attempt 113/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:00] Waiting for Infisical pod to be ready (attempt 114/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:10] Waiting for Infisical pod to be ready (attempt 115/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:20] Waiting for Infisical pod to be ready (attempt 116/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:31] Waiting for Infisical pod to be ready (attempt 117/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:41] Waiting for Infisical pod to be ready (attempt 118/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:09:51] Waiting for Infisical pod to be ready (attempt 119/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:01] Waiting for Infisical pod to be ready (attempt 120/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:12] Waiting for Infisical pod to be ready (attempt 121/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:22] Waiting for Infisical pod to be ready (attempt 122/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:32] Waiting for Infisical pod to be ready (attempt 123/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:42] Waiting for Infisical pod to be ready (attempt 124/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:10:52] Waiting for Infisical pod to be ready (attempt 125/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:02] Waiting for Infisical pod to be ready (attempt 126/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:13] Waiting for Infisical pod to be ready (attempt 127/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:23] Waiting for Infisical pod to be ready (attempt 128/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:33] Waiting for Infisical pod to be ready (attempt 129/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:43] Waiting for Infisical pod to be ready (attempt 130/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:11:53] Waiting for Infisical pod to be ready (attempt 131/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:04] Waiting for Infisical pod to be ready (attempt 132/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:14] Waiting for Infisical pod to be ready (attempt 133/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:24] Waiting for Infisical pod to be ready (attempt 134/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:34] Waiting for Infisical pod to be ready (attempt 135/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:45] Waiting for Infisical pod to be ready (attempt 136/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:12:55] Waiting for Infisical pod to be ready (attempt 137/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:05] Waiting for Infisical pod to be ready (attempt 138/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:15] Waiting for Infisical pod to be ready (attempt 139/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:25] Waiting for Infisical pod to be ready (attempt 140/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:36] Waiting for Infisical pod to be ready (attempt 141/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:46] Waiting for Infisical pod to be ready (attempt 142/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:13:56] Waiting for Infisical pod to be ready (attempt 143/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:06] Waiting for Infisical pod to be ready (attempt 144/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:17] Waiting for Infisical pod to be ready (attempt 145/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:27] Waiting for Infisical pod to be ready (attempt 146/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:37] Waiting for Infisical pod to be ready (attempt 147/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:47] Waiting for Infisical pod to be ready (attempt 148/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:14:57] Waiting for Infisical pod to be ready (attempt 149/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:07] Waiting for Infisical pod to be ready (attempt 150/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:18] Waiting for Infisical pod to be ready (attempt 151/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:28] Waiting for Infisical pod to be ready (attempt 152/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:38] Waiting for Infisical pod to be ready (attempt 153/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:48] Waiting for Infisical pod to be ready (attempt 154/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:15:58] Waiting for Infisical pod to be ready (attempt 155/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:09] Waiting for Infisical pod to be ready (attempt 156/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:19] Waiting for Infisical pod to be ready (attempt 157/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:29] Waiting for Infisical pod to be ready (attempt 158/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:39] Waiting for Infisical pod to be ready (attempt 159/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:49] Waiting for Infisical pod to be ready (attempt 160/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:16:59] Waiting for Infisical pod to be ready (attempt 161/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:17:10] Waiting for Infisical pod to be ready (attempt 162/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:17:20] Waiting for Infisical pod to be ready (attempt 163/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:17:30] Waiting for Infisical pod to be ready (attempt 164/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:17:40] Waiting for Infisical pod to be ready (attempt 165/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:17:51] Waiting for Infisical pod to be ready (attempt 166/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:01] Waiting for Infisical pod to be ready (attempt 167/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:11] Waiting for Infisical pod to be ready (attempt 168/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:21] Waiting for Infisical pod to be ready (attempt 169/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:31] Waiting for Infisical pod to be ready (attempt 170/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:42] Waiting for Infisical pod to be ready (attempt 171/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:18:52] Waiting for Infisical pod to be ready (attempt 172/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:02] Waiting for Infisical pod to be ready (attempt 173/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:12] Waiting for Infisical pod to be ready (attempt 174/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:22] Waiting for Infisical pod to be ready (attempt 175/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:32] Waiting for Infisical pod to be ready (attempt 176/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:43] Waiting for Infisical pod to be ready (attempt 177/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:19:53] Waiting for Infisical pod to be ready (attempt 178/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:20:03] Waiting for Infisical pod to be ready (attempt 179/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:20:13] Waiting for Infisical pod to be ready (attempt 180/180, ready: False). It mostly get ready by 50
+[2026-06-05 14:20:23] ERROR: Infisical pod did not become ready within expected time
+[2026-06-05 19:25:21] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 19:25:21] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 19:25:21] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 19:25:21] Provider: local
+[2026-06-05 19:25:21] Cluster name: hub-local
+[2026-06-05 19:25:21] Checking prerequisites...
+[2026-06-05 19:25:21]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 19:25:21]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 19:25:21]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 19:25:21]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 19:25:21]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 19:25:21]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 19:25:22]   ✓ docker daemon running
+[2026-06-05 19:25:22] Building hub binary...
+[2026-06-05 19:25:31]   ✓ hub binary built
+[2026-06-05 19:25:31]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 19:25:33]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 19:25:33] Prerequisites check passed
+[2026-06-05 19:25:33] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-06-05 19:25:33] Kubeconfig path: /Users/arun_subramanian/.kube/config
+[2026-06-05 19:26:03] Step 2: AWS Secrets Manager already configured, skipping
+[2026-06-05 19:26:18] Step 3: GitHub access already configured, skipping
+[2026-06-05 19:26:33] Step 4: Namespaces already created, skipping
+[2026-06-05 19:26:43] Step 5: Initializing bootstrap secrets...
+[2026-06-05 19:26:43] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-06-05 19:36:44] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 19:36:44] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 19:36:44] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 19:36:44] Provider: local
+[2026-06-05 19:36:44] Cluster name: hub-local
+[2026-06-05 19:36:44] Checking prerequisites...
+[2026-06-05 19:36:44]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 19:36:44]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 19:36:44]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 19:36:44]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 19:36:44]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 19:36:44]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 19:36:45]   ✓ docker daemon running
+[2026-06-05 19:36:45] Building hub binary...
+[2026-06-05 19:36:46]   ✓ hub binary built
+[2026-06-05 19:36:46]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 19:36:47]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 19:36:47] Prerequisites check passed
+[2026-06-05 19:36:47] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-06-05 19:36:47] Kubeconfig path: /Users/arun_subramanian/.kube/config
+[2026-06-05 19:37:17] Step 2: AWS Secrets Manager already configured, skipping
+[2026-06-05 19:37:32] Step 3: GitHub access already configured, skipping
+[2026-06-05 19:37:47] Step 4: Namespaces already created, skipping
+[2026-06-05 19:37:57] Step 5: Initializing bootstrap secrets...
+[2026-06-05 19:37:57] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-06-05 19:42:58] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-06-05 19:42:59] Infisical pod is ready
+[2026-06-05 19:42:59] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-06-05 19:42:59] Bootstrap secrets initialization completed
+[2026-06-05 19:43:14] Step 6: Waiting for Infisical to be ready...
+[2026-06-05 19:43:14] Checking Infisical pods status...
+[2026-06-05 19:43:14] Infisical is ready
+[2026-06-05 19:43:14] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-06-05 19:43:14] Infisical pods are running
+[2026-06-05 19:43:24] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-06-05 19:43:24] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-06-05 19:43:24] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-06-05 19:43:29] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-06-05 19:43:29] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-06-05 19:43:29] Step 'wait_database' marked as completed in bootstrap state file
+[2026-06-05 19:43:29] Database deployment completed
+[2026-06-05 19:43:39] Step 10: Using local SpokePool: local-dev
+[2026-06-05 19:43:39] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-06-05 19:43:39] SpokePool: local-dev in namespace: platform-ops
+[2026-06-05 19:43:39] Checking SpokePool local-dev status...
+[2026-06-05 19:43:40] Waiting for SpokePool readiness (attempt 1/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:43:50] Waiting for SpokePool readiness (attempt 2/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:00] Waiting for SpokePool readiness (attempt 3/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:11] Waiting for SpokePool readiness (attempt 4/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:21] Waiting for SpokePool readiness (attempt 5/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:32] Waiting for SpokePool readiness (attempt 6/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:42] Waiting for SpokePool readiness (attempt 7/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:44:53] Waiting for SpokePool readiness (attempt 8/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:03] Waiting for SpokePool readiness (attempt 9/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:13] Waiting for SpokePool readiness (attempt 10/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:23] Waiting for SpokePool readiness (attempt 11/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:34] Waiting for SpokePool readiness (attempt 12/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:44] Waiting for SpokePool readiness (attempt 13/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:45:54] Waiting for SpokePool readiness (attempt 14/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:05] Waiting for SpokePool readiness (attempt 15/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:15] Waiting for SpokePool readiness (attempt 16/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:25] Waiting for SpokePool readiness (attempt 17/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:36] Waiting for SpokePool readiness (attempt 18/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:46] Waiting for SpokePool readiness (attempt 19/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:46:56] Waiting for SpokePool readiness (attempt 20/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:07] Waiting for SpokePool readiness (attempt 21/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:17] Waiting for SpokePool readiness (attempt 22/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:27] Waiting for SpokePool readiness (attempt 23/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:38] Waiting for SpokePool readiness (attempt 24/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:48] Waiting for SpokePool readiness (attempt 25/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:47:58] Waiting for SpokePool readiness (attempt 26/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:48:08] Waiting for SpokePool readiness (attempt 27/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:48:19] Waiting for SpokePool readiness (attempt 28/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:48:29] Waiting for SpokePool readiness (attempt 29/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:48:40] Waiting for SpokePool readiness (attempt 30/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:48:50] Waiting for SpokePool readiness (attempt 31/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:00] Waiting for SpokePool readiness (attempt 32/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:10] Waiting for SpokePool readiness (attempt 33/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:21] Waiting for SpokePool readiness (attempt 34/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:31] Waiting for SpokePool readiness (attempt 35/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:41] Waiting for SpokePool readiness (attempt 36/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:49:52] Waiting for SpokePool readiness (attempt 37/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:03] Waiting for SpokePool readiness (attempt 38/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:13] Waiting for SpokePool readiness (attempt 39/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:23] Waiting for SpokePool readiness (attempt 40/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:34] Waiting for SpokePool readiness (attempt 41/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:44] Waiting for SpokePool readiness (attempt 42/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:50:54] Waiting for SpokePool readiness (attempt 43/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:05] Waiting for SpokePool readiness (attempt 44/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:15] Waiting for SpokePool readiness (attempt 45/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:25] Waiting for SpokePool readiness (attempt 46/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:35] Waiting for SpokePool readiness (attempt 47/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:46] Waiting for SpokePool readiness (attempt 48/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:51:56] Waiting for SpokePool readiness (attempt 49/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:06] Waiting for SpokePool readiness (attempt 50/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:16] Waiting for SpokePool readiness (attempt 51/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:27] Waiting for SpokePool readiness (attempt 52/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:37] Waiting for SpokePool readiness (attempt 53/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:47] Waiting for SpokePool readiness (attempt 54/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:52:58] Waiting for SpokePool readiness (attempt 55/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:08] Waiting for SpokePool readiness (attempt 56/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:18] Waiting for SpokePool readiness (attempt 57/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:29] Waiting for SpokePool readiness (attempt 58/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:39] Waiting for SpokePool readiness (attempt 59/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:49] Waiting for SpokePool readiness (attempt 60/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:53:59] Waiting for SpokePool readiness (attempt 61/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:54:10] Waiting for SpokePool readiness (attempt 62/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:54:20] Waiting for SpokePool readiness (attempt 63/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:54:30] Waiting for SpokePool readiness (attempt 64/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:54:41] Waiting for SpokePool readiness (attempt 65/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:54:51] Waiting for SpokePool readiness (attempt 66/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:02] Waiting for SpokePool readiness (attempt 67/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:12] Waiting for SpokePool readiness (attempt 68/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:23] Waiting for SpokePool readiness (attempt 69/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:33] Waiting for SpokePool readiness (attempt 70/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:43] Waiting for SpokePool readiness (attempt 71/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:55:53] Waiting for SpokePool readiness (attempt 72/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:04] Waiting for SpokePool readiness (attempt 73/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:14] Waiting for SpokePool readiness (attempt 74/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:25] Waiting for SpokePool readiness (attempt 75/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:35] Waiting for SpokePool readiness (attempt 76/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:45] Waiting for SpokePool readiness (attempt 77/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:56:56] Waiting for SpokePool readiness (attempt 78/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:06] Waiting for SpokePool readiness (attempt 79/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:16] Waiting for SpokePool readiness (attempt 80/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:27] Waiting for SpokePool readiness (attempt 81/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:37] Waiting for SpokePool readiness (attempt 82/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:47] Waiting for SpokePool readiness (attempt 83/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:57:58] Waiting for SpokePool readiness (attempt 84/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:58:08] Waiting for SpokePool readiness (attempt 85/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:58:18] Waiting for SpokePool readiness (attempt 86/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:58:29] Waiting for SpokePool readiness (attempt 87/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:58:39] Waiting for SpokePool readiness (attempt 88/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:58:49] Waiting for SpokePool readiness (attempt 89/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:00] Waiting for SpokePool readiness (attempt 90/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:10] Waiting for SpokePool readiness (attempt 91/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:20] Waiting for SpokePool readiness (attempt 92/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:31] Waiting for SpokePool readiness (attempt 93/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:41] Waiting for SpokePool readiness (attempt 94/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 19:59:51] Waiting for SpokePool readiness (attempt 95/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:02] Waiting for SpokePool readiness (attempt 96/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:12] Waiting for SpokePool readiness (attempt 97/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:23] Waiting for SpokePool readiness (attempt 98/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:33] Waiting for SpokePool readiness (attempt 99/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:43] Waiting for SpokePool readiness (attempt 100/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:00:54] Waiting for SpokePool readiness (attempt 101/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:04] Waiting for SpokePool readiness (attempt 102/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:14] Waiting for SpokePool readiness (attempt 103/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:24] Waiting for SpokePool readiness (attempt 104/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:35] Waiting for SpokePool readiness (attempt 105/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:45] Waiting for SpokePool readiness (attempt 106/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:01:56] Waiting for SpokePool readiness (attempt 107/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:06] Waiting for SpokePool readiness (attempt 108/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:16] Waiting for SpokePool readiness (attempt 109/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:27] Waiting for SpokePool readiness (attempt 110/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:37] Waiting for SpokePool readiness (attempt 111/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:47] Waiting for SpokePool readiness (attempt 112/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:02:57] Waiting for SpokePool readiness (attempt 113/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:08] Waiting for SpokePool readiness (attempt 114/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:18] Waiting for SpokePool readiness (attempt 115/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:28] Waiting for SpokePool readiness (attempt 116/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:39] Waiting for SpokePool readiness (attempt 117/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:49] Waiting for SpokePool readiness (attempt 118/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:03:59] Waiting for SpokePool readiness (attempt 119/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:04:09] Waiting for SpokePool readiness (attempt 120/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:04:20] Waiting for SpokePool readiness (attempt 121/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:04:31] Waiting for SpokePool readiness (attempt 122/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:04:41] Waiting for SpokePool readiness (attempt 123/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:04:51] Waiting for SpokePool readiness (attempt 124/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:02] Waiting for SpokePool readiness (attempt 125/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:12] Waiting for SpokePool readiness (attempt 126/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:23] Waiting for SpokePool readiness (attempt 127/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:33] Waiting for SpokePool readiness (attempt 128/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:43] Waiting for SpokePool readiness (attempt 129/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:05:54] Waiting for SpokePool readiness (attempt 130/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:04] Waiting for SpokePool readiness (attempt 131/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:14] Waiting for SpokePool readiness (attempt 132/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:25] Waiting for SpokePool readiness (attempt 133/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:35] Waiting for SpokePool readiness (attempt 134/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:45] Waiting for SpokePool readiness (attempt 135/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:06:56] Waiting for SpokePool readiness (attempt 136/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:06] Waiting for SpokePool readiness (attempt 137/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:16] Waiting for SpokePool readiness (attempt 138/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:27] Waiting for SpokePool readiness (attempt 139/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:37] Waiting for SpokePool readiness (attempt 140/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:47] Waiting for SpokePool readiness (attempt 141/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:07:58] Waiting for SpokePool readiness (attempt 142/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:08:08] Waiting for SpokePool readiness (attempt 143/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:08:18] Waiting for SpokePool readiness (attempt 144/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:08:29] Waiting for SpokePool readiness (attempt 145/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:08:39] Waiting for SpokePool readiness (attempt 146/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:08:49] Waiting for SpokePool readiness (attempt 147/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:00] Waiting for SpokePool readiness (attempt 148/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:10] Waiting for SpokePool readiness (attempt 149/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:20] Waiting for SpokePool readiness (attempt 150/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:31] Waiting for SpokePool readiness (attempt 151/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:41] Waiting for SpokePool readiness (attempt 152/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:09:52] Waiting for SpokePool readiness (attempt 153/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:03] Waiting for SpokePool readiness (attempt 154/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:13] Waiting for SpokePool readiness (attempt 155/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:24] Waiting for SpokePool readiness (attempt 156/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:34] Waiting for SpokePool readiness (attempt 157/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:44] Waiting for SpokePool readiness (attempt 158/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:10:55] Waiting for SpokePool readiness (attempt 159/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:05] Waiting for SpokePool readiness (attempt 160/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:15] Waiting for SpokePool readiness (attempt 161/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:26] Waiting for SpokePool readiness (attempt 162/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:36] Waiting for SpokePool readiness (attempt 163/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:46] Waiting for SpokePool readiness (attempt 164/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:11:57] Waiting for SpokePool readiness (attempt 165/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:07] Waiting for SpokePool readiness (attempt 166/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:18] Waiting for SpokePool readiness (attempt 167/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:28] Waiting for SpokePool readiness (attempt 168/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:38] Waiting for SpokePool readiness (attempt 169/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:48] Waiting for SpokePool readiness (attempt 170/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:12:59] Waiting for SpokePool readiness (attempt 171/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:13:09] Waiting for SpokePool readiness (attempt 172/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:13:19] Waiting for SpokePool readiness (attempt 173/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:13:30] Waiting for SpokePool readiness (attempt 174/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:13:40] Waiting for SpokePool readiness (attempt 175/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:13:50] Waiting for SpokePool readiness (attempt 176/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:14:01] Waiting for SpokePool readiness (attempt 177/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:14:11] Waiting for SpokePool readiness (attempt 178/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:14:21] Waiting for SpokePool readiness (attempt 179/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:14:32] Waiting for SpokePool readiness (attempt 180/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 20:14:42] ❌ SpokePool did not become ready within expected time
+[2026-06-05 20:14:42] Current status: Ready=NotFound, Synced=NotFound
+[2026-06-05 20:14:42] ERROR: SpokePool readiness timeout
+[2026-06-05 20:47:42] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 20:47:42] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 20:47:42] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 20:47:42] Provider: local
+[2026-06-05 20:47:42] Cluster name: hub-local
+[2026-06-05 20:47:42] Checking prerequisites...
+[2026-06-05 20:47:42]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 20:47:42]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 20:47:42]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 20:47:42]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 20:47:42]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 20:47:42]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 20:47:43]   ✓ docker daemon running
+[2026-06-05 20:47:43] Building hub binary...
+[2026-06-05 20:47:50] Script interrupted
+[2026-06-05 21:02:33] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-05 21:02:33] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-05 21:02:33] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-05 21:02:33] Provider: local
+[2026-06-05 21:02:33] Cluster name: hub-local
+[2026-06-05 21:02:33] Checking prerequisites...
+[2026-06-05 21:02:33]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-05 21:02:33]   ✓ aws found: /usr/local/bin/aws
+[2026-06-05 21:02:33]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-05 21:02:33]   ✓ kind found: /usr/local/bin/kind
+[2026-06-05 21:02:33]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-05 21:02:33]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-05 21:02:34]   ✓ docker daemon running
+[2026-06-05 21:02:34] Building hub binary...
+[2026-06-05 21:02:43]   ✓ hub binary built
+[2026-06-05 21:02:43]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-05 21:02:46]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-05 21:02:46] Prerequisites check passed
+[2026-06-05 21:02:46] TEARDOWN=true — tearing down existing cluster 'hub-local'...
+[2026-06-05 21:03:11] ✓ Cluster 'hub-local' torn down successfully
+[2026-06-05 21:03:11] Cleaning up Docker resources (containers, volumes, networks, dangling images)...
+[2026-06-05 21:03:11] ✓ Docker cleanup complete
+[2026-06-05 21:03:11] ✓ Bootstrap state reset for fresh start
+[2026-06-05 21:03:21] Step 1: Bootstrapping Hub Cluster...
+[2026-06-05 21:03:21] Pushing current branch 'feat/pluggable-providers-env-promotion' to remote for ArgoCD reconciliation...
+[2026-06-05 21:03:24] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub bootstrap --name=hub-local --provider=docker --keep-bootstrap --debug
+[2026-06-05 21:22:09] Kubeconfig path: /Users/arun_subramanian/.kube/config
+[2026-06-05 21:22:09] Step 'bootstrap_hub' marked as completed in bootstrap state file
+[2026-06-05 21:22:09] Hub cluster bootstrap completed
+[2026-06-05 21:22:40] Step 2: Configuring AWS Secrets Manager for disaster recovery...
+[2026-06-05 21:22:40] Checking for existing IAM user: hub-operator-secrets-manager-development
+[2026-06-05 21:22:42] IAM user hub-operator-secrets-manager-development already exists
+[2026-06-05 21:22:43] Found existing active access keys for hub-operator-secrets-manager-development
+[2026-06-05 21:22:43] Attempting to use existing access keys...
+[2026-06-05 21:22:46] Existing keys may be invalid, attempting to recreate...
+[2026-06-05 21:22:46] Deleting all access keys for hub-operator-secrets-manager-development
+[2026-06-05 21:22:49] All existing access keys deleted
+[2026-06-05 21:22:49] Retrying AWS Secrets Manager configuration after deleting keys...
+[2026-06-05 21:22:53] Step 'configure_aws_secrets' marked as completed in bootstrap state file
+[2026-06-05 21:22:53] AWS Secrets Manager configuration completed
+[2026-06-05 21:23:08] Step 3: Configuring GitHub Access...
+[2026-06-05 21:23:08] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub configure-github-access --ghcr-pat=$GITHUB_TOKEN
+[2026-06-05 21:23:08] Step 'configure_github' marked as completed in bootstrap state file
+[2026-06-05 21:23:08] GitHub access configuration completed
+[2026-06-05 21:23:23] Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 600s)...
+[2026-06-05 21:23:24] Running: kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data --timeout=60s
+[2026-06-05 21:23:24] Step 'wait_namespaces' marked as completed in bootstrap state file
+[2026-06-05 21:23:24] ✅ platform-data namespace created by ArgoCD
+[2026-06-05 21:23:34] Step 5: Initializing bootstrap secrets...
+[2026-06-05 21:23:34] Running: /Users/arun_subramanian/Projects/soloz-io/zero-ops/bin/hub init-secrets
+[2026-06-05 21:28:34] Waiting for Infisical pod to be ready after secrets initialization...
+[2026-06-05 21:28:35] Waiting for Infisical pod to be ready (attempt 1/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:28:45] Waiting for Infisical pod to be ready (attempt 2/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:28:55] Waiting for Infisical pod to be ready (attempt 3/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:05] Waiting for Infisical pod to be ready (attempt 4/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:15] Waiting for Infisical pod to be ready (attempt 5/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:26] Waiting for Infisical pod to be ready (attempt 6/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:36] Waiting for Infisical pod to be ready (attempt 7/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:46] Waiting for Infisical pod to be ready (attempt 8/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:29:56] Waiting for Infisical pod to be ready (attempt 9/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:06] Waiting for Infisical pod to be ready (attempt 10/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:17] Waiting for Infisical pod to be ready (attempt 11/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:27] Waiting for Infisical pod to be ready (attempt 12/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:37] Waiting for Infisical pod to be ready (attempt 13/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:47] Waiting for Infisical pod to be ready (attempt 14/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:30:58] Waiting for Infisical pod to be ready (attempt 15/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:08] Waiting for Infisical pod to be ready (attempt 16/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:18] Waiting for Infisical pod to be ready (attempt 17/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:28] Waiting for Infisical pod to be ready (attempt 18/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:39] Waiting for Infisical pod to be ready (attempt 19/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:49] Waiting for Infisical pod to be ready (attempt 20/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:31:59] Waiting for Infisical pod to be ready (attempt 21/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:32:09] Waiting for Infisical pod to be ready (attempt 22/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:32:19] Waiting for Infisical pod to be ready (attempt 23/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:32:30] Waiting for Infisical pod to be ready (attempt 24/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:32:40] Waiting for Infisical pod to be ready (attempt 25/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:32:50] Waiting for Infisical pod to be ready (attempt 26/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:00] Waiting for Infisical pod to be ready (attempt 27/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:11] Waiting for Infisical pod to be ready (attempt 28/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:21] Waiting for Infisical pod to be ready (attempt 29/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:31] Waiting for Infisical pod to be ready (attempt 30/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:41] Waiting for Infisical pod to be ready (attempt 31/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:33:51] Waiting for Infisical pod to be ready (attempt 32/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:01] Waiting for Infisical pod to be ready (attempt 33/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:12] Waiting for Infisical pod to be ready (attempt 34/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:22] Waiting for Infisical pod to be ready (attempt 35/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:32] Waiting for Infisical pod to be ready (attempt 36/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:42] Waiting for Infisical pod to be ready (attempt 37/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:34:52] Waiting for Infisical pod to be ready (attempt 38/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:03] Waiting for Infisical pod to be ready (attempt 39/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:13] Waiting for Infisical pod to be ready (attempt 40/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:23] Waiting for Infisical pod to be ready (attempt 41/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:33] Waiting for Infisical pod to be ready (attempt 42/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:44] Waiting for Infisical pod to be ready (attempt 43/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:35:54] Waiting for Infisical pod to be ready (attempt 44/180, ready: False). It mostly get ready by 50
+[2026-06-05 21:36:04] Infisical pod is ready
+[2026-06-05 21:36:04] Step 'init_secrets' marked as completed in bootstrap state file
+[2026-06-05 21:36:04] Bootstrap secrets initialization completed
+[2026-06-05 21:36:19] Step 6: Waiting for Infisical to be ready...
+[2026-06-05 21:36:19] Checking Infisical pods status...
+[2026-06-05 21:36:19] Infisical is ready
+[2026-06-05 21:36:19] Step 'wait_infisical' marked as completed in bootstrap state file
+[2026-06-05 21:36:19] Infisical pods are running
+[2026-06-05 21:36:29] Step 7-8: Machine Identity creation and ESO configuration (automated in hub-operator)...
+[2026-06-05 21:36:29] These steps are automated in hub-operator. Skipping manual configuration.
+[2026-06-05 21:36:29] Step 'configure_eso' marked as completed in bootstrap state file
+[2026-06-05 21:36:34] Step 9: Waiting for database deployment (timeout: 600s)...
+[2026-06-05 21:36:34] Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s
+[2026-06-05 21:36:35] Step 'wait_database' marked as completed in bootstrap state file
+[2026-06-05 21:36:35] Database deployment completed
+[2026-06-05 21:36:45] Step 10: Using local SpokePool: local-dev
+[2026-06-05 21:36:46] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-06-05 21:36:46] SpokePool: local-dev in namespace: platform-ops
+[2026-06-05 21:36:46] Checking SpokePool local-dev status...
+[2026-06-05 21:36:46] Waiting for SpokePool readiness (attempt 1/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:36:56] Waiting for SpokePool readiness (attempt 2/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:06] Waiting for SpokePool readiness (attempt 3/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:17] Waiting for SpokePool readiness (attempt 4/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:27] Waiting for SpokePool readiness (attempt 5/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:37] Waiting for SpokePool readiness (attempt 6/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:48] Waiting for SpokePool readiness (attempt 7/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:37:58] Waiting for SpokePool readiness (attempt 8/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:38:08] Waiting for SpokePool readiness (attempt 9/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:38:19] Waiting for SpokePool readiness (attempt 10/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:38:29] Waiting for SpokePool readiness (attempt 11/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:38:39] Waiting for SpokePool readiness (attempt 12/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:38:50] Waiting for SpokePool readiness (attempt 13/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:00] Waiting for SpokePool readiness (attempt 14/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:10] Waiting for SpokePool readiness (attempt 15/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:20] Waiting for SpokePool readiness (attempt 16/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:31] Waiting for SpokePool readiness (attempt 17/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:41] Waiting for SpokePool readiness (attempt 18/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:39:51] Waiting for SpokePool readiness (attempt 19/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:02] Waiting for SpokePool readiness (attempt 20/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:12] Waiting for SpokePool readiness (attempt 21/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:22] Waiting for SpokePool readiness (attempt 22/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:32] Waiting for SpokePool readiness (attempt 23/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:43] Waiting for SpokePool readiness (attempt 24/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:40:53] Waiting for SpokePool readiness (attempt 25/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:03] Waiting for SpokePool readiness (attempt 26/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:14] Waiting for SpokePool readiness (attempt 27/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:24] Waiting for SpokePool readiness (attempt 28/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:34] Waiting for SpokePool readiness (attempt 29/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:45] Waiting for SpokePool readiness (attempt 30/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:41:55] Waiting for SpokePool readiness (attempt 31/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:05] Waiting for SpokePool readiness (attempt 32/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:16] Waiting for SpokePool readiness (attempt 33/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:26] Waiting for SpokePool readiness (attempt 34/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:36] Waiting for SpokePool readiness (attempt 35/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:47] Waiting for SpokePool readiness (attempt 36/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:42:57] Waiting for SpokePool readiness (attempt 37/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:07] Waiting for SpokePool readiness (attempt 38/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:17] Waiting for SpokePool readiness (attempt 39/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:28] Waiting for SpokePool readiness (attempt 40/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:38] Waiting for SpokePool readiness (attempt 41/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:48] Waiting for SpokePool readiness (attempt 42/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:43:59] Waiting for SpokePool readiness (attempt 43/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:44:09] Waiting for SpokePool readiness (attempt 44/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:44:19] Waiting for SpokePool readiness (attempt 45/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:44:29] Waiting for SpokePool readiness (attempt 46/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:44:40] Waiting for SpokePool readiness (attempt 47/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:44:50] Waiting for SpokePool readiness (attempt 48/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:00] Waiting for SpokePool readiness (attempt 49/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:11] Waiting for SpokePool readiness (attempt 50/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:21] Waiting for SpokePool readiness (attempt 51/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:31] Waiting for SpokePool readiness (attempt 52/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:41] Waiting for SpokePool readiness (attempt 53/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:45:52] Waiting for SpokePool readiness (attempt 54/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:02] Waiting for SpokePool readiness (attempt 55/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:12] Waiting for SpokePool readiness (attempt 56/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:23] Waiting for SpokePool readiness (attempt 57/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:33] Waiting for SpokePool readiness (attempt 58/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:43] Waiting for SpokePool readiness (attempt 59/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:46:54] Waiting for SpokePool readiness (attempt 60/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:04] Waiting for SpokePool readiness (attempt 61/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:15] Waiting for SpokePool readiness (attempt 62/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:25] Waiting for SpokePool readiness (attempt 63/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:35] Waiting for SpokePool readiness (attempt 64/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:45] Waiting for SpokePool readiness (attempt 65/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:47:56] Waiting for SpokePool readiness (attempt 66/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:06] Waiting for SpokePool readiness (attempt 67/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:16] Waiting for SpokePool readiness (attempt 68/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:27] Waiting for SpokePool readiness (attempt 69/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:37] Waiting for SpokePool readiness (attempt 70/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:48] Waiting for SpokePool readiness (attempt 71/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:48:58] Waiting for SpokePool readiness (attempt 72/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:08] Waiting for SpokePool readiness (attempt 73/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:18] Waiting for SpokePool readiness (attempt 74/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:29] Waiting for SpokePool readiness (attempt 75/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:39] Waiting for SpokePool readiness (attempt 76/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:49] Waiting for SpokePool readiness (attempt 77/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:49:59] Waiting for SpokePool readiness (attempt 78/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:50:10] Waiting for SpokePool readiness (attempt 79/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:50:20] Waiting for SpokePool readiness (attempt 80/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:50:30] Waiting for SpokePool readiness (attempt 81/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:50:41] Waiting for SpokePool readiness (attempt 82/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:50:51] Waiting for SpokePool readiness (attempt 83/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:01] Waiting for SpokePool readiness (attempt 84/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:12] Waiting for SpokePool readiness (attempt 85/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:22] Waiting for SpokePool readiness (attempt 86/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:32] Waiting for SpokePool readiness (attempt 87/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:42] Waiting for SpokePool readiness (attempt 88/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:51:53] Waiting for SpokePool readiness (attempt 89/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:03] Waiting for SpokePool readiness (attempt 90/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:13] Waiting for SpokePool readiness (attempt 91/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:24] Waiting for SpokePool readiness (attempt 92/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:34] Waiting for SpokePool readiness (attempt 93/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:44] Waiting for SpokePool readiness (attempt 94/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:52:55] Waiting for SpokePool readiness (attempt 95/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:05] Waiting for SpokePool readiness (attempt 96/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:15] Waiting for SpokePool readiness (attempt 97/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:26] Waiting for SpokePool readiness (attempt 98/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:36] Waiting for SpokePool readiness (attempt 99/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:46] Waiting for SpokePool readiness (attempt 100/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:53:57] Waiting for SpokePool readiness (attempt 101/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:07] Waiting for SpokePool readiness (attempt 102/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:17] Waiting for SpokePool readiness (attempt 103/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:28] Waiting for SpokePool readiness (attempt 104/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:38] Waiting for SpokePool readiness (attempt 105/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:48] Waiting for SpokePool readiness (attempt 106/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:54:59] Waiting for SpokePool readiness (attempt 107/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:55:09] Waiting for SpokePool readiness (attempt 108/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:55:19] Waiting for SpokePool readiness (attempt 109/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:55:30] Waiting for SpokePool readiness (attempt 110/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:55:40] Waiting for SpokePool readiness (attempt 111/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:55:50] Waiting for SpokePool readiness (attempt 112/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:01] Waiting for SpokePool readiness (attempt 113/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:11] Waiting for SpokePool readiness (attempt 114/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:21] Waiting for SpokePool readiness (attempt 115/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:32] Waiting for SpokePool readiness (attempt 116/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:42] Waiting for SpokePool readiness (attempt 117/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:56:53] Waiting for SpokePool readiness (attempt 118/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:03] Waiting for SpokePool readiness (attempt 119/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:14] Waiting for SpokePool readiness (attempt 120/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:24] Waiting for SpokePool readiness (attempt 121/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:34] Waiting for SpokePool readiness (attempt 122/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:44] Waiting for SpokePool readiness (attempt 123/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:57:55] Waiting for SpokePool readiness (attempt 124/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:05] Waiting for SpokePool readiness (attempt 125/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:16] Waiting for SpokePool readiness (attempt 126/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:26] Waiting for SpokePool readiness (attempt 127/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:36] Waiting for SpokePool readiness (attempt 128/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:47] Waiting for SpokePool readiness (attempt 129/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:58:58] Waiting for SpokePool readiness (attempt 130/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:08] Waiting for SpokePool readiness (attempt 131/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:18] Waiting for SpokePool readiness (attempt 132/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:29] Waiting for SpokePool readiness (attempt 133/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:39] Waiting for SpokePool readiness (attempt 134/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:49] Waiting for SpokePool readiness (attempt 135/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 21:59:59] Waiting for SpokePool readiness (attempt 136/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:00:10] Waiting for SpokePool readiness (attempt 137/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:00:20] Waiting for SpokePool readiness (attempt 138/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:00:31] Waiting for SpokePool readiness (attempt 139/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:00:41] Waiting for SpokePool readiness (attempt 140/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:00:51] Waiting for SpokePool readiness (attempt 141/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:02] Waiting for SpokePool readiness (attempt 142/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:12] Waiting for SpokePool readiness (attempt 143/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:22] Waiting for SpokePool readiness (attempt 144/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:33] Waiting for SpokePool readiness (attempt 145/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:43] Waiting for SpokePool readiness (attempt 146/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:01:54] Waiting for SpokePool readiness (attempt 147/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:04] Waiting for SpokePool readiness (attempt 148/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:14] Waiting for SpokePool readiness (attempt 149/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:24] Waiting for SpokePool readiness (attempt 150/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:35] Waiting for SpokePool readiness (attempt 151/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:45] Waiting for SpokePool readiness (attempt 152/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:02:55] Waiting for SpokePool readiness (attempt 153/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:06] Waiting for SpokePool readiness (attempt 154/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:16] Waiting for SpokePool readiness (attempt 155/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:26] Waiting for SpokePool readiness (attempt 156/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:36] Waiting for SpokePool readiness (attempt 157/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:46] Waiting for SpokePool readiness (attempt 158/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:03:57] Waiting for SpokePool readiness (attempt 159/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:07] Waiting for SpokePool readiness (attempt 160/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:17] Waiting for SpokePool readiness (attempt 161/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:28] Waiting for SpokePool readiness (attempt 162/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:38] Waiting for SpokePool readiness (attempt 163/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:48] Waiting for SpokePool readiness (attempt 164/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:04:59] Waiting for SpokePool readiness (attempt 165/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:05:09] Waiting for SpokePool readiness (attempt 166/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:05:19] Waiting for SpokePool readiness (attempt 167/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:05:29] Waiting for SpokePool readiness (attempt 168/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:05:40] Waiting for SpokePool readiness (attempt 169/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:05:50] Waiting for SpokePool readiness (attempt 170/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:00] Waiting for SpokePool readiness (attempt 171/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:11] Waiting for SpokePool readiness (attempt 172/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:21] Waiting for SpokePool readiness (attempt 173/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:31] Waiting for SpokePool readiness (attempt 174/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:42] Waiting for SpokePool readiness (attempt 175/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:06:52] Waiting for SpokePool readiness (attempt 176/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:07:02] Waiting for SpokePool readiness (attempt 177/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:07:13] Waiting for SpokePool readiness (attempt 178/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:07:23] Waiting for SpokePool readiness (attempt 179/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:07:33] Waiting for SpokePool readiness (attempt 180/180, Ready: NotFound, Synced: NotFound). It mostly get ready by 130
+[2026-06-05 22:07:43] ❌ SpokePool did not become ready within expected time
+[2026-06-05 22:07:43] Current status: Ready=NotFound, Synced=NotFound
+[2026-06-05 22:07:43] ERROR: SpokePool readiness timeout

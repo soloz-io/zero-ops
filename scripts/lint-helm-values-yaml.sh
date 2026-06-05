@@ -2,24 +2,36 @@
 # Lint all rendered helmValues block scalars across AppSet templates.
 #
 # Checks:
-# 1. No literal backslash-quote sequences ("" should be ")
-# 2. YAML syntax + style compliance via yamllint
+# 1. Helm chart template is valid (helm template succeeds)
+# 2. No literal backslash-quote sequences ("" should be ")
+# 3. YAML syntax + style compliance via yamllint on helmValues content
 #
-# Reads each helmValues: | block from source AppSet files (not rendered output),
-# extracts the raw string content, and validates it as standalone YAML.
-# Block scalars in the source YAML become raw strings via yq eval -r.
-# Those raw strings must themselves parse as valid YAML.
+# First validates that helm template renders the chart without errors
+# (catches Go-template-level YAML issues). Then reads each helmValues: |
+# block from source AppSet files, extracts the raw string content, and
+# validates it as standalone YAML.
 
 set -euo pipefail
 
-chart_dir="manifests/argocd/environment-manager/templates"
+chart_dir="manifests/argocd/environment-manager"
+appset_dir="$chart_dir/templates"
 yamllint_config=".yamllint.yaml"
+
+# Phase 0: Pre-flight check — helm template must succeed
+echo "Checking chart renders successfully..."
+if ! rendered=$(helm template environment-manager "$chart_dir" --set environmentRevision=dry-run 2>&1); then
+    echo "❌ helm template failed — chart has a template-level YAML error."
+    echo "   Run the following to debug:"
+    echo "     helm template environment-manager $chart_dir --set environmentRevision=dry-run --debug"
+    exit 1
+fi
+echo "✓ Chart renders successfully"
 
 passed=true
 file_count=0
 element_count=0
 
-for file in "$chart_dir"/*-appset.yaml; do
+for file in "$appset_dir"/*-appset.yaml; do
   if [ ! -f "$file" ]; then
     continue
   fi

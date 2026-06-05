@@ -21,8 +21,8 @@ webhooks:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: ["nutgraf.in"]
         apiVersions: ["v1alpha1"]
-        resources: ["spokepools"]
-        scope: "Namespaced"
+        resources: ["spokepools", "spokepoolclaims"]
+        scope: "*"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -46,5 +46,5 @@ webhooks:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: ["nutgraf.in"]
         apiVersions: ["v1alpha1"]
-        resources: ["spokepools"]
-        scope: "Namespaced"
+        resources: ["spokepools", "spokepoolclaims"]
+        scope: "*"

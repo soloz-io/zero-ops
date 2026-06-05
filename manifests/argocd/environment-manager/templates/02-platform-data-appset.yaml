@@ -72,6 +72,9 @@ spec:
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+        directory:
+          recurse: '{{"{{"}} eq .directoryRecurse "true" {{"}}"}}'
+          include: '{{"{{"}} .directoryInclude {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'

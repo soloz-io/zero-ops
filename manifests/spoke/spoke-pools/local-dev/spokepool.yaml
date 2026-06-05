@@ -9,6 +9,9 @@ metadata:
     environment: local
 spec:
   provider: capd
+  compositionSelector:
+    matchLabels:
+      provider: docker
   region: local
   nodePool:
     count: 1

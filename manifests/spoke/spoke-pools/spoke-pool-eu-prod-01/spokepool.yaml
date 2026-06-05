@@ -10,6 +10,9 @@ metadata:
     region: eu-central
 spec:
   provider: hetzner
+  compositionSelector:
+    matchLabels:
+      provider: hetzner
   region: fsn1
   nodePool:
     count: 2

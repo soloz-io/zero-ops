@@ -1,16 +1,16 @@
 [DEBUG] Bootstrap command started
 [DEBUG] Provider: docker
-[DEBUG] Cluster Name: hub
+[DEBUG] Cluster Name: hub-local
 [DEBUG] OS Type: ubuntu
 [DEBUG] Dry Run: false
 🚀 Starting Hub Cluster bootstrap...
    Provider: docker
-   Cluster Name: hub
+   Cluster Name: hub-local
 
 [preflight] Running validation checks...
 [preflight] ✓ All checks passed
 [DEBUG] Orchestrator.Run() started
-[DEBUG] Provider: docker, ClusterName: hub, Upgrade: false
+[DEBUG] Provider: docker, ClusterName: hub-local, Upgrade: false
 
 [bootstrap-create] Creating ephemeral bootstrap cluster...
 [DEBUG] Phase: bootstrap-create
@@ -56,9 +56,7 @@
 [capi-init] ✓ Applied InfrastructureProvider/docker
 [capi-init] Waiting for CoreProvider/cluster-api...
 [capi-init] Waiting for CoreProvider/cluster-api...
-[capi-init] Waiting for CoreProvider/cluster-api...
 [capi-init] ✓ CoreProvider/cluster-api ready
-[capi-init] Waiting for BootstrapProvider/kubeadm...
 [capi-init] Waiting for BootstrapProvider/kubeadm...
 [capi-init] Waiting for BootstrapProvider/kubeadm...
 [capi-init] Waiting for BootstrapProvider/kubeadm...
@@ -99,3 +97,25 @@
 [platform-deploy] Environment revision: feat/pluggable-providers-env-promotion
 [platform-deploy] ✓ Boundary ApplicationSets applied
 [platform-deploy] Waiting for operators to establish webhooks...
+[platform-deploy] ✓ Operators ready
+[platform-deploy] Verifying CRDs are queryable...
+[platform-deploy] ✓ CRDs queryable
+[platform-deploy] Waiting for operator pods to be Ready...
+[platform-deploy] ✓ Operator pods Ready
+[platform-deploy] ✓ All platform components deployed
+[platform-deploy] ✓ CRDs queryable
+[platform-deploy] ✓ Skipped (already completed)
+
+[finalize] Finalizing bootstrap...
+[DEBUG] Phase: finalize
+[finalize] ✓ Kubeconfig saved to k8-secrets/kubeconfig/hub-local.kubeconfig
+
+✓ Hub Cluster bootstrap complete!
+  Provider: docker
+  Cluster Name: hub-local
+  Kubeconfig: k8-secrets/kubeconfig/hub-local.kubeconfig
+  ArgoCD Password: KYKqIsq--FsAD0WC
+
+Next steps:
+  1. Verify cluster: kubectl --kubeconfig=k8-secrets/kubeconfig/hub-local.kubeconfig get nodes
+  2. Access ArgoCD UI (username: admin)

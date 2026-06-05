@@ -59,8 +59,7 @@ spec:
                 cm:
                   # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
                   url: "https://argocd.nutgraf.in"
-                  admin:
-                    enabled: "true"
+                  admin.enabled: "true"
                   application.instanceLabelKey: argocd.argoproj.io/instance
                   exec.enabled: "false"
                   server.rbac.log.enforce.enable: "false"
@@ -456,6 +455,9 @@ spec:
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+        directory:
+          recurse: '{{"{{"}} eq .directoryRecurse "true" {{"}}"}}'
+          include: '{{"{{"}} .directoryInclude {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'
