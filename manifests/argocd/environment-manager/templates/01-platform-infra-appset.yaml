@@ -59,12 +59,12 @@ spec:
                 cm:
                   # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
                   url: "https://argocd.nutgraf.in"
-                  admin.enabled: \"true\"
+                    admin.enabled: "true"
                   application.instanceLabelKey: argocd.argoproj.io/instance
-                  exec.enabled: \"false\"
-                  server.rbac.log.enforce.enable: \"false\"
-                  timeout.hard.reconciliation: \"0s\"
-                  timeout.reconciliation: \"60s\"
+                  exec.enabled: "false"
+                  server.rbac.log.enforce.enable: "false"
+                  timeout.hard.reconciliation: "0s"
+                  timeout.reconciliation: "60s"
 
                   # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
                   # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
@@ -76,14 +76,14 @@ spec:
                   resource.customizations.health.postgresql.cnpg.io_Cluster: |
                     hs = {}
                     if obj.status ~= nil and obj.status.phase ~= nil then
-                      if obj.status.phase == \"Cluster in healthy state\" then
-                        hs.status = \"Healthy\"
+                      if obj.status.phase == "Cluster in healthy state" then
+                        hs.status = "Healthy"
                         hs.message = obj.status.phase
                         return hs
                       end
                     end
-                    hs.status = \"Progressing\"
-                    hs.message = \"Waiting for cluster to be healthy\"
+                    hs.status = "Progressing"
+                    hs.message = "Waiting for cluster to be healthy"
                     return hs
 
                   # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
@@ -104,21 +104,21 @@ spec:
                     if obj.status ~= nil then
                       if obj.status.conditions ~= nil then
                         for i, condition in ipairs(obj.status.conditions) do
-                          if condition.type == \"Healthy\" and condition.status == \"True\" then
-                            hs.status = \"Healthy\"
+                          if condition.type == "Healthy" and condition.status == "True" then
+                            hs.status = "Healthy"
                             hs.message = condition.message
                             return hs
                           end
-                          if condition.type == \"Healthy\" and condition.status == \"False\" then
-                            hs.status = \"Degraded\"
+                          if condition.type == "Healthy" and condition.status == "False" then
+                            hs.status = "Degraded"
                             hs.message = condition.message
                             return hs
                           end
                         end
                       end
                     end
-                    hs.status = \"Progressing\"
-                    hs.message = \"Waiting for Crossplane provider to be installed and healthy\"
+                    hs.status = "Progressing"
+                    hs.message = "Waiting for Crossplane provider to be installed and healthy"
                     return hs
 
                   # CROSSPLANE Function health check
@@ -129,21 +129,21 @@ spec:
                     if obj.status ~= nil then
                       if obj.status.conditions ~= nil then
                         for i, condition in ipairs(obj.status.conditions) do
-                          if condition.type == \"Healthy\" and condition.status == \"True\" then
-                            hs.status = \"Healthy\"
+                          if condition.type == "Healthy" and condition.status == "True" then
+                            hs.status = "Healthy"
                             hs.message = condition.message
                             return hs
                           end
-                          if condition.type == \"Healthy\" and condition.status == \"False\" then
-                            hs.status = \"Degraded\"
+                          if condition.type == "Healthy" and condition.status == "False" then
+                            hs.status = "Degraded"
                             hs.message = condition.message
                             return hs
                           end
                         end
                       end
                     end
-                    hs.status = \"Progressing\"
-                    hs.message = \"Waiting for Crossplane function to be installed and healthy\"
+                    hs.status = "Progressing"
+                    hs.message = "Waiting for Crossplane function to be installed and healthy"
                     return hs
 
               # Expose argocd-server via NGINX Ingress for Web UI and CLI access
@@ -153,8 +153,8 @@ spec:
                   ingressClassName: nginx
                   annotations:
                     cert-manager.io/cluster-issuer: letsencrypt-prod
-                    nginx.ingress.kubernetes.io/ssl-redirect: \"true\"
-                    nginx.ingress.kubernetes.io/backend-protocol: \"HTTPS\"
+                    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+                    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
                   hostname: argocd.nutgraf.in
                   tls:
                     - hosts:
@@ -429,8 +429,8 @@ spec:
             directoryInclude: ''
             helmValues: |
               tcp:
-                8443: \"platform-ops/argocd-agent-principal:443\"
-                7422: \"platform-messaging/nats:7422\"
+                8443: "platform-ops/argocd-agent-principal:443"
+                7422: "platform-messaging/nats:7422"
               controller:
                 admissionWebhooks:
                   enabled: false
@@ -438,9 +438,9 @@ spec:
                   type: LoadBalancer
                   annotations:
                     load-balancer.hetzner.cloud/location: fsn1
-                    external-dns.alpha.kubernetes.io/hostname: \"argocd-principal.nutgraf.in\"
+                    external-dns.alpha.kubernetes.io/hostname: "argocd-principal.nutgraf.in"
                 extraArgs:
-                  enable-ssl-passthrough: \"true\"
+                  enable-ssl-passthrough: "true"
             helmReleaseName: ''
   template:
     metadata:
