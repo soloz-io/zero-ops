@@ -19,7 +19,9 @@ HUB_BINARY="$ZERO_OPS_DIR/bin/hub"
 BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 
 # Defaults (overridable via flags)
-CLUSTER_NAME="${CLUSTER_NAME:-hub}"
+# Docker/local provider uses a fixed canonical cluster name. The state file
+# is the source of truth, so the cluster name must be stable across runs.
+CLUSTER_NAME="${CLUSTER_NAME:-hub-local}"
 PROVIDER="${PROVIDER:-local}"
 
 # Teardown existing cluster before bootstrap
@@ -455,6 +457,18 @@ step1_bootstrap_hub() {
             return
         fi
         log "Step 1: Bash state says done but Go bootstrap postboot not found — re-running hub bootstrap to resume"
+    fi
+
+    # Source of truth check: the Go state file at state/<name>.json is the
+    # single authoritative record of the bootstrap phase. If it shows the
+    # bootstrap is complete, skip — even when the bash state cache is empty
+    # (e.g. after a direct `hub bootstrap` CLI run, or a stale cache).
+    if [[ -f "$go_state_file" ]] && grep -q '"complete"' "$go_state_file"; then
+        log "Step 1: Hub bootstrap already completed (state file: $go_state_file), skipping"
+        read_kubeconfig_from_state
+        # Mirror to bash state so downstream steps see consistent step tracking
+        mark_step_completed "bootstrap_hub"
+        return
     fi
 
     log "Step 1: Bootstrapping Hub Cluster..."
@@ -961,6 +975,16 @@ main() {
 
     if [[ "$PROVIDER" != "hetzner" && "$PROVIDER" != "local" ]]; then
         error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'local')"
+    fi
+
+    # Docker provider uses a fixed cluster name. The Go state file at
+    # .zero-ops/state/<name>.json is the single source of truth, so the
+    # name must be deterministic. Override any user-supplied --name.
+    if [[ "$PROVIDER" == "local" ]]; then
+        if [[ "$CLUSTER_NAME" != "hub-local" ]]; then
+            log "Docker provider uses fixed cluster name 'hub-local' (overriding '$CLUSTER_NAME')"
+        fi
+        CLUSTER_NAME="hub-local"
     fi
 
     log "Starting Zero-Ops Hub Bootstrap Process"

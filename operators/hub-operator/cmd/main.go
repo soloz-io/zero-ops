@@ -254,7 +254,12 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	// Load provider registry ConfigMap before registering SpokePool webhooks
-	if err := hubwebhook.LoadProviderRegistry(ctrl.SetupSignalHandler(), mgr.GetClient()); err != nil {
+	// Use the uncached client because the manager's cache is not started yet,
+	// and call SetupSignalHandler() exactly once (it closes a package-level
+	// channel on first call; second call would panic with "close of closed
+	// channel").
+	ctx := ctrl.SetupSignalHandler()
+	if err := hubwebhook.LoadProviderRegistry(ctx, uncachedClient); err != nil {
 		setupLog.Error(err, "Failed to load provider registry — SpokePool webhooks disabled")
 	} else {
 		spokePoolGVK := &unstructured.Unstructured{}
@@ -276,7 +281,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
