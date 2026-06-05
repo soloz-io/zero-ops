@@ -431,21 +431,17 @@ step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
     local go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
     # Handle teardown-on-bootstrap: clean up existing cluster before starting
+    # State files are removed unconditionally to prevent stale state from
+    # skipping the bootstrap on re-run. If teardown fails (cluster gone etc.),
+    # the fresh bootstrap still proceeds from scratch.
     if [[ "$TEARDOWN" == "true" ]]; then
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
-        if "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm; then
-            log "✓ Cluster '${CLUSTER_NAME}' torn down successfully"
-            # Docker cleanup: prune images, containers, volumes, and build cache from kind
-            log "Cleaning up Docker resources (containers, volumes, networks, dangling images)..."
-            docker system prune -f --volumes 2>/dev/null || true
-            log "✓ Docker cleanup complete"
-            # Reset bootstrap state so all steps re-run
-            rm -f "$BOOTSTRAP_STATE_FILE"
-            rm -f "$go_state_file"
-            log "✓ Bootstrap state reset for fresh start"
-        else
-            log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
-        fi
+        "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
+        log "Cleanup: removing stale bootstrap state..."
+        docker system prune -f --volumes 2>/dev/null || true
+        rm -f "$BOOTSTRAP_STATE_FILE"
+        rm -f "$go_state_file"
+        log "✓ Bootstrap state reset for fresh start"
         sleep 10  # let the smoke clear
     fi
 
