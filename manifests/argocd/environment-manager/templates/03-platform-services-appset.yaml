@@ -446,7 +446,11 @@ spec:
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
         directory:
-          recurse: '{{"{{"}} eq .directoryRecurse "true" {{"}}"}}'
+          #{{"{{"}} if eq .directoryRecurse "true" {{"}}"}}
+          recurse: true
+          #{{"{{"}} else {{"}}"}}
+          recurse: false
+          #{{"{{"}} end {{"}}"}}
           include: '{{"{{"}} .directoryInclude {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'

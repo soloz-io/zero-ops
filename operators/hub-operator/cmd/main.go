@@ -27,9 +27,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,12 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/controller"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
-	hubwebhook "github.com/soloz-io/zero-ops/operators/hub-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -253,23 +249,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	// Load provider registry ConfigMap before registering SpokePool webhooks
-	// Use the uncached client because the manager's cache is not started yet,
-	// and call SetupSignalHandler() exactly once (it closes a package-level
-	// channel on first call; second call would panic with "close of closed
-	// channel").
 	ctx := ctrl.SetupSignalHandler()
-	if err := hubwebhook.LoadProviderRegistry(ctx, uncachedClient); err != nil {
-		setupLog.Error(err, "Failed to load provider registry — SpokePool webhooks disabled")
-	} else {
-		spokePoolGVK := &unstructured.Unstructured{}
-		spokePoolGVK.SetGroupVersionKind(schema.FromAPIVersionAndKind("nutgraf.in/v1alpha1", "SpokePool"))
-		mgr.GetWebhookServer().Register("/mutate-nutgraf-in-v1alpha1-spokepool",
-			admission.WithCustomDefaulter(mgr.GetScheme(), spokePoolGVK, &hubwebhook.SpokePoolDefaulter{}))
-		mgr.GetWebhookServer().Register("/validate-nutgraf-in-v1alpha1-spokepool",
-			admission.WithCustomValidator(mgr.GetScheme(), spokePoolGVK, &hubwebhook.SpokePoolValidator{}))
-		setupLog.Info("SpokePool admission webhooks registered")
-	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
