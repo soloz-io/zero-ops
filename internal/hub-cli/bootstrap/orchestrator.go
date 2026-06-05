@@ -668,7 +668,7 @@ func (o *Orchestrator) waitForCRDs(ctx context.Context, kubeconfig string) error
 		"externalsecrets.external-secrets.io",
 		"clusters.postgresql.cnpg.io",
 	}
-	deadline := time.Now().Add(5 * time.Minute)
+	deadline := time.Now().Add(10 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -708,7 +708,7 @@ func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig strin
 		"cnpg-system":             "app.kubernetes.io/name=cloudnative-pg",
 		"platform-ops":            "app.kubernetes.io/name=external-secrets",
 	}
-	deadline := time.Now().Add(5 * time.Minute)
+	deadline := time.Now().Add(15 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
