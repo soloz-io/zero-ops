@@ -1,1 +1,1 @@
-{"completedSteps": []}
+{"completedSteps": ["bootstrap_hub","configure_aws_secrets","configure_github","wait_namespaces","init_secrets","wait_infisical","configure_eso","wait_database"]}
