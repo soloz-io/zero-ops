@@ -72,13 +72,6 @@ spec:
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
-        directory:
-          #{{"{{"}} if eq .directoryRecurse "true" {{"}}"}}
-          recurse: true
-          #{{"{{"}} else {{"}}"}}
-          recurse: false
-          #{{"{{"}} end {{"}}"}}
-          include: '{{"{{"}} .directoryInclude {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'
@@ -93,3 +86,10 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+  templatePatch: |
+    {{"{{-"}} if .path {{"}}"}}
+    spec:
+      source:
+        directory:
+          recurse: {{"{{"}} eq .directoryRecurse "true" {{"}}"}}
+    {{"{{-"}} end {{"}}"}}
