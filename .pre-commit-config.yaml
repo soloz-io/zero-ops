@@ -20,3 +20,10 @@ repos:
         additional_dependencies: ['yamllint']
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
+      - id: yamllint-all
+        name: YAML Lint
+        entry: bash -c 'echo "$@" | xargs -r yamllint -c .yamllint.yaml' --
+        language: system
+        pass_filenames: true
+        types: [yaml]
+        files: '\.yaml$'

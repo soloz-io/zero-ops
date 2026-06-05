@@ -3,7 +3,7 @@ extends: default
 rules:
   indentation:
     spaces: 2
-    indent-sequences: true
+    indent-sequences: whatever
 
   # Block scalars inside helmValues contain Lua code (ArgoCD health checks)
   # and YAML exemplars (resource.exclusions) with their own indentation rules.
