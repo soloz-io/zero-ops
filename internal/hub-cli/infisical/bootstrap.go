@@ -410,6 +410,21 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 		fmt.Printf("[infisical-bootstrap] Project admin access granted: %s\n", strings.TrimSpace(grantOutput))
 	}
 
+	// 5. Grant org-level admin role (needed by cert-operator to create spoke identities)
+	orgGrantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathOrgIdentityMemberships, identityID)
+	orgGrantOutput, orgGrantErr := kubectlExec(ctx, podName,
+		"curl", "-s", "-X", "POST",
+		orgGrantURL,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", `{"roles":[{"role":"admin","isTemporary":false}]}`,
+	)
+	if orgGrantErr != nil {
+		fmt.Printf("[infisical-bootstrap] ⚠️  Org membership grant issue: %s\n", orgGrantErr)
+	} else {
+		fmt.Printf("[infisical-bootstrap] Org admin access granted: %s\n", strings.TrimSpace(orgGrantOutput))
+	}
+
 	return clientID, clientSecret, identityID, nil
 }
 
