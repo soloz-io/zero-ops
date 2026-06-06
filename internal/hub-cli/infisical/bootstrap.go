@@ -328,6 +328,27 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	return clientID, clientSecret, nil
 }
 
+// grantProjectAdminRole adds an identity to the project with the admin role.
+func grantProjectAdminRole(ctx context.Context, podName, adminJWT, projectID, identityID string) error {
+	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathProjectMembershipsIdentities, projectID, identityID)
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-X", "POST",
+		grantURL,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", `{"roles":[{"role":"admin"}]}`,
+	)
+	if err != nil {
+		return fmt.Errorf("curl failed: %w", err)
+	}
+	if strings.Contains(output, "Conflict") || strings.Contains(output, "already exists") {
+		fmt.Printf("[infisical-bootstrap] Instance Admin Identity already has project membership\n")
+		return nil
+	}
+	fmt.Printf("[infisical-bootstrap] Instance Admin Identity granted admin role on project\n")
+	return nil
+}
+
 // findIdentityByName looks up a Machine Identity by name within the organization.
 func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
@@ -529,9 +550,20 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 		return nil, err
 	}
 
+	// Grant project admin role to the Instance Admin Identity so it can perform API operations
+	// on the project (e.g., listing CAs, creating certificate profiles in Step 3.6).
+	if err := grantProjectAdminRole(ctx, podName, boot.Identity.Credentials.Token, projectID, boot.Identity.ID); err != nil {
+		return nil, fmt.Errorf("grant project admin to instance admin identity: %w", err)
+	}
+
 	clientID, clientSecret, err := createMachineIdentity(ctx, podName, boot.Identity.Credentials.Token, orgID, projectID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Automate Step 3.6: create argocd-bootstrap certificate profile
+	if err := ensureArgocdBootstrapProfile(ctx, podName, boot.Identity.Credentials.Token, projectID); err != nil {
+		return nil, fmt.Errorf("ensure argocd-bootstrap profile: %w", err)
 	}
 
 	fmt.Println("[infisical-bootstrap] ✅ Infisical Day-0 bootstrap complete")

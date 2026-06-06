@@ -14,5 +14,8 @@ const (
 	PathAuthUniversalAuthClientSecrets = "/api/v1/auth/universal-auth/identities/%s/client-secrets"
 	PathProjectMembershipsIdentities   = "/api/v1/projects/%s/memberships/identities/%s"
 	PathCertificateProfilesBySlug      = "/api/v1/cert-manager/certificate-profiles/slug/%s?projectId=%s"
+	PathCertificateAuthorities         = "/api/v1/cert-manager/ca"
+	PathCertificatePolicies            = "/api/v1/cert-manager/certificate-policies"
+	PathCertificateProfiles            = "/api/v1/cert-manager/certificate-profiles"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
 )

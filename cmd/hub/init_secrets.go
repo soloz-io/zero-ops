@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/infisical"
@@ -92,9 +91,10 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to bootstrap Infisical: %w", err)
 	}
 
-	// Step 3.6: Verify that the argocd-bootstrap cert-manager profile exists in Infisical.
+	// Step 3.6: Verify that the argocd-bootstrap certificate profile exists.
+	// Now auto-created in Step 3.5 — this is a quick verification.
 	printStepBanner("3.6", "Verify argocd-bootstrap certificate profile",
-		"Check that the argocd-bootstrap cert-manager profile exists in Infisical (required by cert-operator)", "Up to 10 minutes")
+		"Confirm the profile exists (auto-created in Step 3.5; required by cert-operator)", "Seconds")
 	podName, err := infisical.GetInfisicalPodName(ctx)
 	if err != nil {
 		return fmt.Errorf("cannot find Infisical pod: %w", err)
@@ -107,9 +107,14 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("find project %q: %w", infisical.ProjectSlug, err)
 	}
-	if err := infisical.WaitForCertificateProfile(ctx, podName, adminJWT, projectID, "argocd-bootstrap", 10*time.Minute); err != nil {
+	found, err := infisical.CheckCertificateProfile(ctx, podName, adminJWT, projectID, "argocd-bootstrap")
+	if err != nil {
 		return fmt.Errorf("certificate profile check failed: %w", err)
 	}
+	if !found {
+		return fmt.Errorf("argocd-bootstrap certificate profile not found — should have been created in Step 3.5")
+	}
+	fmt.Printf("[infisical-bootstrap] ✓ Certificate profile 'argocd-bootstrap' exists\n")
 
 	// Step 4: Generate secure passwords for platform database users (requires Infisical API)
 	printStepBanner("4", "Store platform database credentials in Infisical",
