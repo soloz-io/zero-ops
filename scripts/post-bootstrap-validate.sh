@@ -540,14 +540,14 @@ check_spoke() {
 
     local spokepool_ready
     spokepool_ready=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="CrossplaneAdminSecretGenerated")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
     local spokepool_synced
     spokepool_synced=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="CertificatesMinted")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || echo "Unknown")
     if [[ "$spokepool_ready" == "True" && "$spokepool_synced" == "True" ]]; then
         log_pass "SpokePool $SPOKEPOOL_NAME: Ready+Synced"
     else
-        log_fail "SpokePool $SPOKEPOOL_NAME: CrossplaneAdminSecretGenerated=$spokepool_ready CertificatesMinted=$spokepool_synced"
+        log_fail "SpokePool $SPOKEPOOL_NAME: Ready=$spokepool_ready Synced=$spokepool_synced"
     fi
 
     local capi_cluster_phase
@@ -559,14 +559,20 @@ check_spoke() {
         log_fail "CAPI Cluster $SPOKEPOOL_NAME: phase=$capi_cluster_phase"
     fi
 
-    # Certificate distributions
-    local cert_resources=(
-        "${SPOKEPOOL_NAME}-alloy-cert-dist"
-        "${SPOKEPOOL_NAME}-nats-cert-dist"
-        "${SPOKEPOOL_NAME}-argocd-cert-dist"
+    # Cert-operator PKI artifacts (replaces legacy function-cert-distribution)
+    # cert-operator watches SpokePool and creates machine-identity + bootstrap-cert Secrets
+    local pki_artifacts=(
+        "platform-capi:${SPOKEPOOL_NAME}-machine-identity"
+        "platform-capi:${SPOKEPOOL_NAME}-bootstrap-cert"
     )
-    for cert in "${cert_resources[@]}"; do
-        check_crossplane_object "platform-ops" "$cert"
+    for entry in "${pki_artifacts[@]}"; do
+        local ns="${entry%%:*}"
+        local name="${entry##*:}"
+        if kc get secret "$name" -n "$ns" >/dev/null 2>&1; then
+            log_pass "PKI artifact $ns/$name: Found"
+        else
+            log_fail "PKI artifact $ns/$name: Missing — check cert-operator logs"
+        fi
     done
 }
 

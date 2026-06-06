@@ -633,6 +633,16 @@ step5_init_secrets() {
 
     log "Step 5: Initializing bootstrap secrets..."
 
+    # Wait for Infisical deployment to be ready before init-secrets (per ADR-021)
+    log "Waiting for Infisical deployment to become ready..."
+    if kubectl wait --for=condition=Available deployment/infisical-standalone-infisical \
+        -n platform-security --timeout=300s --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+        log "✅ Infisical is healthy"
+    else
+        log "⚠️ Infisical did not become healthy within timeout"
+        log "The init-secrets step may fail; it can be re-run later"
+    fi
+
     # Initialize secrets first (this will create the infisical-secrets secret)
     log "Running: $HUB_BINARY init-secrets"
     "$HUB_BINARY" init-secrets \
@@ -858,46 +868,43 @@ step10_wait_spokepool() {
         log "⚠️ ProviderConfig not found (may be created by external controller, continuing...)"
     fi
 
-    # Step 10c: Wait for certificate distribution resources (with correct naming)
-    log "Step 10c: Checking certificate distribution resources..."
-    local cert_resources=(
-        "${SPOKEPOOL_NAME}-alloy-cert-dist"
-        "${SPOKEPOOL_NAME}-nats-cert-dist"
-        "${SPOKEPOOL_NAME}-argocd-cert-dist"
-    )
+    # Step 10c: Wait for cert-operator PKI artifacts (machine-identity + bootstrap-cert)
+    # Replaces legacy function-cert-distribution checks. cert-operator watches SpokePool
+    # and creates these Secrets in platform-capi for ClusterResourceSet consumption.
+    log "Step 10c: Waiting for cert-operator PKI artifacts..."
+    local pki_attempt=1
+    local pki_max_attempts=$((CERT_TIMEOUT / 10))
 
-    for cert_resource in "${cert_resources[@]}"; do
-        local cert_attempt=1
-        local cert_max_attempts=$((CERT_TIMEOUT / 10))  # Convert seconds to attempts
+    while [[ $pki_attempt -le $pki_max_attempts ]]; do
+        local identity_ready=false
+        local cert_ready=false
 
-        log "Checking certificate distribution: $cert_resource"
-
-        while [[ $cert_attempt -le $cert_max_attempts ]]; do
-            local cert_ready
-            cert_ready=$(kubectl get object "$cert_resource" -n "$SPOKEPOOL_NAMESPACE" \
-                --kubeconfig="$KUBECONFIG_PATH" \
-                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
-
-            local cert_synced
-            cert_synced=$(kubectl get object "$cert_resource" -n "$SPOKEPOOL_NAMESPACE" \
-                --kubeconfig="$KUBECONFIG_PATH" \
-                -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || echo "NotFound")
-
-            if [[ "$cert_ready" == "True" && "$cert_synced" == "True" ]]; then
-                log "✅ Certificate distribution ready: $cert_resource"
-                break
-            fi
-
-            log "Waiting for certificate distribution (attempt $cert_attempt/$cert_max_attempts): $cert_resource (Ready: $cert_ready, Synced: $cert_synced)"
-            sleep 10
-            ((cert_attempt++))
-        done
-
-        if [[ $cert_attempt -gt $cert_max_attempts ]]; then
-            log "❌ Certificate distribution did not become ready: $cert_resource"
-            error_exit "Certificate distribution timeout for $cert_resource"
+        if kubectl get secret "${SPOKEPOOL_NAME}-machine-identity" -n platform-capi \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            identity_ready=true
         fi
+
+        if kubectl get secret "${SPOKEPOOL_NAME}-bootstrap-cert" -n platform-capi \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            cert_ready=true
+        fi
+
+        if [[ "$identity_ready" == "true" && "$cert_ready" == "true" ]]; then
+            log "✅ cert-operator PKI artifacts ready"
+            break
+        fi
+
+        log "Waiting for cert-operator PKI (attempt $pki_attempt/$pki_max_attempts): machine-identity=$identity_ready bootstrap-cert=$cert_ready"
+        sleep 10
+        ((pki_attempt++))
     done
+
+    if [[ $pki_attempt -gt $pki_max_attempts ]]; then
+        log "❌ cert-operator PKI artifacts not created within timeout"
+        log "Check cert-operator pod logs in platform-ops namespace"
+        log "This may mean Infisical is unhealthy or the infisical-auth secret is missing"
+        error_exit "cert-operator PKI timeout"
+    fi
 
     # Step 10d: Verify certificates exist in target namespaces
     log "Step 10d: Verifying certificates in target namespaces..."
