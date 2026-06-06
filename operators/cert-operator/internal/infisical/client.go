@@ -230,13 +230,15 @@ func (c *Client) GetProfileIdBySlug(ctx context.Context, slug, projectID string)
 	}
 
 	var result struct {
-		ID string `json:"id"`
+		CertificateProfile struct {
+			ID string `json:"id"`
+		} `json:"certificateProfile"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("decode profile response: %w", err)
 	}
 
-	return result.ID, nil
+	return result.CertificateProfile.ID, nil
 }
 
 // GetOrCreateMachineIdentity finds or creates a Machine Identity in Infisical.
