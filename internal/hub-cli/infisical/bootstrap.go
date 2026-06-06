@@ -28,11 +28,38 @@ type BootstrapResult struct {
 	ClientSecret string
 }
 
+// bootstrapOutput maps the actual `infisical bootstrap --output json` response.
+// Verified on 2026-06-06 against Infisical OSS v0.93.x:
+//
+//	{
+//	  "message": "Successfully bootstrapped instance",
+//	  "identity": {
+//	    "id": "<uuid>",
+//	    "name": "Instance Admin Identity",
+//	    "credentials": { "token": "<jwt>" }
+//	  },
+//	  "organization": {
+//	    "id": "<uuid>",
+//	    "name": "Zero-Ops",
+//	    "slug": "zero-ops",
+//	    "defaultMembershipRole": "admin",
+//	    "authEnforced": false,
+//	    "scimEnabled": true
+//	  }
+//	}
 type bootstrapOutput struct {
-	AdminEmail       string `json:"adminEmail"`
-	AdminJWT         string `json:"adminJwt"`
-	OrganizationID   string `json:"organizationId"`
-	OrganizationName string `json:"organizationName"`
+	Message      string `json:"message"`
+	Identity     struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Credentials struct {
+			Token string `json:"token"`
+		} `json:"credentials"`
+	} `json:"identity"`
+	Organization struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"organization"`
 }
 
 type createProjectResponse struct {
@@ -56,9 +83,7 @@ type attachUniversalAuthResponse struct {
 }
 
 type createClientSecretResponse struct {
-	ClientSecret struct {
-		ClientSecret string `json:"clientSecret"`
-	} `json:"clientSecret"`
+	ClientSecret string `json:"clientSecret"`
 }
 
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
@@ -74,7 +99,7 @@ func kubectlExec(ctx context.Context, podName string, args ...string) (string, e
 	return strings.TrimSpace(string(output)), nil
 }
 
-func getInfisicalPodName(ctx context.Context) (string, error) {
+func GetInfisicalPodName(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "kubectl", "get", "pods", "-n", infisicalNamespace,
 		"-l", "app=infisical-standalone,component=infisical",
 		"-o", "jsonpath={.items[0].metadata.name}")
@@ -104,47 +129,41 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 		return nil, fmt.Errorf("infisical bootstrap failed: %w", err)
 	}
 
+	// The CLI may return empty output on first call (stderr-only progress) or
+	// on success when already bootstrapped. If empty, run again with --output json.
+	if output == "" {
+		output, err = kubectlExec(ctx, podName,
+			"infisical", "bootstrap",
+			"--email", adminEmail,
+			"--password", adminPassword,
+			"--organization", orgName,
+			"--domain", "http://localhost:"+infisicalPort,
+			"--ignore-if-bootstrapped",
+			"--output", "json",
+			"--silent",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("infisical bootstrap (retry) failed: %w", err)
+		}
+		if output == "" {
+			return nil, fmt.Errorf("infisical bootstrap returned empty output on retry")
+		}
+	}
+
 	var result bootstrapOutput
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse infisical bootstrap output: %w\noutput: %s", err, output)
 	}
 
-	if result.AdminJWT == "" || result.OrganizationID == "" {
-		return nil, fmt.Errorf("infisical bootstrap returned incomplete output: %s", output)
+	if result.Identity.Credentials.Token == "" {
+		return nil, fmt.Errorf("infisical bootstrap returned no identity token: %s", output)
+	}
+	if result.Organization.ID == "" {
+		return nil, fmt.Errorf("infisical bootstrap returned no organization ID: %s", output)
 	}
 
-	fmt.Printf("[infisical-bootstrap] Bootstrap complete: org=%s (%s)\n", result.OrganizationName, result.OrganizationID)
+	fmt.Printf("[infisical-bootstrap] Bootstrap complete: org=%s (%s)\n", result.Organization.Name, result.Organization.ID)
 	return &result, nil
-}
-
-func getOrganizations(ctx context.Context, podName, adminJWT string) (string, error) {
-	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "GET",
-		"http://localhost:"+infisicalPort+"/api/v1/organizations",
-		"-H", "Authorization: Bearer "+adminJWT,
-	)
-	if err != nil {
-		return "", fmt.Errorf("get organizations failed: %w", err)
-	}
-
-	var orgsResp struct {
-		Organizations []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"organizations"`
-	}
-	if err := json.Unmarshal([]byte(output), &orgsResp); err != nil {
-		return "", fmt.Errorf("failed to parse organizations response: %w\nresponse: %s", err, output)
-	}
-
-	for _, org := range orgsResp.Organizations {
-		if org.Name == orgName {
-			fmt.Printf("[infisical-bootstrap] Found organization: %s (id=%s)\n", org.Name, org.ID)
-			return org.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("organization '%s' not found — bootstrap may not have completed", orgName)
 }
 
 func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
@@ -160,20 +179,46 @@ func createProject(ctx context.Context, podName, adminJWT string) (string, strin
 		return "", "", fmt.Errorf("create project failed: %w", err)
 	}
 
+	// 409 Conflict means project already exists — reconcile by fetching its ID
 	var projectResp createProjectResponse
 	if err := json.Unmarshal([]byte(output), &projectResp); err != nil {
 		return "", "", fmt.Errorf("failed to parse create project response: %w\nresponse: %s", err, output)
 	}
 	if projectResp.Project.ID == "" {
-		return "", "", fmt.Errorf("create project returned empty ID: %s", output)
+		// Could be a 409 — try listing projects to find the slug
+		listOut, listErr := kubectlExec(ctx, podName,
+			"curl", "-s",
+			"http://localhost:"+infisicalPort+"/api/v1/projects",
+			"-H", "Authorization: Bearer "+adminJWT,
+		)
+		if listErr != nil {
+			return "", "", fmt.Errorf("create project ambiguous (empty ID) and list failed: %w", listErr)
+		}
+		var listResp struct {
+			Projects []struct {
+				ID   string `json:"id"`
+				Slug string `json:"slug"`
+			} `json:"projects"`
+		}
+		if err := json.Unmarshal([]byte(listOut), &listResp); err != nil {
+			return "", "", fmt.Errorf("create project ambiguous (empty ID) and list parse failed: %w\ndata: %s", err, listOut)
+		}
+		for _, p := range listResp.Projects {
+			if p.Slug == projectName {
+				fmt.Printf("[infisical-bootstrap] Project already exists: %s (id=%s)\n", p.Slug, p.ID)
+				return p.ID, p.Slug, nil
+			}
+		}
+		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", projectName)
 	}
 
 	fmt.Printf("[infisical-bootstrap] Project created: %s (id=%s)\n", projectResp.Project.Slug, projectResp.Project.ID)
 	return projectResp.Project.ID, projectResp.Project.Slug, nil
 }
 
-func createMachineIdentity(ctx context.Context, podName, adminJWT, projectID string) (string, string, error) {
-	body := fmt.Sprintf(`{"name":"%s"}`, identityName)
+func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projectID string) (string, string, error) {
+	// 1. Create the Machine Identity
+	body := fmt.Sprintf(`{"name":"%s","organizationId":"%s"}`, identityName, orgID)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
 		"http://localhost:"+infisicalPort+"/api/v1/identities",
@@ -191,20 +236,26 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, projectID str
 	}
 	identityID := identityResp.Identity.ID
 	if identityID == "" {
-		return "", "", fmt.Errorf("create identity returned empty ID: %s", output)
+		// Identity may already exist — try finding it by name
+		found, findErr := findIdentityByName(ctx, podName, adminJWT, identityName, orgID)
+		if findErr != nil {
+			return "", "", fmt.Errorf("create identity returned empty ID and lookup failed: %w", findErr)
+		}
+		identityID = found
 	}
-	fmt.Printf("[infisical-bootstrap] Machine Identity created: id=%s\n", identityID)
+	fmt.Printf("[infisical-bootstrap] Machine Identity: id=%s\n", identityID)
 
-	uaBody := `{"clientId":"","clientSecretTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"}]}`
-	uaOutput, err := kubectlExec(ctx, podName,
+	// 2. Attach Universal Auth (correct path: /api/v1/auth/universal-auth/identities/{id})
+	uaBody := `{"clientSecretTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTTL":2592000,"accessTokenMaxTTL":2592000}`
+	uaOutput, uaErr := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/identities/"+identityID+"/universal-auth",
+		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", uaBody,
 	)
-	if err != nil {
-		return "", "", fmt.Errorf("attach universal auth failed: %w", err)
+	if uaErr != nil {
+		return "", "", fmt.Errorf("attach universal auth failed: %w", uaErr)
 	}
 
 	var authResp attachUniversalAuthResponse
@@ -213,15 +264,22 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, projectID str
 	}
 	clientID := authResp.IdentityUniversalAuth.ClientID
 	if clientID == "" {
-		return "", "", fmt.Errorf("attach universal auth returned empty clientId: %s", uaOutput)
+		// UA may already be configured — try fetching it
+		existingUA, getErr := getUniversalAuth(ctx, podName, adminJWT, identityID)
+		if getErr != nil {
+			return "", "", fmt.Errorf("attach universal auth returned empty clientId and GET failed: %w", getErr)
+		}
+		clientID = existingUA
 	}
-	fmt.Printf("[infisical-bootstrap] Universal Auth attached: clientId=%s\n", clientID)
+	fmt.Printf("[infisical-bootstrap] Universal Auth: clientId=%s\n", clientID)
 
+	// 3. Generate client secret (correct path: /api/v1/auth/universal-auth/identities/{id}/client-secrets)
 	csOutput, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/identities/"+identityID+"/universal-auth/client-secrets",
+		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID+"/client-secrets",
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", `{"numUsesLimit":0,"ttl":0}`,
 	)
 	if err != nil {
 		return "", "", fmt.Errorf("generate client secret failed: %w", err)
@@ -231,12 +289,13 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, projectID str
 	if err := json.Unmarshal([]byte(csOutput), &secretResp); err != nil {
 		return "", "", fmt.Errorf("failed to parse client secret response: %w\nresponse: %s", err, csOutput)
 	}
-	clientSecret := secretResp.ClientSecret.ClientSecret
+	clientSecret := secretResp.ClientSecret
 	if clientSecret == "" {
-		return "", "", fmt.Errorf("generate client secret returned empty secret: %s", csOutput)
+		return "", "", fmt.Errorf("generate client secret returned empty: %s", csOutput)
 	}
 	fmt.Printf("[infisical-bootstrap] Client secret generated\n")
 
+	// 4. Grant project admin role
 	grantOutput, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
 		"http://localhost:"+infisicalPort+"/api/v1/projects/"+projectID+"/memberships/identities/"+identityID,
@@ -253,10 +312,157 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, projectID str
 	return clientID, clientSecret, nil
 }
 
+// findIdentityByName looks up a Machine Identity by name within the organization.
+func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID string) (string, error) {
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s",
+		fmt.Sprintf("http://localhost:%s/api/v1/identities?limit=100&orgId=%s", infisicalPort, orgID),
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
+	if err != nil {
+		return "", fmt.Errorf("list identities failed: %w", err)
+	}
+
+	var listResp struct {
+		Identities []struct {
+			Identity struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"identity"`
+		} `json:"identities"`
+	}
+	if err := json.Unmarshal([]byte(output), &listResp); err != nil {
+		return "", fmt.Errorf("parse identities list: %w\nresponse: %s", err, output)
+	}
+
+	for _, item := range listResp.Identities {
+		if item.Identity.Name == name {
+			return item.Identity.ID, nil
+		}
+	}
+	return "", fmt.Errorf("identity '%s' not found in org %s", name, orgID)
+}
+
+// getUniversalAuth retrieves the clientId from the Universal Auth configuration.
+func getUniversalAuth(ctx context.Context, podName, adminJWT, identityID string) (string, error) {
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s",
+		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID,
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
+	if err != nil {
+		return "", fmt.Errorf("get universal auth failed: %w", err)
+	}
+
+	var uaResp struct {
+		IdentityUniversalAuth struct {
+			ClientID string `json:"clientId"`
+		} `json:"identityUniversalAuth"`
+	}
+	if err := json.Unmarshal([]byte(output), &uaResp); err != nil {
+		return "", fmt.Errorf("parse universal auth: %w\nresponse: %s", err, output)
+	}
+	if uaResp.IdentityUniversalAuth.ClientID == "" {
+		return "", fmt.Errorf("universal auth has no clientId: %s", output)
+	}
+	return uaResp.IdentityUniversalAuth.ClientID, nil
+}
+
+// GetBootstrapToken re-runs the idempotent infisical bootstrap CLI and returns
+// the admin identity token + organization ID. Call this when you need a fresh
+// admin-scoped token for post-bootstrap health gates (e.g., cert-manager profile check).
+// The bootstrap is a no-op if already bootstrapped (--ignore-if-bootstrapped).
+func GetBootstrapToken(ctx context.Context, podName string) (adminJWT, orgID string, err error) {
+	boot, err := runBootstrap(ctx, podName)
+	if err != nil {
+		return "", "", err
+	}
+	return boot.Identity.Credentials.Token, boot.Organization.ID, nil
+}
+
+// CheckCertificateProfile verifies that a cert-manager profile exists in Infisical.
+// Uses the admin bootstrap token (not machine identity) because it has full admin scope.
+func CheckCertificateProfile(ctx context.Context, podName, adminJWT, orgID, slug string) (bool, error) {
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+		fmt.Sprintf("http://localhost:%s/api/v1/cert-manager/certificate-profiles/slug/%s?organizationId=%s",
+			infisicalPort, slug, orgID),
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
+	if err != nil {
+		return false, fmt.Errorf("check profile %s: %w", slug, err)
+	}
+	code := strings.TrimSpace(output)
+	if code == "200" {
+		return true, nil
+	}
+	if code == "404" {
+		return false, nil
+	}
+	return false, fmt.Errorf("unexpected status code %s checking profile %s", code, slug)
+}
+
+// WaitForCertificateProfile polls for the existence of a cert-manager profile.
+// If the profile is not found, it prints clear manual instructions for the UI step
+// and retries until the timeout expires.
+func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, orgID, slug string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	printed := false
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		found, err := CheckCertificateProfile(ctx, podName, adminJWT, orgID, slug)
+		if err != nil {
+			fmt.Printf("[infisical-bootstrap] ⚠️  Profile check error (retrying): %v\n", err)
+			time.Sleep(15 * time.Second)
+			continue
+		}
+		if found {
+			fmt.Printf("[infisical-bootstrap] ✓ Certificate profile '%s' found\n", slug)
+			return nil
+		}
+
+		if !printed {
+			fmt.Println()
+			fmt.Println("╔══════════════════════════════════════════════════════════════════════════╗")
+			fmt.Println("║  MANUAL ACTION REQUIRED:  Create the 'argocd-bootstrap' profile         ║")
+			fmt.Println("╚══════════════════════════════════════════════════════════════════════════╝")
+			fmt.Println()
+			fmt.Println("  1. Port-forward Infisical:")
+			fmt.Println("     kubectl port-forward -n platform-security \\")
+			fmt.Println("       svc/infisical-standalone-infisical 8080:8080")
+			fmt.Println()
+			fmt.Println("  2. Open http://localhost:8080 in your browser")
+			fmt.Println("  3. Log in as admin@nutgraf.in / secretzero123")
+			fmt.Println("  4. Navigate to: Certificates → Profiles → Create Profile")
+			fmt.Println("  5. Slug: argocd-bootstrap")
+			fmt.Println("  6. CA: Fleet Intermediate CA (NOT platform-db-ca — per ADR-035)")
+			fmt.Println("  7. Validity: 10 years")
+			fmt.Println("  8. Click 'Create'")
+			fmt.Println()
+			fmt.Println("  Waiting for profile to appear... (timeout: " + timeout.Round(time.Second).String() + ")")
+			printed = true
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(15 * time.Second):
+		}
+	}
+
+	return fmt.Errorf("timeout after %v waiting for certificate profile '%s' — create it in the Infisical UI, then re-run 'hub init-secrets'", timeout, slug)
+}
+
 func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 	fmt.Println("[infisical-bootstrap] Starting Infisical Day-0 bootstrap...")
 
-	podName, err := getInfisicalPodName(ctx)
+	podName, err := GetInfisicalPodName(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find Infisical pod: %w", err)
 	}
@@ -267,18 +473,15 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 		return nil, err
 	}
 
-	orgID, err := getOrganizations(ctx, podName, boot.AdminJWT)
-	if err != nil {
-		return nil, err
-	}
+	orgID := boot.Organization.ID
 	fmt.Printf("[infisical-bootstrap] Organization ID: %s\n", orgID)
 
-	projectID, projectSlug, err := createProject(ctx, podName, boot.AdminJWT)
+	projectID, projectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token)
 	if err != nil {
 		return nil, err
 	}
 
-	clientID, clientSecret, err := createMachineIdentity(ctx, podName, boot.AdminJWT, projectID)
+	clientID, clientSecret, err := createMachineIdentity(ctx, podName, boot.Identity.Credentials.Token, orgID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,3 +524,5 @@ func BootstrapInfisicalDayZeroWithRetry(ctx context.Context, timeout time.Durati
 
 	return nil, fmt.Errorf("infisical bootstrap failed after %v: %w", timeout, lastErr)
 }
+
+

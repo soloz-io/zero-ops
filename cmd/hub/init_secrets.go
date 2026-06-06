@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/infisical"
 	"github.com/spf13/cobra"
 )
 
@@ -79,20 +81,37 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	// Step 3.5: Automatically bootstrap Infisical (Org, Project, Machine Identity).
 	// This replaces the manual `hub configure-eso` step and the UI workflow.
 	// Creates infisical-auth Secret + patches hub-bootstrap-config ConfigMap.
-	fmt.Println("\n[Step 3.5/5] Bootstrapping Infisical (Org, Project, Machine Identity)...")
+	fmt.Println("\n[Step 3.5/6] Bootstrapping Infisical (Org, Project, Machine Identity)...")
 	if _, err := installer.InstallInfisicalAuthFromInfisical(ctx); err != nil {
 		return fmt.Errorf("failed to bootstrap Infisical: %w", err)
 	}
 
+	// Step 3.6: Verify that the argocd-bootstrap cert-manager profile exists in Infisical.
+	// The cert-operator needs this profile to mint bootstrap certificates for SpokePools.
+	// This step is a hard gate: the CLI blocks for up to 10 minutes with clear instructions
+	// for the platform admin to create the profile in the Infisical UI.
+	fmt.Println("\n[Step 3.6/6] Verifying argocd-bootstrap certificate profile...")
+	podName, err := infisical.GetInfisicalPodName(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot find Infisical pod: %w", err)
+	}
+	adminJWT, orgID, err := infisical.GetBootstrapToken(ctx, podName)
+	if err != nil {
+		return fmt.Errorf("get bootstrap admin token: %w", err)
+	}
+	if err := infisical.WaitForCertificateProfile(ctx, podName, adminJWT, orgID, "argocd-bootstrap", 10*time.Minute); err != nil {
+		return fmt.Errorf("certificate profile check failed: %w", err)
+	}
+
 	// Step 4: Generate secure passwords for platform database users (requires Infisical API)
-	fmt.Println("\n[Step 4/5] Storing platform database credentials in Infisical...")
+	fmt.Println("\n[Step 4/6] Storing platform database credentials in Infisical...")
 	changed3, err := installer.InstallPlatformDatabaseCredentials(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to install platform database credentials: %w", err)
 	}
 
 	// Step 5: Generate SPIRE Server database credentials (requires Infisical API)
-	fmt.Println("\n[Step 5/5] Storing SPIRE Server credentials in Infisical...")
+	fmt.Println("\n[Step 5/6] Storing SPIRE Server credentials in Infisical...")
 	changed4, err := installer.InstallSPIREServerCredentials(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to install SPIRE Server credentials: %w", err)
