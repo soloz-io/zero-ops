@@ -66,7 +66,7 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	if err := installer.WaitForInfisicalHealth(ctx); err != nil {
 		fmt.Println("⚠️  Warning: Infisical not yet healthy. Skipping credential storage in Infisical.")
 		fmt.Println("   Run 'hub init-secrets' again after Infisical pods are running.")
-		
+
 		// Still trigger pod restart if secrets changed
 		if changed1 || changed2 {
 			if err := installer.RestartPlatformWorkloads(ctx); err != nil {
@@ -76,12 +76,12 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Step 3.5: Wait for infisical-auth secret (Machine Identity credentials for Infisical API).
-	// Created by: hub configure-eso --infisical-client-id=... --infisical-client-secret=...
-	// Steps 4-5 need this to authenticate with the Infisical API and store platform credentials.
-	fmt.Println("\n[Step 3.5/5] Waiting for Infisical Machine Identity credentials (infisical-auth)...")
-	if err := installer.WaitForInfisicalAuth(ctx); err != nil {
-		return fmt.Errorf("infisical-auth secret not available: %w", err)
+	// Step 3.5: Automatically bootstrap Infisical (Org, Project, Machine Identity).
+	// This replaces the manual `hub configure-eso` step and the UI workflow.
+	// Creates infisical-auth Secret + patches hub-bootstrap-config ConfigMap.
+	fmt.Println("\n[Step 3.5/5] Bootstrapping Infisical (Org, Project, Machine Identity)...")
+	if _, err := installer.InstallInfisicalAuthFromInfisical(ctx); err != nil {
+		return fmt.Errorf("failed to bootstrap Infisical: %w", err)
 	}
 
 	// Step 4: Generate secure passwords for platform database users (requires Infisical API)

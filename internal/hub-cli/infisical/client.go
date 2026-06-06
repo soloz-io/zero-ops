@@ -45,14 +45,14 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	esoNamespace := constants.NamespaceOps
 	secret, err := clientset.CoreV1().Secrets(esoNamespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get infisical-auth secret: %w (run 'hub configure-eso' first)", err)
+		return nil, fmt.Errorf("failed to get infisical-auth secret: %w (run 'hub init-secrets' first)", err)
 	}
 
 	clientID := string(secret.Data["client-id"])
 	clientSecret := string(secret.Data["client-secret"])
 
 	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("infisical-auth secret missing client-id or client-secret (run 'hub configure-eso' first)")
+		return nil, fmt.Errorf("infisical-auth secret missing client-id or client-secret (run 'hub init-secrets' first)")
 	}
 
 	client := &Client{

@@ -4,10 +4,10 @@ import "github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 
 const (
 	// Infisical Service Configuration
-	InfisicalServiceName      = "platform-infisical-infisical-standalone-infisical"
+	InfisicalServiceName      = "infisical-standalone-infisical"
 	InfisicalServiceNamespace = "platform-security"
 	InfisicalServicePort      = 8080
-	InfisicalBaseURL          = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc.cluster.local:8080"
+	InfisicalBaseURL          = "http://infisical-standalone-infisical.platform-security.svc.cluster.local:8080"
 
 	// API Endpoints
 	APIEndpointLogin              = "/api/v3/auth/login"

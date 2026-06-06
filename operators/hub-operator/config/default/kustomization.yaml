@@ -70,7 +70,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: INFISICAL_BASE_URL
-        value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+        value: "http://infisical-standalone-infisical.platform-security.svc:8080"
   target:
     kind: Deployment
     name: hub-operator

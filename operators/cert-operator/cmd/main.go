@@ -66,7 +66,7 @@ func main() {
 		"If set the metrics endpoint is served securely")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.StringVar(&infisicalURL, "infisical-url", "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080",
+	flag.StringVar(&infisicalURL, "infisical-url", "http://infisical-standalone-infisical.platform-security.svc:8080",
 		"Infisical API base URL")
 	flag.StringVar(&bootstrapProfileSlug, "bootstrap-profile-slug", "",
 		"Infisical certificate profile slug for bootstrap certificates")

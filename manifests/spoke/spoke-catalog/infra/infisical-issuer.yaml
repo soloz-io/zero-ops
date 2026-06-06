@@ -28,7 +28,7 @@ spec:
         - --leader-election-namespace=cert-manager
         env:
         - name: INFISICAL_API_URL
-          value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+          value: "http://infisical-standalone-infisical.platform-security.svc:8080"
         - name: INFISICAL_CLIENT_ID
           valueFrom:
             secretKeyRef:

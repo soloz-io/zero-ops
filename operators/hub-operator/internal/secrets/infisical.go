@@ -41,7 +41,7 @@ type InfisicalClient struct {
 // NewInfisicalClient creates a new InfisicalClient from env-provided credentials.
 func NewInfisicalClient(baseURL, clientID, clientSecret, projectID, organizationID string) *InfisicalClient {
 	if baseURL == "" {
-		baseURL = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+		baseURL = "http://infisical-standalone-infisical.platform-security.svc:8080"
 	}
 	return &InfisicalClient{
 		BaseURL:         baseURL,

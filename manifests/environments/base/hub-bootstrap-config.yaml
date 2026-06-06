@@ -7,3 +7,4 @@ data:
   DOMAIN: ""
   CLUSTER_ID: ""
   INFISICAL_ENVIRONMENT_SLUG: ""
+  INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"

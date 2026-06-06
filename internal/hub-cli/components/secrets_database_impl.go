@@ -15,6 +15,84 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// InstallInfisicalAuthFromInfisical fully automates the Infisical Day-0 bootstrap:
+// 1. Runs `infisical bootstrap` via pod exec to create admin + org
+// 2. Creates the hub-platform project via REST API
+// 3. Creates a Machine Identity with Universal Auth + client secret
+// 4. Grants project admin role
+// 5. Creates the `infisical-auth` Secret in platform-ops
+// 6. Patches `hub-bootstrap-config` ConfigMap with OrgID, ProjectID, ProjectSlug
+func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool, error) {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	result, err := infisical.BootstrapInfisicalDayZeroWithRetry(ctx, 5*time.Minute)
+	if err != nil {
+		return false, fmt.Errorf("infisical bootstrap failed: %w", err)
+	}
+
+	fmt.Println("[bootstrap-secrets] Creating infisical-auth secret...")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-auth",
+			Namespace: constants.NamespaceOps,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"client-id":     result.ClientID,
+			"client-secret": result.ClientSecret,
+		},
+	}
+
+	_, err = clientset.CoreV1().Secrets(constants.NamespaceOps).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			_, err = clientset.CoreV1().Secrets(constants.NamespaceOps).Update(ctx, secret, metav1.UpdateOptions{})
+			if err != nil {
+				return false, fmt.Errorf("failed to update infisical-auth: %w", err)
+			}
+			fmt.Println("[bootstrap-secrets] ✓ infisical-auth secret updated")
+		} else {
+			return false, fmt.Errorf("failed to create infisical-auth: %w", err)
+		}
+	} else {
+		fmt.Println("[bootstrap-secrets] ✓ infisical-auth secret created")
+	}
+
+	fmt.Println("[bootstrap-secrets] Patching hub-bootstrap-config with OrgID/ProjectID...")
+	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get hub-bootstrap-config ConfigMap: %w", err)
+	}
+
+	if cm.Data == nil {
+		cm.Data = make(map[string]string)
+	}
+	cm.Data["INFISICAL_ORGANIZATION_ID"] = result.OrgID
+	cm.Data["INFISICAL_PROJECT_ID"] = result.ProjectID
+	cm.Data["INFISICAL_PROJECT_SLUG"] = result.ProjectSlug
+	cm.Data["INFISICAL_ENVIRONMENT_SLUG"] = "dev"
+
+	_, err = clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Update(ctx, cm, metav1.UpdateOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to update hub-bootstrap-config ConfigMap: %w", err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ hub-bootstrap-config patched with OrgID/ProjectID")
+
+	return true, nil
+}
+
 func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, error) {
 	// Load kubeconfig and create clientset
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
@@ -373,12 +451,8 @@ func (i *Installer) WaitForInfisicalAuth(ctx context.Context) error {
 
 		if !printed {
 			fmt.Println("\n⏳ Waiting for infisical-auth secret...")
-			fmt.Println("   ACTION REQUIRED: Open a new terminal and run:")
-			fmt.Println("   1. Create a Machine Identity in the Infisical UI (Access Control → Machine Identities)")
-			fmt.Println("   2. Run: hub configure-eso \\")
-			fmt.Println("          --infisical-client-id=<client-id> \\")
-			fmt.Println("          --infisical-client-secret=<client-secret> \\")
-			fmt.Println("          --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig")
+	fmt.Println("   NOTE: This secret is now auto-created by 'hub init-secrets' Step 3.5.")
+		fmt.Println("   Run: hub init-secrets --kubeconfig=<path>")
 			fmt.Println("   This process will continue automatically once the secret is created.")
 			printed = true
 		}
@@ -387,7 +461,7 @@ func (i *Installer) WaitForInfisicalAuth(ctx context.Context) error {
 		time.Sleep(checkInterval)
 	}
 
-	return fmt.Errorf("timeout after %v waiting for infisical-auth secret — run 'hub configure-eso' to create it", timeout)
+	return fmt.Errorf("timeout after %v waiting for infisical-auth secret — run 'hub init-secrets' to create it", timeout)
 }
 
 // WaitForInfisicalHealth waits for Infisical pods to become ready
