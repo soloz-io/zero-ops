@@ -51,7 +51,7 @@ func (p *LocalProvider) ProvisionDayZero(ctx context.Context, kubeconfig string)
 	// 1. Apply the local-path StorageClass aliased as "hcloud-volumes"
 	fmt.Println("[day0] Applying local-path StorageClass (hcloud-volumes)...")
 	applySC := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"apply", "-f", "manifests/providers/local/storage-class.yaml")
+		"apply", "-f", "manifests/providers/local/k8s/storage-class.yaml")
 	if out, err := applySC.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply StorageClass: %w\n%s", err, out)
 	}
