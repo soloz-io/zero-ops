@@ -130,14 +130,11 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 		"--domain", "http://localhost:"+infisicalPort,
 		"--ignore-if-bootstrapped",
 		"--output", "json",
-		"--silent",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("infisical bootstrap failed: %w", err)
 	}
 
-	// The CLI may return empty output on first call (stderr-only progress) or
-	// on success when already bootstrapped. If empty, run again with --output json.
 	if output == "" {
 		output, err = kubectlExec(ctx, podName,
 			"infisical", "bootstrap",
@@ -147,7 +144,6 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 			"--domain", "http://localhost:"+infisicalPort,
 			"--ignore-if-bootstrapped",
 			"--output", "json",
-			"--silent",
 		)
 		if err != nil {
 			return nil, fmt.Errorf("infisical bootstrap (retry) failed: %w", err)
