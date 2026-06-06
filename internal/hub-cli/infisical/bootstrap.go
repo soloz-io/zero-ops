@@ -178,6 +178,7 @@ func createProject(ctx context.Context, podName, adminJWT string) (string, strin
 	payload := map[string]any{
 		"projectName": ProjectSlug,
 		"slug":        ProjectSlug,
+		"type":        "cert-manager",
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
