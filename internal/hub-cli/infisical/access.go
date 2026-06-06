@@ -42,7 +42,6 @@ func GetAccessInfo(ctx context.Context) *AccessInfo {
 		PodName:    podName,
 	}
 
-	// 1. Ingress — probe for Infisical-related Ingress resources (browser-accessible)
 	if u, ok := probeIngress(ctx); ok {
 		info.Options = append(info.Options, AccessOption{
 			Name: "Ingress (direct browser access)",
@@ -51,7 +50,6 @@ func GetAccessInfo(ctx context.Context) *AccessInfo {
 		})
 	}
 
-	// 2. Port-forward — always available as fallback
 	info.Options = append(info.Options, AccessOption{
 		Name: "Port-forward (browser)",
 		URL:  "http://localhost:8080",
