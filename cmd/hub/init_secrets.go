@@ -99,9 +99,9 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("get bootstrap admin token: %w", err)
 	}
-	projectID, err := infisical.FindProjectBySlug(ctx, podName, adminJWT, "hub-platform")
+	projectID, err := infisical.FindProjectBySlug(ctx, podName, adminJWT, infisical.ProjectSlug)
 	if err != nil {
-		return fmt.Errorf("find project 'hub-platform': %w", err)
+		return fmt.Errorf("find project %q: %w", infisical.ProjectSlug, err)
 	}
 	if err := infisical.WaitForCertificateProfile(ctx, podName, adminJWT, projectID, "argocd-bootstrap", 10*time.Minute); err != nil {
 		return fmt.Errorf("certificate profile check failed: %w", err)

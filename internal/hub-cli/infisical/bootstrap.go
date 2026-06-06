@@ -13,7 +13,7 @@ const (
 	adminEmail    = "admin@nutgraf.in"
 	adminPassword = "secretzero123"
 	orgName       = "Zero-Ops"
-	projectName   = "hub-platform"
+
 	identityName  = "hub-platform-eso"
 
 	infisicalNamespace = "platform-security"
@@ -167,10 +167,10 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 }
 
 func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
-	body := fmt.Sprintf(`{"projectName":"%s"}`, projectName)
+	body := fmt.Sprintf(`{"ProjectSlug":"%s"}`, ProjectSlug)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/projects",
+		"http://localhost:"+infisicalPort+PathProjects,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", body,
@@ -188,7 +188,7 @@ func createProject(ctx context.Context, podName, adminJWT string) (string, strin
 		// Could be a 409 — try listing projects to find the slug
 		listOut, listErr := kubectlExec(ctx, podName,
 			"curl", "-s",
-			"http://localhost:"+infisicalPort+"/api/v1/projects",
+			"http://localhost:"+infisicalPort+PathProjects,
 			"-H", "Authorization: Bearer "+adminJWT,
 		)
 		if listErr != nil {
@@ -204,12 +204,12 @@ func createProject(ctx context.Context, podName, adminJWT string) (string, strin
 			return "", "", fmt.Errorf("create project ambiguous (empty ID) and list parse failed: %w\ndata: %s", err, listOut)
 		}
 		for _, p := range listResp.Projects {
-			if p.Slug == projectName {
+			if p.Slug == ProjectSlug {
 				fmt.Printf("[infisical-bootstrap] Project already exists: %s (id=%s)\n", p.Slug, p.ID)
 				return p.ID, p.Slug, nil
 			}
 		}
-		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", projectName)
+		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", ProjectSlug)
 	}
 
 	fmt.Printf("[infisical-bootstrap] Project created: %s (id=%s)\n", projectResp.Project.Slug, projectResp.Project.ID)
@@ -221,7 +221,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	body := fmt.Sprintf(`{"name":"%s","organizationId":"%s"}`, identityName, orgID)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/identities",
+		"http://localhost:"+infisicalPort+PathIdentities,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", body,
@@ -247,9 +247,10 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 
 	// 2. Attach Universal Auth (correct path: /api/v1/auth/universal-auth/identities/{id})
 	uaBody := `{"clientSecretTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTTL":2592000,"accessTokenMaxTTL":2592000}`
+	uaURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID)
 	uaOutput, uaErr := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID,
+		uaURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", uaBody,
@@ -274,9 +275,10 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	fmt.Printf("[infisical-bootstrap] Universal Auth: clientId=%s\n", clientID)
 
 	// 3. Generate client secret (correct path: /api/v1/auth/universal-auth/identities/{id}/client-secrets)
+	csURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathAuthUniversalAuthClientSecrets, identityID)
 	csOutput, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID+"/client-secrets",
+		csURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", `{"numUsesLimit":0,"ttl":0}`,
@@ -296,9 +298,10 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	fmt.Printf("[infisical-bootstrap] Client secret generated\n")
 
 	// 4. Grant project admin role
+	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathProjectMembershipsIdentities, projectID, identityID)
 	grantOutput, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+"/api/v1/projects/"+projectID+"/memberships/identities/"+identityID,
+		grantURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
 		"-d", `{"roles":[{"role":"admin"}]}`,
@@ -316,7 +319,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s",
-		fmt.Sprintf("http://localhost:%s/api/v1/identities?limit=100&orgId=%s", infisicalPort, orgID),
+		fmt.Sprintf("http://localhost:%s%s?limit=100&orgId=%s", infisicalPort, PathIdentities, orgID),
 		"-H", "Authorization: Bearer "+adminJWT,
 	)
 	if err != nil {
@@ -345,9 +348,10 @@ func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID stri
 
 // getUniversalAuth retrieves the clientId from the Universal Auth configuration.
 func getUniversalAuth(ctx context.Context, podName, adminJWT, identityID string) (string, error) {
+	uaURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s",
-		"http://localhost:"+infisicalPort+"/api/v1/auth/universal-auth/identities/"+identityID,
+		uaURL,
 		"-H", "Authorization: Bearer "+adminJWT,
 	)
 	if err != nil {
@@ -385,7 +389,7 @@ func GetBootstrapToken(ctx context.Context, podName string) (adminJWT, orgID str
 func FindProjectBySlug(ctx context.Context, podName, adminJWT, slug string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s",
-		"http://localhost:"+infisicalPort+"/api/v1/projects",
+		"http://localhost:"+infisicalPort+PathProjects,
 		"-H", "Authorization: Bearer "+adminJWT,
 	)
 	if err != nil {
@@ -413,10 +417,11 @@ func FindProjectBySlug(ctx context.Context, podName, adminJWT, slug string) (str
 // The projectId query parameter is required by Infisical OSS to scope the lookup
 // (source: certificate-profiles-router.ts:461).
 func CheckCertificateProfile(ctx context.Context, podName, adminJWT, projectID, slug string) (bool, error) {
+	profilePath := fmt.Sprintf(PathCertificateProfilesBySlug, slug, projectID)
+	profileURL := "http://localhost:" + infisicalPort + profilePath
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-		fmt.Sprintf("http://localhost:%s/api/v1/cert-manager/certificate-profiles/slug/%s?projectId=%s",
-			infisicalPort, slug, projectID),
+		profileURL,
 		"-H", "Authorization: Bearer "+adminJWT,
 	)
 	if err != nil {

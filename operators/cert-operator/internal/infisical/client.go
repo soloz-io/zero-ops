@@ -61,7 +61,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		c.BaseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+		c.BaseURL+PathAuthUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create login request: %w", err)
 	}
@@ -169,7 +169,7 @@ func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commo
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("%s/api/v1/cert-manager/certificates", c.BaseURL),
+		c.BaseURL+PathCertificates,
 		bytes.NewBuffer(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create issue cert request: %w", err)
@@ -211,7 +211,7 @@ func (c *Client) GetProfileIdBySlug(ctx context.Context, slug, projectID string)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("%s/api/v1/cert-manager/certificate-profiles/slug/%s?projectId=%s", c.BaseURL, slug, projectID), nil)
+		c.BaseURL+fmt.Sprintf(PathCertificateProfilesBySlug, slug, projectID), nil)
 	if err != nil {
 		return "", fmt.Errorf("create get profile request: %w", err)
 	}
@@ -292,7 +292,7 @@ func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, 
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("%s/api/v1/projects/%s/memberships/identities/%s", c.BaseURL, projectID, identityID),
+		c.BaseURL+fmt.Sprintf(PathProjectMembershipsIdentities, projectID, identityID),
 		bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("create grant access request: %w", err)
@@ -327,7 +327,7 @@ func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, 
 
 func (c *Client) findIdentityByName(ctx context.Context, name, orgID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("%s/api/v1/identities?limit=100&orgId=%s", c.BaseURL, orgID), nil)
+		fmt.Sprintf("%s%s?limit=100&orgId=%s", c.BaseURL, PathIdentities, orgID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +371,7 @@ type universalAuthResponse struct {
 
 func (c *Client) getUniversalAuth(ctx context.Context, identityID string) (*universalAuthResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("%s/api/v1/auth/universal-auth/identities/%s", c.BaseURL, identityID), nil)
+		c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (c *Client) createIdentity(ctx context.Context, name, orgID string) (string
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("%s/api/v1/identities", c.BaseURL), bytes.NewBuffer(body))
+		c.BaseURL+PathIdentities, bytes.NewBuffer(body))
 	if err != nil {
 		return "", err
 	}
@@ -453,7 +453,7 @@ func (c *Client) attachUniversalAuth(ctx context.Context, identityID string) err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("%s/api/v1/auth/universal-auth/identities/%s", c.BaseURL, identityID),
+		c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID),
 		bytes.NewBuffer(body))
 	if err != nil {
 		return err
@@ -499,7 +499,7 @@ func (c *Client) generateClientSecret(ctx context.Context, identityID string) (s
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("%s/api/v1/auth/universal-auth/identities/%s/client-secrets", c.BaseURL, identityID),
+		c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthClientSecrets, identityID),
 		bytes.NewBuffer(body))
 	if err != nil {
 		return "", err

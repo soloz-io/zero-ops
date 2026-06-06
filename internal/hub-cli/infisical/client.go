@@ -77,7 +77,7 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 // getWorkspaceIdFromSlug converts projectSlug to workspaceId by querying Infisical API
 func (c *Client) getWorkspaceIdFromSlug(ctx context.Context, projectSlug string) (string, error) {
 	// List all workspaces and find the one matching the slug
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/workspace", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+PathWorkspace, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -127,7 +127,7 @@ func (c *Client) authenticate(ctx context.Context, clientID, clientSecret string
 		return fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+PathAuthUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -180,8 +180,8 @@ func (c *Client) CreateOrUpdateSecret(ctx context.Context, projectSlug, environm
 
 // secretExists checks if a secret already exists
 func (c *Client) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.baseURL, key, workspaceId, environmentSlug, secretPath)
+	url := fmt.Sprintf("%s%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, fmt.Sprintf(PathSecretsRaw, key), workspaceId, environmentSlug, secretPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -224,7 +224,7 @@ func (c *Client) createSecret(ctx context.Context, workspaceId, environmentSlug,
 		return fmt.Errorf("failed to marshal create request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v3/secrets/raw/"+key, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+fmt.Sprintf(PathSecretsRaw, key), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -261,7 +261,7 @@ func (c *Client) updateSecret(ctx context.Context, workspaceId, environmentSlug,
 		return fmt.Errorf("failed to marshal update request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PATCH", c.baseURL+"/api/v3/secrets/raw/"+key, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", c.baseURL+fmt.Sprintf(PathSecretsRaw, key), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -290,7 +290,7 @@ func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*
 	if err != nil {
 		// Fallback to the correct hardcoded values from cluster-secret-store.yaml
 		return &Config{
-			ProjectSlug:     "hub-platform",
+			ProjectSlug:     ProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}
@@ -301,7 +301,7 @@ func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*
 
 	if projectSlug == "" || environmentSlug == "" {
 		return &Config{
-			ProjectSlug:     "hub-platform",
+			ProjectSlug:     ProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}
