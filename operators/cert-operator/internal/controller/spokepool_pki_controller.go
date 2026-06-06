@@ -95,8 +95,8 @@ func (r *SpokePKIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("INFISICAL_PROJECT_ID not configured")
 	}
 
-	// 3. Resolve profile slug to UUID (organizationId required by Infisical OSS)
-	profileId, err := r.InfisicalClient.GetProfileIdBySlug(ctx, profileSlug, orgID)
+	// 3. Resolve profile slug to UUID (projectId required by Infisical OSS)
+	profileId, err := r.InfisicalClient.GetProfileIdBySlug(ctx, profileSlug, projectID)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("resolve profile slug: %w", err)
 	}

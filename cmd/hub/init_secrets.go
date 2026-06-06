@@ -95,11 +95,15 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot find Infisical pod: %w", err)
 	}
-	adminJWT, orgID, err := infisical.GetBootstrapToken(ctx, podName)
+	adminJWT, _, err := infisical.GetBootstrapToken(ctx, podName)
 	if err != nil {
 		return fmt.Errorf("get bootstrap admin token: %w", err)
 	}
-	if err := infisical.WaitForCertificateProfile(ctx, podName, adminJWT, orgID, "argocd-bootstrap", 10*time.Minute); err != nil {
+	projectID, err := infisical.FindProjectBySlug(ctx, podName, adminJWT, "hub-platform")
+	if err != nil {
+		return fmt.Errorf("find project 'hub-platform': %w", err)
+	}
+	if err := infisical.WaitForCertificateProfile(ctx, podName, adminJWT, projectID, "argocd-bootstrap", 10*time.Minute); err != nil {
 		return fmt.Errorf("certificate profile check failed: %w", err)
 	}
 

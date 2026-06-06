@@ -202,15 +202,16 @@ func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commo
 }
 
 // GetProfileIdBySlug resolves a certificate profile slug to its UUID.
-// The organizationId query parameter is required by Infisical OSS to scope the lookup.
-func (c *Client) GetProfileIdBySlug(ctx context.Context, slug, orgID string) (string, error) {
+// The projectId query parameter is required by Infisical OSS to scope the lookup
+// (source: certificate-profiles-router.ts:461).
+func (c *Client) GetProfileIdBySlug(ctx context.Context, slug, projectID string) (string, error) {
 	token, err := c.getToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("authenticate: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("%s/api/v1/cert-manager/certificate-profiles/slug/%s?organizationId=%s", c.BaseURL, slug, orgID), nil)
+		fmt.Sprintf("%s/api/v1/cert-manager/certificate-profiles/slug/%s?projectId=%s", c.BaseURL, slug, projectID), nil)
 	if err != nil {
 		return "", fmt.Errorf("create get profile request: %w", err)
 	}

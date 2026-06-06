@@ -380,13 +380,43 @@ func GetBootstrapToken(ctx context.Context, podName string) (adminJWT, orgID str
 	return boot.Identity.Credentials.Token, boot.Organization.ID, nil
 }
 
+// FindProjectBySlug lists all Infisical projects and returns the UUID of the
+// one matching the given slug. Uses admin bootstrap token for auth.
+func FindProjectBySlug(ctx context.Context, podName, adminJWT, slug string) (string, error) {
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s",
+		"http://localhost:"+infisicalPort+"/api/v1/projects",
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
+	if err != nil {
+		return "", fmt.Errorf("list projects failed: %w", err)
+	}
+	var listResp struct {
+		Projects []struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal([]byte(output), &listResp); err != nil {
+		return "", fmt.Errorf("parse projects list: %w\nresponse: %s", err, output)
+	}
+	for _, p := range listResp.Projects {
+		if p.Slug == slug {
+			fmt.Printf("[infisical-bootstrap] Found project '%s' (id=%s)\n", p.Slug, p.ID)
+			return p.ID, nil
+		}
+	}
+	return "", fmt.Errorf("project '%s' not found", slug)
+}
+
 // CheckCertificateProfile verifies that a cert-manager profile exists in Infisical.
-// Uses the admin bootstrap token (not machine identity) because it has full admin scope.
-func CheckCertificateProfile(ctx context.Context, podName, adminJWT, orgID, slug string) (bool, error) {
+// The projectId query parameter is required by Infisical OSS to scope the lookup
+// (source: certificate-profiles-router.ts:461).
+func CheckCertificateProfile(ctx context.Context, podName, adminJWT, projectID, slug string) (bool, error) {
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-		fmt.Sprintf("http://localhost:%s/api/v1/cert-manager/certificate-profiles/slug/%s?organizationId=%s",
-			infisicalPort, slug, orgID),
+		fmt.Sprintf("http://localhost:%s/api/v1/cert-manager/certificate-profiles/slug/%s?projectId=%s",
+			infisicalPort, slug, projectID),
 		"-H", "Authorization: Bearer "+adminJWT,
 	)
 	if err != nil {
@@ -405,7 +435,7 @@ func CheckCertificateProfile(ctx context.Context, podName, adminJWT, orgID, slug
 // WaitForCertificateProfile polls for the existence of a cert-manager profile.
 // If the profile is not found, it prints clear manual instructions for the UI step
 // and retries until the timeout expires.
-func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, orgID, slug string, timeout time.Duration) error {
+func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, projectID, slug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	printed := false
 
@@ -416,7 +446,7 @@ func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, orgID, sl
 		default:
 		}
 
-		found, err := CheckCertificateProfile(ctx, podName, adminJWT, orgID, slug)
+		found, err := CheckCertificateProfile(ctx, podName, adminJWT, projectID, slug)
 		if err != nil {
 			fmt.Printf("[infisical-bootstrap] ⚠️  Profile check error (retrying): %v\n", err)
 			time.Sleep(15 * time.Second)
