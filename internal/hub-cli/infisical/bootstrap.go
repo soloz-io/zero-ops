@@ -175,7 +175,10 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 }
 
 func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
-	payload := map[string]string{"name": ProjectSlug}
+	payload := map[string]any{
+		"projectName": ProjectSlug,
+		"slug":        ProjectSlug,
+	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to marshal create project request: %w", err)
