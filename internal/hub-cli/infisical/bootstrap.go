@@ -20,6 +20,8 @@ const (
 	infisicalPort      = "8080"
 )
 
+var cachedBootstrap *bootstrapOutput
+
 type BootstrapResult struct {
 	OrgID        string
 	ProjectID    string
@@ -115,6 +117,11 @@ func GetInfisicalPodName(ctx context.Context) (string, error) {
 }
 
 func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error) {
+	if cachedBootstrap != nil {
+		fmt.Println("[infisical-bootstrap] Using cached bootstrap result")
+		return cachedBootstrap, nil
+	}
+
 	output, err := kubectlExec(ctx, podName,
 		"infisical", "bootstrap",
 		"--email", adminEmail,
@@ -162,8 +169,9 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 		return nil, fmt.Errorf("infisical bootstrap returned no organization ID: %s", output)
 	}
 
+	cachedBootstrap = &result
 	fmt.Printf("[infisical-bootstrap] Bootstrap complete: org=%s (%s)\n", result.Organization.Name, result.Organization.ID)
-	return &result, nil
+	return cachedBootstrap, nil
 }
 
 func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
