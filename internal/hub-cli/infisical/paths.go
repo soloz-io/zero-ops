@@ -3,7 +3,8 @@ package infisical
 // Infisical REST API path constants.
 // Source of truth: archived/identity-auth/infisical/backend/src/server/routes/v1/
 const (
-	ProjectSlug = "hub-platform"
+	ProjectSlug        = "hub-platform"
+	SecretsProjectSlug = "hub-secrets"
 
 	PathProjects                = "/api/v1/projects"
 	PathIdentities              = "/api/v1/identities"
@@ -17,5 +18,6 @@ const (
 	PathCertificateAuthorities         = "/api/v1/cert-manager/ca"
 	PathCertificatePolicies            = "/api/v1/cert-manager/certificate-policies"
 	PathCertificateProfiles            = "/api/v1/cert-manager/certificate-profiles"
+	PathCertificateAuthoritiesCreate   = "/api/v1/pki/ca"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
 )

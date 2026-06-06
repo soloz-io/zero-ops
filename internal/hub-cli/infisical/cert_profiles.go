@@ -46,9 +46,14 @@ func ensureArgocdBootstrapProfile(ctx context.Context, podName, adminJWT, projec
 		}
 	}
 	if fleetCAID == "" {
-		return fmt.Errorf("CA %q not found in project %s", fleetCAName, projectID)
+		fleetCAID, err = createFleetIntermediateCA(ctx, podName, adminJWT, projectID)
+		if err != nil {
+			return fmt.Errorf("create CA %q: %w", fleetCAName, err)
+		}
+		fmt.Printf("[infisical-bootstrap] Created CA %q: id=%s\n", fleetCAName, fleetCAID)
+	} else {
+		fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s\n", fleetCAName, fleetCAID)
 	}
-	fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s\n", fleetCAName, fleetCAID)
 
 	policyID, err := resolveCertificatePolicy(ctx, podName, adminJWT, projectID)
 	if err != nil {
@@ -183,4 +188,36 @@ func resolveCertificatePolicy(ctx context.Context, podName, adminJWT, projectID 
 	}
 	fmt.Printf("[infisical-bootstrap] Created policy: id=%s name=%s\n", policyID, policyName)
 	return policyID, nil
+}
+
+// createFleetIntermediateCA creates an intermediate CA named "Fleet Intermediate CA"
+// in the given project via POST /api/v1/pki/ca.
+func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID string) (string, error) {
+	body := fmt.Sprintf(
+		`{"projectSlug":"%s","type":"intermediate","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":0}`,
+		ProjectSlug, fleetCAName,
+	)
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-X", "POST",
+		"http://localhost:"+infisicalPort+PathCertificateAuthoritiesCreate,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", body,
+	)
+	if err != nil {
+		return "", fmt.Errorf("curl failed: %w", err)
+	}
+
+	var resp struct {
+		CA struct {
+			ID string `json:"id"`
+		} `json:"ca"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return "", fmt.Errorf("parse create CA response: %w\nresponse: %s", err, output)
+	}
+	if resp.CA.ID == "" {
+		return "", fmt.Errorf("create CA returned empty ID: %s", output)
+	}
+	return resp.CA.ID, nil
 }

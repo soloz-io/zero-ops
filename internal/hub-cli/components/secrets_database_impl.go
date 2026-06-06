@@ -82,6 +82,8 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 	cm.Data["INFISICAL_ORGANIZATION_ID"] = result.OrgID
 	cm.Data["INFISICAL_PROJECT_ID"] = result.ProjectID
 	cm.Data["INFISICAL_PROJECT_SLUG"] = result.ProjectSlug
+	cm.Data["INFISICAL_SECRETS_PROJECT_ID"] = result.SecretsProjectID
+	cm.Data["INFISICAL_SECRETS_PROJECT_SLUG"] = result.SecretsProjectSlug
 	cm.Data["INFISICAL_ENVIRONMENT_SLUG"] = "dev"
 
 	_, err = clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Update(ctx, cm, metav1.UpdateOptions{})

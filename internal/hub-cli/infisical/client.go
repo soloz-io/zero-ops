@@ -288,20 +288,23 @@ func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*
 	// Look for the correct ConfigMap in the correct namespace
 	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
 	if err != nil {
-		// Fallback to the correct hardcoded values from cluster-secret-store.yaml
+		// Fallback to hardcoded values
 		return &Config{
-			ProjectSlug:     ProjectSlug,
+			ProjectSlug:     SecretsProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}
 
-	// Use the correct keys from hub-bootstrap-config
-	projectSlug := cm.Data["INFISICAL_PROJECT_SLUG"]
+	// Use the secrets project slug for secret read/write operations
+	projectSlug := cm.Data["INFISICAL_SECRETS_PROJECT_SLUG"]
+	if projectSlug == "" {
+		projectSlug = cm.Data["INFISICAL_PROJECT_SLUG"]
+	}
 	environmentSlug := cm.Data["INFISICAL_ENVIRONMENT_SLUG"]
 
 	if projectSlug == "" || environmentSlug == "" {
 		return &Config{
-			ProjectSlug:     ProjectSlug,
+			ProjectSlug:     SecretsProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}

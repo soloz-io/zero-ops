@@ -20,13 +20,12 @@ func printStepBanner(section, title, goal, duration string) {
 func printManualActions(info *infisical.AccessInfo) {
 	fmt.Println()
 	fmt.Println("======================================================================")
-	fmt.Println("  MANUAL ACTION REQUIRED")
+	fmt.Println("  Infisical Platform — Access Information")
 	fmt.Println("======================================================================")
 	fmt.Println()
 
-	fmt.Println("  Step 1 — Open Infisical UI:")
+	fmt.Println("  Dashboard:")
 	fmt.Println()
-
 	for i, opt := range info.Options {
 		fmt.Printf("    %d. %s\n", i+1, opt.Name)
 		fmt.Printf("       %s\n", opt.URL)
@@ -36,25 +35,17 @@ func printManualActions(info *infisical.AccessInfo) {
 	}
 
 	fmt.Println()
-	fmt.Println("  Step 2 — Log in:")
+	fmt.Println("  Credentials:")
 	fmt.Printf("    Email:    %s\n", info.AdminEmail)
 	fmt.Printf("    Password: %s\n", info.Password)
 	fmt.Println()
 
-	fmt.Println("  Step 3 — Verify automated steps:")
-	fmt.Println()
-	fmt.Println("    A. Navigate to the hub-platform project and verify it exists.")
-	fmt.Println("       (Auto-created in Step 3.5)")
-	fmt.Println()
-	fmt.Println("    B. Navigate to Identities and verify Machine Identity exists.")
-	fmt.Println("       (Auto-created in Step 3.5)")
-	fmt.Println()
-	fmt.Println("    C. Click Certificates → Profiles and verify 'argocd-bootstrap' exists.")
-	fmt.Println("       (Auto-created in Step 3.5 — no manual action needed)")
-	fmt.Println()
-
-	fmt.Println("  After completing the steps above, re-run:")
-	fmt.Println("    $ hub init-secrets --kubeconfig=<path>")
+	fmt.Println("  Bootstrap summary:")
+	fmt.Println("    • Organization: Zero-Ops (auto-created)")
+	fmt.Println("    • Project (certs): hub-platform (auto-created, type: cert-manager)")
+	fmt.Println("    • Project (secrets): hub-secrets (auto-created, type: secret-manager)")
+	fmt.Println("    • Machine Identity: hub-platform-eso (auto-created, Universal Auth)")
+	fmt.Println("    • Certificate Profile: argocd-bootstrap (auto-created, CA: Fleet Intermediate CA)")
 	fmt.Println()
 	fmt.Println("======================================================================")
 	fmt.Println()

@@ -2,6 +2,7 @@ package infisical
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -23,11 +24,13 @@ const (
 var cachedBootstrap *bootstrapOutput
 
 type BootstrapResult struct {
-	OrgID        string
-	ProjectID    string
-	ProjectSlug  string
-	ClientID     string
-	ClientSecret string
+	OrgID              string
+	ProjectID          string
+	ProjectSlug        string
+	SecretsProjectID   string
+	SecretsProjectSlug string
+	ClientID           string
+	ClientSecret       string
 }
 
 // bootstrapOutput maps the actual `infisical bootstrap --output json` response.
@@ -88,6 +91,66 @@ type createClientSecretResponse struct {
 	ClientSecret string `json:"clientSecret"`
 }
 
+// resetBootstrapState clears the Infisical bootstrap state (user, project, super_admin)
+// and flushes the Redis cache so a fresh bootstrap can run.
+func resetBootstrapState(ctx context.Context, podName string) error {
+	dbPass, err := getK8sSecret(ctx, "platform-data", "infisical-db-credentials", "password")
+	if err != nil {
+		return fmt.Errorf("get DB password: %w", err)
+	}
+
+	sql := fmt.Sprintf(
+		"DELETE FROM users WHERE email='%s'; DELETE FROM projects WHERE slug='%s'; UPDATE super_admin SET initialized=false, \"adminIdentityIds\"=NULL;",
+		adminEmail, ProjectSlug,
+	)
+	// Escape inner double-quotes for the shell -c wrapper
+	escapedSQL := strings.ReplaceAll(sql, `"`, `\"`)
+	cleanupCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", "platform-data", "platform-db-1", "--",
+		"sh", "-c", fmt.Sprintf("PGSSLMODE=require psql 'postgres://infisical:%s@localhost/infisical' -c \"%s\"", dbPass, escapedSQL))
+	if out, err := cleanupCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("DB cleanup: %w\noutput: %s", err, out)
+	}
+
+	redisPass, err := getK8sSecret(ctx, "platform-data", "infisical-redis-credentials", "password")
+	if err != nil {
+		return fmt.Errorf("get Redis password: %w", err)
+	}
+
+	redisCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", "platform-data", "redis-master-0", "--",
+		"redis-cli", "-a", redisPass, "DEL", "infisical-admin-cfg")
+	if out, err := redisCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("Redis cleanup: %w\noutput: %s", err, out)
+	}
+
+	return nil
+}
+
+// getK8sSecret retrieves a base64-decoded value from a Kubernetes secret.
+func getK8sSecret(ctx context.Context, namespace, name, key string) (string, error) {
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "secret", "-n", namespace, name,
+		"-o", fmt.Sprintf("jsonpath={.data.%s}", key))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl get secret: %w\noutput: %s", err, out)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
+	if err != nil {
+		return "", fmt.Errorf("base64 decode: %w", err)
+	}
+	return string(decoded), nil
+}
+
+// stripCLIBanner strips CLI update-notification banners ("A new release...") from
+// the output. Returns the substring starting at the first '{', or empty string if
+// no JSON body is found.
+func stripCLIBanner(output string) string {
+	idx := strings.Index(output, "{")
+	if idx < 0 {
+		return ""
+	}
+	return output[idx:]
+}
+
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
 	cmdArgs := append([]string{
 		"exec", "-n", infisicalNamespace, "pod/" + podName,
@@ -116,12 +179,10 @@ func GetInfisicalPodName(ctx context.Context) (string, error) {
 	return name, nil
 }
 
-func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error) {
-	if cachedBootstrap != nil {
-		fmt.Println("[infisical-bootstrap] Using cached bootstrap result")
-		return cachedBootstrap, nil
-	}
-
+// runBootstrapCLI calls infisical bootstrap and returns the JSON output.
+// If the server is already bootstrapped (banner-only output), it auto-resets
+// the DB state and retries once.
+func runBootstrapCLI(ctx context.Context, podName string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"infisical", "bootstrap",
 		"--email", adminEmail,
@@ -132,37 +193,61 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 		"--output", "json",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("infisical bootstrap failed: %w", err)
+		return "", fmt.Errorf("infisical bootstrap failed: %w", err)
 	}
 
-	if output == "" {
-		output, err = kubectlExec(ctx, podName,
-			"infisical", "bootstrap",
-			"--email", adminEmail,
-			"--password", adminPassword,
-			"--organization", orgName,
-			"--domain", "http://localhost:"+infisicalPort,
-			"--ignore-if-bootstrapped",
-			"--output", "json",
-		)
-		if err != nil {
-			return nil, fmt.Errorf("infisical bootstrap (retry) failed: %w", err)
-		}
-		if output == "" {
-			return nil, fmt.Errorf("infisical bootstrap returned empty output on retry")
-		}
+	jsonOutput := stripCLIBanner(output)
+	if jsonOutput != "" {
+		return jsonOutput, nil
+	}
+
+	// Server already bootstrapped — auto-reset and retry once
+	fmt.Println("[infisical-bootstrap] Instance already bootstrapped, resetting...")
+	if err := resetBootstrapState(ctx, podName); err != nil {
+		return "", fmt.Errorf("reset bootstrap state: %w", err)
+	}
+
+	output, err = kubectlExec(ctx, podName,
+		"infisical", "bootstrap",
+		"--email", adminEmail,
+		"--password", adminPassword,
+		"--organization", orgName,
+		"--domain", "http://localhost:"+infisicalPort,
+		"--ignore-if-bootstrapped",
+		"--output", "json",
+	)
+	if err != nil {
+		return "", fmt.Errorf("infisical bootstrap (after reset) failed: %w", err)
+	}
+
+	jsonOutput = stripCLIBanner(output)
+	if jsonOutput == "" {
+		return "", fmt.Errorf("infisical bootstrap returned no JSON after reset: %s", output)
+	}
+	return jsonOutput, nil
+}
+
+func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error) {
+	if cachedBootstrap != nil {
+		fmt.Println("[infisical-bootstrap] Using cached bootstrap result")
+		return cachedBootstrap, nil
+	}
+
+	jsonOutput, err := runBootstrapCLI(ctx, podName)
+	if err != nil {
+		return nil, err
 	}
 
 	var result bootstrapOutput
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse infisical bootstrap output: %w\noutput: %s", err, output)
+	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse infisical bootstrap output: %w\noutput: %s", err, jsonOutput)
 	}
 
 	if result.Identity.Credentials.Token == "" {
-		return nil, fmt.Errorf("infisical bootstrap returned no identity token: %s", output)
+		return nil, fmt.Errorf("infisical bootstrap returned no identity token: %s", jsonOutput)
 	}
 	if result.Organization.ID == "" {
-		return nil, fmt.Errorf("infisical bootstrap returned no organization ID: %s", output)
+		return nil, fmt.Errorf("infisical bootstrap returned no organization ID: %s", jsonOutput)
 	}
 
 	cachedBootstrap = &result
@@ -170,11 +255,11 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 	return cachedBootstrap, nil
 }
 
-func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
+func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectType string) (string, string, error) {
 	payload := map[string]any{
-		"projectName": ProjectSlug,
-		"slug":        ProjectSlug,
-		"type":        "cert-manager",
+		"projectName": projectSlug,
+		"slug":        projectSlug,
+		"type":        projectType,
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -217,19 +302,19 @@ func createProject(ctx context.Context, podName, adminJWT string) (string, strin
 			return "", "", fmt.Errorf("create project ambiguous (empty ID) and list parse failed: %w\ndata: %s", err, listOut)
 		}
 		for _, p := range listResp.Projects {
-			if p.Slug == ProjectSlug {
+			if p.Slug == projectSlug {
 				fmt.Printf("[infisical-bootstrap] Project already exists: %s (id=%s)\n", p.Slug, p.ID)
 				return p.ID, p.Slug, nil
 			}
 		}
-		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", ProjectSlug)
+		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", projectSlug)
 	}
 
 	fmt.Printf("[infisical-bootstrap] Project created: %s (id=%s)\n", projectResp.Project.Slug, projectResp.Project.ID)
 	return projectResp.Project.ID, projectResp.Project.Slug, nil
 }
 
-func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projectID string) (string, string, error) {
+func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projectID string) (string, string, string, error) {
 	// 1. Create the Machine Identity
 	body := fmt.Sprintf(`{"name":"%s","organizationId":"%s"}`, identityName, orgID)
 	output, err := kubectlExec(ctx, podName,
@@ -240,19 +325,19 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 		"-d", body,
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("create identity failed: %w", err)
+		return "", "", "", fmt.Errorf("create identity failed: %w", err)
 	}
 
 	var identityResp createIdentityResponse
 	if err := json.Unmarshal([]byte(output), &identityResp); err != nil {
-		return "", "", fmt.Errorf("failed to parse create identity response: %w\nresponse: %s", err, output)
+		return "", "", "", fmt.Errorf("failed to parse create identity response: %w\nresponse: %s", err, output)
 	}
 	identityID := identityResp.Identity.ID
 	if identityID == "" {
 		// Identity may already exist — try finding it by name
 		found, findErr := findIdentityByName(ctx, podName, adminJWT, identityName, orgID)
 		if findErr != nil {
-			return "", "", fmt.Errorf("create identity returned empty ID and lookup failed: %w", findErr)
+			return "", "", "", fmt.Errorf("create identity returned empty ID and lookup failed: %w", findErr)
 		}
 		identityID = found
 	}
@@ -269,19 +354,19 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 		"-d", uaBody,
 	)
 	if uaErr != nil {
-		return "", "", fmt.Errorf("attach universal auth failed: %w", uaErr)
+		return "", "", "", fmt.Errorf("attach universal auth failed: %w", uaErr)
 	}
 
 	var authResp attachUniversalAuthResponse
 	if err := json.Unmarshal([]byte(uaOutput), &authResp); err != nil {
-		return "", "", fmt.Errorf("failed to parse universal auth response: %w\nresponse: %s", err, uaOutput)
+		return "", "", "", fmt.Errorf("failed to parse universal auth response: %w\nresponse: %s", err, uaOutput)
 	}
 	clientID := authResp.IdentityUniversalAuth.ClientID
 	if clientID == "" {
 		// UA may already be configured — try fetching it
 		existingUA, getErr := getUniversalAuth(ctx, podName, adminJWT, identityID)
 		if getErr != nil {
-			return "", "", fmt.Errorf("attach universal auth returned empty clientId and GET failed: %w", getErr)
+			return "", "", "", fmt.Errorf("attach universal auth returned empty clientId and GET failed: %w", getErr)
 		}
 		clientID = existingUA
 	}
@@ -297,16 +382,16 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 		"-d", `{"numUsesLimit":0,"ttl":0}`,
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("generate client secret failed: %w", err)
+		return "", "", "", fmt.Errorf("generate client secret failed: %w", err)
 	}
 
 	var secretResp createClientSecretResponse
 	if err := json.Unmarshal([]byte(csOutput), &secretResp); err != nil {
-		return "", "", fmt.Errorf("failed to parse client secret response: %w\nresponse: %s", err, csOutput)
+		return "", "", "", fmt.Errorf("failed to parse client secret response: %w\nresponse: %s", err, csOutput)
 	}
 	clientSecret := secretResp.ClientSecret
 	if clientSecret == "" {
-		return "", "", fmt.Errorf("generate client secret returned empty: %s", csOutput)
+		return "", "", "", fmt.Errorf("generate client secret returned empty: %s", csOutput)
 	}
 	fmt.Printf("[infisical-bootstrap] Client secret generated\n")
 
@@ -325,7 +410,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 		fmt.Printf("[infisical-bootstrap] Project admin access granted: %s\n", strings.TrimSpace(grantOutput))
 	}
 
-	return clientID, clientSecret, nil
+	return clientID, clientSecret, identityID, nil
 }
 
 // grantProjectAdminRole adds an identity to the project with the admin role.
@@ -545,34 +630,57 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 	orgID := boot.Organization.ID
 	fmt.Printf("[infisical-bootstrap] Organization ID: %s\n", orgID)
 
-	projectID, projectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token)
+	certProjectID, certProjectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token, ProjectSlug, "cert-manager")
 	if err != nil {
 		return nil, err
 	}
 
-	// Grant project admin role to the Instance Admin Identity so it can perform API operations
-	// on the project (e.g., listing CAs, creating certificate profiles in Step 3.6).
-	if err := grantProjectAdminRole(ctx, podName, boot.Identity.Credentials.Token, projectID, boot.Identity.ID); err != nil {
-		return nil, fmt.Errorf("grant project admin to instance admin identity: %w", err)
-	}
-
-	clientID, clientSecret, err := createMachineIdentity(ctx, podName, boot.Identity.Credentials.Token, orgID, projectID)
+	secretsProjectID, secretsProjectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token, SecretsProjectSlug, "secret-manager")
 	if err != nil {
 		return nil, err
+	}
+
+	// Grant project admin role to the Instance Admin Identity on both projects
+	if err := grantProjectAdminRole(ctx, podName, boot.Identity.Credentials.Token, certProjectID, boot.Identity.ID); err != nil {
+		return nil, fmt.Errorf("grant project admin to instance admin identity (cert): %w", err)
+	}
+	if err := grantProjectAdminRole(ctx, podName, boot.Identity.Credentials.Token, secretsProjectID, boot.Identity.ID); err != nil {
+		return nil, fmt.Errorf("grant project admin to instance admin identity (secrets): %w", err)
+	}
+
+	clientID, clientSecret, identityID, err := createMachineIdentity(ctx, podName, boot.Identity.Credentials.Token, orgID, certProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Also grant Machine Identity access to the secrets project
+	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathProjectMembershipsIdentities, secretsProjectID, identityID)
+	if grantOut, grantErr := kubectlExec(ctx, podName,
+		"curl", "-s", "-X", "POST",
+		grantURL,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+boot.Identity.Credentials.Token,
+		"-d", `{"roles":[{"role":"admin"}]}`,
+	); grantErr != nil {
+		fmt.Printf("[infisical-bootstrap] ⚠️  Grant secrets project failed: %s\n", grantErr)
+	} else {
+		fmt.Printf("[infisical-bootstrap] Machine Identity granted admin on secrets project: %s\n", strings.TrimSpace(grantOut))
 	}
 
 	// Automate Step 3.6: create argocd-bootstrap certificate profile
-	if err := ensureArgocdBootstrapProfile(ctx, podName, boot.Identity.Credentials.Token, projectID); err != nil {
+	if err := ensureArgocdBootstrapProfile(ctx, podName, boot.Identity.Credentials.Token, certProjectID); err != nil {
 		return nil, fmt.Errorf("ensure argocd-bootstrap profile: %w", err)
 	}
 
 	fmt.Println("[infisical-bootstrap] ✅ Infisical Day-0 bootstrap complete")
 	return &BootstrapResult{
-		OrgID:        orgID,
-		ProjectID:    projectID,
-		ProjectSlug:  projectSlug,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		OrgID:              orgID,
+		ProjectID:          certProjectID,
+		ProjectSlug:        certProjectSlug,
+		SecretsProjectID:   secretsProjectID,
+		SecretsProjectSlug: secretsProjectSlug,
+		ClientID:           clientID,
+		ClientSecret:       clientSecret,
 	}, nil
 }
 

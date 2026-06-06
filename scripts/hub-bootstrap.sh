@@ -644,9 +644,25 @@ step5_init_secrets() {
     fi
 
     # Initialize secrets first (this will create the infisical-secrets secret)
+    # For local Kind, set up a temporary port-forward so the Go binary can reach
+    # the Infisical API (https://infisical.nutgraf.in is not reachable locally).
+    if [[ "$PROVIDER" == "local" ]]; then
+        kubectl port-forward -n platform-security svc/infisical-standalone-infisical 8080:8080 \
+            --kubeconfig="$KUBECONFIG_PATH" &>/dev/null &
+        PORT_FWD_PID=$!
+        sleep 2
+        export INFISICAL_API_URL="http://localhost:8080"
+    fi
+
     log "Running: $HUB_BINARY init-secrets"
     "$HUB_BINARY" init-secrets \
         --kubeconfig="$KUBECONFIG_PATH" 2>&1 | tee "$LOG_DIR/init-secrets.log"
+
+    # Tear down the temporary port-forward if it was started
+    if [[ -n "${PORT_FWD_PID:-}" ]]; then
+        kill "$PORT_FWD_PID" 2>/dev/null || true
+        unset INFISICAL_API_URL
+    fi
 
     # Mark Infisical healthy state if the log contains the success message
     if grep -q "✓ Infisical is healthy" "$LOG_DIR/init-secrets.log" 2>/dev/null; then
