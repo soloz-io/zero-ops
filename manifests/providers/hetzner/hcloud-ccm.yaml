@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hetzner-ccm-config
-  namespace: platform-ops
-data:
-  provider: hetzner
-  ccm-image: "docker.io/hetznercloud/hcloud-cloud-controller-manager:v1.20.0"

@@ -30,6 +30,7 @@ var (
 	buildTalosImage   bool
 	buildFlatcarImage bool
 	debug             bool
+	environment       string
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -62,6 +63,7 @@ Supports multiple infrastructure providers: hetzner (cloud) and docker (local/CA
 	cmd.Flags().BoolVar(&buildTalosImage, "build-talos-image", false, "Trigger Packer build for Talos image")
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
+	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to dev for docker, prod for hetzner")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
@@ -181,6 +183,17 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Derive environment slug
+	envSlug := environment
+	if envSlug == "" {
+		switch provider {
+		case "docker":
+			envSlug = "dev"
+		default:
+			envSlug = "prod"
+		}
+	}
+
 	// Phase 2-12: Bootstrap pipeline
 	orchestrator := &bootstrap.Orchestrator{
 		Provider:         bp,
@@ -189,6 +202,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		KeepBootstrap:    keepBootstrap,
 		MergeKubeconfig:  mergeKubeconfig,
 		Debug:            debug,
+		EnvironmentSlug:  envSlug,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {

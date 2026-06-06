@@ -47,59 +47,6 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: 'clickhouse-operator'
-          - appName: 'external-dns'
-            destinationNamespace: 'platform-edge'
-            isPlatformOwned: 'false'
-            syncWave: ''
-            repoURL: 'https://kubernetes-sigs.github.io/external-dns'
-            targetRevision: '1.20.0'
-            path: ''
-            chart: 'external-dns'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              provider:
-                name: webhook
-                webhook:
-                  image:
-                    repository: docker.io/hetzner/external-dns-hetzner-webhook
-                    tag: v0.3.2
-                  env:
-                    - name: HETZNER_TOKEN
-                      valueFrom:
-                        secretKeyRef:
-                          name: hetzner-dns
-                          key: api-key
-              txtOwnerId: zero-ops-mothership
-              domainFilters:
-                - nutgraf.in
-              managedRecordTypes:
-                - A
-                - CNAME
-              sources:
-                - ingress
-                - service
-            helmReleaseName: ''
-          - appName: 'hcloud-ccm'
-            destinationNamespace: 'kube-system'
-            isPlatformOwned: 'false'
-            syncWave: ''
-            repoURL: 'https://charts.hetzner.cloud'
-            targetRevision: '1.20.0'
-            path: ''
-            chart: 'hcloud-cloud-controller-manager'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              env:
-                HCLOUD_TOKEN:
-                  valueFrom:
-                    secretKeyRef:
-                      name: hetzner
-                      key: hcloud
-              networking:
-                enabled: false
-            helmReleaseName: ''
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -142,21 +89,21 @@ spec:
             syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/hub-core-services/hub-environment'
+            path: 'manifests/environments/{{ .Values.environmentSlug }}'
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
-          - appName: 'platform-external-dns-secrets'
-            destinationNamespace: 'platform-edge'
-            isPlatformOwned: 'false'
-            syncWave: ''
+          - appName: 'infrastructure-provider'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '2'
             repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: 'main'
-            path: 'manifests/hub-core-services/external-dns'
+            targetRevision: ''
+            path: 'manifests/providers/{{ .Values.provider }}/k8s'
             chart: ''
-            directoryRecurse: ''
+            directoryRecurse: 'true'
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
@@ -414,7 +361,7 @@ spec:
             syncWave: '10'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/spoke/spoke-pools'
+            path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}'
             chart: ''
             directoryRecurse: 'true'
             directoryInclude: ''

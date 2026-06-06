@@ -10,7 +10,7 @@ spec:
   compositeTypeRef:
     apiVersion: nutgraf.in/v1alpha1
     kind: SpokePool
-  
+
   mode: Pipeline
   pipeline:
     - step: patch-and-transform
@@ -92,11 +92,11 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
-          
+
           # Bootstrap PKI Secrets created by cert-operator
           # cert-operator watches SpokePool creation, creates Machine Identity and 72h bootstrap cert
           # See operators/cert-operator for implementation
-          
+
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
           # NOTE: Only static bootstrap resources remain here
@@ -243,7 +243,7 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-bootstrap-cert"
-          
+
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object
           - name: argocd-agent-config-percluster
@@ -308,7 +308,7 @@ spec:
                           agent.destination-based-mapping: "true"
                           agent.create-namespace: "true"
                           agent.allowed-namespaces: "*"
-          
+
           # ArgoCD namespace ConfigMap
           # Wrapped in provider-kubernetes Object
           - name: argocd-namespace-configmap

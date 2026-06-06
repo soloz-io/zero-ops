@@ -4,8 +4,5 @@ kind: Kustomization
 bases:
   - ../base
 
-components:
-  - ../../providers/hetzner
-
 patchesStrategicMerge:
   - patch-config.yaml

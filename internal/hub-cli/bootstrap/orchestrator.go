@@ -35,15 +35,16 @@ import (
 //	Phase 10: platform-pre-reqs  Provider.OnPlatformPreReqs(kubeconfig)
 //	Phase 11: platform-deploy    ArgoCD + bootstrap apps (orchestrator-owned)
 //	Phase 12: finalize           Provider.Finalize(cfg) → kubeconfigPath
-type Orchestrator struct {
-	Provider         Provider
-	ClusterName      string
-	BootstrapContext string
-	KeepBootstrap    bool
-	MergeKubeconfig  bool
-	Debug            bool
-	Upgrade          bool
-}
+	type Orchestrator struct {
+		Provider         Provider
+		ClusterName      string
+		BootstrapContext string
+		KeepBootstrap    bool
+		MergeKubeconfig  bool
+		Debug            bool
+		Upgrade          bool
+		EnvironmentSlug  string
+	}
 
 // Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
@@ -393,9 +394,15 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	// Helm template the environment-manager chart and apply the three boundary
 	// ApplicationSets. ArgoCD's ApplicationSet controller generates child
 	// Applications with revision from envRevision for platform-owned apps.
+	providerForHelm := o.Provider.Name()
+	if providerForHelm == "docker" {
+		providerForHelm = "local"
+	}
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",
 		"--set", "environmentRevision="+envRevision,
+		"--set", "environmentSlug="+o.EnvironmentSlug,
+		"--set", "provider="+providerForHelm,
 	)
 	rendered, err := helmCmd.Output()
 	if err != nil {

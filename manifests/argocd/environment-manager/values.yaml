@@ -1,1 +1,8 @@
 environmentRevision: "main"
+
+# Matrix dimensions: any environment x any provider is allowed.
+# These are wired through `helm template --set` by the hub CLI bootstrap.
+# See ADR 036 (Pluggable Infrastructure Provider) and ADR 037 (Directory-Based
+# Environment Promotion and Gating).
+environmentSlug: "dev"  # dev | stg | prod | ephemeral
+provider: "capd"        # capd | hetzner | aws

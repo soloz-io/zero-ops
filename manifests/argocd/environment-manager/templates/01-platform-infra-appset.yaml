@@ -11,27 +11,6 @@ spec:
   generators:
     - list:
         elements:
-          - appName: 'cert-manager-webhook-hetzner'
-            destinationNamespace: 'platform-edge'
-            isPlatformOwned: 'false'
-            syncWave: '1'
-            repoURL: 'https://vadimkim.github.io/cert-manager-webhook-hetzner'
-            targetRevision: '1.4.2'
-            path: ''
-            chart: 'cert-manager-webhook-hetzner'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              secretName:
-                - hetzner-dns
-              resources:
-                requests:
-                  cpu: 5m
-                  memory: 16Mi
-                limits:
-                  cpu: 50m
-                  memory: 64Mi
-            helmReleaseName: ''
           - appName: 'platform-appproject-infrastructure'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -416,31 +395,6 @@ spec:
             directoryRecurse: 'true'
             directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
             helmValues: ''
-            helmReleaseName: ''
-          - appName: 'ingress-nginx'
-            destinationNamespace: 'platform-edge'
-            isPlatformOwned: 'false'
-            syncWave: '1'
-            repoURL: 'https://kubernetes.github.io/ingress-nginx'
-            targetRevision: '4.15.0'
-            path: ''
-            chart: 'ingress-nginx'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              tcp:
-                8443: "platform-ops/argocd-agent-principal:443"
-                7422: "platform-messaging/nats:7422"
-              controller:
-                admissionWebhooks:
-                  enabled: false
-                service:
-                  type: LoadBalancer
-                  annotations:
-                    load-balancer.hetzner.cloud/location: fsn1
-                    external-dns.alpha.kubernetes.io/hostname: "argocd-principal.nutgraf.in"
-                extraArgs:
-                  enable-ssl-passthrough: "true"
             helmReleaseName: ''
   template:
     metadata:

@@ -273,4 +273,4 @@ spec:
   template:
     spec:
       type: cx33
-      imageName: ubuntu-24.04
+      imageName: ubuntu-24.04---
