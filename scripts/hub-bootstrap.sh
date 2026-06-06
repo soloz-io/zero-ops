@@ -28,9 +28,14 @@ PROVIDER="${PROVIDER:-local}"
 TEARDOWN="${TEARDOWN:-false}"
 
 # SpokePool Configuration (provider-agnostic)
-SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
+SPOKEPOOL_NAME=""
 SPOKEPOOL_NAMESPACE="${SPOKEPOOL_NAMESPACE:-platform-ops}"
 SPOKEPOOL_TIMEOUT="${SPOKEPOOL_TIMEOUT:-1800}"  # 30 minutes in seconds
+
+# Environment slug for matrix topology (ADR 037). MUST be explicitly set
+# via --environment flag. The Go bootstrap CLI defaults to dev for docker,
+# prod for hetzner if omitted.
+ENVIRONMENT=""
 CERT_TIMEOUT="${CERT_TIMEOUT:-600}"  # 10 minutes in seconds
 CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"  # 15 minutes in seconds
 
@@ -478,18 +483,22 @@ step1_bootstrap_hub() {
             (cd "$ZERO_OPS_DIR" && git push origin "$current_branch" 2>&1) || \
                 log "WARNING: git push failed — ArgoCD may not be able to read configs from remote"
         fi
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker --keep-bootstrap --debug"
+        local env_flag="${ENVIRONMENT:---environment=dev}"
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker $env_flag --keep-bootstrap --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --provider=docker \
+            $env_flag \
             --keep-bootstrap \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
         export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 --debug"
+        local env_flag="${ENVIRONMENT:---environment=prod}"
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 $env_flag --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --region=fsn1 \
+            $env_flag \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     fi
 
@@ -958,6 +967,22 @@ main() {
                 PROVIDER="$2"
                 shift 2
                 ;;
+            --environment=*)
+                ENVIRONMENT="${1#*=}"
+                shift
+                ;;
+            --environment)
+                ENVIRONMENT="$2"
+                shift 2
+                ;;
+            --spoke=*)
+                SPOKEPOOL_NAME="${1#*=}"
+                shift
+                ;;
+            --spoke)
+                SPOKEPOOL_NAME="$2"
+                shift 2
+                ;;
             --teardown)
                 TEARDOWN="true"
                 shift
@@ -1020,6 +1045,8 @@ main() {
     if [[ "$PROVIDER" == "local" ]]; then
         SPOKEPOOL_NAME="local-dev"
         log "Step 10: Using local SpokePool: $SPOKEPOOL_NAME"
+    elif [[ -z "$SPOKEPOOL_NAME" ]]; then
+        error_exit "SPOKEPOOL_NAME must be set via --spoke flag or SPOKEPOOL_NAME env var for provider '$PROVIDER'"
     fi
     step10_wait_spokepool
 
