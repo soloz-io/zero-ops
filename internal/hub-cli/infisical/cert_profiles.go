@@ -191,11 +191,11 @@ func resolveCertificatePolicy(ctx context.Context, podName, adminJWT, projectID 
 }
 
 // createFleetIntermediateCA creates an intermediate CA named "Fleet Intermediate CA"
-// in the given project via POST /api/v1/pki/ca.
+// in the given project via POST /api/v1/cert-manager/ca/internal.
 func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID string) (string, error) {
 	body := fmt.Sprintf(
-		`{"projectSlug":"%s","type":"intermediate","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":0}`,
-		ProjectSlug, fleetCAName,
+		`{"name":"fleet-intermediate-ca","projectId":"%s","status":"active","configuration":{"type":"intermediate","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":0,"keyAlgorithm":"RSA_2048"}}`,
+		projectID, fleetCAName,
 	)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
@@ -209,15 +209,13 @@ func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID
 	}
 
 	var resp struct {
-		CA struct {
-			ID string `json:"id"`
-		} `json:"ca"`
+		ID string `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(output), &resp); err != nil {
 		return "", fmt.Errorf("parse create CA response: %w\nresponse: %s", err, output)
 	}
-	if resp.CA.ID == "" {
+	if resp.ID == "" {
 		return "", fmt.Errorf("create CA returned empty ID: %s", output)
 	}
-	return resp.CA.ID, nil
+	return resp.ID, nil
 }

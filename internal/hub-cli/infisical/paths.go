@@ -19,6 +19,6 @@ const (
 	PathCertificateAuthorities         = "/api/v1/cert-manager/ca"
 	PathCertificatePolicies            = "/api/v1/cert-manager/certificate-policies"
 	PathCertificateProfiles            = "/api/v1/cert-manager/certificate-profiles"
-	PathCertificateAuthoritiesCreate   = "/api/v1/pki/ca"
+	PathCertificateAuthoritiesCreate   = "/api/v1/cert-manager/ca/internal"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
 )
