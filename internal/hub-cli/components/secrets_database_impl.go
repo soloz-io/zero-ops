@@ -33,7 +33,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	result, err := infisical.BootstrapInfisicalDayZeroWithRetry(ctx, 5*time.Minute)
+	result, err := infisical.BootstrapInfisicalDayZeroWithRetry(ctx, 10*time.Minute)
 	if err != nil {
 		return false, fmt.Errorf("infisical bootstrap failed: %w", err)
 	}

@@ -167,7 +167,12 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 }
 
 func createProject(ctx context.Context, podName, adminJWT string) (string, string, error) {
-	body := fmt.Sprintf(`{"ProjectSlug":"%s"}`, ProjectSlug)
+	payload := map[string]string{"name": ProjectSlug}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal create project request: %w", err)
+	}
+	body := string(bodyBytes)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathProjects,
