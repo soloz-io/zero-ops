@@ -78,7 +78,7 @@ path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.prov
 A bootstrap with `--environment=dev --provider=docker` produces paths:
 - `manifests/environments/dev`
 - `manifests/providers/local/k8s`
-- `manifests/spoke/spoke-pools/dev/capd`
+- `manifests/spoke/spoke-pools/dev/local`
 
 A bootstrap with `--environment=prod --provider=hetzner` produces:
 - `manifests/environments/prod`

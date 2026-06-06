@@ -8,7 +8,7 @@ metadata:
     spoke-type: pool
     environment: local
 spec:
-  provider: capd
+  provider: local
   compositionSelector:
     matchLabels:
       provider: docker
