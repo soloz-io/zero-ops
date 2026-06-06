@@ -408,24 +408,36 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		// CORRECT STATEFULSET NAME (Helm release name + chart name)
-		sts, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, "infisical-standalone-infisical", metav1.GetOptions{})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				fmt.Println("   Infisical StatefulSet not found yet, waiting...")
-				time.Sleep(checkInterval)
-				continue
+		name := "infisical-standalone-infisical"
+		// Try StatefulSet first (legacy chart), then Deployment (current chart)
+		sts, stsErr := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if stsErr == nil {
+			if sts.Status.ReadyReplicas > 0 {
+				fmt.Println("✓ Infisical is healthy")
+				return nil
 			}
-			return fmt.Errorf("failed to get infisical StatefulSet: %w", err)
+			fmt.Printf("   Infisical StatefulSet not ready yet (%d/%d replicas ready), waiting...\n",
+				sts.Status.ReadyReplicas, sts.Status.Replicas)
+		} else {
+			if !k8serrors.IsNotFound(stsErr) {
+				return fmt.Errorf("failed to get infisical StatefulSet: %w", stsErr)
+			}
+			deploy, depErr := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+			if depErr != nil {
+				if k8serrors.IsNotFound(depErr) {
+					fmt.Println("   Infisical not found yet (StatefulSet or Deployment), waiting...")
+					time.Sleep(checkInterval)
+					continue
+				}
+				return fmt.Errorf("failed to get infisical Deployment: %w", depErr)
+			}
+			if deploy.Status.ReadyReplicas > 0 || deploy.Status.AvailableReplicas > 0 {
+				fmt.Println("✓ Infisical is healthy")
+				return nil
+			}
+			fmt.Printf("   Infisical Deployment not ready yet (%d/%d replicas ready), waiting...\n",
+				deploy.Status.ReadyReplicas, deploy.Status.Replicas)
 		}
-
-		if sts.Status.ReadyReplicas > 0 {
-			fmt.Println("✓ Infisical is healthy")
-			return nil
-		}
-
-		fmt.Printf("   Infisical not ready yet (%d/%d replicas ready), waiting...\n",
-			sts.Status.ReadyReplicas, sts.Status.Replicas)
 		time.Sleep(checkInterval)
 	}
 
@@ -457,10 +469,17 @@ func (i *Installer) RestartPlatformWorkloads(ctx context.Context) error {
 		}
 	}
 
-	// Restart Infisical StatefulSet (Infisical is in platform-security, chart creates a StatefulSet)
+	// Restart Infisical (chart may create StatefulSet or Deployment)
 	if _, err = clientset.AppsV1().StatefulSets(securityNamespace).Patch(ctx, "infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to restart infisical StatefulSet: %w", err)
+		if k8serrors.IsNotFound(err) {
+			// Try Deployment if StatefulSet not found (current chart)
+			if _, depErr := clientset.AppsV1().Deployments(securityNamespace).Patch(ctx, "infisical-standalone-infisical", types.StrategicMergePatchType, patchData, metav1.PatchOptions{}); depErr != nil {
+				if !k8serrors.IsNotFound(depErr) {
+					return fmt.Errorf("failed to restart infisical: %w", depErr)
+				}
+			}
+		} else {
+			return fmt.Errorf("failed to restart infisical: %w", err)
 		}
 	}
 

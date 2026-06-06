@@ -1273,3 +1273,104 @@
 [2026-06-06 00:41:28] Waiting for SpokePool readiness (attempt 15/180, Ready: False, Synced: True). It mostly get ready by 130
 [2026-06-06 00:41:38] Waiting for SpokePool readiness (attempt 16/180, Ready: False, Synced: True). It mostly get ready by 130
 [2026-06-06 00:41:49] Waiting for SpokePool readiness (attempt 17/180, Ready: False, Synced: True). It mostly get ready by 130
+[2026-06-06 14:57:06] Starting Zero-Ops Hub Bootstrap Process
+[2026-06-06 14:57:06] Project root: /Users/arun_subramanian/Projects/soloz-io/zero-ops
+[2026-06-06 14:57:06] Log directory: /Users/arun_subramanian/Projects/soloz-io/zero-ops/.zero-ops
+[2026-06-06 14:57:06] Provider: local
+[2026-06-06 14:57:06] Cluster name: hub-local
+[2026-06-06 14:57:06] Checking prerequisites...
+[2026-06-06 14:57:06]   ✓ kubectl found: /opt/homebrew/bin/kubectl
+[2026-06-06 14:57:06]   ✓ aws found: /usr/local/bin/aws
+[2026-06-06 14:57:06]   ✓ jq found: /opt/homebrew/bin/jq
+[2026-06-06 14:57:06]   ✓ kind found: /usr/local/bin/kind
+[2026-06-06 14:57:06]   ✓ clusterctl found: /Users/arun_subramanian/bin/clusterctl
+[2026-06-06 14:57:06]   ✓ helm found: /opt/homebrew/bin/helm
+[2026-06-06 14:57:07]   ✓ docker daemon running
+[2026-06-06 14:57:07] Building hub binary...
+[2026-06-06 14:57:17]   ✓ hub binary built
+[2026-06-06 14:57:17]   ✓ k8-secrets/github/github-pat-token found
+[2026-06-06 14:57:21]   ✓ AWS profile 'zerotouch-platform-admin' configured
+[2026-06-06 14:57:21] Prerequisites check passed
+[2026-06-06 14:57:21] Step 1: Hub bootstrap already completed (postboot confirmed), skipping
+[2026-06-06 14:57:21] Kubeconfig path: /Users/arun_subramanian/.kube/config
+[2026-06-06 14:57:51] Step 2: AWS Secrets Manager already configured, skipping
+[2026-06-06 14:58:06] Step 3: GitHub access already configured, skipping
+[2026-06-06 14:58:21] Step 4: Namespaces already created, skipping
+[2026-06-06 14:58:31] Step 5: Bootstrap secrets already initialized, skipping
+[2026-06-06 14:58:46] Step 6: Infisical already ready, skipping
+[2026-06-06 14:58:56] Step 7-8: ESO configuration already completed, skipping
+[2026-06-06 14:59:01] Step 9: Database already ready, skipping
+[2026-06-06 14:59:11] Step 10: Using local SpokePool: local-dev
+[2026-06-06 14:59:11] Step 10: Waiting for SpokePool readiness and certificate distribution...
+[2026-06-06 14:59:11] SpokePool: local-dev in namespace: platform-ops
+[2026-06-06 14:59:11] Checking SpokePool local-dev status...
+[2026-06-06 14:59:11] ✅ SpokePool is Ready and Synced
+[2026-06-06 14:59:11] Step 10a: Checking CAPI Cluster readiness...
+[2026-06-06 14:59:12] ✅ CAPI Cluster is ready: Phase=Provisioned, InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+[2026-06-06 14:59:12] Step 10b: Checking ProviderConfig for spoke cluster...
+[2026-06-06 14:59:12] ✅ ProviderConfig for spoke cluster exists: local-dev
+[2026-06-06 14:59:12] Step 10c: Waiting for cert-operator PKI artifacts...
+[2026-06-06 14:59:12] Waiting for cert-operator PKI (attempt 1/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 14:59:22] Waiting for cert-operator PKI (attempt 2/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 14:59:33] Waiting for cert-operator PKI (attempt 3/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 14:59:43] Waiting for cert-operator PKI (attempt 4/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 14:59:53] Waiting for cert-operator PKI (attempt 5/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:03] Waiting for cert-operator PKI (attempt 6/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:14] Waiting for cert-operator PKI (attempt 7/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:24] Waiting for cert-operator PKI (attempt 8/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:34] Waiting for cert-operator PKI (attempt 9/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:44] Waiting for cert-operator PKI (attempt 10/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:00:55] Waiting for cert-operator PKI (attempt 11/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:05] Waiting for cert-operator PKI (attempt 12/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:15] Waiting for cert-operator PKI (attempt 13/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:25] Waiting for cert-operator PKI (attempt 14/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:35] Waiting for cert-operator PKI (attempt 15/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:45] Waiting for cert-operator PKI (attempt 16/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:01:56] Waiting for cert-operator PKI (attempt 17/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:06] Waiting for cert-operator PKI (attempt 18/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:16] Waiting for cert-operator PKI (attempt 19/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:27] Waiting for cert-operator PKI (attempt 20/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:37] Waiting for cert-operator PKI (attempt 21/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:49] Waiting for cert-operator PKI (attempt 22/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:02:59] Waiting for cert-operator PKI (attempt 23/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:03:10] Waiting for cert-operator PKI (attempt 24/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:03:22] Waiting for cert-operator PKI (attempt 25/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:03:32] Waiting for cert-operator PKI (attempt 26/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:03:43] Waiting for cert-operator PKI (attempt 27/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:03:53] Waiting for cert-operator PKI (attempt 28/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:03] Waiting for cert-operator PKI (attempt 29/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:14] Waiting for cert-operator PKI (attempt 30/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:24] Waiting for cert-operator PKI (attempt 31/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:34] Waiting for cert-operator PKI (attempt 32/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:44] Waiting for cert-operator PKI (attempt 33/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:04:54] Waiting for cert-operator PKI (attempt 34/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:05] Waiting for cert-operator PKI (attempt 35/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:15] Waiting for cert-operator PKI (attempt 36/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:25] Waiting for cert-operator PKI (attempt 37/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:36] Waiting for cert-operator PKI (attempt 38/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:46] Waiting for cert-operator PKI (attempt 39/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:05:56] Waiting for cert-operator PKI (attempt 40/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:06] Waiting for cert-operator PKI (attempt 41/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:17] Waiting for cert-operator PKI (attempt 42/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:27] Waiting for cert-operator PKI (attempt 43/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:37] Waiting for cert-operator PKI (attempt 44/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:47] Waiting for cert-operator PKI (attempt 45/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:06:58] Waiting for cert-operator PKI (attempt 46/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:08] Waiting for cert-operator PKI (attempt 47/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:18] Waiting for cert-operator PKI (attempt 48/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:28] Waiting for cert-operator PKI (attempt 49/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:39] Waiting for cert-operator PKI (attempt 50/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:49] Waiting for cert-operator PKI (attempt 51/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:07:59] Waiting for cert-operator PKI (attempt 52/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:08:10] Waiting for cert-operator PKI (attempt 53/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:08:20] Waiting for cert-operator PKI (attempt 54/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:08:30] Waiting for cert-operator PKI (attempt 55/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:08:40] Waiting for cert-operator PKI (attempt 56/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:08:51] Waiting for cert-operator PKI (attempt 57/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:09:01] Waiting for cert-operator PKI (attempt 58/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:09:11] Waiting for cert-operator PKI (attempt 59/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:09:21] Waiting for cert-operator PKI (attempt 60/60): machine-identity=false bootstrap-cert=false
+[2026-06-06 15:09:31] ❌ cert-operator PKI artifacts not created within timeout
+[2026-06-06 15:09:31] Check cert-operator pod logs in platform-ops namespace
+[2026-06-06 15:09:31] This may mean Infisical is unhealthy or the infisical-auth secret is missing
+[2026-06-06 15:09:31] ERROR: cert-operator PKI timeout

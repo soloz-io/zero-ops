@@ -5,6 +5,7 @@ on:
     branches: [main, feat/**]
     paths:
       - operators/cert-operator/**
+      - .github/workflows/cert-operator.yml
 
 permissions:
   contents: write
