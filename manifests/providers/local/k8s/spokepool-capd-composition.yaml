@@ -161,7 +161,7 @@ spec:
                 toFieldPath: spec.forProvider.manifest.spec.clusterSelector.matchLabels.cell-id
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[4].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[2].name
                 transforms:
                   - type: string
                     string:
@@ -169,7 +169,7 @@ spec:
                       fmt: "%s-observability-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[5].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[3].name
                 transforms:
                   - type: string
                     string:
@@ -177,7 +177,7 @@ spec:
                       fmt: "%s-messaging-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
                 transforms:
                   - type: string
                     string:
@@ -185,7 +185,7 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
                 transforms:
                   - type: string
                     string:
@@ -193,7 +193,7 @@ spec:
                       fmt: "%s-machine-identity"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[13].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[11].name
                 transforms:
                   - type: string
                     string:
