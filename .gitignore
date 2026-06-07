@@ -9,3 +9,4 @@ codebase.md
 docs/metrics
 kubeconfig.zero-ops/
 .zero-ops/
+.env
