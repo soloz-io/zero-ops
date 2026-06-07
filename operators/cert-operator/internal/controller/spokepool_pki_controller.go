@@ -117,7 +117,7 @@ func (r *SpokePKIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	logger.Info("Project access granted", "identityId", identity.ID, "projectId", projectID)
 
 	// 6. Mint 72-hour bootstrap certificate
-	commonName := fmt.Sprintf("argocd-agent:%s", req.Name)
+	commonName := fmt.Sprintf("argocd-agent.%s", req.Name)
 	cert, err := r.InfisicalClient.IssueBootstrapCertificate(ctx, profileId, commonName)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("issue bootstrap certificate: %w", err)
