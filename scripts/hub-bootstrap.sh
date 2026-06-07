@@ -679,19 +679,11 @@ step5_init_secrets() {
 
     log "Step 5: Initializing bootstrap secrets..."
 
-    # Wait for Infisical deployment to be ready before init-secrets (per ADR-021)
-    log "Waiting for Infisical deployment to become ready..."
-    if kubectl wait --for=condition=Available deployment/infisical-standalone-infisical \
-        -n platform-security --timeout=300s --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
-        log "✅ Infisical is healthy"
-    else
-        log "⚠️ Infisical did not become healthy within timeout"
-        log "The init-secrets step may fail; it can be re-run later"
-    fi
-
-    # Initialize secrets first (this will create the infisical-secrets secret)
-    # For local Kind, set up a temporary port-forward so the Go binary can reach
-    # the Infisical API (https://infisical.nutgraf.in is not reachable locally).
+    # Set up a temporary port-forward so the Go binary can reach the
+    # Infisical API (https://infisical.nutgraf.in is not reachable
+    # locally). The Service is created by ArgoCD during platform
+    # deploy, so it exists by the time we reach Step 5 even when the
+    # underlying pods are not yet Ready.
     if [[ "$PROVIDER" == "local" ]]; then
         kubectl port-forward -n platform-security svc/infisical-standalone-infisical 8080:8080 \
             --kubeconfig="$KUBECONFIG_PATH" &>/dev/null &
@@ -700,6 +692,17 @@ step5_init_secrets() {
         export INFISICAL_API_URL="http://localhost:8080"
     fi
 
+    # Run the binary FIRST. Steps 0–2 create k8s Secrets directly
+    # (zero-dependency, ~1s), the most important being
+    # `platform-db-ca` which the CNPG Cluster CR references — without
+    # it, CNPG stays at "Unable to create required cluster objects"
+    # and Infisical pods stay at "CreateContainerConfigError". Step 3
+    # (WaitForInfisicalHealth) owns the full dependency chain
+    # (CNPG cluster → PgBouncer pooler → Infisical workload) and
+    # polls until convergence. This eliminates the previous
+    # deadlock where the bash script's `kubectl wait` for
+    # Infisical would block indefinitely because the binary's
+    # Step 0 (which creates the prerequisites) was unreachable.
     log "Running: $HUB_BINARY init-secrets"
     "$HUB_BINARY" init-secrets \
         --kubeconfig="$KUBECONFIG_PATH" 2>&1 | tee "$LOG_DIR/init-secrets.log"
@@ -722,7 +725,9 @@ step5_init_secrets() {
         log "  State recorded: infisical_auth_ready"
     fi
 
-    # Wait for Infisical pod to be ready after secrets are created
+    # Defense-in-depth: if the binary's internal wait timed out, the
+    # 30-min pod-ready loop below still gives the cluster a chance to
+    # converge before we declare failure.
     log "Waiting for Infisical pod to be ready after secrets initialization..."
     local max_attempts=180  # 30 minutes (180 × 10 seconds)
     local attempt=1
