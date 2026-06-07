@@ -125,7 +125,7 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	// API is not reachable via DNS, so we start a kubectl port-forward
 	// to tunnel localhost:8080 → the Infisical service inside the cluster.
 	// The binary manages its own PF lifecycle so it survives pod restarts.
-	pf := infisical.NewPortForwardManager("platform-security", "infisical-standalone-infisical", "8080", "8080", installer.Kubeconfig)
+	pf := infisical.NewPortForwardManager("platform-security", "infisical-standalone-infisical", "8081", "8080", installer.Kubeconfig)
 	var pfStarted bool
 
 	if err := pf.EnsureAPIAccess(ctx); err != nil {
