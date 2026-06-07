@@ -26,6 +26,19 @@ const (
 	PathCACertificate                  = "/api/v1/cert-manager/ca/internal/%s/certificate"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
 
+	// Secret key names for ExternalSecret remoteRefs (must match
+	// operators/hub-operator/internal/infisical/constants.go).
+	KeyControlPlaneDBUsername  = "hub-control-plane-db-username"
+	KeyControlPlaneDBPassword  = "hub-control-plane-db-password"
+	KeyHubCentralizedDBUsername = "hub-centralized-db-username"
+	KeyHubCentralizedDBPassword = "hub-centralized-db-password"
+	KeyPlatformDBAppUsername   = "platform-db-app-username"
+	KeyPlatformDBAppPassword   = "platform-db-app-password"
+	KeyInfisicalDBUsername     = "infisical-db-username"
+	KeyInfisicalDBPassword     = "infisical-db-password"
+	KeySpireServerDBUsername   = "spire-server-db-username"
+	KeySpireServerDBPassword   = "spire-server-db-password"
+
 	// Used by getExistingOrgData to recover from the already-bootstrapped
 	// case without destructively resetting the database. These return
 	// the current organization and the identities the bootstrapper

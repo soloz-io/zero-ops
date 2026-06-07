@@ -307,8 +307,12 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to read platform-db-app: %w", err)
 	}
 
-	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "platform-db-app-username", string(appSecret.Data["username"])); err != nil {
-		return false, fmt.Errorf("failed to upload platform-db-app-username: %w", err)
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, infisical.KeyPlatformDBAppUsername, string(appSecret.Data["username"])); err != nil {
+		return false, fmt.Errorf("failed to upload %s: %w", infisical.KeyPlatformDBAppUsername, err)
+	}
+
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, infisical.KeyPlatformDBAppPassword, string(appSecret.Data["password"])); err != nil {
+		return false, fmt.Errorf("failed to upload %s: %w", infisical.KeyPlatformDBAppPassword, err)
 	}
 	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "platform-db-app-password", string(appSecret.Data["password"])); err != nil {
 		return false, fmt.Errorf("failed to upload platform-db-app-password: %w", err)
@@ -346,10 +350,19 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	for _, cred := range credentials {
 		fmt.Printf("[bootstrap-secrets] Storing %s credentials in Infisical...\n", cred.prefix)
 
-		// Store only the secrets (username and password)
+		var usernameKey, passwordKey string
+		switch cred.prefix {
+		case "hub-control-plane-db":
+			usernameKey = infisical.KeyControlPlaneDBUsername
+			passwordKey = infisical.KeyControlPlaneDBPassword
+		case "hub-centralized-db":
+			usernameKey = infisical.KeyHubCentralizedDBUsername
+			passwordKey = infisical.KeyHubCentralizedDBPassword
+		}
+
 		secrets := map[string]string{
-			cred.prefix + "-username": cred.username,
-			cred.prefix + "-password": cred.password,
+			usernameKey: cred.username,
+			passwordKey: cred.password,
 		}
 
 		for key, value := range secrets {
@@ -417,8 +430,8 @@ func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, er
 
 	// Store username and password in Infisical
 	secrets := map[string]string{
-		"spire-server-db-username": username,
-		"spire-server-db-password": password,
+		infisical.KeySpireServerDBUsername: username,
+		infisical.KeySpireServerDBPassword: password,
 	}
 
 	for key, value := range secrets {
