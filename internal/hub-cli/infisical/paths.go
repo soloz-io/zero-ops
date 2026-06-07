@@ -1,7 +1,8 @@
 package infisical
 
 // Infisical REST API path constants.
-// Source of truth: archived/identity-auth/infisical/backend/src/server/routes/v1/
+// Source of truth: archived/identity-auth/infisical/backend/src/server/routes/
+// V1 routes: v1/index.ts, V3 routes: v3/login-router.ts (mounted at /api/v3/auth)
 const (
 	ProjectSlug        = "hub-platform"
 	SecretsProjectSlug = "hub-secrets"
@@ -9,6 +10,8 @@ const (
 	PathProjects                = "/api/v1/projects"
 	PathIdentities              = "/api/v1/identities"
 	PathAuthUniversalAuthLogin  = "/api/v1/auth/universal-auth/login"
+	PathAuthLoginV3            = "/api/v3/auth/login"
+	PathAuthSelectOrgV3        = "/api/v3/auth/select-organization"
 	PathWorkspace               = "/api/v1/workspace"
 
 	PathAuthUniversalAuthIdentities    = "/api/v1/auth/universal-auth/identities/%s"
@@ -27,5 +30,5 @@ const (
 	// the current organization and the identities the bootstrapper
 	// created in the previous run.
 	PathCurrentOrganization = "/api/v1/organization"
-	PathIdentitiesByOrg     = "/api/v1/identities?organizationId=%s"
+	PathIdentitiesByOrg     = "/api/v1/identities?orgId=%s"
 )
