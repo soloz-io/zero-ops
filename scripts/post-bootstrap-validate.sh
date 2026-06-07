@@ -11,7 +11,14 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ZERO_OPS_DIR="$PROJECT_ROOT"
 LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
 LOG_FILE="$LOG_DIR/post-bootstrap-validate.log"
-KUBECONFIG="${KUBECONFIG:-$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig}"
+# Auto-detect kubeconfig: local provider uses hub-local.kubeconfig, others use hub.kubeconfig
+if [[ -z "${KUBECONFIG:-}" ]]; then
+    if [[ -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub-local.kubeconfig" ]]; then
+        KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub-local.kubeconfig"
+    else
+        KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
+    fi
+fi
 SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
 
 # Timeout for individual checks (seconds)
