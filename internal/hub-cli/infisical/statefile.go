@@ -10,11 +10,12 @@ import (
 const stateFileName = "infisical-bootstrap.json"
 
 func stateDir() string {
-	home, err := os.UserHomeDir()
+	// Use the project-level .zero-ops directory (same as bootstrap-state.json).
+	cwd, err := os.Getwd()
 	if err != nil {
 		return ".zero-ops"
 	}
-	return filepath.Join(home, ".zero-ops")
+	return filepath.Join(cwd, ".zero-ops")
 }
 
 func stateFilePath() string {
