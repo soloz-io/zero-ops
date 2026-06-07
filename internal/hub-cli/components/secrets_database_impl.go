@@ -7,6 +7,7 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/infisical"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -466,7 +467,15 @@ func (i *Installer) WaitForInfisicalAuth(ctx context.Context) error {
 	return fmt.Errorf("timeout after %v waiting for infisical-auth secret — run 'hub init-secrets' to create it", timeout)
 }
 
-// WaitForInfisicalHealth waits for Infisical pods to become ready
+// WaitForInfisicalHealth waits for Infisical to become fully ready.
+//
+// Strict readiness: every *desired* replica must be Ready and Available,
+// and for Deployments the Progressing condition must be True. A workload
+// that is mid-rollout (UnavailableReplicas > 0) or stuck (Progressing=False)
+// is NOT considered healthy. This prevents the previous silent-skip failure
+// where 0/2 replicas in a stuck rollout would never trip the
+// "ReadyReplicas > 0" early-out and the caller would proceed to credential
+// storage against an unready Infisical API.
 func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
@@ -478,22 +487,26 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	namespace := constants.NamespaceSecurity // CORRECT NAMESPACE
+	namespace := constants.NamespaceSecurity
 	timeout := 5 * time.Minute
 	checkInterval := 5 * time.Second
 	deadline := time.Now().Add(timeout)
 
+	var lastDesired int32
 	for time.Now().Before(deadline) {
 		name := "infisical-standalone-infisical"
 		// Try StatefulSet first (legacy chart), then Deployment (current chart)
 		sts, stsErr := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
 		if stsErr == nil {
-			if sts.Status.ReadyReplicas > 0 {
-				fmt.Println("✓ Infisical is healthy")
+			lastDesired = sts.Status.Replicas
+			if sts.Status.Replicas > 0 &&
+				sts.Status.ReadyReplicas >= sts.Status.Replicas {
+				fmt.Printf("✓ Infisical is healthy (StatefulSet %d/%d replicas Ready)\n",
+					sts.Status.ReadyReplicas, sts.Status.Replicas)
 				return nil
 			}
-			fmt.Printf("   Infisical StatefulSet not ready yet (%d/%d replicas ready), waiting...\n",
-				sts.Status.ReadyReplicas, sts.Status.Replicas)
+			fmt.Printf("   Infisical StatefulSet not fully ready (desired=%d ready=%d), waiting...\n",
+				sts.Status.Replicas, sts.Status.ReadyReplicas)
 		} else {
 			if !k8serrors.IsNotFound(stsErr) {
 				return fmt.Errorf("failed to get infisical StatefulSet: %w", stsErr)
@@ -507,17 +520,39 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 				}
 				return fmt.Errorf("failed to get infisical Deployment: %w", depErr)
 			}
-			if deploy.Status.ReadyReplicas > 0 || deploy.Status.AvailableReplicas > 0 {
-				fmt.Println("✓ Infisical is healthy")
+			lastDesired = deploy.Status.Replicas
+			progressing := deploymentProgressing(deploy.Status.Conditions)
+			if deploy.Status.Replicas > 0 &&
+				deploy.Status.ReadyReplicas >= deploy.Status.Replicas &&
+				deploy.Status.AvailableReplicas >= deploy.Status.Replicas &&
+				deploy.Status.UnavailableReplicas == 0 &&
+				progressing {
+				fmt.Printf("✓ Infisical is healthy (Deployment %d/%d replicas Ready, Available, Progressing=True)\n",
+					deploy.Status.ReadyReplicas, deploy.Status.Replicas)
 				return nil
 			}
-			fmt.Printf("   Infisical Deployment not ready yet (%d/%d replicas ready), waiting...\n",
-				deploy.Status.ReadyReplicas, deploy.Status.Replicas)
+			fmt.Printf("   Infisical Deployment not fully ready (desired=%d ready=%d available=%d unavailable=%d progressing=%t), waiting...\n",
+				deploy.Status.Replicas, deploy.Status.ReadyReplicas,
+				deploy.Status.AvailableReplicas, deploy.Status.UnavailableReplicas, progressing)
 		}
 		time.Sleep(checkInterval)
 	}
 
-	return fmt.Errorf("timeout waiting for Infisical to become healthy after %v", timeout)
+	return fmt.Errorf("timeout after %v waiting for Infisical to become fully ready (all %d desired replicas must be Ready and Available; Deployment Progressing must be True — check rollout status with `kubectl rollout status deployment/infisical-standalone-infisical -n %s`)",
+		timeout, lastDesired, namespace)
+}
+
+// deploymentProgressing reports whether the Deployment's Progressing
+// condition is True. Returns false when the condition is absent or
+// False (which means the rollout is stuck after progressDeadlineSeconds
+// has elapsed).
+func deploymentProgressing(conditions []appsv1.DeploymentCondition) bool {
+	for _, c := range conditions {
+		if c.Type == appsv1.DeploymentProgressing {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // RestartPlatformWorkloads performs a rolling restart of StatefulSets/Deployments

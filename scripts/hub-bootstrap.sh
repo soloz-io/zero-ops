@@ -701,8 +701,25 @@ step5_init_secrets() {
         error_exit "Infisical pod did not become ready within expected time"
     fi
 
+    # Verify the binary's credential-storage step actually produced the
+    # infisical-auth Secret. This is the single source of truth for
+    # "Step 5 actually completed" — the binary's strict health check is
+    # meant to prevent silent skips, but we still verify the artifact
+    # exists before marking the step complete. If the Secret is missing
+    # we leave the step unmarked so a re-run can retry.
+    local infisical_auth_data
+    if ! infisical_auth_data=$(kubectl get secret infisical-auth -n platform-ops \
+        -o jsonpath='{.data.client-id}{" "}{.data.client-secret}' \
+        --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null) || [[ -z "$infisical_auth_data" ]]; then
+        log "❌ infisical-auth Secret missing or empty in platform-ops namespace"
+        log "   The init-secrets binary may have failed to complete credential storage."
+        log "   Re-run: $HUB_BINARY init-secrets --kubeconfig=$KUBECONFIG_PATH"
+        log "   Then re-run: bash $0"
+        return 1
+    fi
+
     mark_step_completed "init_secrets"
-    log "Bootstrap secrets initialization completed"
+    log "Bootstrap secrets initialization completed (infisical-auth verified)"
 }
 
 # Step 6: Wait for Infisical to be ready
