@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	adminEmail    = "admin@nutgraf.in"
-	adminPassword = "secretzero123"
+	adminEmail    = "arun4infra@gmail.com"
+	adminPassword = "Password@123"
 	orgName       = "Zero-Ops"
 
 	identityName  = "hub-platform-eso"
