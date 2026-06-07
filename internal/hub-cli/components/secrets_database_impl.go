@@ -293,11 +293,11 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		return false, fmt.Errorf("failed to read infisical-db-credentials: %w", err)
 	}
 
-	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "infisical-db-username", string(infDbSecret.Data["username"])); err != nil {
-		return false, fmt.Errorf("failed to upload infisical-db-username: %w", err)
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, infisical.KeyInfisicalDBUsername, string(infDbSecret.Data["username"])); err != nil {
+		return false, fmt.Errorf("failed to upload %s: %w", infisical.KeyInfisicalDBUsername, err)
 	}
-	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "infisical-db-password", string(infDbSecret.Data["password"])); err != nil {
-		return false, fmt.Errorf("failed to upload infisical-db-password: %w", err)
+	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, infisical.KeyInfisicalDBPassword, string(infDbSecret.Data["password"])); err != nil {
+		return false, fmt.Errorf("failed to upload %s: %w", infisical.KeyInfisicalDBPassword, err)
 	}
 	fmt.Println("[bootstrap-secrets] ✓ infisical-db credentials uploaded to Infisical")
 
@@ -314,14 +314,6 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, infisical.KeyPlatformDBAppPassword, string(appSecret.Data["password"])); err != nil {
 		return false, fmt.Errorf("failed to upload %s: %w", infisical.KeyPlatformDBAppPassword, err)
 	}
-	if err := infisicalClient.CreateOrUpdateSecret(ctx, infisicalConfig.ProjectSlug, infisicalConfig.EnvironmentSlug, secretPath, "platform-db-app-password", string(appSecret.Data["password"])); err != nil {
-		return false, fmt.Errorf("failed to upload platform-db-app-password: %w", err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ platform-db-app credentials uploaded to Infisical")
-
-	// Step 2: Generate and store Layer 2 Application Credentials in Infisical
-	fmt.Println("[bootstrap-secrets] Generating Layer 2 (Application) credentials and storing in Infisical...")
-
 	// Generate and store control-plane-db and hub-db credentials.
 	// Both are logical databases within the same CNPG cluster:
 	//   control_plane → used by MCP server + Ory stack (role: mcp_server)
