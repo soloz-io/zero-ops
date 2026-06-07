@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/infisical"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -425,117 +426,75 @@ func (i *Installer) InstallSPIREServerCredentials(ctx context.Context) (bool, er
 // This secret contains the Machine Identity credentials needed to authenticate with the Infisical API.
 // It must exist before Steps 4-5 of init-secrets can run.
 func (i *Installer) WaitForInfisicalAuth(ctx context.Context) error {
-	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	namespace := constants.NamespaceOps
-	timeout := 30 * time.Minute
-	checkInterval := 15 * time.Second
-	deadline := time.Now().Add(timeout)
 	printed := false
-
-	for time.Now().Before(deadline) {
-		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
-		if err == nil {
-			// Validate it has the required keys
-			if len(secret.Data["client-id"]) > 0 && len(secret.Data["client-secret"]) > 0 {
-				fmt.Println("✓ infisical-auth secret found — Machine Identity credentials ready")
-				return nil
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewSecretKeyHealth(
+				constants.NamespaceOps,
+				"infisical-auth",
+				"client-id",
+				"client-secret",
+			),
+		},
+		Interval: 15 * time.Second,
+		Timeout:  30 * time.Minute,
+		OnCheckStart: func(c health.HealthChecker) {
+			if !printed {
+				fmt.Println("\n⏳ Waiting for infisical-auth secret...")
+				fmt.Println("   NOTE: This secret is now auto-created by 'hub init-secrets' Step 3.5.")
+				fmt.Println("   Run: hub init-secrets --kubeconfig=<path>")
+				fmt.Println("   This process will continue automatically once the secret is created.")
+				printed = true
 			}
-		}
-
-		if !printed {
-			fmt.Println("\n⏳ Waiting for infisical-auth secret...")
-	fmt.Println("   NOTE: This secret is now auto-created by 'hub init-secrets' Step 3.5.")
-		fmt.Println("   Run: hub init-secrets --kubeconfig=<path>")
-			fmt.Println("   This process will continue automatically once the secret is created.")
-			printed = true
-		}
-
-		fmt.Printf("   infisical-auth not found yet, checking again in %v...\n", checkInterval)
-		time.Sleep(checkInterval)
+			fmt.Printf("   %s not found yet, checking again in 15s...\n", c.Name())
+		},
 	}
-
-	return fmt.Errorf("timeout after %v waiting for infisical-auth secret — run 'hub init-secrets' to create it", timeout)
+	if err := waiter.Wait(ctx, i.Kubeconfig); err != nil {
+		return fmt.Errorf("timeout after 30m waiting for infisical-auth secret — run 'hub init-secrets' to create it: %w", err)
+	}
+	fmt.Println("✓ infisical-auth secret found — Machine Identity credentials ready")
+	return nil
 }
 
-// WaitForInfisicalHealth waits for Infisical to be reachable on its REST API.
+// WaitForInfisicalHealth waits for the data layer (CNPG + PgBouncer) and
+// Infisical itself to be ready.
 //
-// Per ADR-022 (Stable-but-Not-Ready Application Semantics), Day-0 choreography
-// embraces Kubernetes' eventual consistency. We do NOT require the full
-// desired replica count to be Ready — that creates a fatal bottleneck when
-// ArgoCD is mid-reconciliation (e.g., the multi-source race where the chart
-// briefly renders with upstream defaults before our valueFiles resolve).
+// This is the single entry point used by `hub init-secrets` Step 3 to
+// guarantee that the REST API call in Step 3.5 will succeed. The
+// dependency chain is encoded by composing the DataLayerReadiness and
+// InfisicalReadiness phases from the health package — adding a new
+// prerequisite (e.g., Redis) is a one-line change to phases.go.
 //
-// The only question this CLI needs to answer is: "Is at least one Infisical
-// pod available to accept the REST call that stores Secret Zero?" Once the
-// Secret is stored, the Kubernetes Deployment controller and ArgoCD will
-// eventually converge the cluster to its final desired state in the
-// background. Note: the bash bootstrap's step5 has a separate, stricter
-// verification of the `infisical-auth` Secret artifact before marking
-// init_secrets complete.
+// Per ADR-022 (Stable-but-Not-Ready Application Semantics), Day-0
+// choreography embraces Kubernetes' eventual consistency. We do NOT
+// require the full desired replica count to be Ready — that creates a
+// fatal bottleneck when ArgoCD is mid-reconciliation (e.g., the
+// multi-source race where the chart briefly renders with upstream
+// defaults before our valueFiles resolve).
+//
+// Note: the bash bootstrap's step5 has a separate, stricter verification
+// of the `infisical-auth` Secret artifact before marking init_secrets
+// complete — that is the real safety net.
 func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
-	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	waiter := &health.HealthWaiter{
+		Checkers: append(
+			(&health.DataLayerReadiness{}).Checkers(),
+			(&health.InfisicalReadiness{}).Checkers()...,
+		),
+		Interval: 5 * time.Second,
+		Timeout:  15 * time.Minute,
+		OnCheckStart: func(c health.HealthChecker) {
+			fmt.Printf("   → checking %s\n", c.Name())
+		},
+		OnCheckPass: func(c health.HealthChecker) {
+			fmt.Printf("   ✓ %s healthy\n", c.Name())
+		},
 	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	if err := waiter.Wait(ctx, i.Kubeconfig); err != nil {
+		return fmt.Errorf("infisical health check failed: %w", err)
 	}
-
-	namespace := constants.NamespaceSecurity // CORRECT NAMESPACE
-	timeout := 5 * time.Minute
-	checkInterval := 5 * time.Second
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		name := "infisical-standalone-infisical"
-		// Try StatefulSet first (legacy chart), then Deployment (current chart)
-		sts, stsErr := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
-		if stsErr == nil {
-			if sts.Status.ReadyReplicas > 0 {
-				fmt.Println("✓ Infisical is healthy")
-				return nil
-			}
-			fmt.Printf("   Infisical StatefulSet not ready yet (%d/%d replicas ready), waiting...\n",
-				sts.Status.ReadyReplicas, sts.Status.Replicas)
-		} else {
-			if !k8serrors.IsNotFound(stsErr) {
-				return fmt.Errorf("failed to get infisical StatefulSet: %w", stsErr)
-			}
-			deploy, depErr := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-			if depErr != nil {
-				if k8serrors.IsNotFound(depErr) {
-					fmt.Println("   Infisical not found yet (StatefulSet or Deployment), waiting...")
-					time.Sleep(checkInterval)
-					continue
-				}
-				return fmt.Errorf("failed to get infisical Deployment: %w", depErr)
-			}
-			// Eventual-consistency check: at least one pod must be Available
-			// (Ready + passing the readiness probe) so the REST API can be
-			// reached. We intentionally do NOT require ready >= desired or
-			// Progressing=True.
-			if deploy.Status.AvailableReplicas > 0 {
-				fmt.Println("✓ Infisical is healthy")
-				return nil
-			}
-			fmt.Printf("   Infisical Deployment not ready yet (%d/%d replicas ready), waiting...\n",
-				deploy.Status.ReadyReplicas, deploy.Status.Replicas)
-		}
-		time.Sleep(checkInterval)
-	}
-
-	return fmt.Errorf("timeout waiting for Infisical to become healthy after %v", timeout)
+	fmt.Println("✓ Infisical is healthy (data layer + workload)")
+	return nil
 }
 
 // RestartPlatformWorkloads performs a rolling restart of StatefulSets/Deployments

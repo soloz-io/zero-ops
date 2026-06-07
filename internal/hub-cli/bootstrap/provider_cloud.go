@@ -16,6 +16,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/cluster"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/config"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/pivot"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
 )
@@ -151,7 +152,7 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 	}
 
 	fmt.Println("[pivot] Waiting for all nodes to join cluster...")
-	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 10*time.Minute); err != nil {
+	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, 10*time.Minute); err != nil {
 		return "", fmt.Errorf("machines not ready for pivot: %w", err)
 	}
 	fmt.Println("[pivot] ✓ All nodes joined")
@@ -325,52 +326,22 @@ func readTemplateManifest(basePath, templateFile, dataKey string) ([]byte, error
 
 // waitForAllMachinesRunning polls CAPI machines until every machine has a
 // nodeRef assigned (meaning the node has joined the cluster).
-func waitForAllMachinesRunning(ctx context.Context, kubeconfig, contextName string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for machines to have nodes joined")
-			}
-
-			cmd := exec.CommandContext(ctx, "kubectl",
-				"--kubeconfig", kubeconfig,
-				"--context", contextName,
-				"get", "machines",
-				"-n", constants.NamespaceCAPI,
-				"-o", "jsonpath={range .items[*]}{.metadata.name}:{.status.nodeRef.name}{\"\\n\"}{end}",
-			)
-			output, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			if len(lines) == 0 {
-				continue
-			}
-			allHaveNodes := true
-			for _, line := range lines {
-				if line == "" {
-					continue
-				}
-				parts := strings.Split(line, ":")
-				if len(parts) != 2 || parts[1] == "" {
-					allHaveNodes = false
-					break
-				}
-			}
-			if allHaveNodes {
-				return nil
-			}
-		}
+//
+// The AllMachinesHaveNodesHealth check encapsulates the same JSONPath
+// and per-machine validation logic that was previously inlined here.
+//
+// The kubeconfig file's current-context is used (--context was redundant
+// with --kubeconfig in the original implementation, since the file's
+// current-context determines which cluster kubectl talks to).
+func waitForAllMachinesRunning(ctx context.Context, kubeconfig string, timeout time.Duration) error {
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewAllMachinesHaveNodesHealth(constants.NamespaceCAPI),
+		},
+		Interval: 10 * time.Second,
+		Timeout:  timeout,
 	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 // binaries import is used by pivot but referenced transitively through the

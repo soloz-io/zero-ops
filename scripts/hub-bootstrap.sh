@@ -442,6 +442,29 @@ step1_bootstrap_hub() {
     if [[ "$TEARDOWN" == "true" ]]; then
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
         "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
+
+        log "Pre-flight: cleaning up any leftover kind clusters (CAPI spokes, prior hub-local runs)..."
+        # hub teardown only knows about the named hub cluster. CAPI's
+        # Docker provider (CAPD) creates its own kind clusters for
+        # spoke clusters (e.g. local-dev), and prior failed bootstrap
+        # runs leave kind clusters with bound host ports that
+        # collide with the new run's random API-server port. The fix:
+        # delete every kind cluster on the host, not just the named one.
+        if command -v kind >/dev/null 2>&1; then
+            for kc in $(kind get clusters 2>/dev/null); do
+                log "  Deleting stale kind cluster: $kc"
+                kind delete cluster --name "$kc" 2>&1 | tail -1 || true
+            done
+        fi
+
+        log "Pre-flight: removing stale 'kind' Docker network (if any)..."
+        # The kind network can outlive its containers on abnormal exits
+        # and then refuse to re-bind the same IPAM range, blocking the
+        # next `kind create`. Removing it forces a clean re-create.
+        if docker network ls --format '{{.Name}}' 2>/dev/null | grep -qx 'kind'; then
+            docker network rm kind 2>&1 | tail -1 || log "  (could not remove kind network — likely still in use)"
+        fi
+
         log "Cleanup: removing stale bootstrap state and logs..."
         docker system prune -f --volumes 2>/dev/null || true
         rm -f "$BOOTSTRAP_STATE_FILE"
@@ -449,7 +472,7 @@ step1_bootstrap_hub() {
         rm -f "$LOG_DIR/bootstrap.log"
         rm -f "$LOG_DIR/bootstrap-hub.log"
         rm -f "$LOG_DIR/init-secrets.log"
-        log "✓ Bootstrap state and logs reset for fresh start"
+        log "✓ Bootstrap state, logs, and stale kind resources reset for fresh start"
         sleep 10  # let the smoke clear
     fi
 
@@ -477,6 +500,26 @@ step1_bootstrap_hub() {
 
     log "Step 1: Bootstrapping Hub Cluster..."
 
+    # Pre-flight: detect and recover from a stale kind API-server port
+    # bind. With hostPort 6443 pinned in kind-config.yaml, this should
+    # not happen, but stale containers from aborted runs (e.g. a
+    # previous `hub bootstrap` killed mid-kind-create) can still hold
+    # 6443. Detect early and fail with a clear message + fix instead
+    # of letting kind spew "address already in use".
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps -a --format '{{.Ports}}' 2>/dev/null | grep -q '0.0.0.0:6443\|127.0.0.1:6443'; then
+            log "⚠️  Detected stale container bound to host port 6443. Cleaning up..."
+            # Find and remove the offending container (not the running
+            # hub-local one — only the stale ones, by exclusion of name).
+            for cid in $(docker ps -a --filter publish=6443 --format '{{.ID}}' 2>/dev/null); do
+                cname=$(docker inspect --format '{{.Name}}' "$cid" 2>/dev/null | tr -d '/')
+                if [[ "$cname" != "${CLUSTER_NAME}-control-plane" ]]; then
+                    log "  Removing stale container: $cname ($cid)"
+                    docker rm -f "$cid" >/dev/null 2>&1 || true
+                fi
+            done
+        fi
+    fi
     if [[ "$PROVIDER" == "local" ]]; then
         # Push current branch to remote so ArgoCD's Git generator can read boundary configs
         local current_branch

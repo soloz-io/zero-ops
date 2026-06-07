@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 )
 
 // Config holds cluster configuration
@@ -197,71 +198,85 @@ spec:
 // WaitForReady waits for cluster to be ready (exported for use after CNI/CCM install)
 func (p *Provisioner) WaitForReady(ctx context.Context) error {
 	fmt.Println("[cluster-provision] Waiting for cluster to be ready...")
-	
-	// Show initial status
+
+	// Show initial status.
 	statusCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("get", "cluster,machines,hcloudmachines",
 		"-n", p.Config.Namespace)...)
 	if output, err := statusCmd.CombinedOutput(); err == nil {
 		fmt.Printf("\n%s\n", output)
 	}
-	
-	// Poll for status updates every 30 seconds
+
+	// Periodic status dump on a separate goroutine — independent of the
+	// health-wait polling, so operators see the cluster evolving even
+	// when nothing has gone wrong yet.
+	stopStatus := make(chan struct{})
+	defer close(stopStatus)
+	go p.periodicStatusDump(ctx, stopStatus)
+
+	// Use the health framework to do the actual wait, then on failure
+	// dump extra diagnostics (control-plane describe) for operators.
+	checker := health.NewCAPIResourceReadyHealth("cluster", p.Config.ClusterName, p.Config.Namespace)
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{checker},
+		Interval: 30 * time.Second,
+		Timeout:  30 * time.Minute,
+	}
+	if err := waiter.Wait(ctx, p.kubeconfigPath()); err != nil {
+		p.dumpDiagnosticsOnFailure(ctx)
+		return err
+	}
+
+	fmt.Println("[cluster-provision] ✓ Cluster is ready")
+	return nil
+}
+
+// periodicStatusDump prints a one-line cluster state every 30s.
+func (p *Provisioner) periodicStatusDump(ctx context.Context, stop <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
-	done := make(chan error, 1)
-	
-	// Start wait command in background
-	go func() {
-		cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("wait", "cluster", p.Config.ClusterName,
-			"-n", p.Config.Namespace,
-			"--for=condition=Ready",
-			"--timeout=30m")...)
-		
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			done <- fmt.Errorf("cluster not ready: %w\n%s", err, output)
-		} else {
-			done <- nil
-		}
-	}()
-	
-	// Show periodic status updates
 	for {
 		select {
-		case err := <-done:
-			if err != nil {
-				// Show final status on error
-				fmt.Println("\n[cluster-provision] Cluster not ready. Current status:")
-				statusCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("get", "cluster,machines,kubeadmcontrolplane",
-					"-n", p.Config.Namespace, "-o", "wide")...)
-				if statusOutput, _ := statusCmd.CombinedOutput(); len(statusOutput) > 0 {
-					fmt.Printf("%s\n", statusOutput)
-				}
-				
-				// Show control plane status
-				fmt.Println("\n[cluster-provision] Control plane status:")
-				describeCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("describe", "kubeadmcontrolplane",
-					"-n", p.Config.Namespace)...)
-				if descOutput, _ := describeCmd.CombinedOutput(); len(descOutput) > 0 {
-					fmt.Printf("%s\n", descOutput)
-				}
-				
-				return err
-			}
-			fmt.Println("[cluster-provision] ✓ Cluster is ready")
-			return nil
-			
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
 		case <-ticker.C:
-			// Show current status
 			fmt.Println("\n[cluster-provision] Current status:")
-			statusCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("get", "cluster,machines,kubeadmcontrolplane",
+			cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("get", "cluster,machines,kubeadmcontrolplane",
 				"-n", p.Config.Namespace, "-o", "wide")...)
-			if output, err := statusCmd.CombinedOutput(); err == nil {
+			if output, err := cmd.CombinedOutput(); err == nil {
 				fmt.Printf("%s\n", output)
 			}
 		}
 	}
+}
+
+// dumpDiagnosticsOnFailure prints cluster + control-plane state when
+// the wait fails, so operators can see why the cluster didn't converge.
+func (p *Provisioner) dumpDiagnosticsOnFailure(ctx context.Context) {
+	fmt.Println("\n[cluster-provision] Cluster not ready. Current status:")
+	statusCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("get", "cluster,machines,kubeadmcontrolplane",
+		"-n", p.Config.Namespace, "-o", "wide")...)
+	if statusOutput, _ := statusCmd.CombinedOutput(); len(statusOutput) > 0 {
+		fmt.Printf("%s\n", statusOutput)
+	}
+
+	fmt.Println("\n[cluster-provision] Control plane status:")
+	describeCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("describe", "kubeadmcontrolplane",
+		"-n", p.Config.Namespace)...)
+	if descOutput, _ := describeCmd.CombinedOutput(); len(descOutput) > 0 {
+		fmt.Printf("%s\n", descOutput)
+	}
+}
+
+// kubeconfigPath returns the kubeconfig path used by this provisioner.
+// It exists so WaitForReady's HealthWaiter call has a single source of
+// truth for the kubeconfig location.
+func (p *Provisioner) kubeconfigPath() string {
+	if p.Kubeconfig != "" {
+		return p.Kubeconfig
+	}
+	return filepath.Join(os.Getenv("HOME"), ".kube", "config")
 }
 
 

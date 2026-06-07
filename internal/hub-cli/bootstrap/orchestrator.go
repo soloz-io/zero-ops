@@ -14,6 +14,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/clusterclass"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
 )
 
@@ -606,145 +607,63 @@ func (o *Orchestrator) allOperatorsReady(ctx context.Context, kubeconfig string)
 	return hasCAPI && hasCertManager && hasCNPG && hasExternalSecret
 }
 
+// waitForOperators waits for validating webhook configurations matching the
+// built-in platform operators and any extraPatterns provided by the
+// provider's OperatorWebhookPatterns() to be established.
+//
+// The check is a thin wrapper over the health package's
+// ValidatingWebhookHealth, composing base + extra patterns into a single
+// check. This keeps the wait loop, timeout, and context handling
+// consistent with the rest of the bootstrap pipeline.
 func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
-	deadline := time.Now().Add(20 * time.Minute)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	patterns := []string{"capi", "cert-manager", "cnpg", "externalsecret"}
+	patterns = append(patterns, extraPatterns...)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for operators to establish webhooks")
-			}
-			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-				"get", "validatingwebhookconfigurations", "-o", "name")
-			out, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-				hasCAPI := false
-				hasCertManager := false
-				hasCNPG := false
-				hasExternalSecret := false
-				extraFound := make(map[string]bool)
-				for _, p := range extraPatterns {
-					extraFound[p] = false
-				}
-				for _, line := range lines {
-					if strings.Contains(line, "capi") {
-						hasCAPI = true
-					}
-					if strings.Contains(line, "cert-manager") {
-						hasCertManager = true
-					}
-					if strings.Contains(line, "cnpg") {
-						hasCNPG = true
-					}
-					if strings.Contains(line, "externalsecret") || strings.Contains(line, "secretstore") {
-						hasExternalSecret = true
-					}
-					for _, p := range extraPatterns {
-						if strings.Contains(line, p) {
-							extraFound[p] = true
-						}
-					}
-				}
-				allExtra := true
-				for _, found := range extraFound {
-					if !found {
-						allExtra = false
-						break
-					}
-				}
-				if hasCAPI && hasCertManager && hasCNPG && hasExternalSecret && allExtra {
-					return nil
-				}
-		}
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewValidatingWebhookHealth(patterns...),
+		},
+		Interval: 10 * time.Second,
+		Timeout:  20 * time.Minute,
 	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 // waitForCRDs polls the API server until critical CRDs are registered in
 // resource discovery. Validating webhooks existing does not guarantee the
 // CRD is registerable — there is a propagation delay.
 func (o *Orchestrator) waitForCRDs(ctx context.Context, kubeconfig string) error {
-	required := []string{
-		"externalsecrets.external-secrets.io",
-		"clusters.postgresql.cnpg.io",
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewCRDRegisteredHealth(
+				"externalsecrets.external-secrets.io",
+				"clusters.postgresql.cnpg.io",
+			),
+		},
+		Interval: 5 * time.Second,
+		Timeout:  10 * time.Minute,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[platform-deploy] ✓ CRDs queryable")
+		},
 	}
-	deadline := time.Now().Add(10 * time.Minute)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for CRDs to be queryable")
-			}
-			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-				"get", "crd", "-o", "name")
-			out, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-			allFound := true
-			for _, crd := range required {
-				if !strings.Contains(string(out), crd) {
-					allFound = false
-					break
-				}
-			}
-			if allFound {
-				fmt.Println("[platform-deploy] ✓ CRDs queryable")
-				return nil
-			}
-		}
-	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 // waitForOperatorPods polls until critical operator pods are Ready. Webhooks
 // and CRDs may exist, but webhook endpoints return 503 until their pods start.
 func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig string) error {
-	operators := map[string]string{
-		"cnpg-system":             "app.kubernetes.io/name=cloudnative-pg",
-		"platform-ops":            "app.kubernetes.io/name=external-secrets",
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewOperatorPodsHealth("cnpg-system", "app.kubernetes.io/name=cloudnative-pg"),
+			health.NewOperatorPodsHealth("platform-ops", "app.kubernetes.io/name=external-secrets"),
+		},
+		Interval: 5 * time.Second,
+		Timeout:  15 * time.Minute,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[platform-deploy] ✓ Operator pods Ready")
+		},
 	}
-	deadline := time.Now().Add(15 * time.Minute)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for operator pods to be Ready")
-			}
-			allReady := true
-			for ns, label := range operators {
-				cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-					"get", "pods", "-n", ns,
-					"-l", label,
-					"-o", "jsonpath={.items[?(@.status.phase=='Running')].metadata.name}")
-				out, err := cmd.Output()
-				if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-					allReady = false
-					break
-				}
-			}
-			if allReady {
-				fmt.Println("[platform-deploy] ✓ Operator pods Ready")
-				return nil
-			}
-		}
-	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 func currentGitBranch() string {

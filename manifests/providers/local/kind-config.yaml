@@ -13,6 +13,15 @@ nodes:
   - hostPath: /var/run/docker.sock
     containerPath: /var/run/docker.sock
   extraPortMappings:
+  # API server: pinned to host port 6443 so re-runs after teardown
+  # never collide with random ephemeral ports from prior kind
+  # clusters or CAPI-managed spoke clusters. Without this, kind
+  # auto-assigns a random host port per run, which on re-bootstrap
+  # collides with stale container port bindings (fixes the
+  # "address already in use" error observed on Day-0 retries).
+  - containerPort: 6443
+    hostPort: 6443
+    protocol: TCP
   - containerPort: 80
     hostPort: 8080
     protocol: TCP
