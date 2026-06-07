@@ -318,10 +318,19 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 	// Step 2: Generate and store Layer 2 Application Credentials in Infisical
 	fmt.Println("[bootstrap-secrets] Generating Layer 2 (Application) credentials and storing in Infisical...")
 
-	// Generate and store control-plane-db credentials
+	// Generate and store control-plane-db and hub-db credentials.
+	// Both are logical databases within the same CNPG cluster:
+	//   control_plane → used by MCP server + Ory stack (role: mcp_server)
+	//   hub          → used by hub platform (role: spoke_controller)
+	// The hub- prefix on Infisical keys follows the convention in
+	// operators/hub-operator/internal/infisical/constants.go.
 	controlPlanePassword, err := generateSecurePassword(32)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate control-plane password: %w", err)
+	}
+	hubDBPassword, err := generateSecurePassword(32)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate hub-db password: %w", err)
 	}
 
 	credentials := []struct {
@@ -329,7 +338,8 @@ func (i *Installer) InstallPlatformDatabaseCredentials(ctx context.Context) (boo
 		username string
 		password string
 	}{
-		{"control-plane-db", "mcp_server", controlPlanePassword},
+		{"hub-control-plane-db", "mcp_server", controlPlanePassword},
+		{"hub-centralized-db", "spoke_controller", hubDBPassword},
 	}
 
 	// Store only username and password in Infisical (host/port/database are static in manifests)
