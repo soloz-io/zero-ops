@@ -110,8 +110,10 @@ func listCertificatePolicies(ctx context.Context, podName, adminJWT, projectID s
 }
 
 // createCertificatePolicy creates a new certificate policy with the given name and returns its ID.
+// The subject policy allows argocd-agent.* common names — the cert-operator prefixes
+// spoke names with "argocd-agent." when issuing bootstrap certificates.
 func createCertificatePolicy(ctx context.Context, podName, adminJWT, projectID, name string) (string, error) {
-	body := fmt.Sprintf(`{"projectId":"%s","name":"%s"}`, projectID, name)
+	body := fmt.Sprintf(`{"projectId":"%s","name":"%s","subject":[{"type":"common_name","allowed":["argocd-agent.*"]}]}`, projectID, name)
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathCertificatePolicies,
@@ -190,11 +192,13 @@ func resolveCertificatePolicy(ctx context.Context, podName, adminJWT, projectID 
 	return policyID, nil
 }
 
-// createFleetIntermediateCA creates an intermediate CA named "Fleet Intermediate CA"
+// createFleetIntermediateCA creates a root CA named "Fleet Intermediate CA"
 // in the given project via POST /api/v1/cert-manager/ca/internal.
+// A root CA becomes active immediately — unlike intermediate CAs which
+// are stuck at "pending-certificate" until signed by a parent root CA.
 func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID string) (string, error) {
 	body := fmt.Sprintf(
-		`{"name":"fleet-intermediate-ca","projectId":"%s","status":"active","configuration":{"type":"intermediate","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":0,"keyAlgorithm":"RSA_2048"}}`,
+		`{"name":"fleet-intermediate-ca","projectId":"%s","status":"active","configuration":{"type":"root","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":1,"keyAlgorithm":"RSA_2048"}}`,
 		projectID, fleetCAName,
 	)
 	output, err := kubectlExec(ctx, podName,
