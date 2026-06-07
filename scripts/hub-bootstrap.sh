@@ -39,6 +39,11 @@ ENVIRONMENT=""
 CERT_TIMEOUT="${CERT_TIMEOUT:-600}"  # 10 minutes in seconds
 CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"  # 15 minutes in seconds
 
+# Load .env file if present (local development overrides for admin credentials)
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+    set -a; source "$PROJECT_ROOT/.env"; set +a
+fi
+
 # Kubeconfig path — set by step1 from the Go bootstrap result contract
 KUBECONFIG_PATH=""
 

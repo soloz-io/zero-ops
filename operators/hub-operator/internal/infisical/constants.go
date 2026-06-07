@@ -1,6 +1,10 @@
 package infisical
 
-import "github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
+import (
+	"os"
+
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
+)
 
 const (
 	// Infisical Service Configuration
@@ -26,10 +30,6 @@ const (
 	IdentityName     = "hub-operator"
 	IdentityRole     = "admin"
 	EnvironmentSlug  = "dev"
-
-	// Admin Credentials
-	AdminEmail    = "arun4infra@gmail.com"
-	AdminPassword = "Password@123" // TODO: Generate secure password
 
 	// Secret Names
 	SecretInfisicalAuth         = "infisical-auth"
@@ -94,3 +94,17 @@ const (
 	ValueManagedBy = "hub-operator"
 	ValueBootstrap = "infisical-bootstrap"
 )
+
+// Admin Credentials — overridable via environment variables.
+// The .env file at the project root is sourced by hub-bootstrap.sh.
+var (
+	AdminEmail    = envOrDefault("INFISICAL_ADMIN_EMAIL", "arun4infra@gmail.com")
+	AdminPassword = envOrDefault("INFISICAL_ADMIN_PASSWORD", "Password@123")
+)
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}

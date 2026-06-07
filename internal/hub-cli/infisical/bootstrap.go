@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -12,10 +13,20 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
 
+var (
+	adminEmail    = envOrDefault("INFISICAL_ADMIN_EMAIL", "arun4infra@gmail.com")
+	adminPassword = envOrDefault("INFISICAL_ADMIN_PASSWORD", "Password@123")
+	orgName       = envOrDefault("INFISICAL_ORG_NAME", "Zero-Ops")
+)
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 const (
-	adminEmail    = "arun4infra@gmail.com"
-	adminPassword = "Password@123"
-	orgName       = "Zero-Ops"
 
 	identityName  = "hub-platform-eso"
 
