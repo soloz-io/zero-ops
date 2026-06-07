@@ -86,6 +86,11 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+        retry:
+          limit: 15
+          backoff:
+            duration: 30s
+            maxDuration: 10m
   templatePatch: |
     {{"{{-"}} if .path {{"}}"}}
     spec:
