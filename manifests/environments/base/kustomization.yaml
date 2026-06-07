@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   - hub-bootstrap-config.yaml
-  - ../../hub-core-services/hub-environment/hubenvironment.yaml
+  - hubenvironment.yaml
 
 # The base defines an empty hub-bootstrap-config that environment overlays patch
 # Each overlay injects the provider component and environment-specific values

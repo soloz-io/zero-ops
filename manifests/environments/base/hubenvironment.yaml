@@ -1,0 +1,105 @@
+apiVersion: ops.nutgraf.in/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-environment
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # Domain is sourced from hub-bootstrap-config ConfigMap
+  domain: nutgraf.in
+  tls:
+    issuer: letsencrypt-prod
+    email: ops@nutgraf.in
+  observability:
+    victoriaMetrics:
+      retentionPeriod: 90d
+    grafanaAlloy:
+      scrapeInterval: 15s
+  database:
+    clusterRef: platform-db
+    namespace: platform-data
+    roles:
+    - name: hub_control_plane
+      database: control_plane
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: infisical
+      database: infisical
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: hub_centralized
+      database: hub
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+    - name: spire
+      database: spire
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: hub_hydra
+      database: hydra
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: hub_kratos
+      database: kratos
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: hub_keto
+      database: keto
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: openmeter
+      database: openmeter
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+  nats:
+    streams:
+    - name: spoke-events
+      subjects:
+      - "spoke.*.lifecycle.>"
+      - "spoke.*.billing.>"
+      retention: limits
+      storage: file
+    - name: hub-events
+      subjects:
+      - "hub.notifications.>"
+      retention: interest
+      storage: file
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: "MCP Server"
+      redirectUris:
+      - "https://mcp.nutgraf.in/callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code
+  secrets:
+    infisical:
+      # ProjectSlug and EnvironmentSlug are sourced from hub-bootstrap-config ConfigMap
+      projectSlug: hub-platform
+      environmentSlug: dev
