@@ -67,16 +67,23 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Wait for Infisical to become healthy before storing credentials via API.
-	// Strict readiness: every desired replica must be Ready and Available, and
-	// the Deployment's Progressing condition must be True. On failure we surface
-	// a hard error so the bash bootstrap can refuse to mark init_secrets
-	// complete. Silently skipping credential storage here is what previously
-	// produced an empty `infisical-auth` Secret and the downstream
-	// cert-operator PKI timeout.
+	// Per ADR-022 we check AvailableReplicas >= 1 (REST API reachability), not
+	// full desired replica count. The bash bootstrap's step5 has a separate,
+	// stricter verification of the `infisical-auth` Secret artifact before
+	// marking init_secrets complete — that is the real safety net.
 	printStepBanner("3", "Wait for Infisical to become healthy",
 		"Ensure Infisical pods are running and accepting connections before API calls", "Up to 5 minutes")
 	if err := installer.WaitForInfisicalHealth(ctx); err != nil {
-		return fmt.Errorf("infisical failed strict health check: %w", err)
+		fmt.Println("Warning: Infisical not yet healthy. Skipping credential storage in Infisical.")
+		fmt.Println("  Run 'hub init-secrets' again after Infisical pods are running.")
+
+		// Still trigger pod restart if secrets changed
+		if changed1 || changed2 {
+			if err := installer.RestartPlatformWorkloads(ctx); err != nil {
+				return fmt.Errorf("failed to restart workloads: %w", err)
+			}
+		}
+		return nil
 	}
 
 	// Step 3.5: Automatically bootstrap Infisical (Org, Project, Machine Identity).

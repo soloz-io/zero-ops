@@ -1,12 +1,20 @@
 infisical:
   enabled: true
+  # Override chart default of 2 replicas. The dev/single-node kind cluster
+  # cannot satisfy a 2-replica Deployment, and the strict readiness check in
+  # `hub init-secrets` requires every desired replica to be Ready. A stuck
+  # 0/2 rollout would cause credential storage to be skipped and break the
+  # downstream cert-operator PKI bootstrap.
+  # If you remove this override, you MUST ensure the target cluster can
+  # schedule at least 2 Infisical replicas (e.g., a multi-node kind cluster
+  # or a hetzner/AWS hub with HA capacity).
   replicaCount: 1
-  
-  # Use Recreate strategy to avoid resource contention during updates
-  # (terminates old pod before creating new one)
-  strategy:
-    type: Recreate
-  
+
+  # strategy.type: chart template does not consume .Values.infisical.strategy
+  # (verified against infisical-standalone 1.7.5), so this block is a no-op.
+  # Kept here for documentation only — delete it or use it once the chart
+  # template adds support.
+
   image:
     repository: infisical/infisical
     tag: "v0.158.0"

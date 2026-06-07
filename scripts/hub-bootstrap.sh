@@ -442,11 +442,14 @@ step1_bootstrap_hub() {
     if [[ "$TEARDOWN" == "true" ]]; then
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
         "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
-        log "Cleanup: removing stale bootstrap state..."
+        log "Cleanup: removing stale bootstrap state and logs..."
         docker system prune -f --volumes 2>/dev/null || true
         rm -f "$BOOTSTRAP_STATE_FILE"
         rm -f "$go_state_file"
-        log "✓ Bootstrap state reset for fresh start"
+        rm -f "$LOG_DIR/bootstrap.log"
+        rm -f "$LOG_DIR/bootstrap-hub.log"
+        rm -f "$LOG_DIR/init-secrets.log"
+        log "✓ Bootstrap state and logs reset for fresh start"
         sleep 10  # let the smoke clear
     fi
 
