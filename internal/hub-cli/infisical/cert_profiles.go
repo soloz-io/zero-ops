@@ -194,11 +194,11 @@ func resolveCertificatePolicy(ctx context.Context, podName, adminJWT, projectID 
 
 // createFleetIntermediateCA creates a root CA named "Fleet Intermediate CA"
 // in the given project via POST /api/v1/cert-manager/ca/internal.
-// A root CA becomes active immediately — unlike intermediate CAs which
-// are stuck at "pending-certificate" until signed by a parent root CA.
+// A root CA becomes active immediately when notAfter is provided — without
+// it the CA stays at "pending-certificate" and cannot issue certificates.
 func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID string) (string, error) {
 	body := fmt.Sprintf(
-		`{"name":"fleet-intermediate-ca","projectId":"%s","status":"active","configuration":{"type":"root","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":1,"keyAlgorithm":"RSA_2048"}}`,
+		`{"name":"fleet-intermediate-ca","projectId":"%s","status":"active","configuration":{"type":"root","commonName":"%s","organization":"Zero-Ops","ou":"","country":"","province":"","locality":"","maxPathLength":1,"keyAlgorithm":"RSA_2048"},"notAfter":"2036-06-07T00:00:00Z"}`,
 		projectID, fleetCAName,
 	)
 	output, err := kubectlExec(ctx, podName,
