@@ -2,8 +2,8 @@ package infisical
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,6 +20,13 @@ const (
 	infisicalNamespace = "platform-security"
 	infisicalPort      = "8080"
 )
+
+// errAlreadyBootstrapped is returned by runBootstrapCLI when the Infisical
+// server is already bootstrapped and the CLI banner-only output was
+// produced. Callers must NOT reset the database when they receive this
+// error — they should call getExistingOrgData to recover the existing
+// org/identity IDs without destroying state.
+var errAlreadyBootstrapped = errors.New("infisical instance already bootstrapped")
 
 var cachedBootstrap *bootstrapOutput
 
@@ -91,53 +98,103 @@ type createClientSecretResponse struct {
 	ClientSecret string `json:"clientSecret"`
 }
 
-// resetBootstrapState clears the Infisical bootstrap state (user, project, super_admin)
-// and flushes the Redis cache so a fresh bootstrap can run.
-func resetBootstrapState(ctx context.Context, podName string) error {
-	dbPass, err := getK8sSecret(ctx, "platform-data", "infisical-db-credentials", "password")
-	if err != nil {
-		return fmt.Errorf("get DB password: %w", err)
-	}
-
-	sql := fmt.Sprintf(
-		"DELETE FROM users WHERE email='%s'; DELETE FROM projects WHERE slug='%s'; UPDATE super_admin SET initialized=false, \"adminIdentityIds\"=NULL;",
-		adminEmail, ProjectSlug,
+// getExistingOrgData recovers the org/identity state from an already-
+// bootstrapped Infisical server via the API. It is used in place of the
+// previous resetBootstrapState, which destructively DELETED users and
+// projects from PostgreSQL on re-run and forced callers to re-bootstrap
+// from scratch — that path orphaned any in-flight cert-operator
+// reconcile (which had cached the old project IDs at startup).
+//
+// The recovery flow:
+//  1. POST /api/v1/auth/login with the well-known bootstrap credentials
+//     to get an admin JWT.
+//  2. GET /api/v1/organization to get the org ID + name.
+//  3. GET /api/v1/identities?organizationId=<org> to find the
+//     "Instance Admin Identity" created by `infisical bootstrap`.
+//
+// All HTTP calls use `curl -s -f` so HTTP 4xx/5xx becomes a non-nil
+// error from kubectlExec (we no longer silently fall through with
+// exit code 0 on failure).
+func getExistingOrgData(ctx context.Context, podName string) (*bootstrapOutput, error) {
+	// 1. Log in as the bootstrap admin to get a JWT.
+	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail, adminPassword)
+	loginOut, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f", "-X", "POST",
+		"http://localhost:"+infisicalPort+"/api/v1/auth/login",
+		"-H", "Content-Type: application/json",
+		"-d", loginPayload,
 	)
-	// Escape inner double-quotes for the shell -c wrapper
-	escapedSQL := strings.ReplaceAll(sql, `"`, `\"`)
-	cleanupCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", "platform-data", "platform-db-1", "--",
-		"sh", "-c", fmt.Sprintf("PGSSLMODE=require psql 'postgres://infisical:%s@localhost/infisical' -c \"%s\"", dbPass, escapedSQL))
-	if out, err := cleanupCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("DB cleanup: %w\noutput: %s", err, out)
-	}
-
-	redisPass, err := getK8sSecret(ctx, "platform-data", "infisical-redis-credentials", "password")
 	if err != nil {
-		return fmt.Errorf("get Redis password: %w", err)
+		return nil, fmt.Errorf("admin login failed: %w", err)
 	}
-
-	redisCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", "platform-data", "redis-master-0", "--",
-		"redis-cli", "-a", redisPass, "DEL", "infisical-admin-cfg")
-	if out, err := redisCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("Redis cleanup: %w\noutput: %s", err, out)
+	var loginResp struct {
+		Token     string `json:"token"`
+		TokenType string `json:"tokenType"`
 	}
+	if err := json.Unmarshal([]byte(loginOut), &loginResp); err != nil {
+		return nil, fmt.Errorf("decode admin login: %w\nbody: %s", err, loginOut)
+	}
+	if loginResp.Token == "" {
+		return nil, fmt.Errorf("admin login returned no token: %s", loginOut)
+	}
+	adminJWT := loginResp.Token
 
-	return nil
-}
-
-// getK8sSecret retrieves a base64-decoded value from a Kubernetes secret.
-func getK8sSecret(ctx context.Context, namespace, name, key string) (string, error) {
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "secret", "-n", namespace, name,
-		"-o", fmt.Sprintf("jsonpath={.data.%s}", key))
-	out, err := cmd.CombinedOutput()
+	// 2. Get the current organization.
+	orgOut, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f",
+		"http://localhost:"+infisicalPort+PathCurrentOrganization,
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
 	if err != nil {
-		return "", fmt.Errorf("kubectl get secret: %w\noutput: %s", err, out)
+		return nil, fmt.Errorf("get current organization: %w", err)
 	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
+	var org struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(orgOut), &org); err != nil {
+		return nil, fmt.Errorf("decode current organization: %w\nbody: %s", err, orgOut)
+	}
+	if org.ID == "" {
+		return nil, fmt.Errorf("current organization has no ID: %s", orgOut)
+	}
+
+	// 3. Find the Instance Admin Identity.
+	identitiesOut, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f",
+		"http://localhost:"+infisicalPort+fmt.Sprintf(PathIdentitiesByOrg, org.ID),
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
 	if err != nil {
-		return "", fmt.Errorf("base64 decode: %w", err)
+		return nil, fmt.Errorf("list identities: %w", err)
 	}
-	return string(decoded), nil
+	var identitiesResp struct {
+		Identities []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"identities"`
+	}
+	if err := json.Unmarshal([]byte(identitiesOut), &identitiesResp); err != nil {
+		return nil, fmt.Errorf("decode identities: %w\nbody: %s", err, identitiesOut)
+	}
+	var adminIdentityID string
+	for _, id := range identitiesResp.Identities {
+		if id.Name == "Instance Admin Identity" {
+			adminIdentityID = id.ID
+			break
+		}
+	}
+	if adminIdentityID == "" {
+		return nil, fmt.Errorf("Instance Admin Identity not found in org %s; existing bootstrap may be from a different schema", org.ID)
+	}
+
+	result := &bootstrapOutput{}
+	result.Identity.ID = adminIdentityID
+	result.Identity.Name = "Instance Admin Identity"
+	result.Identity.Credentials.Token = adminJWT
+	result.Organization.ID = org.ID
+	result.Organization.Name = org.Name
+	return result, nil
 }
 
 // stripCLIBanner strips CLI update-notification banners ("A new release...") from
@@ -180,8 +237,14 @@ func GetInfisicalPodName(ctx context.Context) (string, error) {
 }
 
 // runBootstrapCLI calls infisical bootstrap and returns the JSON output.
-// If the server is already bootstrapped (banner-only output), it auto-resets
-// the DB state and retries once.
+//
+// If the server is already bootstrapped (banner-only output, no JSON
+// body), the function returns errAlreadyBootstrapped so the caller can
+// recover the existing org/identity state via getExistingOrgData.
+// This used to destructively DELETE users, projects, and Redis state
+// and re-bootstrap from scratch — that path orphaned any in-flight
+// cert-operator reconcile (which had cached the old project IDs at
+// startup) and is no longer invoked.
 func runBootstrapCLI(ctx context.Context, podName string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"infisical", "bootstrap",
@@ -201,30 +264,11 @@ func runBootstrapCLI(ctx context.Context, podName string) (string, error) {
 		return jsonOutput, nil
 	}
 
-	// Server already bootstrapped — auto-reset and retry once
-	fmt.Println("[infisical-bootstrap] Instance already bootstrapped, resetting...")
-	if err := resetBootstrapState(ctx, podName); err != nil {
-		return "", fmt.Errorf("reset bootstrap state: %w", err)
-	}
-
-	output, err = kubectlExec(ctx, podName,
-		"infisical", "bootstrap",
-		"--email", adminEmail,
-		"--password", adminPassword,
-		"--organization", orgName,
-		"--domain", "http://localhost:"+infisicalPort,
-		"--ignore-if-bootstrapped",
-		"--output", "json",
-	)
-	if err != nil {
-		return "", fmt.Errorf("infisical bootstrap (after reset) failed: %w", err)
-	}
-
-	jsonOutput = stripCLIBanner(output)
-	if jsonOutput == "" {
-		return "", fmt.Errorf("infisical bootstrap returned no JSON after reset: %s", output)
-	}
-	return jsonOutput, nil
+	// Banner-only output means the server is already bootstrapped.
+	// Surface this as a sentinel error — the caller (runBootstrap /
+	// BootstrapInfisicalDayZero) will recover the existing org/identity
+	// state via getExistingOrgData without destroying anything.
+	return "", errAlreadyBootstrapped
 }
 
 func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error) {
@@ -234,6 +278,17 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 	}
 
 	jsonOutput, err := runBootstrapCLI(ctx, podName)
+	if errors.Is(err, errAlreadyBootstrapped) {
+		fmt.Println("[infisical-bootstrap] Server already bootstrapped, recovering existing org/identity via API...")
+		existing, getErr := getExistingOrgData(ctx, podName)
+		if getErr != nil {
+			return nil, fmt.Errorf("recover existing bootstrap: %w", getErr)
+		}
+		cachedBootstrap = existing
+		fmt.Printf("[infisical-bootstrap] Re-using existing bootstrap: org=%s (%s), identity=%s\n",
+			existing.Organization.Name, existing.Organization.ID, existing.Identity.ID)
+		return cachedBootstrap, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +322,7 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 	}
 	body := string(bodyBytes)
 	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+		"curl", "-s", "-f", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathProjects,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -285,7 +340,7 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 	if projectResp.Project.ID == "" {
 		// Could be a 409 — try listing projects to find the slug
 		listOut, listErr := kubectlExec(ctx, podName,
-			"curl", "-s",
+			"curl", "-s", "-f",
 			"http://localhost:"+infisicalPort+PathProjects,
 			"-H", "Authorization: Bearer "+adminJWT,
 		)
@@ -318,7 +373,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	// 1. Create the Machine Identity
 	body := fmt.Sprintf(`{"name":"%s","organizationId":"%s"}`, identityName, orgID)
 	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+		"curl", "-s", "-f", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathIdentities,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -347,7 +402,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	uaBody := `{"clientSecretTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTrustedIps":[{"ipAddress":"0.0.0.0/0","type":"ipv4"},{"ipAddress":"::/0","type":"ipv6"}],"accessTokenTTL":2592000,"accessTokenMaxTTL":2592000}`
 	uaURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID)
 	uaOutput, uaErr := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+		"curl", "-s", "-f", "-X", "POST",
 		uaURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -375,7 +430,7 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	// 3. Generate client secret (correct path: /api/v1/auth/universal-auth/identities/{id}/client-secrets)
 	csURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathAuthUniversalAuthClientSecrets, identityID)
 	csOutput, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+		"curl", "-s", "-f", "-X", "POST",
 		csURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -395,44 +450,35 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	}
 	fmt.Printf("[infisical-bootstrap] Client secret generated\n")
 
-	// 4. Grant project admin role
-	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathProjectMembershipsIdentities, projectID, identityID)
-	grantOutput, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
-		grantURL,
-		"-H", "Content-Type: application/json",
-		"-H", "Authorization: Bearer "+adminJWT,
-		"-d", `{"roles":[{"role":"admin"}]}`,
-	)
-	if err != nil {
-		fmt.Printf("[infisical-bootstrap] ⚠️  Project membership grant issue: %s\n", err)
-	} else {
-		fmt.Printf("[infisical-bootstrap] Project admin access granted: %s\n", strings.TrimSpace(grantOutput))
+	// 4. Grant project admin role — HARD failure. Without this the
+	// Machine Identity cannot read/write the cert project.
+	if err := grantProjectAdminRole(ctx, podName, adminJWT, projectID, identityID); err != nil {
+		return "", "", "", fmt.Errorf("grant project admin: %w", err)
 	}
 
-	// 5. Grant org-level admin role (needed by cert-operator to create spoke identities)
-	orgGrantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathOrgIdentityMemberships, identityID)
-	orgGrantOutput, orgGrantErr := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
-		orgGrantURL,
-		"-H", "Content-Type: application/json",
-		"-H", "Authorization: Bearer "+adminJWT,
-		"-d", `{"roles":[{"role":"admin","isTemporary":false}]}`,
-	)
-	if orgGrantErr != nil {
-		fmt.Printf("[infisical-bootstrap] ⚠️  Org membership grant issue: %s\n", orgGrantErr)
-	} else {
-		fmt.Printf("[infisical-bootstrap] Org admin access granted: %s\n", strings.TrimSpace(orgGrantOutput))
+	// 5. Grant org-level admin role — HARD failure. The cert-operator
+	// needs this to create Machine Identities for spokes on a different
+	// org, which requires `identity:create` at the org scope. Previously
+	// this was logged-as-success with curl -s, hiding the 403.
+	//
+	// NOTE: grantOrgAdminRole logs in as the admin user (email/password)
+	// and uses a user-level JWT — not the adminJWT passed in here, which
+	// is the Instance Admin Identity token on first run. Machine Identity
+	// tokens cannot manage org-level role assignments in Infisical 0.43.x
+	// (new privilege system: only user sessions can PATCH identity
+	// memberships at the org scope).
+	if err := grantOrgAdminRole(ctx, podName, identityID); err != nil {
+		return "", "", "", fmt.Errorf("grant org admin: %w", err)
 	}
 
 	return clientID, clientSecret, identityID, nil
 }
 
-// grantProjectAdminRole adds an identity to the project with the admin role.
+// grantProjectAdminRole adds an identity to a project with the admin role.
 func grantProjectAdminRole(ctx context.Context, podName, adminJWT, projectID, identityID string) error {
 	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathProjectMembershipsIdentities, projectID, identityID)
 	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+		"curl", "-s", "-f", "-X", "POST",
 		grantURL,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -446,6 +492,66 @@ func grantProjectAdminRole(ctx context.Context, podName, adminJWT, projectID, id
 		return nil
 	}
 	fmt.Printf("[infisical-bootstrap] Instance Admin Identity granted admin role on project\n")
+	return nil
+}
+
+// grantOrgAdminRole adds an identity to the organization with the admin role.
+// Required for cert-operator to create Machine Identities for spokes in any
+// project within the org. Without this, `POST /api/v1/identities` returns 403
+// "You are not allowed to create on identity".
+//
+// This function logs in as the well-known admin user (email/password) to
+// obtain a user-level JWT, then calls PATCH on the org identity-memberships
+// endpoint. Two things make this necessary in Infisical 0.43.x:
+//
+//  1. The endpoint requires PATCH, not POST. POST returns 403
+//     "Parent organization cannot do this operation" (new privilege system,
+//     shouldUseNewPrivilegeSystem: true).
+//  2. The caller must be a user session. Machine Identity tokens — even
+//     ones with role: "admin" at the org scope — get 403 "You are not
+//     allowed to access this resource". Only user JWTs (email/password
+//     login) can manage org-level identity role assignments.
+func grantOrgAdminRole(ctx context.Context, podName, identityID string) error {
+	// 1. Log in as the admin user to get a user-level JWT.
+	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail, adminPassword)
+	loginOut, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f", "-X", "POST",
+		"http://localhost:"+infisicalPort+"/api/v1/auth/login",
+		"-H", "Content-Type: application/json",
+		"-d", loginPayload,
+	)
+	if err != nil {
+		return fmt.Errorf("admin user login failed: %w", err)
+	}
+	var loginResp struct {
+		Token     string `json:"token"`
+		TokenType string `json:"tokenType"`
+	}
+	if err := json.Unmarshal([]byte(loginOut), &loginResp); err != nil {
+		return fmt.Errorf("decode admin user login: %w\nbody: %s", err, loginOut)
+	}
+	if loginResp.Token == "" {
+		return fmt.Errorf("admin user login returned no token: %s", loginOut)
+	}
+	userJWT := loginResp.Token
+
+	// 2. Grant org-level admin role via PATCH using the user JWT.
+	grantURL := "http://localhost:" + infisicalPort + fmt.Sprintf(PathOrgIdentityMemberships, identityID)
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f", "-X", "PATCH",
+		grantURL,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+userJWT,
+		"-d", `{"roles":[{"role":"admin","isTemporary":false}]}`,
+	)
+	if err != nil {
+		return fmt.Errorf("curl failed: %w", err)
+	}
+	if strings.Contains(output, "Conflict") || strings.Contains(output, "already exists") {
+		fmt.Printf("[infisical-bootstrap] Identity already has org admin role\n")
+		return nil
+	}
+	fmt.Printf("[infisical-bootstrap] Identity granted org admin role: %s\n", strings.TrimSpace(output))
 	return nil
 }
 

@@ -21,4 +21,11 @@ const (
 	PathCertificateProfiles            = "/api/v1/cert-manager/certificate-profiles"
 	PathCertificateAuthoritiesCreate   = "/api/v1/cert-manager/ca/internal"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
+
+	// Used by getExistingOrgData to recover from the already-bootstrapped
+	// case without destructively resetting the database. These return
+	// the current organization and the identities the bootstrapper
+	// created in the previous run.
+	PathCurrentOrganization = "/api/v1/organization"
+	PathIdentitiesByOrg     = "/api/v1/identities?organizationId=%s"
 )

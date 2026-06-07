@@ -6,5 +6,6 @@ metadata:
 data:
   DOMAIN: ""
   CLUSTER_ID: ""
+  CLUSTER_REGION: ""
   INFISICAL_ENVIRONMENT_SLUG: ""
   INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"

@@ -5,17 +5,32 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	
+
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
+
+// isRetryableTransportError reports whether the error returned from
+// an HTTP call is a transport-level failure (connection reset, DNS,
+// dial errors) that may succeed on a subsequent attempt. HTTP status
+// errors (401/403/5xx with a body) are not retryable here — those are
+// the caller's responsibility to interpret.
+func isRetryableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
+}
 
 // Client wraps Infisical API operations
 type Client struct {
@@ -66,9 +81,33 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 		},
 	}
 
-	// Authenticate and get access token
-	if err := client.authenticate(ctx, clientID, clientSecret); err != nil {
-		return nil, fmt.Errorf("failed to authenticate with Infisical: %w", err)
+	// Authenticate and get access token.
+	//
+	// Retry on transport errors (connection reset, DNS, dial). When the
+	// Infisical pod is restarted by Step 3.5's heavy bootstrap operations
+	// (org/project/identity/cert creation), the kubectl port-forward
+	// tunnel to the Service drops its in-flight TCP connection and emits
+	// "connection reset by peer" until it re-establishes. We give the
+	// tunnel time to reconnect by retrying with a short backoff. HTTP
+	// status errors (401, 403, 5xx with body) are NOT retried — they
+	// are auth/config issues the operator must resolve.
+	var authErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt) * 2 * time.Second
+			fmt.Printf("   → retrying Infisical authentication (attempt %d/3, waiting %s)...\n", attempt+1, backoff)
+			time.Sleep(backoff)
+		}
+		authErr = client.authenticate(ctx, clientID, clientSecret)
+		if authErr == nil {
+			break
+		}
+		if !isRetryableTransportError(authErr) {
+			break
+		}
+	}
+	if authErr != nil {
+		return nil, fmt.Errorf("failed to authenticate with Infisical: %w", authErr)
 	}
 
 	return client, nil

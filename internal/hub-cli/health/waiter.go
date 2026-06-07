@@ -102,6 +102,12 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 	for i, checker := range w.Checkers {
 		if w.OnCheckStart != nil {
 			w.OnCheckStart(checker)
+		} else {
+			// Default progress banner — every HealthWaiter call gets
+			// "→ checking X" without callers having to wire up a
+			// callback. Callers wanting a custom format (e.g. a
+			// [platform-deploy] prefix) still set OnCheckStart.
+			fmt.Printf("   → checking %s\n", checker.Name())
 		}
 
 		// Per-check deadline to keep error messages precise when Timeout
@@ -115,6 +121,8 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 			if err := checker.Check(ctx, kubeconfig); err == nil {
 				if w.OnCheckPass != nil {
 					w.OnCheckPass(checker)
+				} else {
+					fmt.Printf("   ✓ %s healthy\n", checker.Name())
 				}
 				break
 			}
