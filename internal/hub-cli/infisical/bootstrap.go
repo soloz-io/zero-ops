@@ -40,6 +40,7 @@ type BootstrapResult struct {
 	SecretsProjectSlug string
 	ClientID           string
 	ClientSecret       string
+	IdentityID         string
 }
 
 // bootstrapOutput maps the actual `infisical bootstrap --output json` response.
@@ -857,6 +858,23 @@ func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, projectID
 }
 
 func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
+	// On re-run (local development), load the cached state from a previous
+	// successful bootstrap. This avoids all API calls — no duplicate Machine
+	// Identities, no failed grants, no stale ESO credentials.
+	if state, err := loadBootstrapState(); err == nil {
+		fmt.Printf("[infisical-bootstrap] Using cached state from %s (re-run)\n", stateFilePath())
+		return &BootstrapResult{
+			OrgID:              state.OrgID,
+			ProjectID:          state.ProjectID,
+			ProjectSlug:        state.ProjectSlug,
+			SecretsProjectID:   state.SecretsProjectID,
+			SecretsProjectSlug: state.SecretsProjectSlug,
+			ClientID:           state.ClientID,
+			ClientSecret:       state.ClientSecret,
+			IdentityID:         state.IdentityID,
+		}, nil
+	}
+
 	fmt.Println("[infisical-bootstrap] Starting Infisical Day-0 bootstrap...")
 
 	podName, err := GetInfisicalPodName(ctx)
@@ -916,7 +934,7 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 	}
 
 	fmt.Println("[infisical-bootstrap] ✅ Infisical Day-0 bootstrap complete")
-	return &BootstrapResult{
+	result := &BootstrapResult{
 		OrgID:              orgID,
 		ProjectID:          certProjectID,
 		ProjectSlug:        certProjectSlug,
@@ -924,7 +942,15 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 		SecretsProjectSlug: secretsProjectSlug,
 		ClientID:           clientID,
 		ClientSecret:       clientSecret,
-	}, nil
+		IdentityID:         identityID,
+	}
+
+	// Cache the result locally so re-runs (local development) skip all API calls.
+	if err := saveBootstrapState(result); err != nil {
+		fmt.Printf("[infisical-bootstrap] ⚠️  Could not save bootstrap state: %v\n", err)
+	}
+
+	return result, nil
 }
 
 func BootstrapInfisicalDayZeroWithRetry(ctx context.Context, timeout time.Duration) (*BootstrapResult, error) {
