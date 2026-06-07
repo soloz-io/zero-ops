@@ -12,12 +12,12 @@ const (
 	// API Endpoints
 	APIEndpointLogin              = "/api/v3/auth/login"
 	APIEndpointSelectOrg          = "/api/v3/auth/select-organization"
-	APIEndpointBootstrap          = "/api/v1/admin/bootstrap"
 	APIEndpointProjects           = "/api/v1/projects"
 	APIEndpointIdentities         = "/api/v1/identities"
 	APIEndpointUniversalAuth      = "/api/v1/auth/universal-auth/identities"
 	APIEndpointClientSecrets      = "/client-secrets"
-	APIEndpointProjectMemberships = "/api/v1/projects/%s/memberships/identities/%s"
+	APIEndpointProjectMemberships      = "/api/v1/projects/%s/memberships/identities/%s"
+	APIEndpointProjectUserMemberships  = "/api/v1/projects/%s/memberships"
 
 	// Bootstrap Configuration
 	ProjectName      = "Hub-Platform"

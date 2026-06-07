@@ -784,6 +784,15 @@ func CheckCertificateProfile(ctx context.Context, podName, adminJWT, projectID, 
 	if code == "200" {
 		return true, nil
 	}
+	// 403 means the caller lacks project membership but does not
+	// guarantee the profile is absent. On re-run the user JWT
+	// (org-scoped from getExistingOrgData) does not have project
+	// membership — only the Instance Admin Identity token does.
+	// The profile was created during the first bootstrap, so it
+	// exists. Treat 403 as "found" to skip recreate attempts.
+	if code == "403" {
+		return true, nil
+	}
 	if code == "404" {
 		return false, nil
 	}
