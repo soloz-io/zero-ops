@@ -23,6 +23,7 @@ const (
 	PathCertificatePolicies            = "/api/v1/cert-manager/certificate-policies"
 	PathCertificateProfiles            = "/api/v1/cert-manager/certificate-profiles"
 	PathCertificateAuthoritiesCreate   = "/api/v1/cert-manager/ca/internal"
+	PathCACertificate                  = "/api/v1/cert-manager/ca/internal/%s/certificate"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
 
 	// Used by getExistingOrgData to recover from the already-bootstrapped

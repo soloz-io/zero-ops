@@ -51,6 +51,14 @@ func ensureArgocdBootstrapProfile(ctx context.Context, podName, adminJWT, projec
 			return fmt.Errorf("create CA %q: %w", fleetCAName, err)
 		}
 		fmt.Printf("[infisical-bootstrap] Created CA %q: id=%s\n", fleetCAName, fleetCAID)
+
+		// Root CAs are created with status "pending-certificate". Generate
+		// a self-signed certificate to transition them to "active" so the
+		// cert-operator can issue bootstrap certificates against this CA.
+		if err := activateRootCA(ctx, podName, adminJWT, fleetCAID); err != nil {
+			return fmt.Errorf("activate CA %q: %w", fleetCAName, err)
+		}
+		fmt.Printf("[infisical-bootstrap] Activated CA %q: id=%s\n", fleetCAName, fleetCAID)
 	} else {
 		fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s\n", fleetCAName, fleetCAID)
 	}
@@ -222,4 +230,23 @@ func createFleetIntermediateCA(ctx context.Context, podName, adminJWT, projectID
 		return "", fmt.Errorf("create CA returned empty ID: %s", output)
 	}
 	return resp.ID, nil
+}
+
+// activateRootCA generates a self-signed certificate for the root CA,
+// transitioning it from "pending-certificate" to "active" status. Root
+// CAs are stuck at "pending-certificate" until this step — without it
+// the cert-operator gets "CA is not active" on bootstrap cert issuance.
+func activateRootCA(ctx context.Context, podName, adminJWT, caID string) error {
+	body := `{"notBefore":"2026-06-07T00:00:00Z","notAfter":"2036-06-07T00:00:00Z","maxPathLength":1}`
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-f", "-X", "POST",
+		"http://localhost:"+infisicalPort+fmt.Sprintf(PathCACertificate, caID),
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", body,
+	)
+	if err != nil {
+		return fmt.Errorf("generate CA certificate failed: %w\noutput: %s", err, output)
+	}
+	return nil
 }
