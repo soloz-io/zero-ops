@@ -998,14 +998,22 @@ step10_wait_spokepool() {
     log "Step 10e: Verifying worker nodes are Ready..."
 
     local machine_lines=()
-    mapfile -t machine_lines < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            machine_lines+=("$line")
+        fi
+    done < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
         --kubeconfig="$KUBECONFIG_PATH" \
         -n platform-capi --no-headers 2>/dev/null || true)
     local worker_nodes=${#machine_lines[@]}
 
     if [[ "$worker_nodes" -gt 0 ]]; then
         local ready_names=()
-        mapfile -t ready_names < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                ready_names+=("$line")
+            fi
+        done < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
             --kubeconfig="$KUBECONFIG_PATH" \
             -n platform-capi \
             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
