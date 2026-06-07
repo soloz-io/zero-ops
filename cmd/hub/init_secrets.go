@@ -120,11 +120,27 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("[infisical-bootstrap] ✓ Certificate profile 'argocd-bootstrap' exists\n")
 
+	// Steps 4-5 require the Infisical REST API via infisical.NewClient,
+	// which reads the INFISICAL_API_URL env var. On local clusters the
+	// API is not reachable via DNS, so we start a kubectl port-forward
+	// to tunnel localhost:8080 → the Infisical service inside the cluster.
+	// The binary manages its own PF lifecycle so it survives pod restarts.
+	pf := infisical.NewPortForwardManager("platform-security", "infisical-standalone-infisical", "8080", "8080", installer.Kubeconfig)
+	var pfStarted bool
+
+	if err := pf.EnsureAPIAccess(ctx); err != nil {
+		return fmt.Errorf("failed to establish Infisical API access: %w", err)
+	}
+	pfStarted = true
+
 	// Step 4: Generate secure passwords for platform database users (requires Infisical API)
 	printStepBanner("4", "Store platform database credentials in Infisical",
 		"Upload Layer 1 credentials to Infisical, generate and store Layer 2 app credentials", "Seconds")
 	changed3, err := installer.InstallPlatformDatabaseCredentials(ctx)
 	if err != nil {
+		if pfStarted {
+			pf.Stop()
+		}
 		return fmt.Errorf("failed to install platform database credentials: %w", err)
 	}
 
@@ -133,7 +149,15 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 		"Generate and store spire-server-db username/password in Infisical", "Seconds")
 	changed4, err := installer.InstallSPIREServerCredentials(ctx)
 	if err != nil {
+		if pfStarted {
+			pf.Stop()
+		}
 		return fmt.Errorf("failed to install SPIRE Server credentials: %w", err)
+	}
+
+	// Tear down the port-forward
+	if pfStarted {
+		pf.Stop()
 	}
 
 	// Only trigger pod churn if a secret was actually created or modified

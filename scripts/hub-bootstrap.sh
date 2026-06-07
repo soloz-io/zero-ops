@@ -679,18 +679,11 @@ step5_init_secrets() {
 
     log "Step 5: Initializing bootstrap secrets..."
 
-    # Set up a temporary port-forward so the Go binary can reach the
-    # Infisical API (https://infisical.nutgraf.in is not reachable
-    # locally). The Service is created by ArgoCD during platform
-    # deploy, so it exists by the time we reach Step 5 even when the
-    # underlying pods are not yet Ready.
-    if [[ "$PROVIDER" == "local" ]]; then
-        kubectl port-forward -n platform-security svc/infisical-standalone-infisical 8080:8080 \
-            --kubeconfig="$KUBECONFIG_PATH" &>/dev/null &
-        PORT_FWD_PID=$!
-        sleep 2
-        export INFISICAL_API_URL="http://localhost:8080"
-    fi
+    # The Go binary manages its own kubectl port-forward for local clusters
+    # (starts it before Steps 4-5 and tears it down after). This is more
+    # robust than the previous shell-managed PF which died when Infisical
+    # pods restarted during bootstrap. On non-local providers the Ingress
+    # DNS (https://infisical.nutgraf.in) is reachable directly.
 
     # Run the binary FIRST. Steps 0–2 create k8s Secrets directly
     # (zero-dependency, ~1s), the most important being
@@ -707,11 +700,8 @@ step5_init_secrets() {
     "$HUB_BINARY" init-secrets \
         --kubeconfig="$KUBECONFIG_PATH" 2>&1 | tee "$LOG_DIR/init-secrets.log"
 
-    # Tear down the temporary port-forward if it was started
-    if [[ -n "${PORT_FWD_PID:-}" ]]; then
-        kill "$PORT_FWD_PID" 2>/dev/null || true
-        unset INFISICAL_API_URL
-    fi
+    # Note: the binary manages its own port-forward lifecycle, so no
+    # shell-level teardown is needed here.
 
     # Mark Infisical healthy state if the log contains the success message
     if grep -q "✓ Infisical is healthy" "$LOG_DIR/init-secrets.log" 2>/dev/null; then

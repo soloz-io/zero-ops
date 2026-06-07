@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
 
 const (
@@ -231,7 +233,7 @@ func getExistingOrgData(ctx context.Context, podName string) (*bootstrapOutput, 
 	result := &bootstrapOutput{}
 	result.Identity.ID = adminIdentityID
 	result.Identity.Name = "Instance Admin Identity"
-	result.Identity.Credentials.Token = adminJWT
+	result.Identity.Credentials.Token = orgJWT
 	result.Organization.ID = orgID
 	result.Organization.Name = orgName
 	return result, nil
@@ -246,6 +248,41 @@ func stripCLIBanner(output string) string {
 		return ""
 	}
 	return output[idx:]
+}
+
+// hostKubectl runs kubectl on the host machine (not inside a pod).
+// Used for reading cluster resources like ConfigMaps that are not
+// accessible from within the Infisical pod.
+func hostKubectl(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl failed: %w\noutput: %s", err, string(output))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// getCachedProjectID reads project IDs from the hub-bootstrap-config
+// ConfigMap that was populated during the first successful bootstrap.
+// On re-run the ConfigMap persists, so we can skip the API project
+// listing (which the user JWT cannot do — see grantOrgAdminRole docs).
+func getCachedProjectID(slug string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	key := "INFISICAL_PROJECT_ID"
+	if slug == SecretsProjectSlug {
+		key = "INFISICAL_SECRETS_PROJECT_ID"
+	}
+
+	out, err := hostKubectl(ctx,
+		"get", "configmap", "-n", constants.NamespaceOps, "hub-bootstrap-config",
+		"-o", "jsonpath={.data."+key+"}",
+	)
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
@@ -380,7 +417,7 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 	if projectResp.Project.ID == "" {
 		// Could be a 409 — try listing projects to find the slug
 		listOut, listErr := kubectlExec(ctx, podName,
-			"curl", "-s", "-f",
+			"curl", "-s",
 			"http://localhost:"+infisicalPort+PathProjects,
 			"-H", "Authorization: Bearer "+adminJWT,
 		)
@@ -402,7 +439,16 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 				return p.ID, p.Slug, nil
 			}
 		}
-		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing", projectSlug)
+
+		// Project listing returned empty (user JWT may not have project
+		// membership). Check the hub-bootstrap-config ConfigMap which
+		// was populated during the first successful bootstrap run.
+		if cachedID := getCachedProjectID(projectSlug); cachedID != "" {
+			fmt.Printf("[infisical-bootstrap] Found cached project %s (id=%s) in hub-bootstrap-config\n", projectSlug, cachedID)
+			return cachedID, projectSlug, nil
+		}
+
+		return "", "", fmt.Errorf("create project returned empty ID and project '%s' not found in listing or ConfigMap", projectSlug)
 	}
 
 	fmt.Printf("[infisical-bootstrap] Project created: %s (id=%s)\n", projectResp.Project.Slug, projectResp.Project.ID)
