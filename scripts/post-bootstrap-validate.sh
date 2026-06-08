@@ -19,7 +19,15 @@ if [[ -z "${KUBECONFIG:-}" ]]; then
         KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
     fi
 fi
-SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
+# Auto-detect provider matrix: local provider uses local-dev spoke and
+# docker CAPI infra, cloud uses production spoke and hetzner.
+if [[ -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub-local.kubeconfig" ]]; then
+    CAPI_INFRA_PROVIDER="docker"
+    SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-local-dev}"
+else
+    CAPI_INFRA_PROVIDER="hetzner"
+    SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
+fi
 
 # Timeout for individual checks (seconds)
 DEPLOY_READY_TIMEOUT="${DEPLOY_READY_TIMEOUT:-120}"
@@ -531,7 +539,7 @@ check_spoke() {
     check_deployment "platform-capi" "capi-operator-controller-manager"
 
     # CAPI Provider CRs (all in platform-capi per ADR-015)
-    local providers=("CoreProvider/cluster-api" "BootstrapProvider/kubeadm" "ControlPlaneProvider/kubeadm" "InfrastructureProvider/hetzner")
+    local providers=("CoreProvider/cluster-api" "BootstrapProvider/kubeadm" "ControlPlaneProvider/kubeadm" "InfrastructureProvider/${CAPI_INFRA_PROVIDER}")
     for p in "${providers[@]}"; do
         local kind="${p%%/*}"
         local name="${p##*/}"

@@ -1,9 +1,13 @@
-apiVersion: kustomize.config.k8s.io/v1alpha1
-kind: Component
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
 resources:
-  - kind-ingress.yaml
-  - crossplane-provider-docker.yaml
-  - storage-class.yaml
+  - k8s/kind-ingress.yaml
+  - k8s/crossplane-provider-docker.yaml
+  - k8s/storage-class.yaml
+  - k8s/capd-spoke-pool-v1.yaml
+  - k8s/spokepool-capd-composition.yaml
   - https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
   - https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+  - ../../hub-core-services/platform-namespaces/namespaces.yaml
+  - ../../hub-core-services/ingress/dev-certificates.yaml

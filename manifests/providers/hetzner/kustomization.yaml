@@ -1,11 +1,13 @@
-apiVersion: kustomize.config.k8s.io/v1alpha1
-kind: Component
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
 resources:
-  - infrastructure/hcloud-ccm.yaml
-  - infrastructure/cert-manager-webhook-hetzner.yaml
+  - k8s/hcloud-ccm.yaml
+  - k8s/cert-manager-webhook-hetzner.yaml
+  - k8s/hetzner-credentials-es.yaml
+  - k8s/spokepool-hetzner-v1.yaml
+  - k8s/spokepool-hetzner-composition.yaml
+  - k8s/crossplane-provider-hetzner.yaml
   - spoke-addons/ccm-addon-template.yaml
   - spoke-addons/csi-addon-template.yaml
-  - hcloud-ccm.yaml
-  - crossplane-provider-hetzner.yaml
   - https://raw.githubusercontent.com/crossplane-contrib/provider-hetzner/main/package/crossplane.yaml

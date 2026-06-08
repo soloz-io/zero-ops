@@ -49,6 +49,9 @@ KUBECONFIG_PATH=""
 
 # Create log directory
 mkdir -p "$LOG_DIR"
+# Start fresh log on every run (not just on teardown) so old entries
+# from a previous interrupted run don't pollute the current session.
+: > "$LOG_DIR/bootstrap.log" 2>/dev/null || true
 
 # Logging function
 log() {
@@ -627,8 +630,14 @@ step2_configure_aws_secrets() {
 # Step 3: Configure GitHub Access
 step3_configure_github() {
     if is_step_completed "configure_github"; then
-        log "Step 3: GitHub access already configured, skipping"
-        return
+        # Verify the artifact actually exists — the cluster may have been
+        # recreated since the state was saved (e.g. teardown + re-bootstrap).
+        if kubectl get secret -n platform-ops ghcr-pull-secret \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            log "Step 3: GitHub access already configured, skipping"
+            return
+        fi
+        log "Step 3: State says completed but ghcr-pull-secret missing — re-running"
     fi
 
     log "Step 3: Configuring GitHub Access..."
@@ -638,7 +647,7 @@ step3_configure_github() {
     log "Running: $HUB_BINARY configure-github-access --ghcr-pat=\$GITHUB_TOKEN"
     "$HUB_BINARY" configure-github-access \
         --ghcr-pat="$GITHUB_TOKEN" \
-        --kubeconfig="$KUBECONFIG_PATH"
+        --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-github-access failed"
 
     mark_step_completed "configure_github"
     log "GitHub access configuration completed"
@@ -647,8 +656,14 @@ step3_configure_github() {
 # Step 4: Wait for ArgoCD to sync and create namespaces
 step4_wait_namespaces() {
     if is_step_completed "wait_namespaces"; then
-        log "Step 4: Namespaces already created, skipping"
-        return
+        # Verify the namespace actually exists — stale state from a previous
+        # cluster may have marked this done prematurely.
+        if kubectl get namespace platform-data \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            log "Step 4: Namespaces already created, skipping"
+            return
+        fi
+        log "Step 4: State says completed but platform-data namespace missing — re-running"
     fi
 
     log "Step 4: Waiting for ArgoCD to sync and create namespaces (timeout: 600s)..."
@@ -679,8 +694,15 @@ step4_wait_namespaces() {
 # Step 5: Initialize bootstrap secrets
 step5_init_secrets() {
     if is_step_completed "init_secrets"; then
-        log "Step 5: Bootstrap secrets already initialized, skipping"
-        return
+        # Verify the infisical-auth Secret actually exists in the cluster.
+        # Stale state from a previous cluster clone may have marked this
+        # done even though the current cluster never ran init-secrets.
+        if kubectl get secret infisical-auth -n platform-ops \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            log "Step 5: Bootstrap secrets already initialized, skipping"
+            return
+        fi
+        log "Step 5: State says completed but infisical-auth missing — re-running"
     fi
 
     log "Step 5: Initializing bootstrap secrets..."
@@ -1129,7 +1151,7 @@ main() {
     sleep 15  # Wait between steps
 
     step6_wait_infisical
-    sleep 10  # Wait between steps
+    sleep 15
 
     step7_8_configure_eso
     sleep 5   # Wait between steps
@@ -1157,7 +1179,7 @@ main() {
     log "Running post-bootstrap core services validation..."
     local validate_script="$SCRIPT_DIR/post-bootstrap-validate.sh"
     if [[ -f "$validate_script" ]]; then
-        bash "$validate_script" || log "⚠️  Post-bootstrap validation reported failures — review the summary above"
+        SPOKEPOOL_NAME="$SPOKEPOOL_NAME" bash "$validate_script" || log "⚠️  Post-bootstrap validation reported failures — review the summary above"
     else
         log "⚠️  post-bootstrap-validate.sh not found at $validate_script — skipping validation"
     fi

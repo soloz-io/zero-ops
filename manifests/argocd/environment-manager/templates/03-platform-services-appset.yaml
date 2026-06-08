@@ -101,7 +101,7 @@ spec:
             syncWave: '2'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/providers/{{ .Values.provider }}/k8s'
+            path: 'manifests/providers/{{ .Values.provider }}'
             chart: ''
             directoryRecurse: 'true'
             directoryInclude: ''
