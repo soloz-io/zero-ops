@@ -305,21 +305,21 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("CNPG CRD not installed: %w\nEnsure the CNPG operator is deployed by ArgoCD (01-platform-infra)", err)
 	}
 
-	// Wait for platform-database ArgoCD app to sync (creates the CNPG Cluster CR)
-	appWaiter := &health.HealthWaiter{
+	// Wait for CNPG Cluster CR to exist (ArgoCD may show OutOfSync after CNPG mutates resources)
+	clusterExistsWaiter := &health.HealthWaiter{
 		Checkers: []health.HealthChecker{
-			health.NewKubectlChecker("argocd app platform-database",
-				[]string{"get", "application", "platform-database",
-					"-n", "platform-ops",
-					"-o", "jsonpath={.status.sync.status}",
+			health.NewKubectlChecker("CNPG cluster platform-db exists",
+				[]string{"get", "clusters.postgresql.cnpg.io", "platform-db",
+					"-n", dataNamespace,
+					"-o", "name",
 				},
 			),
 		},
 		Timeout: 5 * time.Minute,
 	}
-	appWaiter.Checkers[0].(*health.KubectlChecker).Expected = "Synced"
-	if err := appWaiter.Wait(ctx, i.Kubeconfig); err != nil {
-		return false, fmt.Errorf("platform-database ArgoCD app not synced: %w\nEnsure the CNPG operator is deployed and its webhook is accepting connections", err)
+	clusterExistsWaiter.Checkers[0].(*health.KubectlChecker).Expected = "cluster/"
+	if err := clusterExistsWaiter.Wait(ctx, i.Kubeconfig); err != nil {
+		return false, fmt.Errorf("CNPG Cluster CR not created: %w\nEnsure the platform-database ArgoCD app has synced and the CNPG operator is running", err)
 	}
 
 	// Wait for CNPG Cluster to be Ready
