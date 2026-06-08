@@ -1101,8 +1101,9 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-				return obj.GetName() == "hydra" && obj.GetNamespace() == infisical.NamespaceIdentity
-			}),
+					return obj.GetName() == "hydra" && obj.GetNamespace() == infisical.NamespaceIdentity
+				}),
+			),
 		).
 		// Requirement 12.8: Watch Infisical Deployment
 		Watches(
