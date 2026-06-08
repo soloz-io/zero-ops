@@ -168,33 +168,13 @@ Spoke cert-manager takes over certificate lifecycle
 
 **This is the only exception to delegated issuer-based issuance.** All other certificates are issued directly on the Spoke by cert-manager + infisical-issuer.
 
-### Hub Bootstrap CA (SelfSigned)
+### CNPG Native TLS
 
-The Hub's `platform-db-ca` for CNPG TLS is bootstrapped by cert-manager's built-in
-`SelfSigned` ClusterIssuer (`platform-bootstrap-selfsigned`) during Day-0. This issuer
-requires no external PKI backend and exists solely to break the circular dependency
-between cert-manager, Infisical, and the database CA.
+CNPG clusters manage their own internal TLS PKI natively. Zero-Ops does not provision or manage CNPG internal CAs. Consumers requiring database trust material SHALL obtain the CA certificate from the CNPG-generated `<cluster-name>-ca` Secret (e.g., `platform-db-ca` for the `platform-db` cluster, containing key `ca.crt`).
 
-**Workflow:**
+This is consistent with ADR-005 (domain-bounded controllers) and ADR-041 (ownership boundaries): CNPG owns its database lifecycle, including TLS. No platform component — CLI, Hub Operator, or custom operator — generates or manages CNPG certificate material.
 
-```text
-Day-0 bootstrap (hub-cli deployPlatform)
-       ↓
-1. Create ClusterIssuer (SelfSigned, platform-bootstrap-selfsigned)
-       ↓
-2. Create Certificate CR (platform-db-ca, platform-data namespace)
-       ↓
-3. cert-manager generates key pair and creates platform-db-ca Secret
-       ↓
-4. CNPG and Infisical consume platform-db-ca via Secret reference
-```
-
-**Constraints:**
-- The `platform-bootstrap-selfsigned` ClusterIssuer is a bootstrap primitive only.
-- It must not be used for tenant, Spoke, service, ingress, or fleet certificates.
-- Those certificates chain through the Fleet Intermediate CA via `infisical-issuer`.
-- Once the Hub is fully bootstrapped, the SelfSigned issuer should not be used
-  for any new certificate issuance.
+The CNPG-generated CA Secret is a Kubernetes resource. It must be included in Kubernetes resource backups (e.g., Velero) for disaster recovery, as it is not contained within PostgreSQL data directory backups.
 
 ### Operator Responsibilities
 
