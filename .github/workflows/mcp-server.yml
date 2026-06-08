@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - cmd/mcp-server/**
+  workflow_dispatch:
 
 permissions:
   contents: read

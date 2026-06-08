@@ -6,6 +6,7 @@ on:
     paths:
       - cmd/auth-proxy/**
       - internal/auth-proxy/**
+  workflow_dispatch:
 
 permissions:
   contents: read

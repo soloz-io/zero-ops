@@ -9,6 +9,7 @@ on:
       - go.mod
       - go.sum
       - .github/workflows/kube-sbt-api.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
