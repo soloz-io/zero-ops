@@ -65,6 +65,22 @@ cert-manager is the sole authority for X.509 certificate lifecycle. No other com
 | Private key generation for certificates | Non-PKI secret operations |
 | CA lifecycle within the Issuer/ClusterIssuer boundary | Spoke or tenant lifecycle management |
 
+### Spoke Identity Operator
+
+The Spoke Identity Operator manages Machine Identity lifecycle for Spoke clusters by reconciling SpokeMachineIdentity CRs against the Infisical API. It is the initial implementation of the Platform Identity Domain and may evolve to support full identity lifecycle (rotation, revocation, attestation, audit) as defined in a future ADR.
+
+| Allowed | Forbidden |
+|---|---|
+| SpokeMachineIdentity CR reconciliation | PKI operations of any kind |
+| Machine Identity creation via Infisical API | Certificate issuance, renewal, or management |
+| Identity drift detection and reconciliation | Private key handling |
+| Client secret rotation (create new + revoke old) | Secret generation for non-identity resources |
+| Identity revocation on CR deletion | Acting as a general-purpose identity provider |
+| Status.conditions, status.identityID, and status.lastRotated updates | Modifying cert-manager resources |
+| | Acting as a PKI control plane |
+
+NOTE: The Spoke Identity Operator is the initial implementation of the Platform Identity Domain. Future ADRs may extend the platform with attestation, policy enforcement, credential provenance, and audit capabilities.
+
 ### External Secrets Operator (ESO)
 
 ESO delivers secrets from Infisical to Kubernetes. It is a delivery mechanism, not a management mechanism.

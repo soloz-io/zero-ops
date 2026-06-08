@@ -71,6 +71,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	logger.Info("Reconciling TenantDatabase credentials", "tenant", tenantId, "cell", cellId)
 
+	// TODO(ADR-039): Move tenant credential generation to Kube-SBT
 	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning.
 	// isFirstTime is always true because EnsureTenantFolderAndCredentials has its own
 	// idempotency check. This handles existing tenants that were provisioned before

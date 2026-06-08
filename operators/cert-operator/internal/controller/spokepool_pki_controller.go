@@ -1,3 +1,7 @@
+// NOTE: The Cert Operator is not yet enumerated in ADR-041's Controller
+// Responsibility Matrix. Until it is added, it follows ADR-035's explicit
+// delegation: Day-0 bootstrap certificate issuance for ArgoCD Agent mTLS,
+// with no Day-1+ PKI operations.
 package controller
 
 import (
@@ -134,6 +138,13 @@ func (r *SpokePKIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 func (r *SpokePKIReconciler) applyCRSPayloads(ctx context.Context, spokeName string, id *infisical.Identity, cert *infisical.CertData) error {
+	// DEPRECATED(ADR-003): Machine Identity credentials (client-id, client-secret)
+	// must not be embedded in ClusterResourceSet payloads. Secrets must be delivered
+	// via Spoke ESO pulling from Infisical, not CRS. Only PKI artifacts (certificate,
+	// private key, CA) qualify for CRS delivery per ADR-003 carve-out.
+	//
+	// Once Spoke ESO is deployed with access to Hub Infisical, this block MUST be
+	// replaced with Infisical storage + Spoke ExternalSecret delivery.
 	identityYAML := fmt.Sprintf(`apiVersion: v1
 kind: Secret
 metadata:
@@ -199,6 +210,11 @@ stringData:
 	if err := r.Create(ctx, certCRS); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("create cert CRS: %w", err)
 	}
+
+	// TODO(ADR-035): After CAPI ClusterResourceSet reports Applied for this Spoke,
+	// delete the cert CRS Secret containing tls.key from the Hub cluster.
+	// The private key must only exist on the Spoke cluster per ADR-035.
+	// This requires watching ClusterResourceSet status conditions.
 
 	return nil
 }

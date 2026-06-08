@@ -1,3 +1,6 @@
+# NOTE(ADR-035): Secret RBAC should be scoped to the platform-capi namespace
+# rather than cluster-wide. When the controller is refactored to use a
+# namespace-scoped Role, remove the cluster-wide Secret permissions below.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

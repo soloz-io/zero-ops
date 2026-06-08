@@ -3,14 +3,9 @@ package secrets
 import (
 	"context"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/pem"
 	"fmt"
-	"math/big"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -67,87 +62,6 @@ func GenerateSecurePasswordWithCharset(length int, charset string) (string, erro
 	}
 
 	return string(password), nil
-}
-
-// GenerateSelfSignedCA generates a self-signed CA certificate for the database
-// Uses 4096-bit RSA with 10-year validity
-func GenerateSelfSignedCA() (certPEM, keyPEM []byte, err error) {
-	// Generate 4096-bit RSA private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate RSA key: %w", err)
-	}
-
-	// Create certificate template
-	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"Zero-Ops Platform"},
-			CommonName:   "Platform Database CA",
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 years
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-
-	// Create self-signed certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
-	}
-
-	// Encode certificate to PEM
-	certPEM = pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	// Encode private key to PEM
-	keyPEM = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-
-	return certPEM, keyPEM, nil
-}
-
-// ============================================================================
-// BOOTSTRAP SECRET GENERATORS
-// These secrets are required for infrastructure to start (CNPG, Infisical, Redis)
-// Application secrets are created by ESO from Infisical
-// ============================================================================
-
-// GeneratePlatformDBCA creates the platform-db-ca secret with self-signed CA
-// Required for CNPG TLS bootstrap
-func GeneratePlatformDBCA(namespace string, owner metav1.OwnerReference) (*corev1.Secret, []byte, error) {
-	certPEM, keyPEM, err := GenerateSelfSignedCA()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate self-signed CA: %w", err)
-	}
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "platform-db-ca",
-			Namespace:       namespace,
-			OwnerReferences: []metav1.OwnerReference{owner},
-		},
-		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
-			"ca.crt":  certPEM,
-			"ca.key":  keyPEM,
-			"tls.crt": certPEM, // CNPG expects tls.crt
-			"tls.key": keyPEM,  // CNPG expects tls.key
-		},
-	}
-
-	return secret, certPEM, nil
 }
 
 // GeneratePlatformDBApp creates the platform-db-app BasicAuth secret
@@ -322,8 +236,12 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 	// Construct REDIS_URL - Redis runs in data namespace
 	redisURL := fmt.Sprintf("redis://:%s@redis-master.%s.svc:6379", redisPassword, dataNamespace)
 
-	// Base64-encode CA certificate
-	dbRootCert := base64.StdEncoding.EncodeToString(caCert)
+	// Base64-encode CA certificate (handle nil/empty gracefully)
+	// CA is now managed by cert-manager per ADR-035; if not yet available, use empty string
+	var dbRootCert string
+	if len(caCert) > 0 {
+		dbRootCert = base64.StdEncoding.EncodeToString(caCert)
+	}
 
 	// Create secret in security namespace where Infisical pods run
 	// REQ-9: Add finalizer to prevent accidental deletion
@@ -426,21 +344,14 @@ type BootstrapSecretsResult struct {
 func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamespace, dbHost string, owner metav1.OwnerReference, existingSecrets map[string]*corev1.Secret, isFirstTime bool, clusterID string, awsClient AWSSecretsManagerClient) (*BootstrapSecretsResult, error) {
 	result := &BootstrapSecretsResult{}
 
-	// Step 1: Generate or reuse platform-db-ca (in data namespace)
+	// Step 1: Read platform-db-ca CA certificate if available (in data namespace)
+	// CA is now managed by cert-manager per ADR-035
 	var caCert []byte
 	if existing, ok := existingSecrets["platform-db-ca"]; ok {
-		// Reuse existing CA certificate
-		result.PlatformDBCA = nil
 		caCert = existing.Data["ca.crt"]
-	} else {
-		// Generate new CA certificate
-		platformDBCA, cert, err := GeneratePlatformDBCA(dataNamespace, owner)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate platform-db-ca: %w", err)
-		}
-		result.PlatformDBCA = platformDBCA
-		caCert = cert
 	}
+	// If not available yet, caCert remains nil.
+	// GenerateInfisicalSecrets handles nil caCert gracefully by using empty string for DB_ROOT_CERT.
 
 	// Step 2: Generate or reuse platform-db-app (in data namespace)
 	if _, ok := existingSecrets["platform-db-app"]; ok {

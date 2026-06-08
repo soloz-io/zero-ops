@@ -1,3 +1,9 @@
+// DEPRECATED: Application secret generation by the Hub Operator is prohibited by ADR-003,
+// ADR-039, and ADR-043. Application secrets must be created directly in the Infisical UI
+// (System of Record) and delivered via ESO. This file is retained for temporary backward
+// compatibility only and MUST be removed once all application secrets are migrated to
+// Infisical UI → ESO delivery.
+
 package infisical
 
 import (

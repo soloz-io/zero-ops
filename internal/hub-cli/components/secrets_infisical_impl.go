@@ -183,16 +183,14 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 	redisURL := fmt.Sprintf("redis://:%s@redis-master.platform-data.svc:6379", redisPassword)
 
 	// BOOTSTRAP STRATEGY: Day-0 Deterministic CA Injection
-	// The CA is generated offline by GenerateAndInjectCA() before this method runs.
-	// This breaks the chicken-and-egg problem:
-	// - CNPG uses the CLI-generated CA (via spec.certificates.serverCASecret)
-	// - Infisical uses the same CA for TLS verification (via DB_ROOT_CERT)
-	// Both components start with TLS enabled on first boot.
+	// The CA is provisioned by cert-manager per ADR-035.
+	// The platform-db-ca Certificate resource (in platform-data namespace)
+	// must be synced by ArgoCD before this method runs.
 	
 	// Read CA certificate from CLI-generated secret
 	caSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
 	if err != nil {
-		return false, fmt.Errorf("failed to read platform-db-ca secret: %w\nEnsure GenerateAndInjectCA() was called before this method", err)
+		return false, fmt.Errorf("failed to read platform-db-ca secret: %w\nEnsure cert-manager Certificate resource for platform-db-ca is synced by ArgoCD", err)
 	}
 
 	caCert, ok := caSecret.Data["ca.crt"]

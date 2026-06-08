@@ -59,7 +59,7 @@ func saveBootstrapState(r *BootstrapResult) error {
 		return fmt.Errorf("create state dir %s: %w", dir, err)
 	}
 
-	if err := os.WriteFile(stateFilePath(), data, 0644); err != nil {
+	if err := os.WriteFile(stateFilePath(), data, 0600); err != nil {
 		return fmt.Errorf("write bootstrap state: %w", err)
 	}
 

@@ -84,9 +84,9 @@ All bootstrap secrets are synchronized to Kubernetes and infrastructure componen
   - CLI applies `02-platform-data` and `03-platform-services` boundaries.
   - CNPG bootstraps using `platform-db-app` bootstrap secret.
   - ESO syncs application secrets from Infisical.
-  - Hub Operator creates database roles from ESO-synced credentials.
+  - Crossplane provider-sql creates database roles from ESO-synced credentials (per ADR-023, ADR-039, ADR-043).
 - **Exit Criteria:** All three ArgoCD boundaries (`01-platform-infra`, `02-platform-data`, `03-platform-services`) report `Healthy` and `Synced`. All ExternalSecrets report `SecretSynced`. CNPG clusters are ready. Hub Operator has completed initial reconciliation.
-- **Failure Recovery:** If any ArgoCD boundary fails, inspect the specific Application health in ArgoCD. If ESO ExternalSecrets fail, verify Infisical connectivity and SecretStore configuration. If CNPG fails to bootstrap, verify `platform-db-app` secret content. If Hub Operator fails, check operator logs — database roles cannot be created until application secrets exist.
+- **Failure Recovery:** If any ArgoCD boundary fails, inspect the specific Application health in ArgoCD. If ESO ExternalSecrets fail, verify Infisical connectivity and SecretStore configuration. If CNPG fails to bootstrap, verify `platform-db-app` secret content. If Crossplane provider-sql fails to create database roles, check provider-sql controller logs.
 
 #### GITOPS_READY
 

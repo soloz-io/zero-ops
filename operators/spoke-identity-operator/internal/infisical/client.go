@@ -12,14 +12,23 @@ import (
 	"time"
 )
 
+// Client is an Infisical API client scoped to Machine Identity operations.
+// It does NOT perform any PKI operations — certificates are cert-manager's domain per ADR-035.
 type Client struct {
-	BaseURL       string
-	clientID      string
-	clientSecret  string
-	token         string
-	tokenExp      time.Time
-	mu            sync.RWMutex
-	HTTP          *http.Client
+	BaseURL      string
+	clientID     string
+	clientSecret string
+	token        string
+	tokenExp     time.Time
+	mu           sync.RWMutex
+	HTTP         *http.Client
+}
+
+// Identity represents a Machine Identity with its Universal Auth credentials.
+type Identity struct {
+	ID           string
+	ClientID     string
+	ClientSecret string
 }
 
 func NewClient(baseURL string) *Client {
@@ -110,137 +119,6 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 	return c.token, nil
 }
 
-// IssueCertRequest matches the verified Infisical /api/v1/cert-manager/certificates endpoint
-type IssueCertRequest struct {
-	ProfileId  string              `json:"profileId"`
-	Attributes IssueCertAttributes `json:"attributes"`
-}
-
-type IssueCertAttributes struct {
-	CommonName string `json:"commonName,omitempty"`
-	TTL        string `json:"ttl,omitempty"`
-}
-
-type IssueCertResponseWrapper struct {
-	Certificate          *CertData `json:"certificate"`
-	CertificateRequestId string    `json:"certificateRequestId"`
-	Status               string    `json:"status"`
-	Message              string    `json:"message,omitempty"`
-}
-
-type CertData struct {
-	Certificate          string `json:"certificate"`
-	IssuingCaCertificate string `json:"issuingCaCertificate"`
-	CertificateChain     string `json:"certificateChain"`
-	PrivateKey           string `json:"privateKey"`
-	SerialNumber         string `json:"serialNumber"`
-	CertificateId        string `json:"certificateId"`
-}
-
-type Identity struct {
-	ID           string
-	ClientID     string
-	ClientSecret string
-}
-
-type Profile struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-}
-
-// IssueBootstrapCertificate mints a 72-hour cert for ArgoCD Agent bootstrap.
-func (c *Client) IssueBootstrapCertificate(ctx context.Context, profileId, commonName string) (*CertData, error) {
-	token, err := c.getToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authenticate: %w", err)
-	}
-
-	reqBody := IssueCertRequest{
-		ProfileId: profileId,
-		Attributes: IssueCertAttributes{
-			CommonName: commonName,
-			TTL:        "72h",
-		},
-	}
-
-	payload, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal issue cert request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST",
-		c.BaseURL+PathCertificates,
-		bytes.NewBuffer(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create issue cert request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("execute issue cert request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("issue bootstrap cert failed: status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var result IssueCertResponseWrapper
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode issue cert response: %w", err)
-	}
-
-	if result.Certificate == nil {
-		return nil, fmt.Errorf("bootstrap certificate issued nil (async order flow): %s", result.Message)
-	}
-
-	return result.Certificate, nil
-}
-
-// GetProfileIdBySlug resolves a certificate profile slug to its UUID.
-// The projectId query parameter is required by Infisical OSS to scope the lookup
-// (source: certificate-profiles-router.ts:461).
-func (c *Client) GetProfileIdBySlug(ctx context.Context, slug, projectID string) (string, error) {
-	token, err := c.getToken(ctx)
-	if err != nil {
-		return "", fmt.Errorf("authenticate: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		c.BaseURL+fmt.Sprintf(PathCertificateProfilesBySlug, slug, projectID), nil)
-	if err != nil {
-		return "", fmt.Errorf("create get profile request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("execute get profile request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get profile by slug failed: status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var result struct {
-		CertificateProfile struct {
-			ID string `json:"id"`
-		} `json:"certificateProfile"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode profile response: %w", err)
-	}
-
-	return result.CertificateProfile.ID, nil
-}
-
 // GetOrCreateMachineIdentity finds or creates a Machine Identity in Infisical.
 func (c *Client) GetOrCreateMachineIdentity(ctx context.Context, name, orgID string) (*Identity, error) {
 	token, err := c.getToken(ctx)
@@ -282,7 +160,7 @@ func (c *Client) GetOrCreateMachineIdentity(ctx context.Context, name, orgID str
 	return &Identity{ID: id, ClientID: clientID, ClientSecret: clientSecret}, nil
 }
 
-// GrantProjectAccess grants a Machine Identity access to the Infisical project.
+// GrantProjectAccess grants a Machine Identity access to an Infisical project.
 func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, role string) error {
 	token, err := c.getToken(ctx)
 	if err != nil {
@@ -325,6 +203,91 @@ func (c *Client) GrantProjectAccess(ctx context.Context, identityID, projectID, 
 	}
 
 	return nil
+}
+
+// RotateClientSecret creates a new client secret and revokes the old one after the overlap period.
+// Returns the new client secret ID and secret value.
+func (c *Client) RotateClientSecret(ctx context.Context, identityID, oldSecretID string) (string, string, error) {
+	secret, err := c.generateClientSecret(ctx, identityID)
+	if err != nil {
+		return "", "", fmt.Errorf("generate new client secret: %w", err)
+	}
+
+	if oldSecretID != "" {
+		if revokeErr := c.revokeClientSecret(ctx, identityID, oldSecretID); revokeErr != nil {
+			return "", secret, fmt.Errorf("revoke old client secret (new secret created): %w", revokeErr)
+		}
+	}
+
+	return "", secret, nil
+}
+
+// RevokeAllClientSecrets revokes all client secrets for an identity.
+func (c *Client) RevokeAllClientSecrets(ctx context.Context, identityID string, secretIDs []string) error {
+	for _, secretID := range secretIDs {
+		if err := c.revokeClientSecret(ctx, identityID, secretID); err != nil {
+			return fmt.Errorf("revoke secret %s: %w", secretID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteIdentity deletes a Machine Identity from Infisical.
+func (c *Client) DeleteIdentity(ctx context.Context, identityID string) error {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE",
+		c.BaseURL+fmt.Sprintf(PathIdentityByID, identityID), nil)
+	if err != nil {
+		return fmt.Errorf("create delete request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute delete request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete identity failed: status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
+// IdentityExists checks whether a Machine Identity exists by ID.
+func (c *Client) IdentityExists(ctx context.Context, identityID string) (bool, error) {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authenticate: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		c.BaseURL+fmt.Sprintf(PathIdentityByID, identityID), nil)
+	if err != nil {
+		return false, fmt.Errorf("create get identity request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("execute get identity request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("get identity failed: status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 // --- private helpers ---
@@ -448,8 +411,8 @@ func (c *Client) attachUniversalAuth(ctx context.Context, identityID string) err
 			{"ipAddress": "0.0.0.0/0"},
 			{"ipAddress": "::/0"},
 		},
-		"accessTokenTTL":      2592000,
-		"accessTokenMaxTTL":   2592000,
+		"accessTokenTTL":    2592000,
+		"accessTokenMaxTTL": 2592000,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -472,15 +435,12 @@ func (c *Client) attachUniversalAuth(ctx context.Context, identityID string) err
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-
 	if resp.StatusCode == http.StatusBadRequest && bytes.Contains(respBody, []byte("already")) {
 		return nil
 	}
-
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("attach universal auth failed: status %d: %s", resp.StatusCode, string(respBody))
 	}
-
 	return nil
 }
 
@@ -528,6 +488,31 @@ func (c *Client) generateClientSecret(ctx context.Context, identityID string) (s
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-
 	return result.ClientSecret, nil
+}
+
+func (c *Client) revokeClientSecret(ctx context.Context, identityID, secretID string) error {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthClientSecrets+"/%s/revoke", identityID, secretID), nil)
+	if err != nil {
+		return fmt.Errorf("create revoke request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute revoke request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("revoke client secret failed: status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }

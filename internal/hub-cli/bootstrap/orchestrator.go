@@ -43,7 +43,6 @@ import (
 		KeepBootstrap    bool
 		MergeKubeconfig  bool
 		Debug            bool
-		Upgrade          bool
 		EnvironmentSlug  string
 	}
 
@@ -51,8 +50,8 @@ import (
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
 		fmt.Println("[DEBUG] Orchestrator.Run() started")
-		fmt.Printf("[DEBUG] Provider: %s, ClusterName: %s, Upgrade: %v\n",
-			o.Provider.Name(), o.ClusterName, o.Upgrade)
+		fmt.Printf("[DEBUG] Provider: %s, ClusterName: %s\n",
+			o.Provider.Name(), o.ClusterName)
 	}
 
 	stateMgr := state.NewStateManager(o.ClusterName)
@@ -445,11 +444,8 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 	fmt.Printf("[recovery] Last completed phase: %s\n", bs.CurrentPhase)
 
 	if o.phaseDone(bs, state.PhaseComplete) {
-		if o.Upgrade {
-			fmt.Println("[upgrade] Cluster already exists, starting upgrade/reconciliation...")
-			return o.runUpgrade(ctx, bs)
-		}
-		return fmt.Errorf("cluster '%s' already exists. Use --upgrade to reconcile or --name with different name", o.ClusterName)
+		fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
+		return nil
 	}
 
 	// Resume from where we left off — the runFresh pipeline will skip
@@ -459,69 +455,6 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 		fmt.Printf("[DEBUG] Completed phases: %v\n", bs.CompletedPhases)
 	}
 	return o.runFresh(ctx, stateMgr, bs)
-}
-
-func (o *Orchestrator) runUpgrade(ctx context.Context, bs *state.BootstrapState) error {
-	kubeconfig := bs.MgmtKubeconfig
-	if kubeconfig == "" {
-		return fmt.Errorf("management cluster kubeconfig not found in state")
-	}
-
-	if err := o.checkVersionCompatibility(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("version check: %w", err)
-	}
-
-	fmt.Println("\n[upgrade] Updating CAPI Provider versions...")
-	for _, p := range o.Provider.CAPIProviders() {
-		if o.Debug {
-			fmt.Printf("[DEBUG] Updating %s/%s to %s\n", p.Kind, p.Name, p.Version)
-		}
-		patch := fmt.Sprintf(`{"spec":{"version":"%s"}}`, p.Version)
-		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"patch", p.Kind, p.Name, "-n", constants.NamespaceCAPI,
-			"--type=merge", "-p", patch)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to update %s/%s: %w\n%s", p.Kind, p.Name, err, out)
-		}
-	}
-	fmt.Println("[upgrade] ✓ Providers updated")
-
-	fmt.Println("\n[upgrade] Updating ClusterClass definitions...")
-	ccd := &clusterclass.Deployer{
-		Kubeconfig: kubeconfig,
-		Namespace:  constants.NamespaceCAPI,
-		ClassPaths: o.Provider.ClusterClassPaths(),
-	}
-	if err := ccd.Deploy(ctx); err != nil {
-		return fmt.Errorf("failed to update ClusterClasses: %w", err)
-	}
-	fmt.Println("[upgrade] ✓ ClusterClasses updated")
-
-	fmt.Println("\n[upgrade] Updating platform components...")
-	ci := &components.Installer{Kubeconfig: kubeconfig}
-	if err := ci.InstallAll(ctx, ""); err != nil {
-		return fmt.Errorf("failed to update components: %w", err)
-	}
-	fmt.Println("[upgrade] ✓ Components updated")
-
-	fmt.Println("\n✓ Upgrade/reconciliation complete")
-	return nil
-}
-
-func (o *Orchestrator) checkVersionCompatibility(ctx context.Context, kubeconfig string) error {
-	if o.Debug {
-		fmt.Println("[DEBUG] Checking version compatibility...")
-	}
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"api-resources", "--api-group=cluster.x-k8s.io")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to check CAPI API version: %w", err)
-	}
-	if !bytes.Contains(out, []byte("v1beta1")) {
-		return fmt.Errorf("incompatible CAPI API version — v1beta1 required")
-	}
-	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────

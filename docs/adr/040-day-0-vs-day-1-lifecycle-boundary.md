@@ -40,7 +40,7 @@ Day-0 is executed exactly once during initial Hub cluster creation. It is the mi
 
 Day-1+ begins when ArgoCD takes control of the bootstrap boundaries and controllers begin reconciliation. Day-1+ runs continuously for the life of the platform.
 
-**Allowed components:** Hub Operator, Crossplane, ESO, cert-manager, ArgoCD, Atlas Operator, CNPG, Kyverno, SPIRE, Billing Operator.
+**Allowed components:** Hub Operator, Spoke Identity Operator, Crossplane, ESO, cert-manager, ArgoCD, Atlas Operator, CNPG, Kyverno, SPIRE, Billing Operator.
 
 **Responsibilities:**
 - Secret rotation and renewal.

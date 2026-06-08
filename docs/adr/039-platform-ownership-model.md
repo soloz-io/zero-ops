@@ -29,6 +29,7 @@ The following matrix is the single authoritative source for ownership boundaries
 | Database Roles / Grants | Crossplane provider-sql | PostgreSQL | Crossplane | Crossplane provider-sql | Tenant Apps | Day-1+ |
 | PKI Trust Anchors | CLI | Offline Storage | CLI | None | cert-manager, Services | Day-0 |
 | Machine Identities | CLI | Infisical | Hub Operator | Infisical API | Spokes, Operators | Day-0 |
+| Spoke Machine Identities | Hub Operator | Infisical | Spoke Identity Operator | Infisical API | Spokes | Day-1+ |
 | Observability State | Alloy / OTel Collector | VictoriaMetrics / Loki / OpenMeter | Observability Stack | Alloy / OTel Collector | Operators, SRE | Day-1+ |
 | Billing Catalog | Billing Operator | Git | Billing Operator | Billing Operator | OpenMeter, API | Day-1+ |
 | Workload Identity | SPIRE | SPIRE Server | SPIRE | SPIRE | Istio, Tenant Apps | Day-1+ |

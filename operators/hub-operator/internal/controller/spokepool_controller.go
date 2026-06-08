@@ -58,6 +58,19 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// create bootstrap certificate for ArgoCD Agent mTLS via cert-manager (ADR-035)
+	if err := r.ensureBootstrapCertificate(ctx, spokeName); err != nil {
+		logger.Error(err, "Failed to ensure bootstrap certificate", "spoke", spokeName)
+		// Non-fatal: Spoke can bootstrap without a cert-manager Certificate CR,
+		// but ArgoCD Agent mTLS won't work until it's created.
+	}
+
+	// create SpokeMachineIdentity CR for identity lifecycle (spoke-identity-operator reconciles)
+	if err := r.ensureSpokeMachineIdentity(ctx, spokeName); err != nil {
+		logger.Error(err, "Failed to ensure SpokeMachineIdentity", "spoke", spokeName)
+		// Non-fatal: spoke-identity-operator will reconcile once CR exists.
+	}
+
 	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists)
 }
 
@@ -179,6 +192,122 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 		return err
 	}
 
+	return nil
+}
+
+// ensureBootstrapCertificate creates a 72-hour Certificate CR for ArgoCD Agent mTLS bootstrap.
+// cert-manager + infisical-issuer fulfills this Certificate declaratively per ADR-035.
+// The resulting Secret is distributed to the Spoke via Crossplane ClusterResourceSet.
+func (r *SpokePoolReconciler) ensureBootstrapCertificate(ctx context.Context, spokeName string) error {
+	logger := log.FromContext(ctx)
+
+	cert := &unstructured.Unstructured{}
+	cert.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "cert-manager.io",
+		Version: "v1",
+		Kind:    "Certificate",
+	})
+	cert.SetName(fmt.Sprintf("argocd-agent-%s", spokeName))
+	cert.SetNamespace("platform-ops")
+
+	// Check if already exists (idempotent)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(cert), cert); err == nil {
+		logger.Info("Bootstrap Certificate already exists", "certificate", cert.GetName())
+		return nil
+	}
+
+	cert.Object = map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":      cert.GetName(),
+			"namespace": cert.GetNamespace(),
+			"labels": map[string]interface{}{
+				"platform.nutgraf.in/bootstrap": "true",
+				"platform.nutgraf.in/spoke":     spokeName,
+			},
+		},
+		"spec": map[string]interface{}{
+			"commonName":  fmt.Sprintf("argocd-agent.%s", spokeName),
+			"duration":    "72h",
+			"renewBefore": "24h",
+			"isCA":        false,
+			"usages": []interface{}{
+				"server auth",
+				"client auth",
+			},
+			"issuerRef": map[string]interface{}{
+				"name": "infisical-issuer",
+				"kind": "Issuer",
+			},
+			"secretName": fmt.Sprintf("argocd-agent-%s-tls", spokeName),
+		},
+	}
+
+	if err := r.Create(ctx, cert); err != nil {
+		return fmt.Errorf("create bootstrap Certificate CR: %w", err)
+	}
+
+	logger.Info("Created bootstrap Certificate CR", "certificate", cert.GetName(), "spoke", spokeName)
+	return nil
+}
+
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=identity.zeroops.io,resources=spokemachineidentities,verbs=get;list;watch;create;update;patch
+
+// ensureSpokeMachineIdentity creates a SpokeMachineIdentity CR declaring desired Machine Identity state.
+// The spoke-identity-operator watches this CR and reconciles it against Infisical to create, rotate,
+// and manage lifecycle of the Spoke's Machine Identity.
+// PKI operations remain cert-manager's domain (ADR-035).
+func (r *SpokePoolReconciler) ensureSpokeMachineIdentity(ctx context.Context, spokeName string) error {
+	logger := log.FromContext(ctx)
+
+	smi := &unstructured.Unstructured{}
+	smi.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "identity.zeroops.io",
+		Version: "v1alpha1",
+		Kind:    "SpokeMachineIdentity",
+	})
+	smi.SetName(spokeName)
+	smi.SetNamespace("platform-ops")
+
+	// Check if already exists (idempotent)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(smi), smi); err == nil {
+		logger.Info("SpokeMachineIdentity already exists", "smi", smi.GetName())
+		return nil
+	}
+
+	smi.Object = map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":      smi.GetName(),
+			"namespace": smi.GetNamespace(),
+			"labels": map[string]interface{}{
+				"platform.nutgraf.in/spoke": spokeName,
+			},
+		},
+		"spec": map[string]interface{}{
+			"spokeRef": map[string]interface{}{
+				"name": spokeName,
+			},
+			"infisical": map[string]interface{}{
+				"authMethod":      "universal-auth",
+				"clientSecretTTL": "90d",
+			},
+			"rotationPolicy": map[string]interface{}{
+				"enabled":       true,
+				"interval":      "60d",
+				"overlapPeriod": "24h",
+			},
+			"revocationPolicy": map[string]interface{}{
+				"revokeOnDelete": true,
+				"gracePeriod":    "72h",
+			},
+		},
+	}
+
+	if err := r.Create(ctx, smi); err != nil {
+		return fmt.Errorf("create SpokeMachineIdentity CR: %w", err)
+	}
+
+	logger.Info("Created SpokeMachineIdentity CR", "smi", smi.GetName(), "spoke", spokeName)
 	return nil
 }
 
