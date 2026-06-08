@@ -48,8 +48,9 @@ func (i *Installer) GenerateAndInjectCA(ctx context.Context) error {
 		return fmt.Errorf("failed to check platform-db-ca secret: %w", err)
 	}
 
-	fmt.Println("[bootstrap-ca] platform-db-ca will be provisioned by cert-manager via ArgoCD")
-	fmt.Println("[bootstrap-ca] Ensure a cert-manager Certificate resource exists for platform-db-ca in platform-data")
+	fmt.Println("[bootstrap-ca] platform-db-ca will be provisioned by cert-manager SelfSigned issuer during bootstrap")
+	fmt.Println("[bootstrap-ca] The deployPlatform phase creates a SelfSigned ClusterIssuer and Certificate CR")
+	fmt.Println("[bootstrap-ca] cert-manager generates the CA, stores it in platform-data/platform-db-ca Secret")
 
 	return nil
 }

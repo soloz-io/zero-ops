@@ -168,6 +168,34 @@ Spoke cert-manager takes over certificate lifecycle
 
 **This is the only exception to delegated issuer-based issuance.** All other certificates are issued directly on the Spoke by cert-manager + infisical-issuer.
 
+### Hub Bootstrap CA (SelfSigned)
+
+The Hub's `platform-db-ca` for CNPG TLS is bootstrapped by cert-manager's built-in
+`SelfSigned` ClusterIssuer (`platform-bootstrap-selfsigned`) during Day-0. This issuer
+requires no external PKI backend and exists solely to break the circular dependency
+between cert-manager, Infisical, and the database CA.
+
+**Workflow:**
+
+```text
+Day-0 bootstrap (hub-cli deployPlatform)
+       ↓
+1. Create ClusterIssuer (SelfSigned, platform-bootstrap-selfsigned)
+       ↓
+2. Create Certificate CR (platform-db-ca, platform-data namespace)
+       ↓
+3. cert-manager generates key pair and creates platform-db-ca Secret
+       ↓
+4. CNPG and Infisical consume platform-db-ca via Secret reference
+```
+
+**Constraints:**
+- The `platform-bootstrap-selfsigned` ClusterIssuer is a bootstrap primitive only.
+- It must not be used for tenant, Spoke, service, ingress, or fleet certificates.
+- Those certificates chain through the Fleet Intermediate CA via `infisical-issuer`.
+- Once the Hub is fully bootstrapped, the SelfSigned issuer should not be used
+  for any new certificate issuance.
+
 ### Operator Responsibilities
 
 #### Spoke Identity Operator
