@@ -10,5 +10,4 @@ resources:
   - k8s/metallb-config.yaml
   - k8s/vendor/metallb-native.yaml
   - k8s/vendor/ingress-nginx-kind.yaml
-  - ../../hub-core-services/platform-namespaces/namespaces.yaml
-  - ../../hub-core-services/ingress/dev-certificates.yaml
+
