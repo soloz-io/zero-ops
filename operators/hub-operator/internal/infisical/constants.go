@@ -47,6 +47,8 @@ const (
 	NamespaceCloudSystem = "kube-system"
 	NamespaceEdge        = "platform-edge"
 	NamespaceData        = "platform-data"
+	NamespaceIdentity    = "platform-identity"
+	NamespaceMessaging   = "platform-messaging"
 
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey        = "hetzner-dns-api-key"

@@ -1,0 +1,19 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-leafnode-server-cert
+  namespace: platform-messaging
+spec:
+  secretName: nats-leafnode-server-cert
+  duration: 720h
+  renewBefore: 24h
+  commonName: nats.platform-messaging.svc
+  dnsNames:
+    - nats
+    - nats.platform-messaging
+    - nats.platform-messaging.svc
+    - nats.platform-messaging.svc.cluster.local
+    - "*.platform-messaging.svc"
+  issuerRef:
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer

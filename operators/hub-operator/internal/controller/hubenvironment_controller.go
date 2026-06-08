@@ -498,12 +498,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		hydraClient, err := infisicalclient.NewHydraClient("")
 		if err != nil {
 			logger.Error(err, "Failed to create Hydra client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		if err := hydraClient.RegisterOAuthClients(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to register OAuth clients")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -530,7 +530,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		natsReady, err := r.isNATSReady(ctx, hubEnv)
 		if err != nil {
 			logger.Error(err, "Failed to check NATS readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 		if !natsReady {
 			logger.Info("Waiting for NATS to be ready")
@@ -540,13 +540,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		natsClient, err := infisicalclient.NewNATSClient("")
 		if err != nil {
 			logger.Error(err, "Failed to create NATS client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		defer natsClient.Close()
 
 		if err := natsClient.CreateOrUpdateStreams(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to create NATS streams")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -646,17 +646,33 @@ func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv 
 // isHydraReady checks if Hydra Deployment is ready
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isHydraReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	// For now, assume Hydra is ready if the deployment exists
-	// In production, check deployment status
-	return true, nil
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "ory-hydra",
+		Namespace: infisical.NamespaceIdentity,
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return deployment.Status.ReadyReplicas > 0, nil
 }
 
 // isNATSReady checks if NATS StatefulSet is ready
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	// For now, assume NATS is ready if the statefulset exists
-	// In production, check statefulset status
-	return true, nil
+	statefulset := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "nats",
+		Namespace: infisical.NamespaceMessaging,
+	}, statefulset); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return statefulset.Status.ReadyReplicas > 0, nil
 }
 
 // uploadSecretsToInfisical uploads all secrets to Infisical
