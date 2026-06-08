@@ -7,7 +7,9 @@ See also: [Bootstrap vs Application Secrets](./bootstrap-vs-application-secrets.
 
 ## Architecture Overview
 
-Infisical is the **SOURCE OF TRUTH** for all secrets. Two patterns exist based on secret type:
+Infisical is the **SOURCE OF TRUTH** for all secrets. All secret operations described in this ADR use the **hub-secrets** Infisical project (type `secret-manager`). The hub-platform project (type `cert-manager`) is reserved for PKI operations (see ADR-035). The two projects are created during Day-0 bootstrap and the Machine Identity has admin access to both.
+
+Two patterns exist based on secret type:
 
 **Critical Rule:** The ESO `PushSecret` resource is strictly banned due to lack of provider support (Infisical ESO provider does not support PushSecret) and architectural fragility. Secrets must flow from upstream controllers to Infisical (push-left), not from cluster operators back to Infisical.
 

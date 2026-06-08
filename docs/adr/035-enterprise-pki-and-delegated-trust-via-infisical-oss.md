@@ -477,6 +477,23 @@ This limitation is accepted by the platform architecture.
 
 ---
 
+# Decision
+
+## Infisical Project Separation
+
+The platform maintains two Infisical projects with distinct types to separate PKI and secret management concerns:
+
+- **`hub-platform`** (type `cert-manager`): Hosts the Fleet Intermediate CA, certificate profiles, and all PKI infrastructure. Machine Identities with PKI permissions are scoped here.
+- **`hub-secrets`** (type `secret-manager`): Stores all application secrets, database credentials, and infrastructure tokens. The ESO ClusterSecretStore references this project.
+
+**Context:** Infisical OSS Machine Identity permissions are project scoped — a single project cannot mix cert-manager and secret-manager operations because the ESO provider only supports the secret-manager type. Separating into two projects is required, not optional.
+
+Both projects are created during Day-0 bootstrap by the CLI. The Machine Identity is granted admin role on both.
+
+**Impact:** PKI Machine Identities cannot read application secrets. ESO syncs from the secrets project only. Operators must use the correct project slug when configuring Infisical operations.
+
+---
+
 # Consequences
 
 ## Positive
