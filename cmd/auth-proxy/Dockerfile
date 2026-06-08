@@ -8,7 +8,7 @@ RUN go mod download
 COPY cmd/auth-proxy/ ./cmd/auth-proxy/
 COPY internal/auth-proxy/ ./internal/auth-proxy/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o auth-proxy ./cmd/auth-proxy
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -o auth-proxy ./cmd/auth-proxy
 
 FROM alpine:latest
 
