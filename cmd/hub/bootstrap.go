@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -31,6 +32,7 @@ var (
 	buildFlatcarImage bool
 	debug             bool
 	environment       string
+	dockerSocket      string
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -64,6 +66,7 @@ Supports multiple infrastructure providers: hetzner (cloud) and docker (local/CA
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to dev for docker, prod for hetzner")
+	cmd.Flags().StringVar(&dockerSocket, "docker-socket", "", "Docker socket path for local provider (e.g., ~/.docker/run/docker.sock on macOS Docker Desktop). Also set via ZERO_OPS_DOCKER_SOCKET env var")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
@@ -158,9 +161,24 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		}
 		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
 	case "docker":
+		// Resolve Docker socket path: CLI flag > env var > default (empty = use static config)
+		socketPath := dockerSocket
+		if socketPath == "" {
+			socketPath = os.Getenv("ZERO_OPS_DOCKER_SOCKET")
+		}
+		if socketPath != "" {
+			// Expand ~ to home directory
+			if len(socketPath) > 0 && socketPath[0] == '~' {
+				homeDir, err := os.UserHomeDir()
+				if err == nil {
+					socketPath = filepath.Join(homeDir, socketPath[1:])
+				}
+			}
+		}
 		bp = &bootstrap.LocalProvider{
-			Debug:       debug,
-			GitHubToken: readGitHubToken(),
+			Debug:            debug,
+			GitHubToken:      readGitHubToken(),
+			DockerSocketPath: socketPath,
 		}
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)

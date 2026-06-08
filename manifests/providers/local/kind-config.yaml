@@ -10,7 +10,7 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraMounts:
-  - hostPath: /var/run/docker.sock
+  - hostPath: "{{ .DockerSocketPath }}"
     containerPath: /var/run/docker.sock
   extraPortMappings:
   # API server: pinned to host port 6443 so re-runs after teardown

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"text/template"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
@@ -21,17 +22,71 @@ import (
 //
 // ADR-036 §3: CAPD is the official local development and integration testing
 // provider. It is NOT production-supported.
+//
+// ADR-044: The Docker socket path is a Day-0 bootstrap concern. It is discovered
+// or configured at bootstrap time and must not appear in Cluster API resources.
 type LocalProvider struct {
-	Debug       bool
-	GitHubToken string
+	Debug            bool
+	GitHubToken      string
+	DockerSocketPath string // optional override for Docker socket (e.g., ~/.docker/run/docker.sock on macOS Docker Desktop)
+	kindConfigPath   string // cached generated config path
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
 
-func (p *LocalProvider) Name() string                   { return "docker" }
-func (p *LocalProvider) IsLocal() bool                  { return true }
-func (p *LocalProvider) KindConfigPath() string         { return "manifests/providers/local/kind-config.yaml" }
-func (p *LocalProvider) ClusterClassPaths() []string    { return []string{"classes/capd-spoke-pool-v1.yaml"} }
+func (p *LocalProvider) Name() string { return "docker" }
+func (p *LocalProvider) IsLocal() bool { return true }
+func (p *LocalProvider) ClusterClassPaths() []string {
+	return []string{"classes/capd-spoke-pool-v1.yaml"}
+}
+
+// KindConfigPath returns the path to a Kind config YAML file. When DockerSocketPath
+// is set, a templated config is generated from the static template and written to a
+// temp file. Otherwise, the static config is used as-is (backward compatible with
+// Linux/Colima where /var/run/docker.sock is the real socket).
+func (p *LocalProvider) KindConfigPath() string {
+	if p.DockerSocketPath == "" {
+		return "manifests/providers/local/kind-config.yaml"
+	}
+	if p.kindConfigPath != "" {
+		return p.kindConfigPath
+	}
+
+	// Validate socket exists before generating config
+	if _, err := os.Stat(p.DockerSocketPath); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Docker socket does not exist: %s\n", p.DockerSocketPath)
+		fmt.Fprintf(os.Stderr, "Provide a valid socket via --docker-socket or ZERO_OPS_DOCKER_SOCKET\n")
+		os.Exit(1)
+	}
+
+	tmpl, err := template.ParseFiles("manifests/providers/local/kind-config.yaml")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: failed to parse Kind config template: %v\n", err)
+		os.Exit(1)
+	}
+
+	data := struct{ DockerSocketPath string }{DockerSocketPath: p.DockerSocketPath}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: failed to render Kind config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write to temp dir for kind to consume
+	stateDir := filepath.Join(".zero-ops", "kind")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: failed to create state dir: %v\n", err)
+		os.Exit(1)
+	}
+	configPath := filepath.Join(stateDir, "kind-config-generated.yaml")
+	if err := os.WriteFile(configPath, buf.Bytes(), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: failed to write Kind config: %v\n", err)
+		os.Exit(1)
+	}
+
+	p.kindConfigPath = configPath
+	return configPath
+}
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
 
