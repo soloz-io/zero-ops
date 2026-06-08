@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
-	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 )
 
@@ -57,7 +56,7 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 	secret := &corev1.Secret{}
 	if err := c.k8sClient.Get(ctx, client.ObjectKey{
 		Name:      "infisical-auth",
-		Namespace: infisical.NamespaceOps,
+		Namespace: constant.NamespaceOps,
 	}, secret); err != nil {
 		return fmt.Errorf("failed to get infisical-auth secret: %w", err)
 	}

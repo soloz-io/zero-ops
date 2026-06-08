@@ -7,4 +7,5 @@ const (
 	KeyClientID     = "client-id"
 	KeyClientSecret = "client-secret"
 	KeyProjectID    = "project-id"
+	NamespaceOps    = "platform-ops"
 )
