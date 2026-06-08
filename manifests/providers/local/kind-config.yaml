@@ -28,3 +28,8 @@ nodes:
   - containerPort: 443
     hostPort: 8443
     protocol: TCP
+# Worker node for data-plane workloads (ClickHouse, OpenMeter, Redis, Kube-SBT).
+# Required because core manifests enforce nodeSelector: node-role.kubernetes.io/worker.
+# Without a worker, pods remain Pending and ArgoCD reports OutOfSync/Degraded.
+- role: worker
+  image: kindest/node:v1.31.6

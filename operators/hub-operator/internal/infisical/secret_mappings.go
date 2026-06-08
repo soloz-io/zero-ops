@@ -335,5 +335,17 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		Description: "OpenMeter Svix signing secret (also generates JWT token)",
 	},
+	{
+		UsernameKey: "",
+		PasswordKey: "hub-kratos-ui-cookie-secret",
+		Username:    "",
+		Description: "Kratos UI cookie session encryption secret (32-byte random)",
+	},
+	{
+		UsernameKey: "",
+		PasswordKey: "hub-kratos-ui-csrf-cookie-secret",
+		Username:    "",
+		Description: "Kratos UI CSRF cookie secret (32-byte random)",
+	},
 }
 

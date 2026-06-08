@@ -15,7 +15,7 @@ During the implementation of Spoke cluster provisioning, we identified a hard se
 | `platform-capi` | Cluster API resources, cluster-api-operator, Crossplane composite resources (SpokePool), AND all associated bootstrap templates (ClusterResourceSet dependencies, CNI/CCM payloads, and bootstrap CA secrets), CAPI Provider CRs (CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider) |
 | `platform-messaging` | NATS subscriber (Hub), NATS Leaf Node (Spoke) |
 | `platform-identity` | Kratos, Keto, Hydra, kratos-ui |
-| `platform-data` | PostgreSQL clusters, PgBouncer, Redis, CloudNativePG Operator |
+| `platform-data` | PostgreSQL clusters, PgBouncer, Redis, ClickHouse, CloudNativePG Operator |
 | `platform-ops` | ArgoCD/ArgoCD Agent, Argo-repo-Server, capi2argo, ESO, Crossplane, KEDA, cnpg2monitor, External-DNS, kube-sbt API, Kyverno |
 | `platform-security` | Infisical, SPIFFE/SPIRE, spire-k8s-registrar |
 | `platform-edge` | AgentGateway, auth-proxy, Ingress NGINX |
