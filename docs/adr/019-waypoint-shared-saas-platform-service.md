@@ -138,6 +138,14 @@ The runtime DB (`waypoint_runtime`) and control-plane DB (`waypoint_control_plan
 
 ---
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Application Secrets | Infisical | Infisical | ESO | Workloads, Crossplane | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

@@ -100,3 +100,7 @@ Check Hetzner API token has write permissions and sufficient quota for snapshots
 ## Talos Linux Alternative
 
 For Talos Linux-based clusters, see `docs/build-talos-image.md`.
+
+## Ownership
+
+This ADR defines operating system and bootstrap image standards for management clusters. It does not own platform resources. For resource ownership, see ADR-039.

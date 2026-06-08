@@ -77,6 +77,14 @@ Hub Cluster:
 
 7. **Declarative Pattern**: Continuous sidecars align with ADR-011 (declarative operator state over imperative jobs).
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Observability State | VictoriaMetrics / Loki / OpenMeter | Observability Stack | Alloy / OTel Collector | Operators, SRE | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

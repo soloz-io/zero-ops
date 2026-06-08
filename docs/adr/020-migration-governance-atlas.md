@@ -73,6 +73,14 @@ Required pre-merge checks: atlas migrate validate, atlas migrate lint, checksum 
 
 Required checklist: naming convention compliance, deterministic behavior, no destructive changes without approval, forward-fix pattern, backward compatibility considered, performance impact assessed, appropriate transaction boundaries, robust error handling, adequate documentation, peer review completed, atlas.sum generated from final content, CI/CD validation passed. Requires database owner approval.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Database Schemas | Git | Atlas Operator | Atlas Operator | provider-sql | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

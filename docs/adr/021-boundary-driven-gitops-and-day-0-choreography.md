@@ -25,6 +25,14 @@ We will separate our deployment architecture into **Day-0 Imperative Choreograph
    - The CLI will then exit permanently.
 3. **Ban Application Sync-Waves:** We will purge `argocd.argoproj.io/sync-wave` annotations from all application workloads. Sync-waves are restricted exclusively to ordering CRDs before the operators that own them in the `01-platform-infra` boundary.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 * **Positive:** Complete blast-radius isolation. An application failure will no longer block infrastructure reconciliation.
 * **Positive:** Secret Zero injection is deterministic and race-condition-free.

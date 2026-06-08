@@ -23,6 +23,14 @@ We will decouple cloud-specific implementations from the core platform using a p
 
 7. **Composition Reuse Mandate:** Provider implementations SHALL maximize reuse through shared Composition Functions, reusable patch sets, and common ClusterClass templates. This prevents composition explosion as the number of supported providers grows.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Infrastructure XRs | Kubernetes API | Crossplane | Crossplane | Spokes, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 ### Positive
 - Enables zero-cost, end-to-end testing of the entire Hub-Spoke architecture on local development machines using Docker.

@@ -106,6 +106,14 @@ The existing boundary sequencing, health visibility, and deployment isolation mo
 
 Operational workflows continue to use the existing boundary structure while gaining continuous feature-branch tracking.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

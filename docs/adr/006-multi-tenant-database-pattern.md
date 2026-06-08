@@ -18,7 +18,7 @@ The platform provisions multi-tenant SaaS environments where each tenant require
 For multi-tenant databases, use the **Externalized Identity Pattern**: Infisical stores credentials as source of truth → ESO creates Kubernetes secrets → Crossplane provider-sql creates PostgreSQL users declaratively → Applications consume credentials.
 
 **Flow:**
-1. Kube-SBT/open-sbt Application Plane generates tenant password during onboarding and uploads to Infisical at path `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`
+1. Tenant passwords are generated during onboarding and stored in Infisical (System of Record) at `/spoke-pool/<cell-id>/tenants/<tenant-id>/db-credentials`. Lifecycle owned by Tenant Identity Service per ADR-039.
 2. Crossplane TenantDatabase XR composition creates ExternalSecret (via Object MR) that pulls credentials from Infisical
 3. ESO syncs credentials and creates Kubernetes secret with username/password from Infisical plus computed fields (database, host, port)
 4. Crossplane creates provider-sql Role referencing the ESO-created secret
@@ -43,6 +43,15 @@ For multi-tenant databases, use the **Externalized Identity Pattern**: Infisical
 - **BANNED**: Applications must NEVER have `CREATEDB` or `CREATEROLE` permissions
 - **REQUIRED**: All tenant databases created declaratively via Crossplane provider-sql
 - **REQUIRED**: Database ownership remains with `crossplane_admin` for lifecycle management
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Database Roles / Grants | PostgreSQL | Crossplane | Crossplane provider-sql | Tenant Apps | Day-1+ |
+| Tenant Passwords | Infisical | Tenant Identity Service | ESO | Tenant Apps, provider-sql | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 

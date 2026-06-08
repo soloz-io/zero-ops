@@ -97,6 +97,15 @@ Crossplane handles all complexity internally with built-in retry logic and statu
 
 Crossplane continuously reconciles to maintain declared state, preventing manual drift.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Spoke Infrastructure Credentials | Infisical | Hub Operator | ESO | Crossplane provider-sql | Day-1+ |
+| Database Roles / Grants | PostgreSQL | Crossplane | Crossplane provider-sql | Tenant Apps | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

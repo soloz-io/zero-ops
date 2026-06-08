@@ -15,6 +15,15 @@ We mandate the following closed-loop rotation lifecycle for all autonomous crede
 4. **Full Entropy & Safe Encoding:** Password generators MUST NOT artificially weaken entropy (e.g., disabling symbols) to satisfy URI formatting. Generators SHALL output full-entropy strings. Consumers of these passwords (e.g., DSN builders) MUST use URL-encoding (e.g., Sprig's `{{ .password | urlquery }}`) during injection.
 5. **Component Granularity:** Where a consumer requires a DSN URL, the Secret template MUST ALSO project the individual components (`host`, `port`, `username`, `password`, `dbname`) alongside the opaque URL to support sidecars, connection poolers, and audit tooling.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Application Secrets | Infisical | Infisical | ESO | Workloads, Crossplane | Day-1+ |
+| Tenant Passwords | Infisical | Tenant Identity Service | ESO | Tenant Apps, provider-sql | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 - **Positive:** True zero-downtime rotation is achieved. Secrets maintain maximum cryptographic entropy. Drift is automatically corrected.
 - **Negative:** Workloads will experience a rolling restart whenever a credential rotates, which requires applications to handle SIGTERM gracefully to avoid dropping in-flight requests.

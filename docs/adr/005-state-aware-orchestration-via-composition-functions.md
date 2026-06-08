@@ -33,6 +33,14 @@ By moving secret distribution into `function-cert-distribution`, the function es
 * **Garbage Collection:** The downstream secret is strictly bound to the XR's lifecycle. Deleting the `SpokePool` cascades deletion to the `Object`, triggering `provider-kubernetes` to issue a DELETE call to the Spoke cluster before removing its finalizer.
 * **Security Caveat (Payload Traversal):** Secret material is extracted from the *Observed State* and injected into the *Desired State*. This means raw secret material traverses the Crossplane gRPC pipeline. Debug logging of full payloads in this function is strictly prohibited. 
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Infrastructure XRs | Kubernetes API | Crossplane | Crossplane | Spokes, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 * **Positive:** Eliminates Crossplane reconciliation deadlocks and silent infinite waits.
 * **Positive:** SREs receive explicit, semantic status conditions for dashboarding and alerting.

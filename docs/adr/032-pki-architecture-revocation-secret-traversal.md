@@ -23,6 +23,14 @@ Leaf certificates are strictly bounded to a 1-hour Time-To-Live (TTL). No Certif
 **Secret Traversal Constraint:**
 Crossplane Composition Functions are explicitly prohibited from parsing, manipulating, or transporting application-level secret material. Function payload traversal is strictly limited to Day-0 bootstrap trust anchors (Intermediate CAs). All application secrets must utilize the Infisical-to-ESO runtime resolution pattern.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Certificates | Kubernetes API | cert-manager | cert-manager | Workloads, ArgoCD Agent | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

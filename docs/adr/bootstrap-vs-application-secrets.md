@@ -1,7 +1,9 @@
 # ADR: Bootstrap vs Application Secrets Pattern
 
+**SUPERSEDED:** This document has been superseded by the rewritten ADR-003 (Secret Management Architecture). Retained for historical reference only. See ADR-003 for current architecture.
+
 ## Status
-Proposed
+Superseded
 
 ## Context
 

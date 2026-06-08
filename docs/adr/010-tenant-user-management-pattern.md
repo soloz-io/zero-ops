@@ -154,6 +154,14 @@ current_setting('request.jwt.claims', true)::json->>'tenant_id'
    - Reduces infrastructure costs
    - Simplifies token validation (single JWKS endpoint)
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Tenant Identity | Infisical | Tenant Identity Service | Kube-SBT | Tenant Apps, provider-sql | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

@@ -66,3 +66,7 @@ Topology labels are applied via the `platform-namespaces` ArgoCD application (sy
 - **kube-system Consolidation**: CCM, CSI, and CNI use standard `kube-system` namespace per Kubernetes conventions
 - **Topology-Aware**: Labels enable Cilium ClusterMesh and SPIFFE federation across clusters
 - **ArgoCD App Naming**: Application files use role prefix (`hub-*`, `spoke-*`, `tenant-*`) while namespaces use `platform-*`
+
+## Ownership
+
+This ADR defines namespace taxonomy and topology conventions. For resource ownership, see ADR-039.

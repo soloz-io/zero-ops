@@ -196,7 +196,7 @@ platform-data Namespace
 - **Platform provides**: ClickHouseInstallation (Altinity operator) in `platform-data` namespace
 - **Shared cluster**: Database-level isolation per service
 - **Enterprise features**: Distributed tables, query quotas, user-level access control
-- **Credentials**: Hub-operator generates and uploads to Infisical
+- **Credentials**: Stored in Infisical (System of Record). Lifecycle owned by Hub Operator per ADR-039.
 - **Applications consume**: External connection strings with database-specific access
 - **Access control**: Each service user granted access only to their database
 
@@ -216,6 +216,14 @@ platform-data Namespace
 - Applications set `postgresql.enabled: false` and `redis.enabled: false` in Helm values
 - Applications configure external endpoints in `config` section
 - Credentials injected via ExternalSecret-created secrets
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Database Clusters (physical) | Kubernetes API | CNPG | CNPG | Crossplane, Applications | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 

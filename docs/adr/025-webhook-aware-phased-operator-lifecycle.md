@@ -109,6 +109,10 @@ Client-side apply maintains proper field ownership, allowing GitOps tools to man
 
 Each phase provides explicit feedback about installation progress and any issues encountered.
 
+## Ownership
+
+This ADR defines the deterministic bootstrap sequence for core operators and does not own specific platform resources. For resource ownership, see ADR-039.
+
 ## Consequences
 
 ### Positive

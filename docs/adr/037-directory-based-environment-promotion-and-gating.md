@@ -25,6 +25,14 @@ We will enforce environment progression and access gating using a Directory-Base
 
 8. **GitOps-Driven Rollback:** Rollback SHALL be performed through Git revert operations and GitOps reconciliation rather than direct cluster mutations. This preserves the integrity of Git as the single source of truth and ensures rollbacks are fully auditable.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 ### Positive
 - Cross-environment differences and configuration drift are explicitly visible within a single repository commit history.

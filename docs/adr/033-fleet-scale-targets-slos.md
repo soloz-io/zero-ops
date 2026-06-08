@@ -26,6 +26,10 @@ A single Hub control plane architecture is strictly bounded to the following sca
 **Sharding Strategy:**
 Scaling beyond these limits requires deploying a new Hub cluster (e.g., `hub-us-east-2`). Tenants and Spokes are pinned to a specific Hub at provisioning time. Cross-Hub migration is not supported as a self-service operation. Platform Engineering may execute controlled migration procedures during disaster recovery or fleet rebalancing events.
 
+## Ownership
+
+This ADR defines scale targets and SLOs for the platform control plane and does not own platform resources. For resource ownership, see ADR-039.
+
 ## Consequences
 
 ### Positive

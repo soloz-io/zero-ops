@@ -93,6 +93,10 @@ Secret paths in Infisical must use hyphens:
 - CI/CD pipelines enforce RFC-1123 compliance
 - Legacy underscore patterns deprecated and removed
 
+## Ownership
+
+This ADR defines naming convention standards applicable to all platform components. It does not own platform resources. For resource ownership, see ADR-039.
+
 ## Consequences
 
 **Positive:**
