@@ -326,7 +326,7 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 				},
 			),
 		},
-		Timeout: 10 * time.Minute,
+		Timeout: 30 * time.Minute,
 	}
 	clusterWaiter.Checkers[0].(*health.KubectlChecker).Expected = "True"
 	if err := clusterWaiter.Wait(ctx, i.Kubeconfig); err != nil {
