@@ -12,7 +12,8 @@ This directory contains the Hub Environment configuration that defines the boots
 **Configurable Values**:
 - `CLUSTER_ID`: Unique identifier for this hub cluster (used in AWS backup paths)
 - `CLUSTER_REGION`: AWS region for Secrets Manager backups
-- `INFISICAL_PROJECT_SLUG`: Infisical project identifier
+- `INFISICAL_PROJECT_SLUG`: Infisical cert-manager project identifier
+- `INFISICAL_SECRETS_PROJECT_SLUG`: Infisical secret-manager project identifier (for application secrets)
 - `INFISICAL_ENVIRONMENT_SLUG`: Infisical environment (dev/staging/prod)
 - `DOMAIN`: Base domain for the hub cluster
 
@@ -36,7 +37,8 @@ This directory contains the Hub Environment configuration that defines the boots
 **Environment Variables**:
 - `CLUSTER_ID` → Used for AWS backup path construction
 - `CLUSTER_REGION` → AWS region for Secrets Manager
-- `INFISICAL_PROJECT_SLUG` → Infisical project
+- `INFISICAL_PROJECT_SLUG` → Infisical cert-manager project
+- `INFISICAL_SECRETS_PROJECT_SLUG` → Infisical secret-manager project
 - `INFISICAL_ENVIRONMENT_SLUG` → Infisical environment
 - `DOMAIN` → Base domain
 

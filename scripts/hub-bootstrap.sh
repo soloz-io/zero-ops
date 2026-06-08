@@ -567,8 +567,14 @@ step1_bootstrap_hub() {
 # Step 2: Configure AWS Secrets Manager
 step2_configure_aws_secrets() {
     if is_step_completed "configure_aws_secrets"; then
-        log "Step 2: AWS Secrets Manager already configured, skipping"
-        return
+        # Verify the artifact actually exists — the cluster may have been
+        # recreated since the state was saved.
+        if kubectl get secret -n platform-ops hub-operator-aws-credentials \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            log "Step 2: AWS Secrets Manager already configured, skipping"
+            return
+        fi
+        log "Step 2: State says completed but hub-operator-aws-credentials missing — re-running"
     fi
 
     log "Step 2: Configuring AWS Secrets Manager for disaster recovery..."
@@ -651,6 +657,13 @@ step3_configure_github() {
 
     mark_step_completed "configure_github"
     log "GitHub access configuration completed"
+
+    # Restart hub-operator so it picks up the new ghcr-pull-secret.
+    # The pod was created before the secret existed and won't retry on its own.
+    log "Restarting hub-operator to pick up ghcr-pull-secret..."
+    kubectl rollout restart deployment/hub-operator -n platform-ops \
+        --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || \
+        log "WARNING: Could not restart hub-operator — may need manual restart"
 }
 
 # Step 4: Wait for ArgoCD to sync and create namespaces

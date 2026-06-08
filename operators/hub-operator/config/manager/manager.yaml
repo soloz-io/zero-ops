@@ -101,6 +101,11 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: INFISICAL_PROJECT_SLUG
+        - name: INFISICAL_SECRETS_PROJECT_SLUG
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_SECRETS_PROJECT_SLUG
         - name: INFISICAL_ENVIRONMENT_SLUG
           valueFrom:
             configMapKeyRef:

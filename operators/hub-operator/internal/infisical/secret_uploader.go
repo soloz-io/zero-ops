@@ -41,9 +41,14 @@ func (su *SecretUploader) UploadCLISecrets(ctx context.Context) error {
 	}
 
 	// Get project slug from environment variable (set via configmap hub-bootstrap-config)
-	projectSlug := os.Getenv("INFISICAL_PROJECT_SLUG")
+	// Use secrets project for secret operations (hub-secrets is type "secret-manager")
+	// Fall back to INFISICAL_PROJECT_SLUG for backward compatibility
+	projectSlug := os.Getenv("INFISICAL_SECRETS_PROJECT_SLUG")
 	if projectSlug == "" {
-		return fmt.Errorf("INFISICAL_PROJECT_SLUG environment variable not set")
+		projectSlug = os.Getenv("INFISICAL_PROJECT_SLUG")
+	}
+	if projectSlug == "" {
+		return fmt.Errorf("neither INFISICAL_SECRETS_PROJECT_SLUG nor INFISICAL_PROJECT_SLUG environment variable is set")
 	}
 
 	environmentSlug := EnvironmentSlug
