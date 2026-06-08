@@ -43,16 +43,11 @@ func runInitSecrets(cmd *cobra.Command, args []string) error {
 	fmt.Println("Bootstrapping Layer 1 Infrastructure Secrets...")
 	fmt.Println("  (Note: Existing secrets are treated as immutable and will not be overwritten)")
 
-	// Step 0: Generate CA certificate offline (Day-0 Deterministic Injection)
-	printStepBanner("0", "Generate CA certificate offline",
-		"Create a self-signed CA for Infisical TLS and DB client certificates", "Seconds")
-	if err := installer.GenerateAndInjectCA(ctx); err != nil {
-		return fmt.Errorf("failed to generate CA: %w", err)
-	}
-
 	// Step 1: Generate Infisical base cryptographic secrets with TLS enabled
+	// CNPG generates its own TLS CA natively (platform-db-ca) — no CLI CA generation needed per ADR-035.
+	// InstallInfisicalSecrets() waits for the CNPG cluster to be Ready and reads ca.crt from the CNPG-generated Secret.
 	printStepBanner("1", "Generate Infisical secrets with TLS",
-		"Create Infisical JWT/encryption keys and TLS certificate signed by Step 0 CA", "Seconds")
+		"Create Infisical JWT/encryption keys and TLS certificate signed by CNPG-generated CA", "Seconds")
 	changed1, err := installer.InstallInfisicalSecrets(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to install infisical secrets: %w", err)
