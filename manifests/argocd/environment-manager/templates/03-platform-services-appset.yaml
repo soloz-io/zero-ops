@@ -103,7 +103,7 @@ spec:
             targetRevision: ''
             path: 'manifests/providers/{{ .Values.provider }}'
             chart: ''
-            directoryRecurse: 'true'
+            directoryRecurse: 'false'
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
