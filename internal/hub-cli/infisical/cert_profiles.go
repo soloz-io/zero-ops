@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-const certProfileSlug = "argocd-bootstrap"
 const fleetCAName = "Fleet Intermediate CA"
 
 type caEntry struct {
@@ -20,19 +19,32 @@ type policyEntry struct {
 	Name string `json:"name"`
 }
 
-// ensureArgocdBootstrapProfile creates the argocd-bootstrap certificate profile if it does not exist.
-// It looks up the Fleet Intermediate CA, finds or creates a certificate policy, then creates the profile.
-// This replaces the manual Step 3.6 UI action from the old workflow.
-func ensureArgocdBootstrapProfile(ctx context.Context, podName, adminJWT, projectID string) error {
-	found, err := CheckCertificateProfile(ctx, podName, adminJWT, projectID, certProfileSlug)
-	if err != nil {
-		return fmt.Errorf("check profile %q: %w", certProfileSlug, err)
-	}
-	if found {
-		fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q already exists\n", certProfileSlug)
-		return nil
-	}
+// profileDefinition defines a certificate profile to create during Day-0 bootstrap.
+// Per ADR-042 (PKI_READY state), profiles for all standard TTL tiers must exist.
+// TTLs are server-side caps; cert-manager Certificate duration controls actual rotation.
+type profileDefinition struct {
+	Slug    string
+	TTLDays int
+}
 
+// requiredProfiles lists ALL certificate profiles mandated by ADR-042:70 plus
+// the signing-keys profile required for the argocd-agent-jwt Certificate CR
+// (Correction 1 from ADR-035 PKI review).
+var requiredProfiles = []profileDefinition{
+	{Slug: "argocd-bootstrap", TTLDays: 3},      // 72h bootstrap exception (ADR-035)
+	{Slug: "infrastructure-services", TTLDays: 1}, // 24h cap (ADR-042)
+	{Slug: "database-clients", TTLDays: 1},         // 4h cap, rounded up (ADR-042)
+	{Slug: "service-mesh", TTLDays: 1},             // 1h cap, rounded up (ADR-042)
+	{Slug: "human-access", TTLDays: 1},             // 15m cap, rounded up (ADR-042)
+	{Slug: "signing-keys", TTLDays: 3650},          // 10yr JWT signing keys
+}
+
+// ensureCertificateProfiles creates all required certificate profiles if they do not exist.
+// It looks up the Fleet Intermediate CA, finds or creates a certificate policy, then creates
+// each profile. This replaces the manual Step 3.6 UI action from the old workflow and
+// satisfies ADR-042 PKI_READY exit criteria.
+func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID string) error {
+	// Phase 1: Ensure Fleet Intermediate CA exists and is active (once for all profiles)
 	cas, err := listCertificateAuthorities(ctx, podName, adminJWT, projectID)
 	if err != nil {
 		return fmt.Errorf("list certificate authorities: %w", err)
@@ -52,9 +64,6 @@ func ensureArgocdBootstrapProfile(ctx context.Context, podName, adminJWT, projec
 		}
 		fmt.Printf("[infisical-bootstrap] Created CA %q: id=%s\n", fleetCAName, fleetCAID)
 
-		// Root CAs are created with status "pending-certificate". Generate
-		// a self-signed certificate to transition them to "active" so the
-		// cert-operator can issue bootstrap certificates against this CA.
 		if err := activateRootCA(ctx, podName, adminJWT, fleetCAID); err != nil {
 			return fmt.Errorf("activate CA %q: %w", fleetCAName, err)
 		}
@@ -63,15 +72,28 @@ func ensureArgocdBootstrapProfile(ctx context.Context, podName, adminJWT, projec
 		fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s\n", fleetCAName, fleetCAID)
 	}
 
+	// Phase 2: Resolve certificate policy (one policy covers all profiles)
 	policyID, err := resolveCertificatePolicy(ctx, podName, adminJWT, projectID)
 	if err != nil {
 		return fmt.Errorf("resolve certificate policy: %w", err)
 	}
 
-	if err := createCertProfile(ctx, podName, adminJWT, projectID, fleetCAID, policyID, certProfileSlug, 3650); err != nil {
-		return fmt.Errorf("create certificate profile %q: %w", certProfileSlug, err)
+	// Phase 3: Create each required profile idempotently
+	for _, p := range requiredProfiles {
+		found, err := CheckCertificateProfile(ctx, podName, adminJWT, projectID, p.Slug)
+		if err != nil {
+			return fmt.Errorf("check profile %q: %w", p.Slug, err)
+		}
+		if found {
+			fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q already exists\n", p.Slug)
+			continue
+		}
+
+		if err := createCertProfile(ctx, podName, adminJWT, projectID, fleetCAID, policyID, p.Slug, p.TTLDays); err != nil {
+			return fmt.Errorf("create certificate profile %q: %w", p.Slug, err)
+		}
+		fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
 	}
-	fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q created\n", certProfileSlug)
 	return nil
 }
 
@@ -191,7 +213,7 @@ func resolveCertificatePolicy(ctx context.Context, podName, adminJWT, projectID 
 		return policies[0].ID, nil
 	}
 
-	policyName := certProfileSlug + "-policy"
+	policyName := "zero-ops-platform-policy"
 	policyID, err := createCertificatePolicy(ctx, podName, adminJWT, projectID, policyName)
 	if err != nil {
 		return "", fmt.Errorf("create policy %q: %w", policyName, err)

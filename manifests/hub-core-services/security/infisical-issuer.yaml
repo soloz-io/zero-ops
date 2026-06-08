@@ -1,12 +1,13 @@
 ---
 # infisical-issuer CRDs and Controller
 # Version: v0.1.0
-# Manages InfisicalClusterIssuer resources on spoke clusters
+# Manages InfisicalClusterIssuer resources on Hub cluster
+# ADR-035: Deployed on Hub to bridge cert-manager to Infisical PKI
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: infisical-issuer
-  namespace: cert-manager
+  namespace: platform-security
   labels:
     app: infisical-issuer
 spec:
@@ -25,7 +26,7 @@ spec:
         image: docker.io/infisical/pki-issuer:v0.1.1
         args:
         - --v=2
-        - --leader-election-namespace=cert-manager
+        - --leader-election-namespace=platform-security
         env:
         - name: INFISICAL_API_URL
           value: "http://infisical-standalone-infisical.platform-security.svc:8080"
@@ -57,7 +58,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: infisical-issuer
-  namespace: cert-manager
+  namespace: platform-security
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -85,4 +86,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: infisical-issuer
-  namespace: cert-manager
+  namespace: platform-security

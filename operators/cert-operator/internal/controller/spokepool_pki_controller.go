@@ -143,7 +143,17 @@ type: Opaque
 stringData:
   client-id: %s
   client-secret: %s
-`, id.ClientID, id.ClientSecret)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: cert-manager
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: %s
+`, id.ClientID, id.ClientSecret, id.ClientID, id.ClientSecret)
 
 	certYAML := fmt.Sprintf(`apiVersion: v1
 kind: Secret

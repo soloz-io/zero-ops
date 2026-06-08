@@ -15,6 +15,7 @@ spec:
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
 ---
 # FIX: Added document separator here
 apiVersion: cert-manager.io/v1
@@ -32,6 +33,7 @@ spec:
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
 ---
 # FIX: Added document separator here
 apiVersion: cert-manager.io/v1
@@ -49,3 +51,4 @@ spec:
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
+    group: infisical-issuer.infisical.com

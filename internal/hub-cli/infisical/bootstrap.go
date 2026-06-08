@@ -939,9 +939,9 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 		fmt.Printf("[infisical-bootstrap] Machine Identity granted admin on secrets project: %s\n", strings.TrimSpace(grantOut))
 	}
 
-	// Automate Step 3.6: create argocd-bootstrap certificate profile
-	if err := ensureArgocdBootstrapProfile(ctx, podName, boot.Identity.Credentials.Token, certProjectID); err != nil {
-		return nil, fmt.Errorf("ensure argocd-bootstrap profile: %w", err)
+	// Automate ADR-042 PKI_READY: create all required certificate profiles
+	if err := ensureCertificateProfiles(ctx, podName, boot.Identity.Credentials.Token, certProjectID); err != nil {
+		return nil, fmt.Errorf("ensure certificate profiles: %w", err)
 	}
 
 	fmt.Println("[infisical-bootstrap] ✅ Infisical Day-0 bootstrap complete")

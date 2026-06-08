@@ -17,3 +17,4 @@ spec:
   issuerRef:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
+    group: infisical-issuer.infisical.com

@@ -461,4 +461,4 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-kubeconfig"
+                      fmt: "%s-kubeconfig-internal"

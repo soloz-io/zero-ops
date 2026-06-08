@@ -71,6 +71,37 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		fmt.Println("[bootstrap-secrets] ✓ infisical-auth secret created")
 	}
 
+	// Create a copy of infisical-auth in platform-security for infisical-issuer
+	securitySecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "infisical-auth",
+			Namespace: constants.NamespaceSecurity,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+				"app.kubernetes.io/component":  "secret-zero",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"client-id":     result.ClientID,
+			"client-secret": result.ClientSecret,
+		},
+	}
+	_, err = clientset.CoreV1().Secrets(constants.NamespaceSecurity).Create(ctx, securitySecret, metav1.CreateOptions{})
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			_, err = clientset.CoreV1().Secrets(constants.NamespaceSecurity).Update(ctx, securitySecret, metav1.UpdateOptions{})
+			if err != nil {
+				return false, fmt.Errorf("failed to update infisical-auth in %s: %w", constants.NamespaceSecurity, err)
+			}
+			fmt.Printf("[bootstrap-secrets] ✓ infisical-auth secret updated in %s\n", constants.NamespaceSecurity)
+		} else {
+			return false, fmt.Errorf("failed to create infisical-auth in %s: %w", constants.NamespaceSecurity, err)
+		}
+	} else {
+		fmt.Printf("[bootstrap-secrets] ✓ infisical-auth secret created in %s\n", constants.NamespaceSecurity)
+	}
+
 	fmt.Println("[bootstrap-secrets] Patching hub-bootstrap-config with OrgID/ProjectID...")
 	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
 	if err != nil {

@@ -350,7 +350,8 @@ spec:
 
   # 5. AtlasMigration CR - Wrapped in provider-kubernetes Object
   #     Uses pooler-app secret (tenant user credentials) for database connection.
-  #     Pulls migrations from ConfigMap (created by ArgoCD from Helm chart).
+  #     ADR-027: Baseline migrations pulled from Git (not ConfigMap).
+  #     Tenant-specific migrations are handled by the tenant's migration-job overlay.
   - name: atlasmigration
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -371,8 +372,11 @@ spec:
                   key: url
               revisionsSchema: public
               dir:
-                configMapRef:
-                  name: ""  # Patched: tenant-<tenantId>-migrations
+                remote:
+                  git:
+                    url: "https://github.com/soloz-io/zero-ops.git"
+                    ref: "main"
+                    path: "migrations/tenant-baseline"
         providerConfigRef:
           name: ""  # Patched from cellId
     readinessChecks:
@@ -412,13 +416,6 @@ spec:
       - type: string
         string:
           fmt: "%s-pooler-app"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.dir.configMapRef.name
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s-migrations"
     # CRITICAL: Extract ACTUAL AtlasMigration status from Spoke back to XR
     # Use observedGeneration field as readiness indicator (simpler than conditions)
     - type: ToCompositeFieldPath
