@@ -305,21 +305,15 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("CNPG CRD not installed: %w\nEnsure the CNPG operator is deployed by ArgoCD (01-platform-infra)", err)
 	}
 
-	// Wait for CNPG Cluster CR to exist (ArgoCD may show OutOfSync after CNPG mutates resources)
-	clusterExistsWaiter := &health.HealthWaiter{
-		Checkers: []health.HealthChecker{
-			health.NewKubectlChecker("CNPG cluster platform-db exists",
-				[]string{"get", "clusters.postgresql.cnpg.io", "platform-db",
-					"-n", dataNamespace,
-					"-o", "name",
-				},
-			),
-		},
-		Timeout: 5 * time.Minute,
-	}
-	clusterExistsWaiter.Checkers[0].(*health.KubectlChecker).Expected = "cluster/"
-	if err := clusterExistsWaiter.Wait(ctx, i.Kubeconfig); err != nil {
-		return false, fmt.Errorf("CNPG Cluster CR not created: %w\nEnsure the platform-database ArgoCD app has synced and the CNPG operator is running", err)
+	// One-shot check: CNPG Cluster CR must exist before we wait for Ready.
+	// Use kubectl get directly (not HealthWaiter) so a missing CR fails fast
+	// with a clear error instead of polling silently for 5 minutes.
+	if out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", i.Kubeconfig,
+		"get", "clusters.postgresql.cnpg.io", "platform-db",
+		"-n", dataNamespace,
+		"-o", "name",
+	).CombinedOutput(); err != nil {
+		return false, fmt.Errorf("CNPG Cluster CR not found: %w\n%s\nEnsure the platform-database ArgoCD app has synced and the CNPG operator is running", err, out)
 	}
 
 	// Wait for CNPG Cluster to be Ready
