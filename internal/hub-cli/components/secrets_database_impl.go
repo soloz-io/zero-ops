@@ -143,48 +143,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	dataNamespace := constants.NamespaceData         // platform-data: CNPG, Redis, DB Init Jobs
 	securityNamespace := constants.NamespaceSecurity // platform-security: Infisical pods
 
-	// Step 1: Generate and inject platform-db-app (CNPG Secret Zero)
-	// MUST be in dataNamespace - consumed by CNPG cluster
-	appSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
-	var appPassword string
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("failed to check platform-db-app secret: %w", err)
-		}
-
-		fmt.Println("[bootstrap-secrets] Generating platform-db-app (CNPG Secret Zero)...")
-		appPassword, err = generateSecurePassword(32)
-		if err != nil {
-			return false, fmt.Errorf("failed to generate app password: %w", err)
-		}
-
-		appSecret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "platform-db-app",
-				Namespace: dataNamespace, // CNPG cluster in platform-data
-				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-					"app.kubernetes.io/component":  "secret-zero",
-				},
-			},
-			Type: corev1.SecretTypeBasicAuth,
-			StringData: map[string]string{
-				"username": "app",
-				"password": appPassword,
-			},
-		}
-
-		_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, appSecret, metav1.CreateOptions{})
-		if err != nil {
-			return false, fmt.Errorf("failed to create platform-db-app secret: %w", err)
-		}
-		fmt.Println("[bootstrap-secrets] ✓ platform-db-app created")
-	} else {
-		appPassword = string(appSecret.Data["password"])
-		fmt.Println("[bootstrap-secrets] ✓ platform-db-app already exists")
-	}
-
-	// Step 2: Generate and inject infisical-db-credentials (Infisical Secret Zero)
+	// Step 1: Generate and inject infisical-db-credentials (Infisical Secret Zero)
 	// MUST be in dataNamespace - consumed by DB Init Job that creates infisical role
 	infDbSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 	var infPassword string
@@ -225,7 +184,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials already exists")
 	}
 
-	// Step 3: Create the connection string secret for Infisical to use
+	// Step 2: Create the connection string secret for Infisical to use
 	// MUST be in securityNamespace - consumed by Infisical pods
 	// TLS Configuration: End-to-end encryption (production-grade)
 	// - Infisical → PgBouncer: TLS (using CNPG-provided certificates)
