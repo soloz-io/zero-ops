@@ -14,12 +14,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
 	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
 const (
 	providerRegistryConfigMap   = "hub-operator-provider-registry"
-	providerRegistryNamespace   = "platform-ops"
+	providerRegistryNamespace   = infisical.NamespaceOps
 )
 
 var (

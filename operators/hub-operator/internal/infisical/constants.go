@@ -49,6 +49,7 @@ const (
 	NamespaceData        = "platform-data"
 	NamespaceIdentity    = "platform-identity"
 	NamespaceMessaging   = "platform-messaging"
+	NamespaceSecurity    = "platform-security"
 
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey        = "hetzner-dns-api-key"

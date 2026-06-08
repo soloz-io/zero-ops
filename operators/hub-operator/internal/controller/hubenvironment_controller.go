@@ -324,9 +324,9 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			"control-plane-db-credentials": dataNamespace,       // platform-data
 			"hub-db-credentials":           dataNamespace,       // platform-data
 			"spire-server-db-credentials":  dataNamespace,       // platform-data
-			"hydra-db-credentials":         "platform-identity", // platform-identity
-			"kratos-db-credentials":        "platform-identity", // platform-identity
-			"keto-db-credentials":          "platform-identity", // platform-identity
+			"hydra-db-credentials":         infisical.NamespaceIdentity,
+			"kratos-db-credentials":        infisical.NamespaceIdentity,
+			"keto-db-credentials":          infisical.NamespaceIdentity,
 		}
 
 		allSecretsExist := true
@@ -442,7 +442,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		infisicalAuth := &corev1.Secret{}
 		if err := r.Get(ctx, client.ObjectKey{
 			Name:      "infisical-auth",
-			Namespace: "platform-ops",
+			Namespace: infisical.NamespaceOps,
 		}, infisicalAuth); err != nil {
 			if errors.IsNotFound(err) {
 				logger.Info("infisical-auth secret not found, suspending Phase 3")
@@ -750,13 +750,13 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 		name      string
 		namespace string
 	}{
-		{"Deployment", "infisical", "platform-ops"},
+		{"Deployment", "infisical", infisical.NamespaceOps},
 		{"StatefulSet", "redis", namespace},
-		{"Deployment", "hydra", "platform-identity"},
-		{"Deployment", "kratos", "platform-identity"},
-		{"Deployment", "keto", "platform-identity"},
-		{"StatefulSet", "spire-server", "platform-security"},
-		{"Deployment", "mcp-server", "platform-ops"},
+		{"Deployment", "hydra", infisical.NamespaceIdentity},
+		{"Deployment", "kratos", infisical.NamespaceIdentity},
+		{"Deployment", "keto", infisical.NamespaceIdentity},
+		{"StatefulSet", "spire-server", infisical.NamespaceSecurity},
+		{"Deployment", "mcp-server", infisical.NamespaceOps},
 	}
 
 	for _, svc := range services {
@@ -850,8 +850,8 @@ func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context
 func (r *HubEnvironmentReconciler) waitForInfisicalReadiness(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{
-		Name:      "infisical",
-		Namespace: "platform-ops",
+		Name:      infisical.InfisicalServiceName,
+		Namespace: infisical.InfisicalServiceNamespace,
 	}, deployment); err != nil {
 		if errors.IsNotFound(err) {
 			// Deployment doesn't exist yet
@@ -956,13 +956,13 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 			name      string
 			namespace string
 		}{
-			"infisical":        {"Deployment", "infisical", "platform-ops"},
+			"infisical":        {"Deployment", infisical.InfisicalServiceName, infisical.InfisicalServiceNamespace},
 			"redis":            {"StatefulSet", "redis", namespace},
-			"hydra":            {"Deployment", "hydra", "platform-identity"},
-			"kratos":           {"Deployment", "kratos", "platform-identity"},
-			"keto":             {"Deployment", "keto", "platform-identity"},
-			"spire_server":     {"StatefulSet", "spire-server", "platform-security"},
-			"mcp_server":       {"Deployment", "mcp-server", "platform-ops"},
+			"hydra":            {"Deployment", "hydra", infisical.NamespaceIdentity},
+			"kratos":           {"Deployment", "kratos", infisical.NamespaceIdentity},
+			"keto":             {"Deployment", "keto", infisical.NamespaceIdentity},
+			"spire_server":     {"StatefulSet", "spire-server", infisical.NamespaceSecurity},
+			"mcp_server":       {"Deployment", "mcp-server", infisical.NamespaceOps},
 		}
 
 		if svc, ok := serviceMap[serviceName]; ok {
@@ -1101,9 +1101,8 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "hydra" && obj.GetNamespace() == "platform-identity"
-				}),
-			),
+				return obj.GetName() == "hydra" && obj.GetNamespace() == infisical.NamespaceIdentity
+			}),
 		).
 		// Requirement 12.8: Watch Infisical Deployment
 		Watches(
@@ -1112,7 +1111,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "infisical" && obj.GetNamespace() == "platform-ops"
+					return obj.GetName() == infisical.InfisicalServiceName && obj.GetNamespace() == infisical.InfisicalServiceNamespace
 				}),
 			),
 		).

@@ -14,6 +14,11 @@ import (
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 )
 
+const (
+	secretNamespaceData     = "platform-data"
+	secretNamespaceIdentity = "platform-identity"
+)
+
 // mapRoleToSecretName converts CR role names to valid K8s secret names
 func mapRoleToSecretName(roleName string) string {
 	switch roleName {
@@ -41,7 +46,7 @@ func mapRoleToSecretName(roleName string) string {
 func mapRoleToSecretNamespace(roleName, defaultNamespace string) string {
 	switch roleName {
 	case "hub_hydra", "hub_kratos", "hub_keto":
-		return "platform-identity"
+		return secretNamespaceIdentity
 	default:
 		return defaultNamespace
 	}
@@ -269,7 +274,7 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 
 	// Get connection details from platform-db-superuser secret
 	secret := &corev1.Secret{}
-	namespace := "platform-data" // TODO: make configurable
+	namespace := secretNamespaceData // TODO: make configurable
 	if err := rm.client.Get(ctx, client.ObjectKey{
 		Name:      "platform-db-superuser",
 		Namespace: namespace,
