@@ -25,8 +25,7 @@ spec:
       - name: infisical-issuer
         image: docker.io/infisical/pki-issuer:v0.1.1
         args:
-        - --v=2
-        - --leader-election-namespace=platform-security
+        - --zap-log-level=info
         env:
         - name: INFISICAL_API_URL
           value: "http://infisical-standalone-infisical.platform-security.svc:8080"
