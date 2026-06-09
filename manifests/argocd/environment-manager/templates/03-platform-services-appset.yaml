@@ -51,7 +51,7 @@ spec:
               operator:
                 env:
                   - name: WATCH_NAMESPACES
-                    value: "*"
+                    value: ".*"
             helmReleaseName: 'clickhouse-operator'
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
