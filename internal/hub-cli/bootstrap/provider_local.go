@@ -45,16 +45,19 @@ func (p *LocalProvider) ClusterClassPaths() []string {
 // temp file. Otherwise, the static config is used as-is (backward compatible with
 // Linux/Colima where /var/run/docker.sock is the real socket).
 func (p *LocalProvider) KindConfigPath() string {
-	if p.DockerSocketPath == "" {
-		return "manifests/providers/local/kind-config.yaml"
+	// Resolve the Docker socket path: --docker-socket flag > ZERO_OPS_DOCKER_SOCKET > default
+	dockerSocketPath := p.DockerSocketPath
+	if dockerSocketPath == "" {
+		dockerSocketPath = "/var/run/docker.sock"
 	}
+
 	if p.kindConfigPath != "" {
 		return p.kindConfigPath
 	}
 
 	// Validate socket exists before generating config
-	if _, err := os.Stat(p.DockerSocketPath); err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Docker socket does not exist: %s\n", p.DockerSocketPath)
+	if _, err := os.Stat(dockerSocketPath); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Docker socket does not exist: %s\n", dockerSocketPath)
 		fmt.Fprintf(os.Stderr, "Provide a valid socket via --docker-socket or ZERO_OPS_DOCKER_SOCKET\n")
 		os.Exit(1)
 	}
@@ -65,7 +68,7 @@ func (p *LocalProvider) KindConfigPath() string {
 		os.Exit(1)
 	}
 
-	data := struct{ DockerSocketPath string }{DockerSocketPath: p.DockerSocketPath}
+	data := struct{ DockerSocketPath string }{DockerSocketPath: dockerSocketPath}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: failed to render Kind config: %v\n", err)

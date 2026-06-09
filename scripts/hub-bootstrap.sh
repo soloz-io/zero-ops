@@ -481,6 +481,7 @@ step1_bootstrap_hub() {
         rm -f "$LOG_DIR/bootstrap-hub.log"
         rm -f "$LOG_DIR/init-secrets.log"
         rm -f "$LOG_DIR/infisical-bootstrap.json"
+        rm -f "$ZERO_OPS_DIR/.zero-ops/kind/kind-config-generated.yaml"
         log "✓ Bootstrap state, logs, and stale kind resources reset for fresh start"
         sleep 10  # let the smoke clear
     fi
