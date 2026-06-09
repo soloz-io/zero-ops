@@ -24,7 +24,12 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 spec:
   serviceName: platform-redis
+  podManagementPolicy: OrderedReady
   replicas: 1
+  revisionHistoryLimit: 10
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   selector:
     matchLabels:
       app: platform-redis
