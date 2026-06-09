@@ -94,11 +94,11 @@ spec:
             duration: 30s
             maxDuration: 10m
   templatePatch: |
-    {{"{{-"}} if .path {{"}}"}}
+    {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
         directory:
-          recurse: {{"{{"}} eq .directoryRecurse "true" {{"}}"}}
+          recurse: true
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

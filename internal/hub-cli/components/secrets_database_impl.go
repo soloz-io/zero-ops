@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
@@ -161,6 +162,7 @@ data:
 
 	// Build and apply the fleet-issuer via kustomize (one-time Day-0 deployment)
 	// After user commits the generated artifact, ArgoCD takes over reconciliation.
+	// Retry with backoff because CRDs need time to register with the API server.
 	fmt.Println("[bootstrap-secrets] Applying fleet-issuer with generated values...")
 	securityDir := filepath.Join(projectRoot, "manifests", "hub-core-services", "security")
 	kustomizeCmd := exec.CommandContext(ctx, "kustomize", "build", securityDir)
@@ -169,10 +171,27 @@ data:
 		return false, fmt.Errorf("kustomize build failed: %w", err)
 	}
 
-	applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", i.Kubeconfig, "apply", "-f", "-")
-	applyCmd.Stdin = bytes.NewReader(kustomizeOut)
-	if out, err := applyCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("kubectl apply failed: %w\n%s", err, out)
+	var applyErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", i.Kubeconfig,
+			"apply", "--server-side", "-f", "-")
+		applyCmd.Stdin = bytes.NewReader(kustomizeOut)
+		out, err := applyCmd.CombinedOutput()
+		if err == nil {
+			applyErr = nil
+			fmt.Println("[bootstrap-secrets] ✓ Fleet-issuer applied")
+			break
+		}
+		applyErr = fmt.Errorf("kubectl apply attempt %d failed: %w\n%s", attempt, err, out)
+		if !strings.Contains(string(out), "no matches for kind") {
+			// Non-CRD-timing error — fail immediately
+			break
+		}
+		fmt.Printf("[bootstrap-secrets]   ⏳ CRDs not yet registered, retrying in 5s (attempt %d/3)...\n", attempt)
+		time.Sleep(5 * time.Second)
+	}
+	if applyErr != nil {
+		return false, applyErr
 	}
 
 	fmt.Println("[bootstrap-secrets]")

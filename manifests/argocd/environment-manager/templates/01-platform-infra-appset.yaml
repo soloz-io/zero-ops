@@ -458,11 +458,11 @@ spec:
           - CreateNamespace=true
           - ServerSideApply=true
   templatePatch: |
-    {{"{{-"}} if .path {{"}}"}}
+    {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
         directory:
-          recurse: {{"{{"}} eq .directoryRecurse "true" {{"}}"}}
+          recurse: true
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}
