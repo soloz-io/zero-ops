@@ -16,6 +16,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
+	"gopkg.in/yaml.v3"
 )
 
 // Orchestrator runs the 16-phase hub cluster bootstrap pipeline.
@@ -289,6 +290,51 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	); err != nil {
 		return err
 	}
+
+	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
+	// Auto-commits generated artifacts, then polls ArgoCD until the
+	// affected apps reconcile (Synced+Healthy). This ensures the
+	// platform is in a GitOps-consistent state before Finalize.
+	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
+	if err := o.validateADR045Artifacts(ctx); err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	generatedPaths := []string{
+		"manifests/hub-core-services/security/generated/",
+		"manifests/environments/base/generated/",
+	}
+
+	// Try to auto-commit (local-only — git remote not required)
+	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
+		fmt.Printf("[adr045-commit] ⚠️  Auto-commit failed: %v\n", err)
+		fmt.Println("[adr045-commit] Manual commit required. Run:")
+		fmt.Println("  git add manifests/*/generated/")
+		fmt.Println("  git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"")
+		fmt.Println("  git push")
+	}
+
+	// Poll ArgoCD apps for health. The apps will not reconcile until
+	// the generated files are in Git (committed + pushed). If the
+	// auto-commit succeeded, only a git push is needed.
+	appsToWait := []string{"platform-security-infra", "hub-environment"}
+	fmt.Printf("[adr045-commit] Waiting for ArgoCD apps to reconcile: %v\n", appsToWait)
+	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
+	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
+
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	if err := o.waitForArgoCDAppsHealthy(waitCtx, mgmtKubeconfig, appsToWait); err != nil {
+		// Print diagnostic info even on timeout
+		fmt.Println("[adr045-commit] ❌ Some ArgoCD apps did not become healthy.")
+		fmt.Println("[adr045-commit] Diagnostic commands:")
+		for _, app := range appsToWait {
+			fmt.Printf("  kubectl describe application %s -n platform-ops\n", app)
+		}
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+	fmt.Println("[adr045-commit] ✓ All ArgoCD apps reconciled successfully")
 
 	// ── Phase 12: Finalize ────────────────────────────────────────────
 	var kubeconfigPath string
@@ -668,4 +714,228 @@ func currentGitBranch() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ADR-045 artifact validation
+// ──────────────────────────────────────────────────────────────────────────
+
+// adr045Artifact describes a single required generated artifact.
+type adr045Artifact struct {
+	File           string   `yaml:"file"`
+	RequiredFields []string `yaml:"requiredFields"`
+}
+
+// adr045Registry is the top-level structure of manifests/generated/artifacts.yaml.
+type adr045Registry struct {
+	Artifacts []adr045Artifact `yaml:"artifacts"`
+}
+
+// validateADR045Artifacts reads manifests/generated/artifacts.yaml and validates
+// that every required artifact exists on disk with all required fields populated.
+// This runs after PhaseBootstrapInfisicalAPI when the CLI has generated the patches.
+func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	registryPath := filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml")
+	registryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", registryPath, err)
+	}
+
+	var registry adr045Registry
+	if err := yaml.Unmarshal(registryData, &registry); err != nil {
+		return fmt.Errorf("parse %s: %w", registryPath, err)
+	}
+
+	if len(registry.Artifacts) == 0 {
+		fmt.Println("[adr045-validate] ⚠️  No artifacts registered in artifacts.yaml")
+		return nil
+	}
+
+	for _, a := range registry.Artifacts {
+		absPath := filepath.Join(projectRoot, a.File)
+
+		// Check file exists
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return fmt.Errorf("artifact %s: file not found — ensure BootstrapInfisicalAPI completed successfully", a.File)
+		}
+
+		// Parse the patch YAML
+		var doc map[string]interface{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("artifact %s: invalid YAML: %w", a.File, err)
+		}
+
+		// Verify each required field
+		for _, field := range a.RequiredFields {
+			parts := strings.Split(field, ".")
+			current := doc
+			found := true
+
+			for i, part := range parts {
+				val, ok := current[part]
+				if !ok {
+					found = false
+					break
+				}
+				if i == len(parts)-1 {
+					// Last part — check it's non-empty
+					strVal, ok := val.(string)
+					if !ok || strings.TrimSpace(strVal) == "" {
+						found = false
+					}
+				} else {
+					// Intermediate — must be a map
+					next, ok := val.(map[string]interface{})
+					if !ok {
+						found = false
+						break
+					}
+					current = next
+				}
+			}
+
+			if !found {
+				return fmt.Errorf("artifact %s: required field %s is missing or empty", a.File, field)
+			}
+		}
+
+		fmt.Printf("[adr045-validate]   ✓ %s (%d fields)\n", a.File, len(a.RequiredFields))
+	}
+
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ADR-045: auto-commit + wait for ArgoCD
+// ──────────────────────────────────────────────────────────────────────────
+
+// gitCommitArtifacts runs git add + git commit for the generated artifact
+// directories. It only requires local Git — no remote access. If git is
+// unavailable or the working tree is dirty, it returns an error but does
+// not halt the bootstrap (the user can commit manually).
+func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) error {
+	// Check if git is available
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git not found: %w", err)
+	}
+
+	// git add for each path
+	for _, p := range paths {
+		cmd := exec.CommandContext(ctx, "git", "add", p)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git add %s: %w\n%s", p, err, out)
+		}
+	}
+
+	// git commit (idempotent — fails cleanly if nothing to commit)
+	cmd := exec.CommandContext(ctx, "git", "commit", "-m",
+		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Check if it's just "nothing to commit"
+		if bytes.Contains(out, []byte("nothing to commit")) {
+			fmt.Println("[adr045-commit]   Nothing new to commit (already up to date)")
+			return nil
+		}
+		return fmt.Errorf("git commit: %w\n%s", err, out)
+	}
+
+	fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
+
+	// Try git push (non-fatal — user may need to push manually)
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	pushCmd := exec.CommandContext(pushCtx, "git", "push")
+	if out, err := pushCmd.CombinedOutput(); err != nil {
+		fmt.Printf("[adr045-commit]   ⚠️  Auto-push failed (manual push required): %s\n",
+			strings.TrimSpace(string(out)))
+	} else {
+		fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
+	}
+
+	return nil
+}
+
+// waitForArgoCDAppsHealthy polls ArgoCD Application resources until all
+// specified apps report Sync=Synced and Health=Healthy, or the context
+// expires. Uses kubectl with the provided kubeconfig.
+func (o *Orchestrator) waitForArgoCDAppsHealthy(ctx context.Context, kubeconfig string, appNames []string) error {
+	// helper to check a single app
+	checkApp := func(app string) (synced, healthy bool, err error) {
+		syncCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.sync.status}")
+		syncOut, syncErr := syncCmd.Output()
+		if syncErr != nil {
+			return false, false, fmt.Errorf("get sync status: %w", syncErr)
+		}
+		synced = strings.TrimSpace(string(syncOut)) == "Synced"
+
+		healthCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.health.status}")
+		healthOut, healthErr := healthCmd.Output()
+		if healthErr != nil {
+			return false, false, fmt.Errorf("get health status: %w", healthErr)
+		}
+		healthy = strings.TrimSpace(string(healthOut)) == "Healthy"
+		return synced, healthy, nil
+	}
+
+	getStatus := func(app string) string {
+		syncOut, _ := exec.CommandContext(context.Background(), "kubectl",
+			"--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.sync.status}").Output()
+		healthOut, _ := exec.CommandContext(context.Background(), "kubectl",
+			"--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.health.status}").Output()
+		return fmt.Sprintf("sync=%s health=%s",
+			strings.TrimSpace(string(syncOut)), strings.TrimSpace(string(healthOut)))
+	}
+
+	pollTicker := time.NewTicker(15 * time.Second)
+	defer pollTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			var failures []string
+			for _, app := range appNames {
+				synced, healthy, _ := checkApp(app)
+				if !synced || !healthy {
+					failures = append(failures, fmt.Sprintf("%s: %s", app, getStatus(app)))
+				}
+			}
+			if len(failures) > 0 {
+				return fmt.Errorf("timeout waiting for ArgoCD apps:\n  %s",
+					strings.Join(failures, "\n  "))
+			}
+			return ctx.Err()
+
+		case <-pollTicker.C:
+			allHealthy := true
+			for _, app := range appNames {
+				synced, healthy, err := checkApp(app)
+				if err != nil {
+					fmt.Printf("[adr045-commit]   ⏳ %s: error (%v), retrying...\n", app, err)
+					allHealthy = false
+					continue
+				}
+				if !synced || !healthy {
+					fmt.Printf("[adr045-commit]   ⏳ %s: %s\n", app, getStatus(app))
+					allHealthy = false
+				}
+			}
+			if allHealthy {
+				return nil
+			}
+		}
+	}
 }

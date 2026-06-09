@@ -1,0 +1,23 @@
+# ADR-045: Bootstrap-Generated GitOps Artifacts Registry
+# CLI parses this file during PhaseInitSecrets to determine
+# which artifacts must be generated and validated before
+# PhaseBoundary03 can proceed.
+apiVersion: bootstrap.zeroops.io/v1alpha1
+kind: GeneratedArtifactRegistry
+artifacts:
+  # Paths are relative to repo root. The CLI generates these files
+  # during BootstrapInfisicalAPI phase. Kustomize patches: paths
+  # are relative to the kustomization directory (resolved via the
+  # generated/ subdirectory inside each consumer).
+  - file: manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml
+    requiredFields:
+      - spec.projectId
+      - spec.authentication.universalAuth.clientId
+  - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml
+    requiredFields:
+      - data.INFISICAL_ORGANIZATION_ID
+      - data.INFISICAL_PROJECT_ID
+      - data.INFISICAL_PROJECT_SLUG
+      - data.INFISICAL_SECRETS_PROJECT_ID
+      - data.INFISICAL_SECRETS_PROJECT_SLUG
+      - data.INFISICAL_ENVIRONMENT_SLUG

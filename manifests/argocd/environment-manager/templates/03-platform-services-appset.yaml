@@ -457,15 +457,5 @@ spec:
         directory:
           recurse: {{"{{"}} eq .directoryRecurse "true" {{"}}"}}
     {{"{{-"}} end {{"}}"}}
-    {{"{{-"}} if eq .appName "hub-environment" {{"}}"}}
-    spec:
-      ignoreDifferences:
-      - kind: ConfigMap
-        name: hub-bootstrap-config
-        jsonPointers:
-        - /data/INFISICAL_BOOTSTRAP_PROFILE_SLUG
-        - /data/INFISICAL_ORGANIZATION_ID
-        - /data/INFISICAL_PROJECT_ID
-    {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

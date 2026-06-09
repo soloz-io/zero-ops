@@ -1,8 +1,12 @@
 package components
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
@@ -22,7 +26,8 @@ import (
 // 3. Creates a Machine Identity with Universal Auth + client secret
 // 4. Grants project admin role
 // 5. Creates the `infisical-auth` Secret in platform-ops
-// 6. Patches `hub-bootstrap-config` ConfigMap with OrgID, ProjectID, ProjectSlug
+// 6. Generates ADR-045 artifacts (infisical-fleet-issuer-patch.yaml, hub-bootstrap-config-patch.yaml)
+// 7. Runs kustomize build + kubectl apply to deploy fleet-issuer with generated values
 func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
@@ -102,27 +107,85 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		fmt.Printf("[bootstrap-secrets] ✓ infisical-auth secret created in %s\n", constants.NamespaceSecurity)
 	}
 
-	fmt.Println("[bootstrap-secrets] Patching hub-bootstrap-config with OrgID/ProjectID...")
-	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
+	fmt.Println("[bootstrap-secrets] Generating ADR-045 artifacts...")
+
+	projectRoot, err := os.Getwd()
 	if err != nil {
-		return false, fmt.Errorf("failed to get hub-bootstrap-config ConfigMap: %w", err)
+		return false, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	if cm.Data == nil {
-		cm.Data = make(map[string]string)
+	// Write infisical-fleet-issuer-patch.yaml into security kustomization's generated/ dir
+	issuerPath := filepath.Join(projectRoot, "manifests", "hub-core-services", "security", "generated", "infisical-fleet-issuer-patch.yaml")
+	issuerPatch := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-fleet-issuer
+spec:
+  projectId: %s
+  authentication:
+    universalAuth:
+      clientId: %s
+`, result.ProjectID, result.ClientID)
+	if err := os.WriteFile(issuerPath, []byte(issuerPatch), 0644); err != nil {
+		return false, fmt.Errorf("failed to write %s: %w", issuerPath, err)
 	}
-	cm.Data["INFISICAL_ORGANIZATION_ID"] = result.OrgID
-	cm.Data["INFISICAL_PROJECT_ID"] = result.ProjectID
-	cm.Data["INFISICAL_PROJECT_SLUG"] = result.ProjectSlug
-	cm.Data["INFISICAL_SECRETS_PROJECT_ID"] = result.SecretsProjectID
-	cm.Data["INFISICAL_SECRETS_PROJECT_SLUG"] = result.SecretsProjectSlug
-	cm.Data["INFISICAL_ENVIRONMENT_SLUG"] = "dev"
+	fmt.Println("[bootstrap-secrets] ✓ manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml")
 
-	_, err = clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Update(ctx, cm, metav1.UpdateOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to update hub-bootstrap-config ConfigMap: %w", err)
+	// Write hub-bootstrap-config-patch.yaml into environments/base kustomization's generated/ dir
+	configPath := filepath.Join(projectRoot, "manifests", "environments", "base", "generated", "hub-bootstrap-config-patch.yaml")
+	configPatch := fmt.Sprintf(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-bootstrap-config
+  namespace: platform-ops
+data:
+  INFISICAL_ORGANIZATION_ID: "%s"
+  INFISICAL_PROJECT_ID: "%s"
+  INFISICAL_PROJECT_SLUG: "%s"
+  INFISICAL_SECRETS_PROJECT_ID: "%s"
+  INFISICAL_SECRETS_PROJECT_SLUG: "%s"
+  INFISICAL_ENVIRONMENT_SLUG: "%s"
+`, result.OrgID, result.ProjectID, result.ProjectSlug, result.SecretsProjectID, result.SecretsProjectSlug, "dev")
+	if err := os.WriteFile(configPath, []byte(configPatch), 0644); err != nil {
+		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
-	fmt.Println("[bootstrap-secrets] ✓ hub-bootstrap-config patched with OrgID/ProjectID")
+	fmt.Println("[bootstrap-secrets] ✓ manifests/environments/base/generated/hub-bootstrap-config-patch.yaml")
+
+	// Validate both artifacts exist
+	if _, err := os.Stat(issuerPath); err != nil {
+		return false, fmt.Errorf("infisical-fleet-issuer-patch.yaml not found after generation: %w", err)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		return false, fmt.Errorf("hub-bootstrap-config-patch.yaml not found after generation: %w", err)
+	}
+
+	// Build and apply the fleet-issuer via kustomize (one-time Day-0 deployment)
+	// After user commits the generated artifact, ArgoCD takes over reconciliation.
+	fmt.Println("[bootstrap-secrets] Applying fleet-issuer with generated values...")
+	securityDir := filepath.Join(projectRoot, "manifests", "hub-core-services", "security")
+	kustomizeCmd := exec.CommandContext(ctx, "kustomize", "build", securityDir)
+	kustomizeOut, err := kustomizeCmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("kustomize build failed: %w", err)
+	}
+
+	applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", i.Kubeconfig, "apply", "-f", "-")
+	applyCmd.Stdin = bytes.NewReader(kustomizeOut)
+	if out, err := applyCmd.CombinedOutput(); err != nil {
+		return false, fmt.Errorf("kubectl apply failed: %w\n%s", err, out)
+	}
+
+	fmt.Println("[bootstrap-secrets]")
+	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")
+	fmt.Println("[bootstrap-secrets]  ADR-045: Bootstrap-Generated GitOps Artifacts")
+	fmt.Println("[bootstrap-secrets]  Generated artifacts:")
+	fmt.Println("[bootstrap-secrets]    manifests/hub-core-services/security/generated/")
+	fmt.Println("[bootstrap-secrets]      └── infisical-fleet-issuer-patch.yaml")
+	fmt.Println("[bootstrap-secrets]    manifests/environments/base/generated/")
+	fmt.Println("[bootstrap-secrets]      └── hub-bootstrap-config-patch.yaml")
+	fmt.Println("[bootstrap-secrets]  Commit and push before platform readiness checks pass.")
+	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")
+	fmt.Println("[bootstrap-secrets]")
 
 	return true, nil
 }
