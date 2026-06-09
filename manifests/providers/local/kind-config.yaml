@@ -33,3 +33,11 @@ nodes:
 # Without a worker, pods remain Pending and ArgoCD reports OutOfSync/Degraded.
 - role: worker
   image: kindest/node:v1.31.6
+  # Docker socket mount required so CAPD (Cluster API Provider Docker) can
+  # create spoke cluster containers via Docker-in-Docker. Without this,
+  # CAPD pods scheduled on the worker node cannot reach the host daemon
+  # and every DockerCluster reconciliation fails with:
+  #   "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
+  extraMounts:
+  - hostPath: "{{ .DockerSocketPath }}"
+    containerPath: /var/run/docker.sock

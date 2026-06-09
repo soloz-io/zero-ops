@@ -18,7 +18,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
 )
 
-// Orchestrator runs the 15-phase hub cluster bootstrap pipeline.
+// Orchestrator runs the 16-phase hub cluster bootstrap pipeline.
 //
 // The pipeline is identical for every provider — local or cloud. The
 // orchestrator never branches on provider name or type. Cloud-specific
@@ -35,10 +35,11 @@ import (
 //	Phase  9: clusterclass            ClusterClass deploy (orchestrator-owned)
 //	Phase 10: platform-pre-reqs       Provider.OnPlatformPreReqs(kubeconfig)
 //	Phase 11a: boundary-01            ArgoCD + infra operators (orchestrator-owned)
-//	Phase 11b: generate-local-secrets Bootstrap secrets (crypto keys, platform-db-app)
+//	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
 //	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
-//	Phase 11d: boundary-03            Services (SPIRE, ingress-nginx, apps)
-//	Phase 11e: bootstrap-infisical-api Wait for CNPG, inject DB_ROOT_CERT, bootstrap Infisical
+//	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
+//	Phase 11e: boundary-03            Services (Infisical, SPIRE, ingress-nginx, apps)
+//	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 	type Orchestrator struct {
 		Provider         Provider
@@ -241,10 +242,28 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
-	// ── Phase 11d: Boundary 03 — platform services ───────────────────
-	// Deploys ingress-nginx, API gateway, SPIRE, platform services, and
-	// spoke cluster configs. Infisical Helm chart starts here with
-	// infisical-secrets (crypto keys only, no DB_ROOT_CERT yet).
+	// ── Phase 11d: Inject CNPG CA certificate ────────────────────────
+	// Waits for CNPG Cluster to be Ready, reads platform-db-ca, and
+	// injects DB_ROOT_CERT into infisical-secrets. This MUST run after
+	// B02 (CNPG Cluster applied) and before B03 (Infisical deployed)
+	// so that Infisical Helm chart renders with DB_ROOT_CERT present,
+	// enabling TLS connectivity on first boot.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseInjectCACert, "inject-ca-cert",
+		"Injecting CNPG CA certificate into infisical-secrets...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.UpdateInfisicalSecretsWithCNPGCert(ctx)
+		},
+		func() { fmt.Println("[inject-ca-cert] ✓ CNPG CA certificate injected") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11e: Boundary 03 — platform services ───────────────────
+	// Deploys ingress-nginx, API gateway, SPIRE, Infisical, and spoke
+	// cluster configs. Infisical Helm chart starts with ALL secrets
+	// already present (infisical-secrets includes DB_ROOT_CERT from the
+	// previous phase), preventing CreateContainerConfigError deadlocks.
 	// Ingress resources are applied after the ingress-nginx controller
 	// webhook is guaranteed up.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
@@ -255,12 +274,11 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
-	// ── Phase 11e: Bootstrap Infisical API ───────────────────────────
-	// Waits for CNPG Cluster to be Ready, injects DB_ROOT_CERT into
-	// infisical-secrets, then bootstraps the Infisical API (Org, Project,
-	// Machine Identity), and stores Layer 1+2 credentials in Infisical.
-	// This MUST run after B03 when Infisical is deployed and CNPG is
-	// healthy enough to provide its CA certificate.
+	// ── Phase 11f: Bootstrap Infisical API ───────────────────────────
+	// Waits for Infisical to be healthy, then bootstraps the Infisical
+	// REST API (Org, Project, Machine Identity), creates the infisical-auth
+	// Secret, and stores Layer 1+2 credentials in Infisical vault.
+	// This MUST run after B03 when Infisical pods are Running.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
 		"Bootstrapping Infisical API...",
 		func() error {
