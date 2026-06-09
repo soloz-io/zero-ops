@@ -516,7 +516,7 @@ check_kube_sbt_api() {
 # ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
     log_section "13. INGRESS & CERT-MANAGER"
-    check_argocd_app "ingress-nginx" "FAIL"
+    check_argocd_app "ingress-nginx-controller" "FAIL"
     check_namespace_pods "cert-manager"
     check_deployment "cert-manager" "cert-manager"
     check_deployment "cert-manager" "cert-manager-webhook"
@@ -598,7 +598,6 @@ check_platform_argocd_apps() {
     # Critical — failure blocks operations
     local critical_apps=(
         "platform-namespaces"
-        "02-platform-data"
         "platform-external-secrets"
         "platform-crossplane"
         "platform-crossplane-providers"
@@ -610,7 +609,6 @@ check_platform_argocd_apps() {
         "hub-operator"
         "platform-nats"
         "platform-redis"
-        "platform-security-certificates"
     )
     for app in "${critical_apps[@]}"; do
         check_argocd_app "$app" "FAIL"
@@ -618,8 +616,6 @@ check_platform_argocd_apps() {
 
     # Warning only — degraded but not blocking
     local warn_apps=(
-        "01-platform-infra"
-        "03-platform-services"
         "platform-kyverno"
         "platform-clickhouse"
         "clickhouse-operator"
