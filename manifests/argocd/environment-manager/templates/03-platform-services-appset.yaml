@@ -1,3 +1,5 @@
+{{ if .Values.deploy.boundary03 }}
+---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -331,6 +333,44 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+          # ──────────────────────────────────────────────────────────────────────
+          # Ingress NGINX controller — deployed here (03-platform-services) so
+          # its validating webhook is guaranteed up before any Ingress resources
+          # are applied. Was moved from 01-platform-infra to resolve the
+          # ingress-nginx webhook race condition (ADR-021 violation fix).
+          # ──────────────────────────────────────────────────────────────────────
+          - appName: 'ingress-nginx-controller'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: ''
+            repoURL: 'https://kubernetes.github.io/ingress-nginx'
+            targetRevision: '4.12.1'
+            path: ''
+            chart: 'ingress-nginx'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              controller:
+                ingressClassResource:
+                  enabled: true
+                  default: false
+                admissionWebhooks:
+                  enabled: true
+              defaultBackend:
+                enabled: false
+            helmReleaseName: 'ingress-nginx'
+          - appName: 'ingress-config'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/ingress'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
+            helmValues: ''
+            helmReleaseName: ''
           - appName: 'platform-spoke-bootstrap-templates'
             destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
@@ -423,3 +463,5 @@ spec:
         - /data/INFISICAL_ORGANIZATION_ID
         - /data/INFISICAL_PROJECT_ID
     {{"{{-"}} end {{"}}"}}
+---
+{{ end }}

@@ -18,24 +18,28 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
 )
 
-// Orchestrator runs the 12-phase hub cluster bootstrap pipeline.
+// Orchestrator runs the 15-phase hub cluster bootstrap pipeline.
 //
 // The pipeline is identical for every provider — local or cloud. The
 // orchestrator never branches on provider name or type. Cloud-specific
 // phases (5-7) are identity/no-ops for local providers by design.
 //
-//	Phase  1: preflight          Provider.PreflightValidators()
-//	Phase  2: bootstrap-create   kind cluster (orchestrator-owned)
-//	Phase  3: day0-infra         Provider.ProvisionDayZero(kubeconfig)
-//	Phase  4: capi-init          CAPI operator + Provider.OnCAPIInit()
-//	Phase  5: cluster-provision  Provider.ProvisionManagementCluster(cfg)
-//	Phase  6: pivot-move         Provider.PivotMove(cfg) → mgmtKubeconfig
-//	Phase  7: pivot-ready        Provider.PivotReady(mgmtKubeconfig)
-//	Phase  8: cleanup            delete kind if !Provider.IsLocal()
-//	Phase  9: clusterclass       ClusterClass deploy (orchestrator-owned)
-//	Phase 10: platform-pre-reqs  Provider.OnPlatformPreReqs(kubeconfig)
-//	Phase 11: platform-deploy    ArgoCD + bootstrap apps (orchestrator-owned)
-//	Phase 12: finalize           Provider.Finalize(cfg) → kubeconfigPath
+//	Phase  1: preflight               Provider.PreflightValidators()
+//	Phase  2: bootstrap-create        kind cluster (orchestrator-owned)
+//	Phase  3: day0-infra              Provider.ProvisionDayZero(kubeconfig)
+//	Phase  4: capi-init               CAPI operator + Provider.OnCAPIInit()
+//	Phase  5: cluster-provision       Provider.ProvisionManagementCluster(cfg)
+//	Phase  6: pivot-move              Provider.PivotMove(cfg) → mgmtKubeconfig
+//	Phase  7: pivot-ready             Provider.PivotReady(mgmtKubeconfig)
+//	Phase  8: cleanup                 delete kind if !Provider.IsLocal()
+//	Phase  9: clusterclass            ClusterClass deploy (orchestrator-owned)
+//	Phase 10: platform-pre-reqs       Provider.OnPlatformPreReqs(kubeconfig)
+//	Phase 11a: boundary-01            ArgoCD + infra operators (orchestrator-owned)
+//	Phase 11b: generate-local-secrets Bootstrap secrets (crypto keys, platform-db-app)
+//	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
+//	Phase 11d: boundary-03            Services (SPIRE, ingress-nginx, apps)
+//	Phase 11e: bootstrap-infisical-api Wait for CNPG, inject DB_ROOT_CERT, bootstrap Infisical
+//	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 	type Orchestrator struct {
 		Provider         Provider
 		ClusterName      string
@@ -196,25 +200,74 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
-	// ── Phase 11: Platform deploy (ArgoCD + bootstrap apps) ───────────
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePlatformDeploy, "platform-deploy",
-		"Installing platform components...",
-		func() error { return o.deployPlatform(ctx, mgmtKubeconfig) },
-		nil,
+	// ── Phase 11a: Boundary 01 — platform infrastructure ──────────────
+	// Installs ArgoCD, CNPG operator, Crossplane, ESO, cert-manager, and
+	// other core operators. Waits for webhooks, CRDs, and operator pods
+	// before proceeding.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary01, "boundary01",
+		"Deploying platform infrastructure (boundary 01)...",
+		func() error { return o.deployBoundary01(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary01] ✓ Platform infrastructure deployed") },
 	); err != nil {
 		return err
 	}
 
-	// ── Phase 11: Platform deploy (ArgoCD + bootstrap apps) ───────────
-	// Wait for CRDs to be queryable before applying data workloads (webhooks
-	// guarantee CRDs exist, but API server needs extra seconds to register).
-	if err := o.waitForCRDs(ctx, mgmtKubeconfig); err != nil {
-		return fmt.Errorf("CRDs not ready: %w", err)
+	// ── Phase 11b: Generate local secrets ─────────────────────────────
+	// Generates cryptographic keys (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL),
+	// creates infisical-secrets, infisical-redis-credentials, and
+	// platform-db-app. The latter MUST exist before CNPG's initdb runs
+	// in B02, so this phase runs between B01 and B02.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseGenerateLocalSecrets, "generate-local-secrets",
+		"Generating local bootstrap secrets...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.GenerateLocalSecrets(ctx)
+		},
+		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
+	); err != nil {
+		return err
 	}
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePlatformDeploy, "platform-deploy",
-		"Installing platform components...",
-		func() error { return o.deployPlatform(ctx, mgmtKubeconfig) },
-		nil,
+
+	// ── Phase 11c: Boundary 02 — platform data workloads ─────────────
+	// Deploys CNPG Cluster, Redis, NATS, ClickHouse. The CNPG Cluster
+	// CR triggers the operator (installed in B01). platform-db-app was
+	// created in the previous phase (generate-local-secrets), so CNPG's
+	// initdb has the credentials it needs immediately.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary02, "boundary02",
+		"Deploying platform data (boundary 02)...",
+		func() error { return o.deployBoundary02(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary02] ✓ Platform data deployed") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11d: Boundary 03 — platform services ───────────────────
+	// Deploys ingress-nginx, API gateway, SPIRE, platform services, and
+	// spoke cluster configs. Infisical Helm chart starts here with
+	// infisical-secrets (crypto keys only, no DB_ROOT_CERT yet).
+	// Ingress resources are applied after the ingress-nginx controller
+	// webhook is guaranteed up.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
+		"Deploying platform services (boundary 03)...",
+		func() error { return o.deployBoundary03(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary03] ✓ Platform services deployed") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11e: Bootstrap Infisical API ───────────────────────────
+	// Waits for CNPG Cluster to be Ready, injects DB_ROOT_CERT into
+	// infisical-secrets, then bootstraps the Infisical API (Org, Project,
+	// Machine Identity), and stores Layer 1+2 credentials in Infisical.
+	// This MUST run after B03 when Infisical is deployed and CNPG is
+	// healthy enough to provide its CA certificate.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
+		"Bootstrapping Infisical API...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.BootstrapInfisicalAPI(ctx)
+		},
+		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
 	); err != nil {
 		return err
 	}
@@ -368,41 +421,90 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Phase 11: Platform deploy (ArgoCD + bootstrap apps)
+// Boundary 01: Platform infrastructure (ArgoCD + operators)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) error {
-	// Fast check: if all operator webhooks are present, the entire phase is done
-	if o.allOperatorsReady(ctx, kubeconfig) {
-		fmt.Println("[platform-deploy] ✓ All operators already deployed, skipping")
-		return nil
-	}
-
+func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
 	ci := &components.Installer{Kubeconfig: kubeconfig}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
-	fmt.Println("[platform-deploy] ✓ ArgoCD installed")
+	fmt.Println("[boundary01] ✓ ArgoCD installed")
 
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false); err != nil {
+		return err
+	}
+	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
+
+	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
+	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
+		return fmt.Errorf("operators not ready: %w", err)
+	}
+	fmt.Println("[boundary01] ✓ Operators ready")
+
+	fmt.Println("[boundary01] Verifying CRDs are queryable...")
+	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("CRDs not queryable: %w", err)
+	}
+
+	fmt.Println("[boundary01] Waiting for operator pods to be Ready...")
+	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("operator pods not ready: %w", err)
+	}
+
+	fmt.Println("[boundary01] ✓ Platform infrastructure deployed")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 02: Platform data workloads (CNPG, Redis, NATS, ClickHouse)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false); err != nil {
+		return err
+	}
+	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 03: Platform services (ingress-nginx, SPIRE, platform services)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true); err != nil {
+		return err
+	}
+	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03 bool) error {
 	gitBranch := currentGitBranch()
 	envRevision := "main"
 	if gitBranch != "" && gitBranch != "main" {
 		envRevision = gitBranch
-		fmt.Printf("[platform-deploy] Environment revision: %s\n", envRevision)
+		fmt.Printf("[render] Environment revision: %s\n", envRevision)
 	}
 
-	// Helm template the environment-manager chart and apply the three boundary
-	// ApplicationSets. ArgoCD's ApplicationSet controller generates child
-	// Applications with revision from envRevision for platform-owned apps.
 	providerForHelm := o.Provider.Name()
 	if providerForHelm == "docker" {
 		providerForHelm = "local"
 	}
+
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",
 		"--set", "environmentRevision="+envRevision,
 		"--set", "environmentSlug="+o.EnvironmentSlug,
 		"--set", "provider="+providerForHelm,
+		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
+		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
+		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
 	)
 	rendered, err := helmCmd.Output()
 	if err != nil {
@@ -413,25 +515,6 @@ func (o *Orchestrator) deployPlatform(ctx context.Context, kubeconfig string) er
 	if out, err := applyCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply boundary ApplicationSets: %w\n%s", err, out)
 	}
-	fmt.Println("[platform-deploy] ✓ Boundary ApplicationSets applied")
-
-	fmt.Println("[platform-deploy] Waiting for operators to establish webhooks...")
-	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
-		return fmt.Errorf("operators not ready: %w", err)
-	}
-	fmt.Println("[platform-deploy] ✓ Operators ready")
-
-	fmt.Println("[platform-deploy] Verifying CRDs are queryable...")
-	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("CRDs not queryable: %w", err)
-	}
-
-	fmt.Println("[platform-deploy] Waiting for operator pods to be Ready...")
-	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("operator pods not ready: %w", err)
-	}
-
-	fmt.Println("[platform-deploy] ✓ All platform components deployed")
 	return nil
 }
 
@@ -499,46 +582,7 @@ func (o *Orchestrator) checkKindClusterExists() error {
 // Shared kubectl / git helpers
 // ──────────────────────────────────────────────────────────────────────────
 
-// allOperatorsReady is a one-shot check that returns true if all operator
-// webhooks are already registered. Used by deployPlatform to skip the
-// entire phase on re-run if the cluster is already fully deployed.
-func (o *Orchestrator) allOperatorsReady(ctx context.Context, kubeconfig string) bool {
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"get", "validatingwebhookconfigurations", "-o", "name")
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	hasCAPI, hasCertManager, hasCNPG, hasExternalSecret := false, false, false, false
-	for _, line := range lines {
-		if strings.Contains(line, "capi") {
-			hasCAPI = true
-		}
-		if strings.Contains(line, "cert-manager") {
-			hasCertManager = true
-		}
-		if strings.Contains(line, "cnpg") {
-			hasCNPG = true
-		}
-		if strings.Contains(line, "externalsecret") || strings.Contains(line, "secretstore") {
-			hasExternalSecret = true
-		}
-	}
-	for _, p := range o.Provider.OperatorWebhookPatterns() {
-		found := false
-		for _, line := range lines {
-			if strings.Contains(line, p) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return hasCAPI && hasCertManager && hasCNPG && hasExternalSecret
-}
+
 
 // waitForOperators waits for validating webhook configurations matching the
 // built-in platform operators and any extraPatterns provided by the

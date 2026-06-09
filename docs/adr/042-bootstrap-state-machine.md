@@ -134,3 +134,115 @@ All Day-1 controllers are operating normally. The platform is fully provisioned 
 - The state machine is procedural; a state transition failure blocks all subsequent states. There is no partial progression.
 - If a new infrastructure dependency is added to the bootstrap, this state machine must be updated.
 - The state machine documents the ideal bootstrap path; edge cases (partial state, controller crashes during transition) require operator judgment beyond the documented recovery paths.
+
+---
+
+## Amendment 2026-06-09: Boundary-Sequenced State Machine
+
+**Status:** Accepted
+
+### Context
+
+The original `SECRETS_READY` state contained a temporal paradox discovered during local kind bootstrap runs. The state required `02-platform-data` to be applied before `init-secrets` could run (because `init-secrets` needs the CNPG Cluster CR to exist), but the monolithic `SECRETS_READY` operations block applied all three boundaries simultaneously.
+
+This produced an unrecoverable error:
+```
+Error: failed to install infisical secrets: CNPG Cluster CR not found
+```
+
+The root cause: `init-secrets` was called as a separate CLI command (`hub init-secrets`) from the shell bootstrap script, executing after `hub bootstrap` had already applied all three boundaries. When boundary sync was slow (CNPG operator still starting, CR not yet created), the one-shot CNPG CR check in `InstallInfisicalSecrets` failed fast.
+
+Additionally, the monolithic `platform-deploy` phase was a single checkpoint with no ability to resume at a sub-phase boundary. A failure in `init-secrets` (between B02 and B03) required re-running the entire `platform-deploy` phase, which was idempotent but wasteful.
+
+A secondary issue: `ingress-nginx` controller and its `Ingress` resources were deployed in the same ArgoCD boundary (`01-platform-infra`). The ingress-nginx validating webhook rejected `Ingress` resources until the controller pod was ready, causing a sync failure in `platform-argocd` Application.
+
+### Decision
+
+Restructure the `SECRETS_READY` platform state into four sequential sub-states, each gated by the orchestrator using boundary-specific Helm deploy flags:
+
+```
+SECRETS_READY
+    │
+    ├── SECRETS_GENERATED  (PhaseBoundary01 + PhaseBoundary02)
+    │
+    ├── INFISICAL_READY    (init-secrets: encryption keys, CNPG CA, DB credentials)
+    │
+    ├── BOUNDARY_03_READY  (PhaseBoundary03)
+    │
+    └── SECRETS_SYNCED     (ESO syncs from Infisical)
+```
+
+#### Boundary Deployment Order (ADR-021 §2 divergence)
+
+ADR-021 defined the boundary list as:
+1. `01-platform-infra`: Core controllers, Operators (Crossplane, CNPG, Atlas), CRDs
+2. `02-platform-data`: Stateful workloads (CNPG Clusters, NATS, Redis)
+3. `03-platform-services`: Stateless applications and Control Planes
+
+This amendment adds a **boundary deployment order** that the CLI enforces during Day-0:
+
+| Order | Phase | Helm `deploy.*` flags | Operator Action |
+|-------|-------|----------------------|-----------------|
+| 1 | `PhaseBoundary01` | `b01=true, b02=false, b03=false` | Install ArgoCD, apply `01-platform-infra` ApplicationSet, wait for webhooks/CRDs/pods |
+| 2 | `PhaseBoundary02` | `b01=true, b02=true, b03=false` | Apply `02-platform-data` ApplicationSet, wait for CNPG Cluster CR |
+| 3 | `PhaseInitSecrets` | (no helm deploy) | `RunInitSecrets()` internal Go call — generates encryption keys, bootstraps Infisical, stores credentials |
+| 4 | `PhaseBoundary03` | `b01=true, b02=true, b03=true` | Apply `03-platform-services` ApplicationSet |
+
+This is implemented via `deploy.boundary01/02/03` boolean Helm values. The CLI orchestrator sets these flags incrementally: B01-only → B01+B02 → all three. In steady-state Day-1 operation, all three flags are always `true`.
+
+#### Ingress NGINX Race Fix
+
+The `ingress-nginx` controller and `ingress-config` (containing `Ingress` resources with `ingressClassName: nginx`) were both in `01-platform-infra`. The ingress-nginx validating webhook rejects Ingresses until the controller is running.
+
+**Fix:** Moved `ingress-nginx` controller Helm chart + `ingress-config` Application from `01-platform-infra` to `03-platform-services`. The ArgoCD `server.ingress` config was also moved to `03` (disabled in `01`). This guarantees the ingress-nginx webhook is up before any Ingress resource is applied.
+
+### State Changes
+
+#### `SECRETS_READY` (amended)
+
+- **Owner:** CLI (initiates), then ArgoCD (completes)
+- **Entry Criteria:** `PKI_READY` exit criteria satisfied. Management cluster kubeconfig is available.
+- **Operations:**
+  1. CLI installs ArgoCD via Helm (if not already installed).
+  2. CLI applies `01-platform-infra` boundary (B01 only), waits for operator webhooks, CRDs, and operator pods.
+  3. CLI applies `02-platform-data` boundary (B01+B02), which deploys CNPG Cluster, Redis, NATS.
+  4. CLI calls `RunInitSecrets()` internally — generates encryption keys, DB passwords, waits for CNPG Cluster to be Ready, reads `platform-db-ca` certificate, bootstraps Infisical Org/Project/Machine Identity, stores credentials in Infisical via API.
+  5. CLI applies `03-platform-services` boundary (B01+B02+B03), which deploys ingress-nginx, SPIRE, platform services, spoke configs.
+- **Exit Criteria:** All three ApplicationSets applied. CNPG Cluster Ready. Infisical healthy with Machine Identity. `infisical-auth` Secret exists in `platform-ops`. `hub-bootstrap-config` ConfigMap has OrgID/ProjectID.
+- **Failure Recovery:**
+  - If B01 operator webhooks don't appear, check ArgoCD Application status and operator Helm releases.
+  - If B02 CNPG Cluster CR doesn't appear, check CNPG operator logs and ArgoCD sync status of `platform-database` Application.
+  - If `RunInitSecrets` fails, check CNPG Cluster `Ready` condition and Infisical pod logs. Re-running the bootstrap orchestrator resumes from the failed phase.
+  - If B03 sync fails, check ingress-nginx webhook is up and ArgoCD can reach the Git repository.
+
+### Implementation Details
+
+1. **Phase enum** (`internal/hub-cli/state/manager.go`): Added `PhaseBoundary01`, `PhaseBoundary02`, `PhaseInitSecrets`, `PhaseBoundary03`. `PhasePlatformDeploy` retained as deprecated alias for backward state compatibility.
+
+2. **Helm values** (`manifests/argocd/environment-manager/values.yaml`): Added `deploy.boundary01`, `deploy.boundary02`, `deploy.boundary03` boolean fields, defaulting to `true`.
+
+3. **ApplicationSet templates** (`manifests/argocd/environment-manager/templates/*.yaml`): Each wrapped in `{{ if .Values.deploy.<boundary> }}` / `{{ end }}` for conditional rendering.
+
+4. **Orchestrator** (`internal/hub-cli/bootstrap/orchestrator.go`): Replaced `deployPlatform` with `deployBoundary01/02/03`. Added `renderAndApplyBoundaries` helper that passes `deploy.*` flags to `helm template`. `RunInitSecrets` is called as an internal Go function (not a subprocess) between B02 and B03.
+
+5. **CNPG CR polling** (`internal/hub-cli/components/secrets_infisical_impl.go`): Replaced one-shot `kubectl get` with `wait.PollImmediateUntilWithContext` loop (10s interval, respects context cancellation).
+
+6. **Shell bootstrap** (`scripts/hub-bootstrap.sh`): Removed `step5_init_secrets` (replaced by orchestrator-internal call). Removed all fixed `sleep` intervals between steps. Added stale `ReplicaSet` cleanup after GitHub config step.
+
+7. **Inline ingress-nginx** (`03-platform-services-appset.yaml`): Added `ingress-nginx-controller` Helm chart as an inline Application within the services boundary, replacing the separate `ingress-nginx` ApplicationSet.
+
+### Consequences
+
+#### Positive
+
+- The temporal paradox is resolved: CNPG Cluster CR is guaranteed to exist before `RunInitSecrets` is called.
+- Sub-phase checkpoints allow resuming from the exact failure point instead of re-running the entire deploy.
+- ingress-nginx webhook race is eliminated by moving the controller to the services boundary.
+- No process-fork or exec overhead for init-secrets — it's an internal Go function call sharing the orchestrator's authenticated k8s client.
+- Backward compatible: existing state files with `PhasePlatformDeploy` are handled correctly (new phases run idempotently).
+
+#### Negative
+
+- Four new state transitions within `SECRETS_READY` increase the number of checkpoint writes during bootstrap.
+- The sequential boundary order adds latency: B03 cannot start until B02's CNPG is ready and init-secrets completes. Previous monolithic deployment started all three simultaneously.
+- Helm template is called three times during bootstrap instead of once (minor overhead).

@@ -1,3 +1,5 @@
+{{ if .Values.deploy.boundary01 }}
+---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -137,20 +139,13 @@ spec:
                     hs.message = "Waiting for Crossplane function to be installed and healthy"
                     return hs
 
-              # Expose argocd-server via NGINX Ingress for Web UI and CLI access
+              # ArgoCD server ingress is deployed in 03-platform-services (after
+              # ingress-nginx controller is healthy). This avoids the webhook
+              # race: ingress-nginx controller must be running before any Ingress
+              # resource is applied, otherwise the validating webhook rejects.
               server:
                 ingress:
-                  enabled: true
-                  ingressClassName: nginx
-                  annotations:
-                    cert-manager.io/cluster-issuer: letsencrypt-prod
-                    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-                    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-                  hostname: argocd.nutgraf.in
-                  tls:
-                    - hosts:
-                        - argocd.nutgraf.in
-                      secretName: argocd-server-tls
+                  enabled: false
             helmReleaseName: 'argocd'
           - appName: 'platform-atlas-operator'
             destinationNamespace: 'platform-ops'
@@ -435,18 +430,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
-          - appName: 'ingress-config'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            syncWave: ''
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/ingress'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
-            helmValues: ''
-            helmReleaseName: ''
+
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -480,3 +464,5 @@ spec:
         directory:
           recurse: {{"{{"}} eq .directoryRecurse "true" {{"}}"}}
     {{"{{-"}} end {{"}}"}}
+---
+{{ end }}

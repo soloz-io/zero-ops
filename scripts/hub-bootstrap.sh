@@ -704,104 +704,48 @@ step4_wait_namespaces() {
     log "✅ platform-data namespace created by ArgoCD"
 }
 
-# Step 5: Initialize bootstrap secrets
-step5_init_secrets() {
-    if is_step_completed "init_secrets"; then
-        # Verify the infisical-auth Secret actually exists in the cluster.
-        # Stale state from a previous cluster clone may have marked this
-        # done even though the current cluster never ran init-secrets.
-        if kubectl get secret infisical-auth -n platform-ops \
-            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
-            log "Step 5: Bootstrap secrets already initialized, skipping"
-            return
-        fi
-        log "Step 5: State says completed but infisical-auth missing — re-running"
+# Step 5: Verify bootstrap secrets (handled internally by hub bootstrap orchestrator)
+step5_verify_secrets() {
+    if is_step_completed "verify_secrets"; then
+        log "Step 5: Bootstrap secrets already verified, skipping"
+        return
     fi
 
-    log "Step 5: Initializing bootstrap secrets..."
+    log "Step 5: Verifying bootstrap secrets (initialized by hub bootstrap orchestrator)..."
 
-    # The Go binary manages its own kubectl port-forward for local clusters
-    # (starts it before Steps 4-5 and tears it down after). This is more
-    # robust than the previous shell-managed PF which died when Infisical
-    # pods restarted during bootstrap. On non-local providers the Ingress
-    # DNS (https://infisical.nutgraf.in) is reachable directly.
+    # The init-secrets pipeline now runs as an internal Go function inside the
+    # hub bootstrap orchestrator (between Boundary 02 and Boundary 03). This
+    # step is a lightweight verification that the infisical-auth Secret was
+    # created and Infisical is operational.
 
-    # Run the binary FIRST. Steps 0–2 create k8s Secrets directly
-    # (zero-dependency, ~1s), the most important being
-    # `platform-db-ca` which the CNPG Cluster CR references — without
-    # it, CNPG stays at "Unable to create required cluster objects"
-    # and Infisical pods stay at "CreateContainerConfigError". Step 3
-    # (WaitForInfisicalHealth) owns the full dependency chain
-    # (CNPG cluster → PgBouncer pooler → Infisical workload) and
-    # polls until convergence. This eliminates the previous
-    # deadlock where the bash script's `kubectl wait` for
-    # Infisical would block indefinitely because the binary's
-    # Step 0 (which creates the prerequisites) was unreachable.
-    log "Running: $HUB_BINARY init-secrets"
-    "$HUB_BINARY" init-secrets \
-        --kubeconfig="$KUBECONFIG_PATH" 2>&1 | tee "$LOG_DIR/init-secrets.log"
-
-    # Note: the binary manages its own port-forward lifecycle, so no
-    # shell-level teardown is needed here.
-
-    # Mark Infisical healthy state if the log contains the success message
-    if grep -q "✓ Infisical is healthy" "$LOG_DIR/init-secrets.log" 2>/dev/null; then
-        mark_step_completed "infisical_healthy"
-        log "  State recorded: infisical_healthy"
-    fi
-
-    # Mark infisical-auth ready state if the log contains the success message
-    if grep -q "✓ infisical-auth secret found" "$LOG_DIR/init-secrets.log" 2>/dev/null; then
-        mark_step_completed "infisical_auth_ready"
-        log "  State recorded: infisical_auth_ready"
-    fi
-
-    # Defense-in-depth: if the binary's internal wait timed out, the
-    # 30-min pod-ready loop below still gives the cluster a chance to
-    # converge before we declare failure.
-    log "Waiting for Infisical pod to be ready after secrets initialization..."
-    local max_attempts=180  # 30 minutes (180 × 10 seconds)
+    local max_attempts=60
     local attempt=1
 
     while [[ $attempt -le $max_attempts ]]; do
-        local pod_ready
-        pod_ready=$(kubectl get pods -n platform-security \
-            --kubeconfig="$KUBECONFIG_PATH" \
-            -l app=infisical-standalone -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
+        local infisical_auth_data
+        infisical_auth_data=$(kubectl get secret infisical-auth -n platform-ops \
+            -o jsonpath='{.data.client-id}{" "}{.data.client-secret}' \
+            --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || echo "")
 
-        if [[ "$pod_ready" == "True" ]]; then
-            log "Infisical pod is ready"
+        if [[ -n "$infisical_auth_data" ]]; then
+            log "✓ infisical-auth Secret verified"
             break
         fi
 
-        log "Waiting for Infisical pod to be ready (attempt $attempt/$max_attempts, ready: $pod_ready). It mostly get ready by 50"
+        log "Waiting for infisical-auth secret (attempt $attempt/$max_attempts)..."
         sleep 10
         ((attempt++))
     done
 
     if [[ $attempt -gt $max_attempts ]]; then
-        error_exit "Infisical pod did not become ready within expected time"
-    fi
-
-    # Verify the binary's credential-storage step actually produced the
-    # infisical-auth Secret. This is the single source of truth for
-    # "Step 5 actually completed" — the binary's strict health check is
-    # meant to prevent silent skips, but we still verify the artifact
-    # exists before marking the step complete. If the Secret is missing
-    # we leave the step unmarked so a re-run can retry.
-    local infisical_auth_data
-    if ! infisical_auth_data=$(kubectl get secret infisical-auth -n platform-ops \
-        -o jsonpath='{.data.client-id}{" "}{.data.client-secret}' \
-        --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null) || [[ -z "$infisical_auth_data" ]]; then
-        log "❌ infisical-auth Secret missing or empty in platform-ops namespace"
-        log "   The init-secrets binary may have failed to complete credential storage."
-        log "   Re-run: $HUB_BINARY init-secrets --kubeconfig=$KUBECONFIG_PATH"
-        log "   Then re-run: bash $0"
+        log "❌ infisical-auth Secret not found after bootstrap"
+        log "   The orchestrator's init-secrets phase may have failed."
+        log "   Check bootstrap logs and re-run: hub bootstrap"
         return 1
     fi
 
-    mark_step_completed "init_secrets"
-    log "Bootstrap secrets initialization completed (infisical-auth verified)"
+    mark_step_completed "verify_secrets"
+    log "Bootstrap secrets verification completed"
 }
 
 # Step 6: Wait for Infisical to be ready
@@ -1147,30 +1091,32 @@ main() {
     # Check prerequisites
     check_prerequisites
 
-    # Execute steps in order (each step is now independently idempotent)
+    # Execute steps in order (each step is independently idempotent)
+    # The hub bootstrap orchestrator internally manages sequential boundary
+    # gating (B01 → B02 → init-secrets → B03). No fixed sleeps needed
+    # between steps — each step polls until its prerequisites converge.
     step1_bootstrap_hub
-    sleep 30  # Wait between steps
 
     step2_configure_aws_secrets
-    sleep 15  # Wait between steps
 
     step3_configure_github
-    sleep 15  # Wait between steps
+
+    # Clean up stale ReplicaSets left behind by rolling updates during
+    # the bootstrap phase. These accumulate quickly and consume etcd
+    # space in resource-constrained clusters (e.g. local kind).
+    log "Cleanup: removing stale ReplicaSets..."
+    kubectl delete replicasets --all-namespaces --field-selector=status.replicas=0 \
+        --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
 
     step4_wait_namespaces
-    sleep 10  # Wait between steps
 
-    step5_init_secrets
-    sleep 15  # Wait between steps
+    step5_verify_secrets
 
     step6_wait_infisical
-    sleep 15
 
     step7_8_configure_eso
-    sleep 5   # Wait between steps
 
     step9_wait_database
-    sleep 10  # Wait between steps
 
     if [[ "$PROVIDER" == "local" ]]; then
         SPOKEPOOL_NAME="local-dev"

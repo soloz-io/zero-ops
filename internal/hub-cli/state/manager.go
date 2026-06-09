@@ -22,7 +22,13 @@ const (
 	PhaseCleanup            BootstrapPhase = "cleanup"
 	PhaseClusterClassDeploy BootstrapPhase = "clusterclass-deploy"
 	PhasePlatformPreReqs    BootstrapPhase = "platform-pre-reqs"
-	PhasePlatformDeploy     BootstrapPhase = "platform-deploy"
+	PhaseBoundary01             BootstrapPhase = "boundary-01"
+	PhaseGenerateLocalSecrets   BootstrapPhase = "generate-local-secrets"
+	PhaseBoundary02             BootstrapPhase = "boundary-02"
+	PhaseBootstrapInfisicalAPI  BootstrapPhase = "bootstrap-infisical-api"
+	PhaseBoundary03             BootstrapPhase = "boundary-03"
+	PhaseInitSecrets            BootstrapPhase = "init-secrets" // DEPRECATED: replaced by GenerateLocalSecrets + BootstrapInfisicalAPI
+	PhasePlatformDeploy     BootstrapPhase = "platform-deploy" // DEPRECATED: replaced by B01/B02/B03
 	PhaseFinalize           BootstrapPhase = "finalize"
 	PhaseComplete           BootstrapPhase = "complete"
 

@@ -7,3 +7,19 @@ environmentRevision: "main"
 # ──────────────────────────────────────────────────────────────────────────────
 # environmentSlug: "dev"        # dev | stg | prod | ephemeral
 # provider: "local"             # local (CAPD) | hetzner | aws
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Boundary deployment toggles (ADR-021 §sec:decision)
+# These are set by the hub CLI orchestrator to deploy boundaries sequentially:
+#
+#   PhaseBoundary01 → deploy.boundary01=true  (infra operators)
+#   PhaseBoundary02 → deploy.boundary01=true, deploy.boundary02=true  (data)
+#   PhaseBoundary03 → all three true  (services)
+#
+# On steady-state Day-1, all three are always true. Only the bootstrap
+# orchestrator ever toggles them to achieve sequential boundary gating.
+# ──────────────────────────────────────────────────────────────────────────────
+deploy:
+  boundary01: true
+  boundary02: true
+  boundary03: true
