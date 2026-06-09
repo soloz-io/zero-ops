@@ -23,5 +23,5 @@ const (
 	PackerVersion     = "1.11.2"
 
 	// Prerequisites
-	CertManagerVersion = "v1.16.2"
+	CertManagerVersion = "v1.20.2"
 )

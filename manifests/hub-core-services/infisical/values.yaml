@@ -17,7 +17,7 @@ infisical:
 
   image:
     repository: infisical/infisical
-    tag: "v0.158.0"
+    tag: "v0.160.11"
 
   # TLS Configuration: End-to-end encryption (production-grade)
   # - Infisical → PgBouncer: TLS enabled (DB_SSL_MODE=require, DB_ROOT_CERT from CNPG CA)
