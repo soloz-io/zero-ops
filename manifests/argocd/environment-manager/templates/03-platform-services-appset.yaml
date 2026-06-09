@@ -47,7 +47,11 @@ spec:
             chart: 'altinity-clickhouse-operator'
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              operatorConfig:
+                watch:
+                  namespaces:
+                    include: ["*"]
             helmReleaseName: 'clickhouse-operator'
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
