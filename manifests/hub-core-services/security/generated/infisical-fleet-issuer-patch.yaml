@@ -1,0 +1,9 @@
+apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-fleet-issuer
+spec:
+  projectId: fb7e3ad9-329c-4b1b-ae19-60d016c8f4e1
+  authentication:
+    universalAuth:
+      clientId: d8e18684-7fbc-42ff-b3d5-26a05528db0e
