@@ -48,10 +48,10 @@ spec:
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
-              operatorConfig:
-                watch:
-                  namespaces:
-                    include: ["*"]
+              operator:
+                env:
+                  - name: WATCH_NAMESPACES
+                    value: "*"
             helmReleaseName: 'clickhouse-operator'
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
