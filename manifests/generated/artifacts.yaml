@@ -11,6 +11,7 @@ artifacts:
   # generated/ subdirectory inside each consumer).
   - file: manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml
     requiredFields:
+      - spec.url
       - spec.projectId
       - spec.authentication.universalAuth.clientId
   - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml

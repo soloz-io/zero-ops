@@ -116,17 +116,23 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 	}
 
 	// Write infisical-fleet-issuer-patch.yaml into security kustomization's generated/ dir
+	// URL is the in-cluster service address for local provider. The base manifest
+	// defaults to the production URL (https://infisical.nutgraf.in) — the patch
+	// overrides it with the local service URL so the infisical-issuer controller
+	// can reach Infisical inside the Kind cluster without external DNS.
 	issuerPath := filepath.Join(projectRoot, "manifests", "hub-core-services", "security", "generated", "infisical-fleet-issuer-patch.yaml")
+	infisicalURL := "http://infisical-standalone-infisical.platform-security.svc:8080"
 	issuerPatch := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
 kind: ClusterIssuer
 metadata:
   name: infisical-fleet-issuer
 spec:
+  url: %s
   projectId: %s
   authentication:
     universalAuth:
       clientId: %s
-`, result.ProjectID, result.ClientID)
+`, infisicalURL, result.ProjectID, result.ClientID)
 	if err := os.WriteFile(issuerPath, []byte(issuerPatch), 0644); err != nil {
 		return false, fmt.Errorf("failed to write %s: %w", issuerPath, err)
 	}

@@ -3,6 +3,7 @@ kind: ClusterIssuer
 metadata:
   name: infisical-fleet-issuer
 spec:
+  url: http://infisical-standalone-infisical.platform-security.svc:8080
   projectId: fb7e3ad9-329c-4b1b-ae19-60d016c8f4e1
   authentication:
     universalAuth:
