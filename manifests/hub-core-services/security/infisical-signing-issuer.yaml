@@ -1,8 +1,13 @@
 # ADR-035: Consolidated ClusterIssuer for long-lived signing keys.
 # Maps to the 'signing-keys' PKI Template in Infisical.
 #
-# Runtime-known fields (clientId, projectId) are supplied via ADR-045
-# Patch: manifests/hub-core-services/security/generated/infisical-signing-issuer-patch.yaml
+# Runtime-known fields (clientId, projectId) are supplied via ADR-045.
+# Runtime values are inherited from infisical-fleet-issuer via Kustomize replacements.
+#
+# DESIGN ASSUMPTION: The signing issuer intentionally derives url/projectId/clientId
+# from the fleet issuer because both issuers share the same Hub Machine Identity.
+# Divergence requires replacing the Kustomize replacements with an independently
+# managed source.
 #
 # Precondition: infisical-auth Secret must exist in platform-security namespace (Day-0 CLI / ESO).
 # Precondition: infisical-issuer CRDs must be installed (infisical-issuer-crd.yaml).

@@ -9,4 +9,35 @@ resources:
 
 patches:
   - path: generated/infisical-fleet-issuer-patch.yaml
-  - path: generated/infisical-signing-issuer-patch.yaml
+
+replacements:
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.url
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.url
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.projectId
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.projectId
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.authentication.universalAuth.clientId
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.authentication.universalAuth.clientId

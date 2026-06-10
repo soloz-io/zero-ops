@@ -14,11 +14,6 @@ artifacts:
       - spec.url
       - spec.projectId
       - spec.authentication.universalAuth.clientId
-  - file: manifests/hub-core-services/security/generated/infisical-signing-issuer-patch.yaml
-    requiredFields:
-      - spec.url
-      - spec.projectId
-      - spec.authentication.universalAuth.clientId
   - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml
     requiredFields:
       - data.INFISICAL_ORGANIZATION_ID
