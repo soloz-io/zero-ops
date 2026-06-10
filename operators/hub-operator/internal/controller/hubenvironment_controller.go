@@ -493,7 +493,29 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		if !hydraReady {
 			logger.Info("Waiting for Hydra to be ready")
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "IdentityReady",
+				Status:             metav1.ConditionFalse,
+				Reason:             "WaitingForHydra",
+				Message:            "Waiting for Hydra deployment to be ready",
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
+		// Set IdentityReady to true now that Hydra is ready
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "IdentityReady",
+			Status:             metav1.ConditionTrue,
+			Reason:             "HydraReady",
+			Message:            "Identity provider (Hydra) is ready",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
 		}
 
 		hydraClient, err := infisicalclient.NewHydraClient("")

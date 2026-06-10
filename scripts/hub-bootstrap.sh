@@ -36,7 +36,7 @@ SPOKEPOOL_TIMEOUT="${SPOKEPOOL_TIMEOUT:-1800}"  # 30 minutes in seconds
 # via --environment flag. The Go bootstrap CLI defaults to dev for docker,
 # prod for hetzner if omitted.
 ENVIRONMENT=""
-CERT_TIMEOUT="${CERT_TIMEOUT:-600}"  # 10 minutes in seconds
+CERT_TIMEOUT="${CERT_TIMEOUT:-1200}"  # 20 minutes in seconds
 CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"  # 15 minutes in seconds
 
 # Load .env file if present (local development overrides for admin credentials)
@@ -928,10 +928,20 @@ step10_wait_spokepool() {
         log "⚠️ ProviderConfig not found (may be created by external controller, continuing...)"
     fi
 
-    # Step 10c: Wait for bootstrap PKI artifacts (machine-identity + bootstrap-cert CRS wrappers)
+    # Step 10c: Wait for Identity Infrastructure Readiness
+    # The PKI artifacts depend on the HubEnvironment controller finishing Phase 3 (OAuth clients).
+    # That phase is gated by Infisical -> ExternalSecrets -> Hydra. We wait for the condition here
+    # to avoid race conditions with ArgoCD's retry backoffs.
+    if [[ -x "$ZERO_OPS_DIR/scripts/k8-setup/wait-for-identity.sh" ]]; then
+        "$ZERO_OPS_DIR/scripts/k8-setup/wait-for-identity.sh" "$KUBECONFIG_PATH" "$CERT_TIMEOUT"
+    else
+        log "⚠️  scripts/k8-setup/wait-for-identity.sh not found or not executable, skipping identity pre-requisite wait."
+    fi
+
+    # Step 10d: Wait for bootstrap PKI artifacts (machine-identity + bootstrap-cert CRS wrappers)
     # Created by hub-operator (bootstrap-cert) and spoke-identity-operator (machine-identity)
     # in platform-capi namespace for ClusterResourceSet consumption.
-    log "Step 10c: Waiting for bootstrap PKI artifacts..."
+    log "Step 10d: Waiting for bootstrap PKI artifacts..."
     local pki_attempt=1
     local pki_max_attempts=$((CERT_TIMEOUT / 10))
 

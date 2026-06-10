@@ -221,12 +221,28 @@ func main() {
 
 	// Initialize the Infisical Client for ADR-031 topology management
 	// These env vars are injected by your hub-operator Deployment manifest
+	projectID := os.Getenv("INFISICAL_PROJECT_ID")
+	orgID := os.Getenv("INFISICAL_ORGANIZATION_ID")
+	clientID := os.Getenv("INFISICAL_CLIENT_ID")
+	clientSecret := os.Getenv("INFISICAL_CLIENT_SECRET")
+	baseURL := os.Getenv("INFISICAL_BASE_URL")
+
+	// Fail fast on misconfiguration (e.g., stale ConfigMap or missing injection)
+	if projectID == "" || projectID == "PLACEHOLDER_PROJECT_ID" {
+		setupLog.Error(fmt.Errorf("invalid project ID: %s", projectID), "operator misconfigured: INFISICAL_PROJECT_ID is invalid")
+		os.Exit(1)
+	}
+	if clientSecret == "" {
+		setupLog.Error(fmt.Errorf("missing client secret"), "operator misconfigured: INFISICAL_CLIENT_SECRET is missing")
+		os.Exit(1)
+	}
+
 	infisicalClient := secrets.NewInfisicalClient(
-		os.Getenv("INFISICAL_BASE_URL"),
-		os.Getenv("INFISICAL_CLIENT_ID"),
-		os.Getenv("INFISICAL_CLIENT_SECRET"),
-		os.Getenv("INFISICAL_PROJECT_ID"),
-		os.Getenv("INFISICAL_ORGANIZATION_ID"),
+		baseURL,
+		clientID,
+		clientSecret,
+		projectID,
+		orgID,
 	)
 	if envSlug := os.Getenv("INFISICAL_ENVIRONMENT_SLUG"); envSlug != "" {
 		infisicalClient.EnvironmentSlug = envSlug
