@@ -56,8 +56,7 @@ func (i *Installer) BootstrapInfisicalAPI(ctx context.Context) error {
 
 	// Step 1: Wait for Infisical to become healthy
 	if err := i.WaitForInfisicalHealth(ctx); err != nil {
-		fmt.Println("Warning: Infisical not yet healthy. Skipping credential storage in Infisical.")
-		return nil
+		return fmt.Errorf("Infisical health check failed: %w", err)
 	}
 
 	// Step 2: Bootstrap Infisical (Org, Project, Machine Identity)
