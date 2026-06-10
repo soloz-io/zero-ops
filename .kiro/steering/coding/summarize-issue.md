@@ -2,7 +2,7 @@
 inclusion: manual
 ---
 
-- access the cluster and summarize the issues and challenge that you notice along with source code references and log traces to justify.
+- access the cluster logs and summarize the issues and challenge that you notice along with source code references and log traces to justify.
 
 - Also provide the list of fixes you have already tried along with its status. 
 

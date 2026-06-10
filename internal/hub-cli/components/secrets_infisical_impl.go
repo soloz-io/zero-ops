@@ -2,11 +2,8 @@ package components
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
@@ -129,34 +126,22 @@ func (i *Installer) GenerateInfisicalCryptoSecrets(ctx context.Context) error {
 	dataNamespace := constants.NamespaceData
 
 	infSecret, err1 := clientset.CoreV1().Secrets(securityNamespace).Get(ctx, "infisical-secrets", metav1.GetOptions{})
-	redisSecret, err2 := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "infisical-redis-credentials", metav1.GetOptions{})
 
-	secretsExist := err1 == nil && err2 == nil &&
+	secretsExist := err1 == nil &&
 		len(infSecret.Data["ENCRYPTION_KEY"]) > 0 &&
-		len(infSecret.Data["REDIS_URL"]) > 0 &&
-		len(redisSecret.Data["password"]) > 0
+		len(infSecret.Data["REDIS_URL"]) > 0
 
 	if secretsExist {
-		fmt.Println("[bootstrap-secrets] Infisical & Redis secrets already exist, reusing")
+		fmt.Println("[bootstrap-secrets] Infisical secrets already exist, reusing")
 	} else {
-		fmt.Println("[bootstrap-secrets] Generating initial Infisical & Redis secrets...")
+		fmt.Println("[bootstrap-secrets] Generating initial Infisical secrets...")
 	}
 
-	var encryptionKey, authSecret, redisPassword string
+	var encryptionKey, authSecret string
 
 	if secretsExist {
 		encryptionKey = string(infSecret.Data["ENCRYPTION_KEY"])
 		authSecret = string(infSecret.Data["AUTH_SECRET"])
-		redisURL := string(infSecret.Data["REDIS_URL"])
-		if idx := strings.Index(redisURL, "redis://:"); idx >= 0 {
-			start := idx + len("redis://:")
-			if end := strings.Index(redisURL[start:], "@"); end >= 0 {
-				redisPassword = redisURL[start : start+end]
-			}
-		}
-		if redisPassword == "" {
-			redisPassword = string(redisSecret.Data["password"])
-		}
 		fmt.Println("[bootstrap-secrets] Reusing existing ENCRYPTION_KEY and AUTH_SECRET")
 	} else {
 		encryptionKey, err = generateSecurePassword(32)
@@ -167,14 +152,9 @@ func (i *Installer) GenerateInfisicalCryptoSecrets(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to generate auth secret: %w", err)
 		}
-		redisBytes := make([]byte, 32)
-		if _, err := rand.Read(redisBytes); err != nil {
-			return fmt.Errorf("failed to generate redis password: %w", err)
-		}
-		redisPassword = hex.EncodeToString(redisBytes)[:32]
 		fmt.Println("[bootstrap-secrets] Generated new ENCRYPTION_KEY and AUTH_SECRET")
 	}
-	redisURL := fmt.Sprintf("redis://:%s@redis-master.platform-data.svc:6379", redisPassword)
+	redisURL := "redis://platform-redis.platform-data.svc:6379"
 
 	secretData := map[string]string{
 		"ENCRYPTION_KEY": encryptionKey,
@@ -206,31 +186,7 @@ func (i *Installer) GenerateInfisicalCryptoSecrets(ctx context.Context) error {
 		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets created (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL)")
 	}
 
-	redisSecretObj := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "infisical-redis-credentials",
-			Namespace: dataNamespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-				"app.kubernetes.io/component":  "secret-zero",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"password": redisPassword,
-		},
-	}
-
-	_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, redisSecretObj, metav1.CreateOptions{})
-	if err != nil {
-		_, err = clientset.CoreV1().Secrets(dataNamespace).Update(ctx, redisSecretObj, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create or update infisical-redis-credentials: %w", err)
-		}
-		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials updated")
-	} else {
-		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials created")
-	}
+	// infisical-redis-credentials generation removed per ADR-014
 
 	_, err = clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
 	if err != nil {
@@ -269,7 +225,7 @@ func (i *Installer) GenerateInfisicalCryptoSecrets(ctx context.Context) error {
 		fmt.Println("[bootstrap-secrets] ✓ platform-db-app already exists")
 	}
 
-	fmt.Println("[bootstrap-secrets] ✓ Cryptographic secrets ready (infisical-secrets, infisical-redis-credentials, platform-db-app)")
+	fmt.Println("[bootstrap-secrets] ✓ Cryptographic secrets ready (infisical-secrets, platform-db-app)")
 	return nil
 }
 
