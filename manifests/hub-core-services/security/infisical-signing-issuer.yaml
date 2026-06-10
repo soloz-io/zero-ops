@@ -1,0 +1,20 @@
+# ADR-035: Consolidated ClusterIssuer for long-lived signing keys.
+# Maps to the 'signing-keys' PKI Template in Infisical.
+#
+# Runtime-known fields (clientId, projectId) are supplied via ADR-045
+# Patch: manifests/hub-core-services/security/generated/infisical-signing-issuer-patch.yaml
+#
+# Precondition: infisical-auth Secret must exist in platform-security namespace (Day-0 CLI / ESO).
+# Precondition: infisical-issuer CRDs must be installed (infisical-issuer-crd.yaml).
+apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-signing-issuer
+spec:
+  url: "https://infisical.nutgraf.in"
+  authentication:
+    universalAuth:
+      secretRef:
+        name: infisical-auth
+        key: client-secret
+  certificateTemplateName: "signing-keys"

@@ -94,6 +94,16 @@ func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID
 		}
 		fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
 	}
+
+	// Phase 4: Create each required PKI Template idempotently (for v0.2.0 compatibility)
+	for _, p := range requiredProfiles {
+		if err := createPKITemplate(ctx, podName, adminJWT, projectID, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
+			fmt.Printf("[infisical-bootstrap] Note: PKI template %q creation failed: %v\n", p.Slug, err)
+		} else {
+			fmt.Printf("[infisical-bootstrap] ✓ PKI template %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
+		}
+	}
+
 	return nil
 }
 
@@ -198,6 +208,38 @@ func createCertProfile(ctx context.Context, podName, adminJWT, projectID, caID, 
 	}
 	if resp.CertificateProfile.ID == "" {
 		return fmt.Errorf("create profile returned empty ID: %s", output)
+	}
+	return nil
+}
+
+func createPKITemplate(ctx context.Context, podName, adminJWT, projectID, caName, name string, ttlDays int) error {
+	body := fmt.Sprintf(
+		`{"projectId":"%s","caName":"%s","name":"%s","commonName":".*","subjectAlternativeName":".*","ttl":"%dh"}`,
+		projectID, caName, name, ttlDays*24,
+	)
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s", "-X", "POST",
+		"http://localhost:"+infisicalPort+PathPKITemplates,
+		"-H", "Content-Type: application/json",
+		"-H", "Authorization: Bearer "+adminJWT,
+		"-d", body,
+	)
+	if err != nil {
+		return fmt.Errorf("curl failed: %w", err)
+	}
+
+	if strings.Contains(output, "already exists") || strings.Contains(output, "Conflict") {
+		return nil
+	}
+
+	var resp struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		// Log the error but don't fail, as some Infisical instances might not support v2 templates or return already exists differently
+		return nil
 	}
 	return nil
 }

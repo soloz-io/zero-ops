@@ -136,6 +136,23 @@ spec:
 	}
 	fmt.Println("[bootstrap-secrets] ✓ manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml")
 
+	signingIssuerPath := filepath.Join(projectRoot, "manifests", "hub-core-services", "security", "generated", "infisical-signing-issuer-patch.yaml")
+	signingIssuerPatch := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-signing-issuer
+spec:
+  url: %s
+  projectId: %s
+  authentication:
+    universalAuth:
+      clientId: %s
+`, infisicalURL, result.ProjectID, result.ClientID)
+	if err := os.WriteFile(signingIssuerPath, []byte(signingIssuerPatch), 0644); err != nil {
+		return false, fmt.Errorf("failed to write %s: %w", signingIssuerPath, err)
+	}
+	fmt.Println("[bootstrap-secrets] ✓ manifests/hub-core-services/security/generated/infisical-signing-issuer-patch.yaml")
+
 	// Write hub-bootstrap-config-patch.yaml into environments/base kustomization's generated/ dir
 	configPath := filepath.Join(projectRoot, "manifests", "environments", "base", "generated", "hub-bootstrap-config-patch.yaml")
 	configPatch := fmt.Sprintf(`apiVersion: v1
@@ -156,9 +173,12 @@ data:
 	}
 	fmt.Println("[bootstrap-secrets] ✓ manifests/environments/base/generated/hub-bootstrap-config-patch.yaml")
 
-	// Validate both artifacts exist
+	// Validate all artifacts exist
 	if _, err := os.Stat(issuerPath); err != nil {
 		return false, fmt.Errorf("infisical-fleet-issuer-patch.yaml not found after generation: %w", err)
+	}
+	if _, err := os.Stat(signingIssuerPath); err != nil {
+		return false, fmt.Errorf("infisical-signing-issuer-patch.yaml not found after generation: %w", err)
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		return false, fmt.Errorf("hub-bootstrap-config-patch.yaml not found after generation: %w", err)
@@ -169,7 +189,8 @@ data:
 	fmt.Println("[bootstrap-secrets]  ADR-045: Bootstrap-Generated GitOps Artifacts")
 	fmt.Println("[bootstrap-secrets]  Generated artifacts:")
 	fmt.Println("[bootstrap-secrets]    manifests/hub-core-services/security/generated/")
-	fmt.Println("[bootstrap-secrets]      └── infisical-fleet-issuer-patch.yaml")
+	fmt.Println("[bootstrap-secrets]      ├── infisical-fleet-issuer-patch.yaml")
+	fmt.Println("[bootstrap-secrets]      └── infisical-signing-issuer-patch.yaml")
 	fmt.Println("[bootstrap-secrets]    manifests/environments/base/generated/")
 	fmt.Println("[bootstrap-secrets]      └── hub-bootstrap-config-patch.yaml")
 	fmt.Println("[bootstrap-secrets]  Commit and push before platform readiness checks pass.")
