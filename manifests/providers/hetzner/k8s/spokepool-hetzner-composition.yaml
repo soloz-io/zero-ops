@@ -93,9 +93,9 @@ spec:
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
 
-          # Bootstrap PKI Secrets created by cert-operator
-          # cert-operator watches SpokePool creation, creates Machine Identity and 72h bootstrap cert
-          # See operators/cert-operator for implementation
+          # Bootstrap PKI Secrets created by hub-operator and spoke-identity-operator
+          # hub-operator: Certificate CR + bootstrap-cert CRS wrapper
+          # spoke-identity-operator: SpokeMachineIdentity CR + machine-identity CRS wrapper
 
           # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
           # Wrapped in provider-kubernetes Object
@@ -157,7 +157,7 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        # Bootstrap PKI (created by cert-operator, strategy: Once)
+                        # Bootstrap PKI (hub-operator/spoke-identity-operator, strategy: Once)
                         # Machine Identity credentials for ESO ClusterSecretStore on Spoke
                         - name: ""
                           kind: Secret
@@ -654,7 +654,7 @@ spec:
                       fmt: "%s-kubeconfig"
 
           # ========================================================================
-          # PKI Distribution via CRS (cert-operator creates per-spoke CRS Secrets)
-          # See manifests/platform-capi/ and operators/cert-operator/
-          # ADR-035: cert-operator handles Day-0 PKI, spoke cert-manager handles Day-2
+          # PKI Distribution via CRS (hub-operator + spoke-identity-operator create per-spoke CRS Secrets)
+          # hub-operator: bootstrap-cert wrapper; spoke-identity-operator: machine-identity wrapper
+          # ADR-035: hub-operator declares Certificate intent, spoke cert-manager handles Day-2
           # ========================================================================

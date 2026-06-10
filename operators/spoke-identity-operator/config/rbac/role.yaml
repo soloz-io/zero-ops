@@ -10,7 +10,13 @@ rules:
   - spokemachineidentities/status
   - spokemachineidentities/finalizers
   verbs:
-  - create;get;list;watch;update;patch;delete
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - delete
 - apiGroups:
   - ""
   resources:
@@ -22,4 +28,10 @@ rules:
   resources:
   - secrets
   verbs:
-  - get;create;update;patch
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete

@@ -81,8 +81,9 @@ spec:
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
 
-          # Bootstrap PKI Secrets created by cert-operator
-          # cert-operator watches SpokePool creation, creates Machine Identity and 72h bootstrap cert
+          # Bootstrap PKI Secrets created by hub-operator and spoke-identity-operator
+          # hub-operator: Certificate CR + bootstrap-cert CRS wrapper
+          # spoke-identity-operator: SpokeMachineIdentity CR + machine-identity CRS wrapper
 
           # ClusterResourceSet for CNI and ArgoCD Agent Bootstrap
           - name: cluster-resource-set
@@ -131,7 +132,7 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        # Bootstrap PKI (created by cert-operator, strategy: Once)
+                        # Bootstrap PKI (hub-operator/spoke-identity-operator, strategy: Once)
                         - name: ""
                           kind: Secret
                         - name: ""

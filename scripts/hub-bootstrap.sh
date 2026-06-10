@@ -928,10 +928,10 @@ step10_wait_spokepool() {
         log "⚠️ ProviderConfig not found (may be created by external controller, continuing...)"
     fi
 
-    # Step 10c: Wait for cert-operator PKI artifacts (machine-identity + bootstrap-cert)
-    # Replaces legacy function-cert-distribution checks. cert-operator watches SpokePool
-    # and creates these Secrets in platform-capi for ClusterResourceSet consumption.
-    log "Step 10c: Waiting for cert-operator PKI artifacts..."
+    # Step 10c: Wait for bootstrap PKI artifacts (machine-identity + bootstrap-cert CRS wrappers)
+    # Created by hub-operator (bootstrap-cert) and spoke-identity-operator (machine-identity)
+    # in platform-capi namespace for ClusterResourceSet consumption.
+    log "Step 10c: Waiting for bootstrap PKI artifacts..."
     local pki_attempt=1
     local pki_max_attempts=$((CERT_TIMEOUT / 10))
 
@@ -939,31 +939,33 @@ step10_wait_spokepool() {
         local identity_ready=false
         local cert_ready=false
 
-        if kubectl get secret "${SPOKEPOOL_NAME}-machine-identity" -n platform-capi \
-            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
-            identity_ready=true
-        fi
-
-        if kubectl get secret "${SPOKEPOOL_NAME}-bootstrap-cert" -n platform-capi \
-            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+        # Wait for Certificate CR to be Ready (cert-manager issued)
+        if kubectl wait --for=condition=Ready certificate "argocd-agent-${SPOKEPOOL_NAME}" \
+            -n platform-capi --kubeconfig="$KUBECONFIG_PATH" --timeout=5s >/dev/null 2>&1; then
             cert_ready=true
         fi
 
+        # Wait for SpokeMachineIdentity CR to be Ready (identity provisioned)
+        if kubectl wait --for=condition=Ready spokemachineidentity "${SPOKEPOOL_NAME}" \
+            -n platform-capi --kubeconfig="$KUBECONFIG_PATH" --timeout=5s >/dev/null 2>&1; then
+            identity_ready=true
+        fi
+
         if [[ "$identity_ready" == "true" && "$cert_ready" == "true" ]]; then
-            log "✅ cert-operator PKI artifacts ready"
+            log "✅ Bootstrap PKI artifacts ready"
             break
         fi
 
-        log "Waiting for cert-operator PKI (attempt $pki_attempt/$pki_max_attempts): machine-identity=$identity_ready bootstrap-cert=$cert_ready"
+        log "Waiting for bootstrap PKI (attempt $pki_attempt/$pki_max_attempts): certificate=$cert_ready identity=$identity_ready"
         sleep 10
         ((pki_attempt++))
     done
 
     if [[ $pki_attempt -gt $pki_max_attempts ]]; then
-        log "❌ cert-operator PKI artifacts not created within timeout"
-        log "Check cert-operator pod logs in platform-ops namespace"
+        log "❌ Bootstrap PKI artifacts not ready within timeout"
+        log "Check hub-operator and spoke-identity-operator logs"
         log "This may mean Infisical is unhealthy or the infisical-auth secret is missing"
-        error_exit "cert-operator PKI timeout"
+        error_exit "bootstrap PKI timeout"
     fi
 
     # Step 10d: Verify certificates exist in target namespaces

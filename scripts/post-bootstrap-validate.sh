@@ -574,21 +574,21 @@ check_spoke() {
         log_fail "CAPI Cluster $SPOKEPOOL_NAME: phase=$capi_cluster_phase"
     fi
 
-    # Cert-operator PKI artifacts (replaces legacy function-cert-distribution)
-    # cert-operator watches SpokePool and creates machine-identity + bootstrap-cert Secrets
-    local pki_artifacts=(
-        "platform-capi:${SPOKEPOOL_NAME}-machine-identity"
-        "platform-capi:${SPOKEPOOL_NAME}-bootstrap-cert"
-    )
-    for entry in "${pki_artifacts[@]}"; do
-        local ns="${entry%%:*}"
-        local name="${entry##*:}"
-        if kc get secret "$name" -n "$ns" >/dev/null 2>&1; then
-            log_pass "PKI artifact $ns/$name: Found"
-        else
-            log_fail "PKI artifact $ns/$name: Missing — check cert-operator logs"
-        fi
-    done
+    # Certificate Ready condition (cert-manager issued, hub-operator cert wrapper)
+    if kc wait --for=condition=Ready certificate "argocd-agent-${SPOKEPOOL_NAME}" \
+        -n platform-capi --timeout=5s >/dev/null 2>&1; then
+        log_pass "Bootstrap certificate: Ready"
+    else
+        log_fail "Bootstrap certificate: Not Ready — check cert-manager and infisical-issuer"
+    fi
+
+    # SpokeMachineIdentity Ready condition (provisioned by spoke-identity-operator)
+    if kc wait --for=condition=Ready spokemachineidentity "${SPOKEPOOL_NAME}" \
+        -n platform-capi --timeout=5s >/dev/null 2>&1; then
+        log_pass "SpokeMachineIdentity: Ready"
+    else
+        log_fail "SpokeMachineIdentity: Not Ready — check spoke-identity-operator logs"
+    fi
 }
 
 # ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────

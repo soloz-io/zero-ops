@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,7 +28,7 @@ const (
 // +kubebuilder:rbac:groups=identity.zeroops.io,resources=spokemachineidentities/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=identity.zeroops.io,resources=spokemachineidentities/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // SpokeMachineIdentityReconciler reconciles SpokeMachineIdentity CRs against Infisical.
 // This is the initial implementation of the Platform Identity Domain.
@@ -108,6 +109,13 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, r.Status().Update(ctx, smi)
 	} else if requeue {
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, r.Status().Update(ctx, smi)
+	}
+
+	// Ensure CRS wrapper Secret for ClusterResourceSet delivery
+	if err := r.ensureCRSWrapper(ctx, smi); err != nil {
+		logger.Error(err, "Failed to ensure CRS wrapper")
+		r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "CRSWrapperFailed", err.Error())
+		return ctrl.Result{}, r.Status().Update(ctx, smi)
 	}
 
 	// Drift detection: verify identity still exists
@@ -204,8 +212,18 @@ func (r *SpokeMachineIdentityReconciler) handleRotation(ctx context.Context, smi
 				"clientSecret": newSecret,
 			},
 		}
-		if err := r.Create(ctx, secret); err != nil {
-			return false, fmt.Errorf("create auth secret: %w", err)
+		existing := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Name: secret.Name, Namespace: secret.Namespace}, existing); err == nil {
+			existing.StringData = secret.StringData
+			existing.Labels = secret.Labels
+			existing.Annotations = secret.Annotations
+			if err := r.Update(ctx, existing); err != nil {
+				return false, fmt.Errorf("update auth secret: %w", err)
+			}
+		} else {
+			if err := r.Create(ctx, secret); err != nil {
+				return false, fmt.Errorf("create auth secret: %w", err)
+			}
 		}
 	}
 
@@ -222,6 +240,71 @@ func (r *SpokeMachineIdentityReconciler) rotationCheckInterval(smi *identityv1al
 		return 1 * time.Minute
 	}
 	return until / 4 // Check 4 times per rotation interval
+}
+
+func (r *SpokeMachineIdentityReconciler) ensureCRSWrapper(ctx context.Context, smi *identityv1alpha1.SpokeMachineIdentity) error {
+	wrapperName := smi.Spec.SecretName
+	if wrapperName == "" {
+		wrapperName = fmt.Sprintf("%s-machine-identity", smi.Spec.SpokeRef.Name)
+	}
+
+	existing := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: smi.Namespace}, existing); err == nil {
+		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
+			return nil
+		}
+	}
+
+	authSecret := &corev1.Secret{}
+	authSecretName := fmt.Sprintf("smi-%s-auth", smi.Spec.SpokeRef.Name)
+	if err := r.Get(ctx, client.ObjectKey{Name: authSecretName, Namespace: smi.Namespace}, authSecret); err != nil {
+		return fmt.Errorf("read auth secret %s: %w", authSecretName, err)
+	}
+
+	clientID := string(authSecret.Data["clientId"])
+	clientSecret := string(authSecret.Data["clientSecret"])
+
+	identityYAML := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: platform-ops
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: %s
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: cert-manager
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: %s
+`, clientID, clientSecret, clientID, clientSecret)
+
+	wrapper := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wrapperName,
+			Namespace: smi.Namespace,
+			Labels:    map[string]string{"addons.cluster.x-k8s.io/resource-set": "true"},
+		},
+		Type:       "addons.cluster.x-k8s.io/resource-set",
+		StringData: map[string]string{"identity.yaml": identityYAML},
+	}
+
+	wrapper.SetOwnerReferences(smi.GetOwnerReferences())
+
+	if err := r.Create(ctx, wrapper); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("create identity CRS wrapper: %w", err)
+	}
+
+	return nil
 }
 
 func (r *SpokeMachineIdentityReconciler) setCondition(smi *identityv1alpha1.SpokeMachineIdentity, condType string, status metav1.ConditionStatus, reason, message string) {

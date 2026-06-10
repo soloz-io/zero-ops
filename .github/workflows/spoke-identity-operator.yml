@@ -1,11 +1,10 @@
-name: cert-operator
+name: spoke-identity-operator
 
 on:
   push:
     branches: [main, feat/**]
     paths:
-      - operators/cert-operator/**
-      - .github/workflows/cert-operator.yml
+      - operators/spoke-identity-operator/**
 
 permissions:
   contents: write
@@ -30,13 +29,13 @@ jobs:
       - uses: docker/build-push-action@v5
         id: build
         with:
-          context: operators/cert-operator
-          file: operators/cert-operator/Dockerfile
+          context: .
+          file: operators/spoke-identity-operator/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/soloz-io/zero-ops/cert-operator:${{ github.sha }}
-            ghcr.io/soloz-io/zero-ops/cert-operator:latest
+            ghcr.io/soloz-io/spoke-identity-operator:${{ github.sha }}
+            ghcr.io/soloz-io/spoke-identity-operator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -46,13 +45,13 @@ jobs:
 
       - name: Update Kustomization with new image
         run: |
-          cd operators/cert-operator/config/manager
-          kustomize edit set image controller=ghcr.io/soloz-io/zero-ops/cert-operator@${{ steps.build.outputs.digest }}
+          cd operators/spoke-identity-operator/config/manager
+          kustomize edit set image controller=ghcr.io/soloz-io/spoke-identity-operator@${{ steps.build.outputs.digest }}
 
       - name: Commit and push image update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add operators/cert-operator/config/manager/kustomization.yaml
-          git commit -m "chore(cert-operator): update image to ${{ github.sha }}" || exit 0
+          git add operators/spoke-identity-operator/config/manager/kustomization.yaml
+          git commit -m "chore(spoke-identity-operator): update image to ${{ github.sha }}" || exit 0
           git push

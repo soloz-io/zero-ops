@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: hub-operator-manager-role
+  name: manager-role
 rules:
 - apiGroups:
   - ""
@@ -43,6 +43,86 @@ rules:
   - update
   - watch
 - apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features
+  - meters
+  - plans
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features/finalizers
+  - meters/finalizers
+  - plans/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features/status
+  - meters/status
+  - plans/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - identity.zeroops.io
+  resources:
+  - spokemachineidentities
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaases/status
+  - spokepools/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - spokepools
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - ops.nutgraf.in
   resources:
   - hubenvironments
@@ -76,35 +156,3 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - spokepools
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - spokepools/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - ainativesaases
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - ainativesaases/status
-  verbs:
-  - get
-  - patch
-  - update

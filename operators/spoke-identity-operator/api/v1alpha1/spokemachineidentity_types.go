@@ -1,3 +1,4 @@
+// +kubebuilder:object:generate=true
 package v1alpha1
 
 import (
@@ -33,6 +34,11 @@ type SpokeMachineIdentitySpec struct {
 	// Infisical configures the Infisical provider
 	Infisical InfisicalConfig `json:"infisical"`
 
+	// SecretName overrides the default CRS wrapper Secret name.
+	// Default: "<spokeRef.name>-machine-identity"
+	// +optional
+	SecretName string `json:"secretName,omitempty"`
+
 	// RotationPolicy defines credential rotation settings
 	// +optional
 	RotationPolicy *RotationPolicy `json:"rotationPolicy,omitempty"`
@@ -51,10 +57,10 @@ type InfisicalConfig struct {
 	OrganizationID string `json:"organizationID,omitempty"`
 	// +optional
 	ProjectID string `json:"projectID,omitempty"`
-	// +kubebuilder:default=universal-auth
+	// +kubebuilder:default="universal-auth"
 	// +optional
 	AuthMethod string `json:"authMethod,omitempty"`
-	// +kubebuilder:default=90d
+	// +kubebuilder:default="90d"
 	// +optional
 	ClientSecretTTL string `json:"clientSecretTTL,omitempty"`
 }
@@ -62,10 +68,10 @@ type InfisicalConfig struct {
 type RotationPolicy struct {
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
-	// +kubebuilder:default=60d
+	// +kubebuilder:default="60d"
 	// +optional
 	Interval string `json:"interval,omitempty"`
-	// +kubebuilder:default=24h
+	// +kubebuilder:default="24h"
 	// +optional
 	OverlapPeriod string `json:"overlapPeriod,omitempty"`
 }
@@ -73,7 +79,7 @@ type RotationPolicy struct {
 type RevocationPolicy struct {
 	// +kubebuilder:default=true
 	RevokeOnDelete bool `json:"revokeOnDelete"`
-	// +kubebuilder:default=72h
+	// +kubebuilder:default="72h"
 	// +optional
 	GracePeriod string `json:"gracePeriod,omitempty"`
 }
