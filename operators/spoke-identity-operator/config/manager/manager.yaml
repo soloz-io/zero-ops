@@ -1,15 +1,8 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    control-plane: spoke-identity-operator
-  name: spoke-identity-operator-system
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: spoke-identity-operator
-  namespace: spoke-identity-operator-system
+  namespace: platform-ops
   labels:
     control-plane: spoke-identity-operator
 spec:

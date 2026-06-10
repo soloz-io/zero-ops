@@ -1,4 +1,4 @@
-namespace: spoke-identity-operator-system
+namespace: platform-ops
 
 resources:
 - ../crd
