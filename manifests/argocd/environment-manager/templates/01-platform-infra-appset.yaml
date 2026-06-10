@@ -426,7 +426,7 @@ spec:
             targetRevision: ''
             path: 'manifests/hub-core-services/security'
             chart: ''
-            directoryRecurse: 'true'
+            directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
