@@ -13,9 +13,10 @@ import (
 // Use this instead of meta.IsStatusConditionTrue() for all phase gate checks.
 //
 // Example:
-//   if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesConfigured", hubEnv.Generation) {
-//       // Run Phase 2 - database role creation
-//   }
+//
+//	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesConfigured", hubEnv.Generation) {
+//	    // Run Phase 2 - database role creation
+//	}
 func isConditionTrueAndUpToDate(conditions []metav1.Condition, conditionType string, currentGeneration int64) bool {
 	for _, condition := range conditions {
 		if condition.Type == conditionType {

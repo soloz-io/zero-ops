@@ -8,11 +8,11 @@ import (
 
 func TestIsConditionTrueAndUpToDate(t *testing.T) {
 	tests := []struct {
-		name               string
-		conditions         []metav1.Condition
-		conditionType      string
-		currentGeneration  int64
-		expectedResult     bool
+		name              string
+		conditions        []metav1.Condition
+		conditionType     string
+		currentGeneration int64
+		expectedResult    bool
 	}{
 		{
 			name: "condition is True and observedGeneration matches",

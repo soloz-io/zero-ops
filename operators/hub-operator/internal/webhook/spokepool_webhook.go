@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	providerRegistryConfigMap   = "hub-operator-provider-registry"
-	providerRegistryNamespace   = infisical.NamespaceOps
+	providerRegistryConfigMap = "hub-operator-provider-registry"
+	providerRegistryNamespace = infisical.NamespaceOps
 )
 
 var (

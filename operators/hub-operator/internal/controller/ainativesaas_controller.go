@@ -20,12 +20,12 @@ import (
 // wait for secrets at /spoke-pool/<cellId>/tenants/<tenantId>/<secret-name>.
 //
 // Currently handles:
-//   1. db-credentials — PostgreSQL user credentials for the tenant database.
-//      ESO remoteRef.key splits on the last '/' so secret NAME is "db-credentials"
-//      and FOLDER path is /spoke-pool/<cellId>/tenants/<tenantId>.
-//      ADR-003 Pattern A2a: Kube-SBT → Infisical ONLY → ESO → Spoke K8s Secret.
-//   2. infisical-credentials — Machine Identity credentials for the tenant SDK
-//      workload. ADR-003, ADR-019: scoped identity for runtime plugin resolution.
+//  1. db-credentials — PostgreSQL user credentials for the tenant database.
+//     ESO remoteRef.key splits on the last '/' so secret NAME is "db-credentials"
+//     and FOLDER path is /spoke-pool/<cellId>/tenants/<tenantId>.
+//     ADR-003 Pattern A2a: Kube-SBT → Infisical ONLY → ESO → Spoke K8s Secret.
+//  2. infisical-credentials — Machine Identity credentials for the tenant SDK
+//     workload. ADR-003, ADR-019: scoped identity for runtime plugin resolution.
 //
 // Mirrors SpokePoolReconciler (ADR-003 Pattern A2b) for consistency.
 type AINativeSaaSReconciler struct {
@@ -99,9 +99,9 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 type conditionState int
 
 const (
-	conditionSeeded       conditionState = iota // first-time: generated and uploaded
-	conditionAlreadyExists                      // idempotent: already present in Infisical
-	conditionMissing                            // error: missing post-provisioning
+	conditionSeeded        conditionState = iota // first-time: generated and uploaded
+	conditionAlreadyExists                       // idempotent: already present in Infisical
+	conditionMissing                             // error: missing post-provisioning
 )
 
 // isConditionTrue checks whether a named condition is Status=True on the unstructured object.

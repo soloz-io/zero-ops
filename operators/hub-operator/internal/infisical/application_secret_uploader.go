@@ -173,7 +173,7 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 func generateSvixJWT(signingSecret string) (string, error) {
 	claims := jwt.MapClaims{
 		"iss": "svix-server",
-		"sub": "org_openmeter",  // Must be valid org ID format
+		"sub": "org_openmeter", // Must be valid org ID format
 		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(10 * 365 * 24 * time.Hour).Unix(), // 10 years validity
 	}

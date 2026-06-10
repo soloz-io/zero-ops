@@ -102,7 +102,7 @@ func (r *SpokePoolReconciler) isStatusConditionTrue(spokePool *unstructured.Unst
 			}
 		}
 	}
-	
+
 	return false
 }
 

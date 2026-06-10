@@ -33,9 +33,9 @@ type InfisicalClient struct {
 	OrganizationID  string
 	EnvironmentSlug string
 
-	httpClient  *http.Client
-	token       string
-	tokenExp    time.Time
+	httpClient *http.Client
+	token      string
+	tokenExp   time.Time
 }
 
 // NewInfisicalClient creates a new InfisicalClient from env-provided credentials.
@@ -489,9 +489,9 @@ func (c *InfisicalClient) getClientIDFromUniversalAuth(ctx context.Context, iden
 // Returns the plaintext secret (shown only once by the API).
 func (c *InfisicalClient) generateClientSecret(ctx context.Context, identityID string) (string, error) {
 	payload := map[string]interface{}{
-		"description":   "",
-		"numUsesLimit":  0,
-		"ttl":           0,
+		"description":  "",
+		"numUsesLimit": 0,
+		"ttl":          0,
 	}
 
 	body, err := json.Marshal(payload)
@@ -618,7 +618,7 @@ func (c *InfisicalClient) grantProjectAccess(ctx context.Context, identityID, ro
 type EnsureResult int
 
 const (
-	EnsureCreated       EnsureResult = iota
+	EnsureCreated EnsureResult = iota
 	EnsureAlreadyExists
 	EnsureMissing
 )

@@ -39,11 +39,11 @@ func GenerateSecurePasswordWithCharset(length int, charset string) (string, erro
 
 	password := make([]byte, length)
 	charsetLen := len(charset)
-	
+
 	// Calculate the maximum valid random value to avoid modulo bias
 	// We want: randomValue % charsetLen to be uniformly distributed
 	maxValid := 256 - (256 % charsetLen)
-	
+
 	for i := range password {
 		for {
 			b := make([]byte, 1)
@@ -51,7 +51,7 @@ func GenerateSecurePasswordWithCharset(length int, charset string) (string, erro
 				return "", fmt.Errorf("failed to generate random bytes: %w", err)
 			}
 			randomValue := int(b[0])
-			
+
 			// Reject values that would cause modulo bias
 			if randomValue < maxValid {
 				password[i] = charset[randomValue%charsetLen]
@@ -386,7 +386,7 @@ func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamesp
 		// Secret exists - check if we need to restore from AWS
 		// This handles the case where secret was deleted and needs restoration
 		result.InfisicalSecrets = nil
-		
+
 		// Reuse existing redis credentials if available
 		if existing, ok := existingSecrets["infisical-redis-credentials"]; ok {
 			redisPassword = string(existing.Data["password"])
@@ -399,7 +399,7 @@ func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamesp
 		if existing, ok := existingSecrets["infisical-redis-credentials"]; ok {
 			existingRedisPassword = string(existing.Data["password"])
 		}
-		
+
 		infisicalResult, err := GenerateInfisicalSecrets(ctx, securityNamespace, dataNamespace, caCert, owner, isFirstTime, clusterID, awsClient, existingRedisPassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate infisical-secrets: %w", err)

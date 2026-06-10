@@ -105,8 +105,12 @@ spec:
                             description: Price defines the pricing model
                             properties:
                               amount:
+                                anyOf:
+                                - type: integer
+                                - type: string
                                 description: Amount is the price amount
-                                type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
                               billingCadence:
                                 description: BillingCadence defines billing frequency
                                 enum:

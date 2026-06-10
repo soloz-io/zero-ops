@@ -126,7 +126,7 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 		// Map role name to valid K8s secret name and namespace
 		secretName := mapRoleToSecretName(roleSpec.Name)
 		secretNamespace := mapRoleToSecretNamespace(roleSpec.Name, namespace)
-		
+
 		secret := &corev1.Secret{}
 		if err := rm.client.Get(ctx, client.ObjectKey{
 			Name:      secretName,
@@ -315,24 +315,24 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 			"host=platform-db-rw.%s.svc port=5432 user=%s password=%s dbname=%s sslmode=require",
 			namespace, superUsername, superPassword, roleSpec.Database,
 		)
-		
+
 		extDB, err := sql.Open("postgres", connStr)
 		if err != nil {
 			return fmt.Errorf("failed to connect to database %s for extension creation: %w", roleSpec.Database, err)
 		}
 		defer extDB.Close()
-		
+
 		if err := extDB.PingContext(ctx); err != nil {
 			return fmt.Errorf("failed to ping database %s for extension creation: %w", roleSpec.Database, err)
 		}
-		
+
 		// Create pg_trgm extension
 		logger.Info("Creating pg_trgm extension for Kratos", "database", roleSpec.Database)
 		if _, err := extDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_trgm"); err != nil {
 			return fmt.Errorf("failed to create pg_trgm extension in %s: %w", roleSpec.Database, err)
 		}
 		logger.Info("Created pg_trgm extension", "database", roleSpec.Database)
-		
+
 		// Create btree_gin extension
 		logger.Info("Creating btree_gin extension for Kratos", "database", roleSpec.Database)
 		if _, err := extDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS btree_gin"); err != nil {
@@ -340,7 +340,7 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 		}
 		logger.Info("Created btree_gin extension", "database", roleSpec.Database)
 	}
-	
+
 	// Ory Hydra requires: pg_trgm (trigram text search), uuid-ossp (UUID generation)
 	if roleSpec.Database == "hydra" {
 		// Connect to target database to create extensions
@@ -348,24 +348,24 @@ func (rm *RoleManager) grantPermissions(ctx context.Context, username string, ro
 			"host=platform-db-rw.%s.svc port=5432 user=%s password=%s dbname=%s sslmode=require",
 			namespace, superUsername, superPassword, roleSpec.Database,
 		)
-		
+
 		extDB, err := sql.Open("postgres", connStr)
 		if err != nil {
 			return fmt.Errorf("failed to connect to database %s for extension creation: %w", roleSpec.Database, err)
 		}
 		defer extDB.Close()
-		
+
 		if err := extDB.PingContext(ctx); err != nil {
 			return fmt.Errorf("failed to ping database %s for extension creation: %w", roleSpec.Database, err)
 		}
-		
+
 		// Create pg_trgm extension
 		logger.Info("Creating pg_trgm extension for Hydra", "database", roleSpec.Database)
 		if _, err := extDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_trgm"); err != nil {
 			return fmt.Errorf("failed to create pg_trgm extension in %s: %w", roleSpec.Database, err)
 		}
 		logger.Info("Created pg_trgm extension", "database", roleSpec.Database)
-		
+
 		// Create uuid-ossp extension
 		logger.Info("Creating uuid-ossp extension for Hydra", "database", roleSpec.Database)
 		if _, err := extDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""); err != nil {

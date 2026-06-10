@@ -98,7 +98,7 @@ func (su *SecretUploader) uploadSecret(ctx context.Context, infisicalClient *inf
 		Namespace: mapping.SourceNamespace,
 	}, secret); err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info("Source secret not found, skipping", 
+			logger.Info("Source secret not found, skipping",
 				"secret", fmt.Sprintf("%s/%s", mapping.SourceNamespace, mapping.SourceName))
 			return nil
 		}
@@ -110,7 +110,7 @@ func (su *SecretUploader) uploadSecret(ctx context.Context, infisicalClient *inf
 	if !ok {
 		return fmt.Errorf("source secret missing key %s", mapping.SourceKey)
 	}
-	
+
 	if len(value) == 0 {
 		return fmt.Errorf("source secret key %s is empty", mapping.SourceKey)
 	}

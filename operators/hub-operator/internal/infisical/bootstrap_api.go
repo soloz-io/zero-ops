@@ -254,13 +254,13 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 			{"ipAddress": "0.0.0.0/0"},
 			{"ipAddress": "::/0"},
 		},
-		"accessTokenTTL":       2592000, // 30 days
-		"accessTokenMaxTTL":    2592000, // 30 days
-		"accessTokenNumUsesLimit": 0,
-		"accessTokenPeriod":    0,
-		"lockoutEnabled":       true,
-		"lockoutThreshold":     3,
-		"lockoutDurationSeconds": 300,
+		"accessTokenTTL":             2592000, // 30 days
+		"accessTokenMaxTTL":          2592000, // 30 days
+		"accessTokenNumUsesLimit":    0,
+		"accessTokenPeriod":          0,
+		"lockoutEnabled":             true,
+		"lockoutThreshold":           3,
+		"lockoutDurationSeconds":     300,
 		"lockoutCounterResetSeconds": 30,
 	}
 
@@ -299,7 +299,7 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 
 // ClientCredentialsResponse represents client credentials generation response
 type ClientCredentialsResponse struct {
-	ClientSecret string `json:"clientSecret"`
+	ClientSecret     string `json:"clientSecret"`
 	ClientSecretData struct {
 		ID string `json:"id"`
 	} `json:"clientSecretData"`
@@ -344,7 +344,7 @@ func (api *BootstrapAPI) GetUniversalAuth(ctx context.Context, adminToken, ident
 func (api *BootstrapAPI) GenerateClientCredentials(ctx context.Context, adminToken, identityID string) (*ClientCredentialsResponse, error) {
 	// Use default values for client secret configuration
 	payload := map[string]interface{}{
-		"description":   "",
+		"description":  "",
 		"numUsesLimit": 0,
 		"ttl":          0,
 	}

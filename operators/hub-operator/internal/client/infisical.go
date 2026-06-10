@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 )
 
 // InfisicalClient wraps Infisical API operations with Universal Auth
@@ -293,7 +293,7 @@ func (c *InfisicalClient) SecretExists(ctx context.Context, projectSlug, environ
 // createSecret creates a new secret in Infisical using v3 API
 func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	logger := log.FromContext(ctx)
-	
+
 	createReq := map[string]interface{}{
 		"workspaceId": workspaceId,
 		"environment": environmentSlug,
@@ -302,11 +302,11 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		"secretValue": value,
 		"type":        "shared",
 	}
-	
-	logger.Info("Creating secret in Infisical", 
-		"workspaceId", workspaceId, 
-		"environment", environmentSlug, 
-		"secretPath", secretPath, 
+
+	logger.Info("Creating secret in Infisical",
+		"workspaceId", workspaceId,
+		"environment", environmentSlug,
+		"secretPath", secretPath,
 		"key", key,
 		"valueLength", len(value))
 
@@ -338,7 +338,7 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create secret with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
-	
+
 	logger.Info("Secret created successfully in Infisical", "key", key, "status", resp.StatusCode)
 
 	return nil
@@ -464,7 +464,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 // last '/' so the secret name is the final segment and the folder path is the prefix.
 func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
 	logger := log.FromContext(ctx)
-	
+
 	// Ensure we have a valid token
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
@@ -497,4 +497,3 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 	logger.Info("Tenant folder hierarchy ensured in Infisical", "cellID", cellID, "tenantID", tenantID)
 	return nil
 }
-
