@@ -1,7 +1,7 @@
 apiVersion: infisical-issuer.infisical.com/v1alpha1
 kind: ClusterIssuer
 metadata:
-  name: infisical-fleet-issuer
+  name: infisical-signing-issuer
 spec:
   url: http://infisical-standalone-infisical.platform-security.svc:8080
   projectId: 15979c5a-903c-408c-b207-943253a72000
