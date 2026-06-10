@@ -536,7 +536,7 @@ step1_bootstrap_hub() {
         current_branch=$(cd "$ZERO_OPS_DIR" && git rev-parse --abbrev-ref HEAD)
         if [[ "$current_branch" != "main" ]]; then
             log "Pushing current branch '$current_branch' to remote for ArgoCD reconciliation..."
-            (cd "$ZERO_OPS_DIR" && git push origin "$current_branch" 2>&1) || \
+            (cd "$ZERO_OPS_DIR" && git fetch origin "$current_branch" 2>&1 && git pull --rebase origin "$current_branch" 2>&1 && git push origin "$current_branch" 2>&1) || \
                 log "WARNING: git push failed — ArgoCD may not be able to read configs from remote"
         fi
         local env_flag="${ENVIRONMENT:---environment=dev}"
