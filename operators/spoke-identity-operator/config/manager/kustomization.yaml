@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- manager.yaml
+
+images:
+- digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  name: controller
+  newName: ghcr.io/soloz-io/spoke-identity-operator
