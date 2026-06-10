@@ -22,7 +22,7 @@ spec:
       serviceAccountName: infisical-issuer
       containers:
       - name: infisical-issuer
-        image: docker.io/infisical/pki-issuer:v0.1.1
+        image: docker.io/infisical/pki-issuer:v0.2.0
         args:
         - --v=2
         - --leader-election-namespace=cert-manager

@@ -1,6 +1,7 @@
 namespace: spoke-identity-operator-system
 
 resources:
+- ../crd
 - ../rbac
 - ../manager
 

@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: spokemachineidentities.
+  name: spokemachineidentities.identity.zeroops.io
 spec:
-  group: ""
+  group: identity.zeroops.io
   names:
     kind: SpokeMachineIdentity
     listKind: SpokeMachineIdentityList
@@ -27,7 +27,7 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    name: ""
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: |-

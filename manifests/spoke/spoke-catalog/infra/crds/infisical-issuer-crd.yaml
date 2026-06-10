@@ -1,5 +1,5 @@
-# ADR-029: Vendored CRD from infisical-pki-issuer chart v0.1.1
-# Source: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/infisical-pki-issuer-0.1.1.tgz
+# ADR-029: Vendored CRD from infisical-pki-issuer chart v0.2.0
+# Source: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/infisical-pki-issuer-0.2.0.tgz
 # Audit: API group infisical-issuer.infisical.com, v1alpha1, cluster-scoped
 # Required by: infisical-issuer controller to reconcile ClusterIssuer resources
 ---
