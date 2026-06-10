@@ -115,6 +115,19 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
+# [CUSTOM] Append Infisical secrets project ID
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: INFISICAL_SECRETS_PROJECT_ID
+        valueFrom:
+          configMapKeyRef:
+            name: hub-bootstrap-config
+            key: INFISICAL_SECRETS_PROJECT_ID
+  target:
+    kind: Deployment
+    name: hub-operator
 # [CUSTOM] Append Infisical organization ID
 - patch: |-
     - op: add

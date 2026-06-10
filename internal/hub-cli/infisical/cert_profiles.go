@@ -98,9 +98,12 @@ func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID
 	// Phase 4: Create each required PKI Template idempotently (for v0.2.0 compatibility)
 	for _, p := range requiredProfiles {
 		if err := createPKITemplate(ctx, podName, adminJWT, projectID, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
-			fmt.Printf("[infisical-bootstrap] Note: PKI template %q creation failed: %v\n", p.Slug, err)
-		} else {
-			fmt.Printf("[infisical-bootstrap] ✓ PKI template %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
+			return fmt.Errorf("create PKI template %q: %w", p.Slug, err)
+		}
+		fmt.Printf("[infisical-bootstrap] ✓ PKI template %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
+		
+		if err := verifyPKITemplateExists(ctx, podName, adminJWT, projectID, p.Slug); err != nil {
+			return fmt.Errorf("verify PKI template %q: %w", p.Slug, err)
 		}
 	}
 
@@ -238,8 +241,35 @@ func createPKITemplate(ctx context.Context, podName, adminJWT, projectID, caName
 		} `json:"certificateTemplate"`
 	}
 	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		// Log the error but don't fail, as some Infisical instances might not support v2 templates or return already exists differently
-		return nil
+		return fmt.Errorf("parse create template response: %w\nresponse: %s", err, output)
+	}
+	return nil
+}
+
+func verifyPKITemplateExists(ctx context.Context, podName, adminJWT, projectID, name string) error {
+	output, err := kubectlExec(ctx, podName,
+		"curl", "-s",
+		"http://localhost:"+infisicalPort+PathPKITemplates+"/"+name+"?projectId="+projectID,
+		"-H", "Authorization: Bearer "+adminJWT,
+	)
+	if err != nil {
+		return fmt.Errorf("curl failed: %w", err)
+	}
+
+	if strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
+		return fmt.Errorf("template %q not found in API response", name)
+	}
+
+	var resp struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return fmt.Errorf("parse verify template response: %w\nresponse: %s", err, output)
+	}
+	if resp.CertificateTemplate.ID == "" {
+		return fmt.Errorf("verify template returned empty ID: %s", output)
 	}
 	return nil
 }
