@@ -55,6 +55,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		StringData: map[string]string{
 			"client-id":     result.ClientID,
 			"client-secret": result.ClientSecret,
+			"clientSecret":  result.ClientSecret, // pki-issuer v0.2.0 compat
 		},
 	}
 
@@ -87,6 +88,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		StringData: map[string]string{
 			"client-id":     result.ClientID,
 			"client-secret": result.ClientSecret,
+			"clientSecret":  result.ClientSecret, // pki-issuer v0.2.0 compat
 		},
 	}
 	_, err = clientset.CoreV1().Secrets(constants.NamespaceSecurity).Create(ctx, securitySecret, metav1.CreateOptions{})

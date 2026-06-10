@@ -71,6 +71,7 @@ func (bc *BootstrapClient) createInfisicalAuthSecret(ctx context.Context, client
 		StringData: map[string]string{
 			KeyClientID:     clientID,
 			KeyClientSecret: clientSecret,
+			"clientSecret":  clientSecret, // pki-issuer v0.2.0 compat
 		},
 	}
 

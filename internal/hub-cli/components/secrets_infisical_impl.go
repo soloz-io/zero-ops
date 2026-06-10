@@ -64,6 +64,7 @@ func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSe
 		StringData: map[string]string{
 			"client-id":     clientID,
 			"client-secret": clientSecret,
+			"clientSecret":  clientSecret, // pki-issuer v0.2.0 compat
 		},
 	}
 
