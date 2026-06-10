@@ -313,16 +313,18 @@ func kubectlExec(ctx context.Context, podName string, args ...string) (string, e
 func GetInfisicalPodName(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "kubectl", "get", "pods", "-n", infisicalNamespace,
 		"-l", "app=infisical-standalone,component=infisical",
-		"-o", "jsonpath={.items[0].metadata.name}")
+		"--field-selector", "status.phase=Running",
+		"-o", "go-template={{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{\"\\n\"}}{{end}}{{end}}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get infisical pod name: %w\noutput: %s", err, string(output))
 	}
-	name := strings.TrimSpace(string(output))
-	if name == "" {
-		return "", fmt.Errorf("no infisical pod found in namespace %s", infisicalNamespace)
+	
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return "", fmt.Errorf("no running infisical pod found in namespace %s", infisicalNamespace)
 	}
-	return name, nil
+	return strings.TrimSpace(lines[0]), nil
 }
 
 // runBootstrapCLI calls infisical bootstrap and returns the JSON output.
