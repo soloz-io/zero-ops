@@ -1,9 +1,10 @@
-namespace: platform-ops
+namespace: platform-security
 
 resources:
 - ../crd
 - ../rbac
 - ../manager
+- ghcr-pull-secret-es.yaml
 
 patches:
 - patch: |-

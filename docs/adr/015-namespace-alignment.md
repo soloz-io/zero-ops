@@ -17,7 +17,7 @@ During the implementation of Spoke cluster provisioning, we identified a hard se
 | `platform-identity` | Kratos, Keto, Hydra, kratos-ui |
 | `platform-data` | PostgreSQL clusters, PgBouncer, Redis, ClickHouse, CloudNativePG Operator |
 | `platform-ops` | ArgoCD/ArgoCD Agent, Argo-repo-Server, capi2argo, ESO, Crossplane, KEDA, cnpg2monitor, External-DNS, kube-sbt API, Kyverno |
-| `platform-security` | Infisical, SPIFFE/SPIRE, spire-k8s-registrar |
+| `platform-security` | Infisical, pki-issuer, SPIFFE/SPIRE, spire-k8s-registrar, spoke-identity-operator |
 | `platform-edge` | AgentGateway, auth-proxy, Ingress NGINX |
 | `platform-network` | Cilium |
 | `platform-observability` | VictoriaMetrics (Operator & Cluster), Grafana Alloy, VictoriaMetrics Alerts/Rules, Prometheus Operator |

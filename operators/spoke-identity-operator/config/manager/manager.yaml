@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: spoke-identity-operator
-  namespace: platform-ops
+  namespace: platform-security
   labels:
     control-plane: spoke-identity-operator
 spec:

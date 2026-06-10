@@ -26,7 +26,7 @@ spec:
             helmValues: ''
             helmReleaseName: ''
           - appName: 'spoke-identity-operator'
-            destinationNamespace: 'platform-ops'
+            destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
             syncWave: '3'
             repoURL: 'https://github.com/soloz-io/zero-ops'
