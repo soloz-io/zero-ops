@@ -17,8 +17,10 @@ metadata:
   name: infisical-signing-issuer
 spec:
   url: "https://infisical.nutgraf.in"
+  projectId: ""
   authentication:
     universalAuth:
+      clientId: ""
       secretRef:
         name: infisical-auth
         key: client-secret
