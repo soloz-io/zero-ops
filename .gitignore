@@ -10,3 +10,4 @@ docs/metrics
 kubeconfig.zero-ops/
 .zero-ops/
 .env
+fixes
