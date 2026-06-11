@@ -79,7 +79,7 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+constant.APIEndpointUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -242,8 +242,8 @@ func (c *InfisicalClient) getWorkspaceIdFromSlug(ctx context.Context, projectSlu
 
 // secretExists checks if a secret already exists
 func (c *InfisicalClient) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.baseURL, key, workspaceId, environmentSlug, secretPath)
+	url := fmt.Sprintf("%s%s/%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, constant.APIEndpointSecretsRaw, key, workspaceId, environmentSlug, secretPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -545,7 +545,7 @@ func (c *InfisicalClient) EnsurePKITemplate(ctx context.Context, projectSlug, ca
 }
 
 func (c *InfisicalClient) verifyPKITemplateExists(ctx context.Context, workspaceId, templateName string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v2/pki/certificate-templates/%s?projectId=%s", c.baseURL, templateName, workspaceId)
+	url := fmt.Sprintf("%s%s/%s?projectId=%s", c.baseURL, constant.APIEndpointPKITemplates, templateName, workspaceId)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return false, err
@@ -584,15 +584,15 @@ func (c *InfisicalClient) createPKITemplate(ctx context.Context, workspaceId, ca
 		"commonName":             ".*",
 		"subjectAlternativeName": ".*",
 		"ttl":                    fmt.Sprintf("%dh", ttlDays*24),
-		"keyUsages":              []string{"digital_signature", "key_encipherment"},
-		"extendedKeyUsages":      []string{"server_auth", "client_auth"},
+		"keyUsages":              []string{"digitalSignature", "keyEncipherment"},
+		"extendedKeyUsages":      []string{"serverAuth", "clientAuth"},
 	}
 	bodyData, err := json.Marshal(createReq)
 	if err != nil {
 		return err
 	}
 
-	url := fmt.Sprintf("%s/api/v2/pki/certificate-templates", c.baseURL)
+	url := fmt.Sprintf("%s%s", c.baseURL, constant.APIEndpointPKITemplates)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyData))
 	if err != nil {
 		return err

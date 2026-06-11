@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 	"time"
 )
 
@@ -57,7 +59,7 @@ func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*Lo
 		return nil, fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointLogin, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointLogin, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -94,7 +96,7 @@ func (api *BootstrapAPI) SelectOrganization(ctx context.Context, token, orgID st
 		return nil, fmt.Errorf("failed to marshal select organization request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointSelectOrg, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointSelectOrg, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create select organization request: %w", err)
 	}
@@ -133,7 +135,7 @@ func (api *BootstrapAPI) CreateProject(ctx context.Context, adminToken, projectN
 		return nil, fmt.Errorf("failed to marshal project request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointProjects, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointProjects, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create project request: %w", err)
 	}
@@ -171,7 +173,7 @@ func (api *BootstrapAPI) UpdateProjectSlug(ctx context.Context, adminToken, proj
 		return fmt.Errorf("failed to marshal update slug request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PATCH", api.baseURL+APIEndpointProjects+"/"+projectID, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", api.baseURL+constant.APIEndpointProjects+"/"+projectID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create update slug request: %w", err)
 	}
@@ -215,7 +217,7 @@ func (api *BootstrapAPI) CreateIdentity(ctx context.Context, adminToken, identit
 		return nil, fmt.Errorf("failed to marshal identity request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointIdentities, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointIdentities, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create identity request: %w", err)
 	}
@@ -269,7 +271,7 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 		return fmt.Errorf("failed to marshal attach auth request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointUniversalAuth+"/"+identityID, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create attach auth request: %w", err)
 	}
@@ -314,7 +316,7 @@ type UniversalAuthResponse struct {
 
 // GetUniversalAuth retrieves the universal auth configuration to get clientId
 func (api *BootstrapAPI) GetUniversalAuth(ctx context.Context, adminToken, identityID string) (*UniversalAuthResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUniversalAuth+"/"+identityID, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create get universal auth request: %w", err)
 	}
@@ -354,7 +356,7 @@ func (api *BootstrapAPI) GenerateClientCredentials(ctx context.Context, adminTok
 		return nil, fmt.Errorf("failed to marshal client credentials request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointUniversalAuth+"/"+identityID+APIEndpointClientSecrets, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID+constant.APIEndpointClientSecrets, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client credentials request: %w", err)
 	}
@@ -392,7 +394,7 @@ func (api *BootstrapAPI) GrantProjectAccess(ctx context.Context, adminToken, pro
 		return fmt.Errorf("failed to marshal grant access request: %w", err)
 	}
 
-	url := fmt.Sprintf(api.baseURL+APIEndpointProjectMemberships, projectID, identityID)
+	url := fmt.Sprintf(api.baseURL+constant.APIEndpointProjectMemberships, projectID, identityID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create grant access request: %w", err)
@@ -461,7 +463,7 @@ func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, proje
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(constant.APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}
@@ -496,7 +498,7 @@ func (api *BootstrapAPI) AddUserToProjectByEmail(ctx context.Context, adminToken
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(constant.APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}

@@ -68,7 +68,7 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+PathAuthUniversalAuthLogin, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+constant.APIEndpointUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -159,7 +159,7 @@ func (c *InfisicalClient) EnsureFolder(ctx context.Context, folderPath string) e
 			return fmt.Errorf("failed to marshal folder request for %s: %w", segment, err)
 		}
 
-		req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+PathFolders, bytes.NewReader(body))
+		req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+constant.APIEndpointFolders, bytes.NewReader(body))
 		if err != nil {
 			return fmt.Errorf("failed to create request for folder %s: %w", segment, err)
 		}
@@ -196,7 +196,7 @@ func (c *InfisicalClient) EnsureFolder(ctx context.Context, folderPath string) e
 // Returns an error if the secret doesn't exist or can't be fetched.
 func (c *InfisicalClient) GetSecret(ctx context.Context, secretPath, secretName string) (string, error) {
 	url := fmt.Sprintf("%s%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.BaseURL, fmt.Sprintf(PathSecretsRaw, secretName), c.ProjectID, c.EnvironmentSlug, secretPath)
+		c.BaseURL, fmt.Sprintf(constant.APIEndpointSecretsRawKey, secretName), c.ProjectID, c.EnvironmentSlug, secretPath)
 
 	req, err := c.newAuthenticatedRequest(ctx, "GET", url, nil)
 	if err != nil {
@@ -235,7 +235,7 @@ func (c *InfisicalClient) GetSecret(ctx context.Context, secretPath, secretName 
 // SecretExists checks if a secret exists in Infisical.
 func (c *InfisicalClient) SecretExists(ctx context.Context, secretPath, secretName string) (bool, error) {
 	url := fmt.Sprintf("%s%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.BaseURL, fmt.Sprintf(PathSecretsRaw, secretName), c.ProjectID, c.EnvironmentSlug, secretPath)
+		c.BaseURL, fmt.Sprintf(constant.APIEndpointSecretsRawKey, secretName), c.ProjectID, c.EnvironmentSlug, secretPath)
 
 	req, err := c.newAuthenticatedRequest(ctx, "GET", url, nil)
 	if err != nil {
@@ -279,7 +279,7 @@ func (c *InfisicalClient) CreateSecret(ctx context.Context, secretPath, secretNa
 		return fmt.Errorf("failed to marshal create secret request: %w", err)
 	}
 
-	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(PathSecretsRaw, secretName), bytes.NewReader(body))
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(constant.APIEndpointSecretsRawKey, secretName), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -318,7 +318,7 @@ func (c *InfisicalClient) UpdateSecret(ctx context.Context, secretPath, secretNa
 		return fmt.Errorf("failed to marshal update secret request: %w", err)
 	}
 
-	req, err := c.newAuthenticatedRequest(ctx, "PATCH", c.BaseURL+fmt.Sprintf(PathSecretsRaw, secretName), bytes.NewReader(body))
+	req, err := c.newAuthenticatedRequest(ctx, "PATCH", c.BaseURL+fmt.Sprintf(constant.APIEndpointSecretsRawKey, secretName), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -371,7 +371,7 @@ func (c *InfisicalClient) createMachineIdentityInInfisical(ctx context.Context, 
 		return "", fmt.Errorf("failed to marshal identity request: %w", err)
 	}
 
-	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+PathIdentities, bytes.NewReader(body))
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+constant.APIEndpointIdentities, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -427,7 +427,7 @@ func (c *InfisicalClient) attachUniversalAuth(ctx context.Context, identityID st
 		return fmt.Errorf("failed to marshal attach auth request: %w", err)
 	}
 
-	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID), bytes.NewReader(body))
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(constant.APIEndpointUniversalAuthIdentities, identityID), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -456,7 +456,7 @@ func (c *InfisicalClient) attachUniversalAuth(ctx context.Context, identityID st
 // getClientIDFromUniversalAuth retrieves the clientId from the Universal Auth
 // configuration via GET /api/v1/auth/universal-auth/identities/{identityId}.
 func (c *InfisicalClient) getClientIDFromUniversalAuth(ctx context.Context, identityID string) (string, error) {
-	req, err := c.newAuthenticatedRequest(ctx, "GET", c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthIdentities, identityID), nil)
+	req, err := c.newAuthenticatedRequest(ctx, "GET", c.BaseURL+fmt.Sprintf(constant.APIEndpointUniversalAuthIdentities, identityID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -499,7 +499,7 @@ func (c *InfisicalClient) generateClientSecret(ctx context.Context, identityID s
 		return "", fmt.Errorf("failed to marshal client secret request: %w", err)
 	}
 
-	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(PathAuthUniversalAuthClientSecrets, identityID), bytes.NewReader(body))
+	req, err := c.newAuthenticatedRequest(ctx, "POST", c.BaseURL+fmt.Sprintf(constant.APIEndpointUniversalAuthClientSecrets, identityID), bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -529,7 +529,7 @@ func (c *InfisicalClient) generateClientSecret(ctx context.Context, identityID s
 // findIdentityByName looks up a Machine Identity by name within the organization.
 // Returns the identity ID if found, or empty string and nil if not found.
 func (c *InfisicalClient) findIdentityByName(ctx context.Context, name, orgID string) (string, error) {
-	url := fmt.Sprintf("%s%s?orgId=%s&limit=100", c.BaseURL, PathIdentities, orgID)
+	url := fmt.Sprintf("%s%s?orgId=%s&limit=100", c.BaseURL, constant.APIEndpointIdentities, orgID)
 	req, err := c.newAuthenticatedRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
@@ -580,7 +580,7 @@ func (c *InfisicalClient) grantProjectAccess(ctx context.Context, identityID, ro
 		return fmt.Errorf("failed to marshal grant access request: %w", err)
 	}
 
-	url := c.BaseURL + fmt.Sprintf(PathProjectMembershipsIdentities, c.ProjectID, identityID)
+	url := c.BaseURL + fmt.Sprintf(constant.APIEndpointProjectMemberships, c.ProjectID, identityID)
 	req, err := c.newAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return err
