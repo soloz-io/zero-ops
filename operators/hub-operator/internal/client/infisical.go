@@ -584,6 +584,8 @@ func (c *InfisicalClient) createPKITemplate(ctx context.Context, workspaceId, ca
 		"commonName":             ".*",
 		"subjectAlternativeName": ".*",
 		"ttl":                    fmt.Sprintf("%dh", ttlDays*24),
+		"keyUsages":              []string{"digital_signature", "key_encipherment"},
+		"extendedKeyUsages":      []string{"server_auth", "client_auth"},
 	}
 	bodyData, err := json.Marshal(createReq)
 	if err != nil {

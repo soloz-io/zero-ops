@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -192,7 +193,7 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 			"reason":             c.Reason,
 			"message":            c.Message,
 			"observedGeneration": latest.GetGeneration(),
-			"lastTransitionTime": metav1.Now().Format("2006-01-02T15:04:05Z"),
+			"lastTransitionTime": c.LastTransitionTime.Format(time.RFC3339),
 		})
 	}
 
