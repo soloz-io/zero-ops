@@ -227,9 +227,13 @@ func (r *SpokePoolReconciler) ensureBootstrapCertificate(ctx context.Context, sp
 	cert.SetNamespace("platform-capi")
 
 	// Check if already exists (idempotent)
-	if err := r.Get(ctx, client.ObjectKeyFromObject(cert), cert); err == nil {
+	err := r.Get(ctx, client.ObjectKeyFromObject(cert), cert)
+	if err == nil {
 		logger.Info("Bootstrap Certificate already exists", "certificate", cert.GetName())
 		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
 	}
 
 	// Safe map assignment to preserve GVK
@@ -269,6 +273,12 @@ func (r *SpokePoolReconciler) ensureBootstrapCertificate(ctx context.Context, sp
 		},
 	}
 
+	logger.Info(
+		"Certificate before create",
+		"gvk", cert.GroupVersionKind().String(),
+		"object", cert.Object,
+	)
+
 	if err := r.Create(ctx, cert); err != nil {
 		return fmt.Errorf("create bootstrap Certificate CR: %w", err)
 	}
@@ -298,9 +308,13 @@ func (r *SpokePoolReconciler) ensureSpokeMachineIdentity(ctx context.Context, sp
 	smi.SetNamespace("platform-capi")
 
 	// Check if already exists (idempotent)
-	if err := r.Get(ctx, client.ObjectKeyFromObject(smi), smi); err == nil {
+	err := r.Get(ctx, client.ObjectKeyFromObject(smi), smi)
+	if err == nil {
 		logger.Info("SpokeMachineIdentity already exists", "smi", smi.GetName())
 		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
 	}
 
 	// Safe map assignment to preserve GVK
@@ -341,6 +355,12 @@ func (r *SpokePoolReconciler) ensureSpokeMachineIdentity(ctx context.Context, sp
 			"gracePeriod":    "72h",
 		},
 	}
+
+	logger.Info(
+		"SpokeMachineIdentity before create",
+		"gvk", smi.GroupVersionKind().String(),
+		"object", smi.Object,
+	)
 
 	if err := r.Create(ctx, smi); err != nil {
 		return fmt.Errorf("create SpokeMachineIdentity CR: %w", err)

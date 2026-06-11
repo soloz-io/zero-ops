@@ -27,3 +27,9 @@ repos:
         pass_filenames: true
         types: [yaml]
         files: '\.yaml$'
+      - id: hub-operator-build
+        name: Build Hub Operator
+        entry: bash -c "cd operators/hub-operator && make build"
+        language: system
+        pass_filenames: false
+        files: 'operators/hub-operator/.*\.go$'
