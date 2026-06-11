@@ -11,6 +11,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -502,28 +503,44 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 func (c *InfisicalClient) EnsurePKITemplate(ctx context.Context, projectSlug, caName, templateName string, ttlDays int) error {
 	logger := log.FromContext(ctx)
 
-	if err := c.ensureAuthenticated(ctx); err != nil {
-		return fmt.Errorf("failed to authenticate: %w", err)
-	}
+	var lastErr error
+	err := wait.PollImmediateWithContext(ctx, 5*time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
+		if err := c.ensureAuthenticated(ctx); err != nil {
+			lastErr = fmt.Errorf("failed to authenticate: %w", err)
+			return false, nil // retriable
+		}
 
-	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+		workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get workspace ID: %w", err)
+			return false, nil // retriable
+		}
+
+		exists, err := c.verifyPKITemplateExists(ctx, workspaceId, templateName)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to check if PKI template exists: %w", err)
+			return false, nil // retriable
+		}
+		if exists {
+			logger.Info("PKI template already exists", "templateName", templateName)
+			return true, nil
+		}
+
+		if err := c.createPKITemplate(ctx, workspaceId, caName, templateName, ttlDays); err != nil {
+			lastErr = fmt.Errorf("failed to create PKI template: %w", err)
+			return false, nil // retriable
+		}
+
+		logger.Info("Successfully created PKI template", "templateName", templateName)
+		return true, nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to get workspace ID: %w", err)
+		if err == context.DeadlineExceeded || err == wait.ErrWaitTimeout {
+			return fmt.Errorf("timeout ensuring PKI template %s: %w", templateName, lastErr)
+		}
+		return err
 	}
-
-	exists, err := c.verifyPKITemplateExists(ctx, workspaceId, templateName)
-	if err != nil {
-		return fmt.Errorf("failed to check if PKI template exists: %w", err)
-	}
-	if exists {
-		logger.Info("PKI template already exists", "templateName", templateName)
-		return nil
-	}
-
-	if err := c.createPKITemplate(ctx, workspaceId, caName, templateName, ttlDays); err != nil {
-		return fmt.Errorf("failed to create PKI template: %w", err)
-	}
-	logger.Info("Successfully created PKI template", "templateName", templateName)
 	return nil
 }
 

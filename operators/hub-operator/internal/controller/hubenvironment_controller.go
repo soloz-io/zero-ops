@@ -289,12 +289,6 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("Infisical already bootstrapped, skipping")
 	}
 
-	// Enforce PKI Templates (Self-Healing)
-	if err := r.ensurePKITemplates(ctx, hubEnv); err != nil {
-		logger.Error(err, "Failed to ensure PKI templates")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
-	}
-
 	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
 	// This runs regardless of whether bootstrap just occurred or was already done
 	// Makes Infisical the Source of Truth for all secrets
@@ -312,6 +306,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Error(err, "Failed to upload application secrets, continuing...")
 	} else {
 		logger.Info("Application secrets uploaded to Infisical")
+	}
+
+	// Enforce PKI Templates (Self-Healing)
+	if err := r.ensurePKITemplates(ctx, hubEnv); err != nil {
+		logger.Error(err, "Failed to ensure PKI templates")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
 	logger.Info("Phase 0 complete: Infisical bootstrapped")
