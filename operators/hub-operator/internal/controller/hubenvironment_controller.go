@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -335,26 +336,34 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			"keto-db-credentials":          infisical.NamespaceIdentity,
 		}
 
-		allSecretsExist := true
-		missingSecrets := []string{}
+		var missingSecrets []string
+		var allSecretsExist bool
 
-		for secretName, namespace := range requiredSecrets {
-			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{
-				Name:      secretName,
-				Namespace: namespace,
-			}, secret); err != nil {
-				if errors.IsNotFound(err) {
-					logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
-					allSecretsExist = false
-					missingSecrets = append(missingSecrets, secretName)
-				} else {
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		// Wait IN-PLACE for ESO to create application secrets instead of requeuing
+		// This prevents Phase 0 from re-running every 10s and bombarding Infisical with API requests
+		err := wait.PollImmediateWithContext(ctx, 2*time.Second, 1*time.Minute, func(ctx context.Context) (bool, error) {
+			allSecretsExist = true
+			missingSecrets = []string{}
+
+			for secretName, namespace := range requiredSecrets {
+				secret := &corev1.Secret{}
+				if err := r.Get(ctx, client.ObjectKey{
+					Name:      secretName,
+					Namespace: namespace,
+				}, secret); err != nil {
+					if errors.IsNotFound(err) {
+						logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
+						allSecretsExist = false
+						missingSecrets = append(missingSecrets, secretName)
+					} else {
+						return false, err
+					}
 				}
 			}
-		}
+			return allSecretsExist, nil
+		})
 
-		if !allSecretsExist {
+		if err != nil || !allSecretsExist {
 			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 				Type:               "ApplicationSecretsReady",
 				Status:             metav1.ConditionFalse,
@@ -362,9 +371,10 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Message:            fmt.Sprintf("Waiting for ESO to create secrets: %s", strings.Join(missingSecrets, ", ")),
 				ObservedGeneration: hubEnv.Generation,
 			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
+			if updateErr := r.Status().Update(ctx, hubEnv); updateErr != nil {
+				return ctrl.Result{}, updateErr
 			}
+			// If we timed out after 1 minute, requeue and try again
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 

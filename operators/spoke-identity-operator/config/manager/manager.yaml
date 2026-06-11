@@ -23,21 +23,23 @@ spec:
         - name: INFISICAL_CLIENT_ID
           valueFrom:
             secretKeyRef:
-              name: spoke-identity-operator-infisical
-              key: clientId
+              name: infisical-auth
+              key: client-id
         - name: INFISICAL_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
-              name: spoke-identity-operator-infisical
-              key: clientSecret
+              name: infisical-auth
+              key: client-secret
         - name: INFISICAL_ORGANIZATION_ID
           valueFrom:
-            fieldRef:
-              fieldPath: metadata.annotations['infisical.nutgraf.in/organizationId']
+            secretKeyRef:
+              name: infisical-auth
+              key: orgId
         - name: INFISICAL_PROJECT_ID
           valueFrom:
-            fieldRef:
-              fieldPath: metadata.annotations['infisical.nutgraf.in/projectId']
+            secretKeyRef:
+              name: infisical-auth
+              key: projectId
         args:
         - --infisical-url=http://infisical-standalone-infisical.platform-security.svc:8080
         - --infisical-org-id=$(INFISICAL_ORGANIZATION_ID)
