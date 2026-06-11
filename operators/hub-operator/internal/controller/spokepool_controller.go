@@ -232,40 +232,40 @@ func (r *SpokePoolReconciler) ensureBootstrapCertificate(ctx context.Context, sp
 		return nil
 	}
 
-	cert.Object = map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"name":      cert.GetName(),
-			"namespace": cert.GetNamespace(),
-			"labels": map[string]interface{}{
-				"platform.nutgraf.in/bootstrap": "true",
-				"platform.nutgraf.in/spoke":     spokeName,
-			},
-			"ownerReferences": []interface{}{
-				map[string]interface{}{
-					"apiVersion":         "nutgraf.in/v1alpha1",
-					"kind":               "SpokePool",
-					"name":               spokePool.GetName(),
-					"uid":                string(spokePool.GetUID()),
-					"controller":         true,
-					"blockOwnerDeletion": true,
-				},
-			},
+	// Safe map assignment to preserve GVK
+	if cert.Object["metadata"] == nil {
+		cert.Object["metadata"] = map[string]interface{}{}
+	}
+	cert.Object["metadata"].(map[string]interface{})["name"] = cert.GetName()
+	cert.Object["metadata"].(map[string]interface{})["namespace"] = cert.GetNamespace()
+	cert.Object["metadata"].(map[string]interface{})["labels"] = map[string]interface{}{
+		"platform.nutgraf.in/bootstrap": "true",
+	}
+	cert.Object["metadata"].(map[string]interface{})["ownerReferences"] = []interface{}{
+		map[string]interface{}{
+			"apiVersion":         "nutgraf.in/v1alpha1",
+			"kind":               "SpokePool",
+			"name":               spokePool.GetName(),
+			"uid":                string(spokePool.GetUID()),
+			"controller":         true,
+			"blockOwnerDeletion": true,
 		},
-		"spec": map[string]interface{}{
-			"commonName":  fmt.Sprintf("argocd-agent.%s", spokeName),
-			"duration":    "72h",
-			"renewBefore": "24h",
-			"isCA":        false,
-			"usages": []interface{}{
-				"server auth",
-				"client auth",
-			},
-			"issuerRef": map[string]interface{}{
-				"name":  "infisical-fleet-issuer",
-				"kind":  "ClusterIssuer",
-				"group": "infisical-issuer.infisical.com",
-			},
-			"secretName": fmt.Sprintf("argocd-agent-%s-tls", spokeName),
+	}
+
+	cert.Object["spec"] = map[string]interface{}{
+		"secretName":  fmt.Sprintf("argocd-agent-%s-tls", spokeName),
+		"duration":    "72h",
+		"renewBefore": "36h",
+		"commonName":  fmt.Sprintf("argocd-agent.%s", spokeName),
+		"isCA":        false,
+		"usages": []interface{}{
+			"server auth",
+			"client auth",
+		},
+		"issuerRef": map[string]interface{}{
+			"name":  "infisical-fleet-issuer",
+			"kind":  "ClusterIssuer",
+			"group": "infisical-issuer.infisical.com",
 		},
 	}
 
@@ -303,41 +303,42 @@ func (r *SpokePoolReconciler) ensureSpokeMachineIdentity(ctx context.Context, sp
 		return nil
 	}
 
-	smi.Object = map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"name":      smi.GetName(),
-			"namespace": smi.GetNamespace(),
-			"labels": map[string]interface{}{
-				"platform.nutgraf.in/spoke": spokeName,
-			},
-			"ownerReferences": []interface{}{
-				map[string]interface{}{
-					"apiVersion":         "nutgraf.in/v1alpha1",
-					"kind":               "SpokePool",
-					"name":               spokePool.GetName(),
-					"uid":                string(spokePool.GetUID()),
-					"controller":         true,
-					"blockOwnerDeletion": true,
-				},
-			},
+	// Safe map assignment to preserve GVK
+	if smi.Object["metadata"] == nil {
+		smi.Object["metadata"] = map[string]interface{}{}
+	}
+	smi.Object["metadata"].(map[string]interface{})["name"] = smi.GetName()
+	smi.Object["metadata"].(map[string]interface{})["namespace"] = smi.GetNamespace()
+	smi.Object["metadata"].(map[string]interface{})["labels"] = map[string]interface{}{
+		"platform.nutgraf.in/spoke": spokeName,
+	}
+	smi.Object["metadata"].(map[string]interface{})["ownerReferences"] = []interface{}{
+		map[string]interface{}{
+			"apiVersion":         "nutgraf.in/v1alpha1",
+			"kind":               "SpokePool",
+			"name":               spokePool.GetName(),
+			"uid":                string(spokePool.GetUID()),
+			"controller":         true,
+			"blockOwnerDeletion": true,
 		},
-		"spec": map[string]interface{}{
-			"spokeRef": map[string]interface{}{
-				"name": spokeName,
-			},
-			"infisical": map[string]interface{}{
-				"authMethod":      "universal-auth",
-				"clientSecretTTL": "90d",
-			},
-			"rotationPolicy": map[string]interface{}{
-				"enabled":       true,
-				"interval":      "60d",
-				"overlapPeriod": "24h",
-			},
-			"revocationPolicy": map[string]interface{}{
-				"revokeOnDelete": true,
-				"gracePeriod":    "72h",
-			},
+	}
+
+	smi.Object["spec"] = map[string]interface{}{
+		"spokeRef": map[string]interface{}{
+			"name": spokeName,
+		},
+		"infisical": map[string]interface{}{
+			"authMethod":      "universal-auth",
+			"clientSecretTTL": "90d",
+		},
+		"rotationPolicy": map[string]interface{}{
+			"enabled":       true,
+			"interval":      "60d",
+			"overlapPeriod": "24h",
+		},
+		"revocationPolicy": map[string]interface{}{
+			"revokeOnDelete": true,
+			"gracePeriod":    "72h",
 		},
 	}
 
