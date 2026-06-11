@@ -95,18 +95,6 @@ func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID
 		fmt.Printf("[infisical-bootstrap] ✓ Certificate profile %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
 	}
 
-	// Phase 4: Create each required PKI Template idempotently (for v0.2.0 compatibility)
-	for _, p := range requiredProfiles {
-		if err := createPKITemplate(ctx, podName, adminJWT, projectID, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
-			return fmt.Errorf("create PKI template %q: %w", p.Slug, err)
-		}
-		fmt.Printf("[infisical-bootstrap] ✓ PKI template %q created (TTL: %d days)\n", p.Slug, p.TTLDays)
-		
-		if err := verifyPKITemplateExists(ctx, podName, adminJWT, projectID, p.Slug); err != nil {
-			return fmt.Errorf("verify PKI template %q: %w", p.Slug, err)
-		}
-	}
-
 	return nil
 }
 
@@ -211,65 +199,6 @@ func createCertProfile(ctx context.Context, podName, adminJWT, projectID, caID, 
 	}
 	if resp.CertificateProfile.ID == "" {
 		return fmt.Errorf("create profile returned empty ID: %s", output)
-	}
-	return nil
-}
-
-func createPKITemplate(ctx context.Context, podName, adminJWT, projectID, caName, name string, ttlDays int) error {
-	body := fmt.Sprintf(
-		`{"projectId":"%s","caName":"%s","name":"%s","commonName":".*","subjectAlternativeName":".*","ttl":"%dh"}`,
-		projectID, caName, name, ttlDays*24,
-	)
-	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
-		"http://localhost:"+infisicalPort+PathPKITemplates,
-		"-H", "Content-Type: application/json",
-		"-H", "Authorization: Bearer "+adminJWT,
-		"-d", body,
-	)
-	if err != nil {
-		return fmt.Errorf("curl failed: %w", err)
-	}
-
-	if strings.Contains(output, "already exists") || strings.Contains(output, "Conflict") {
-		return nil
-	}
-
-	var resp struct {
-		CertificateTemplate struct {
-			ID string `json:"id"`
-		} `json:"certificateTemplate"`
-	}
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return fmt.Errorf("parse create template response: %w\nresponse: %s", err, output)
-	}
-	return nil
-}
-
-func verifyPKITemplateExists(ctx context.Context, podName, adminJWT, projectID, name string) error {
-	output, err := kubectlExec(ctx, podName,
-		"curl", "-s",
-		"http://localhost:"+infisicalPort+PathPKITemplates+"/"+name+"?projectId="+projectID,
-		"-H", "Authorization: Bearer "+adminJWT,
-	)
-	if err != nil {
-		return fmt.Errorf("curl failed: %w", err)
-	}
-
-	if strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
-		return fmt.Errorf("template %q not found in API response", name)
-	}
-
-	var resp struct {
-		CertificateTemplate struct {
-			ID string `json:"id"`
-		} `json:"certificateTemplate"`
-	}
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return fmt.Errorf("parse verify template response: %w\nresponse: %s", err, output)
-	}
-	if resp.CertificateTemplate.ID == "" {
-		return fmt.Errorf("verify template returned empty ID: %s", output)
 	}
 	return nil
 }

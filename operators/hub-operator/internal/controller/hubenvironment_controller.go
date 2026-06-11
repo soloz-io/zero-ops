@@ -289,6 +289,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("Infisical already bootstrapped, skipping")
 	}
 
+	// Enforce PKI Templates (Self-Healing)
+	if err := r.ensurePKITemplates(ctx, hubEnv); err != nil {
+		logger.Error(err, "Failed to ensure PKI templates")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
 	// Upload CLI-injected secrets to Infisical (bootstrap secrets from K8s)
 	// This runs regardless of whether bootstrap just occurred or was already done
 	// Makes Infisical the Source of Truth for all secrets
@@ -1091,5 +1097,40 @@ func (r *HubEnvironmentReconciler) removeFinalizer(ctx context.Context, secretNa
 	}
 
 	log.FromContext(ctx).Info("Removed finalizer from secret", "secret", secretName, "namespace", namespace)
+	return nil
+}
+
+// ensurePKITemplates enforces the existence of required PKI templates in Infisical.
+func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+
+	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
+	if err != nil {
+		return fmt.Errorf("failed to create Infisical client for PKI templates: %w", err)
+	}
+
+	projectSlug := "hub-platform"
+	if hubEnv.Spec.Secrets.Infisical.ProjectSlug != "" {
+		projectSlug = hubEnv.Spec.Secrets.Infisical.ProjectSlug
+	}
+
+	// Required profiles matching CLI logic
+	type certProfile struct {
+		Slug    string
+		TTLDays int
+	}
+	requiredProfiles := []certProfile{
+		{Slug: "infrastructure-services", TTLDays: 90},
+		{Slug: "argocd-principals", TTLDays: 90},
+		{Slug: "argocd-agents", TTLDays: 90},
+	}
+
+	for _, p := range requiredProfiles {
+		if err := infisicalClient.EnsurePKITemplate(ctx, projectSlug, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
+			return fmt.Errorf("ensure PKI template %q failed: %w", p.Slug, err)
+		}
+	}
+
+	logger.Info("PKI templates ensured successfully")
 	return nil
 }

@@ -497,3 +497,116 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 	logger.Info("Tenant folder hierarchy ensured in Infisical", "cellID", cellID, "tenantID", tenantID)
 	return nil
 }
+
+// EnsurePKITemplate idempotently ensures a PKI template exists in Infisical.
+func (c *InfisicalClient) EnsurePKITemplate(ctx context.Context, projectSlug, caName, templateName string, ttlDays int) error {
+	logger := log.FromContext(ctx)
+
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	exists, err := c.verifyPKITemplateExists(ctx, workspaceId, templateName)
+	if err != nil {
+		return fmt.Errorf("failed to check if PKI template exists: %w", err)
+	}
+	if exists {
+		logger.Info("PKI template already exists", "templateName", templateName)
+		return nil
+	}
+
+	if err := c.createPKITemplate(ctx, workspaceId, caName, templateName, ttlDays); err != nil {
+		return fmt.Errorf("failed to create PKI template: %w", err)
+	}
+	logger.Info("Successfully created PKI template", "templateName", templateName)
+	return nil
+}
+
+func (c *InfisicalClient) verifyPKITemplateExists(ctx context.Context, workspaceId, templateName string) (bool, error) {
+	url := fmt.Sprintf("%s/api/v2/pki/certificate-templates/%s?projectId=%s", c.baseURL, templateName, workspaceId)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return result.CertificateTemplate.ID != "", nil
+}
+
+func (c *InfisicalClient) createPKITemplate(ctx context.Context, workspaceId, caName, templateName string, ttlDays int) error {
+	createReq := map[string]interface{}{
+		"projectId":              workspaceId,
+		"caName":                 caName,
+		"name":                   templateName,
+		"commonName":             ".*",
+		"subjectAlternativeName": ".*",
+		"ttl":                    fmt.Sprintf("%dh", ttlDays*24),
+	}
+	bodyData, err := json.Marshal(createReq)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s/api/v2/pki/certificate-templates", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusConflict {
+		return nil
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return fmt.Errorf("failed to parse create template response: %w", err)
+	}
+	if result.CertificateTemplate.ID == "" {
+		return fmt.Errorf("API response returned empty ID: %s", string(bodyBytes))
+	}
+
+	return nil
+}
