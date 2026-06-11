@@ -21,6 +21,38 @@ spec:
             chart: 'infisical-standalone'
             valueFilesPath: 'manifests/hub-core-services/infisical/values.yaml'
             helmReleaseName: 'infisical-standalone'
+            extraManifestsPath: ''
+            ignoreDifferencesExtSecrets: 'false'
+          - appName: 'ory-hydra'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'hydra'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-hydra/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-hydra'
+            ignoreDifferencesExtSecrets: 'true'
+          - appName: 'ory-keto'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'keto'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-keto/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-keto'
+            ignoreDifferencesExtSecrets: 'true'
+          - appName: 'ory-kratos'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'kratos'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-kratos/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-kratos'
+            ignoreDifferencesExtSecrets: 'true'
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -50,5 +82,40 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+        retry:
+          limit: 15
+          backoff:
+            duration: 30s
+            maxDuration: 10m
+  templatePatch: |
+    {{"{{-"}} if or (ne .extraManifestsPath "") (eq .ignoreDifferencesExtSecrets "true") {{"}}"}}
+    spec:
+      {{"{{-"}} if ne .extraManifestsPath "" {{"}}"}}
+      sources:
+        - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+          chart: '{{"{{"}} .chart {{"}}"}}'
+          targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'
+          helm:
+            releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+            valueFiles:
+              - $values/{{"{{"}} .valueFilesPath {{"}}"}}
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          ref: values
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          path: '{{"{{"}} .extraManifestsPath {{"}}"}}'
+      {{"{{-"}} end {{"}}"}}
+      {{"{{-"}} if eq .ignoreDifferencesExtSecrets "true" {{"}}"}}
+      ignoreDifferences:
+        - group: external-secrets.io
+          kind: ExternalSecret
+          managedFieldsManagers:
+            - external-secrets
+          jsonPointers:
+            - /metadata/finalizers
+            - /status
+      {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

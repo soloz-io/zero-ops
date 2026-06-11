@@ -25,6 +25,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'spoke-identity-operator'
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
@@ -37,6 +38,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'clickhouse-operator'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'
@@ -53,6 +55,7 @@ spec:
                   - name: WATCH_NAMESPACES
                     value: ".*"
             helmReleaseName: 'clickhouse-operator'
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -65,6 +68,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-argocd-github-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -77,6 +81,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-capi2argo'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -89,6 +94,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'hub-environment'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -101,6 +107,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'infrastructure-provider'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -113,6 +120,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'grafana-alloy'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
@@ -125,6 +133,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-identity'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -137,6 +146,46 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+          - appName: 'kratos-selfservice-ui'
+            destinationNamespace: 'platform-identity'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/identity/kratos-ui'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+          - appName: 'auth-proxy'
+            destinationNamespace: 'platform-identity'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/identity/auth-proxy'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: 'true'
+          - appName: 'mcp-server'
+            destinationNamespace: 'platform-controlplane'
+            isPlatformOwned: 'true'
+            syncWave: ''
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/api-gateway/mcp-server'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-infisical-prerequisites'
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
@@ -149,6 +198,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
 
           - appName: 'hub-operator'
             destinationNamespace: 'platform-ops'
@@ -162,6 +212,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'prometheus-operator'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
@@ -186,6 +237,7 @@ spec:
               nodeExporter:
                 enabled: false
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-spire'
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
@@ -198,6 +250,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'victoria-metrics-alerts'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'true'
@@ -210,6 +263,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-victoriametrics-infisical'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'true'
@@ -222,6 +276,7 @@ spec:
             directoryInclude: 'infisical-integration.yaml'
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'victoriametrics-ingress'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
@@ -234,6 +289,7 @@ spec:
             directoryInclude: 'ingress.yaml'
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'victoria-metrics-operator'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
@@ -246,6 +302,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'victoria-metrics-cluster'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
@@ -289,6 +346,7 @@ spec:
                     memory: 4Gi
               retentionPeriod: 30d
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'kube-sbt-api'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -301,6 +359,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'network-policies'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -313,6 +372,7 @@ spec:
             directoryInclude: 'network-policies.yaml'
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'openmeter-secrets'
             destinationNamespace: 'platform-billing'
             isPlatformOwned: 'true'
@@ -325,6 +385,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'openmeter'
             destinationNamespace: 'platform-billing'
             isPlatformOwned: 'true'
@@ -337,6 +398,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           # ──────────────────────────────────────────────────────────────────────
           # Ingress NGINX controller — deployed here (03-platform-services) so
           # its validating webhook is guaranteed up before any Ingress resources
@@ -363,6 +425,7 @@ spec:
               defaultBackend:
                 enabled: false
             helmReleaseName: 'ingress-nginx'
+            ignoreDifferencesNamespace: ''
           - appName: 'ingress-config'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -375,6 +438,7 @@ spec:
             directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-spoke-bootstrap-templates'
             destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
@@ -387,6 +451,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-spoke-pool-xrds'
             destinationNamespace: 'default'
             isPlatformOwned: 'true'
@@ -399,6 +464,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-spoke-pools'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -411,6 +477,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
           - appName: 'platform-tenant-platform'
             destinationNamespace: 'default'
             isPlatformOwned: 'true'
@@ -423,6 +490,7 @@ spec:
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -456,6 +524,15 @@ spec:
       source:
         directory:
           recurse: true
+    {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .ignoreDifferencesNamespace "true" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - kind: Namespace
+          name: '{{"{{"}} .destinationNamespace {{"}}"}}'
+          jsonPointers:
+            - /metadata/annotations
+            - /metadata/labels
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}
