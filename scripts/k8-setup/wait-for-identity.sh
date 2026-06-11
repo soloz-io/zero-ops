@@ -30,7 +30,7 @@ while [[ $identity_attempt -le $identity_max_attempts ]]; do
     
     # Log hints for debugging if taking a long time
     if [[ $((identity_attempt % 6)) -eq 0 ]]; then
-        log "  Hint: Check 'kubectl get externalsecret -n platform-identity' or 'argocd app get ory-hydra'"
+        log "  Hint: Check 'kubectl get externalsecret -n platform-identity'"
     fi
     
     sleep 10
