@@ -146,11 +146,27 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 				continue
 			}
 
+			var transitionTime metav1.Time
+			if timeStr, ok := condMap["lastTransitionTime"].(string); ok {
+				if parsedTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
+					transitionTime = metav1.NewTime(parsedTime)
+				}
+			}
+
+			var obsGen int64
+			if genFlt, ok := condMap["observedGeneration"].(float64); ok {
+				obsGen = int64(genFlt)
+			} else if genInt, ok := condMap["observedGeneration"].(int64); ok {
+				obsGen = genInt
+			}
+
 			metaConditions = append(metaConditions, metav1.Condition{
-				Type:    typeVal,
-				Status:  metav1.ConditionStatus(statusVal),
-				Reason:  reasonVal,
-				Message: messageVal,
+				Type:               typeVal,
+				Status:             metav1.ConditionStatus(statusVal),
+				Reason:             reasonVal,
+				Message:            messageVal,
+				LastTransitionTime: transitionTime,
+				ObservedGeneration: obsGen,
 			})
 		}
 	}
