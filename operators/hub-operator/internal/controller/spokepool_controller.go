@@ -153,20 +153,12 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 				}
 			}
 
-			var obsGen int64
-			if genFlt, ok := condMap["observedGeneration"].(float64); ok {
-				obsGen = int64(genFlt)
-			} else if genInt, ok := condMap["observedGeneration"].(int64); ok {
-				obsGen = genInt
-			}
-
 			metaConditions = append(metaConditions, metav1.Condition{
 				Type:               typeVal,
 				Status:             metav1.ConditionStatus(statusVal),
 				Reason:             reasonVal,
 				Message:            messageVal,
 				LastTransitionTime: transitionTime,
-				ObservedGeneration: obsGen,
 			})
 		}
 	}
@@ -200,7 +192,7 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 
 	meta.SetStatusCondition(&metaConditions, condition)
 
-	// Serialise back including observedGeneration — now declared in SpokePool XRD status schema.
+	// Serialise back to unstructured map format for Crossplane.
 	var newConditions []interface{}
 	for _, c := range metaConditions {
 		newConditions = append(newConditions, map[string]interface{}{
@@ -208,7 +200,6 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 			"status":             string(c.Status),
 			"reason":             c.Reason,
 			"message":            c.Message,
-			"observedGeneration": latest.GetGeneration(),
 			"lastTransitionTime": c.LastTransitionTime.Format(time.RFC3339),
 		})
 	}

@@ -221,6 +221,7 @@ type HubEnvironmentStatus struct {
 	// Conditions represent the current state of the HubEnvironment resource.
 	// Standard condition types:
 	// - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
+	// - ExternalSecretsReady: External Secrets Operator is fully operational and capable of admitting secrets
 	// - SecretsBackedUp: Secrets have been uploaded to Infisical
 	// - OAuthClientsRegistered: OAuth clients have been registered with Hydra
 	// - NATSStreamsConfigured: NATS JetStream streams have been created

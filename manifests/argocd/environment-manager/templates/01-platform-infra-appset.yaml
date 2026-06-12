@@ -139,6 +139,24 @@ spec:
                     hs.message = "Waiting for Crossplane function to be installed and healthy"
                     return hs
 
+                  # ValidatingWebhookConfiguration health check
+                  # Ensures ArgoCD waits for the caBundle to be injected by controllers (like ESO cert-controller)
+                  # before considering the webhook healthy and proceeding to next sync waves or boundaries.
+                  resource.customizations.health.admissionregistration.k8s.io_ValidatingWebhookConfiguration: |
+                    hs = {}
+                    hs.status = "Healthy"
+                    hs.message = "Webhook is healthy"
+                    if obj.webhooks ~= nil then
+                      for i, webhook in ipairs(obj.webhooks) do
+                        if webhook.clientConfig ~= nil and webhook.clientConfig.service ~= nil and (webhook.clientConfig.caBundle == nil or webhook.clientConfig.caBundle == "") then
+                          hs.status = "Progressing"
+                          hs.message = "Waiting for caBundle to be injected into " .. webhook.name
+                          return hs
+                        end
+                      end
+                    end
+                    return hs
+
               # ArgoCD server ingress is deployed in 03-platform-services (after
               # ingress-nginx controller is healthy). This avoids the webhook
               # race: ingress-nginx controller must be running before any Ingress

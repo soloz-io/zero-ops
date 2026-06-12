@@ -188,7 +188,7 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 
 	meta.SetStatusCondition(&metaConditions, cond)
 
-	// Serialise back including observedGeneration — now declared in AINativeSaaS XRD status schema.
+	// Serialise back to unstructured map format for Crossplane.
 	var updated []interface{}
 	for _, c := range metaConditions {
 		updated = append(updated, map[string]interface{}{
@@ -196,7 +196,6 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 			"status":             string(c.Status),
 			"reason":             c.Reason,
 			"message":            c.Message,
-			"observedGeneration": latest.GetGeneration(),
 			"lastTransitionTime": metav1.Now().Format("2006-01-02T15:04:05Z"),
 		})
 	}
