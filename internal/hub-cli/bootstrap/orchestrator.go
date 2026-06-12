@@ -214,6 +214,26 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 11a.5: Wait for ExternalSecrets readiness ───────────────
+	// Gating Phase 11b/11c/11e on the ESO webhook being fully operational
+	// so ArgoCD can successfully sync ExternalSecrets without rejection.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseWaitExternalSecrets, "wait-external-secrets",
+		"Waiting for ExternalSecrets to be fully operational...",
+		func() error {
+			waiter := &health.HealthWaiter{
+				Checkers: []health.HealthChecker{
+					health.NewExternalSecretsReadyHealth("platform-ops"),
+				},
+				Interval: 5 * time.Second,
+				Timeout:  5 * time.Minute,
+			}
+			return waiter.Wait(ctx, mgmtKubeconfig)
+		},
+		func() { fmt.Println("[wait-external-secrets] ✓ ExternalSecrets is ready") },
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 11b: Generate local secrets ─────────────────────────────
 	// Generates cryptographic keys (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL),
 	// creates infisical-secrets, infisical-redis-credentials, and
