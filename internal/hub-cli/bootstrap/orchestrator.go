@@ -847,8 +847,17 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 
 	fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 
+	// Try git pull --rebase before pushing to avoid non-fast-forward errors
+	// (e.g. if another agent or user pushed commits to this branch while we were bootstrapping)
+	pullCtx, pullCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer pullCancel()
+	pullCmd := exec.CommandContext(pullCtx, "git", "pull", "--rebase")
+	if out, err := pullCmd.CombinedOutput(); err != nil {
+		fmt.Printf("[adr045-commit]   ⚠️  Auto-pull (rebase) failed, continuing to push: %s\n", strings.TrimSpace(string(out)))
+	}
+
 	// Try git push (non-fatal — user may need to push manually)
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pushCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	pushCmd := exec.CommandContext(pushCtx, "git", "push")
 	if out, err := pushCmd.CombinedOutput(); err != nil {
