@@ -9,13 +9,6 @@ resources:
 patches:
 - patch: |-
     - op: add
-      path: /metadata/annotations/argocd.argoproj.io~1sync-wave
-      value: "1"
-  target:
-    kind: Deployment
-    name: spoke-identity-operator
-- patch: |-
-    - op: add
       path: /spec/template/spec/imagePullSecrets
       value:
         - name: ghcr-pull-secret
