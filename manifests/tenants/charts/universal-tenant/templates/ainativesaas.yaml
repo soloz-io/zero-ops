@@ -19,7 +19,6 @@ metadata:
   name: {{ .Values.tenantId }}
   namespace: tenant-{{ .Values.tenantId }}
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
   labels:
     tenant-id: {{ .Values.tenantId }}
     tier: {{ .Values.tier }}
@@ -28,7 +27,7 @@ spec:
   tenantId: {{ .Values.tenantId }}
   tier: {{ .Values.tier }}
   cellId: {{ .Values.cellId }}
-  
+
   database:
     name: {{ $databaseName }}
     migrations:
@@ -37,15 +36,15 @@ spec:
         gitRevision: {{ .Values.database.migrations.baseline.gitRevision | default "main" }}
         gitPath: {{ .Values.database.migrations.baseline.gitPath | default "migrations/tenant-baseline" }}
       tenant: {{ .Values.database.migrations.tenantSpecific.gitPath | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
-  
+
   pooler:
     maxConnections: {{ $poolerMaxConn }}
     poolMode: {{ $poolerMode }}
-  
+
   postgrest:
     dbSchema: {{ $dbSchema }}
     jwtCacheSize: {{ $jwtCacheSize }}
-  
+
   {{- if .Values.resourceQuota }}
   resourceQuota:
     cpu: {{ .Values.resourceQuota.cpu | default "1000m" }}
@@ -53,7 +52,7 @@ spec:
     storage: {{ .Values.resourceQuota.storage | default "10Gi" }}
     pods: {{ .Values.resourceQuota.pods | default "10" | quote }}
   {{- end }}
-  
+
   {{- if .Values.ownerEmail }}
   ownerEmail: {{ .Values.ownerEmail }}
   {{- end }}

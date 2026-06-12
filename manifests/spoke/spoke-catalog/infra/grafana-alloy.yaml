@@ -5,7 +5,6 @@ metadata:
   name: alloy-config
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   config.alloy: |
     // Kubernetes State Metrics scraping
@@ -15,7 +14,7 @@ data:
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
-    
+
     // CNPG metrics scraping
     prometheus.scrape "cnpg" {
       targets = [{
@@ -23,7 +22,7 @@ data:
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
-    
+
     // NATS metrics scraping
     prometheus.scrape "nats" {
       targets = [{
@@ -31,7 +30,7 @@ data:
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
-    
+
     // PostgREST metrics scraping
     prometheus.scrape "postgrest" {
       targets = [{
@@ -39,22 +38,22 @@ data:
       }]
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
-    
+
     // Add cell_id label to all metrics
     prometheus.relabel "add_cell_id" {
       forward_to = [prometheus.remote_write.hub.receiver]
-      
+
       rule {
         target_label = "cell_id"
         replacement  = env("CELL_ID")
       }
     }
-    
+
     // Remote write to Hub VictoriaMetrics using mTLS
     prometheus.remote_write "hub" {
       endpoint {
         url = "https://victoriametrics.hub.nutgraf.in/insert/0/prometheus/api/v1/write"
-        
+
         tls_config {
           cert_file = "/etc/alloy/certs/tls.crt"
           key_file  = "/etc/alloy/certs/tls.key"
@@ -70,7 +69,6 @@ metadata:
   name: grafana-alloy
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 spec:
   selector:
     matchLabels:
@@ -128,14 +126,12 @@ metadata:
   name: grafana-alloy
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: grafana-alloy
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 rules:
   - apiGroups: [""]
     resources:
@@ -157,7 +153,6 @@ kind: ClusterRoleBinding
 metadata:
   name: grafana-alloy
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

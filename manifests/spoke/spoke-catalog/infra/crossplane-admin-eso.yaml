@@ -8,7 +8,6 @@ metadata:
   name: crossplane-admin-credentials
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"  # Before CNPG operator
 spec:
   refreshInterval: 1h
   secretStoreRef:

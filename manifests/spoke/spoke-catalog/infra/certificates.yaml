@@ -6,7 +6,6 @@ metadata:
   name: argocd-agent-client-cert
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 spec:
   secretName: argocd-agent-client-cert
   duration: 24h
@@ -24,7 +23,6 @@ metadata:
   name: alloy-client-cert
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 spec:
   secretName: alloy-client-cert
   duration: 24h
@@ -42,7 +40,6 @@ metadata:
   name: nats-leafnode-client-cert
   namespace: platform-messaging
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 spec:
   secretName: nats-leafnode-client-cert
   duration: 24h

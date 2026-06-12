@@ -24,7 +24,6 @@ metadata:
   name: platform-db-access
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
 spec:
   podSelector:
     matchLabels:

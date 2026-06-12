@@ -4,14 +4,13 @@ metadata:
   name: platform-db-pooler
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   cluster:
     name: platform-db
-  
+
   instances: 1
   type: rw
-  
+
   pgbouncer:
     poolMode: session
     parameters:

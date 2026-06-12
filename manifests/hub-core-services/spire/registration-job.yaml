@@ -4,7 +4,6 @@ metadata:
   name: spire-registration
   namespace: platform-security
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
     argocd.argoproj.io/hook: PostSync
 spec:
   template:
@@ -19,18 +18,18 @@ spec:
         - -c
         - |
           set -e
-          
+
           # Wait for SPIRE Server service to be ready
           until wget --spider -q http://spire-server.platform-security.svc.cluster.local:8080/ready; do
             echo "Waiting for SPIRE Server..."
             sleep 2
           done
-          
+
           echo "Registering SPIFFE identities via Kubernetes API..."
           echo "Note: Registration entries should be created via SPIRE Controller Manager or manual registration"
           echo "This job serves as a placeholder for automated registration workflows"
-          
+
           # In production, use SPIRE Controller Manager CRDs or manual registration
           # Example: kubectl apply -f spire-entries.yaml
-          
+
           echo "SPIFFE identity registration workflow complete"

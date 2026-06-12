@@ -6,7 +6,6 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
-    argocd.argoproj.io/sync-wave: "3"
 spec:
   backoffLimit: 3
   template:
@@ -55,9 +54,9 @@ spec:
         - -c
         - |
           set -e
-          
+
           echo "Waiting for PostgreSQL to be ready..."
-          until psql -c "SELECT 1" > /dev/null 2>&1; do 
+          until psql -c "SELECT 1" > /dev/null 2>&1; do
             echo "Waiting for database..."
             sleep 2
           done

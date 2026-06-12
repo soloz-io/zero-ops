@@ -8,7 +8,6 @@ metadata:
   name: platform-clickhouse-access
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   podSelector:
     matchLabels:

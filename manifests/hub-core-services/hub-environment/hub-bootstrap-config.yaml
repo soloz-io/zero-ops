@@ -4,7 +4,6 @@ metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
 data:
   # Cluster Identity
   CLUSTER_ID: "hub-production"

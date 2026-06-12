@@ -12,7 +12,7 @@ data:
   principal.healthz.port: "8003"
   principal.namespace: "platform-ops"
   principal.allowed-namespaces: "*"
-  
+
   # TLS Configuration
   principal.tls.secret-name: "argocd-agent-principal-tls"
   principal.tls.server.cert-path: ""
@@ -26,14 +26,14 @@ data:
   principal.tls.min-version: "tls1.2"
   principal.tls.max-version: ""
   principal.tls.ciphersuites: ""
-  
+
   # Authentication - mTLS with CN extraction
   principal.auth: "mtls:CN=([^,]+)"
-  
+
   # Redis Configuration
   principal.redis.server.address: "argocd-redis:6379"
   principal.redis.compression.type: "gzip"
-  
+
   # Resource Proxy Configuration
   principal.resource-proxy.enable: "true"
   principal.resource-proxy.secret-name: "argocd-agent-resource-proxy-tls"
@@ -41,26 +41,26 @@ data:
   principal.resource-proxy.tls.key-path: ""
   principal.resource-proxy.ca.secret-name: "argocd-agent-ca-secret-source"
   principal.resource-proxy.ca.path: ""
-  
+
   # JWT Configuration
   principal.jwt.allow-generate: "false"
   principal.jwt.secret-name: "argocd-agent-jwt"
   principal.jwt.key-path: "/app/config/jwt/tls.key"
-  
+
   # Destination-based mapping for spoke pool routing
   principal.destination-based-mapping: "true"
-  
+
   # Application label selector (empty = watch all)
   principal.app-label-selector: ""
-  
+
   # Namespace creation (disabled for spoke pool)
   principal.namespace-create.enable: "false"
   principal.namespace-create.pattern: ""
   principal.namespace-create.labels: ""
-  
+
   # WebSocket and Keep-Alive
   principal.websocket.enable: "false"
   principal.keep-alive.min-interval: "0"
-  
+
   # Profiling (disabled in production)
   principal.pprof.port: "0"

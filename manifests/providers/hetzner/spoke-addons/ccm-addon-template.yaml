@@ -22,7 +22,7 @@ stringData:
       namespace: kube-system
     spec:
       minAvailable: 1
-      maxUnavailable: 
+      maxUnavailable:
       selector:
         matchLabels:
           app.kubernetes.io/name: ccm-hetzner

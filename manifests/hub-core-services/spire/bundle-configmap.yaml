@@ -4,7 +4,6 @@ metadata:
   name: spire-bundle
   namespace: platform-security
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   bundle.crt: |
     # This file will be populated by SPIRE Server k8sbundle notifier

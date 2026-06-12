@@ -15,7 +15,6 @@ metadata:
   name: clickhouse-init-openmeter-db
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
 spec:
   ttlSecondsAfterFinished: 300
   template:
@@ -33,7 +32,7 @@ spec:
             - |
               set -e
               echo "Waiting for ClickHouse service to be ready..."
-              
+
               # Timeout after 5 minutes (60 attempts * 5s)
               for i in $(seq 1 60); do
                 if clickhouse-client \
@@ -48,12 +47,12 @@ spec:
                 echo "ClickHouse not ready, retrying in 5s... (attempt $i/60)"
                 sleep 5
               done
-              
+
               if [ "$i" -eq 60 ]; then
                 echo "ERROR: ClickHouse not ready after 5 minutes timeout"
                 exit 1
               fi
-              
+
               echo "Creating openmeter database (idempotent)..."
               clickhouse-client \
                 --host=clickhouse-platform-clickhouse.platform-data.svc.cluster.local \
@@ -61,7 +60,7 @@ spec:
                 --user=clickhouse_admin \
                 --password="${CLICKHOUSE_PASSWORD}" \
                 --query="CREATE DATABASE IF NOT EXISTS openmeter"
-              
+
               echo "Database setup completed successfully"
           env:
             - name: CLICKHOUSE_PASSWORD

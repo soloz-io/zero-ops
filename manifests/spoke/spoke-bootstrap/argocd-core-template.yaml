@@ -26,7 +26,7 @@ data:
       # (the local spoke), a static value is acceptable. This is NOT used for
       # authentication or encryption of sensitive data.
       server.secretkey: "changeme"
-  
+
   argocd-cm.yaml: |
     apiVersion: v1
     kind: ConfigMap
@@ -38,7 +38,7 @@ data:
         app.kubernetes.io/part-of: argocd
     data:
       application.instanceLabelKey: argocd.argoproj.io/instance
-  
+
   argocd-cmd-params-cm.yaml: |
     apiVersion: v1
     kind: ConfigMap
@@ -52,7 +52,7 @@ data:
       # Allow application-controller to watch platform-ops namespace
       # Required for destination-based mapping where Applications are created in platform-ops
       application.namespaces: "platform-ops,argocd"
-  
+
   repo-server.yaml: |
     apiVersion: apps/v1
     kind: Deployment
@@ -118,7 +118,7 @@ data:
         targetPort: 8081
         protocol: TCP
         name: server
-  
+
   application-controller.yaml: |
     apiVersion: v1
     kind: ServiceAccount

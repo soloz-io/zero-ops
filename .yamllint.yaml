@@ -35,3 +35,6 @@ rules:
 
   empty-lines:
     level: warning
+
+ignore: |
+  manifests/tenants/charts/universal-tenant/templates/

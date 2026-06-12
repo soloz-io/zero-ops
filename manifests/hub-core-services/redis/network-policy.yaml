@@ -7,7 +7,6 @@ metadata:
   name: platform-redis-access
   namespace: platform-data
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   podSelector:
     matchLabels:

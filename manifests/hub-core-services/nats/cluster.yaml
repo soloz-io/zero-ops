@@ -32,13 +32,13 @@ data:
     server_name: $POD_NAME
     listen: 0.0.0.0:4222
     http: 8222
-    
+
     # Allow anonymous access for internal cluster operations
     # TODO: Implement proper auth via secrets in production
     authorization {
       timeout: 1
     }
-    
+
     cluster {
       name: zero-ops-nats
       listen: 0.0.0.0:6222
@@ -48,7 +48,7 @@ data:
         "nats://nats-2.nats.platform-messaging.svc.cluster.local:6222"
       ]
     }
-    
+
     leafnodes {
       port: 7422
       tls {
@@ -58,7 +58,7 @@ data:
         verify: true
       }
     }
-    
+
     jetstream {
       store_dir: /data/jetstream
       max_memory_store: 1Gi
@@ -71,7 +71,6 @@ metadata:
   name: nats
   namespace: platform-messaging
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   serviceName: nats
   replicas: 1

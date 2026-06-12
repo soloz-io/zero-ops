@@ -4,7 +4,6 @@ metadata:
   name: spire-server
   namespace: platform-security
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   server.conf: |
     server {
@@ -62,7 +61,6 @@ metadata:
   name: spire-controller-manager-config
   namespace: platform-security
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   config.yaml: |
     apiVersion: spire.spiffe.io/v1alpha1
@@ -90,7 +88,6 @@ metadata:
   labels:
     app: spire-server
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1
