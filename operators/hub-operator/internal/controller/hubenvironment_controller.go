@@ -29,7 +29,6 @@ import (
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/infisical"
-	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/readiness"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
 
@@ -320,45 +319,6 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	logger.Info("Phase 0 complete: Infisical bootstrapped")
-
-	// Phase 1a: Wait for External Secrets Operator (ESO) readiness contract
-	// We must ensure ESO is fully operational before proceeding to application secrets.
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "ExternalSecretsReady", hubEnv.Generation) {
-		logger.Info("Phase 1a: Verifying ExternalSecrets readiness contract")
-
-		checker := readiness.NewExternalSecretsChecker(r.UncachedClient, "platform-ops")
-		readyStatus, err := checker.Check(ctx)
-		if err != nil {
-			logger.Error(err, "Failed to verify ExternalSecrets readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-		}
-
-		if !readyStatus.Ready {
-			logger.Info("ExternalSecrets not ready", "reason", readyStatus.Reason, "message", readyStatus.Message)
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:    "ExternalSecretsReady",
-				Status:  metav1.ConditionFalse,
-				Reason:  readyStatus.Reason,
-				Message: readyStatus.Message,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-
-		// External Secrets is ready
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:    "ExternalSecretsReady",
-			Status:  metav1.ConditionTrue,
-			Reason:  "ExternalSecretsOperational",
-			Message: "ESO webhook and endpoints are fully ready",
-		})
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-		logger.Info("Phase 1a complete: External Secrets is operational")
-	}
 
 	// Phase 1b: Wait for ESO to create application secrets
 	// Application secrets are created by ESO from Infisical (creationPolicy: Owner)

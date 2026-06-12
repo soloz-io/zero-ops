@@ -81,11 +81,11 @@ All bootstrap secrets are synchronized to Kubernetes and infrastructure componen
 - **Operations:**
   - CLI applies `01-platform-infra` boundary and waits for Healthy/Synced.
   - CLI injects Secret Zero (trust anchors, bootstrap credentials).
-  - CLI applies `02-platform-data` and `03-platform-services` boundaries.
+  - CLI applies `02-platform-data`, `03-platform-services`, and `04-tenant-services` boundaries sequentially.
   - CNPG bootstraps using `platform-db-app` bootstrap secret.
   - ESO syncs application secrets from Infisical.
   - Crossplane provider-sql creates database roles from ESO-synced credentials (per ADR-023, ADR-039, ADR-043).
-- **Exit Criteria:** All three ArgoCD boundaries (`01-platform-infra`, `02-platform-data`, `03-platform-services`) report `Healthy` and `Synced`. All ExternalSecrets report `SecretSynced`. CNPG clusters are ready. Hub Operator has completed initial reconciliation.
+- **Exit Criteria:** All four ArgoCD boundaries (`01`, `02`, `03`, `04`) report `Healthy` and `Synced`. All ExternalSecrets report `SecretSynced`. CNPG clusters are ready. Hub Operator has completed initial reconciliation.
 - **Failure Recovery:** If any ArgoCD boundary fails, inspect the specific Application health in ArgoCD. If ESO ExternalSecrets fail, verify Infisical connectivity and SecretStore configuration. If CNPG fails to bootstrap, verify `platform-db-app` secret content. If Crossplane provider-sql fails to create database roles, check provider-sql controller logs.
 
 #### GITOPS_READY
@@ -167,9 +167,11 @@ SECRETS_READY
     │
     ├── INFISICAL_READY    (init-secrets: encryption keys, CNPG CA, DB credentials)
     │
-    ├── BOUNDARY_03_READY  (PhaseBoundary03)
+    ├── BOUNDARY_03_READY  (PhaseBoundary03: Secret Providers)
     │
-    └── SECRETS_SYNCED     (ESO syncs from Infisical)
+    ├── SECRETS_SYNCED     (ESO syncs from Infisical)
+    │
+    └── BOUNDARY_04_READY  (PhaseBoundary04: Secret Consumers)
 ```
 
 #### Boundary Deployment Order (ADR-021 §2 divergence)
@@ -183,12 +185,13 @@ This amendment adds a **boundary deployment order** that the CLI enforces during
 
 | Order | Phase | Helm `deploy.*` flags | Operator Action |
 |-------|-------|----------------------|-----------------|
-| 1 | `PhaseBoundary01` | `b01=true, b02=false, b03=false` | Install ArgoCD, apply `01-platform-infra` ApplicationSet, wait for webhooks/CRDs/pods |
-| 2 | `PhaseBoundary02` | `b01=true, b02=true, b03=false` | Apply `02-platform-data` ApplicationSet, wait for CNPG Cluster CR |
+| 1 | `PhaseBoundary01` | `b01=true, b02=false, b03=false, b04=false` | Install ArgoCD, apply `01-platform-infra` ApplicationSet, wait for webhooks/CRDs/pods |
+| 2 | `PhaseBoundary02` | `b01=true, b02=true, b03=false, b04=false` | Apply `02-platform-data` ApplicationSet, wait for CNPG Cluster CR |
 | 3 | `PhaseInitSecrets` | (no helm deploy) | `RunInitSecrets()` internal Go call — generates encryption keys, bootstraps Infisical, stores credentials |
-| 4 | `PhaseBoundary03` | `b01=true, b02=true, b03=true` | Apply `03-platform-services` ApplicationSet |
+| 4 | `PhaseBoundary03` | `b01=true, b02=true, b03=true, b04=false` | Apply `03-platform-services` ApplicationSet |
+| 5 | `PhaseBoundary04` | `b01=true, b02=true, b03=true, b04=true` | Apply `04-tenant-services` ApplicationSet |
 
-This is implemented via `deploy.boundary01/02/03` boolean Helm values. The CLI orchestrator sets these flags incrementally: B01-only → B01+B02 → all three. In steady-state Day-1 operation, all three flags are always `true`.
+This is implemented via `deploy.boundary01/02/03/04` boolean Helm values. The CLI orchestrator sets these flags incrementally. In steady-state Day-1 operation, all four flags are always `true`.
 
 #### Ingress NGINX Race Fix
 
@@ -207,8 +210,9 @@ The `ingress-nginx` controller and `ingress-config` (containing `Ingress` resour
   2. CLI applies `01-platform-infra` boundary (B01 only), waits for operator webhooks, CRDs, and operator pods.
   3. CLI applies `02-platform-data` boundary (B01+B02), which deploys CNPG Cluster, Redis, NATS.
   4. CLI calls `RunInitSecrets()` internally — generates encryption keys, DB passwords, waits for CNPG Cluster to be Ready, reads `platform-db-ca` certificate, bootstraps Infisical Org/Project/Machine Identity, stores credentials in Infisical via API.
-  5. CLI applies `03-platform-services` boundary (B01+B02+B03), which deploys ingress-nginx, SPIRE, platform services, spoke configs.
-- **Exit Criteria:** All three ApplicationSets applied. CNPG Cluster Ready. Infisical healthy with Machine Identity. `infisical-auth` Secret exists in `platform-ops`. `hub-bootstrap-config` ConfigMap has OrgID/ProjectID.
+  5. CLI applies `03-platform-services` boundary (B01+B02+B03), which deploys ingress-nginx, SPIRE, Infisical, and API Gateway.
+  6. CLI applies `04-tenant-services` boundary (B01+B02+B03+B04), which deploys Identity (Ory), Billing (OpenMeter), and Tenant proxies.
+- **Exit Criteria:** All four ApplicationSets applied. CNPG Cluster Ready. Infisical healthy with Machine Identity. `infisical-auth` Secret exists in `platform-ops`. `hub-bootstrap-config` ConfigMap has OrgID/ProjectID.
 - **Failure Recovery:**
   - If B01 operator webhooks don't appear, check ArgoCD Application status and operator Helm releases.
   - If B02 CNPG Cluster CR doesn't appear, check CNPG operator logs and ArgoCD sync status of `platform-database` Application.
@@ -217,9 +221,9 @@ The `ingress-nginx` controller and `ingress-config` (containing `Ingress` resour
 
 ### Implementation Details
 
-1. **Phase enum** (`internal/hub-cli/state/manager.go`): Added `PhaseBoundary01`, `PhaseBoundary02`, `PhaseInitSecrets`, `PhaseBoundary03`. `PhasePlatformDeploy` retained as deprecated alias for backward state compatibility.
+1. **Phase enum** (`internal/hub-cli/state/manager.go`): Added `PhaseBoundary01`, `PhaseBoundary02`, `PhaseInitSecrets`, `PhaseBoundary03`, `PhaseBoundary04`. `PhasePlatformDeploy` retained as deprecated alias for backward state compatibility.
 
-2. **Helm values** (`manifests/argocd/environment-manager/values.yaml`): Added `deploy.boundary01`, `deploy.boundary02`, `deploy.boundary03` boolean fields, defaulting to `true`.
+2. **Helm values** (`manifests/argocd/environment-manager/values.yaml`): Added `deploy.boundary01`, `deploy.boundary02`, `deploy.boundary03`, `deploy.boundary04` boolean fields, defaulting to `true`.
 
 3. **ApplicationSet templates** (`manifests/argocd/environment-manager/templates/*.yaml`): Each wrapped in `{{ if .Values.deploy.<boundary> }}` / `{{ end }}` for conditional rendering.
 

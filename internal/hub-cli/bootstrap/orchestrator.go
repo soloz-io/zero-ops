@@ -214,25 +214,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
-	// ── Phase 11a.5: Wait for ExternalSecrets readiness ───────────────
-	// Gating Phase 11b/11c/11e on the ESO webhook being fully operational
-	// so ArgoCD can successfully sync ExternalSecrets without rejection.
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseWaitExternalSecrets, "wait-external-secrets",
-		"Waiting for ExternalSecrets to be fully operational...",
-		func() error {
-			waiter := &health.HealthWaiter{
-				Checkers: []health.HealthChecker{
-					health.NewExternalSecretsReadyHealth("platform-ops"),
-				},
-				Interval: 5 * time.Second,
-				Timeout:  5 * time.Minute,
-			}
-			return waiter.Wait(ctx, mgmtKubeconfig)
-		},
-		func() { fmt.Println("[wait-external-secrets] ✓ ExternalSecrets is ready") },
-	); err != nil {
-		return err
-	}
+
 
 	// ── Phase 11b: Generate local secrets ─────────────────────────────
 	// Generates cryptographic keys (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL),
@@ -307,6 +289,15 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 			return ci.BootstrapInfisicalAPI(ctx)
 		},
 		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
+		"Deploying tenant services (boundary 04)...",
+		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary04] ✓ Tenant services deployed") },
 	); err != nil {
 		return err
 	}
@@ -515,7 +506,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	}
 	fmt.Println("[boundary01] ✓ ArgoCD installed")
 
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
@@ -545,7 +536,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
@@ -557,10 +548,18 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
+	return nil
+}
+
+func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true); err != nil {
+		return err
+	}
+	fmt.Println("[boundary04] ✓ 04-tenant-services ApplicationSet applied")
 	return nil
 }
 
@@ -568,7 +567,7 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 // renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03 bool) error {
+func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04 bool) error {
 	gitBranch := currentGitBranch()
 	envRevision := "main"
 	if gitBranch != "" && gitBranch != "main" {
@@ -589,6 +588,7 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
 		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
 		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
+		"--set", fmt.Sprintf("deploy.boundary04=%t", deployB04),
 	)
 	rendered, err := helmCmd.Output()
 	if err != nil {

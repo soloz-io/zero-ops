@@ -1,9 +1,9 @@
-{{ if .Values.deploy.boundary03 }}
+{{ if .Values.deploy.boundary04 }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: 03-platform-services-multi
+  name: 04-tenant-services-multi
   namespace: platform-ops
 spec:
   goTemplate: true
@@ -13,16 +13,36 @@ spec:
   generators:
     - list:
         elements:
-          - appName: 'platform-infisical'
-            destinationNamespace: 'platform-security'
+          - appName: 'ory-hydra'
+            destinationNamespace: 'platform-identity'
             syncWave: ''
-            repoURL: 'https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/'
-            targetRevision: '1.7.5'
-            chart: 'infisical-standalone'
-            valueFilesPath: 'manifests/hub-core-services/infisical/values.yaml'
-            helmReleaseName: 'infisical-standalone'
-            extraManifestsPath: ''
-            ignoreDifferencesExtSecrets: 'false'
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'hydra'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-hydra/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-hydra'
+            ignoreDifferencesExtSecrets: 'true'
+          - appName: 'ory-keto'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'keto'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-keto/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-keto'
+            ignoreDifferencesExtSecrets: 'true'
+          - appName: 'ory-kratos'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://k8s.ory.sh/helm/charts'
+            targetRevision: '0.60.1'
+            chart: 'kratos'
+            valueFilesPath: 'manifests/hub-core-services/identity/ory-kratos/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/ory-kratos'
+            ignoreDifferencesExtSecrets: 'true'
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'

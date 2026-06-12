@@ -23,12 +23,12 @@ const (
 	PhaseClusterClassDeploy BootstrapPhase = "clusterclass-deploy"
 	PhasePlatformPreReqs    BootstrapPhase = "platform-pre-reqs"
 	PhaseBoundary01         BootstrapPhase = "boundary-01"
-	PhaseWaitExternalSecrets BootstrapPhase = "wait-external-secrets"
 	PhaseGenerateLocalSecrets   BootstrapPhase = "generate-local-secrets"
 	PhaseBoundary02             BootstrapPhase = "boundary-02"
 	PhaseInjectCACert           BootstrapPhase = "inject-ca-cert"
 	PhaseBoundary03             BootstrapPhase = "boundary-03"
 	PhaseBootstrapInfisicalAPI  BootstrapPhase = "bootstrap-infisical-api"
+	PhaseBoundary04             BootstrapPhase = "boundary-04"
 	PhaseInitSecrets            BootstrapPhase = "init-secrets" // DEPRECATED: replaced by GenerateLocalSecrets + InjectCACert + BootstrapInfisicalAPI
 	PhasePlatformDeploy     BootstrapPhase = "platform-deploy" // DEPRECATED: replaced by B01/B02/B03
 	PhaseFinalize           BootstrapPhase = "finalize"

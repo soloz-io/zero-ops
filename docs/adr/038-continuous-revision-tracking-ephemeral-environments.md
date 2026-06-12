@@ -10,17 +10,18 @@ Ephemeral preview environments and local development environments must continuou
 
 The existing platform deploys child ArgoCD Applications from static manifests. Those Applications reference `HEAD` and therefore reconcile against the repository default branch. This prevents environments from continuously tracking feature branches and causes ArgoCD reconciliation to eventually return environments to the default branch after bootstrap.
 
-The platform organizes deployments into three operational boundaries:
+The platform organizes deployments into four operational boundaries:
 
 * 01-platform-infra
 * 02-platform-data
 * 03-platform-services
+* 04-tenant-services
 
 These boundaries provide deployment sequencing, operational isolation, and visibility across the platform lifecycle.
 
 ## Decision
 
-The platform shall implement continuous revision tracking using boundary ApplicationSets with a list generator. The `environment-manager` Helm chart renders three ApplicationSets (`01-platform-infra`, `02-platform-data`, `03-platform-services`) into the cluster. Each ApplicationSet contains a list generator with inline elements. The orchestrator calls `helm template --set environmentRevision=<branch>` at bootstrap time and applies the rendered output. ArgoCD's ApplicationSet controller generates child Applications with the revision injected into platform-owned apps.
+The platform shall implement continuous revision tracking using boundary ApplicationSets with a list generator. The `environment-manager` Helm chart renders four ApplicationSets (`01-platform-infra`, `02-platform-data`, `03-platform-services`, `04-tenant-services`) into the cluster. Each ApplicationSet contains a list generator with inline elements. The orchestrator calls `helm template --set environmentRevision=<branch>` at bootstrap time and applies the rendered output. ArgoCD's ApplicationSet controller generates child Applications with the revision injected into platform-owned apps.
 
 The deployment hierarchy varies by environment type:
 
@@ -33,6 +34,7 @@ Environment Manager Helm Chart
 01-platform-infra ApplicationSet
 02-platform-data ApplicationSet
 03-platform-services ApplicationSet
+04-tenant-services ApplicationSet
         ↓
 Generated Child Applications
 
@@ -46,6 +48,7 @@ Environment Manager Helm Chart (environmentRevision={{.head_sha}})
 01-platform-infra ApplicationSet
 02-platform-data ApplicationSet
 03-platform-services ApplicationSet
+04-tenant-services ApplicationSet
         ↓
 Generated Child Applications
 ```
@@ -80,11 +83,12 @@ The selected architecture satisfies the following requirements:
 
 ### Platform Architecture
 
-The three existing deployment boundaries remain in place:
+The four existing deployment boundaries remain in place:
 
 * 01-platform-infra
 * 02-platform-data
 * 03-platform-services
+* 04-tenant-services
 
 Boundary responsibilities expand from deploying static child Applications to generating child Applications through ApplicationSets.
 

@@ -23,3 +23,4 @@ deploy:
   boundary01: true
   boundary02: true
   boundary03: true
+  boundary04: true
