@@ -16,7 +16,6 @@ spec:
           - appName: 'spoke-identity-operator'
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
-            syncWave: '3'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'operators/spoke-identity-operator/config/default'
@@ -29,7 +28,6 @@ spec:
           - appName: 'kratos-selfservice-ui'
             destinationNamespace: 'platform-identity'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/identity/kratos-ui'
@@ -42,7 +40,6 @@ spec:
           - appName: 'auth-proxy'
             destinationNamespace: 'platform-identity'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/identity/auth-proxy'
@@ -55,7 +52,6 @@ spec:
           - appName: 'mcp-server'
             destinationNamespace: 'platform-controlplane'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/api-gateway/mcp-server'
@@ -68,7 +64,6 @@ spec:
           - appName: 'openmeter-secrets'
             destinationNamespace: 'platform-billing'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/openmeter/secrets'
@@ -81,7 +76,6 @@ spec:
           - appName: 'openmeter'
             destinationNamespace: 'platform-billing'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops.git'
             targetRevision: ''
             path: 'manifests/hub-core-services/openmeter'
@@ -101,8 +95,6 @@ spec:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
-      annotations:
-        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: default
       source:

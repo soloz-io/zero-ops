@@ -36,8 +36,6 @@ spec:
       labels:
         app: platform-redis
     spec:
-      nodeSelector:
-        node-role.kubernetes.io/worker: ""
       containers:
       - name: redis
         image: docker.io/library/redis:8.6-alpine
@@ -63,7 +61,6 @@ spec:
       name: data
     spec:
       accessModes: ["ReadWriteOnce"]
-      storageClassName: hcloud-volumes
       resources:
         requests:
           storage: 5Gi

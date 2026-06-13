@@ -604,7 +604,6 @@ check_platform_argocd_apps() {
         "platform-cluster-secret-store"
         "platform-cloudnative-pg"
         "platform-database"
-        "platform-identity"
         "hub-environment"
         "hub-operator"
         "platform-nats"

@@ -43,9 +43,7 @@ data:
       name: zero-ops-nats
       listen: 0.0.0.0:6222
       routes: [
-        "nats://nats-0.nats.platform-messaging.svc.cluster.local:6222",
-        "nats://nats-1.nats.platform-messaging.svc.cluster.local:6222",
-        "nats://nats-2.nats.platform-messaging.svc.cluster.local:6222"
+        "nats://nats-0.nats.platform-messaging.svc.cluster.local:6222"
       ]
     }
 

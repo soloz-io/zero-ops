@@ -35,7 +35,7 @@ spec:
               "retention": "limits",
               "max_age": 604800000000000,
               "storage": "file",
-              "replicas": 3
+              "replicas": 1
             }
             EOF
 
@@ -63,7 +63,7 @@ spec:
               "retention": "limits",
               "max_age": 2592000000000000,
               "storage": "file",
-              "replicas": 3
+              "replicas": 1
             }
             EOF
             nats --server=nats.platform-messaging.svc.cluster.local:4222 stream add agent-infra-status --config=/tmp/infra-status-config.json || echo "Stream 5 exists"

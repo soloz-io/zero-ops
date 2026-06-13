@@ -16,7 +16,6 @@ spec:
           - appName: 'platform-clickhouse'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/clickhouse'
@@ -28,7 +27,6 @@ spec:
           - appName: 'platform-database'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/database'
@@ -40,7 +38,6 @@ spec:
           - appName: 'platform-nats'
             destinationNamespace: 'platform-messaging'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/nats'
@@ -52,7 +49,6 @@ spec:
           - appName: 'platform-redis'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'
-            syncWave: ''
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
             path: 'manifests/hub-core-services/redis'
@@ -65,8 +61,6 @@ spec:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
-      annotations:
-        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: default
       source:

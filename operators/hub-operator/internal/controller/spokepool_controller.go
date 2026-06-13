@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -113,104 +114,114 @@ func (r *SpokePoolReconciler) isStatusConditionTrue(spokePool *unstructured.Unst
 func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePool *unstructured.Unstructured, spokeName string, success bool, alreadyExisted bool) error {
 	logger := log.FromContext(ctx)
 
-	// Re-fetch the latest version to avoid resource version conflicts when two
-	// replicas reconcile the same SpokePool simultaneously.
-	latest := &unstructured.Unstructured{}
-	latest.SetGroupVersionKind(spokePool.GroupVersionKind())
-	if err := r.Get(ctx, client.ObjectKeyFromObject(spokePool), latest); err != nil {
-		logger.Error(err, "Failed to re-fetch SpokePool before status update", "spoke", spokeName)
-		return err
-	}
-
-	conditions, found, err := unstructured.NestedSlice(latest.Object, "status", "conditions")
-	if err != nil {
-		logger.Error(err, "Failed to get status conditions", "spoke", spokeName)
-		return err
-	}
-
-	if !found {
-		conditions = []interface{}{}
-	}
-
-	// Convert to metav1.Condition slice
-	var metaConditions []metav1.Condition
-	for _, c := range conditions {
-		if condMap, ok := c.(map[string]interface{}); ok {
-			// Skip conditions with missing required fields
-			typeVal, typeOk := condMap["type"].(string)
-			statusVal, statusOk := condMap["status"].(string)
-			reasonVal, reasonOk := condMap["reason"].(string)
-			messageVal, messageOk := condMap["message"].(string)
-
-			if !typeOk || !statusOk || !reasonOk || !messageOk {
-				continue
-			}
-
-			var transitionTime metav1.Time
-			if timeStr, ok := condMap["lastTransitionTime"].(string); ok {
-				if parsedTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
-					transitionTime = metav1.NewTime(parsedTime)
-				}
-			}
-
-			metaConditions = append(metaConditions, metav1.Condition{
-				Type:               typeVal,
-				Status:             metav1.ConditionStatus(statusVal),
-				Reason:             reasonVal,
-				Message:            messageVal,
-				LastTransitionTime: transitionTime,
-			})
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Re-fetch the latest version to avoid resource version conflicts when two
+		// replicas reconcile the same SpokePool simultaneously.
+		latest := &unstructured.Unstructured{}
+		latest.SetGroupVersionKind(spokePool.GroupVersionKind())
+		if err := r.Get(ctx, client.ObjectKeyFromObject(spokePool), latest); err != nil {
+			logger.Error(err, "Failed to re-fetch SpokePool before status update", "spoke", spokeName)
+			return err
 		}
-	}
 
-	// Set or update condition based on success/failure and whether credentials already existed
-	var condition metav1.Condition
-	if success {
-		if alreadyExisted {
-			condition = metav1.Condition{
-				Type:    "CrossplaneAdminSecretGenerated",
-				Status:  metav1.ConditionTrue,
-				Reason:  "AlreadyExists",
-				Message: fmt.Sprintf("Machine Identity credentials already exist in Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
+		conditions, found, err := unstructured.NestedSlice(latest.Object, "status", "conditions")
+		if err != nil {
+			logger.Error(err, "Failed to get status conditions", "spoke", spokeName)
+			return err
+		}
+
+		if !found {
+			conditions = []interface{}{}
+		}
+
+		// Convert to metav1.Condition slice
+		var metaConditions []metav1.Condition
+		for _, c := range conditions {
+			if condMap, ok := c.(map[string]interface{}); ok {
+				// Skip conditions with missing required fields
+				typeVal, typeOk := condMap["type"].(string)
+				statusVal, statusOk := condMap["status"].(string)
+				reasonVal, reasonOk := condMap["reason"].(string)
+				messageVal, messageOk := condMap["message"].(string)
+
+				if !typeOk || !statusOk || !reasonOk || !messageOk {
+					continue
+				}
+
+				var transitionTime metav1.Time
+				if timeStr, ok := condMap["lastTransitionTime"].(string); ok {
+					if parsedTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
+						transitionTime = metav1.NewTime(parsedTime)
+					}
+				}
+
+				metaConditions = append(metaConditions, metav1.Condition{
+					Type:               typeVal,
+					Status:             metav1.ConditionStatus(statusVal),
+					Reason:             reasonVal,
+					Message:            messageVal,
+					LastTransitionTime: transitionTime,
+				})
+			}
+		}
+
+		// Set or update condition based on success/failure and whether credentials already existed
+		var condition metav1.Condition
+		if success {
+			if alreadyExisted {
+				condition = metav1.Condition{
+					Type:    "CrossplaneAdminSecretGenerated",
+					Status:  metav1.ConditionTrue,
+					Reason:  "AlreadyExists",
+					Message: fmt.Sprintf("Machine Identity credentials already exist in Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
+				}
+			} else {
+				condition = metav1.Condition{
+					Type:    "CrossplaneAdminSecretGenerated",
+					Status:  metav1.ConditionTrue,
+					Reason:  "Generated",
+					Message: fmt.Sprintf("Machine Identity created and credentials uploaded to Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
+				}
 			}
 		} else {
 			condition = metav1.Condition{
 				Type:    "CrossplaneAdminSecretGenerated",
-				Status:  metav1.ConditionTrue,
-				Reason:  "Generated",
-				Message: fmt.Sprintf("Machine Identity created and credentials uploaded to Infisical at /spoke-pool/%s/shared/infisical-credentials", spokeName),
+				Status:  metav1.ConditionFalse,
+				Reason:  "CredentialsMissing",
+				Message: "CRITICAL: Machine Identity credentials missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
 			}
 		}
-	} else {
-		condition = metav1.Condition{
-			Type:    "CrossplaneAdminSecretGenerated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "CredentialsMissing",
-			Message: "CRITICAL: Machine Identity credentials missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
+
+		meta.SetStatusCondition(&metaConditions, condition)
+
+		// Serialise back to unstructured map format for Crossplane.
+		var newConditions []interface{}
+		for _, c := range metaConditions {
+			newConditions = append(newConditions, map[string]interface{}{
+				"type":               c.Type,
+				"status":             string(c.Status),
+				"reason":             c.Reason,
+				"message":            c.Message,
+				"lastTransitionTime": c.LastTransitionTime.Format(time.RFC3339),
+			})
 		}
-	}
 
-	meta.SetStatusCondition(&metaConditions, condition)
+		if err := unstructured.SetNestedSlice(latest.Object, newConditions, "status", "conditions"); err != nil {
+			logger.Error(err, "Failed to set status conditions", "spoke", spokeName)
+			return err
+		}
 
-	// Serialise back to unstructured map format for Crossplane.
-	var newConditions []interface{}
-	for _, c := range metaConditions {
-		newConditions = append(newConditions, map[string]interface{}{
-			"type":               c.Type,
-			"status":             string(c.Status),
-			"reason":             c.Reason,
-			"message":            c.Message,
-			"lastTransitionTime": c.LastTransitionTime.Format(time.RFC3339),
-		})
-	}
+		if err := r.Status().Update(ctx, latest); err != nil {
+			// Do not log error here; let RetryOnConflict handle the retry/backoff silently
+			// until it exceeds max retries.
+			return err
+		}
 
-	if err := unstructured.SetNestedSlice(latest.Object, newConditions, "status", "conditions"); err != nil {
-		logger.Error(err, "Failed to set status conditions", "spoke", spokeName)
-		return err
-	}
+		return nil
+	})
 
-	if err := r.Status().Update(ctx, latest); err != nil {
-		logger.Error(err, "Failed to update status", "spoke", spokeName)
+	if err != nil {
+		logger.Error(err, "Failed to update status after retries", "spoke", spokeName)
 		return err
 	}
 

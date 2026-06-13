@@ -65,6 +65,37 @@ spec:
                   # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
                   kustomize.buildOptions: --enable-helm
 
+                  # ExternalSecret custom health check
+                  # Treats SecretSyncedError as Progressing when the underlying ClusterSecretStore is not ready,
+                  # preventing a cascade of Degraded statuses across all apps that consume secrets.
+                  resource.customizations.health.external-secrets.io_ExternalSecret: |
+                    hs = {}
+                    if obj.status ~= nil then
+                      if obj.status.conditions ~= nil then
+                        for i, condition in ipairs(obj.status.conditions) do
+                          if condition.type == "Ready" then
+                            if condition.status == "True" then
+                              hs.status = "Healthy"
+                              hs.message = condition.message or "Secret synced"
+                              return hs
+                            else
+                              if condition.message ~= nil and string.find(condition.message, "is not ready") then
+                                hs.status = "Progressing"
+                                hs.message = "Waiting for secret store: " .. (condition.message or "")
+                                return hs
+                              end
+                              hs.status = "Degraded"
+                              hs.message = condition.message or "Secret sync failed"
+                              return hs
+                            end
+                          end
+                        end
+                      end
+                    end
+                    hs.status = "Progressing"
+                    hs.message = "Waiting for external secret to sync"
+                    return hs
+
                   # CNPG Cluster health check
                   resource.customizations.health.postgresql.cnpg.io_Cluster: |
                     hs = {}

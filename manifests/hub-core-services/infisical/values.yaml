@@ -77,16 +77,31 @@ infisical:
       cpu: 350m
       memory: 1000Mi
 
-  # Increase readiness probe timeout to handle event loop latency
-  readinessProbe:
+  # Startup probe: gives Infisical up to 5 minutes (30 × 10s) to complete
+  # its DB migration and start the HTTP listener before Kubernetes considers
+  # it a permanent failure. Prevents CrashLoopBackOff during first boot.
+  startupProbe:
     httpGet:
       path: /api/status
       port: 8080
     initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 30
+
+  # Increase readiness probe timeout to handle event loop latency
+  # on resource-constrained nodes (e.g. kind control-plane running
+  # ALL platform pods). The previous 3s timeout triggered context
+  # deadline exceeded under CPU pressure.
+  readinessProbe:
+    httpGet:
+      path: /api/status
+      port: 8080
+    initialDelaySeconds: 30
     periodSeconds: 5
-    timeoutSeconds: 3
+    timeoutSeconds: 10
     successThreshold: 1
-    failureThreshold: 3
+    failureThreshold: 6
 
 postgresql:
   # Disable built-in PostgreSQL - we use external CNPG cluster
