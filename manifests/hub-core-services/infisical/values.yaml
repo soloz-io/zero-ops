@@ -72,10 +72,10 @@ infisical:
 
   resources:
     limits:
-      memory: 1000Mi
+      memory: 2000Mi
     requests:
       cpu: 350m
-      memory: 1000Mi
+      memory: 2000Mi
 
   # Startup probe: gives Infisical up to 5 minutes (30 × 10s) to complete
   # its DB migration and start the HTTP listener before Kubernetes considers
