@@ -2,7 +2,7 @@
 inclusion: manual
 ---
 
-- access the cluster logs and summarize the issues and challenge that you notice along with source code references and log traces to justify. Only focus on providing debug and providing RCA. Do not make any changes to cluster. Only recommend permenant fixes and not any workarounds or temporrary fix in cluster.
+- access the cluster logs and summarize the issues and challenge that you notice along with source code references and log traces to justify. Only focus on providing debug and providing RCA. Do not make any changes to cluster. Only recommend permenant fixes and not any workarounds or temporrary fix in cluster. Dont make live changes to cluster, based on the feedback, only make manifest changes and follow gitops.
 
 - Also provide the list of fixes you have already tried along with its status. 
 

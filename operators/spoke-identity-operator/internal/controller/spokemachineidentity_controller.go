@@ -85,7 +85,8 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		logger.Error(err, "Failed to ensure Machine Identity")
 		r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "IdentityFailed", err.Error())
 		r.setCondition(smi, conditionTypeIdentityCreated, metav1.ConditionFalse, "IdentityFailed", err.Error())
-		return ctrl.Result{}, r.Status().Update(ctx, smi)
+		_ = r.Status().Update(ctx, smi)
+		return ctrl.Result{}, err
 	}
 
 	if identity.ID != "" && smi.Status.IdentityID != identity.ID {
@@ -98,7 +99,8 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		if err := r.InfisicalClient.GrantProjectAccess(ctx, identity.ID, projectID, "admin"); err != nil {
 			logger.Error(err, "Failed to grant project access")
 			r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "AccessFailed", err.Error())
-			return ctrl.Result{}, r.Status().Update(ctx, smi)
+			_ = r.Status().Update(ctx, smi)
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -106,7 +108,8 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 	if requeue, err := r.handleRotation(ctx, smi, identity.ID); err != nil {
 		logger.Error(err, "Rotation failed")
 		r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "RotationFailed", err.Error())
-		return ctrl.Result{}, r.Status().Update(ctx, smi)
+		_ = r.Status().Update(ctx, smi)
+		return ctrl.Result{}, err
 	} else if requeue {
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, r.Status().Update(ctx, smi)
 	}
@@ -115,7 +118,8 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 	if err := r.ensureCRSWrapper(ctx, smi); err != nil {
 		logger.Error(err, "Failed to ensure CRS wrapper")
 		r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "CRSWrapperFailed", err.Error())
-		return ctrl.Result{}, r.Status().Update(ctx, smi)
+		_ = r.Status().Update(ctx, smi)
+		return ctrl.Result{}, err
 	}
 
 	// Drift detection: verify identity still exists
@@ -147,10 +151,12 @@ func (r *SpokeMachineIdentityReconciler) handleDeletion(ctx context.Context, smi
 		if len(smi.Status.ClientSecretIDs) > 0 {
 			if err := r.InfisicalClient.RevokeAllClientSecrets(ctx, smi.Status.IdentityID, smi.Status.ClientSecretIDs); err != nil {
 				logger.Error(err, "Failed to revoke client secrets during deletion")
+				return ctrl.Result{}, err
 			}
 		}
 		if err := r.InfisicalClient.DeleteIdentity(ctx, smi.Status.IdentityID); err != nil {
 			logger.Error(err, "Failed to delete Machine Identity during deletion")
+			return ctrl.Result{}, err
 		}
 	}
 
