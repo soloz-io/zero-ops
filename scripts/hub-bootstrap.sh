@@ -966,7 +966,7 @@ step10_wait_spokepool() {
             break
         fi
 
-        log "Waiting for bootstrap PKI (attempt $pki_attempt/$pki_max_attempts): certificate=$cert_ready identity=$identity_ready"
+        log "Waiting for bootstrap PKI. Usually becomes ready at 5th attempt. (attempt $pki_attempt/$pki_max_attempts): certificate=$cert_ready identity=$identity_ready"
         sleep 10
         ((pki_attempt++))
     done
