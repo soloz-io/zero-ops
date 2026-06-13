@@ -1,0 +1,14 @@
+apiVersion: hub.zero-ops.io/v1alpha1
+kind: SpokePool
+metadata:
+  name: distributed-mac-fleet
+  namespace: zero-ops-system
+spec:
+  clusterName: zero-ops-hub-spoke
+  topology:
+    controlPlane:
+      replicas: 1
+    workers:
+      replicas: 3
+  providerConfigRef:
+    name: mac-cluster-engine

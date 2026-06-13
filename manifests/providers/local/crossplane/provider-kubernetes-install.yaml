@@ -1,0 +1,7 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-kubernetes
+spec:
+  # Standard, stable enterprise version of the Crossplane Kubernetes Provider
+  package: xpkg.upbound.io/crossplane/provider-kubernetes:v0.11.0

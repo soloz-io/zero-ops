@@ -561,6 +561,19 @@ step1_bootstrap_hub() {
     # Read the result contract produced by the Go bootstrap
     read_kubeconfig_from_state
 
+    # [ZERO-OPS ASYMMETRIC SPLIT HOOK]
+    # If Mac credentials exist locally (from export-mac-kubeconfig.sh), inject them into Crossplane
+    local mac_kubeconfig="$HOME/.kube/mac-target-engine.yaml"
+    if [[ -f "$mac_kubeconfig" ]]; then
+        log "Injecting Mac Ingestion Engine credentials into Crossplane..."
+        # We target platform-ops since the provider is usually installed there, but we match the provider-config-mac.yaml
+        kubectl create namespace zero-ops-system --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
+        kubectl create secret generic mac-engine-credentials --namespace=zero-ops-system --from-file=kubeconfig="$mac_kubeconfig" --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
+        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-kubernetes-install.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
+        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-config-mac.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
+        log "Crossplane routing to Mac Ingestion Engine is active."
+    fi
+
     mark_step_completed "bootstrap_hub"
     log "Hub cluster bootstrap completed"
 }
