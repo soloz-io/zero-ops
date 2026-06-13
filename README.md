@@ -1,5 +1,16 @@
 # Zero-Ops Platform:
 
+## Development Principles & Guidelines
+
+Zero-Ops is an enterprise Hub-Spoke PaaS platform providing a complete infrastructure management solution for Kubernetes clusters across multiple cloud providers. 
+
+To maintain the integrity, stability, and production-readiness of the platform, all contributions and technical solutions must adhere to the following principles:
+
+- **Production-Ready & Idiomatic Code:** All code must be idiomatic, widely adopted, enterprise-grade, and production-ready. Non-idiomatic or experimental approaches are not accepted.
+- **Strict ADR Alignment:** Every proposed solution must explicitly reference and align with the existing Architecture Decision Records (ADRs) and core platform principles.
+- **Justified Deviations:** If a solution must deviate from existing ADRs, it must include a comprehensive justification and a proposal for the necessary ADR updates to accommodate the change.
+- **Declarative Operations (GitOps First):** Direct imperative cluster changes (e.g., `kubectl rollout restart` or `kubectl apply`) are strictly prohibited. Infrastructure mutations must be handled by finding and fixing bugs in the codebase, with all changes applied via GitOps.
+
 ## Elevator Pitch:
 
 **Zero-Ops** is an MCP-first, Gitops PAAS platform that provisions production-grade, multi-tenant environments for building AI-native SAAS products like replit, Lovable, Emergent. 
