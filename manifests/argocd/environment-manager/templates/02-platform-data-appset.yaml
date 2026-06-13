@@ -82,6 +82,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          - RespectIgnoreDifferences=true
         retry:
           limit: 15
           backoff:
@@ -94,5 +95,12 @@ spec:
         directory:
           recurse: true
     {{"{{-"}} end {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/persistentVolumeClaimRetentionPolicy
+            - /spec/volumeClaimTemplates
 ---
 {{ end }}

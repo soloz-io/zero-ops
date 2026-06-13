@@ -411,6 +411,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          - RespectIgnoreDifferences=true
   templatePatch: |
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
@@ -444,6 +445,15 @@ spec:
           jsonPointers:
             - /spec/template/spec/containers/0/resources
             - /spec/progressDeadlineSeconds
+    {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "platform-spire" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/persistentVolumeClaimRetentionPolicy
+            - /spec/volumeClaimTemplates
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}
