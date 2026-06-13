@@ -10,7 +10,7 @@ metadata:
 spec:
   provider: local
   providerConfigRef:
-    name: mac-cluster-engine
+    name: windows-cluster-engine
   compositionSelector:
     matchLabels:
       provider: docker

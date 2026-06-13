@@ -1,11 +1,11 @@
 apiVersion: kubernetes.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: mac-cluster-engine
+  name: windows-cluster-engine
 spec:
   credentials:
     source: Secret
     secretRef:
       namespace: zero-ops-system
-      name: mac-engine-credentials
+      name: windows-engine-credentials
       key: kubeconfig
