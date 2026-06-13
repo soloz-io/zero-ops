@@ -3,7 +3,6 @@ kind: VMRule
 metadata:
   name: platform-core-alerts
   namespace: platform-observability
-  annotations:
   labels:
     app: victoriametrics
     component: alerting

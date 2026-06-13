@@ -68,7 +68,6 @@ kind: StatefulSet
 metadata:
   name: nats
   namespace: platform-messaging
-  annotations:
 spec:
   serviceName: nats
   replicas: 1

@@ -4,7 +4,6 @@ kind: ConfigMap
 metadata:
   name: nats-config
   namespace: platform-messaging
-  annotations:
 data:
   nats.conf: |
     port: 4222
@@ -39,7 +38,6 @@ kind: StatefulSet
 metadata:
   name: nats
   namespace: platform-messaging
-  annotations:
 spec:
   serviceName: nats
   replicas: 1
@@ -114,7 +112,6 @@ kind: Service
 metadata:
   name: nats
   namespace: platform-messaging
-  annotations:
 spec:
   type: ClusterIP
   ports:

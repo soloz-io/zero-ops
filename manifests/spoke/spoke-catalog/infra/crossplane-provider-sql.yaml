@@ -5,7 +5,6 @@ apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-sql
-  annotations:
 spec:
   package: xpkg.upbound.io/crossplane-contrib/provider-sql:v0.14.0
   packagePullPolicy: IfNotPresent

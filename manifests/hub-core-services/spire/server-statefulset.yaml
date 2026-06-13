@@ -3,7 +3,6 @@ kind: ConfigMap
 metadata:
   name: spire-server
   namespace: platform-security
-  annotations:
 data:
   server.conf: |
     server {
@@ -60,7 +59,6 @@ kind: ConfigMap
 metadata:
   name: spire-controller-manager-config
   namespace: platform-security
-  annotations:
 data:
   config.yaml: |
     apiVersion: spire.spiffe.io/v1alpha1
@@ -87,7 +85,6 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-server
-  annotations:
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1

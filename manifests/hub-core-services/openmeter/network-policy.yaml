@@ -4,7 +4,6 @@ kind: NetworkPolicy
 metadata:
   name: openmeter-platform-netpol
   namespace: platform-billing
-  annotations:
 spec:
   podSelector:
     matchExpressions:

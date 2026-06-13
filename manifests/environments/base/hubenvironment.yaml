@@ -2,7 +2,6 @@ apiVersion: ops.nutgraf.in/v1alpha1
 kind: HubEnvironment
 metadata:
   name: hub-environment
-  annotations:
 spec:
   # Domain is sourced from hub-bootstrap-config ConfigMap
   domain: nutgraf.in

@@ -3,7 +3,6 @@ kind: Pooler
 metadata:
   name: platform-db-pooler
   namespace: platform-data
-  annotations:
 spec:
   cluster:
     name: platform-db

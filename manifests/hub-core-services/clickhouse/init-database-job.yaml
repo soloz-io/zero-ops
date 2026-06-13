@@ -14,7 +14,6 @@ kind: Job
 metadata:
   name: clickhouse-init-openmeter-db
   namespace: platform-data
-  annotations:
 spec:
   ttlSecondsAfterFinished: 300
   template:

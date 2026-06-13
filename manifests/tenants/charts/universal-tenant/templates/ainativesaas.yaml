@@ -18,7 +18,6 @@ kind: AINativeSaaS
 metadata:
   name: {{ .Values.tenantId }}
   namespace: tenant-{{ .Values.tenantId }}
-  annotations:
   labels:
     tenant-id: {{ .Values.tenantId }}
     tier: {{ .Values.tier }}

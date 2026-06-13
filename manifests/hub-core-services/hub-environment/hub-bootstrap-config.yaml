@@ -3,7 +3,6 @@ kind: ConfigMap
 metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
-  annotations:
 data:
   # Cluster Identity
   CLUSTER_ID: "hub-production"

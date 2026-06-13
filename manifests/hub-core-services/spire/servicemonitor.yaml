@@ -5,7 +5,6 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-server
-  annotations:
 spec:
   type: ClusterIP
   ports:
@@ -24,7 +23,6 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-server
-  annotations:
 spec:
   selector:
     matchLabels:
@@ -42,7 +40,6 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-agent
-  annotations:
 spec:
   type: ClusterIP
   clusterIP: None
@@ -62,7 +59,6 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-agent
-  annotations:
 spec:
   selector:
     matchLabels:

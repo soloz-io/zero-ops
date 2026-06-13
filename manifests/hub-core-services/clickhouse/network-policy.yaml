@@ -7,7 +7,6 @@ kind: NetworkPolicy
 metadata:
   name: platform-clickhouse-access
   namespace: platform-data
-  annotations:
 spec:
   podSelector:
     matchLabels:

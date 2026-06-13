@@ -3,7 +3,6 @@ kind: NetworkPolicy
 metadata:
   name: nats-access
   namespace: platform-messaging
-  annotations:
 spec:
   podSelector:
     matchLabels:

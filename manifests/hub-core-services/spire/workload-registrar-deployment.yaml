@@ -10,7 +10,6 @@ apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
   name: zero-ops-default
-  annotations:
 spec:
   # Issue SVID to every pod based on its namespace and service account.
   # This is the default identity for all Zero-Ops workloads.

@@ -3,34 +3,28 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-data
-  annotations:
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-messaging
-  annotations:
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-observability
-  annotations:
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: kagent-system
-  annotations:
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cert-manager
-  annotations:
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-ops
-  annotations:

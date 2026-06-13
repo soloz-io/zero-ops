@@ -10,7 +10,6 @@ kind: VMCluster
 metadata:
   name: vmcluster
   namespace: platform-observability
-  annotations:
 spec:
   retentionPeriod: "30d"
   replicationFactor: 1
@@ -73,7 +72,6 @@ kind: Service
 metadata:
   name: victoriametrics
   namespace: platform-observability
-  annotations:
   labels:
     app: victoriametrics
     component: vmselect
@@ -127,7 +125,6 @@ kind: ConfigMap
 metadata:
   name: victoriametrics-config
   namespace: platform-observability
-  annotations:
 data:
   promql-config.yaml: |
     # PromQL-compatible query API configuration
@@ -156,7 +153,6 @@ kind: VMServiceScrape
 metadata:
   name: victoriametrics-cluster
   namespace: platform-observability
-  annotations:
 spec:
   selector:
     matchLabels:

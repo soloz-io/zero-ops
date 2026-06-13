@@ -23,7 +23,6 @@ kind: NetworkPolicy
 metadata:
   name: platform-db-access
   namespace: platform-data
-  annotations:
 spec:
   podSelector:
     matchLabels:

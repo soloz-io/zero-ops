@@ -4,7 +4,6 @@ kind: ConfigMap
 metadata:
   name: alloy-config
   namespace: platform-observability
-  annotations:
 data:
   config.alloy: |
     // Kubernetes State Metrics scraping
@@ -68,7 +67,6 @@ kind: DaemonSet
 metadata:
   name: grafana-alloy
   namespace: platform-observability
-  annotations:
 spec:
   selector:
     matchLabels:
@@ -125,13 +123,11 @@ kind: ServiceAccount
 metadata:
   name: grafana-alloy
   namespace: platform-observability
-  annotations:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: grafana-alloy
-  annotations:
 rules:
   - apiGroups: [""]
     resources:
@@ -152,7 +148,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: grafana-alloy
-  annotations:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

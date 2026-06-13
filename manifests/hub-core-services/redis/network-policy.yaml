@@ -6,7 +6,6 @@ kind: NetworkPolicy
 metadata:
   name: platform-redis-access
   namespace: platform-data
-  annotations:
 spec:
   podSelector:
     matchLabels:

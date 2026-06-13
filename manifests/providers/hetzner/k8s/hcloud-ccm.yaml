@@ -3,7 +3,6 @@ kind: Application
 metadata:
   name: hcloud-ccm
   namespace: platform-ops
-  annotations:
 spec:
   project: default
   source:
