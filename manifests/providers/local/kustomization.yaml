@@ -9,5 +9,4 @@ resources:
   - k8s/spokepool-capd-composition.yaml
   - k8s/metallb-config.yaml
   - k8s/vendor/metallb-native.yaml
-  - k8s/vendor/ingress-nginx-kind.yaml
 

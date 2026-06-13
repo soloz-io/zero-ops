@@ -190,6 +190,7 @@ spec:
       name: spire-data
     spec:
       accessModes: ["ReadWriteOnce"]
+      volumeMode: Filesystem
       resources:
         requests:
           storage: 1Gi

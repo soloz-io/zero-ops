@@ -300,6 +300,23 @@ spec:
             directoryInclude: ''
             helmValues: |
               controller:
+                {{- if eq .Values.provider "local" }}
+                hostNetwork: true
+                hostPort:
+                  enabled: true
+                  ports:
+                    http: 80
+                    https: 443
+                nodeSelector:
+                  ingress-ready: "true"
+                tolerations:
+                  - key: "node-role.kubernetes.io/master"
+                    operator: "Equal"
+                    effect: "NoSchedule"
+                  - key: "node-role.kubernetes.io/control-plane"
+                    operator: "Equal"
+                    effect: "NoSchedule"
+                {{- end }}
                 ingressClassResource:
                   enabled: true
                   default: false
@@ -409,6 +426,24 @@ spec:
           jsonPointers:
             - /metadata/annotations
             - /metadata/labels
+    {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "ingress-nginx-controller" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          name: ingress-nginx-admission
+          jsonPointers:
+            - /webhooks/0/clientConfig/caBundle
+    {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "clickhouse-operator" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/template/spec/containers/0/resources
+            - /spec/progressDeadlineSeconds
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

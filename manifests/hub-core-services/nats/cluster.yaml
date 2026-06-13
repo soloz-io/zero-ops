@@ -71,6 +71,9 @@ metadata:
 spec:
   serviceName: nats
   replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   selector:
     matchLabels:
       app: nats
@@ -129,6 +132,7 @@ spec:
       name: data
     spec:
       accessModes: ["ReadWriteOnce"]
+      volumeMode: Filesystem
       resources:
         requests:
           storage: 10Gi
