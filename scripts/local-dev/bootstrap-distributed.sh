@@ -40,7 +40,7 @@ sed -i '' "s/localhost/${WINDOWS_IP}/g" ~/.kube/windows-target-engine.yaml
 # Phase 2: Bootstrap Mac Hub
 log "Phase 2: Bootstrapping Hub locally on Mac..."
 # Run the standard hub-bootstrap script on the Mac's native docker daemon
-bash "${PROJECT_ROOT}/scripts/hub-bootstrap.sh" --provider docker
+bash "${PROJECT_ROOT}/scripts/hub-bootstrap.sh" --provider local
 
 log "Phase 3: Deploying Spoke Clusters to Windows..."
 kubectl apply -f "${PROJECT_ROOT}/manifests/spoke/spoke-pools/dev/local/local-dev.yaml"
