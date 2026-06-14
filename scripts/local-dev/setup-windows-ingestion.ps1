@@ -27,8 +27,6 @@ nodes:
   extraMounts:
     - hostPath: /var/run/docker.sock
       containerPath: /var/run/docker.sock
-    - hostPath: /tmp
-      containerPath: /tmp
   kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration
@@ -37,6 +35,7 @@ nodes:
       - "${WindowsIp}"
       - "localhost"
       - "127.0.0.1"
+      - "0.0.0.0"
 "@
 
 $kindConfig | Out-File -FilePath "$env:TEMP\kind-windows-config.yaml" -Encoding ASCII
@@ -56,6 +55,9 @@ if (-not (Get-Command clusterctl -ErrorAction SilentlyContinue)) {
 
 # Force Windows to use its own local Docker daemon (ignoring any remote contexts)
 $env:DOCKER_CONTEXT = "default"
+
+# Ensure clean state
+try { kind delete cluster --name $ClusterName 2>$null } catch { }
 
 # Create cluster natively
 kind create cluster --name $ClusterName --config "$env:TEMP\kind-windows-config.yaml"
