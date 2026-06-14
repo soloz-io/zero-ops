@@ -41,6 +41,19 @@ nodes:
 
 $kindConfig | Out-File -FilePath "$env:TEMP\kind-windows-config.yaml" -Encoding ASCII
 
+$binDir = Join-Path $PWD "bin"
+if (-not (Test-Path $binDir)) { New-Item -Path $binDir -ItemType Directory | Out-Null }
+$env:PATH = "$binDir;$env:PATH"
+
+if (-not (Get-Command kind -ErrorAction SilentlyContinue)) {
+    Write-Host "Downloading kind.exe..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri "https://kind.sigs.k8s.io/dl/v0.22.0/kind-windows-amd64" -OutFile "$binDir\kind.exe"
+}
+if (-not (Get-Command clusterctl -ErrorAction SilentlyContinue)) {
+    Write-Host "Downloading clusterctl.exe..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.6.3/clusterctl-windows-amd64.exe" -OutFile "$binDir\clusterctl.exe"
+}
+
 # Create cluster natively
 kind create cluster --name $ClusterName --config "$env:TEMP\kind-windows-config.yaml"
 Remove-Item "$env:TEMP\kind-windows-config.yaml"
