@@ -19,18 +19,18 @@ The Zero-Ops platform leverages a Hub-and-Spoke topology. Running massive worklo
 
 ## 🛠️ Operational Workflow
 
-To safely defeat CAPD Volume Locality limitations (which cause "file not found" errors when CAPD runs on a remote node), we establish an SSHFS bridge between the two machines. This allows the Windows Docker daemon to natively read temporary CAPD files from the Mac in real-time.
+To safely defeat CAPD Volume Locality limitations without complex SSHFS file bridges, we use the **Asymmetric Split** pattern. We create a dedicated "Ingestion Engine" (`kind` cluster) on the Windows machine. By injecting a custom `hostPath` mount into the Windows `kind` cluster, CAPD controllers running inside it can natively bind-mount the Windows Docker Desktop `/tmp` directory.
 
-### Phase 1: Setup Windows Locality Bridge
+### Phase 1: Setup Windows Locality Bridge (Run Once)
 
 1. **On Windows (PowerShell - Admin):**
-   Expose the Windows host SSH server and configure default shell access (Run Once).
+   Expose the Windows host SSH server and configure default shell access.
    ```powershell
    .\scripts\local-dev\setup-windows-docker-host.ps1
    ```
 
 2. **On Windows (PowerShell):**
-   Establish the synchronous SSHFS filesystem bridge using the shared `/mnt/wsl` filesystem. This script automatically invokes WSL behind the scenes.
+   Create the Windows Ingestion Engine. This script creates the `kind` cluster and injects the critical `/tmp` hostPath mount to fix the Docker-in-Docker CAPD bug!
    ```powershell
    .\scripts\local-dev\setup-windows-ingestion.ps1
    ```
@@ -39,9 +39,9 @@ To safely defeat CAPD Volume Locality limitations (which cause "file not found" 
 
 3. **On Mac:**
    Run the distributed bootstrap wrapper script. This script automatically:
-   - Configures the Mac's `TMPDIR` to use the shared `/mnt/wsl` bridge.
+   - Connects to Windows over SSH to securely pull the Windows cluster credentials.
    - Bootstraps the Hub cluster on the Mac natively.
-   - Sets `DOCKER_HOST` to natively target the Windows host via SSH.
+   - Injects the credentials so Crossplane uses the Windows Ingestion Engine.
    - Deploys your local SpokePools directly onto Windows!
    
    ```bash
