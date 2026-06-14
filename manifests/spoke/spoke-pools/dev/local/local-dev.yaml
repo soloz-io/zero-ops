@@ -9,6 +9,8 @@ metadata:
     environment: local
 spec:
   provider: local
+  providerConfigRef:
+    name: windows-cluster-engine
   compositionSelector:
     matchLabels:
       provider: docker

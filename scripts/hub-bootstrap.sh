@@ -561,7 +561,17 @@ step1_bootstrap_hub() {
     # Read the result contract produced by the Go bootstrap
     read_kubeconfig_from_state
 
-
+    # [ZERO-OPS ASYMMETRIC SPLIT HOOK]
+    # If Windows credentials exist locally, inject them into Crossplane
+    local windows_kubeconfig="$HOME/.kube/windows-target-engine.yaml"
+    if [[ -f "$windows_kubeconfig" ]]; then
+        log "Injecting Windows Ingestion Engine credentials into Crossplane..."
+        kubectl create namespace zero-ops-system --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
+        kubectl create secret generic windows-engine-credentials --namespace=zero-ops-system --from-file=kubeconfig="$windows_kubeconfig" --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
+        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-kubernetes-install.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
+        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-config-windows.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
+        log "Crossplane routing to Windows Ingestion Engine is active."
+    fi
 
     mark_step_completed "bootstrap_hub"
     log "Hub cluster bootstrap completed"
