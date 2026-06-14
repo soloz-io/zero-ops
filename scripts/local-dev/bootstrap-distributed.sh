@@ -33,7 +33,7 @@ sudo mkdir -p /mnt/wsl/zero-ops
 sudo chown -R "$USER:staff" /mnt/wsl/zero-ops
 
 # Ensure the user has run the Windows side
-warn "Please ensure you have run setup-windows-ingestion.sh on your Windows WSL2 terminal"
+warn "Please ensure you have run setup-windows-ingestion.ps1 on your Windows PowerShell terminal"
 warn "to establish the SSHFS bridge before continuing."
 read -p "Press Enter to continue..."
 

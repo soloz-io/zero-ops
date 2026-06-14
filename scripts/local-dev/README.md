@@ -29,10 +29,10 @@ To safely defeat CAPD Volume Locality limitations (which cause "file not found" 
    .\scripts\local-dev\setup-windows-docker-host.ps1
    ```
 
-2. **On Windows (WSL2 Ubuntu Terminal):**
-   Establish the synchronous SSHFS filesystem bridge using the shared `/mnt/wsl` filesystem. (Run whenever you reboot).
-   ```bash
-   ./scripts/local-dev/setup-windows-ingestion.sh
+2. **On Windows (PowerShell):**
+   Establish the synchronous SSHFS filesystem bridge using the shared `/mnt/wsl` filesystem. This script automatically invokes WSL behind the scenes.
+   ```powershell
+   .\scripts\local-dev\setup-windows-ingestion.ps1
    ```
 
 ### Phase 2: Orchestrate and Bootstrap (Daily Workflow)
