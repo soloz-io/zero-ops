@@ -54,12 +54,19 @@ if (-not (Get-Command clusterctl -ErrorAction SilentlyContinue)) {
     Invoke-WebRequest -Uri "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.6.3/clusterctl-windows-amd64.exe" -OutFile "$binDir\clusterctl.exe"
 }
 
+# Force Windows to use its own local Docker daemon (ignoring any remote contexts)
+$env:DOCKER_CONTEXT = "default"
+
 # Create cluster natively
 kind create cluster --name $ClusterName --config "$env:TEMP\kind-windows-config.yaml"
 Remove-Item "$env:TEMP\kind-windows-config.yaml"
 
 Write-Host "🚀 Initializing bare Cluster API and CAPD controllers on Windows..." -ForegroundColor Cyan
-$env:KUBECONFIG = "$(kind get kubeconfig-path --name $ClusterName)"
+
+# Save the kubeconfig explicitly
+kind get kubeconfig --name $ClusterName > "$env:TEMP\windows-engine-kubeconfig.yaml"
+$env:KUBECONFIG = "$env:TEMP\windows-engine-kubeconfig.yaml"
+
 $env:EXP_CLUSTER_RESOURCE_SET = "true"
 clusterctl init --infrastructure docker
 
