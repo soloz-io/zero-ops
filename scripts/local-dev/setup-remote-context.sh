@@ -5,14 +5,8 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <MAC_USERNAME> <MAC_IP>"
-    echo "Example: $0 arun_subramanian 192.168.1.5"
-    exit 1
-fi
-
-MAC_USER=$1
-MAC_IP=$2
+MAC_USER="arun_subramanian"
+MAC_IP="192.168.1.2"
 CONTEXT_NAME="mac-compute-pool"
 
 echo "🔑 Step 1: Ensuring SSH keys exist..."

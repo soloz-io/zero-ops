@@ -6,19 +6,8 @@ Sets up a Windows PowerShell terminal to securely route Docker commands to the M
 This script generates an SSH key if one does not exist, copies it to the Mac for passwordless login,
 and configures the Docker remote context to use the Mac's Docker Engine natively from Windows PowerShell.
 
-.PARAMETER MacUser
-The username on the Mac laptop (e.g., arun_subramanian)
-
-.PARAMETER MacIp
-The IP address of the Mac laptop on the local network (e.g., 192.168.1.5)
-#>
-param (
-    [Parameter(Mandatory=$true)]
-    [string]$MacUser,
-
-    [Parameter(Mandatory=$true)]
-    [string]$MacIp
-)
+$MacUser = "arun_subramanian"
+$MacIp = "192.168.1.2"
 
 $ErrorActionPreference = "Stop"
 $ContextName = "mac-compute-pool"
