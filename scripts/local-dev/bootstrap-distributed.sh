@@ -26,15 +26,21 @@ warn() {
 
 log "Starting Synchronous Hybrid Split Bootstrap (Mac = Hub, Windows = Spoke)..."
 
-# Phase 1: Establish SSHFS bridge on Windows remotely
-log "Phase 1: Initializing Windows SSHFS Bridge via SSH..."
-# Copy the script to the Windows native temp directory
-scp "${SCRIPT_DIR}/setup-windows-ingestion.sh" "${WINDOWS_USER}@${WINDOWS_IP}:C:\\Windows\\Temp\\setup-windows-ingestion.sh"
-# Execute it inside WSL2 using the /mnt/c path translation
-ssh "${WINDOWS_USER}@${WINDOWS_IP}" "wsl bash /mnt/c/Windows/Temp/setup-windows-ingestion.sh"
+# Phase 1: Establish SSHFS bridge
+log "Phase 1: Establishing Shared /mnt/wsl Locality Bridge..."
+# Create the shared directory on the Mac side
+sudo mkdir -p /mnt/wsl/zero-ops
+sudo chown -R "$USER:staff" /mnt/wsl/zero-ops
+
+# Ensure the user has run the Windows side
+warn "Please ensure you have run setup-windows-ingestion.sh on your Windows WSL2 terminal"
+warn "to establish the SSHFS bridge before continuing."
+read -p "Press Enter to continue..."
 
 # Phase 2: Bootstrap Mac Hub
 log "Phase 2: Bootstrapping Hub locally on Mac..."
+# Set TMPDIR so CAPD generates files in the shared /mnt/wsl bridge
+export TMPDIR="/mnt/wsl/zero-ops"
 # Run the standard hub-bootstrap script on the Mac's native docker daemon
 # Ensure DOCKER_HOST is set to route Spoke provisioning to Windows Docker Engine
 export DOCKER_HOST="ssh://${WINDOWS_USER}@${WINDOWS_IP}"

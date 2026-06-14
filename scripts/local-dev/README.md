@@ -21,22 +21,27 @@ The Zero-Ops platform leverages a Hub-and-Spoke topology. Running massive worklo
 
 To safely defeat CAPD Volume Locality limitations (which cause "file not found" errors when CAPD runs on a remote node), we establish an SSHFS bridge between the two machines. This allows the Windows Docker daemon to natively read temporary CAPD files from the Mac in real-time.
 
-### Phase 1: Setup Windows SSH Access (Run Once)
+### Phase 1: Setup Windows Locality Bridge
 
 1. **On Windows (PowerShell - Admin):**
-   Expose the Windows host SSH server and configure default shell access.
+   Expose the Windows host SSH server and configure default shell access (Run Once).
    ```powershell
    .\scripts\local-dev\setup-windows-docker-host.ps1
    ```
 
+2. **On Windows (WSL2 Ubuntu Terminal):**
+   Establish the synchronous SSHFS filesystem bridge using the shared `/mnt/wsl` filesystem. (Run whenever you reboot).
+   ```bash
+   ./scripts/local-dev/setup-windows-ingestion.sh
+   ```
+
 ### Phase 2: Orchestrate and Bootstrap (Daily Workflow)
 
-2. **On Mac:**
+3. **On Mac:**
    Run the distributed bootstrap wrapper script. This script automatically:
-   - Connects to Windows over SSH.
-   - Executes the SSHFS ingestion script inside WSL2 to bridge the filesystems.
+   - Configures the Mac's `TMPDIR` to use the shared `/mnt/wsl` bridge.
    - Bootstraps the Hub cluster on the Mac natively.
-   - Sets `DOCKER_HOST` to natively target the Windows host.
+   - Sets `DOCKER_HOST` to natively target the Windows host via SSH.
    - Deploys your local SpokePools directly onto Windows!
    
    ```bash
