@@ -38,6 +38,13 @@ To safely defeat CAPD Volume Locality limitations without complex SSHFS file bri
 ### Phase 2: Orchestrate and Bootstrap (Daily Workflow)
 
 3. **On Mac:**
+   First, dynamically patch your local Crossplane Compositions to enable Windows routing. This modifies the local manifests to point to the Windows Ingestion Engine instead of the default Mac Hub. 
+   *(Note: You must commit and push the patched files so ArgoCD applies them)*
+   ```bash
+   ./scripts/local-dev/enable-windows-routing.sh
+   ```
+
+4. **On Mac:**
    Run the distributed bootstrap wrapper script. This script automatically:
    - Connects to Windows over SSH to securely pull the Windows cluster credentials.
    - Bootstraps the Hub cluster on the Mac natively.

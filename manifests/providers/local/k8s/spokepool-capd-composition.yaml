@@ -63,7 +63,7 @@ spec:
                           - name: workerMachineType
                             value: "m"
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -139,7 +139,7 @@ spec:
                           kind: Secret
                       strategy: ApplyOnce
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -218,7 +218,7 @@ spec:
                     data:
                       argocd-agent-config.yaml: ""
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -287,7 +287,7 @@ spec:
                         metadata:
                           name: argocd
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -320,7 +320,7 @@ spec:
                         metadata:
                           name: platform-observability
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -361,7 +361,7 @@ spec:
                         metadata:
                           name: platform-messaging
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -398,7 +398,7 @@ spec:
                     stringData:
                       password: ""
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -442,7 +442,7 @@ spec:
                           name: ""
                           key: value
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: windows-cluster-engine
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
