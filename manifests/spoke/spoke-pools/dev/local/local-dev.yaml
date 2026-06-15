@@ -6,7 +6,7 @@ metadata:
   namespace: platform-ops
   annotations:
     windows-lan-ip: "192.168.1.18"
-    windows-mapped-port: "32772"
+    windows-mapped-port: "6445"
   labels:
     spoke-type: pool
     environment: local
