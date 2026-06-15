@@ -47,6 +47,8 @@ spec:
                         services:
                           cidrBlocks:
                             - 10.96.0.0/12
+                      controlPlaneEndpoint:
+                        host: ""
                       topology:
                         class: capd-spoke-pool-v1
                         version: v1.31.6
@@ -77,6 +79,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations['windows-lan-ip']
+                toFieldPath: spec.forProvider.manifest.spec.controlPlaneEndpoint.host
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
@@ -420,6 +425,49 @@ spec:
                 fromFieldPath: metadata.uid
                 toFieldPath: spec.forProvider.manifest.stringData.password
 
+          # Sync the generated Kubeconfig from Windows to Mac Hub
+          - name: spoke-kubeconfig-sync
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                # Observe-Only: Do not try to create or delete the CAPI secret
+                managementPolicies: ["Observe"]
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      name: "" # Patched to <cluster>-kubeconfig
+                      namespace: platform-capi
+                providerConfigRef:
+                  name: windows-cluster-engine
+                # Write the pulled secret back to the Mac Hub
+                writeConnectionSecretToRef:
+                  name: "" # Patched
+                  namespace: platform-capi
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-kubeconfig"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.writeConnectionSecretToRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-kubeconfig-internal"
+            connectionDetails:
+              - type: FromFieldPath
+                name: kubeconfig
+                fromFieldPath: data.value
+
           # Spoke ProviderConfig
           - name: spoke-providerconfig
             base:
@@ -442,7 +490,7 @@ spec:
                           name: ""
                           key: value
                 providerConfigRef:
-                  name: windows-cluster-engine
+                  name: kubernetes-provider
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name

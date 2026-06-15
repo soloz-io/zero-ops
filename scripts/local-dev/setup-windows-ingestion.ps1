@@ -70,6 +70,7 @@ kind get kubeconfig --name $ClusterName > "$env:TEMP\windows-engine-kubeconfig.y
 $env:KUBECONFIG = "$env:TEMP\windows-engine-kubeconfig.yaml"
 
 $env:EXP_CLUSTER_RESOURCE_SET = "true"
+$env:CLUSTER_TOPOLOGY = "true"
 clusterctl init --infrastructure docker
 
 Write-Host "✅ Windows engine is ready! Now run bootstrap-distributed.sh on your Mac!" -ForegroundColor Green
