@@ -4,6 +4,8 @@ kind: SpokePool
 metadata:
   name: local-dev
   namespace: platform-ops
+  annotations:
+    windows-lan-ip: "192.168.1.18"
   labels:
     spoke-type: pool
     environment: local
