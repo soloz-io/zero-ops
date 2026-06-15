@@ -83,6 +83,13 @@ spec:
                 fromFieldPath: metadata.annotations['windows-lan-ip']
                 toFieldPath: spec.forProvider.manifest.spec.controlPlaneEndpoint.host
               - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations['windows-mapped-port']
+                toFieldPath: spec.forProvider.manifest.spec.controlPlaneEndpoint.port
+                transforms:
+                  - type: convert
+                    convert:
+                      toType: int
+              - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
 
