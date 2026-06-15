@@ -62,6 +62,9 @@ spec:
             status:
               type: object
               properties:
+                spokeKubeconfigBase64:
+                  type: string
+                  description: "Transient state bridging the kubeconfig from Execution Hub to Global Hub"
                 resolvedProvider:
                   type: string
                   description: "Platform-resolved provider from spec.provider after validation"

@@ -425,57 +425,101 @@ spec:
                 fromFieldPath: metadata.uid
                 toFieldPath: spec.forProvider.manifest.stringData.password
 
-          # Sync the generated Kubeconfig from Windows to Mac Hub
+          # ========================================================================
+          # 1. THE OBSERVER: Read the CAPI Secret from the Windows Execution Hub
+          # ========================================================================
           - name: spoke-kubeconfig-sync
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
               kind: Object
               spec:
-                # Observe-Only: Do not try to create or delete the CAPI secret
                 managementPolicies: ["Observe"]
                 forProvider:
                   manifest:
                     apiVersion: v1
                     kind: Secret
                     metadata:
-                      name: "" # Patched to <cluster>-kubeconfig
+                      name: "" # Patched
                       namespace: platform-capi
                 providerConfigRef:
                   name: windows-cluster-engine
-                # Write the pulled secret back to the Mac Hub
-                writeConnectionSecretToRef:
-                  name: "" # Patched
-                  namespace: platform-capi
+            readinessChecks:
+              - type: NonEmpty
+                fieldPath: status.atProvider.manifest.data.value
             patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      fmt: "%s-kubeconfig-sync"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
                     string:
-                      type: Format
                       fmt: "%s-kubeconfig"
+              # PULL from Windows Secret -> XR Status
+              - type: ToCompositeFieldPath
+                fromFieldPath: status.atProvider.manifest.data.value
+                toFieldPath: status.spokeKubeconfigBase64
+
+          # ========================================================================
+          # 2. THE CREATOR: Write the Kubeconfig Secret natively to the Mac Hub
+          # ========================================================================
+          - name: spoke-kubeconfig-local
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      name: "" # Patched
+                      namespace: platform-capi
+                    data:
+                      value: "" # Patched from XR Status
+                providerConfigRef:
+                  name: kubernetes-provider # Run locally on Mac Hub
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
+            patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.writeConnectionSecretToRef.name
+                toFieldPath: metadata.name
                 transforms:
                   - type: string
                     string:
-                      type: Format
+                      fmt: "%s-kubeconfig-local"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
                       fmt: "%s-kubeconfig-internal"
-            connectionDetails:
-              - type: FromFieldPath
-                name: kubeconfig
-                fromFieldPath: data.value
+              # PUSH from XR Status -> Mac Secret
+              - type: FromCompositeFieldPath
+                fromFieldPath: status.spokeKubeconfigBase64
+                toFieldPath: spec.forProvider.manifest.data.value
 
-          # Spoke ProviderConfig
+          # ========================================================================
+          # 3. SPOKE PROVIDER CONFIG: Consume the local Mac Secret
+          # ========================================================================
           - name: spoke-providerconfig
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
               kind: Object
               spec:
-                managementPolicies:
-                  - "*"
+                managementPolicies: ["*"]
                 forProvider:
                   manifest:
                     apiVersion: kubernetes.crossplane.io/v1alpha1
@@ -487,10 +531,9 @@ spec:
                         source: Secret
                         secretRef:
                           namespace: platform-capi
-                          name: ""
-                          key: value
+                          name: "" # Patched
                 providerConfigRef:
-                  name: kubernetes-provider
+                  name: kubernetes-provider # Run locally on Mac Hub
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -498,7 +541,6 @@ spec:
                 transforms:
                   - type: string
                     string:
-                      type: Format
                       fmt: "%s-providerconfig"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -509,5 +551,4 @@ spec:
                 transforms:
                   - type: string
                     string:
-                      type: Format
                       fmt: "%s-kubeconfig-internal"
