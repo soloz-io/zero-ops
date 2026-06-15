@@ -453,6 +453,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-kubeconfig-sync"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -460,6 +461,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-kubeconfig"
               # PULL from Windows Secret -> XR Status
               - type: ToCompositeFieldPath
@@ -498,6 +500,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-kubeconfig-local"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -505,6 +508,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-kubeconfig-internal"
               # PUSH from XR Status -> Mac Secret
               - type: FromCompositeFieldPath
@@ -541,6 +545,7 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-providerconfig"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -551,4 +556,5 @@ spec:
                 transforms:
                   - type: string
                     string:
+                      type: Format
                       fmt: "%s-kubeconfig-internal"
