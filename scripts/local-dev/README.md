@@ -30,7 +30,10 @@ To safely defeat CAPD Volume Locality limitations without complex SSHFS file bri
    ```
 
 2. **On Windows (PowerShell):**
-   Create the Windows Ingestion Engine. This script creates the `kind` cluster and injects the critical `/tmp` hostPath mount to fix the Docker-in-Docker CAPD bug!
+   Create the Windows Ingestion Engine. This script automatically:
+   - Creates the `kind` cluster and injects the critical `/tmp` hostPath mount to fix the Docker-in-Docker CAPD bug.
+   - Downloads the upstream Cluster API source code and applies the `capd-port-mapping.patch`.
+   - Natively compiles a custom AMD64 Docker image and deploys it, allowing the CAPD loadbalancer to bind to static ports (e.g., 6446) for cross-OS routing!
    ```powershell
    .\scripts\local-dev\setup-windows-ingestion.ps1
    ```

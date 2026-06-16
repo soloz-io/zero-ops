@@ -1,0 +1,34 @@
+diff --git a/test/infrastructure/docker/internal/docker/loadbalancer.go b/test/infrastructure/docker/internal/docker/loadbalancer.go
+index 6413b879c..3f9bfd1ab 100644
+--- a/test/infrastructure/docker/internal/docker/loadbalancer.go
++++ b/test/infrastructure/docker/internal/docker/loadbalancer.go
+@@ -19,6 +19,7 @@ package docker
+ import (
+ 	"context"
+ 	"fmt"
++	"strconv"
+ 
+ 	"github.com/pkg/errors"
+ 	ctrl "sigs.k8s.io/controller-runtime"
+@@ -119,13 +120,20 @@ func (s *LoadBalancer) Create(ctx context.Context) error {
+ 	if s.container == nil {
+ 		var err error
+ 		log.Info("Creating load balancer container")
++
++		// Parse the frontendControlPlanePort to respect explicit port configurations
++		portInt, err := strconv.Atoi(s.frontendControlPlanePort)
++		if err != nil {
++			portInt = 0
++		}
++
+ 		s.container, err = s.lbCreator.CreateExternalLoadBalancerNode(
+ 			ctx,
+ 			s.containerName(),
+ 			s.image,
+ 			s.name,
+ 			listenAddr,
+-			0,
++			int32(portInt),
+ 			s.ipFamily,
+ 		)
+ 		if err != nil {

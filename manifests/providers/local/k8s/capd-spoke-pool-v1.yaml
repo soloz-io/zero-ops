@@ -46,22 +46,20 @@ spec:
       openAPIV3Schema:
         type: string
         default: "m"
-
-  - name: apiServerHost
+  - name: windowsLanIp
     required: false
     schema:
       openAPIV3Schema:
         type: string
         default: ""
-  - name: apiServerPort
+  - name: windowsMappedPort
     required: false
     schema:
       openAPIV3Schema:
         type: integer
-        default: 0
+        default: 6445
   patches:
   - name: windowsNetworking
-    enabledIf: '{{ ne .apiServerHost "" }}'
     definitions:
     - selector:
         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -76,31 +74,7 @@ spec:
       - op: add
         path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
         valueFrom:
-          variable: apiServerHost
-  - name: controlPlanePortMapping
-    enabledIf: '{{ ne .apiServerHost "" }}'
-    definitions:
-    - selector:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: DockerMachineTemplate
-        matchResources:
-          machineDeploymentClass:
-            names: []
-          controlPlane: true
-      jsonPatches:
-      - op: add
-        path: /spec/template/spec/extraPortMappings
-        value: []
-      - op: add
-        path: /spec/template/spec/extraPortMappings/-
-        valueFrom:
-          template: |
-            containerPort: 6443
-            hostPort: {{ .apiServerPort }}
-            listenAddress: "0.0.0.0"
-  - name: controlPlaneEndpoint
-    enabledIf: '{{ ne .apiServerHost "" }}'
-    definitions:
+          variable: windowsLanIp
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: DockerClusterTemplate
@@ -109,10 +83,17 @@ spec:
       jsonPatches:
       - op: add
         path: /spec/template/spec/controlPlaneEndpoint
+        value:
+          host: ""
+          port: 0
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/host
         valueFrom:
-          template: |
-            host: {{ .apiServerHost }}
-            port: {{ .apiServerPort }}
+          variable: windowsLanIp
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/port
+        valueFrom:
+          variable: windowsMappedPort
 
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
