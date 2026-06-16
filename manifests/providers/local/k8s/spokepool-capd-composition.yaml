@@ -62,10 +62,10 @@ spec:
                             value: "m"
                           - name: workerMachineType
                             value: "m"
-                          - name: windowsLanIp
-                            value: ""
-                          - name: windowsMappedPort
-                            value: 6445
+                          - name: apiServerHost
+                            value: "127.0.0.1"
+                          - name: apiServerPort
+                            value: 0
                 providerConfigRef:
                   name: windows-cluster-engine
             patches:

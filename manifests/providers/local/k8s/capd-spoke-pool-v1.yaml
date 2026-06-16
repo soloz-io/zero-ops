@@ -58,6 +58,18 @@ spec:
       openAPIV3Schema:
         type: integer
         default: 6445
+  - name: apiServerHost
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
+  - name: apiServerPort
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: integer
+        default: 0
   patches:
   - name: windowsNetworking
     definitions:
@@ -75,21 +87,21 @@ spec:
         path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
         valueFrom:
           variable: windowsLanIp
+  - name: controlPlaneEndpoint
+    enabledIf: '{{ and (ne .apiServerHost "") (ne .apiServerPort 0) }}'
+    definitions:
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: DockerMachineTemplate
+        kind: DockerClusterTemplate
         matchResources:
-          controlPlane: true
+          infrastructureCluster: true
       jsonPatches:
       - op: add
-        path: /spec/template/spec/extraPortMappings
-        value: []
-      - op: add
-        path: /spec/template/spec/extraPortMappings/-
+        path: /spec/template/spec/controlPlaneEndpoint
         valueFrom:
           template: |
-            containerPort: 6443
-            hostPort: {{ .windowsMappedPort }}
+            host: {{ .apiServerHost }}
+            port: {{ .apiServerPort }}
 
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
