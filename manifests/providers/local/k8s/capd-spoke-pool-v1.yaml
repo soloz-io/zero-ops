@@ -77,6 +77,27 @@ spec:
         path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
         valueFrom:
           variable: apiServerHost
+  - name: controlPlanePortMapping
+    enabledIf: '{{ ne .apiServerHost "" }}'
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: DockerMachineTemplate
+        matchResources:
+          machineDeploymentClass:
+            names: []
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/extraPortMappings
+        value: []
+      - op: add
+        path: /spec/template/spec/extraPortMappings/-
+        valueFrom:
+          template: |
+            containerPort: 6443
+            hostPort: {{ .apiServerPort }}
+            listenAddress: "0.0.0.0"
   - name: controlPlaneEndpoint
     enabledIf: '{{ ne .apiServerHost "" }}'
     definitions:
