@@ -47,8 +47,6 @@ spec:
                         services:
                           cidrBlocks:
                             - 10.96.0.0/12
-                      controlPlaneEndpoint:
-                        host: ""
                       topology:
                         class: capd-spoke-pool-v1
                         version: v1.31.6
@@ -64,6 +62,10 @@ spec:
                             value: "m"
                           - name: workerMachineType
                             value: "m"
+                          - name: windowsLanIp
+                            value: ""
+                          - name: windowsMappedPort
+                            value: 6445
                 providerConfigRef:
                   name: windows-cluster-engine
             patches:
@@ -81,10 +83,10 @@ spec:
                 toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.annotations['windows-lan-ip']
-                toFieldPath: spec.forProvider.manifest.spec.controlPlaneEndpoint.host
+                toFieldPath: spec.forProvider.manifest.spec.topology.variables[2].value
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.annotations['windows-mapped-port']
-                toFieldPath: spec.forProvider.manifest.spec.controlPlaneEndpoint.port
+                toFieldPath: spec.forProvider.manifest.spec.topology.variables[3].value
                 transforms:
                   - type: convert
                     convert:
@@ -470,10 +472,51 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-kubeconfig"
-              # PULL from Windows Secret -> XR Status
+              # PULL from Windows Secret -> XR Status (caData)
               - type: ToCompositeFieldPath
                 fromFieldPath: status.atProvider.manifest.data.value
-                toFieldPath: status.spokeKubeconfigBase64
+                toFieldPath: status.caData
+                transforms:
+                  - type: string
+                    string:
+                      type: Convert
+                      convert: FromBase64
+                  - type: string
+                    string:
+                      type: Regexp
+                      regexp:
+                        match: 'certificate-authority-data:\s*(.*)'
+                        group: 1
+              # PULL from Windows Secret -> XR Status (clientCert)
+              - type: ToCompositeFieldPath
+                fromFieldPath: status.atProvider.manifest.data.value
+                toFieldPath: status.clientCert
+                transforms:
+                  - type: string
+                    string:
+                      type: Convert
+                      convert: FromBase64
+                  - type: string
+                    string:
+                      type: Regexp
+                      regexp:
+                        match: 'client-certificate-data:\s*(.*)'
+                        group: 1
+              # PULL from Windows Secret -> XR Status (clientKey)
+              - type: ToCompositeFieldPath
+                fromFieldPath: status.atProvider.manifest.data.value
+                toFieldPath: status.clientKey
+                transforms:
+                  - type: string
+                    string:
+                      type: Convert
+                      convert: FromBase64
+                  - type: string
+                    string:
+                      type: Regexp
+                      regexp:
+                        match: 'client-key-data:\s*(.*)'
+                        group: 1
 
           # ========================================================================
           # 2. THE CREATOR: Write the Kubeconfig Secret natively to the Mac Hub
@@ -517,10 +560,43 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-kubeconfig-internal"
-              # PUSH from XR Status -> Mac Secret
-              - type: FromCompositeFieldPath
-                fromFieldPath: status.spokeKubeconfigBase64
+              # PUSH from XR Status -> Mac Secret (Construct Kubeconfig)
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: status.caData
+                    - fromFieldPath: metadata.annotations['windows-lan-ip']
+                    - fromFieldPath: metadata.annotations['windows-mapped-port']
+                    - fromFieldPath: status.clientCert
+                    - fromFieldPath: status.clientKey
+                  strategy: string
+                  string:
+                    fmt: |
+                      apiVersion: v1
+                      clusters:
+                      - cluster:
+                          certificate-authority-data: %s
+                          server: https://%s:%s
+                        name: local-dev
+                      contexts:
+                      - context:
+                          cluster: local-dev
+                          user: kubernetes-admin
+                        name: kubernetes-admin@local-dev
+                      current-context: kubernetes-admin@local-dev
+                      kind: Config
+                      preferences: {}
+                      users:
+                      - name: kubernetes-admin
+                        user:
+                          client-certificate-data: %s
+                          client-key-data: %s
                 toFieldPath: spec.forProvider.manifest.data.value
+                transforms:
+                  - type: string
+                    string:
+                      type: Convert
+                      convert: ToBase64
 
           # ========================================================================
           # 3. SPOKE PROVIDER CONFIG: Consume the local Mac Secret

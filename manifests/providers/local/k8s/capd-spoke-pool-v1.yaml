@@ -46,6 +46,36 @@ spec:
       openAPIV3Schema:
         type: string
         default: "m"
+  - name: windowsLanIp
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
+  - name: windowsMappedPort
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: integer
+        default: 6445
+  patches:
+  - name: windowsNetworking
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer
+        value:
+          certSANs: []
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
+        valueFrom:
+          variable: windowsLanIp
+
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: DockerClusterTemplate
@@ -68,6 +98,7 @@ spec:
   template:
     spec:
       kubeadmConfigSpec:
+        preKubeadmCommands: []
         clusterConfiguration:
           networking:
             podSubnet: 10.244.0.0/16
