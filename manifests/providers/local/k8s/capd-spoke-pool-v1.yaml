@@ -46,18 +46,7 @@ spec:
       openAPIV3Schema:
         type: string
         default: "m"
-  - name: windowsLanIp
-    required: false
-    schema:
-      openAPIV3Schema:
-        type: string
-        default: ""
-  - name: windowsMappedPort
-    required: false
-    schema:
-      openAPIV3Schema:
-        type: integer
-        default: 6445
+
   - name: apiServerHost
     required: false
     schema:
@@ -72,6 +61,7 @@ spec:
         default: 0
   patches:
   - name: windowsNetworking
+    enabledIf: '{{ ne .apiServerHost "" }}'
     definitions:
     - selector:
         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -86,7 +76,7 @@ spec:
       - op: add
         path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
         valueFrom:
-          variable: windowsLanIp
+          variable: apiServerHost
   - name: controlPlaneEndpoint
     enabledIf: '{{ ne .apiServerHost "" }}'
     definitions:
