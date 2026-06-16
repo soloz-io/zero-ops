@@ -75,6 +75,25 @@ spec:
         path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/certSANs/-
         valueFrom:
           variable: windowsLanIp
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: DockerClusterTemplate
+        matchResources:
+          infrastructure: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/controlPlaneEndpoint
+        value:
+          host: ""
+          port: 0
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/host
+        valueFrom:
+          variable: windowsLanIp
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/port
+        valueFrom:
+          variable: windowsMappedPort
 
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1

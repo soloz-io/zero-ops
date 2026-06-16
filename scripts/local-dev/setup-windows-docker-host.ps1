@@ -49,6 +49,15 @@ if (-not $firewallRule) {
     Write-Host "Firewall rule for OpenSSH already exists." -ForegroundColor Green
 }
 
+Write-Host "Checking Windows Firewall for Zero-Ops CAPD..."
+$capdRule = Get-NetFirewallRule -DisplayName "Zero-Ops CAPD KubeAPI Range" -ErrorAction SilentlyContinue
+if (-not $capdRule) {
+    Write-Host "Adding Firewall Rule for CAPD (Ports 6443-6500)..."
+    New-NetFirewallRule -DisplayName "Zero-Ops CAPD KubeAPI Range" -Direction Inbound -LocalPort 6443-6500 -Protocol TCP -Action Allow
+} else {
+    Write-Host "Firewall rule for CAPD already exists." -ForegroundColor Green
+}
+
 # 4. Set OpenSSH Default Shell to PowerShell
 Write-Host "[4/5] Setting OpenSSH Default Shell to PowerShell..."
 New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force | Out-Null
@@ -96,6 +105,12 @@ Add-SshKey -KeyPath $userSshKeyPath -KeyContent $MacPublicKey -IsAdminKey $false
 # Administrator Keys (Required by OpenSSH for Admin users)
 $adminSshKeyPath = "C:\ProgramData\ssh\administrators_authorized_keys"
 Add-SshKey -KeyPath $adminSshKeyPath -KeyContent $MacPublicKey -IsAdminKey $true
+
+# 6. Pre-pull Multi-Arch Docker Images for Windows
+Write-Host "[6/6] Pre-pulling required Docker images (linux/amd64) to prevent cache poisoning from Mac Hubs..."
+docker pull --platform linux/amd64 kindest/node:v1.31.6
+docker pull --platform linux/amd64 kindest/haproxy:v20260131-7181c60a
+Write-Host "Docker images securely cached." -ForegroundColor Green
 
 Write-Host "Setup complete! The Mac orchestrator can now connect." -ForegroundColor Cyan
 Write-Host "From the Mac, run:"
