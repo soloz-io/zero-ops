@@ -74,7 +74,7 @@ Copy-Item $patchSource "$capiDir\capd-port-mapping.patch"
 Push-Location $capiDir
 git apply capd-port-mapping.patch
 $env:DOCKER_BUILDKIT="1"
-docker build --build-arg builder_image=golang:1.22.12 --build-arg goproxy=https://proxy.golang.org,direct --build-arg ARCH=amd64 . -t local/capd-manager:v1.10.10-patched -f test/infrastructure/docker/Dockerfile
+docker build --build-arg builder_image=golang:1.23 --build-arg goproxy=https://proxy.golang.org,direct --build-arg ARCH=amd64 . -t local/capd-manager:v1.10.10-patched -f test/infrastructure/docker/Dockerfile
 Pop-Location
 
 Write-Host "📦 Loading patched CAPD manager into kind cluster..." -ForegroundColor Cyan

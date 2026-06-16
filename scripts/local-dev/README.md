@@ -24,9 +24,10 @@ To safely defeat CAPD Volume Locality limitations without complex SSHFS file bri
 ### Phase 1: Setup Windows Locality Bridge (Run Once)
 
 1. **On Windows (PowerShell - Admin):**
-   Expose the Windows host SSH server and configure default shell access.
+   Expose the Windows host SSH server and configure default shell access. **IMPORTANT**: You must pass your Mac's SSH public key so the Mac can securely authenticate!
    ```powershell
-   .\scripts\local-dev\setup-windows-docker-host.ps1
+   # First, copy the contents of ~/.ssh/id_ed25519.pub from your Mac
+   .\scripts\local-dev\setup-windows-docker-host.ps1 -MacPublicKey "ssh-ed25519 AAAAC3NzaC1... your-email@example.com"
    ```
 
 2. **On Windows (PowerShell):**
@@ -48,6 +49,8 @@ To safely defeat CAPD Volume Locality limitations without complex SSHFS file bri
    ```
 
 4. **On Mac:**
+   **IMPORTANT**: Before running the final bootstrap, edit `./scripts/local-dev/bootstrap-distributed.sh` and update `WINDOWS_USER` and `WINDOWS_IP` to match your Windows machine's credentials!
+   
    Run the distributed bootstrap wrapper script. This script automatically:
    - Connects to Windows over SSH to securely pull the Windows cluster credentials.
    - Bootstraps the Hub cluster on the Mac natively.
