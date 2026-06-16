@@ -537,7 +537,7 @@ spec:
                     data:
                       value: "" # Patched from XR Status
                 providerConfigRef:
-                  name: kubernetes-provider # Run locally on Mac Hub
+                  name: windows-cluster-engine # Run locally on Mac Hub
             readinessChecks:
               - type: MatchCondition
                 matchCondition:
@@ -620,7 +620,7 @@ spec:
                           namespace: platform-capi
                           name: "" # Patched
                 providerConfigRef:
-                  name: kubernetes-provider # Run locally on Mac Hub
+                  name: windows-cluster-engine # Run locally on Mac Hub
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
