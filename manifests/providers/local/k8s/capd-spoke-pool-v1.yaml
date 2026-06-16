@@ -77,23 +77,19 @@ spec:
           variable: windowsLanIp
     - selector:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: DockerClusterTemplate
+        kind: DockerMachineTemplate
         matchResources:
-          infrastructure: true
+          controlPlane: true
       jsonPatches:
       - op: add
-        path: /spec/template/spec/controlPlaneEndpoint
-        value:
-          host: ""
-          port: 0
-      - op: replace
-        path: /spec/template/spec/controlPlaneEndpoint/host
+        path: /spec/template/spec/extraPortMappings
+        value: []
+      - op: add
+        path: /spec/template/spec/extraPortMappings/-
         valueFrom:
-          variable: windowsLanIp
-      - op: replace
-        path: /spec/template/spec/controlPlaneEndpoint/port
-        valueFrom:
-          variable: windowsMappedPort
+          template: |
+            containerPort: 6443
+            hostPort: {{ .windowsMappedPort }}
 
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
