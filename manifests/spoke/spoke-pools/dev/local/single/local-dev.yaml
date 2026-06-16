@@ -1,0 +1,24 @@
+---
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: local-dev
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: local
+spec:
+  provider: local
+  compositionSelector:
+    matchLabels:
+      provider: docker
+      topology: single
+  region: local
+  nodePool:
+    count: 1
+    type: default
+    machineType: m
+  network:
+    cni: cilium
+    podCIDR: "10.244.0.0/16"
+    serviceCIDR: "10.96.0.0/12"

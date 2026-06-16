@@ -33,6 +33,7 @@ var (
 	debug             bool
 	environment       string
 	dockerSocket      string
+	topology          string
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -67,6 +68,7 @@ Supports multiple infrastructure providers: hetzner (cloud) and docker (local/CA
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to dev for docker, prod for hetzner")
 	cmd.Flags().StringVar(&dockerSocket, "docker-socket", "", "Docker socket path for local provider (e.g., ~/.docker/run/docker.sock on macOS Docker Desktop). Also set via ZERO_OPS_DOCKER_SOCKET env var")
+	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
@@ -221,6 +223,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		MergeKubeconfig:  mergeKubeconfig,
 		Debug:            debug,
 		EnvironmentSlug:  envSlug,
+		Topology:         topology,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {

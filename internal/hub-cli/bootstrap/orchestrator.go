@@ -50,6 +50,7 @@ import (
 		MergeKubeconfig  bool
 		Debug            bool
 		EnvironmentSlug  string
+		Topology         string
 	}
 
 // Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
@@ -585,6 +586,7 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 		"--set", "environmentRevision="+envRevision,
 		"--set", "environmentSlug="+o.EnvironmentSlug,
 		"--set", "provider="+providerForHelm,
+		"--set", "topology="+o.Topology,
 		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
 		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
 		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),

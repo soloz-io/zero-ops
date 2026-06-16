@@ -41,22 +41,19 @@ To safely defeat CAPD Volume Locality limitations without complex SSHFS file bri
 
 ### Phase 2: Orchestrate and Bootstrap (Daily Workflow)
 
-3. **On Mac:**
-   First, dynamically patch your local Crossplane Compositions to enable Windows routing. This modifies the local manifests to point to the Windows Ingestion Engine instead of the default Mac Hub. 
-   *(Note: You must commit and push the patched files so ArgoCD applies them)*
+You can dynamically choose your platform topology during bootstrap!
+
+**Option A: Bridged Multi-Machine Topology (Recommended for low-memory Macs)**
+This builds the Hub on your Mac and provisions the Spoke clusters onto your Windows Ingestion Engine.
+**IMPORTANT**: Before running the final bootstrap, edit `./scripts/local-dev/bootstrap-distributed.sh` and update `WINDOWS_USER` and `WINDOWS_IP` to match your Windows machine's credentials!
    ```bash
-   ./scripts/local-dev/enable-windows-routing.sh
+   # Run the distributed bootstrap wrapper script
+   ./scripts/local-dev/bootstrap-distributed.sh
    ```
 
-4. **On Mac:**
-   **IMPORTANT**: Before running the final bootstrap, edit `./scripts/local-dev/bootstrap-distributed.sh` and update `WINDOWS_USER` and `WINDOWS_IP` to match your Windows machine's credentials!
-   
-   Run the distributed bootstrap wrapper script. This script automatically:
-   - Connects to Windows over SSH to securely pull the Windows cluster credentials.
-   - Bootstraps the Hub cluster on the Mac natively.
-   - Injects the credentials so Crossplane uses the Windows Ingestion Engine.
-   - Deploys your local SpokePools directly onto Windows!
-   
+**Option B: Standalone Single-Machine Topology (Mac Only)**
+This builds both the Hub and the Spoke clusters entirely within Docker Desktop on your Mac.
    ```bash
-   ./scripts/local-dev/bootstrap-distributed.sh
+   # Run the standard hub-bootstrap script with the single topology
+   ./scripts/hub-bootstrap.sh --provider local --topology single
    ```

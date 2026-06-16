@@ -540,11 +540,17 @@ step1_bootstrap_hub() {
                 log "WARNING: git push failed — ArgoCD may not be able to read configs from remote"
         fi
         local env_flag="${ENVIRONMENT:---environment=dev}"
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker $env_flag --keep-bootstrap --debug"
+        local topo_flag=""
+        if [[ -n "${TOPOLOGY:-}" ]]; then
+            topo_flag="--topology=$TOPOLOGY"
+        fi
+
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker $env_flag $topo_flag --keep-bootstrap --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --provider=docker \
             $env_flag \
+            $topo_flag \
             --keep-bootstrap \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
@@ -555,6 +561,7 @@ step1_bootstrap_hub() {
             --name="${CLUSTER_NAME}" \
             --region=fsn1 \
             $env_flag \
+            $topo_flag \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     fi
 
@@ -1080,6 +1087,14 @@ main() {
                 ;;
             --spoke)
                 SPOKEPOOL_NAME="$2"
+                shift 2
+                ;;
+            --topology=*)
+                TOPOLOGY="${1#*=}"
+                shift
+                ;;
+            --topology)
+                TOPOLOGY="$2"
                 shift 2
                 ;;
             --teardown)

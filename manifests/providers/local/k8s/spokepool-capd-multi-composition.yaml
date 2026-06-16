@@ -2,9 +2,10 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: spokepool-capd
+  name: spokepool-capd-multi
   labels:
     provider: docker
+    topology: multi
     cluster-type: spoke-pool
 spec:
   compositeTypeRef:
@@ -537,7 +538,7 @@ spec:
                     data:
                       value: "" # Patched from XR Status
                 providerConfigRef:
-                  name: windows-cluster-engine # Run locally on Mac Hub
+                  name: kubernetes-provider # Run locally on Mac Hub
             readinessChecks:
               - type: MatchCondition
                 matchCondition:
@@ -620,7 +621,7 @@ spec:
                           namespace: platform-capi
                           name: "" # Patched
                 providerConfigRef:
-                  name: windows-cluster-engine # Run locally on Mac Hub
+                  name: kubernetes-provider # Run locally on Mac Hub
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name

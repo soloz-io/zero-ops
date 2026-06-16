@@ -367,7 +367,7 @@ spec:
             isPlatformOwned: 'true'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}'
+            path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
             chart: ''
             directoryRecurse: 'true'
             directoryInclude: ''

@@ -15,6 +15,7 @@ spec:
   compositionSelector:
     matchLabels:
       provider: docker
+      topology: multi
   region: local
   nodePool:
     count: 1
