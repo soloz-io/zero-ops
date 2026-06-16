@@ -88,7 +88,7 @@ $env:KUBECONFIG = "$env:TEMP\windows-engine-kubeconfig.yaml"
 
 $env:EXP_CLUSTER_RESOURCE_SET = "true"
 $env:CLUSTER_TOPOLOGY = "true"
-clusterctl init --infrastructure docker
+clusterctl init --infrastructure docker --wait-provider-timeout 900
 
 Write-Host "🔄 Patching CAPD Deployment to use custom local image..." -ForegroundColor Cyan
 # Wait for the deployment to be created by clusterctl
