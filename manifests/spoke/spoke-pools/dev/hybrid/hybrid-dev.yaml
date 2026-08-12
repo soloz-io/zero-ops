@@ -1,0 +1,43 @@
+---
+# SpokePool claim for the hybrid dev environment (ADR-046 §WS2).
+# Control plane: 1 Hetzner node (dev topology).
+# Burst workers: 0 (home WSL2 workers provide default capacity).
+# Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
+# Spoke API: direct single-CP tailnet address (no HAProxy front for dev).
+#
+# Scheduling contract:
+#   Default: nodeSelector: workload-location: home
+#   Burst:   nodeSelector: workload-location: hetzner (explicit)
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: spoke-pool-hybrid-dev-01
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: development
+    region: eu-central
+    provider: hybrid
+  annotations:
+    # Control-plane topology (patched into CAPI Cluster topology.controlPlane.replicas)
+    control-plane-replicas: "1"
+    # Tailnet MagicDNS address of the dev CP node (set after first bootstrap; empty = use kubeconfig endpoint)
+    control-plane-endpoint-host: ""
+    # Home worker node list (JSON array; each entry: {hostname, tailnetHost})
+    # Box A: Dell workstation (existing home node)
+    # Box B: placeholder — replace with actual tailnet hostname after enrollment
+    home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
+    # Home worker join flow settings (read by hub-operator reconcileHomeWorkerJoin)
+    home-worker-enabled: "true"
+    home-worker-ttl: "24h"
+    tailnet-name: ""  # Set to your tailnet name (e.g. example.ts.net)
+spec:
+  provider: hybrid
+  compositionSelector:
+    matchLabels:
+      provider: hybrid
+  region: fsn1
+  nodePool:
+    count: 0           # Hetzner burst pool: 0 by default
+    instanceType: cx33
+  maxTenantCapacity: 20

@@ -28,10 +28,34 @@ type Config struct {
 	WorkerMachineType       string
 	ControlPlaneReplicas    int
 	WorkerReplicas          int
+
+	// SSHKeyName is the Hetzner SSH key name injected into the management
+	// cluster (rescue/emergency access). Wired from the CLI --ssh-key flag.
+	SSHKeyName string
 	HCloudToken             string
 	CiliumManifest          string
 	CCMManifest             string
+
+	// HomeWorker carries hybrid-cell home-lab worker configuration (ADR-046 §WS4).
+	// Only populated by HybridDriver; zero-value means "no home workers".
+	HomeWorker HomeWorkerConfig
+
+	// SpokeAPIFront is the Tailscale MagicDNS hostname of the dedicated
+	// HAProxy TCP frontend for stg/prod hybrid spokes. Empty for dev (single
+	// CP node tailnet address is used directly).
+	SpokeAPIFront string
 }
+
+// HomeWorkerConfig holds hybrid-cell home-lab worker settings (ADR-046 §WS4).
+type HomeWorkerConfig struct {
+	// Enabled activates reconcileHomeWorkerJoin in the hub-operator when true.
+	Enabled bool
+	// TTL is the kubeadm bootstrap-token TTL (e.g. "24h"). Default: "24h".
+	TTL string
+	// TailnetName is the Tailscale tailnet for MagicDNS name construction.
+	TailnetName string
+}
+
 
 // Provisioner provisions a CAPI cluster
 type Provisioner struct {
@@ -173,6 +197,8 @@ spec:
       value: {{.ControlPlaneMachineType}}
     - name: hcloudWorkerMachineType
       value: {{.WorkerMachineType}}
+    - name: hcloudSSHKeyName
+      value: "{{.SSHKeyName}}"
 `
 	
 	tmpl, err := template.New("cluster").Parse(clusterYAML)

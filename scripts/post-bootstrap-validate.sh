@@ -613,7 +613,7 @@ check_platform_argocd_apps() {
         "ory-hydra"
         "ory-keto"
         "platform-spire"
-        "platform-infisical-prerequisites"
+        "platform-infisical"
     )
     for app in "${warn_apps[@]}"; do
         check_argocd_app "$app" "WARN"

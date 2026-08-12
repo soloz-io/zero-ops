@@ -1,0 +1,45 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Infisical (ADR-046 §FIX).
+#
+# Renders the infisical-standalone helm chart through kustomize (the OpenMeter
+# pattern) so we can:
+#   1. Force `strategy: Recreate` on the Deployment — the chart template does
+#      not expose strategy and defaults to RollingUpdate (maxSurge 25%), which
+#      briefly runs 2 pods during rollouts. Both run startup migrations and race
+#      for the knex lock (infisical_migrations_lock) — the loser crashes and the
+#      winner, if killed mid-migration, orphans the lock forever. Recreate makes
+#      migrations single-flight.
+#   2. Add a PreSync hook that clears any orphaned knex lock before each sync.
+#
+# Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
+
+helmCharts:
+  - name: infisical-standalone
+    repo: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+    version: 1.7.5
+    releaseName: infisical-standalone
+    namespace: platform-security
+    valuesFile: values.yaml
+
+resources:
+  - ingress.yaml
+  - migration-unlock-hook.yaml
+
+# Force Recreate so only one Infisical pod (and therefore only one migration
+# runner) ever exists during a rollout. Fixes the knex migration-lock race at
+# its source.
+patches:
+  - target:
+      kind: Deployment
+      name: infisical-standalone-infisical
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: infisical-standalone-infisical
+      spec:
+        strategy:
+          type: Recreate

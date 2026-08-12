@@ -3,8 +3,12 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // KindManager manages Kind cluster lifecycle
@@ -13,21 +17,71 @@ type KindManager struct {
 	ConfigPath  string // optional path to kind config (e.g., for extraPortMappings)
 }
 
+// kindRemoteAPIPort is the API server port used when bootstrapping against a
+// remote docker host. Fixed (not random) so the Mac's kubeconfig can be
+// rewritten to a stable, reachable endpoint.
+const kindRemoteAPIPort = "6443"
+
+// kindNodeImage is the kind node image used for the ephemeral bootstrap cluster.
+// Pinned to a modern Kubernetes (>=1.28) because current control-plane
+// components (cert-manager v1.20.2 CRDs use spec.versions[].selectableFields)
+// reject the kind v0.20 default node image (v1.27.3).
+const kindNodeImage = "kindest/node:v1.31.14"
+
+// Create creates a kind cluster. When the active docker context targets a
+// remote host (ssh:// or tcp://), the cluster is created on that host and the
+// API server is bound on all interfaces at a fixed port so the local machine
+// can reach it over the network.
 func (m *KindManager) Create(ctx context.Context) error {
 	args := []string{"create", "cluster",
 		"--name", m.ClusterName,
-		"--wait", "2m",
 	}
-	if m.ConfigPath != "" {
-		args = append(args, "--config", m.ConfigPath)
+
+	// Detect a remote docker host (ssh:// or tcp:// active context).
+	remoteHost, err := remoteDockerHost(ctx)
+	if err == nil && remoteHost != "" {
+		// Write a kind config that binds the API server on all interfaces at a
+		// fixed port AND registers the reachable host as the API server address
+		// so kind embeds it in the serving cert SANs (otherwise kubectl rejects
+		// the TLS cert: valid for 10.96.0.1/172.18.0.2/0.0.0.0, not <remoteHost>).
+		// kind's own --wait is skipped because it waits on the pre-patch
+		// endpoint; we wait below.
+		cfgPath, cleanup, cfgErr := writeRemoteKindConfig(remoteHost)
+		if cfgErr != nil {
+			return fmt.Errorf("write remote kind config: %w", cfgErr)
+		}
+		defer cleanup()
+		args = append(args, "--config", cfgPath)
+	} else {
+		// Local docker: kind can wait on 127.0.0.1 itself.
+		args = append(args, "--wait", "2m")
+		if m.ConfigPath != "" {
+			args = append(args, "--config", m.ConfigPath)
+		}
 	}
+
+	// Pin a modern node image regardless of kind's built-in default.
+	args = append(args, "--image", kindNodeImage)
+
 	cmd := exec.CommandContext(ctx, "kind", args...)
-	
+	cmd.Env = dockerSubprocessEnv(ctx)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("kind create failed: %w\n%s", err, output)
 	}
-	
+
+	// Rewrite the merged kubeconfig so the API server points at the remote
+	// host (kind writes 0.0.0.0/127.0.0.1 which is unreachable from here),
+	// then wait for the cluster to be ready via the reachable endpoint.
+	if remoteHost != "" {
+		if err := patchRemoteKindKubeconfig(ctx, m.ClusterName, remoteHost); err != nil {
+			return fmt.Errorf("patch remote kind kubeconfig: %w", err)
+		}
+		if err := waitForRemoteKindReady(ctx, m.ClusterName); err != nil {
+			return fmt.Errorf("wait for remote kind cluster: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -35,16 +89,18 @@ func (m *KindManager) Delete(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "kind", "delete", "cluster",
 		"--name", m.ClusterName,
 	)
+	cmd.Env = dockerSubprocessEnv(ctx)
 	return cmd.Run()
 }
 
 func (m *KindManager) Exists(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, "kind", "get", "clusters")
+	cmd.Env = dockerSubprocessEnv(ctx)
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	
+
 	clusters := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, cluster := range clusters {
 		if cluster == m.ClusterName {
@@ -52,4 +108,183 @@ func (m *KindManager) Exists(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// dockerSubprocessEnv returns the current environment with DOCKER_DEFAULT_PLATFORM
+// normalized to the docker daemon's native architecture. The host shell may export
+// DOCKER_DEFAULT_PLATFORM for local workflows (e.g. linux/arm64 on Apple Silicon);
+// leaking that into kind/docker subprocesses forces a cross-arch node image that
+// Docker runs under QEMU emulation, where seccomp is unsupported and the control
+// plane never starts. Pin to the daemon arch (or drop the override) instead.
+func dockerSubprocessEnv(ctx context.Context) []string {
+	env := os.Environ()
+	platform := daemonPlatform(ctx)
+
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "DOCKER_DEFAULT_PLATFORM=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	if platform != "" {
+		out = append(out, "DOCKER_DEFAULT_PLATFORM="+platform)
+	}
+	return out
+}
+
+// daemonPlatform returns the docker daemon's native platform (linux/<arch>) by
+// querying the active context's docker daemon, or "" when unknown.
+func daemonPlatform(ctx context.Context) string {
+	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{.Architecture}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "x86_64", "amd64":
+		return "linux/amd64"
+	case "aarch64", "arm64":
+		return "linux/arm64"
+	default:
+		return ""
+	}
+}
+
+// remoteDockerHost returns the host of the active docker context when it is
+// remote (ssh:// or tcp://), or "" when the context is local (unix://).
+func remoteDockerHost(ctx context.Context) (string, error) {
+	// 1. Resolve the active context name.
+	nameCmd := exec.CommandContext(ctx, "docker", "context", "show")
+	nameOut, err := nameCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker context show: %w", err)
+	}
+	contextName := strings.TrimSpace(string(nameOut))
+	if contextName == "" || contextName == "default" {
+		return "", nil
+	}
+
+	// 2. Read the docker endpoint host for that context.
+	inspectCmd := exec.CommandContext(ctx, "docker", "context", "inspect",
+		contextName, "--format", "{{.Endpoints.docker.Host}}")
+	hostOut, err := inspectCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker context inspect %s: %w", contextName, err)
+	}
+	endpoint := strings.TrimSpace(string(hostOut))
+	if endpoint == "" || strings.HasPrefix(endpoint, "unix://") {
+		return "", nil
+	}
+
+	// 3. Normalize ssh://user@host[:port] or tcp://host[:port] to host[:port].
+	return normalizeDockerEndpoint(endpoint), nil
+}
+
+// normalizeDockerEndpoint extracts host[:port] from a docker context endpoint
+// (ssh://user@host:port or tcp://host:port). The user component and scheme are
+// stripped; the port is preserved for tcp endpoints (ssh uses port 22 by
+// default, reachable on the host name alone).
+func normalizeDockerEndpoint(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return strings.TrimPrefix(endpoint, "ssh://")
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return ""
+	}
+
+	switch u.Scheme {
+	case "ssh":
+		// SSH port is 22; the host is sufficient for kubectl connectivity.
+		return host
+	case "tcp":
+		if port := u.Port(); port != "" {
+			return host + ":" + port
+		}
+		return host
+	default:
+		return host
+	}
+}
+
+// writeRemoteKindConfig writes a kind config that binds the API server on all
+// interfaces at kindRemoteAPIPort and advertises apiServerHost as the API
+// server address (added to the serving cert SANs, making kubectl TLS happy).
+// Returns the temp path and a cleanup func.
+func writeRemoteKindConfig(apiServerHost string) (string, func(), error) {
+	content := fmt.Sprintf(`kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: %s
+  apiServerPort: %s
+`, apiServerHost, kindRemoteAPIPort)
+
+	dir, err := os.MkdirTemp("", "kind-remote-*")
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		os.RemoveAll(dir)
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(dir) }
+	return path, cleanup, nil
+}
+
+// patchRemoteKindKubeconfig rewrites the kind-<name> context server in the
+// default kubeconfig to https://<remoteHost>:<port> so kubectl on this machine
+// can reach the API server on the remote docker host.
+func patchRemoteKindKubeconfig(ctx context.Context, clusterName, remoteHost string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	kubeconfig := filepath.Join(home, ".kube", "config")
+
+	// Point kubectl at the remote API server.
+	cmd := exec.CommandContext(ctx, "kubectl", "config", "set-cluster",
+		fmt.Sprintf("kind-%s", clusterName),
+		fmt.Sprintf("--server=https://%s:%s", remoteHost, kindRemoteAPIPort),
+		"--kubeconfig", kubeconfig)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("kubectl config set-cluster: %w\n%s", err, out)
+	}
+	return nil
+}
+
+// waitForRemoteKindReady polls the remote kind cluster until the API server is
+// reachable (and a node is Ready), or the context is cancelled.
+func waitForRemoteKindReady(ctx context.Context, clusterName string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	kubeconfig := filepath.Join(home, ".kube", "config")
+	contextName := "kind-" + clusterName
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"--context", contextName, "get", "nodes",
+			"-o", "jsonpath={.items[*].status.conditions[?(@.type==\"Ready\")].status}")
+		out, err := cmd.CombinedOutput()
+		if err == nil && strings.Contains(string(out), "True") {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
 }

@@ -72,6 +72,12 @@ spec:
             type: string
           networkZone:
             type: string
+  - name: hcloudSSHKeyName
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "mac-mini-ssh"
   patches:
   - name: region
     definitions:
@@ -89,6 +95,18 @@ spec:
         path: /spec/template/spec/controlPlaneLoadBalancer/region
         valueFrom:
           variable: region
+  - name: sshKeyName
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/sshKeys/hcloud/0/name
+        valueFrom:
+          variable: hcloudSSHKeyName
   - name: imageControlPlane
     definitions:
     - selector:

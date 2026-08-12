@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spoke-pool-hybrid-dev-01
+  labels:
+    spoke-type: pool
+    cell-id: spoke-pool-hybrid-dev-01
+    provider: hybrid
+    environment: development

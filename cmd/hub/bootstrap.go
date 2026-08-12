@@ -32,6 +32,11 @@ var (
 	debug             bool
 	environment       string
 	topology          string
+
+	// Hybrid-provider flags (ADR-046 §WS4)
+	homeWorkerEnabled bool
+	homeWorkerTTL     string
+	tailnetName       string
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -67,6 +72,11 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 
+	// Hybrid-provider flags (ADR-046 §WS4)
+	cmd.Flags().BoolVar(&homeWorkerEnabled, "home-worker-enabled", false, "Enable home-lab WSL2 worker join flow (hybrid only)")
+	cmd.Flags().StringVar(&homeWorkerTTL, "home-worker-ttl", "24h", "kubeadm bootstrap-token TTL for home workers (hybrid only)")
+	cmd.Flags().StringVar(&tailnetName, "tailnet-name", "", "Tailscale tailnet name for MagicDNS spoke endpoint (hybrid only)")
+
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
 
@@ -77,6 +87,7 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	// Validate provider
 	validProviders := map[string]bool{
 		"hetzner": true,
+		"hybrid":  true,
 	}
 	if !validProviders[provider] {
 		return fmt.Errorf("invalid provider: must be 'hetzner' or 'hybrid'")
@@ -88,32 +99,29 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid cluster name: must contain only alphanumeric characters and hyphens")
 	}
 
-	// Provider-specific validation
-	if provider == "hetzner" {
-		if region == "" {
-			return fmt.Errorf("--region is required for provider 'hetzner'")
-		}
+	validRegions := map[string]bool{
+		"fsn1": true,
+		"nbg1": true,
+		"hel1": true,
+	}
 
-		validRegions := map[string]bool{
-			"fsn1": true,
-			"nbg1": true,
-			"hel1": true,
+	// Provider-specific validation (hetzner and hybrid share region/token requirements)
+	switch provider {
+	case "hetzner", "hybrid":
+		if region == "" {
+			return fmt.Errorf("--region is required for provider '%s'", provider)
 		}
 		if !validRegions[region] {
 			return fmt.Errorf("invalid region: must be one of fsn1, nbg1, hel1")
 		}
-
 		if osType != "ubuntu" && osType != "talos" {
 			return fmt.Errorf("invalid OS type: must be 'ubuntu' or 'talos'")
 		}
-
 		if osType == "talos" && imageID == "" && !buildTalosImage {
 			return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
 		}
-
-		hcloudToken := os.Getenv("HCLOUD_TOKEN")
-		if hcloudToken == "" {
-			return fmt.Errorf("HCLOUD_TOKEN environment variable is required for provider 'hetzner'")
+		if os.Getenv("HCLOUD_TOKEN") == "" {
+			return fmt.Errorf("HCLOUD_TOKEN environment variable is required for provider '%s'", provider)
 		}
 	}
 
@@ -134,10 +142,14 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	fmt.Println("🚀 Starting Hub Cluster bootstrap...")
 	fmt.Printf("   Provider: %s\n", provider)
 	fmt.Printf("   Cluster Name: %s\n", clusterName)
-	if provider == "hetzner" {
+	if provider == "hetzner" || provider == "hybrid" {
 		fmt.Printf("   OS Type: %s\n", osType)
 		fmt.Printf("   Region: %s\n", region)
 		fmt.Printf("   Network CIDR: %s\n", networkCIDR)
+	}
+	if provider == "hybrid" {
+		fmt.Printf("   Home Workers: %v\n", homeWorkerEnabled)
+		fmt.Printf("   Tailnet: %s\n", tailnetName)
 	}
 
 	// Build provider based on --provider flag
@@ -171,7 +183,12 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 		}
-		hybridDriver := &bootstrap.HybridDriver{Driver: driver}
+		hybridDriver := &bootstrap.HybridDriver{
+			Driver:            driver,
+			TailnetName:       tailnetName,
+			HomeWorkerEnabled: homeWorkerEnabled,
+			HomeWorkerTTL:     homeWorkerTTL,
+		}
 		bp = bootstrap.NewCloudProvider(hybridDriver, clusterName, debug)
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)

@@ -87,6 +87,13 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Non-fatal: spoke-identity-operator will reconcile once CR exists.
 	}
 
+	// hybrid provider cell: mint home-worker join tokens and expose the join payload
+	// (ADR-046 §WS4). Gated on spec.provider == hybrid + home-worker-enabled annotation.
+	if err := r.reconcileHomeWorkerJoin(ctx, spokePool); err != nil {
+		logger.Error(err, "Failed to reconcile home-worker join", "spoke", spokeName)
+		// Non-fatal: retried on next reconcile; token rotation is time-driven.
+	}
+
 	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists)
 }
 

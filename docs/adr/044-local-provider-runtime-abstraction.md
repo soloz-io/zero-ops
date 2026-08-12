@@ -1,7 +1,12 @@
 # ADR-044: Local Provider Runtime Abstraction
 
 **Date:** 2026-06-08
-**Status:** Accepted
+**Status:** Superseded by [ADR-046](./046-hybrid-provider-home-worker.md)
+
+> **Superseded.** The CAPD/local provider this ADR describes was removed in WS0
+> (see ADR-046). The Docker socket abstraction is no longer needed — local
+> development now runs on the hybrid cell with real home-lab hardware, and the
+> Hub is cloud-hosted on Hetzner.
 
 ## Context
 

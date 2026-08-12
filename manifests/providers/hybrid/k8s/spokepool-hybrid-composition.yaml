@@ -1,10 +1,24 @@
 ---
+# Hybrid provider Crossplane Composition (ADR-046)
+# Cloned from spokepool-hetzner-composition.yaml with the following changes:
+#   1. label provider: hybrid
+#   2. capi-cluster: controlPlaneLoadBalancer.enabled patched to false via ClusterClass variable
+#   3. capi-cluster: controlPlaneEndpoint.host patched from claim annotation (tailnet MagicDNS)
+#   4. capi-cluster: control-plane replicas patched from annotation (1 dev / 3 stg)
+#   5. capi-cluster: workers.machineDeployments[0].replicas defaults to 0 (burst pool; home workers are unmanaged)
+#   6. home-worker-join-config ConfigMap step added (carries {hostname,tailnetHost} list from claim annotations)
+#
+# Worker lifecycle split (ADR-046 §1):
+#   Home workers → unmanaged kubeadm join + hub-operator token minting (WS4)
+#   Hetzner burst workers → native CAPI KubeadmConfigTemplate; replicas:0 by default
+#   Scheduling → nodeSelector: workload-location: home (default)
+#               nodeSelector: workload-location: hetzner (burst; explicit)
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: spokepool-hetzner
+  name: spokepool-hybrid
   labels:
-    provider: hetzner
+    provider: hybrid
     cluster-type: spoke-pool
 spec:
   compositeTypeRef:
@@ -20,8 +34,9 @@ spec:
         apiVersion: pt.fn.crossplane.io/v1beta1
         kind: Resources
         resources:
-          # CAPI Cluster using ClusterClass (topology mode)
-          # Wrapped in provider-kubernetes Object
+          # ────────────────────────────────────────────────────────────────────
+          # CAPI Cluster (Tailscale-only spoke: no cloud LB, tailnet endpoint)
+          # ────────────────────────────────────────────────────────────────────
           - name: capi-cluster
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -49,23 +64,24 @@ spec:
                           cidrBlocks:
                             - 10.96.0.0/12
                       topology:
-                        class: spokepool-v1 # Semantic Isolation (Critique 1)
+                        class: spokepool-v1
                         version: v1.31.6
                         controlPlane:
-                          replicas: 1
+                          replicas: 1  # Patched from annotation: control-plane-replicas (1 dev / 3 stg)
                         workers:
                           machineDeployments:
                           - class: default-worker
                             name: md-0
-                            replicas: 1 # Patched
-                        # ENTERPRISE: Explicit Variable Mapping (Critique 2)
-                        # By explicitly defining the structure here, we own the index ordering.
-                        # We omit imageId and CP machine type, relying on the ClusterClass defaults.
+                            replicas: 0  # Burst pool: 0 by default; home workers join unmanaged
                         variables:
                           - name: region
-                            value: "fsn1" # Patched
+                            value: "fsn1"  # Patched from spec.region
                           - name: workerMachineType
-                            value: "cx33" # Patched
+                            value: "cx33"  # Patched from spec.nodePool.instanceType
+                          - name: controlPlaneLoadBalancerEnabled
+                            value: false   # ADR-046: Tailscale-only — no cloud LB on spoke API
+                          - name: controlPlaneEndpointHost
+                            value: ""      # Patched from annotation: control-plane-endpoint-host (tailnet MagicDNS)
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -81,26 +97,38 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]
+              # Burst worker replicas from claim (default 0)
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.count
                 toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
-              # Patch 1: Map region to the explicitly defined first variable
+              # Region variable
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[0].value
-              # Patch 2: Map tenant instance type STRICTLY to the Worker variable
+              # Worker machine type
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
+              # controlPlaneLoadBalancerEnabled — always false for hybrid (Tailscale-only)
+              # (already defaulted to false in base; no patch needed — kept for explicitness)
+              # Control-plane replicas from claim annotation
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[control-plane-replicas]
+                toFieldPath: spec.forProvider.manifest.spec.topology.controlPlane.replicas
+                transforms:
+                  - type: convert
+                    convert:
+                      toType: int64
+              # Tailnet MagicDNS controlPlaneEndpoint host from claim annotation
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[control-plane-endpoint-host]
+                toFieldPath: spec.forProvider.manifest.spec.topology.variables[3].value
 
-          # Bootstrap PKI Secrets created by hub-operator and spoke-identity-operator
-          # hub-operator: Certificate CR + bootstrap-cert CRS wrapper
-          # spoke-identity-operator: SpokeMachineIdentity CR + machine-identity CRS wrapper
-
-          # ClusterResourceSet for CNI, CCM, and ArgoCD Agent Bootstrap
-          # Wrapped in provider-kubernetes Object
-          # NOTE: Only static bootstrap resources remain here
-          # CRS now only contains static bootstrap resources
+          # ────────────────────────────────────────────────────────────────────
+          # ClusterResourceSet (CNI, CCM, CSI, ArgoCD agent bootstrap)
+          # Identical to hetzner; Tailscale DaemonSet is added via home-worker-
+          # integration.yaml ClusterResourceSet (separate step — WS4).
+          # ────────────────────────────────────────────────────────────────────
           - name: cluster-resource-set
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -119,7 +147,7 @@ spec:
                         matchLabels:
                           spoke-type: pool
                       resources:
-                        # Hetzner credentials (must be first)
+                        # Hetzner credentials (CP + burst worker cloud provider)
                         - name: ""
                           kind: Secret
                         # NATS leaf node credentials
@@ -141,13 +169,13 @@ spec:
                         # platform-messaging namespace
                         - name: messaging-namespace
                           kind: ConfigMap
-                        # ArgoCD CRDs (must be before Agent)
+                        # ArgoCD CRDs
                         - name: argocd-crds-template
                           kind: Secret
-                        # ArgoCD Redis (must be before Agent)
+                        # ArgoCD Redis
                         - name: argocd-redis
                           kind: ConfigMap
-                        # ArgoCD Core Components (Controller & Repo Server)
+                        # ArgoCD Core Components
                         - name: argocd-core-components
                           kind: ConfigMap
                         # ArgoCD Agent
@@ -157,11 +185,9 @@ spec:
                           kind: ConfigMap
                         - name: argocd-agent-rbac
                           kind: ConfigMap
-                        # Bootstrap PKI (hub-operator/spoke-identity-operator, strategy: Once)
-                        # Machine Identity credentials for ESO ClusterSecretStore on Spoke
+                        # Bootstrap PKI (hub-operator/spoke-identity-operator)
                         - name: ""
                           kind: Secret
-                        # 72-hour bootstrap certificate for ArgoCD Agent mTLS
                         - name: ""
                           kind: Secret
                       strategy: ApplyOnce
@@ -244,8 +270,66 @@ spec:
                       type: Format
                       fmt: "%s-bootstrap-cert"
 
-          # Per-cluster ArgoCD Agent ConfigMap
-          # Wrapped in provider-kubernetes Object
+          # ────────────────────────────────────────────────────────────────────
+          # Home-worker join config ConfigMap
+          # Carries {hostname, tailnetHost} per WSL2 node from claim annotations.
+          # Consumed by hub-operator reconcileHomeWorkerJoin (WS4).
+          # ────────────────────────────────────────────────────────────────────
+          - name: home-worker-join-config
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      namespace: platform-capi
+                      labels:
+                        hybrid.zero-ops.io/home-worker-config: "true"
+                    data:
+                      home-workers: "[]"         # Patched from annotation
+                      home-worker-enabled: "false" # Patched from annotation
+                      home-worker-ttl: "24h"     # Patched from annotation
+                      tailnet-name: ""           # Patched from annotation
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-home-worker-config"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-home-worker-config"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[home-workers]
+                toFieldPath: spec.forProvider.manifest.data.home-workers
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[home-worker-enabled]
+                toFieldPath: spec.forProvider.manifest.data.home-worker-enabled
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[home-worker-ttl]
+                toFieldPath: spec.forProvider.manifest.data.home-worker-ttl
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[tailnet-name]
+                toFieldPath: spec.forProvider.manifest.data.tailnet-name
+
+          # ────────────────────────────────────────────────────────────────────
+          # Per-cluster ArgoCD agent ConfigMap (identical to hetzner)
+          # ────────────────────────────────────────────────────────────────────
           - name: argocd-agent-config-percluster
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -309,8 +393,9 @@ spec:
                           agent.create-namespace: "true"
                           agent.allowed-namespaces: "*"
 
-          # ArgoCD namespace ConfigMap
-          # Wrapped in provider-kubernetes Object
+          # ────────────────────────────────────────────────────────────────────
+          # Namespace ConfigMaps (identical to hetzner)
+          # ────────────────────────────────────────────────────────────────────
           - name: argocd-namespace-configmap
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -343,7 +428,6 @@ spec:
                       type: Format
                       fmt: "%s-argocd-namespace"
 
-          # platform-observability namespace ConfigMap
           - name: observability-namespace-configmap
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -384,7 +468,6 @@ spec:
                       type: Format
                       fmt: "%s-observability-namespace"
 
-          # platform-messaging namespace ConfigMap
           - name: messaging-namespace-configmap
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -425,8 +508,9 @@ spec:
                       type: Format
                       fmt: "%s-messaging-namespace"
 
-          # Hetzner credentials ExternalSecret
-          # Wrapped in provider-kubernetes Object
+          # ────────────────────────────────────────────────────────────────────
+          # ExternalSecrets (identical to hetzner)
+          # ────────────────────────────────────────────────────────────────────
           - name: hetzner-credentials-externalsecret
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -494,8 +578,6 @@ spec:
                       type: Format
                       fmt: "%s-hetzner-credentials"
 
-          # NATS Leaf Node Credentials ExternalSecret
-          # Wrapped in provider-kubernetes Object
           - name: nats-leaf-credentials-externalsecret
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -561,55 +643,9 @@ spec:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
 
-          # Crossplane Admin Password Secret (per-spoke, generated on Hub)
-          # Wrapped in provider-kubernetes Object
-          - name: crossplane-admin-secret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      namespace: platform-ops
-                    type: Opaque
-                    stringData:
-                      password: ""  # Patched with generated password
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin-secret"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-crossplane-admin"
-              # Generate password using metadata.uid (36 chars, alphanumeric + hyphens)
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.uid
-                toFieldPath: spec.forProvider.manifest.stringData.password
-
-          # Infisical push for crossplane-admin password is owned by Hub Operator (ADR-003 A2b), not PushSecret.
-
-          # ========================================================================
-          # Spoke ProviderConfig (Replaces Kyverno Policy)
-          # Creates the ProviderConfig pointing to the CAPI-generated kubeconfig.
-          # Consolidates the declarative dependency graph natively in Crossplane.
-          # ========================================================================
+          # ────────────────────────────────────────────────────────────────────
+          # Spoke ProviderConfig (identical to hetzner)
+          # ────────────────────────────────────────────────────────────────────
           - name: spoke-providerconfig
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -652,9 +688,3 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-kubeconfig"
-
-          # ========================================================================
-          # PKI Distribution via CRS (hub-operator + spoke-identity-operator create per-spoke CRS Secrets)
-          # hub-operator: bootstrap-cert wrapper; spoke-identity-operator: machine-identity wrapper
-          # ADR-035: hub-operator declares Certificate intent, spoke cert-manager handles Day-2
-          # ========================================================================

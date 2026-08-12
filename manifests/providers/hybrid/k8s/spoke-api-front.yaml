@@ -1,0 +1,145 @@
+---
+# Spoke API front for the hybrid provider cell (ADR-046 §WS5).
+# A Tailscale-enrolled HAProxy TCP front that terminates the spoke control-plane
+# API over the tailnet with a stable MagicDNS name. stg/prod only:
+#   - dev:  home workers and admins reach the single control-plane node's
+#           tailnet address directly (control-plane-endpoint-host on the claim).
+#   - stg/prod: HAProxy fronts 3 CP replicas behind one MagicDNS name, so the
+#           endpoint never changes as CP nodes rotate.
+#
+# Deployment topology: one HAProxy pod scheduled on a tailnet-connected node
+# (typically the Hub control plane or a dedicated tailnet node). It binds the
+# tailnet interface and forwards TCP/6443 to the Hetzner CP nodes' tailnet
+# addresses (resolved from the CAPI Cluster's controlPlaneEndpoint).
+#
+# The MagicDNS name is derived from <spoke>-api-front (e.g. spoke-pool-hybrid-stg-01-api-front).
+# Reference this name from the SpokePool claim annotation control-plane-endpoint-host.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spoke-api-front
+  namespace: platform-capi
+  labels:
+    hybrid.zero-ops.io/component: spoke-api-front
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spoke-api-front
+  labels:
+    hybrid.zero-ops.io/component: spoke-api-front
+rules:
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spoke-api-front
+  labels:
+    hybrid.zero-ops.io/component: spoke-api-front
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spoke-api-front
+subjects:
+  - kind: ServiceAccount
+    name: spoke-api-front
+    namespace: platform-capi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spoke-api-front
+  namespace: platform-capi
+  labels:
+    hybrid.zero-ops.io/component: spoke-api-front
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      hybrid.zero-ops.io/component: spoke-api-front
+  template:
+    metadata:
+      labels:
+        hybrid.zero-ops.io/component: spoke-api-front
+    spec:
+      serviceAccountName: spoke-api-front
+      hostNetwork: true
+      nodeSelector:
+        # Runs where the tailnet daemon is present (control-plane or dedicated
+        # tailnet node). In hybrid the Hub control plane runs Tailscale.
+        workload-location: home
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: spoke-api-front
+          image: haproxy:3.0
+          args:
+            - -f
+            - /usr/local/etc/haproxy/haproxy.cfg
+          env:
+            - name: SPOKE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: kube-api
+              containerPort: 6443
+          volumeMounts:
+            - name: haproxy-config
+              mountPath: /usr/local/etc/haproxy
+          readinessProbe:
+            tcpSocket:
+              port: 6443
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: haproxy-config
+          configMap:
+            name: spoke-api-front-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spoke-api-front-config
+  namespace: platform-capi
+  labels:
+    hybrid.zero-ops.io/component: spoke-api-front
+data:
+  haproxy.cfg: |
+    global
+      maxconn 512
+      log stdout format raw local0
+
+    defaults
+      timeout connect 10s
+      timeout client 30s
+      timeout server 30s
+      mode tcp
+
+    # One frontend per spoke; the backend resolves the CAPI controlPlaneEndpoint
+    # (CP nodes' tailnet addresses) which the spoke-api-front controller rewrites
+    # from the CAPI Cluster status. Placeholder below is replaced at runtime.
+    frontend kube-api
+      bind *:6443
+      default_backend kube-api-backend
+
+    backend kube-api-backend
+      balance roundrobin
+      # Replaced by the spoke-api-front controller from Cluster status
+      server placeholder 127.0.0.1:6443 check

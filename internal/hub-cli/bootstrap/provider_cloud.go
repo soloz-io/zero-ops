@@ -201,8 +201,7 @@ func (p *CloudProvider) ClusterClassPaths() []string {
 // ── Phase 10: Platform Pre-Requisites ───────────────────────────────────────
 
 func (p *CloudProvider) OnPlatformPreReqs(ctx context.Context, kubeconfig string) error {
-	fmt.Println("[platform-pre] ✓ No additional pre-requisites for cloud provider")
-	return nil
+	return p.driver.OnPlatformPreReqs(ctx, kubeconfig)
 }
 
 // ── Phase 12: Finalize ──────────────────────────────────────────────────────
@@ -282,6 +281,13 @@ type CloudDriver interface {
 
 	// ── Operator webhook patterns ───────────────────────────────────────
 	OperatorWebhookPatterns() []string
+
+	// ── Phase 10: Platform pre-requisites (post-pivot, on the mgmt cluster) ──
+	// Applied against the management (Hub) kubeconfig AFTER pivot. Day-0
+	// resources (cloud secret, CSI) installed on the ephemeral bootstrap are
+	// lost when it is deleted; anything the Hub itself needs (e.g. CSI +
+	// StorageClass) must be re-applied here.
+	OnPlatformPreReqs(ctx context.Context, kubeconfig string) error
 
 	// ── Capabilities (ADR-036 §5) ────────────────────────────────────────
 	Capabilities() CapabilityContract

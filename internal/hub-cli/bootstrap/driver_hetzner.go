@@ -173,15 +173,47 @@ func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	cfg.WorkerReplicas = 2
 	cfg.HCloudToken = d.Token
 
-	// Read Hetzner CCM addon manifest
+	// SSH key name for rescue/emergency access. Defaults to the key present in
+	// the Hetzner project when --ssh-key is not supplied.
+	if d.SSHKey != "" {
+		cfg.SSHKeyName = d.SSHKey
+	} else {
+		cfg.SSHKeyName = "mac-mini-ssh"
+	}
+
+	// Read CCM addon manifest from shared base (ADR-046 §WS1: spoke-addons moved to _shared/).
 	ccmRaw, err := readTemplateManifest(
-		"manifests/providers/hetzner/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
+		"manifests/providers/_shared/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
 	if err != nil {
 		// Log but don't fail — CCM can be installed later
 		fmt.Printf("[cluster-provision] Warning: failed to read CCM manifest: %v\n", err)
 	} else {
 		cfg.CCMManifest = string(ccmRaw)
 	}
+}
+
+// ── Phase 10: Platform Pre-Requisites ────────────────────────────────────────
+// The day-0 CSI install runs against the ephemeral bootstrap cluster, which is
+// deleted after pivot. Re-apply the CSI driver + StorageClass to the management
+// (Hub) cluster so PVs provision (hcloud-volumes) for hub databases/Redis.
+func (d *HetznerDriver) OnPlatformPreReqs(ctx context.Context, kubeconfig string) error {
+	fmt.Println("[platform-pre] Installing hetzner-csi on management cluster...")
+	csiManifest, err := assets.ReadCatalog("cloud-providers/hetzner/csi/install.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read CSI manifest: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "--kubeconfig", kubeconfig, "-f", "-")
+	cmd.Stdin = bytes.NewReader(csiManifest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to install CSI on management cluster: %w\n%s", err, out)
+	}
+
+	if err := waitForDeployment(ctx, kubeconfig, constants.NamespaceCloud, "hcloud-csi-controller", 3*time.Minute); err != nil {
+		return fmt.Errorf("failed to verify CSI on management cluster: %w", err)
+	}
+	fmt.Println("[platform-pre] ✓ hetzner-csi ready on management cluster")
+	return nil
 }
 
 // ── Phase 9: ClusterClass ───────────────────────────────────────────────────

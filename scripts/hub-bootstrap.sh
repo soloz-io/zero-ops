@@ -23,6 +23,7 @@ BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 # of truth for bootstrap completion.
 CLUSTER_NAME="${CLUSTER_NAME:-hub}"
 PROVIDER="${PROVIDER:-hetzner}"
+REGION="${REGION:-fsn1}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
@@ -36,6 +37,12 @@ SPOKEPOOL_TIMEOUT="${SPOKEPOOL_TIMEOUT:-1800}"  # 30 minutes in seconds
 # via --environment flag. The Go bootstrap CLI defaults to prod for hetzner,
 # hybrid if omitted.
 ENVIRONMENT=""
+# Hybrid provider cell (ADR-046): passed through to `hub bootstrap --provider=hybrid`.
+# HOME_WORKER_ENABLED=1 activates the home-worker join flow; TAILNET_NAME sets
+# the Tailscale MagicDNS tailnet for the spoke control-plane endpoint.
+HOME_WORKER_ENABLED="${HOME_WORKER_ENABLED:-}"
+HOME_WORKER_TTL="${HOME_WORKER_TTL:-24h}"
+TAILNET_NAME="${TAILNET_NAME:-}"
 CERT_TIMEOUT="${CERT_TIMEOUT:-1200}"  # 20 minutes in seconds
 CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"  # 15 minutes in seconds
 
@@ -390,7 +397,7 @@ check_prerequisites() {
     fi
 
     # --- Secret files ---
-    if [[ "$PROVIDER" == "hetzner" ]]; then
+    if [[ "$PROVIDER" == "hetzner" || "$PROVIDER" == "hybrid" ]]; then
         if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/hetzner/token" ]]; then
             log "ERROR: Hetzner token file not found at k8-secrets/hetzner/token"
             failed=1
@@ -534,13 +541,36 @@ step1_bootstrap_hub() {
     if [[ -n "${TOPOLOGY:-}" ]]; then
         topo_flag="--topology=$TOPOLOGY"
     fi
-    log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 $env_flag --debug"
-    (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
-        --name="${CLUSTER_NAME}" \
-        --region=fsn1 \
-        $env_flag \
-        $topo_flag \
-        --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
+
+    if [[ "$PROVIDER" == "hybrid" ]]; then
+        local hybrid_flags=""
+        if [[ -n "${HOME_WORKER_ENABLED:-}" ]]; then
+            hybrid_flags="$hybrid_flags --home-worker-enabled"
+        fi
+        if [[ -n "${HOME_WORKER_TTL:-}" ]]; then
+            hybrid_flags="$hybrid_flags --home-worker-ttl=$HOME_WORKER_TTL"
+        fi
+        if [[ -n "${TAILNET_NAME:-}" ]]; then
+            hybrid_flags="$hybrid_flags --tailnet-name=$TAILNET_NAME"
+        fi
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $hybrid_flags --debug"
+        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+            --name="${CLUSTER_NAME}" \
+            --provider=hybrid \
+            --region="${REGION}" \
+            $env_flag \
+            $topo_flag \
+            $hybrid_flags \
+            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
+    else
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag --debug"
+        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+            --name="${CLUSTER_NAME}" \
+            --region="${REGION}" \
+            $env_flag \
+            $topo_flag \
+            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
+    fi
 
     # Read the result contract produced by the Go bootstrap
     read_kubeconfig_from_state
@@ -1066,6 +1096,34 @@ main() {
                 TEARDOWN="true"
                 shift
                 ;;
+            --region=*)
+                REGION="${1#*=}"
+                shift
+                ;;
+            --region)
+                REGION="$2"
+                shift 2
+                ;;
+            --home-worker-enabled)
+                HOME_WORKER_ENABLED="1"
+                shift
+                ;;
+            --home-worker-ttl=*)
+                HOME_WORKER_TTL="${1#*=}"
+                shift
+                ;;
+            --home-worker-ttl)
+                HOME_WORKER_TTL="$2"
+                shift 2
+                ;;
+            --tailnet-name=*)
+                TAILNET_NAME="${1#*=}"
+                shift
+                ;;
+            --tailnet-name)
+                TAILNET_NAME="$2"
+                shift 2
+                ;;
             *)
                 log "WARNING: Unknown argument: $1"
                 shift
@@ -1081,6 +1139,7 @@ main() {
     log "Project root: $ZERO_OPS_DIR"
     log "Log directory: $LOG_DIR"
     log "Provider: $PROVIDER"
+    log "Region: $REGION"
     log "Cluster name: $CLUSTER_NAME"
 
     # Check prerequisites

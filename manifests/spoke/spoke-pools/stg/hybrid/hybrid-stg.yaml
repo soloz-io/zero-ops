@@ -1,0 +1,43 @@
+---
+# SpokePool claim for the hybrid stg environment (ADR-046 §WS2).
+# Control plane: 3 Hetzner nodes (HA topology for staging).
+# Burst workers: 0 (home WSL2 workers provide default capacity).
+# Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
+# Spoke API: dedicated Tailscale-enrolled HAProxy TCP frontend (stg/prod).
+#            HAProxy MagicDNS name must be set in control-plane-endpoint-host.
+#
+# Scheduling contract:
+#   Default: nodeSelector: workload-location: home
+#   Burst:   nodeSelector: workload-location: hetzner (explicit)
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: spoke-pool-hybrid-stg-01
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: staging
+    region: eu-central
+    provider: hybrid
+  annotations:
+    # Control-plane topology: 3 replicas for HA staging
+    control-plane-replicas: "3"
+    # HAProxy TCP front MagicDNS name (Tailscale-enrolled, stable endpoint for 3-CP kubeadm)
+    # Set this to the actual tailnet MagicDNS name of the dedicated HAProxy node.
+    control-plane-endpoint-host: ""  # e.g. haproxy-hybrid-stg.example.ts.net
+    # Home worker node list
+    home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
+    # Home worker join flow settings
+    home-worker-enabled: "true"
+    home-worker-ttl: "24h"
+    tailnet-name: ""  # Set to your tailnet name (e.g. example.ts.net)
+spec:
+  provider: hybrid
+  compositionSelector:
+    matchLabels:
+      provider: hybrid
+  region: fsn1
+  nodePool:
+    count: 0           # Hetzner burst pool: 0 by default
+    instanceType: cx33
+  maxTenantCapacity: 50

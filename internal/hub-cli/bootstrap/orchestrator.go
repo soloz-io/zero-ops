@@ -512,6 +512,15 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	}
 	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
 
+	// ArgoCD apps read manifests from the private soloz-io/zero-ops repo. The
+	// repo credentials must exist before any app can sync (otherwise webhook
+	// waits below block on "authentication required"). Provision them from the
+	// GitHub PAT now so the raw CLI is self-contained (previously only the
+	// shell script's step3 did this, causing a chicken-and-egg on fresh Hubs).
+	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("failed to configure ArgoCD GitHub access: %w", err)
+	}
+
 	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
 	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
 		return fmt.Errorf("operators not ready: %w", err)
@@ -724,6 +733,29 @@ func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig strin
 		},
 	}
 	return waiter.Wait(ctx, kubeconfig)
+}
+
+// ensureArgoCDGitHubAuth provisions the ArgoCD repo-creds secret (GitHub PAT)
+// so private-repo apps can sync. Token from GITHUB_TOKEN env or the local
+// k8-secrets/github/github-pat-token file.
+func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig string) error {
+	githubToken := os.Getenv("GITHUB_TOKEN")
+	if githubToken == "" {
+		data, err := os.ReadFile("k8-secrets/github/github-pat-token")
+		if err != nil {
+			return fmt.Errorf("GITHUB_TOKEN not set and github-pat-token file unreadable: %w", err)
+		}
+		githubToken = strings.TrimSpace(string(data))
+	}
+	if githubToken == "" {
+		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
+	}
+
+	ci := &components.Installer{Kubeconfig: kubeconfig}
+	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
+		return err
+	}
+	return nil
 }
 
 func currentGitBranch() string {

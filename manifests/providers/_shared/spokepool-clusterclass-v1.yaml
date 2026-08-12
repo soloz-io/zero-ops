@@ -2,24 +2,24 @@
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
-  name: hetzner-spoke-pool-v1
+  name: spokepool-v1
   namespace: platform-capi
 spec:
   controlPlane:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: hetzner-spoke-pool-control-plane-v1
+      name: spokepool-control-plane-v1
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: HCloudMachineTemplate
-        name: hetzner-spoke-pool-control-plane-machine-v1
+        name: spokepool-control-plane-machine-v1
   infrastructure:
     ref:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: HetznerClusterTemplate
-      name: hetzner-spoke-pool-cluster-v1
+      name: spokepool-cluster-v1
   workers:
     machineDeployments:
     - class: default-worker
@@ -28,12 +28,12 @@ spec:
           ref:
             apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
             kind: KubeadmConfigTemplate
-            name: hetzner-spoke-pool-worker-bootstrap-v1
+            name: spokepool-worker-bootstrap-v1
         infrastructure:
           ref:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
             kind: HCloudMachineTemplate
-            name: hetzner-spoke-pool-worker-machine-v1
+            name: spokepool-worker-machine-v1
   patches:
   - name: region
     definitions:
@@ -55,6 +55,22 @@ spec:
         path: /spec/template/spec/hcloudNetwork/networkZone
         valueFrom:
           template: '{{ if eq .region "fsn1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
+  - name: controlPlaneEndpoint
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/controlPlaneLoadBalancer/enabled
+        valueFrom:
+          variable: controlPlaneLoadBalancerEnabled
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/host
+        valueFrom:
+          variable: controlPlaneEndpointHost
   - name: controlPlaneMachineType
     definitions:
     - selector:
@@ -100,11 +116,23 @@ spec:
       openAPIV3Schema:
         type: string
         default: "cx33"
+  - name: controlPlaneLoadBalancerEnabled
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: boolean
+        default: true
+  - name: controlPlaneEndpointHost
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
 metadata:
-  name: hetzner-spoke-pool-cluster-v1
+  name: spokepool-cluster-v1
   namespace: platform-capi
 spec:
   template:
@@ -134,7 +162,7 @@ spec:
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: hetzner-spoke-pool-control-plane-v1
+  name: spokepool-control-plane-v1
   namespace: platform-capi
 spec:
   template:
@@ -203,7 +231,7 @@ spec:
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
-  name: hetzner-spoke-pool-control-plane-machine-v1
+  name: spokepool-control-plane-machine-v1
   namespace: platform-capi
 spec:
   template:
@@ -214,7 +242,7 @@ spec:
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
-  name: hetzner-spoke-pool-worker-bootstrap-v1
+  name: spokepool-worker-bootstrap-v1
   namespace: platform-capi
 spec:
   template:
@@ -223,6 +251,7 @@ spec:
         nodeRegistration:
           kubeletExtraArgs:
             cloud-provider: external
+            node-labels: "workload-location=hetzner"
       preKubeadmCommands:
       - set -x
       - export CONTAINERD=1.7.26
@@ -267,10 +296,10 @@ spec:
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
-  name: hetzner-spoke-pool-worker-machine-v1
+  name: spokepool-worker-machine-v1
   namespace: platform-capi
 spec:
   template:
     spec:
       type: cx33
-      imageName: ubuntu-24.04---
+      imageName: ubuntu-24.04
