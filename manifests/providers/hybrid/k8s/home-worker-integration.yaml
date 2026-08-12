@@ -75,3 +75,7 @@ type: Opaque
 stringData:
   # authkey: "tskey-auth-REPLACE_ME"  # uncomment and replace in dev
   authkey: ""
+  # Tailnet hostname for the CP node (<claim>-cp), set per-claim by the hybrid
+  # composition. Empty → the shared ClusterClass Tailscale pre-kubeadm block
+  # no-ops (pure-hetzner spokes unaffected).
+  hostname: ""

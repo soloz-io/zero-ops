@@ -81,7 +81,7 @@ spec:
                           - name: controlPlaneLoadBalancerEnabled
                             value: false   # ADR-046: Tailscale-only — no cloud LB on spoke API
                           - name: controlPlaneEndpointHost
-                            value: ""      # Patched from annotation: control-plane-endpoint-host (tailnet MagicDNS)
+                            value: ""      # Patched: derived <claim>-cp.<tailnet> (CombineFromComposite)
                 providerConfigRef:
                   name: kubernetes-provider
             patches:

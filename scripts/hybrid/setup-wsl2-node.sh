@@ -134,6 +134,17 @@ systemctl enable tailscaled
 systemctl start tailscaled
 echo "[setup] ✓ Tailscale $(tailscale version | head -1)"
 
+# Interactive login: `tailscale up` without --authkey prints a browser URL and
+# waits for approval. The caller approves it in the browser. Idempotent: if the
+# node is already authenticated, tailscale up is a no-op.
+if ! tailscale status --peers=false &>/dev/null; then
+  echo "[setup] Running interactive Tailscale login..."
+  echo "[setup] → Approve the URL below in your browser (or 'tailscale login' on the node):"
+  tailscale up --hostname="wsl2-node-${NODE_INDEX}" || echo "[setup] ⚠ tailscale up returned non-zero (login may be pending)"
+else
+  echo "[setup] ✓ Tailscale already authenticated"
+fi
+
 # ── 8. Cleanup ───────────────────────────────────────────────────────────────
 apt-get -y autoremove
 apt-get -y clean
@@ -141,5 +152,5 @@ apt-get -y clean
 echo ""
 echo "=== WSL2 node setup complete ==="
 echo "    Next: run ./home-worker-join.sh ${NODE_INDEX} after:"
-echo "    1. Running 'tailscale up --authkey=<key> --hostname=wsl2-node-${NODE_INDEX}'"
+echo "    1. Tailscale is authenticated (tailscale status shows Connected)"
 echo "    2. Ensuring the hub-operator has minted the join payload Secret"

@@ -187,6 +187,26 @@ spec:
           nodeRegistration:
             kubeletExtraArgs:
               cloud-provider: external
+        files:
+        - path: /etc/tailscale-authkey
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Management-cluster Secret holding the reusable Tailscale auth key
+              # for CAPI control-plane nodes (ADR-046). Never committed to Git;
+              # sourced at bootstrap from the tailscale-hybrid-psk Secret.
+              name: tailscale-hybrid-psk
+              key: authkey
+        - path: /etc/tailscale-hostname
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Tailnet hostname for this CP node (<claim>-cp). Empty for
+              # pure-hetzner spokes → the pre-kubeadm Tailscale block no-ops.
+              name: tailscale-hybrid-psk
+              key: hostname
         preKubeadmCommands:
         - set -x
         - export CONTAINERD=1.7.26
@@ -227,6 +247,17 @@ spec:
         - echo 'source <(kubectl completion bash)' >>/root/.bashrc
         - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
         - apt-get -y autoremove && apt-get -y clean all
+        # ── Tailscale pre-kubeadm (ADR-046: tailnet-only spoke) ───────────────
+        # Join the control-plane node to the tailnet BEFORE kubeadm init so the
+        # derived controlPlaneEndpoint (<claim>-cp.<tailnet>) resolves and the
+        # API server is reachable over Tailscale. Authkey + hostname are read
+        # from /etc/tailscale-* (written by files[] contentFrom.secret above).
+        # Pure-hetzner spokes leave hostname empty → this block no-ops.
+        - curl -fsSL https://tailscale.com/install.sh | sh || true
+        - systemctl enable --now tailscaled || true
+        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate

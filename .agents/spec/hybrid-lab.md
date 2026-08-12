@@ -855,3 +855,31 @@ So:
 * **STG/prod, 3 CP:** `<claim>-cp.<tailnet>` should resolve to the dedicated Tailscale HAProxy frontend, with CP nodes having unique names such as `<claim>-cp-1`, `<claim>-cp-2`, `<claim>-cp-3`.
 
 Everything else in the plan looks consistent.
+
+----------------
+
+Yes — choose **the Tailscale auth-key approach**. It preserves the locked **tailnet-only** architecture and is the correct bootstrap mechanism for a headless CAPI-managed Hetzner control-plane node.
+
+Use a **dedicated, narrowly scoped, reusable Tailscale auth key** for these CAPI control-plane nodes rather than a personal key.
+
+Then the bootstrap sequence should be:
+
+```text
+Hetzner CP VM
+  ↓
+install Tailscale
+  ↓
+tailscale up --authkey ...
+  ↓
+wait for tailnet connectivity
+  ↓
+kubeadm init
+  ↓
+API available on tailnet endpoint
+  ↓
+CRS/DaemonSets reconcile normally
+```
+
+And yes, **tear down the currently stuck spoke first**. It is already bootstrapping with an endpoint that cannot resolve, so recreating it after the pre-kubeadm fix is cleaner than trying to recover it in place.
+
+I would also make sure the auth key is **not stored in the ClusterClass or Git**. Put it in the existing secret/secret-management path and have the KubeadmConfigTemplate consume it at bootstrap.
