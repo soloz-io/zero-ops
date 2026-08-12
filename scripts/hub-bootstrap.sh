@@ -589,6 +589,58 @@ step1_bootstrap_hub() {
     log "Hub cluster bootstrap completed"
 }
 
+# Step 1b: Reconcile environment-manager ApplicationSets
+# The Go orchestrator renders the boundary ApplicationSets once during the
+# bootstrap. On resume (phases already complete) that render is skipped, so a
+# changed provider/environment/topology would leave stale AppSet paths (e.g.
+# spoke-pools/prod/hybrid/single instead of spoke-pools/dev/hybrid). Re-render
+# and re-apply the environment-manager chart here so the AppSets always match
+# the requested matrix values — idempotent on fresh and resumed runs.
+step1b_reconcile_appsets() {
+    log "Reconciling environment-manager ApplicationSets..."
+
+    # Resolve the management kubeconfig for kubectl apply.
+    local kc_path="${KUBECONFIG_PATH:-}"
+    if [[ -z "$kc_path" ]]; then
+        kc_path="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+    fi
+    if [[ ! -f "$kc_path" ]]; then
+        log "  ⚠️  Management kubeconfig not found at $kc_path — skipping AppSet reconciliation"
+        return
+    fi
+
+    local git_branch
+    git_branch=$(cd "$ZERO_OPS_DIR" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    local env_rev="main"
+    if [[ "$git_branch" != "main" && -n "$git_branch" ]]; then
+        env_rev="$git_branch"
+    fi
+
+    # Build the same flag set the Go orchestrator uses (renderAndApplyBoundaries).
+    local env_slug="${ENVIRONMENT:-prod}"
+    local topo_value="${TOPOLOGY:-}"
+    if [[ "$PROVIDER" == "hybrid" ]]; then
+        topo_value=""
+    fi
+
+    log "  environmentRevision=$env_rev environmentSlug=$env_slug provider=$PROVIDER topology='$topo_value'"
+    (cd "$ZERO_OPS_DIR" && helm template environment-manager \
+        manifests/argocd/environment-manager \
+        --set "environmentRevision=$env_rev" \
+        --set "environmentSlug=$env_slug" \
+        --set "provider=$PROVIDER" \
+        --set "topology=$topo_value" \
+        --set "deploy.boundary01=true" \
+        --set "deploy.boundary02=true" \
+        --set "deploy.boundary03=true" \
+        --set "deploy.boundary04=true" \
+        | kubectl apply --kubeconfig="$kc_path" -f -) || {
+        log "  ⚠️  AppSet reconciliation failed — continuing"
+        return
+    }
+    log "  ✓ environment-manager ApplicationSets reconciled"
+}
+
 # Step 2: Configure AWS Secrets Manager
 step2_configure_aws_secrets() {
     if is_step_completed "configure_aws_secrets"; then
@@ -1167,6 +1219,8 @@ main() {
     # gating (B01 → B02 → init-secrets → B03). No fixed sleeps needed
     # between steps — each step polls until its prerequisites converge.
     step1_bootstrap_hub
+
+    step1b_reconcile_appsets
 
     step2_configure_aws_secrets
 
