@@ -790,3 +790,68 @@ Not yet done in WS1: enrich driver_hybrid.go (ClusterClassPaths → hybrid, Load
 - WS3 home-lab registry scripts + env example + .gitignore
 - WS4 CLI flags + cluster.Config.HomeWorker + hub-operator reconcileHomeWorkerJoin
 - WS5 spoke-api-front + ADR-046
+
+
+
+----------------------
+
+Choose **(b)** — derive the endpoint automatically from the claim name + tailnet name.
+
+That is the more robust design:
+
+```text
+claim:       spoke-pool-hybrid-dev-01
+tailnet:     zero-ops.ts.net
+
+                ↓
+
+endpoint:
+spoke-pool-hybrid-dev-01-cp.zero-ops.ts.net
+```
+
+Why I prefer it:
+
+* No duplicated configuration that can drift.
+* Every hybrid spoke gets a deterministic endpoint.
+* The DaemonSet and CAPI endpoint use the same naming convention.
+* Adding another dev/stg/prod hybrid claim doesn't require manually inventing the hostname.
+
+I'd make the naming function explicit and centralized, e.g.:
+
+```text
+<claim-name>-cp.<tailnet-name>
+```
+
+Then the implementation should ensure the **Tailscale node hostname/tag generated for the control-plane node exactly matches that convention**.
+
+The three pieces should therefore move together:
+
+```text
+Hybrid Composition
+ ├── derive controlPlaneEndpoint.host
+ ├── create tailscale-node DaemonSet
+ └── create home-worker-join-config
+```
+
+One caution: **don't assume a Tailscale tag automatically produces the exact MagicDNS hostname you want**. Make the node's advertised hostname explicit in the Tailscale configuration and verify it matches the derived endpoint before considering the spoke ready.
+
+---------------
+
+Yes. Proceed on that basis.
+
+Use:
+
+```text
+<claim-name>-cp.<tailnet-name>
+```
+
+as the **single source of truth** for the spoke API endpoint. Remove the now-redundant `control-plane-endpoint-host` annotation from the dev claim.
+
+One implementation detail I'd insist on: **don't assume the DaemonSet can safely assign the same `--hostname=<claim>-cp` to every control-plane node**. If you have 3 CP replicas, that would create duplicate Tailscale identities/hostnames. The endpoint needs a stable frontend for 3-CP HA, while individual CP nodes need unique Tailscale hostnames.
+
+So:
+
+* **Dev, 1 CP:** `<claim>-cp.<tailnet>` can point directly at that CP.
+* **STG/prod, 3 CP:** `<claim>-cp.<tailnet>` should resolve to the dedicated Tailscale HAProxy frontend, with CP nodes having unique names such as `<claim>-cp-1`, `<claim>-cp-2`, `<claim>-cp-3`.
+
+Everything else in the plan looks consistent.

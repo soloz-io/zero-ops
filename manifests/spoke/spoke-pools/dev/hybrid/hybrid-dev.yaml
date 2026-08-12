@@ -21,8 +21,10 @@ metadata:
   annotations:
     # Control-plane topology (patched into CAPI Cluster topology.controlPlane.replicas)
     control-plane-replicas: "1"
-    # Tailnet MagicDNS address of the dev CP node (set after first bootstrap; empty = use kubeconfig endpoint)
-    control-plane-endpoint-host: ""
+    # Spoke API endpoint is DERIVED as <claim-name>-cp.<tailnet-name> (ADR-046).
+    # For dev (1 CP) it resolves directly to the single CP node's tailnet
+    # hostname; stg/prod (3 CP) resolves to the dedicated Tailscale HAProxy
+    # front with CP nodes named <claim>-cp-1/2/3.
     # Home worker node list (JSON array; each entry: {hostname, tailnetHost})
     # Box A: Dell workstation (existing home node)
     # Box B: placeholder — replace with actual tailnet hostname after enrollment
@@ -30,7 +32,7 @@ metadata:
     # Home worker join flow settings (read by hub-operator reconcileHomeWorkerJoin)
     home-worker-enabled: "true"
     home-worker-ttl: "24h"
-    tailnet-name: ""  # Set to your tailnet name (e.g. example.ts.net)
+    tailnet-name: "zero-ops.ts.net"
 spec:
   provider: hybrid
   compositionSelector:

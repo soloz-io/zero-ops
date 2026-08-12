@@ -22,15 +22,15 @@ metadata:
   annotations:
     # Control-plane topology: 3 replicas for HA staging
     control-plane-replicas: "3"
-    # HAProxy TCP front MagicDNS name (Tailscale-enrolled, stable endpoint for 3-CP kubeadm)
-    # Set this to the actual tailnet MagicDNS name of the dedicated HAProxy node.
-    control-plane-endpoint-host: ""  # e.g. haproxy-hybrid-stg.example.ts.net
+    # Spoke API endpoint is DERIVED as <claim-name>-cp.<tailnet-name> (ADR-046).
+    # For stg (3 CP) it resolves to the dedicated Tailscale HAProxy front; CP
+    # nodes get unique tailnet names <claim>-cp-1/2/3.
     # Home worker node list
     home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
     # Home worker join flow settings
     home-worker-enabled: "true"
     home-worker-ttl: "24h"
-    tailnet-name: ""  # Set to your tailnet name (e.g. example.ts.net)
+    tailnet-name: "zero-ops.ts.net"
 spec:
   provider: hybrid
   compositionSelector:

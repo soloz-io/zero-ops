@@ -119,9 +119,18 @@ spec:
                   - type: convert
                     convert:
                       toType: int64
-              # Tailnet MagicDNS controlPlaneEndpoint host from claim annotation
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.annotations[control-plane-endpoint-host]
+              # Tailnet MagicDNS controlPlaneEndpoint host — DERIVED as
+              # <claim-name>-cp.<tailnet-name> (ADR-046, single source of truth).
+              # No claim annotation needed; every hybrid spoke gets a
+              # deterministic endpoint. e.g. spoke-pool-hybrid-dev-01-cp.zero-ops.ts.net
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.name
+                    - fromFieldPath: metadata.annotations[tailnet-name]
+                  strategy: string
+                  string:
+                    fmt: "%s-cp.%s"
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[3].value
 
           # ────────────────────────────────────────────────────────────────────
@@ -159,6 +168,9 @@ spec:
                         - name: ccm-addon-template
                           kind: Secret
                         - name: csi-addon-template
+                          kind: Secret
+                        # Tailscale node DaemonSet (ADR-046: tailnet-only spoke)
+                        - name: tailscale-node-addon
                           kind: Secret
                         # ArgoCD namespace
                         - name: argocd-namespace
@@ -231,6 +243,14 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[5].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-node-addon"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.resources[6].name
                 transforms:
                   - type: string
@@ -295,6 +315,8 @@ spec:
                       home-worker-enabled: "false" # Patched from annotation
                       home-worker-ttl: "24h"     # Patched from annotation
                       tailnet-name: ""           # Patched from annotation
+                      claim-name: ""             # Patched from metadata.name
+                      control-plane-replicas: "1" # Patched from annotation
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -326,6 +348,12 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.annotations[tailnet-name]
                 toFieldPath: spec.forProvider.manifest.data.tailnet-name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.data.claim-name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[control-plane-replicas]
+                toFieldPath: spec.forProvider.manifest.data.control-plane-replicas
 
           # ────────────────────────────────────────────────────────────────────
           # Per-cluster ArgoCD agent ConfigMap (identical to hetzner)
@@ -642,6 +670,213 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
+
+          # ────────────────────────────────────────────────────────────────────
+          # Tailscale node addon (ADR-046): per-claim resource-set Secret that
+          # CAPI applies to the spoke's kube-system. Embeds the tailscale-node
+          # DaemonSet + RBAC and injects claim-name / cp-replicas so each node
+          # advertises a unique tailnet hostname (see home-worker-join-config
+          # for the source-of-truth naming convention).
+          # ────────────────────────────────────────────────────────────────────
+          - name: tailscale-node-addon
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Secret
+                    metadata:
+                      namespace: platform-capi
+                    type: addons.cluster.x-k8s.io/resource-set
+                    stringData:
+                      claim-name: ""
+                      cp-replicas: "1"
+                      tailscale-node.yaml: |
+                        apiVersion: apps/v1
+                        kind: DaemonSet
+                        metadata:
+                          name: tailscale-node
+                          namespace: kube-system
+                          labels:
+                            app.kubernetes.io/name: tailscale-node
+                        spec:
+                          selector:
+                            matchLabels:
+                              app.kubernetes.io/name: tailscale-node
+                          template:
+                            metadata:
+                              labels:
+                                app.kubernetes.io/name: tailscale-node
+                            spec:
+                              hostNetwork: true
+                              dnsPolicy: ClusterFirstWithHostNet
+                              serviceAccountName: tailscale-node
+                              tolerations:
+                                - operator: Exists
+                              initContainers:
+                                - name: compute-hostname
+                                  image: curlimages/curl:8.14.1
+                                  env:
+                                    - name: NODE_NAME
+                                      valueFrom:
+                                        fieldRef:
+                                          fieldPath: spec.nodeName
+                                    - name: CLAIM_NAME
+                                      valueFrom:
+                                        secretKeyRef:
+                                          name: tailscale-node-addon
+                                          key: claim-name
+                                    - name: CP_REPLICAS
+                                      valueFrom:
+                                        secretKeyRef:
+                                          name: tailscale-node-addon
+                                          key: cp-replicas
+                                  command: ["/bin/sh", "-c"]
+                                  args:
+                                    - |
+                                      set -e
+                                      TOKEN=""
+                                      if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+                                        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                                      fi
+                                      LABELS=""
+                                      if [ -n "$TOKEN" ]; then
+                                        CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                                        API=https://kubernetes.default.svc
+                                        LABELS=$(curl -sk --cacert "$CA" -H "Authorization: Bearer $TOKEN" \
+                                          "$API/api/v1/nodes/$NODE_NAME" | grep -o 'node-role.kubernetes.io/control-plane' || true)
+                                      fi
+                                      IS_CP=""
+                                      if [ -n "${LABELS:-}" ]; then
+                                        IS_CP="1"
+                                      elif echo "$NODE_NAME" | grep -qE -- "-cp|-control-plane$"; then
+                                        IS_CP="1"
+                                      fi
+                                      SHORT=$(echo "$NODE_NAME" | awk -F- '{print $NF}')
+                                      if [ -n "$IS_CP" ] && [ "$CP_REPLICAS" = "1" ]; then
+                                        HOSTNAME="${CLAIM_NAME}-cp"
+                                      elif [ -n "$IS_CP" ]; then
+                                        HOSTNAME="${CLAIM_NAME}-cp-${SHORT}"
+                                      else
+                                        HOSTNAME="${CLAIM_NAME}-burst-${SHORT}"
+                                      fi
+                                      echo "$HOSTNAME" > /hostname/name
+                                      echo "Computed tailnet hostname: $HOSTNAME (cp=$IS_CP replicas=$CP_REPLICAS)"
+                                  volumeMounts:
+                                    - name: hostname
+                                      mountPath: /hostname
+                              containers:
+                                - name: tailscale
+                                  image: tailscale/tailscale:v1.82.5
+                                  command: ["/bin/sh", "-c"]
+                                  args:
+                                    - |
+                                      set -e
+                                      if [ -f /hostname/name ]; then
+                                        export TS_HOSTNAME="$(cat /hostname/name)"
+                                      fi
+                                      echo "tailnet hostname: ${TS_HOSTNAME:-unset}"
+                                      exec /usr/local/bin/containerboot
+                                  env:
+                                    - name: TS_AUTHKEY
+                                      valueFrom:
+                                        secretKeyRef:
+                                          name: tailscale-hybrid-psk
+                                          key: authkey
+                                    - name: TS_STATE_DIR
+                                      value: /var/lib/tailscale
+                                    - name: TS_USERSPACE
+                                      value: "false"
+                                    - name: TS_KUBE_SECRET
+                                      value: tailscale-node-state
+                                    - name: TS_EXTRA_ARGS
+                                      value: "--accept-dns=false"
+                                  securityContext:
+                                    capabilities:
+                                      add:
+                                        - NET_ADMIN
+                                        - SYS_MODULE
+                                  volumeMounts:
+                                    - name: tailscale-state
+                                      mountPath: /var/lib/tailscale
+                                    - name: hostname
+                                      mountPath: /hostname
+                                    - name: lib-modules
+                                      mountPath: /lib/modules
+                                      readOnly: true
+                                    - name: run-netns
+                                      mountPath: /run/netns
+                              volumes:
+                                - name: tailscale-state
+                                  emptyDir: {}
+                                - name: hostname
+                                  emptyDir: {}
+                                - name: lib-modules
+                                  hostPath:
+                                    path: /lib/modules
+                                - name: run-netns
+                                  hostPath:
+                                    path: /run/netns
+                        ---
+                        apiVersion: v1
+                        kind: ServiceAccount
+                        metadata:
+                          name: tailscale-node
+                          namespace: kube-system
+                        ---
+                        apiVersion: rbac.authorization.k8s.io/v1
+                        kind: ClusterRole
+                        metadata:
+                          name: tailscale-node
+                        rules:
+                          - apiGroups: [""]
+                            resources: ["secrets"]
+                            verbs: ["get", "list", "watch", "create", "update", "patch"]
+                          - apiGroups: [""]
+                            resources: ["nodes"]
+                            verbs: ["get", "list", "watch"]
+                        ---
+                        apiVersion: rbac.authorization.k8s.io/v1
+                        kind: ClusterRoleBinding
+                        metadata:
+                          name: tailscale-node
+                        roleRef:
+                          apiGroup: rbac.authorization.k8s.io
+                          kind: ClusterRole
+                          name: tailscale-node
+                        subjects:
+                          - kind: ServiceAccount
+                            name: tailscale-node
+                            namespace: kube-system
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-node-addon"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-node-addon"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.stringData.claim-name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.annotations[control-plane-replicas]
+                toFieldPath: spec.forProvider.manifest.stringData.cp-replicas
 
           # ────────────────────────────────────────────────────────────────────
           # Spoke ProviderConfig (identical to hetzner)
