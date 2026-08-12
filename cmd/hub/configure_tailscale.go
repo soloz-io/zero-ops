@@ -33,6 +33,14 @@ After running this command:
 - ESO syncs it back, so ArgoCD cannot reset it to empty
 - Hybrid spoke CP nodes join the tailnet before kubeadm init`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Resolve defaults from k8-secrets (gitignored) before validation.
+			if authkey == "" {
+				authkey = readK8Secret("k8-secrets/tailscale/authkey")
+			}
+			if hostname == "" {
+				hostname = readK8Secret("k8-secrets/tailscale/hostname")
+			}
+
 			if authkey == "" {
 				return fmt.Errorf("--authkey is required (or set k8-secrets/tailscale/authkey)")
 			}
@@ -57,14 +65,6 @@ After running this command:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Default values from k8-secrets (gitignored) if not explicitly set.
-			if authkey == "" {
-				authkey = readK8Secret("k8-secrets/tailscale/authkey")
-			}
-			if hostname == "" {
-				hostname = readK8Secret("k8-secrets/tailscale/hostname")
-			}
-
 			return runConfigureTailscale(cmd, authkey, hostname, kubeconfig)
 		},
 	}
