@@ -43,3 +43,22 @@ patches:
       spec:
         strategy:
           type: Recreate
+        template:
+          spec:
+            containers:
+              - name: infisical-standalone-infisical
+                # The chart hardcodes a readinessProbe (initialDelaySeconds: 10,
+                # periodSeconds: 5) with no startupProbe. On a fresh install the
+                # app runs DB migrations at startup that take longer than the
+                # ~25s readiness window, so the probe kills the pod mid-migration
+                # and orphans the knex lock (infisical_migrations_lock) forever.
+                # Add a startupProbe giving migrations up to 5 minutes; readiness
+                # only runs after startup succeeds.
+                startupProbe:
+                  httpGet:
+                    path: /api/status
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 10
+                  failureThreshold: 30
