@@ -4,28 +4,6 @@ on:
     types: [labeled]
 
 jobs:
-  e2e-capd:
-    if: contains(github.event.pull_request.labels.*.name, 'run-e2e')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
-      - name: Setup Kind
-        uses: helm/kind-action@v1
-        with:
-          install_only: true
-
-      - name: Build Hub CLI
-        run: make build-hub
-
-      - name: Bootstrap Hub (Local CAPD)
-        run: ./bin/hub bootstrap --provider=local --name=preview-${GITHUB_SHA::8}
-
-      - name: Run KUTTL Tests
-        run: |
-          kubectl kuttl test ./operators/hub-operator/tests/e2e/ --config kuttl-test.yaml
+  # TODO: Implement hybrid provider E2E harness once the Tailscale matrix is
+  # established. The previous CAPD (local/docker) job was removed with the
+  # provider; a paid Hetzner bootstrap is intentionally NOT run on every PR.

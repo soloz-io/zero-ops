@@ -1,1 +1,3 @@
 you can reuse or modify scripts/local-dev. local only model did not work as that setup  included windows as control plane and mac as worker by design. Since the design is flawed as it included mac, the setup did nt work. you can reuse or make necessary cahnges if you want. also you can remove capd entirly as its no more used. This project is already tested is with full hetzner deployment. Home lab setup is new.
+
+no uses to the platform yet. no capd backward compatibility needed. I am the only developer. no always look for stable and permeannt fix. no fallback needed.

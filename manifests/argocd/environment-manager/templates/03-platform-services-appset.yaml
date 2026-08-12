@@ -300,23 +300,6 @@ spec:
             directoryInclude: ''
             helmValues: |
               controller:
-                {{- if eq .Values.provider "local" }}
-                hostNetwork: true
-                hostPort:
-                  enabled: true
-                  ports:
-                    http: 80
-                    https: 443
-                nodeSelector:
-                  ingress-ready: "true"
-                tolerations:
-                  - key: "node-role.kubernetes.io/master"
-                    operator: "Equal"
-                    effect: "NoSchedule"
-                  - key: "node-role.kubernetes.io/control-plane"
-                    operator: "Equal"
-                    effect: "NoSchedule"
-                {{- end }}
                 ingressClassResource:
                   enabled: true
                   default: false

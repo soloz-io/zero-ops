@@ -52,8 +52,7 @@ func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *Cloud
 
 // ── Identity ────────────────────────────────────────────────────────────────
 
-func (p *CloudProvider) Name() string  { return p.driver.Name() }
-func (p *CloudProvider) IsLocal() bool { return false }
+func (p *CloudProvider) Name() string { return p.driver.Name() }
 func (p *CloudProvider) KindConfigPath() string {
 	// Cloud providers use default kind config (no custom config needed).
 	return ""

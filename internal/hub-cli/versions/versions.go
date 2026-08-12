@@ -15,7 +15,6 @@ const (
 
 	// Infrastructure Providers
 	HetznerInfraProviderVersion = "v1.0.0-beta.47"
-	DockerInfraProviderVersion  = "v1.10.0"
 
 	// Binaries
 	ClusterctlVersion = "v1.10.0"

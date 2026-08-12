@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -32,7 +31,6 @@ var (
 	buildFlatcarImage bool
 	debug             bool
 	environment       string
-	dockerSocket      string
 	topology          string
 )
 
@@ -41,14 +39,14 @@ func newBootstrapCmd() *cobra.Command {
 		Use:   "bootstrap",
 		Short: "Bootstrap a Hub Cluster",
 		Long: `Bootstrap a self-hosted Hub (Management) Cluster using Cluster API (CAPI).
-Supports multiple infrastructure providers: hetzner (cloud) and docker (local/CAPD).`,
+Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab workers).`,
 		PreRunE: validateFlags,
 		RunE:    runBootstrap,
 	}
 
 	// Required flags
 	cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name (alphanumeric + hyphens)")
-	cmd.Flags().StringVar(&provider, "provider", "hetzner", "Infrastructure provider: hetzner (default) or docker (local CAPD)")
+	cmd.Flags().StringVar(&provider, "provider", "hetzner", "Infrastructure provider: hetzner (default) or hybrid (home-lab)")
 
 	// Hetzner-specific flags (required when provider=hetzner)
 	cmd.Flags().StringVar(&region, "region", "", "Hetzner region (fsn1, nbg1, hel1)")
@@ -66,8 +64,7 @@ Supports multiple infrastructure providers: hetzner (cloud) and docker (local/CA
 	cmd.Flags().BoolVar(&buildTalosImage, "build-talos-image", false, "Trigger Packer build for Talos image")
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
-	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to dev for docker, prod for hetzner")
-	cmd.Flags().StringVar(&dockerSocket, "docker-socket", "", "Docker socket path for local provider (e.g., ~/.docker/run/docker.sock on macOS Docker Desktop). Also set via ZERO_OPS_DOCKER_SOCKET env var")
+	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 
 	// Mark required flags
@@ -80,10 +77,9 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 	// Validate provider
 	validProviders := map[string]bool{
 		"hetzner": true,
-		"docker":  true,
 	}
 	if !validProviders[provider] {
-		return fmt.Errorf("invalid provider: must be 'hetzner' or 'docker'")
+		return fmt.Errorf("invalid provider: must be 'hetzner' or 'hybrid'")
 	}
 
 	// Validate cluster name (alphanumeric + hyphens)
@@ -162,26 +158,21 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			BuildFlatcarImage: buildFlatcarImage,
 		}
 		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
-	case "docker":
-		// Resolve Docker socket path: CLI flag > env var > default (empty = use static config)
-		socketPath := dockerSocket
-		if socketPath == "" {
-			socketPath = os.Getenv("ZERO_OPS_DOCKER_SOCKET")
+	case "hybrid":
+		hcloudToken := os.Getenv("HCLOUD_TOKEN")
+		driver := &bootstrap.HetznerDriver{
+			Token:             hcloudToken,
+			Region:            region,
+			OS:                osType,
+			ImageID:           imageID,
+			NetworkCIDR:       networkCIDR,
+			SSHKey:            sshKey,
+			Debug:             debug,
+			BuildTalosImage:   buildTalosImage,
+			BuildFlatcarImage: buildFlatcarImage,
 		}
-		if socketPath != "" {
-			// Expand ~ to home directory
-			if len(socketPath) > 0 && socketPath[0] == '~' {
-				homeDir, err := os.UserHomeDir()
-				if err == nil {
-					socketPath = filepath.Join(homeDir, socketPath[1:])
-				}
-			}
-		}
-		bp = &bootstrap.LocalProvider{
-			Debug:            debug,
-			GitHubToken:      readGitHubToken(),
-			DockerSocketPath: socketPath,
-		}
+		hybridDriver := &bootstrap.HybridDriver{Driver: driver}
+		bp = bootstrap.NewCloudProvider(hybridDriver, clusterName, debug)
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
@@ -206,12 +197,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	// Derive environment slug
 	envSlug := environment
 	if envSlug == "" {
-		switch provider {
-		case "docker":
-			envSlug = "dev"
-		default:
-			envSlug = "prod"
-		}
+		envSlug = "prod"
 	}
 
 	// Phase 2-12: Bootstrap pipeline

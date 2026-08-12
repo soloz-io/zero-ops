@@ -4,7 +4,7 @@ Orchestrates three boundary ApplicationSets (`01-platform-infra`, `02-platform-d
 
 ## Why This Exists
 
-The platform previously deployed 35+ static ArgoCD Application manifests from `manifests/argocd/bootstrap/`. Each child Application declared `targetRevision: HEAD`, which ArgoCD resolved against the repository default branch (`main`). This was correct for production but made local CAPD and ephemeral preview development impossible — feature branches could not be tested because every Application loaded from `main`.
+The platform previously deployed 35+ static ArgoCD Application manifests from `manifests/argocd/bootstrap/`. Each child Application declared `targetRevision: HEAD`, which ArgoCD resolved against the repository default branch (`main`). This was correct for production but made ephemeral preview development impossible — feature branches could not be tested because every Application loaded from `main`.
 
 ## What We Tried (and Rejected)
 
@@ -39,7 +39,7 @@ element.isPlatformOwned == "false"
 ### The Bootstrap Flow
 
 ```text
-hub bootstrap --provider=docker   (from feat/webhook-refactor)
+hub bootstrap --provider=hetzner   (from feat/webhook-refactor)
   → git push origin feat/webhook-refactor
     → helm template environment-manager --set environmentRevision=feat/webhook-refactor
       → kubectl apply → ApplicationSets created

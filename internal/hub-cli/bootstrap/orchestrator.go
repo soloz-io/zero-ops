@@ -32,7 +32,7 @@ import (
 //	Phase  5: cluster-provision       Provider.ProvisionManagementCluster(cfg)
 //	Phase  6: pivot-move              Provider.PivotMove(cfg) → mgmtKubeconfig
 //	Phase  7: pivot-ready             Provider.PivotReady(mgmtKubeconfig)
-//	Phase  8: cleanup                 delete kind if !Provider.IsLocal()
+//	Phase  8: cleanup                 delete kind unless --keep-bootstrap
 //	Phase  9: clusterclass            ClusterClass deploy (orchestrator-owned)
 //	Phase 10: platform-pre-reqs       Provider.OnPlatformPreReqs(kubeconfig)
 //	Phase 11a: boundary-01            ArgoCD + infra operators (orchestrator-owned)
@@ -166,7 +166,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 8: Cleanup bootstrap cluster ────────────────────────────
-	if !o.Provider.IsLocal() && !o.KeepBootstrap {
+	if !o.KeepBootstrap {
 		fmt.Println("\n[cleanup] Deleting bootstrap cluster...")
 		kindMgr := &KindManager{ClusterName: o.ClusterName}
 		if err := kindMgr.Delete(ctx); err != nil {
@@ -577,9 +577,6 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 	}
 
 	providerForHelm := o.Provider.Name()
-	if providerForHelm == "docker" {
-		providerForHelm = "local"
-	}
 
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",

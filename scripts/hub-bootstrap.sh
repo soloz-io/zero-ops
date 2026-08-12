@@ -6,7 +6,7 @@
 #
 # Provider-agnostic after step 1. The bootstrap produces a result contract
 # (kubeconfig path) consumed by all downstream steps. No step knows whether
-# the cluster came from Hetzner, CAPD, or any other provider.
+# the cluster came from Hetzner, hybrid, or any other provider.
 
 set -euo pipefail
 
@@ -19,10 +19,10 @@ HUB_BINARY="$ZERO_OPS_DIR/bin/hub"
 BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 
 # Defaults (overridable via flags)
-# Docker/local provider uses a fixed canonical cluster name. The state file
-# is the source of truth, so the cluster name must be stable across runs.
-CLUSTER_NAME="${CLUSTER_NAME:-hub-local}"
-PROVIDER="${PROVIDER:-local}"
+# The cluster name must be stable across runs: the Go state file is the source
+# of truth for bootstrap completion.
+CLUSTER_NAME="${CLUSTER_NAME:-hub}"
+PROVIDER="${PROVIDER:-hetzner}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
@@ -33,8 +33,8 @@ SPOKEPOOL_NAMESPACE="${SPOKEPOOL_NAMESPACE:-platform-ops}"
 SPOKEPOOL_TIMEOUT="${SPOKEPOOL_TIMEOUT:-1800}"  # 30 minutes in seconds
 
 # Environment slug for matrix topology (ADR 037). MUST be explicitly set
-# via --environment flag. The Go bootstrap CLI defaults to dev for docker,
-# prod for hetzner if omitted.
+# via --environment flag. The Go bootstrap CLI defaults to prod for hetzner,
+# hybrid if omitted.
 ENVIRONMENT=""
 CERT_TIMEOUT="${CERT_TIMEOUT:-1200}"  # 20 minutes in seconds
 CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"  # 15 minutes in seconds
@@ -451,13 +451,11 @@ step1_bootstrap_hub() {
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
         "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
 
-        log "Pre-flight: cleaning up any leftover kind clusters (CAPI spokes, prior hub-local runs)..."
-        # hub teardown only knows about the named hub cluster. CAPI's
-        # Docker provider (CAPD) creates its own kind clusters for
-        # spoke clusters (e.g. local-dev), and prior failed bootstrap
-        # runs leave kind clusters with bound host ports that
-        # collide with the new run's random API-server port. The fix:
-        # delete every kind cluster on the host, not just the named one.
+        log "Pre-flight: cleaning up any leftover kind clusters (bootstrap kind, prior runs)..."
+        # hub teardown only knows about the named hub cluster. The kind
+        # bootstrap cluster (and any stale pre-pivot failures) can leave
+        # kind clusters with bound host ports behind. The fix: delete
+        # every kind cluster on the host, not just the named one.
         if command -v kind >/dev/null 2>&1; then
             for kc in $(kind get clusters 2>/dev/null); do
                 log "  Deleting stale kind cluster: $kc"
@@ -474,7 +472,6 @@ step1_bootstrap_hub() {
         fi
 
         log "Cleanup: removing stale bootstrap state and logs..."
-        docker system prune -f --volumes 2>/dev/null || true
         rm -f "$BOOTSTRAP_STATE_FILE"
         rm -f "$go_state_file"
         rm -f "$LOG_DIR/bootstrap.log"
@@ -530,55 +527,23 @@ step1_bootstrap_hub() {
             done
         fi
     fi
-    if [[ "$PROVIDER" == "local" ]]; then
-        # Push current branch to remote so ArgoCD's Git generator can read boundary configs
-        local current_branch
-        current_branch=$(cd "$ZERO_OPS_DIR" && git rev-parse --abbrev-ref HEAD)
-        if [[ "$current_branch" != "main" ]]; then
-            log "Pushing current branch '$current_branch' to remote for ArgoCD reconciliation..."
-            (cd "$ZERO_OPS_DIR" && git fetch origin "$current_branch" 2>&1 && git pull --rebase origin "$current_branch" 2>&1 && git push origin "$current_branch" 2>&1) || \
-                log "WARNING: git push failed — ArgoCD may not be able to read configs from remote"
-        fi
-        local env_flag="${ENVIRONMENT:---environment=dev}"
-        local topo_flag=""
-        if [[ -n "${TOPOLOGY:-}" ]]; then
-            topo_flag="--topology=$TOPOLOGY"
-        fi
 
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=docker $env_flag $topo_flag --keep-bootstrap --debug"
-        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
-            --name="${CLUSTER_NAME}" \
-            --provider=docker \
-            $env_flag \
-            $topo_flag \
-            --keep-bootstrap \
-            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
-    else
-        export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
-        local env_flag="${ENVIRONMENT:---environment=prod}"
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 $env_flag --debug"
-        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
-            --name="${CLUSTER_NAME}" \
-            --region=fsn1 \
-            $env_flag \
-            $topo_flag \
-            --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
+    export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
+    local env_flag="${ENVIRONMENT:---environment=prod}"
+    local topo_flag=""
+    if [[ -n "${TOPOLOGY:-}" ]]; then
+        topo_flag="--topology=$TOPOLOGY"
     fi
+    log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 $env_flag --debug"
+    (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+        --name="${CLUSTER_NAME}" \
+        --region=fsn1 \
+        $env_flag \
+        $topo_flag \
+        --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
 
     # Read the result contract produced by the Go bootstrap
     read_kubeconfig_from_state
-
-    # [ZERO-OPS ASYMMETRIC SPLIT HOOK]
-    # If Windows credentials exist locally, inject them into Crossplane
-    local windows_kubeconfig="$HOME/.kube/windows-target-engine.yaml"
-    if [[ -f "$windows_kubeconfig" ]]; then
-        log "Injecting Windows Ingestion Engine credentials into Crossplane..."
-        kubectl create namespace zero-ops-system --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
-        kubectl create secret generic windows-engine-credentials --namespace=zero-ops-system --from-file=kubeconfig="$windows_kubeconfig" --kubeconfig="$KUBECONFIG_PATH" --dry-run=client -o yaml | kubectl apply --kubeconfig="$KUBECONFIG_PATH" -f - 2>/dev/null || true
-        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-kubernetes-install.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
-        kubectl apply -f "$ZERO_OPS_DIR/manifests/providers/local/crossplane/provider-config-windows.yaml" --kubeconfig="$KUBECONFIG_PATH" 2>/dev/null || true
-        log "Crossplane routing to Windows Ingestion Engine is active."
-    fi
 
     mark_step_completed "bootstrap_hub"
     log "Hub cluster bootstrap completed"
@@ -1108,18 +1073,8 @@ main() {
         esac
     done
 
-    if [[ "$PROVIDER" != "hetzner" && "$PROVIDER" != "local" ]]; then
-        error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'local')"
-    fi
-
-    # Docker provider uses a fixed cluster name. The Go state file at
-    # .zero-ops/state/<name>.json is the single source of truth, so the
-    # name must be deterministic. Override any user-supplied --name.
-    if [[ "$PROVIDER" == "local" ]]; then
-        if [[ "$CLUSTER_NAME" != "hub-local" ]]; then
-            log "Docker provider uses fixed cluster name 'hub-local' (overriding '$CLUSTER_NAME')"
-        fi
-        CLUSTER_NAME="hub-local"
+    if [[ "$PROVIDER" != "hetzner" && "$PROVIDER" != "hybrid" ]]; then
+        error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'hybrid')"
     fi
 
     log "Starting Zero-Ops Hub Bootstrap Process"
@@ -1158,10 +1113,7 @@ main() {
 
     step9_wait_database
 
-    if [[ "$PROVIDER" == "local" ]]; then
-        SPOKEPOOL_NAME="local-dev"
-        log "Step 10: Using local SpokePool: $SPOKEPOOL_NAME"
-    elif [[ -z "$SPOKEPOOL_NAME" ]]; then
+    if [[ -z "$SPOKEPOOL_NAME" ]]; then
         error_exit "SPOKEPOOL_NAME must be set via --spoke flag or SPOKEPOOL_NAME env var for provider '$PROVIDER'"
     fi
     step10_wait_spokepool

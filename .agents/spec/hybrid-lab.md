@@ -745,3 +745,48 @@ helm template manifests/argocd/environment-manager --set provider=hetzner
 ```
 
 Let me know if the build passes cleanly. Once confirmed, we will move immediately into **WS1 (Shared base)** and **WS2 (Hybrid provider cell)**!
+
+
+Locked — provider-registry.yaml becomes exactly hetzner: "spokepool-hetzner" + hybrid: "spokepool-hybrid". Future providers (CIVO, etc.) get added to the registry when their cells land; no placeholders.
+Plan is now fully settled. Summary of the locked registry change (in operators/hub-operator/config/manager/provider-registry.yaml):
+data:
+  hetzner: "spokepool-hetzner"
+  hybrid: "spokepool-hybrid"
+Removed: capd (dead after WS0) and aws (dangling, no composition). Sole-dev, permanent-clean state.
+Everything else in the WS1–WS5 plan stands as presented (shared base refactor → hybrid cell → home-lab registry → CLI/token controller → spoke API front + ADR-046, plus the hetzner kustomize remote-URL permanent fix in WS1).
+Ready to exit plan mode and execute WS1 → WS5.
+
+Here's what's been completed so far.
+✅ WS0 — CAPD/local removal (COMPLETE, verified)
+Deleted (29 artifacts):
+- manifests/providers/local/** (17 files), scripts/local-dev/** (10), manifests/spoke/spoke-pools/dev/local/** (2), scripts/pre-req-local.sh
+- provider_local.go, embedded classes/capd-spoke-pool-v1.yaml, core/capi-operator/providers/infrastructure-provider-docker.yaml
+Go changes:
+- Dropped IsLocal() from Provider interface + CloudProvider
+- Removed docker→local helm map in orchestrator.go; cleanup now !KeepBootstrap
+- Removed DockerInfraProviderVersion from versions.go
+- CLI: removed docker provider case, --docker-socket, docker envslug default; added hybrid case + HybridDriver (minimal wrapper, WS4 enriches)
+- Verified: go build ./cmd/hub ./internal/hub-cli/... + go vet clean
+Scripts/manifests/CI:
+- hub-bootstrap.sh: removed docker prune, local branch, Windows asymmetric-split hook; defaults → provider=hetzner, CLUSTER_NAME=hub
+- post-bootstrap-validate.sh: always hetzner, spoke-pool-eu-prod-01 default
+- XRD + env-manager values scrubbed; removed provider=local ingress-nginx hostNetwork block
+- e2e-preview.yaml: removed e2e-capd job, added TBD note
+🔄 WS1 — Shared base (IN PROGRESS)
+Done:
+- Moved ClusterClass → _shared/spokepool-clusterclass-v1.yaml, renamed hetzner-spoke-pool-v1 → spokepool-v1
+- Moved CCM/CSI addon templates → _shared/spoke-addons/
+- Created _shared/kustomization.yaml
+- Added ClusterClass controlPlaneEndpoint patch + controlPlaneLoadBalancerEnabled (default true) + controlPlaneEndpointHost (default "") variables
+- Worker KubeadmConfigTemplate carries node-labels: workload-location=hetzner (pre-existing)
+- Updated hetzner composition class: ref → spokepool-v1
+- Rewrote hetzner kustomization.yaml → references ../_shared, dropped the broken remote crossplane-contrib URL (permanent fix)
+- Key discovery: ../ in kustomize resources actually works (earlier assumption was wrong)
+Verified: hetzner kustomize renders (3553 lines, EXIT 0); ClusterClass + both addons + both new variables present; YAML valid.
+Not yet done in WS1: enrich driver_hybrid.go (ClusterClassPaths → hybrid, LoadBalancer=false capability), update driver_hetzner.go:178 CCM path if it reads from manifests/providers/hetzner/spoke-addons/.
+⏭️ Remaining
+- WS1 finish (driver paths/CLI)
+- WS2 hybrid cell: composition, claims, home-worker-integration.yaml, provider-registry.yaml → hetzner+hybrid only (locked: remove capd + aws, add hybrid: spokepool-hybrid)
+- WS3 home-lab registry scripts + env example + .gitignore
+- WS4 CLI flags + cluster.Config.HomeWorker + hub-operator reconcileHomeWorkerJoin
+- WS5 spoke-api-front + ADR-046

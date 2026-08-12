@@ -14,20 +14,20 @@ import (
 // Every provider implements the same interface. The orchestrator calls methods
 // in a fixed linear sequence with zero branching on provider type.
 //
-//  Phase   Method                        Local              Cloud
-//  ─────   ──────                        ─────              ─────
-//  1       PreflightValidators()         docker+kind        +cloud credentials
-//  2       KindConfigPath()              kind-config.yaml   "" (default)
-//  3       ProvisionDayZero()            SC+labels+taints   secret+CSI+wait
-//  4       CAPIProviders()+OnCAPIInit()  CAPD providers     cloud providers
-//  5       ProvisionManagementCluster()  identity (no-op)   provision VMs
-//  6       PivotMove()                   identity (no-op)   clusterctl pivot
-//  7       PivotReady()                  no-op              wait reconcile
-//  8       (orchestrator cleanup)        skip               delete kind
-//  9       ClusterClassPaths()           capd-spoke-pool    cloud clusterclass
-//  10      OnPlatformPreReqs()           no-op              no-op (reserved)
-//  11      (orchestrator ArgoCD+apps)    identical          identical
-//  12      Finalize()                    copy kind cfg      extract CAPI secret
+//  Phase   Method                        Cloud / Hybrid
+//  ─────   ──────                        ─────────────
+//  1       PreflightValidators()         cloud credentials (+kind for bootstrap)
+//  2       KindConfigPath()              "" (default)
+//  3       ProvisionDayZero()            secret+CSI+wait
+//  4       CAPIProviders()+OnCAPIInit()  cloud providers
+//  5       ProvisionManagementCluster()  provision VMs
+//  6       PivotMove()                   clusterctl pivot
+//  7       PivotReady()                  wait reconcile
+//  8       (orchestrator cleanup)        delete kind
+//  9       ClusterClassPaths()           cloud / hybrid clusterclass
+//  10      OnPlatformPreReqs()           no-op (reserved)
+//  11      (orchestrator ArgoCD+apps)    identical
+//  12      Finalize()                    extract CAPI secret
 //
 // The orchestrator is the single source of truth for phases 8 and 11 — these
 // are not provider methods because they are identical across all providers.
@@ -35,11 +35,6 @@ type Provider interface {
 	// ── Identity ──────────────────────────────────────────────────────────
 	Name() string
 	Capabilities() CapabilityContract
-
-	// IsLocal returns true for self-hosting providers where the bootstrap
-	// cluster IS the management cluster (CAPD/kind). Cloud providers return
-	// false because they provision separate management VMs and pivot into them.
-	IsLocal() bool
 
 	// ── Phase 1: Preflight ────────────────────────────────────────────────
 	PreflightValidators() []preflight.Validator
@@ -52,9 +47,6 @@ type Provider interface {
 	// Applied BEFORE CAPI and any workload scheduling. This is the first
 	// opportunity to configure the cluster for provider-specific primitives.
 	//
-	// Local:   applies StorageClass (rancher.io/local-path → hcloud-volumes),
-	//          labels the control-plane node as worker, removes NoSchedule
-	//          taint so hub workloads (Redis, ClickHouse, etc.) can schedule.
 	// Cloud:   creates cloud credentials secret, installs CSI driver, waits
 	//          for StorageClass to be dynamically provisioned.
 	ProvisionDayZero(ctx context.Context, kubeconfig string) error
@@ -64,18 +56,17 @@ type Provider interface {
 	OnCAPIInit(ctx context.Context, kubeconfig, kubeContext, namespace string) error
 
 	// ── Phase 5: Management Cluster Provisioning ──────────────────────────
-	// Local is a no-op. Cloud provisions VMs via CAPI and waits for ready.
+	// Cloud provisions VMs via CAPI and waits for ready.
 	ProvisionManagementCluster(ctx context.Context, cfg *ProvisionConfig) error
 
 	// ── Phase 6: Pivot Move ───────────────────────────────────────────────
 	// Returns the management cluster kubeconfig path.
-	// Local returns the bootstrap kubeconfig (identity — no pivot needed).
 	// Cloud retrieves the CAPI kubeconfig, installs the operator on the
 	// management cluster, and executes clusterctl move.
 	PivotMove(ctx context.Context, cfg *PivotConfig) (string, error)
 
 	// ── Phase 7: Pivot Ready ──────────────────────────────────────────────
-	// Cloud waits for CAPI reconciliation after pivot. Local no-ops.
+	// Cloud waits for CAPI reconciliation after pivot.
 	PivotReady(ctx context.Context, mgmtKubeconfig string) error
 
 	// ── Phase 9: ClusterClass ─────────────────────────────────────────────
@@ -88,13 +79,13 @@ type Provider interface {
 
 	// ── Phase 12: Finalize ────────────────────────────────────────────────
 	// Persists the management kubeconfig and returns its path.
-	// Cloud extracts from CAPI secret; local copies the kind kubeconfig.
+	// Cloud extracts from CAPI secret.
 	Finalize(ctx context.Context, cfg *FinalizeConfig) (string, error)
 
 	// ── Webhook validation ────────────────────────────────────────────────
 	// OperatorWebhookPatterns returns additional webhook name substrings that
 	// must be present before data-plane workloads (Phase 11 gating).
-	// Local returns empty; cloud returns ["caph"] for Hetzner provider.
+	// Returns ["caph"] for Hetzner provider.
 	OperatorWebhookPatterns() []string
 }
 

@@ -6,7 +6,7 @@ environmentRevision: "main"
 # default is provided — every bootstrap run explicitly passes the combination.
 # ──────────────────────────────────────────────────────────────────────────────
 # environmentSlug: "dev"        # dev | stg | prod | ephemeral
-# provider: "local"             # local (CAPD) | hetzner | aws
+# provider: "hetzner"           # hetzner | hybrid | aws
 # topology: "single"            # single | multi (optional, modifies spoke pool lookup path)
 
 # ──────────────────────────────────────────────────────────────────────────────
