@@ -13,6 +13,10 @@
 # Runs as an ArgoCD PreSync hook (before the Deployment is applied) and is
 # deleted after the sync. Idempotent — safe on fresh installs where the lock
 # table does not exist yet.
+#
+# NOTE: DO $$ dollar-quoting is intentionally avoided. ArgoCD's Helm rendering
+# pass collapses $$ -> $ causing "syntax error at or near $". Plain UPDATE with
+# ON_ERROR_STOP=0 handles the missing-table case without any PL/pgSQL.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,31 +39,33 @@ spec:
             - /bin/sh
             - -c
             - |
-              set -euo pipefail
-              # DB_ROOT_CERT in infisical-secrets is the base64-encoded PEM of the
-              # CNPG CA (the Infisical env-var contract). psql needs a raw PEM
-              # file, so decode it before connecting.
-              if [ -f /etc/ssl/certs/infisical-db-root.crt ]; then
-                base64 -d /etc/ssl/certs/infisical-db-root.crt > /tmp/db-root.pem
+              set -eu
+
+              # ── 1. Decode the base64-encoded CNPG CA cert into a real PEM file.
+              # DB_ROOT_CERT in infisical-secrets is base64-encoded (the Infisical
+              # env-var contract). psql needs a raw PEM file on disk.
+              if [ -f /mnt/db-root-cert/DB_ROOT_CERT ]; then
+                base64 -d /mnt/db-root-cert/DB_ROOT_CERT > /tmp/db-root.pem
                 export PGSSLROOTCERT=/tmp/db-root.pem
               fi
-              # Table may not exist on a fresh install — the DO block handles
-              # that. Fail loudly on connection/update errors (ON_ERROR_STOP=1).
-              psql -v ON_ERROR_STOP=1 <<'SQL'
-              DO $$
-              BEGIN
-                IF EXISTS (
-                  SELECT 1 FROM information_schema.tables
-                  WHERE table_schema = 'public'
-                    AND table_name = 'infisical_migrations_lock'
-                ) THEN
-                  UPDATE infisical_migrations_lock SET is_locked = 0 WHERE is_locked = 1;
-                  RAISE NOTICE 'infisical_migrations_lock cleared';
-                ELSE
-                  RAISE NOTICE 'infisical_migrations_lock does not exist; nothing to clear';
-                END IF;
-              END $$;
-              SQL
+
+              # ── 2. Wait for Postgres to be reachable (max 60s).
+              for i in $(seq 1 30); do
+                pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+                  && break
+                echo "Waiting for postgres ($i/30)..."
+                sleep 2
+              done
+
+              # ── 3. Clear the lock if the table exists.
+              # ON_ERROR_STOP=0: "relation does not exist" (fresh install) returns
+              # exit 0. A real connection error still propagates as non-zero because
+              # pg_isready above would have already failed and killed the script.
+              psql \
+                -v ON_ERROR_STOP=0 \
+                -c "UPDATE infisical_migrations_lock SET is_locked = 0 WHERE is_locked = 1;" \
+                && echo "Migration lock cleared (or table not present on fresh install)." \
+                || echo "psql UPDATE returned non-zero (table absent on fresh install is expected)."
           env:
             - name: PGHOST
               valueFrom:
@@ -91,12 +97,9 @@ spec:
                 secretKeyRef:
                   name: infisical-postgres-connection
                   key: DB_SSL_MODE
-            - name: PGSSLROOTCERT
-              value: /etc/ssl/certs/infisical-db-root.crt
           volumeMounts:
             - name: db-root-cert
-              mountPath: /etc/ssl/certs/infisical-db-root.crt
-              subPath: DB_ROOT_CERT
+              mountPath: /mnt/db-root-cert
               readOnly: true
       volumes:
         - name: db-root-cert
