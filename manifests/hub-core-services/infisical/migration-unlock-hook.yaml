@@ -36,6 +36,13 @@ spec:
             - -c
             - |
               set -euo pipefail
+              # DB_ROOT_CERT in infisical-secrets is the base64-encoded PEM of the
+              # CNPG CA (the Infisical env-var contract). psql needs a raw PEM
+              # file, so decode it before connecting.
+              if [ -f /etc/ssl/certs/infisical-db-root.crt ]; then
+                base64 -d /etc/ssl/certs/infisical-db-root.crt > /tmp/db-root.pem
+                export PGSSLROOTCERT=/tmp/db-root.pem
+              fi
               # Table may not exist on a fresh install — the DO block handles
               # that. Fail loudly on connection/update errors (ON_ERROR_STOP=1).
               psql -v ON_ERROR_STOP=1 <<'SQL'
