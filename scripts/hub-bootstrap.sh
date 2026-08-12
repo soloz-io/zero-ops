@@ -1135,6 +1135,13 @@ main() {
         error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'hybrid')"
     fi
 
+    # Export KUBECONFIG so the Go bootstrap binary's internal bare-kubectl calls
+    # (e.g. infisical bootstrap pod discovery) resolve the same cluster instead
+    # of a stale default context. The path is deterministic per cluster name.
+    if [[ -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig" ]]; then
+        export KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+    fi
+
     log "Starting Zero-Ops Hub Bootstrap Process"
     log "Project root: $ZERO_OPS_DIR"
     log "Log directory: $LOG_DIR"
