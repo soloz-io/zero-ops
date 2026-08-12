@@ -122,7 +122,7 @@ spec:
               # Tailnet MagicDNS controlPlaneEndpoint host — DERIVED as
               # <claim-name>-cp.<tailnet-name> (ADR-046, single source of truth).
               # No claim annotation needed; every hybrid spoke gets a
-              # deterministic endpoint. e.g. spoke-pool-hybrid-dev-01-cp.zero-ops.ts.net
+              # deterministic endpoint. e.g. spoke-pool-hybrid-dev-01-cp.taila4c44b.ts.net
               - type: CombineFromComposite
                 combine:
                   variables:

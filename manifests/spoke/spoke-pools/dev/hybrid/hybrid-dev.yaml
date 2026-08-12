@@ -32,7 +32,7 @@ metadata:
     # Home worker join flow settings (read by hub-operator reconcileHomeWorkerJoin)
     home-worker-enabled: "true"
     home-worker-ttl: "24h"
-    tailnet-name: "zero-ops.ts.net"
+    tailnet-name: "taila4c44b.ts.net"
 spec:
   provider: hybrid
   compositionSelector:
