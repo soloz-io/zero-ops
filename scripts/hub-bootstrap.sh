@@ -536,9 +536,19 @@ step1_bootstrap_hub() {
     fi
 
     export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
-    local env_flag="${ENVIRONMENT:---environment=prod}"
+    local env_flag=""
+    if [[ -n "${ENVIRONMENT:-}" ]]; then
+        env_flag="--environment=${ENVIRONMENT}"
+    else
+        env_flag="--environment=prod"
+    fi
     local topo_flag=""
-    if [[ -n "${TOPOLOGY:-}" ]]; then
+    # Topology is a matrix dimension (ADR-037) but hybrid claims live flat under
+    # spoke-pools/{env}/{provider}. Pass an explicit empty topology so the Go CLI
+    # default of "single" does not append a /single segment to the claim path.
+    if [[ "$PROVIDER" == "hybrid" ]]; then
+        topo_flag="--topology="
+    elif [[ -n "${TOPOLOGY:-}" ]]; then
         topo_flag="--topology=$TOPOLOGY"
     fi
 
