@@ -10,4 +10,5 @@ resources:
   - k8s/hetzner-credentials-es.yaml
   - k8s/spokepool-hybrid-composition.yaml
   - k8s/home-worker-integration.yaml
+  - k8s/tailscale-psk-es.yaml
   - k8s/spoke-api-front.yaml

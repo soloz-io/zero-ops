@@ -641,6 +641,40 @@ step1b_reconcile_appsets() {
     log "  ✓ environment-manager ApplicationSets reconciled"
 }
 
+# Step 1c: Configure Tailscale credentials (hybrid only)
+# Creates platform-capi/tailscale-hybrid-psk from k8-secrets/tailscale/*
+# (gitignored), mirroring the hetzner/github Secret Zero pattern. hub-operator
+# uploads it to Infisical via CLISecretMappings and ESO syncs it back, so
+# ArgoCD never resets it to empty. Required before a hybrid spoke provisions
+# (the ClusterClass pre-kubeadm hook reads this Secret).
+step1c_configure_tailscale() {
+    # Only relevant for the hybrid provider cell.
+    if [[ "$PROVIDER" != "hybrid" ]]; then
+        return
+    fi
+
+    if is_step_completed "configure_tailscale"; then
+        if kubectl get secret -n platform-capi tailscale-hybrid-psk \
+            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
+            log "Step 1c: Tailscale credentials already configured, skipping"
+            return
+        fi
+        log "Step 1c: State says completed but tailscale-hybrid-psk missing — re-running"
+    fi
+
+    if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/tailscale/authkey" ]]; then
+        log "  ⚠️  k8-secrets/tailscale/authkey not found — skipping Tailscale configuration"
+        return
+    fi
+
+    log "Step 1c: Configuring Tailscale credentials..."
+    "$HUB_BINARY" configure-tailscale \
+        --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-tailscale failed"
+
+    mark_step_completed "configure_tailscale"
+    log "Tailscale credentials configuration completed"
+}
+
 # Step 2: Configure AWS Secrets Manager
 step2_configure_aws_secrets() {
     if is_step_completed "configure_aws_secrets"; then
@@ -1221,6 +1255,8 @@ main() {
     step1_bootstrap_hub
 
     step1b_reconcile_appsets
+
+    step1c_configure_tailscale
 
     step2_configure_aws_secrets
 

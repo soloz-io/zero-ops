@@ -33,6 +33,7 @@ const (
 	SecretPlatformGit        = "platform-git-secret"
 
 	// Namespaces - unified across Hub and Spoke
+	NamespaceCAPI        = "platform-capi"
 	NamespaceOps         = "platform-ops"
 	NamespaceCloudSystem = "kube-system"
 	NamespaceEdge        = "platform-edge"
@@ -44,6 +45,8 @@ const (
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey      = "hetzner-dns-api-key"
 	KeyHCloudToken           = "hcloud-token"
+	KeyTailscaleAuthkey      = "tailscale-authkey"
+	KeyTailscaleHostname     = "tailscale-hostname"
 	KeyClientID              = constant.KeyClientID
 	KeyClientSecret          = constant.KeyClientSecret
 	KeyAdminToken            = "admin-token"

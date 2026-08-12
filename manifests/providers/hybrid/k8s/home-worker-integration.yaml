@@ -54,28 +54,3 @@ subjects:
   - kind: ServiceAccount
     name: hub-operator-controller-manager
     namespace: hub-operator-system
----
-# Tailscale pre-shared key Secret (ExternalSecret-sourced in production;
-# placeholder here for bootstrapping. The actual value is populated via
-# Infisical ExternalSecret on the Hub before any hybrid spoke is created.)
-# Name referenced by the Tailscale DaemonSet nodeRegistration in WS4.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: tailscale-hybrid-psk
-  namespace: platform-capi
-  labels:
-    hybrid.zero-ops.io/component: tailscale-psk
-  annotations:
-    # In production, replace this Secret with an ExternalSecret referencing
-    # the Infisical key `tailscale-hybrid-psk`. This placeholder prevents
-    # startup failures if the ExternalSecret is not yet synced.
-    hybrid.zero-ops.io/placeholder: "true"
-type: Opaque
-stringData:
-  # authkey: "tskey-auth-REPLACE_ME"  # uncomment and replace in dev
-  authkey: ""
-  # Tailnet hostname for the CP node (<claim>-cp), set per-claim by the hybrid
-  # composition. Empty → the shared ClusterClass Tailscale pre-kubeadm block
-  # no-ops (pure-hetzner spokes unaffected).
-  hostname: ""

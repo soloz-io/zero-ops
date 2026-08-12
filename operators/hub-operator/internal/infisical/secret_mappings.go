@@ -230,6 +230,33 @@ var CLISecretMappings = []SecretMapping{
 	},
 
 	// ========================================================================
+	// 12. TAILSCALE AUTHKEY (hybrid spoke CP tailnet join)
+	// ========================================================================
+	// Purpose: Tailscale auth key for hybrid spoke control-plane nodes (ADR-046)
+	// Source: tailscale-hybrid-psk (created by `hub configure-tailscale` from
+	//        k8-secrets/tailscale/authkey)
+	// Consumers: shared ClusterClass Tailscale pre-kubeadm hook (contentFrom.secret)
+	// ExternalSecret: manifests/providers/hybrid/k8s/tailscale-psk-es.yaml
+	{
+		SourceNamespace: NamespaceCAPI,          // platform-capi
+		SourceName:      "tailscale-hybrid-psk", // tailscale-hybrid-psk
+		SourceKey:       "authkey",              // authkey
+		InfisicalKey:    KeyTailscaleAuthkey,    // tailscale-authkey
+		Description:     "Tailscale auth key for hybrid spoke CP",
+	},
+
+	// ========================================================================
+	// 13. TAILSCALE HOSTNAME (hybrid spoke CP tailnet hostname)
+	// ========================================================================
+	{
+		SourceNamespace: NamespaceCAPI,          // platform-capi
+		SourceName:      "tailscale-hybrid-psk", // tailscale-hybrid-psk
+		SourceKey:       "hostname",             // hostname
+		InfisicalKey:    KeyTailscaleHostname,   // tailscale-hostname
+		Description:     "Tailscale hostname for hybrid spoke CP",
+	},
+
+	// ========================================================================
 	// Template:
 	// {
 	//     SourceNamespace: "namespace-where-secret-exists",

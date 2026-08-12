@@ -13,4 +13,6 @@ const (
 	KeyInfisicalDBPassword      = "infisical-db-password"
 	KeySpireServerDBUsername    = "spire-server-db-username"
 	KeySpireServerDBPassword    = "spire-server-db-password"
+	KeyTailscaleAuthkey         = "tailscale-authkey"
+	KeyTailscaleHostname        = "tailscale-hostname"
 )

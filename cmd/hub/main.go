@@ -18,6 +18,7 @@ func main() {
 	rootCmd.AddCommand(newSpokeCmd())
 	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
 	rootCmd.AddCommand(newConfigureGitHubAccessCmd())
+	rootCmd.AddCommand(newConfigureTailscaleCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
 
