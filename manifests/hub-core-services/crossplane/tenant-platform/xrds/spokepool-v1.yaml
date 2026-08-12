@@ -47,8 +47,8 @@ spec:
                   properties:
                     count:
                       type: integer
-                      description: "Number of worker nodes in the pool"
-                      minimum: 1
+                      description: "Number of Hetzner burst worker nodes in the pool. 0 is valid for the hybrid cell where home-lab workers provide default capacity."
+                      minimum: 0
                       maximum: 10
                     instanceType:
                       type: string
