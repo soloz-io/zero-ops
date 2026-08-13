@@ -24,8 +24,8 @@ spec:
       - name: infisical-issuer
         image: docker.io/infisical/pki-issuer:v0.2.0
         args:
-        - --v=2
-        - --leader-election-namespace=cert-manager
+        - --leader-elect
+        - --metrics-bind-address=:8443
         env:
         - name: INFISICAL_API_URL
           value: "http://infisical-standalone-infisical.platform-security.svc:8080"
