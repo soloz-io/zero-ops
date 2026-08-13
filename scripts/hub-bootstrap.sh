@@ -360,31 +360,55 @@ check_prerequisites() {
         log "  Or: winget install -e --id Docker.DockerDesktop"
         log "  Then start Docker Desktop and re-run."
         failed=1
-    elif ! docker info >/dev/null 2>&1; then
-        log "WARNING: Docker is installed but the daemon is not running."
-        log "  Attempting to start Docker Desktop..."
-        local docker_exe
-        docker_exe="$(command -v docker)"
-        local docker_dir
-        docker_dir="$(dirname "$docker_exe")"
-        local desktop_exe="${docker_dir}/../Docker Desktop.exe"
-        if [[ -f "$desktop_exe" ]]; then
-            "$desktop_exe" &>/dev/null &
-            log "  Docker Desktop launched — waiting 30s for daemon to initialize..."
-            sleep 30
+    else
+        # The kind bootstrap cluster may run on a REMOTE docker context
+        # (ssh:// or tcp://), e.g. a home-worker Windows laptop acting as the
+        # docker host. In that case the local daemon is irrelevant — only the
+        # active context's endpoint needs to be reachable. Do NOT try to launch
+        # local Docker Desktop for a remote context.
+        local active_ctx docker_endpoint is_remote
+        active_ctx="$(docker context show 2>/dev/null || echo default)"
+        docker_endpoint="$(docker context inspect "$active_ctx" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo '')"
+        is_remote=0
+        if [[ -n "$docker_endpoint" && "$docker_endpoint" != unix://* ]]; then
+            is_remote=1
+        fi
+
+        if (( is_remote )); then
             if docker info >/dev/null 2>&1; then
-                log "  ✓ Docker daemon is now running"
+                log "  ✓ docker context '$active_ctx' reachable ($docker_endpoint)"
             else
-                log "  ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray."
-                log "  If it fails, start Docker Desktop manually and re-run."
+                log "ERROR: docker context '$active_ctx' ($docker_endpoint) is unreachable."
+                log "  The kind bootstrap cluster is created on this remote docker host."
+                log "  Power the host on / fix the ssh connection, then re-run."
+                failed=1
+            fi
+        elif ! docker info >/dev/null 2>&1; then
+            log "WARNING: Docker is installed but the daemon is not running."
+            log "  Attempting to start Docker Desktop..."
+            local docker_exe
+            docker_exe="$(command -v docker)"
+            local docker_dir
+            docker_dir="$(dirname "$docker_exe")"
+            local desktop_exe="${docker_dir}/../Docker Desktop.exe"
+            if [[ -f "$desktop_exe" ]]; then
+                "$desktop_exe" &>/dev/null &
+                log "  Docker Desktop launched — waiting 30s for daemon to initialize..."
+                sleep 30
+                if docker info >/dev/null 2>&1; then
+                    log "  ✓ Docker daemon is now running"
+                else
+                    log "  ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray."
+                    log "  If it fails, start Docker Desktop manually and re-run."
+                    failed=1
+                fi
+            else
+                log "  ⚠️ Docker CLI found but daemon not running. Start Docker Desktop manually."
                 failed=1
             fi
         else
-            log "  ⚠️ Docker CLI found but daemon not running. Start Docker Desktop manually."
-            failed=1
+            log "  ✓ docker daemon running"
         fi
-    else
-        log "  ✓ docker daemon running"
     fi
 
     # --- Hub binary ---
@@ -455,8 +479,8 @@ step1_bootstrap_hub() {
     # skipping the bootstrap on re-run. If teardown fails (cluster gone etc.),
     # the fresh bootstrap still proceeds from scratch.
     if [[ "$TEARDOWN" == "true" ]]; then
-        log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}'..."
-        "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
+        log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}' (forceful)..."
+        "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm --force 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
 
         log "Pre-flight: cleaning up any leftover kind clusters (bootstrap kind, prior runs)..."
         # hub teardown only knows about the named hub cluster. The kind

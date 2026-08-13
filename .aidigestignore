@@ -17,3 +17,4 @@ test
 cmd
 internal
 !internal/hub-cli
+reference-projects

@@ -297,17 +297,63 @@ func getCachedProjectID(slug string) string {
 	return out
 }
 
+// kubectlExec runs a command inside the Infisical pod via `kubectl exec`.
+//
+// Retry on exit code 7 (curl "connection refused"): the pod may be
+// Running (phase=Running, deletionTimestamp absent) but the Node.js
+// server inside has not yet bound to port 8080. This happens when a
+// secret change triggers a Reloader-style rolling restart — the old pod
+// is terminating and the new pod is in its startup window. We retry up
+// to 30 times with a 2s back-off (60s total) before surfacing the error.
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
 	cmdArgs := append([]string{
 		"exec", "-n", infisicalNamespace, "pod/" + podName,
 		"--",
 	}, args...)
-	cmd := exec.CommandContext(ctx, "kubectl", cmdArgs...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("kubectl exec failed: %w\noutput: %s", err, string(output))
+
+	const (
+		maxRetries = 30
+		retryDelay = 2 * time.Second
+		// curl exit code 7 = "Failed to connect to host or proxy"
+		curlExitConnectionRefused = 7
+	)
+
+	var (
+		output []byte
+		err    error
+	)
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
+		cmd := exec.CommandContext(ctx, "kubectl", cmdArgs...)
+		output, err = cmd.CombinedOutput()
+		if err == nil {
+			return strings.TrimSpace(string(output)), nil
+		}
+
+		// Detect curl exit-7 (connection refused) embedded in the output.
+		// kubectl wraps it as "exit status 7" in the error string.
+		outStr := string(output)
+		if strings.Contains(outStr, "exit code 7") ||
+			strings.Contains(outStr, "exit status 7") {
+			fmt.Printf("[kubectlExec] Port 8080 not ready yet (curl exit 7), waiting %s (attempt %d/%d)...\n",
+				retryDelay, attempt, maxRetries)
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(retryDelay):
+			}
+			continue
+		}
+
+		// Any other error is surfaced immediately.
+		return "", fmt.Errorf("kubectl exec failed: %w\noutput: %s", err, outStr)
 	}
-	return strings.TrimSpace(string(output)), nil
+	return "", fmt.Errorf("kubectl exec failed after %d retries (port 8080 never became ready): last output: %s", maxRetries, string(output))
 }
 
 func GetInfisicalPodName(ctx context.Context) (string, error) {
@@ -683,6 +729,25 @@ func grantOrgAdminRole(ctx context.Context, podName, orgID, identityID string) e
 }
 
 // findIdentityByName looks up a Machine Identity by name within the organization.
+//
+// API shape verified against live cluster (Infisical v0.160.11):
+//
+//	GET /api/v1/identities?orgId=<orgId>&limit=100
+//	→ {
+//	    "identities": [{
+//	      "id":         "<membership-uuid>",  // org membership ID — NOT the identity ID
+//	      "identityId": "<identity-uuid>",    // the real identity UUID
+//	      "identity": {
+//	        "id":   "<identity-uuid>",
+//	        "name": "hub-platform-eso",
+//	        ...
+//	      }
+//	    }],
+//	    "totalCount": N
+//	  }
+//
+// The outer `id` is the org membership UUID. Use `identity.id` (== `identityId`)
+// as the identity UUID for subsequent API calls (attach-auth, grant-role, etc.).
 func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"curl", "-s",
@@ -693,9 +758,13 @@ func findIdentityByName(ctx context.Context, podName, adminJWT, name, orgID stri
 		return "", fmt.Errorf("list identities failed: %w", err)
 	}
 
+	// Each element has a nested `identity` object containing the real id/name,
+	// plus a top-level `identityId` which equals identity.id.
+	// The outer `id` is the org membership UUID — do NOT use it.
 	var listResp struct {
 		Identities []struct {
-			Identity struct {
+			IdentityID string `json:"identityId"`
+			Identity   struct {
 				ID   string `json:"id"`
 				Name string `json:"name"`
 			} `json:"identity"`

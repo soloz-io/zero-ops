@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // KindManager manages Kind cluster lifecycle
@@ -235,23 +237,64 @@ networking:
 	return path, cleanup, nil
 }
 
-// patchRemoteKindKubeconfig rewrites the kind-<name> context server in the
-// default kubeconfig to https://<remoteHost>:<port> so kubectl on this machine
-// can reach the API server on the remote docker host.
+// patchRemoteKindKubeconfig rewrites the kind-<name> context (server, CA,
+// client cert) in the default kubeconfig to point at the remote API server so
+// kubectl on this machine can reach the API server on the remote docker host.
+// It merges the full kind-generated cluster, context and user entries (kind
+// does not reliably write them into an existing kubeconfig), so that
+// waitForRemoteKindReady's `--context kind-<name>` poll succeeds.
 func patchRemoteKindKubeconfig(ctx context.Context, clusterName, remoteHost string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	kubeconfig := filepath.Join(home, ".kube", "config")
+	contextName := "kind-" + clusterName
 
-	// Point kubectl at the remote API server.
-	cmd := exec.CommandContext(ctx, "kubectl", "config", "set-cluster",
-		fmt.Sprintf("kind-%s", clusterName),
-		fmt.Sprintf("--server=https://%s:%s", remoteHost, kindRemoteAPIPort),
-		"--kubeconfig", kubeconfig)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("kubectl config set-cluster: %w\n%s", err, out)
+	// Fetch the authoritative kubeconfig kind generated for this cluster.
+	// It carries the cluster entry (with CA data), the context and the user
+	// (with client cert/key) that `kind create` did not merge into ~/.kube/config.
+	getCmd := exec.CommandContext(ctx, "kind", "get", "kubeconfig", "--name", clusterName)
+	kindOut, err := getCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("kind get kubeconfig %s: %w\n%s", clusterName, err, kindOut)
+	}
+
+	kindCfg, err := clientcmd.Load(kindOut)
+	if err != nil {
+		return fmt.Errorf("parse kind kubeconfig %s: %w", clusterName, err)
+	}
+
+	cfg, err := clientcmd.LoadFromFile(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("load kubeconfig %s: %w", kubeconfig, err)
+	}
+
+	// Take the kind-generated entries wholesale, then pin the server (and
+	// associated SAN-safe address) to the reachable remote host.
+	kindCluster, ok := kindCfg.Clusters[contextName]
+	if !ok {
+		return fmt.Errorf("kind kubeconfig missing cluster %q", contextName)
+	}
+	kindCluster.Server = fmt.Sprintf("https://%s:%s", remoteHost, kindRemoteAPIPort)
+	cfg.Clusters[contextName] = kindCluster
+
+	if ctxObj, ok := kindCfg.Contexts[contextName]; ok {
+		cfg.Contexts[contextName] = ctxObj
+	} else {
+		return fmt.Errorf("kind kubeconfig missing context %q", contextName)
+	}
+
+	if userObj, ok := kindCfg.AuthInfos[contextName]; ok {
+		cfg.AuthInfos[contextName] = userObj
+	} else {
+		return fmt.Errorf("kind kubeconfig missing user %q", contextName)
+	}
+
+	cfg.CurrentContext = contextName
+
+	if err := clientcmd.WriteToFile(*cfg, kubeconfig); err != nil {
+		return fmt.Errorf("write kubeconfig %s: %w", kubeconfig, err)
 	}
 	return nil
 }
@@ -271,6 +314,13 @@ func waitForRemoteKindReady(ctx context.Context, clusterName string) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		// Fail fast if the context is missing or malformed in the kubeconfig
+		// (e.g. a prior patchRemoteKindKubeconfig failure) instead of polling
+		// forever — this surfaces the diagnostic instead of hanging the boot.
+		if _, err := clientcmd.LoadFromFile(kubeconfig); err != nil {
+			return fmt.Errorf("wait for remote kind: load kubeconfig %s: %w", kubeconfig, err)
 		}
 
 		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,

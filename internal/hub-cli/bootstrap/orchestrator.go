@@ -42,16 +42,16 @@ import (
 //	Phase 11e: boundary-03            Services (Infisical, SPIRE, ingress-nginx, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
-	type Orchestrator struct {
-		Provider         Provider
-		ClusterName      string
-		BootstrapContext string
-		KeepBootstrap    bool
-		MergeKubeconfig  bool
-		Debug            bool
-		EnvironmentSlug  string
-		Topology         string
-	}
+type Orchestrator struct {
+	Provider         Provider
+	ClusterName      string
+	BootstrapContext string
+	KeepBootstrap    bool
+	MergeKubeconfig  bool
+	Debug            bool
+	EnvironmentSlug  string
+	Topology         string
+}
 
 // Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
@@ -120,10 +120,10 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 
 	// ── Phase 5: Management cluster provisioning ──────────────────────
 	provCfg := &ProvisionConfig{
-		ClusterName:       o.ClusterName,
+		ClusterName:         o.ClusterName,
 		BootstrapKubeconfig: kubeconfig,
-		BootstrapContext:  bootstrapCtx,
-		Debug:             o.Debug,
+		BootstrapContext:    bootstrapCtx,
+		Debug:               o.Debug,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",
@@ -135,17 +135,33 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 
 	// ── Phase 6: Pivot move ───────────────────────────────────────────
 	pivotCfg := &PivotConfig{
-		ClusterName:       o.ClusterName,
+		ClusterName:         o.ClusterName,
 		BootstrapKubeconfig: kubeconfig,
-		BootstrapContext:  bootstrapCtx,
-		Debug:             o.Debug,
+		BootstrapContext:    bootstrapCtx,
+		Debug:               o.Debug,
 	}
+
+	// Self-heal: pivot-move writes the mgmt kubeconfig on success. A phase
+	// marked complete but with no kubeconfig recorded is a torn write from a
+	// pre-1.x run (the kubeconfig was only persisted after runPhase saved).
+	// Treat it as incomplete so the move re-runs and pivot-ready receives a
+	// real path instead of "".
+	if bs.MgmtKubeconfig == "" && o.phaseDone(bs, state.PhasePivotMove) {
+		fmt.Println("[recovery] pivot-move completed without a recorded mgmt kubeconfig; re-running it")
+		bs.CompletedPhases = removePhase(bs.CompletedPhases, state.PhasePivotMove)
+	}
+
 	mgmtKubeconfig := bs.MgmtKubeconfig
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotMove, "pivot-move",
 		"",
 		func() error {
 			var err error
 			mgmtKubeconfig, err = o.Provider.PivotMove(ctx, pivotCfg)
+			if err == nil {
+				// Persist the mgmt kubeconfig with the completed phase so a
+				// resumed run passes a real path to pivot-ready instead of "".
+				bs.MgmtKubeconfig = mgmtKubeconfig
+			}
 			return err
 		},
 		nil,
@@ -214,8 +230,6 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	); err != nil {
 		return err
 	}
-
-
 
 	// ── Phase 11b: Generate local secrets ─────────────────────────────
 	// Generates cryptographic keys (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL),
@@ -434,6 +448,17 @@ func (o *Orchestrator) markPhaseComplete(bs *state.BootstrapState, phase state.B
 	bs.CompletedPhases = append(bs.CompletedPhases, phase)
 	// advance current phase
 	bs.CurrentPhase = phase
+}
+
+// removePhase returns phases with the given entry removed (no-op if absent).
+func removePhase(phases []state.BootstrapPhase, phase state.BootstrapPhase) []state.BootstrapPhase {
+	out := phases[:0]
+	for _, p := range phases {
+		if p != phase {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -673,8 +698,6 @@ func (o *Orchestrator) checkKindClusterExists() error {
 // ──────────────────────────────────────────────────────────────────────────
 // Shared kubectl / git helpers
 // ──────────────────────────────────────────────────────────────────────────
-
-
 
 // waitForOperators waits for validating webhook configurations matching the
 // built-in platform operators and any extraPatterns provided by the

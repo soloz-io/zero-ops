@@ -597,10 +597,17 @@ func (o *Orchestrator) move(ctx context.Context, mgmtKubeconfig string) error {
 	clusterctlMgr, _ := binaries.NewClusterctlManager()
 	clusterctlPath := clusterctlMgr.GetPath()
 
-	cmd := exec.CommandContext(ctx, clusterctlPath, "move",
-		"--to-kubeconfig", mgmtKubeconfig,
-		"--namespace", o.Namespace,
-	)
+	// Pin the SOURCE to the bootstrap kubeconfig explicitly. clusterctl move
+	// without --kubeconfig resolves the source from the ambient current-context
+	// (KUBECONFIG/~/.kube/config), which may not be the bootstrap cluster after
+	// kubeconfig patching — that silently moves nothing while still exiting 0.
+	args := []string{"move", "--to-kubeconfig", mgmtKubeconfig}
+	if o.BootstrapKubeconfig != "" {
+		args = append(args, "--kubeconfig", o.BootstrapKubeconfig)
+	}
+	args = append(args, "--namespace", o.Namespace)
+
+	cmd := exec.CommandContext(ctx, clusterctlPath, args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

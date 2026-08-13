@@ -12,7 +12,9 @@ kind: Kustomization
 #      for the knex lock (infisical_migrations_lock) — the loser crashes and the
 #      winner, if killed mid-migration, orphans the lock forever. Recreate makes
 #      migrations single-flight.
-#   2. Add a PreSync hook that clears any orphaned knex lock before each sync.
+#   2. The migration lock is cleared by the `migration-unlock` extraInitContainer
+#      in values.yaml — it runs unconditionally before the main container on every
+#      pod start, so a stale lock can never block boot regardless of ArgoCD timing.
 #
 # Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
 
@@ -26,7 +28,11 @@ helmCharts:
 
 resources:
   - ingress.yaml
-  - migration-unlock-hook.yaml
+
+# The migration-unlock PreSync ArgoCD hook has been removed.
+# The knex lock is now cleared by the `migration-unlock` extraInitContainer
+# defined in values.yaml — it runs before the main Infisical container on
+# every pod start, regardless of ArgoCD hook ordering or TLS cert availability.
 
 # Force Recreate so only one Infisical pod (and therefore only one migration
 # runner) ever exists during a rollout. Fixes the knex migration-lock race at

@@ -14,305 +14,303 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
 )
 
-// Orchestrator manages the teardown process
+// Orchestrator manages the forceful teardown process
 type Orchestrator struct {
 	ClusterName string
 	Force       bool
 	Debug       bool
 }
 
+// Run executes immediate forceful deletion of Kubernetes CAPI resources, Hetzner Cloud infra, Kind/Docker, and local state.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
 		fmt.Println("[DEBUG] Teardown.Run() started")
 		fmt.Printf("[DEBUG] ClusterName: %s, Force: %v\n", o.ClusterName, o.Force)
 	}
 
-	// Load state to get kubeconfig path
-	stateMgr := state.NewStateManager(o.ClusterName)
-	bootstrapState, err := stateMgr.Load()
-	if err != nil {
-		if o.Debug {
-			fmt.Printf("[DEBUG] No state found: %v\n", err)
-		}
-		// Continue with local cleanup even if state not found
+	fmt.Printf("\n[teardown] Starting forceful teardown of cluster '%s'...\n", o.ClusterName)
+
+	// Step 1: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
+	o.stripKubernetesFinalizers(ctx)
+
+	// Step 2: Delete Hetzner cloud infrastructure directly via Hetzner API
+	if err := o.deleteHetznerResources(ctx); err != nil {
+		fmt.Printf("[teardown] ⚠️  Hetzner cloud resource cleanup encountered warnings: %v\n", err)
 	}
+
+	// Step 3: Local Kind, Docker, and state cleanup
+	if err := o.localCleanup(ctx); err != nil {
+		fmt.Printf("[teardown] ⚠️  Local cleanup encountered warnings: %v\n", err)
+	}
+
+	fmt.Printf("\n✓ Teardown of cluster '%s' completed\n", o.ClusterName)
+	return nil
+}
+
+// stripKubernetesFinalizers attempts fast non-blocking removal of finalizers on CAPI CRs
+func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
+	stateMgr := state.NewStateManager(o.ClusterName)
+	bootstrapState, _ := stateMgr.Load()
 
 	var kubeconfig string
 	if bootstrapState != nil && bootstrapState.MgmtKubeconfig != "" {
 		kubeconfig = bootstrapState.MgmtKubeconfig
 	} else {
-		// Try multiple default locations
 		possiblePaths := []string{
 			fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName),
 			fmt.Sprintf("%s.kubeconfig", o.ClusterName),
 		}
-
 		for _, path := range possiblePaths {
 			if _, err := os.Stat(path); err == nil {
 				kubeconfig = path
 				break
 			}
 		}
-
-		// If no kubeconfig found, try kind context
 		if kubeconfig == "" {
 			kubeconfig = fmt.Sprintf("--context=kind-%s", o.ClusterName)
 		}
 	}
 
-	if o.Force {
-		return o.forceDelete(ctx)
-	}
-
-	return o.gracefulDelete(ctx, kubeconfig)
-}
-
-func (o *Orchestrator) gracefulDelete(ctx context.Context, kubeconfig string) error {
-	fmt.Println("\n[teardown] Starting graceful deletion via CAPI...")
-
-	// Check if using context or kubeconfig file
 	useContext := strings.HasPrefix(kubeconfig, "--context=")
-
-	if !useContext {
-		// Check if kubeconfig file exists
-		if _, err := os.Stat(kubeconfig); os.IsNotExist(err) {
-			fmt.Printf("[teardown] ⚠️  Kubeconfig not found: %s\n", kubeconfig)
-			fmt.Println("[teardown] Skipping CAPI deletion, proceeding to local cleanup")
-			return o.localCleanup()
+	var baseArgs []string
+	if useContext {
+		baseArgs = []string{"--context", strings.TrimPrefix(kubeconfig, "--context=")}
+	} else if kubeconfig != "" {
+		if _, err := os.Stat(kubeconfig); err != nil {
+			return
 		}
-	}
-
-	// Delete Cluster resources in both namespaces (old and new)
-	namespaces := []string{constants.NamespaceCAPI, "hub-platform-capi"}
-
-	for _, ns := range namespaces {
-		fmt.Printf("[teardown] Deleting Cluster resource '%s' in namespace '%s'...\n", o.ClusterName, ns)
-
-		var cmd *exec.Cmd
-		if useContext {
-			contextName := strings.TrimPrefix(kubeconfig, "--context=")
-			cmd = exec.CommandContext(ctx, "kubectl", "--context", contextName,
-				"delete", "cluster", o.ClusterName, "-n", ns, "--wait=false", "--ignore-not-found")
-		} else {
-			cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-				"delete", "cluster", o.ClusterName, "-n", ns, "--wait=false", "--ignore-not-found")
-		}
-
-		if o.Debug {
-			fmt.Printf("[DEBUG] kubectl %v\n", cmd.Args)
-		}
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			if o.Debug {
-				fmt.Printf("[DEBUG] kubectl output: %s\n", string(output))
-			}
-			if strings.Contains(string(output), "not found") || strings.Contains(string(output), "NotFound") {
-				if o.Debug {
-					fmt.Printf("[teardown] Cluster resource not found in %s (expected if never bootstrapped)\n", ns)
-				}
-			} else {
-				fmt.Printf("[teardown] ⚠️  Failed to delete cluster in %s: %v\n", ns, err)
-			}
-		} else {
-			fmt.Printf("[teardown] ✓ Cluster deletion initiated in %s\n", ns)
-		}
-	}
-
-	// Wait for deletion cascade (15 minutes)
-	fmt.Println("[teardown] Waiting for CAPI deletion cascade (timeout: 15m)...")
-
-	if err := o.waitForDeletion(ctx, kubeconfig, useContext, 15*time.Minute); err != nil {
-		fmt.Printf("[teardown] ⚠️  Deletion timeout: %v\n", err)
-		fmt.Println("[teardown] Resources may still be deleting. Check Hetzner Console.")
-		fmt.Println("[teardown] Use --force --confirm to force deletion if stuck.")
+		baseArgs = []string{"--kubeconfig", kubeconfig}
 	} else {
-		fmt.Println("[teardown] ✓ All CAPI resources deleted")
+		return
 	}
 
-	// Clean up any remaining volumes via Hetzner API
-	fmt.Println("[teardown] Cleaning up any remaining volumes...")
-	hcloudToken := os.Getenv("HCLOUD_TOKEN")
-	if hcloudToken == "" {
-		// Try to load token from file
-		if tokenBytes, err := os.ReadFile("k8-secrets/hetzner/token"); err == nil {
-			hcloudToken = strings.TrimSpace(string(tokenBytes))
-		}
-	}
-
-	if hcloudToken != "" {
-		client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
-
-		allVolumes, err := client.Volume.All(ctx)
-		if err != nil {
-			fmt.Printf("[teardown] ⚠️  Failed to list volumes for cleanup: %v\n", err)
-		} else {
-			for _, volume := range allVolumes {
-				fmt.Printf("[teardown] Deleting remaining volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
-				if _, err := client.Volume.Delete(ctx, volume); err != nil {
-					fmt.Printf("[teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
-				} else {
-					fmt.Printf("[teardown] ✓ Deleted remaining volume: %s\n", volume.Name)
-				}
-			}
-		}
-	}
-
-	// Local cleanup
-	return o.localCleanup()
-}
-
-func (o *Orchestrator) waitForDeletion(ctx context.Context, kubeconfig string, useContext bool, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	fmt.Println("\n[teardown] Attempting fast Kubernetes finalizer stripping (timeout: 5s)...")
+	kctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	namespaces := []string{constants.NamespaceCAPI, "hub-platform-capi", "platform-capi", "default"}
+	resourceTypes := []string{"cluster", "hetznercluster", "kubeadmcontrolplane", "machinedeployment", "machine", "hcloudmachine"}
 
-	namespaces := []string{constants.NamespaceCAPI, "hub-platform-capi"}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for deletion")
-		case <-ticker.C:
-			allDeleted := true
-
-			for _, ns := range namespaces {
-				var cmd *exec.Cmd
-				if useContext {
-					contextName := strings.TrimPrefix(kubeconfig, "--context=")
-					cmd = exec.CommandContext(ctx, "kubectl", "--context", contextName,
-						"get", "cluster", o.ClusterName, "-n", ns, "--ignore-not-found")
-				} else {
-					cmd = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-						"get", "cluster", o.ClusterName, "-n", ns, "--ignore-not-found")
-				}
-
-				output, err := cmd.CombinedOutput()
-				if err == nil && len(output) > 0 && !strings.Contains(string(output), "No resources found") {
-					allDeleted = false
-					break
-				}
+	for _, ns := range namespaces {
+		for _, rType := range resourceTypes {
+			getArgs := append(baseArgs, "get", rType, "-n", ns, "-o", "jsonpath={.items[*].metadata.name}")
+			cmd := exec.CommandContext(kctx, "kubectl", getArgs...)
+			out, err := cmd.Output()
+			if err != nil || len(out) == 0 {
+				continue
 			}
 
-			if allDeleted {
-				return nil
-			}
-
-			if o.Debug {
-				fmt.Printf("[DEBUG] Cluster still exists, waiting...\n")
-			} else {
-				fmt.Print(".")
+			names := strings.Fields(string(out))
+			for _, name := range names {
+				if strings.Contains(name, o.ClusterName) || (rType == "cluster" && name == o.ClusterName) {
+					// Patch finalizers to empty array
+					patchArgs := append(baseArgs, "patch", rType, name, "-n", ns, "--type=merge", "-p", `{"metadata":{"finalizers":[]}}`)
+					exec.CommandContext(kctx, "kubectl", patchArgs...).Run()
+					// Delete immediately without waiting
+					delArgs := append(baseArgs, "delete", rType, name, "-n", ns, "--wait=false", "--grace-period=0", "--force", "--ignore-not-found")
+					exec.CommandContext(kctx, "kubectl", delArgs...).Run()
+				}
 			}
 		}
 	}
 }
 
-func (o *Orchestrator) forceDelete(ctx context.Context) error {
-	fmt.Println("\n[teardown] ⚠️  Force deletion mode enabled")
-	fmt.Println("[teardown] This will delete resources directly via Hetzner API")
+// deleteHetznerResources deletes all matching Hetzner cloud resources directly via the Hetzner API
+func (o *Orchestrator) deleteHetznerResources(ctx context.Context) error {
+	fmt.Println("\n[teardown] Forcefully deleting Hetzner Cloud infrastructure resources...")
 
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
 	if hcloudToken == "" {
-		// Try to load token from file
 		if tokenBytes, err := os.ReadFile("k8-secrets/hetzner/token"); err == nil {
 			hcloudToken = strings.TrimSpace(string(tokenBytes))
 		}
 	}
 
 	if hcloudToken == "" {
-		return fmt.Errorf("HCLOUD_TOKEN environment variable required for force deletion")
+		fmt.Println("[teardown] ⚠️  HCLOUD_TOKEN not found; skipping Hetzner cloud resource cleanup")
+		return nil
 	}
 
 	client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
-
-	// Query resources by CAPH cluster label pattern (caph-cluster-<name>-*)
 	labelPattern := fmt.Sprintf("caph-cluster-%s", o.ClusterName)
 
-	fmt.Printf("[teardown] Querying Hetzner resources with label pattern: %s-*\n", labelPattern)
-
-	// Delete servers
-	allServers, err := client.Server.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list servers: %w", err)
+	matchesCluster := func(name string, labels map[string]string) bool {
+		if strings.HasPrefix(name, o.ClusterName) || strings.Contains(name, o.ClusterName) {
+			return true
+		}
+		for k, v := range labels {
+			if strings.HasPrefix(k, labelPattern) || strings.Contains(k, o.ClusterName) {
+				return true
+			}
+			if v == o.ClusterName || strings.Contains(v, o.ClusterName) {
+				return true
+			}
+		}
+		return false
 	}
 
-	for _, server := range allServers {
-		// Check if any label key starts with our pattern
-		for labelKey := range server.Labels {
-			if strings.HasPrefix(labelKey, labelPattern) {
+	deletedServerIDs := make(map[int]bool)
+
+	// 1. Delete servers
+	allServers, err := client.Server.All(ctx)
+	if err == nil {
+		for _, server := range allServers {
+			if matchesCluster(server.Name, server.Labels) {
+				deletedServerIDs[server.ID] = true
 				fmt.Printf("[teardown] Deleting server: %s (ID: %d)\n", server.Name, server.ID)
 				if _, _, err := client.Server.DeleteWithResult(ctx, server); err != nil {
 					fmt.Printf("[teardown] ⚠️  Failed to delete server %s: %v\n", server.Name, err)
 				} else {
 					fmt.Printf("[teardown] ✓ Deleted server: %s\n", server.Name)
 				}
-				break
 			}
 		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list servers: %v\n", err)
 	}
 
-	// Delete load balancers
+	// 2. Delete load balancers
 	allLBs, err := client.LoadBalancer.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list load balancers: %w", err)
-	}
-
-	for _, lb := range allLBs {
-		fmt.Printf("[teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
-		if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
-			fmt.Printf("[teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
-		} else {
-			fmt.Printf("[teardown] ✓ Deleted load balancer: %s\n", lb.Name)
-		}
-	}
-
-	// Delete networks
-	allNetworks, err := client.Network.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list networks: %w", err)
-	}
-
-	for _, network := range allNetworks {
-		// Check if network name starts with cluster name
-		if strings.HasPrefix(network.Name, o.ClusterName) {
-			fmt.Printf("[teardown] Deleting network: %s (ID: %d)\n", network.Name, network.ID)
-			if _, err := client.Network.Delete(ctx, network); err != nil {
-				fmt.Printf("[teardown] ⚠️  Failed to delete network %s: %v\n", network.Name, err)
-			} else {
-				fmt.Printf("[teardown] ✓ Deleted network: %s\n", network.Name)
+	if err == nil {
+		for _, lb := range allLBs {
+			if matchesCluster(lb.Name, lb.Labels) {
+				fmt.Printf("[teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
+				if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted load balancer: %s\n", lb.Name)
+				}
 			}
 		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list load balancers: %v\n", err)
 	}
 
-	// Delete volumes
-	fmt.Println("[teardown] Deleting associated volumes...")
+	// 3. Delete volumes
 	allVolumes, err := client.Volume.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list volumes: %w", err)
-	}
-
-	for _, volume := range allVolumes {
-		fmt.Printf("[teardown] Deleting volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
-		if _, err := client.Volume.Delete(ctx, volume); err != nil {
-			fmt.Printf("[teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
-		} else {
-			fmt.Printf("[teardown] ✓ Deleted volume: %s\n", volume.Name)
+	if err == nil {
+		for _, volume := range allVolumes {
+			isAttachedToDeletedServer := volume.Server != nil && deletedServerIDs[volume.Server.ID]
+			if matchesCluster(volume.Name, volume.Labels) || isAttachedToDeletedServer {
+				fmt.Printf("[teardown] Deleting volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
+				if volume.Server != nil {
+					client.Volume.Detach(ctx, volume)
+				}
+				if _, err := client.Volume.Delete(ctx, volume); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted volume: %s\n", volume.Name)
+				}
+			}
 		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list volumes: %v\n", err)
 	}
 
-	fmt.Println("[teardown] ✓ Force deletion complete")
+	// 4. Delete Placement Groups
+	allPGs, err := client.PlacementGroup.All(ctx)
+	if err == nil {
+		for _, pg := range allPGs {
+			if matchesCluster(pg.Name, pg.Labels) {
+				fmt.Printf("[teardown] Deleting placement group: %s (ID: %d)\n", pg.Name, pg.ID)
+				if _, err := client.PlacementGroup.Delete(ctx, pg); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete placement group %s: %v\n", pg.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted placement group: %s\n", pg.Name)
+				}
+			}
+		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list placement groups: %v\n", err)
+	}
 
-	// Local cleanup
-	return o.localCleanup()
+	// 5. Delete Firewalls
+	allFirewalls, err := client.Firewall.All(ctx)
+	if err == nil {
+		for _, fw := range allFirewalls {
+			if matchesCluster(fw.Name, fw.Labels) {
+				fmt.Printf("[teardown] Deleting firewall: %s (ID: %d)\n", fw.Name, fw.ID)
+				if _, err := client.Firewall.Delete(ctx, fw); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete firewall %s: %v\n", fw.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted firewall: %s\n", fw.Name)
+				}
+			}
+		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list firewalls: %v\n", err)
+	}
+
+	// 6. Delete Floating IPs
+	allFloatingIPs, err := client.FloatingIP.All(ctx)
+	if err == nil {
+		for _, fip := range allFloatingIPs {
+			if matchesCluster(fip.Name, fip.Labels) {
+				fmt.Printf("[teardown] Deleting floating IP: %s (ID: %d)\n", fip.Name, fip.ID)
+				if _, err := client.FloatingIP.Delete(ctx, fip); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete floating IP %s: %v\n", fip.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted floating IP: %s\n", fip.Name)
+				}
+			}
+		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list floating IPs: %v\n", err)
+	}
+
+	// 7. Delete Primary IPs
+	allPrimaryIPs, err := client.PrimaryIP.All(ctx)
+	if err == nil {
+		for _, pip := range allPrimaryIPs {
+			if matchesCluster(pip.Name, pip.Labels) {
+				fmt.Printf("[teardown] Deleting primary IP: %s (ID: %d)\n", pip.Name, pip.ID)
+				if _, err := client.PrimaryIP.Delete(ctx, pip); err != nil {
+					fmt.Printf("[teardown] ⚠️  Failed to delete primary IP %s: %v\n", pip.Name, err)
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted primary IP: %s\n", pip.Name)
+				}
+			}
+		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list primary IPs: %v\n", err)
+	}
+
+	// 8. Delete Networks (with quick retry)
+	allNetworks, err := client.Network.All(ctx)
+	if err == nil {
+		for _, network := range allNetworks {
+			if matchesCluster(network.Name, network.Labels) {
+				fmt.Printf("[teardown] Deleting network: %s (ID: %d)\n", network.Name, network.ID)
+				if _, err := client.Network.Delete(ctx, network); err != nil {
+					time.Sleep(2 * time.Second)
+					if _, err := client.Network.Delete(ctx, network); err != nil {
+						fmt.Printf("[teardown] ⚠️  Failed to delete network %s: %v\n", network.Name, err)
+					} else {
+						fmt.Printf("[teardown] ✓ Deleted network: %s (on retry)\n", network.Name)
+					}
+				} else {
+					fmt.Printf("[teardown] ✓ Deleted network: %s\n", network.Name)
+				}
+			}
+		}
+	} else if o.Debug {
+		fmt.Printf("[DEBUG] Failed to list networks: %v\n", err)
+	}
+
+	fmt.Println("[teardown] ✓ Hetzner Cloud resource cleanup completed")
+	return nil
 }
 
-func (o *Orchestrator) localCleanup() error {
-	fmt.Println("\n[teardown] Cleaning up local files...")
+// localCleanup deletes Kind cluster, prunes Docker artifacts, and removes local state/kubeconfig files.
+func (o *Orchestrator) localCleanup(ctx context.Context) error {
+	fmt.Println("\n[teardown] Cleaning up local files and Docker/Kind resources...")
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	// Delete kind cluster
 	fmt.Printf("[teardown] Deleting kind cluster: %s...\n", o.ClusterName)
-	cmd := exec.Command("kind", "delete", "cluster", "--name", o.ClusterName)
+	cmd := exec.CommandContext(cmdCtx, "kind", "delete", "cluster", "--name", o.ClusterName)
 	if o.Debug {
 		fmt.Printf("[DEBUG] Running: kind delete cluster --name %s\n", o.ClusterName)
 	}
@@ -322,7 +320,7 @@ func (o *Orchestrator) localCleanup() error {
 			fmt.Printf("[DEBUG] kind delete error: %v\n", err)
 		}
 		if !strings.Contains(string(output), "not found") {
-			fmt.Printf("[teardown] ⚠️  Failed to delete kind cluster: %v\n%s\n", err, string(output))
+			fmt.Printf("[teardown] ⚠️  Kind cluster deletion note: %v\n", err)
 		}
 	} else {
 		fmt.Printf("[teardown] ✓ Deleted kind cluster: %s\n", o.ClusterName)
@@ -330,59 +328,60 @@ func (o *Orchestrator) localCleanup() error {
 
 	// Prune Docker artifacts left by kind + local-path-storage PVCs
 	fmt.Println("[teardown] Pruning Docker volumes, containers, and networks...")
-	pruneContainers := exec.Command("docker", "container", "prune", "-f")
-	pruneContainers.Run()
-	pruneVolumes := exec.Command("docker", "volume", "prune", "-f")
-	if out, err := pruneVolumes.CombinedOutput(); err != nil {
-		fmt.Printf("[teardown] ⚠️  Docker volume prune: %v\n%s\n", err, out)
+	exec.CommandContext(cmdCtx, "docker", "container", "prune", "-f").Run()
+	if out, err := exec.CommandContext(cmdCtx, "docker", "volume", "prune", "-f").CombinedOutput(); err != nil {
+		if o.Debug {
+			fmt.Printf("[DEBUG] Docker volume prune: %v\n%s\n", err, out)
+		}
 	} else {
 		fmt.Println("[teardown] ✓ Docker volumes pruned")
 	}
-	pruneBuildCache := exec.Command("docker", "builder", "prune", "-f")
-	pruneBuildCache.Run()
+	exec.CommandContext(cmdCtx, "docker", "builder", "prune", "-f").Run()
+	exec.CommandContext(cmdCtx, "docker", "network", "rm", "kind").Run()
 
-	// Remove kubeconfig from k8-secrets/kubeconfig/
-	kubeconfigPath := fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName)
-	if err := os.Remove(kubeconfigPath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[teardown] ⚠️  Failed to remove kubeconfig: %v\n", err)
-	} else if err == nil {
-		fmt.Printf("[teardown] ✓ Removed %s\n", kubeconfigPath)
+	// Remove kubeconfigs
+	kubeconfigPaths := []string{
+		fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName),
+		fmt.Sprintf("%s.kubeconfig", o.ClusterName),
 	}
-
-	// Remove legacy kubeconfig location
-	legacyKubeconfigPath := fmt.Sprintf("%s.kubeconfig", o.ClusterName)
-	if err := os.Remove(legacyKubeconfigPath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[teardown] ⚠️  Failed to remove legacy kubeconfig: %v\n", err)
-	} else if err == nil {
-		fmt.Printf("[teardown] ✓ Removed %s\n", legacyKubeconfigPath)
+	for _, p := range kubeconfigPaths {
+		if err := os.Remove(p); err == nil {
+			fmt.Printf("[teardown] ✓ Removed %s\n", p)
+		}
 	}
 
 	// Remove talosconfig
 	talosconfigPath := fmt.Sprintf("%s.talosconfig", o.ClusterName)
-	if err := os.Remove(talosconfigPath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[teardown] ⚠️  Failed to remove talosconfig: %v\n", err)
-	} else if err == nil {
+	if err := os.Remove(talosconfigPath); err == nil {
 		fmt.Printf("[teardown] ✓ Removed %s\n", talosconfigPath)
 	}
 
-	// Remove state file
-	statePath := filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", o.ClusterName))
-	if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[teardown] ⚠️  Failed to remove state file: %v\n", err)
-	} else if err == nil {
-		fmt.Printf("[teardown] ✓ Removed state file\n")
+	// Remove state files
+	stateFiles := []string{
+		filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", o.ClusterName)),
+		filepath.Join(".zero-ops", "bootstrap-state.json"),
+		filepath.Join(".zero-ops", "infisical-bootstrap.json"),
+		filepath.Join(".zero-ops", "kind", "kind-config-generated.yaml"),
+	}
+	for _, p := range stateFiles {
+		if err := os.Remove(p); err == nil {
+			fmt.Printf("[teardown] ✓ Removed %s\n", p)
+		}
 	}
 
-	// Remove bootstrap state file
-	bootstrapStatePath := filepath.Join(".zero-ops", "bootstrap-state.json")
-	if err := os.Remove(bootstrapStatePath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[teardown] ⚠️  Failed to remove bootstrap state file: %v\n", err)
-	} else if err == nil {
-		fmt.Printf("[teardown] ✓ Removed bootstrap state file\n")
+	// Clean up kubectl config contexts & clusters
+	contextsToDelete := []string{
+		fmt.Sprintf("kind-%s", o.ClusterName),
+		o.ClusterName,
+		fmt.Sprintf("admin@%s", o.ClusterName),
 	}
-
-	// TODO: Remove context from ~/.kube/config if merged
+	for _, ctxName := range contextsToDelete {
+		exec.CommandContext(cmdCtx, "kubectl", "config", "delete-context", ctxName).Run()
+		exec.CommandContext(cmdCtx, "kubectl", "config", "delete-cluster", ctxName).Run()
+		exec.CommandContext(cmdCtx, "kubectl", "config", "unset", fmt.Sprintf("users.%s", ctxName)).Run()
+	}
 
 	fmt.Println("[teardown] ✓ Local cleanup complete")
 	return nil
 }
+

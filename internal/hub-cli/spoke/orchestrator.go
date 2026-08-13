@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hetznercloud/hcloud-go/hcloud"
 )
@@ -143,78 +144,123 @@ func (o *Orchestrator) discoverSpokeClusters(ctx context.Context, client *hcloud
 func (o *Orchestrator) deleteSpokeCluster(ctx context.Context, client *hcloud.Client, spokeName string) error {
 	labelPattern := fmt.Sprintf("caph-cluster-%s", spokeName)
 
-	// Delete servers
+	matchesSpoke := func(name string, labels map[string]string) bool {
+		if strings.HasPrefix(name, spokeName) || strings.Contains(name, spokeName) {
+			return true
+		}
+		for k, v := range labels {
+			if strings.HasPrefix(k, labelPattern) || strings.Contains(k, spokeName) {
+				return true
+			}
+			if v == spokeName || strings.Contains(v, spokeName) {
+				return true
+			}
+		}
+		return false
+	}
+
+	deletedServerIDs := make(map[int]bool)
+
+	// 1. Delete servers
 	allServers, err := client.Server.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list servers: %w", err)
-	}
-
-	for _, server := range allServers {
-		// Check if server belongs to this spoke cluster
-		isSpokeServer := false
-		
-		// Check labels
-		for labelKey := range server.Labels {
-			if strings.HasPrefix(labelKey, labelPattern) {
-				isSpokeServer = true
-				break
+	if err == nil {
+		for _, server := range allServers {
+			if matchesSpoke(server.Name, server.Labels) {
+				deletedServerIDs[server.ID] = true
+				fmt.Printf("[spoke-teardown] Deleting server: %s (ID: %d)\n", server.Name, server.ID)
+				if _, _, err := client.Server.DeleteWithResult(ctx, server); err != nil {
+					fmt.Printf("[spoke-teardown] ⚠️  Failed to delete server %s: %v\n", server.Name, err)
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted server: %s\n", server.Name)
+				}
 			}
 		}
-		
-		// Check server name
-		if !isSpokeServer && strings.HasPrefix(server.Name, spokeName) {
-			isSpokeServer = true
-		}
-
-		if isSpokeServer {
-			fmt.Printf("[spoke-teardown] Deleting server: %s (ID: %d)\n", server.Name, server.ID)
-			if _, _, err := client.Server.DeleteWithResult(ctx, server); err != nil {
-				fmt.Printf("[spoke-teardown] ⚠️  Failed to delete server %s: %v\n", server.Name, err)
-			} else {
-				fmt.Printf("[spoke-teardown] ✓ Deleted server: %s\n", server.Name)
-			}
-		}
+	} else {
+		fmt.Printf("[spoke-teardown] ⚠️  Failed to list servers: %v\n", err)
 	}
 
-	// Delete load balancers
+	// 2. Delete load balancers
 	allLBs, err := client.LoadBalancer.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list load balancers: %w", err)
-	}
-
-	for _, lb := range allLBs {
-		isSpokeLB := false
-		
-		for labelKey := range lb.Labels {
-			if strings.HasPrefix(labelKey, labelPattern) {
-				isSpokeLB = true
-				break
+	if err == nil {
+		for _, lb := range allLBs {
+			if matchesSpoke(lb.Name, lb.Labels) {
+				fmt.Printf("[spoke-teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
+				if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
+					fmt.Printf("[spoke-teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted load balancer: %s\n", lb.Name)
+				}
 			}
 		}
+	} else {
+		fmt.Printf("[spoke-teardown] ⚠️  Failed to list load balancers: %v\n", err)
+	}
 
-		if isSpokeLB {
-			fmt.Printf("[spoke-teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
-			if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
-				fmt.Printf("[spoke-teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)
-			} else {
-				fmt.Printf("[spoke-teardown] ✓ Deleted load balancer: %s\n", lb.Name)
+	// 3. Delete volumes
+	allVolumes, err := client.Volume.All(ctx)
+	if err == nil {
+		for _, volume := range allVolumes {
+			isAttached := volume.Server != nil && deletedServerIDs[volume.Server.ID]
+			if matchesSpoke(volume.Name, volume.Labels) || isAttached {
+				fmt.Printf("[spoke-teardown] Deleting volume: %s (ID: %d, Size: %d GB)\n", volume.Name, volume.ID, volume.Size)
+				if volume.Server != nil {
+					client.Volume.Detach(ctx, volume)
+				}
+				if _, err := client.Volume.Delete(ctx, volume); err != nil {
+					fmt.Printf("[spoke-teardown] ⚠️  Failed to delete volume %s: %v\n", volume.Name, err)
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted volume: %s\n", volume.Name)
+				}
 			}
 		}
 	}
 
-	// Delete networks
+	// 4. Delete Placement Groups
+	allPGs, err := client.PlacementGroup.All(ctx)
+	if err == nil {
+		for _, pg := range allPGs {
+			if matchesSpoke(pg.Name, pg.Labels) {
+				fmt.Printf("[spoke-teardown] Deleting placement group: %s (ID: %d)\n", pg.Name, pg.ID)
+				if _, err := client.PlacementGroup.Delete(ctx, pg); err != nil {
+					fmt.Printf("[spoke-teardown] ⚠️  Failed to delete placement group %s: %v\n", pg.Name, err)
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted placement group: %s\n", pg.Name)
+				}
+			}
+		}
+	}
+
+	// 5. Delete Firewalls
+	allFirewalls, err := client.Firewall.All(ctx)
+	if err == nil {
+		for _, fw := range allFirewalls {
+			if matchesSpoke(fw.Name, fw.Labels) {
+				fmt.Printf("[spoke-teardown] Deleting firewall: %s (ID: %d)\n", fw.Name, fw.ID)
+				if _, err := client.Firewall.Delete(ctx, fw); err != nil {
+					fmt.Printf("[spoke-teardown] ⚠️  Failed to delete firewall %s: %v\n", fw.Name, err)
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted firewall: %s\n", fw.Name)
+				}
+			}
+		}
+	}
+
+	// 6. Delete networks
 	allNetworks, err := client.Network.All(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list networks: %w", err)
-	}
-
-	for _, network := range allNetworks {
-		if strings.HasPrefix(network.Name, spokeName) {
-			fmt.Printf("[spoke-teardown] Deleting network: %s (ID: %d)\n", network.Name, network.ID)
-			if _, err := client.Network.Delete(ctx, network); err != nil {
-				fmt.Printf("[spoke-teardown] ⚠️  Failed to delete network %s: %v\n", network.Name, err)
-			} else {
-				fmt.Printf("[spoke-teardown] ✓ Deleted network: %s\n", network.Name)
+	if err == nil {
+		for _, network := range allNetworks {
+			if matchesSpoke(network.Name, network.Labels) {
+				fmt.Printf("[spoke-teardown] Deleting network: %s (ID: %d)\n", network.Name, network.ID)
+				if _, err := client.Network.Delete(ctx, network); err != nil {
+					time.Sleep(2 * time.Second)
+					if _, err := client.Network.Delete(ctx, network); err != nil {
+						fmt.Printf("[spoke-teardown] ⚠️  Failed to delete network %s: %v\n", network.Name, err)
+					} else {
+						fmt.Printf("[spoke-teardown] ✓ Deleted network: %s (on retry)\n", network.Name)
+					}
+				} else {
+					fmt.Printf("[spoke-teardown] ✓ Deleted network: %s\n", network.Name)
+				}
 			}
 		}
 	}
