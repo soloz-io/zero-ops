@@ -22,12 +22,22 @@ spec:
     preserveResourcesOnDeletion: false
 
   generators:
-    # Git Generator watches fleet-registry for tenant values files.
-    - git:
-        repoURL: https://github.com/soloz-io/fleet-registry
-        revision: main
-        files:
-          - path: 'tenants/*/*/values.yaml'
+    # Matrix Generator: only create the XR when BOTH the fleet values exist in
+    # Git AND the target spoke cell is registered in ArgoCD (by capi2argo).
+    # This prevents generating an XR for an environment whose cell does not
+    # exist (e.g. waypoint/prod before its spoke is provisioned).
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry
+              revision: main
+              files:
+                - path: 'tenants/*/*/values.yaml'
+
+          - clusters:
+              selector:
+                matchLabels:
+                  cell-id: '{{"{{"}} .cellId {{"}}"}}'
 
   template:
     metadata:
