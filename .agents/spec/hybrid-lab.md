@@ -454,7 +454,7 @@ Per-area changes
 - a home-worker-join-config ConfigMap carrying the home-node list (hostname, tailnet host, count) from claim annotations.
 - k8s/home-worker-integration.yaml — RBAC for hub-operator token minting; tailscale pre-shared-key Secret consumed by the DaemonSet.
 3. SpokePool claims
-- manifests/spoke/spoke-pools/dev/hybrid/hybrid-dev.yaml — compositionSelector.matchLabels.provider: hybrid, region: fsn1, nodePool.count: 0, control-plane replicas 1, annotations: home-workers: [{hostname: wsl2-node-1, tailnet-host: ...}, {hostname: wsl2-node-2}].
+- manifests/spoke/spoke-pools/dev/hybrid/hybrid-dev.yaml — compositionSelector.matchLabels.provider: hybrid, region: hel1, nodePool.count: 0, control-plane replicas 1, annotations: home-workers: [{hostname: wsl2-node-1, tailnet-host: ...}, {hostname: wsl2-node-2}].
 - Same for stg/hybrid/ (control-plane replicas 3).
 - Scheduling contract distributable from the claim: home is default, burst (hetser workers) require nodeSelector: workload-location: hetzner.
 4. Bootstrap CLI + driver
@@ -543,7 +543,7 @@ Scheduling contract: default workloads to nodeSelector: workload-location: home;
 - k8s/home-worker-integration.yaml: RBAC for hub-operator (read platform-capi secrets, mint tokens), tailscale pre-shared-key Secret for the DaemonSet.
 - Matrix wiring needs no AppSet changes: 03-platform-services-appset.yaml:97 already resolves manifests/providers/{{ .Values.provider }}, and :370 already resolves manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}.
 4. Workstream C — SpokePool claims
-- manifests/spoke/spoke-pools/dev/hybrid/hybrid-dev.yaml — compositionSelector.matchLabels.provider: hybrid, region: fsn1, nodePool.count: 0, annotations: control-plane-replicas: "1", home-workers: [{hostname: wsl2-node-1,…},{hostname: wsl2-node-2,…}], home-worker-enabled: "true".
+- manifests/spoke/spoke-pools/dev/hybrid/hybrid-dev.yaml — compositionSelector.matchLabels.provider: hybrid, region: hel1, nodePool.count: 0, annotations: control-plane-replicas: "1", home-workers: [{hostname: wsl2-node-1,…},{hostname: wsl2-node-2,…}], home-worker-enabled: "true".
 - manifests/spoke/spoke-pools/stg/hybrid/hybrid-stg.yaml — same with control-plane-replicas: "3" and a spoke-api-front annotation (ha-proxy.tailnet.ts.net).
 - Optional: namesapce.yaml in prod not touched — hybrid is dev/stg only; prod stays pure hetzner (escape hatch preserved).
 5. Workstream D — Bootstrap CLI + driver
@@ -662,10 +662,10 @@ Remove the Docker/CAPD specific branches, cleanup logic, and the Windows hook.
         topo_flag="--topology=$TOPOLOGY"
     fi
     
-    log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=fsn1 $env_flag --debug"
+    log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=hel1 $env_flag --debug"
     (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
         --name="${CLUSTER_NAME}" \
-        --region=fsn1 \
+        --region=hel1 \
         $env_flag \
         $topo_flag \
         --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
@@ -708,7 +708,7 @@ Remove the local/docker auto-detection logic.
                     ...
                 region:
                   type: string
-                  description: "Provider region (e.g., fsn1, nbg1, hel1) or 'hybrid' for home-lab"
+                  description: "Provider region (e.g., hel1, nbg1, hel1) or 'hybrid' for home-lab"
 ```
 
 #### Update `manifests/argocd/environment-manager/values.yaml`

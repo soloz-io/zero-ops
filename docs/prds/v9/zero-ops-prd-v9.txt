@@ -195,7 +195,7 @@ At step 10, CAPI resource provisioning fails with quota error. Crossplane surfac
 
 **What a shard is:** A management cluster (shard/mothership) is the Zero-Ops control plane — the cluster that hosts Crossplane, ArgoCD, the Ory identity stack, zero-ops-api, and the Platform Console. It is bootstrapped imperatively via the CLI (using a local ephemeral Kind cluster as a CAPI pivot point) and then becomes self-hosted on Hetzner. It is **not** a tenant environment and is **not** provisioned by Composition A or B. Enterprise tenant clusters are provisioned **by** the management cluster, not alongside it.
 
-1. Admin runs: `zero-ops mgmt bootstrap --name=shard-eu-1 --region=fsn1`
+1. Admin runs: `zero-ops mgmt bootstrap --name=shard-eu-1 --region=hel1`
 2. CLI creates a local ephemeral Kind cluster, uses it to bootstrap CAPI/CAPH, provisions a permanent Ubuntu management cluster on Hetzner, pivots CAPI state to that cluster, then tears down the local Kind cluster. Installs Crossplane, ArgoCD, CNPG operator, cnpg2monitor (ClusterRole scope), Ory stack.
 3. CLI registers `shard-eu-1` with `zero-ops-api`. Shard begins emitting 30s heartbeats.
 4. Fleet State Engine begins receiving signals within 60s.

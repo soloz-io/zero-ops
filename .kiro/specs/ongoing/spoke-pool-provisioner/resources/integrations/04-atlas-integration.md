@@ -198,7 +198,7 @@ status:
 ```yaml
 tenantId: acme
 tier: starter
-region: fsn1
+region: hel1
 
 database:
   schemaName: tenant_acme  # Deterministic naming

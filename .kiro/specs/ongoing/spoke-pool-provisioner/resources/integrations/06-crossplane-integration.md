@@ -87,8 +87,8 @@ spec:
             properties:
               region:
                 type: string
-                description: "Hetzner datacenter region (e.g., fsn1, nbg1, hel1)"
-                enum: ["fsn1", "nbg1", "hel1"]
+                description: "Hetzner datacenter region (e.g., hel1, nbg1, hel1)"
+                enum: ["hel1", "nbg1", "hel1"]
               nodePool:
                 type: object
                 properties:

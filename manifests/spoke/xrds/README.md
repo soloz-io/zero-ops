@@ -16,7 +16,7 @@ kind: SpokePool
 metadata:
   name: spokepool-01
 spec:
-  region: fsn1                    # Hetzner datacenter (fsn1, nbg1, hel1)
+  region: hel1                    # Hetzner datacenter (hel1, nbg1, hel1)
   nodePool:
     count: 3                      # Worker nodes (1-10)
     instanceType: cx33            # Hetzner server type (cx33, cx41, cx51)
@@ -25,7 +25,7 @@ spec:
 
 ### Supported Regions
 
-- `fsn1`: Falkenstein, Germany
+- `hel1`: Falkenstein, Germany
 - `nbg1`: Nuremberg, Germany
 - `hel1`: Helsinki, Finland
 

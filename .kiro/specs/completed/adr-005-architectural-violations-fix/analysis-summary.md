@@ -117,7 +117,7 @@ spec:
 ```yaml
 tenantId: ""
 tier: starter
-region: fsn1
+region: hel1
 database:
   schemaName: ""
   migrations:

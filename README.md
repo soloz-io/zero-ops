@@ -111,7 +111,7 @@ go build -o bin/hub ./cmd/hub
 # export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
 # ./bin/hub bootstrap \
 #   --name=hub \
-#   --region=fsn1 \
+#   --region=hel1 \
 #   --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
 
 # New way

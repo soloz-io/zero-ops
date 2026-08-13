@@ -14,7 +14,7 @@ Zero-Ops uses Hetzner's official Ubuntu 24.04 image by default. No custom image 
 export HCLOUD_TOKEN=<your-token>
 ./bin/zero-ops mgmt bootstrap \
   --name=mothership \
-  --region=fsn1 \
+  --region=hel1 \
   --os=ubuntu \
   --ssh-key=zero-ops-mac-mini-debug \
   2>&1
@@ -36,7 +36,7 @@ If you need a custom Ubuntu image with pre-installed packages, you can build one
 export HCLOUD_TOKEN=<your-token>
 ./bin/zero-ops mgmt bootstrap \
   --name=mothership \
-  --region=fsn1 \
+  --region=hel1 \
   --os=ubuntu \
   --build-ubuntu-image
 ```
@@ -58,7 +58,7 @@ packer init internal/assets/manifests/packer/hetzner-ubuntu.pkr.hcl
 packer build \
   -var "hcloud_token=$HCLOUD_TOKEN" \
   -var "snapshot_name=ubuntu-mothership" \
-  -var "location=fsn1" \
+  -var "location=hel1" \
   internal/assets/manifests/packer/hetzner-ubuntu.pkr.hcl
 
 # Get snapshot ID
@@ -69,7 +69,7 @@ curl -H "Authorization: Bearer $HCLOUD_TOKEN" \
 # Use custom snapshot
 ./bin/zero-ops mgmt bootstrap \
   --name=mothership \
-  --region=fsn1 \
+  --region=hel1 \
   --os=ubuntu \
   --ubuntu-image-id=<snapshot-id>
 ```
@@ -80,7 +80,7 @@ Location: `internal/assets/manifests/packer/hetzner-ubuntu.pkr.hcl`
 
 - Base image: Ubuntu 24.04 (official Hetzner image)
 - Server type: cx23
-- Default location: fsn1
+- Default location: hel1
 - Pre-installs: containerd, kubeadm, kubelet, kubectl
 
 ## Troubleshooting
@@ -92,7 +92,7 @@ Packer fails if snapshot name exists. Either:
 - Change cluster name
 
 **Server type unavailable:**
-cx23 not available in all regions. Use fsn1 or update Packer config with available type.
+cx23 not available in all regions. Use hel1 or update Packer config with available type.
 
 **Build fails:**
 Check Hetzner API token has write permissions and sufficient quota for snapshots.

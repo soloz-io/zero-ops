@@ -53,7 +53,7 @@ Cluster (cluster.x-k8s.io/v1beta1)
 │   ├── class: "default-worker"
 │   └── replicas: 2
 └── spec.topology.variables[]                      # ClusterClass variables
-    ├── region: "fsn1"
+    ├── region: "hel1"
     ├── imageId: "ubuntu-24.04"
     ├── hcloudControlPlaneMachineType: "cpx31"
     └── hcloudWorkerMachineType: "cpx31"

@@ -13,7 +13,7 @@ spec:
   compositionSelector:
     matchLabels:
       provider: hetzner
-  region: fsn1
+  region: hel1
   nodePool:
     count: 2
     instanceType: cx33

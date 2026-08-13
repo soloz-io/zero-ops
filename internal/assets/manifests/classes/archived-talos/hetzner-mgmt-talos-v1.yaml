@@ -39,7 +39,7 @@
 #     schema:
 #       openAPIV3Schema:
 #         type: string
-#         default: fsn1
+#         default: hel1
 #   - name: talosImageId
 #     required: true
 #     schema:
@@ -171,7 +171,7 @@
 #       controlPlaneLoadBalancer:
 #         enabled: true
 #         type: lb11
-#         region: fsn1
+#         region: hel1
 #       controlPlaneRegions: []
 #       hcloudNetwork:
 #         enabled: true

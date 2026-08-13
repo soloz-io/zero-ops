@@ -38,7 +38,7 @@ spec:
                     re-provision.
                 region:
                   type: string
-                  description: "Provider region (e.g., fsn1, nbg1, hel1) or 'hybrid' for home-lab"
+                  description: "Provider region (e.g., hel1, nbg1, hel1) or 'hybrid' for home-lab"
                 nodePool:
                   type: object
                   required:

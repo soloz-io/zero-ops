@@ -23,7 +23,7 @@ BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 # of truth for bootstrap completion.
 CLUSTER_NAME="${CLUSTER_NAME:-hub}"
 PROVIDER="${PROVIDER:-hetzner}"
-REGION="${REGION:-fsn1}"
+REGION="${REGION:-hel1}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"

@@ -54,7 +54,7 @@ spec:
       - op: add
         path: /spec/template/spec/hcloudNetwork/networkZone
         valueFrom:
-          template: '{{ if eq .region "fsn1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
+          template: '{{ if eq .region "hel1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
   - name: controlPlaneEndpoint
     definitions:
     - selector:
@@ -103,7 +103,7 @@ spec:
     schema:
       openAPIV3Schema:
         type: string
-        default: "fsn1"
+        default: "hel1"
   - name: workerMachineType
     required: false
     schema:
@@ -141,12 +141,12 @@ spec:
         host: ""
         port: 443
       controlPlaneRegions:
-      - fsn1
+      - hel1
       controlPlaneLoadBalancer:
         enabled: true
         type: lb11
         algorithm: round_robin
-        region: fsn1
+        region: hel1
       hcloudNetwork:
         enabled: true
         cidrBlock: 10.0.0.0/16

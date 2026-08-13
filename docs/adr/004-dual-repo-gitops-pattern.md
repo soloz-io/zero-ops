@@ -191,7 +191,7 @@ docs: update Crossplane Composition schema
 
 **fleet-registry commits**:
 ```
-tenant: onboard acme (tier: starter, region: fsn1)
+tenant: onboard acme (tier: starter, region: hel1)
 spokepool: provision spokepool-03 (region: hel1)
 tenant: scale acme resources (cpu: 2 -> 4)
 ```

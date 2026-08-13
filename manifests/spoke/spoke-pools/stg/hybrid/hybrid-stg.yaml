@@ -36,7 +36,7 @@ spec:
   compositionSelector:
     matchLabels:
       provider: hybrid
-  region: fsn1
+  region: hel1
   nodePool:
     count: 0           # Hetzner burst pool: 0 by default
     instanceType: cx33

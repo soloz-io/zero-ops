@@ -63,7 +63,7 @@ spec:
                         # We omit imageId and CP machine type, relying on the ClusterClass defaults.
                         variables:
                           - name: region
-                            value: "fsn1" # Patched
+                            value: "hel1" # Patched
                           - name: workerMachineType
                             value: "cx33" # Patched
                 providerConfigRef:

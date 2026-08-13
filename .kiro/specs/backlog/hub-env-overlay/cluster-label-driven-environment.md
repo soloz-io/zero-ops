@@ -138,7 +138,7 @@ func newBootstrapCmd() *cobra.Command {
 
     // Required flags
     cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name")
-    cmd.Flags().StringVar(&region, "region", "", "Hetzner region (fsn1, nbg1, hel1)")
+    cmd.Flags().StringVar(&region, "region", "", "Hetzner region (hel1, nbg1, hel1)")
     cmd.Flags().StringVar(&environment, "env", "dev", "Environment (dev, staging, prod)")
     
     // ... existing flags
@@ -172,12 +172,12 @@ func validateFlags(cmd *cobra.Command, args []string) error {
         "ap-south-1":   true,
         "us-east-1":    true,
         "eu-central-1": true,
-        "fsn1":         true,  // Hetzner regions
+        "hel1":         true,  // Hetzner regions
         "nbg1":         true,
         "hel1":         true,
     }
     if !validRegions[region] {
-        return fmt.Errorf("invalid region: must be one of ap-south-1, us-east-1, eu-central-1, fsn1, nbg1, hel1")
+        return fmt.Errorf("invalid region: must be one of ap-south-1, us-east-1, eu-central-1, hel1, nbg1, hel1")
     }
     
     return nil
@@ -585,7 +585,7 @@ EOF
 ### Option 2: Re-bootstrap with --env
 
 ```bash
-./bin/hub bootstrap --name hub-cp --region fsn1 --env dev --upgrade
+./bin/hub bootstrap --name hub-cp --region hel1 --env dev --upgrade
 ```
 
 ## Technical Refinements (Pro-Tips)
@@ -696,7 +696,7 @@ func ChangeHubEnvironment(ctx context.Context, newEnv string) error {
 - [ ] Call CreateHubClusterSecret in orchestrator post-boot phase
 - [ ] Add new bootstrap phase: `PhaseHubClusterSecret`
 - [ ] Update bootstrap state management
-- [ ] Test: `./bin/hub bootstrap --name test --region fsn1 --env dev`
+- [ ] Test: `./bin/hub bootstrap --name test --region hel1 --env dev`
 
 ### Phase 2: ApplicationSet Migration (YAML Only - Can Start Now)
 - [ ] Create `manifests/argocd/kustomization.yaml`
