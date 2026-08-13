@@ -1,0 +1,70 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Infisical (ADR-046 §FIX).
+#
+# Renders the infisical-standalone helm chart through kustomize (the OpenMeter
+# pattern) so we can:
+#   1. Force `strategy: Recreate` on the Deployment — the chart template does
+#      not expose strategy and defaults to RollingUpdate (maxSurge 25%), which
+#      briefly runs 2 pods during rollouts. Both run startup migrations and race
+#      for the knex lock (infisical_migrations_lock) — the loser crashes and the
+#      winner, if killed mid-migration, orphans the lock forever. Recreate makes
+#      migrations single-flight.
+#   2. The migration lock is cleared by the `migration-unlock` extraInitContainer
+#      in values.yaml — it runs unconditionally before the main container on every
+#      pod start, so a stale lock can never block boot regardless of ArgoCD timing.
+#
+# Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
+
+helmCharts:
+  - name: infisical-standalone
+    repo: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+    version: 1.7.5
+    releaseName: infisical-standalone
+    namespace: platform-security
+    valuesFile: values.yaml
+
+resources:
+  - ingress.yaml
+
+# The migration-unlock PreSync ArgoCD hook has been removed.
+# The knex lock is now cleared by the `migration-unlock` extraInitContainer
+# defined in values.yaml — it runs before the main Infisical container on
+# every pod start, regardless of ArgoCD hook ordering or TLS cert availability.
+
+# Force Recreate so only one Infisical pod (and therefore only one migration
+# runner) ever exists during a rollout. Fixes the knex migration-lock race at
+# its source.
+patches:
+  - target:
+      kind: Deployment
+      name: infisical-standalone-infisical
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: infisical-standalone-infisical
+      spec:
+        strategy:
+          type: Recreate
+        template:
+          spec:
+            containers:
+              - name: infisical-standalone-infisical
+                # The chart hardcodes a readinessProbe (initialDelaySeconds: 10,
+                # periodSeconds: 5) with no startupProbe. On a fresh install the
+                # app runs DB migrations at startup that take longer than the
+                # ~25s readiness window, so the probe kills the pod mid-migration
+                # and orphans the knex lock (infisical_migrations_lock) forever.
+                # Add a startupProbe giving migrations up to 5 minutes; readiness
+                # only runs after startup succeeds.
+                startupProbe:
+                  httpGet:
+                    path: /api/status
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 10
+                  failureThreshold: 30

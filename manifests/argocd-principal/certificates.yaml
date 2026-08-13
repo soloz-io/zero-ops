@@ -1,6 +1,3 @@
-# NOTE: CA certificate is defined in manifests/hub-core-services/security/argocd-agent-cert.yaml
-# This file only contains Principal and Resource Proxy certificates
----
 # Principal server certificate
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -26,9 +23,9 @@ spec:
     algorithm: RSA
     size: 2048
   issuerRef:
-    name: argocd-agent-issuer
-    kind: Issuer
-    group: cert-manager.io
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
 ---
 # Resource Proxy certificate
 apiVersion: cert-manager.io/v1
@@ -53,11 +50,14 @@ spec:
     algorithm: RSA
     size: 2048
   issuerRef:
-    name: argocd-agent-issuer
-    kind: Issuer
-    group: cert-manager.io
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
 ---
 # JWT signing key certificate (RSA private key for JWT signing)
+# Correction 1 (ADR-035): Long-lived asymmetric signing key.
+# Requires a dedicated "Signing Keys" certificate profile in Infisical PKI
+# with sufficient TTL. This is NOT an mTLS transport certificate.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -76,9 +76,9 @@ spec:
     size: 4096
     encoding: PKCS8
   issuerRef:
-    name: argocd-agent-issuer
-    kind: Issuer
-    group: cert-manager.io
+    name: infisical-signing-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
 ---
 # Principal internal certificate for spoke agent mTLS
 apiVersion: cert-manager.io/v1
@@ -101,6 +101,6 @@ spec:
     algorithm: RSA
     size: 2048
   issuerRef:
-    name: argocd-agent-issuer
-    kind: Issuer
-    group: cert-manager.io
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com

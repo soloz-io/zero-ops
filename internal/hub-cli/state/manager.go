@@ -14,19 +14,43 @@ type BootstrapPhase string
 const (
 	PhasePreFlight          BootstrapPhase = "preflight"
 	PhaseBootstrapCreate    BootstrapPhase = "bootstrap-create"
+	PhaseDayZero            BootstrapPhase = "day0-infra"
 	PhaseCAPIInit           BootstrapPhase = "capi-init"
 	PhaseClusterProvision   BootstrapPhase = "cluster-provision"
 	PhasePivotMove          BootstrapPhase = "pivot-move"
 	PhasePivotReady         BootstrapPhase = "pivot-ready"
+	PhaseCleanup            BootstrapPhase = "cleanup"
 	PhaseClusterClassDeploy BootstrapPhase = "clusterclass-deploy"
-	PhasePostBoot           BootstrapPhase = "postboot"
+	PhasePlatformPreReqs    BootstrapPhase = "platform-pre-reqs"
+	PhaseBoundary01         BootstrapPhase = "boundary-01"
+	PhaseGenerateLocalSecrets   BootstrapPhase = "generate-local-secrets"
+	PhaseBoundary02             BootstrapPhase = "boundary-02"
+	PhaseInjectCACert           BootstrapPhase = "inject-ca-cert"
+	PhaseBoundary03             BootstrapPhase = "boundary-03"
+	PhaseBootstrapInfisicalAPI  BootstrapPhase = "bootstrap-infisical-api"
+	PhaseBoundary04             BootstrapPhase = "boundary-04"
+	PhaseInitSecrets            BootstrapPhase = "init-secrets" // DEPRECATED: replaced by GenerateLocalSecrets + InjectCACert + BootstrapInfisicalAPI
+	PhasePlatformDeploy     BootstrapPhase = "platform-deploy" // DEPRECATED: replaced by B01/B02/B03
+	PhaseFinalize           BootstrapPhase = "finalize"
 	PhaseComplete           BootstrapPhase = "complete"
+
+	// ADR-042 Platform Bootstrap States
+	// These are the platform-level state machine states that parallel
+	// the CAPI provisioning phases. The CLI gates transitions between
+	// these states to ensure deterministic bootstrap.
+	PlatformStateNew            BootstrapPhase = "platform-new"
+	PlatformStateInfisicalReady BootstrapPhase = "platform-infisical-ready"
+	PlatformStatePKIReady       BootstrapPhase = "platform-pki-ready"
+	PlatformStateSecretsReady   BootstrapPhase = "platform-secrets-ready"
+	PlatformStateGitOpsReady    BootstrapPhase = "platform-gitops-ready"
+	PlatformStatePlatformReady  BootstrapPhase = "platform-ready"
 )
 
 // BootstrapState tracks the state of the bootstrap process
 type BootstrapState struct {
 	Version          string            `json:"version"`
 	ClusterName      string            `json:"clusterName"`
+	Provider         string            `json:"provider"`
 	Region           string            `json:"region"`
 	BootstrapID      string            `json:"bootstrapId"`
 	CurrentPhase     BootstrapPhase    `json:"currentPhase"`

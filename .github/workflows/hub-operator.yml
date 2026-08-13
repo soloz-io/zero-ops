@@ -2,7 +2,7 @@ name: hub-operator
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/**]
     paths:
       - operators/hub-operator/**
 
@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -29,13 +31,14 @@ jobs:
         with:
           context: .
           file: operators/hub-operator/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/soloz-io/zero-ops/hub-operator:${{ github.sha }}
             ghcr.io/soloz-io/zero-ops/hub-operator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false
 
       - name: Pull latest remote changes
         run: git pull --rebase

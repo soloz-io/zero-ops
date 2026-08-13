@@ -25,12 +25,20 @@ type resourceMetadata struct {
 	} `yaml:"metadata"`
 }
 
+// CAPIProvider represents a CAPI provider to install via the cluster-api-operator
+type CAPIProvider struct {
+	Kind     string // CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider
+	Name     string // e.g., cluster-api, kubeadm, talos, hetzner, docker
+	Version  string
+	Manifest string // path to embedded manifest, e.g., "core/capi-operator/providers/infrastructure-provider-hetzner.yaml"
+}
+
 // OperatorInstaller installs cluster-api-operator
 type OperatorInstaller struct {
 	Kubeconfig string
 	Context    string
 	Namespace  string
-	OSType     string // "ubuntu" or "talos"
+	Providers  []CAPIProvider
 	Debug      bool
 }
 
@@ -314,44 +322,24 @@ func (i *OperatorInstaller) waitForOperator(ctx context.Context, timeout time.Du
 }
 
 func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
-	// Wait for operator CRDs to be registered
 	if err := i.waitForCRDs(ctx, 2*time.Minute); err != nil {
 		return err
 	}
 
-	// Core provider (always required)
-	providers := []string{
-		"core/capi-operator/providers/core-provider.yaml",
-	}
-
-	// OS-specific bootstrap and control plane providers
-	if i.OSType == "ubuntu" {
-		providers = append(providers,
-			"core/capi-operator/providers/bootstrap-provider-kubeadm.yaml",
-			"core/capi-operator/providers/controlplane-provider-kubeadm.yaml",
-		)
-	} else {
-		// Talos
-		providers = append(providers,
-			"core/capi-operator/providers/bootstrap-provider-talos.yaml",
-			"core/capi-operator/providers/controlplane-provider-talos.yaml",
-		)
-	}
-
-	// Infrastructure provider (always Hetzner)
-	providers = append(providers, "core/capi-operator/providers/infrastructure-provider-hetzner.yaml")
-
-	for _, providerPath := range providers {
-		manifest, err := assets.ReadManifest(providerPath)
+	for _, provider := range i.Providers {
+		manifest, err := assets.ReadManifest(provider.Manifest)
 		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", providerPath, err)
+			return fmt.Errorf("failed to read %s: %w", provider.Manifest, err)
 		}
 
 		cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "-f", "-")...)
 		cmd.Stdin = bytes.NewReader(manifest)
-
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply %s: %w\n%s", providerPath, err, output)
+			return fmt.Errorf("failed to apply %s: %w\n%s", provider.Manifest, err, output)
+		}
+
+		if i.Debug {
+			fmt.Printf("[capi-init] ✓ Applied %s/%s\n", provider.Kind, provider.Name)
 		}
 	}
 
@@ -397,46 +385,21 @@ func (i *OperatorInstaller) waitForCRDs(ctx context.Context, timeout time.Durati
 }
 
 func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.Duration) error {
-	// Core provider (always required)
-	providers := []struct {
-		kind string
-		name string
-	}{
-		{"CoreProvider", "cluster-api"},
-	}
-
-	// OS-specific providers
-	if i.OSType == "ubuntu" {
-		providers = append(providers,
-			struct{ kind, name string }{"BootstrapProvider", "kubeadm"},
-			struct{ kind, name string }{"ControlPlaneProvider", "kubeadm"},
-		)
-	} else {
-		// Talos
-		providers = append(providers,
-			struct{ kind, name string }{"BootstrapProvider", "talos"},
-			struct{ kind, name string }{"ControlPlaneProvider", "talos"},
-		)
-	}
-
-	// Infrastructure provider (always Hetzner)
-	providers = append(providers, struct{ kind, name string }{"InfrastructureProvider", "hetzner"})
-
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	for _, provider := range providers {
+	for _, provider := range i.Providers {
 		for {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ticker.C:
 				if time.Now().After(deadline) {
-					return fmt.Errorf("timeout waiting for %s/%s", provider.kind, provider.name)
+					return fmt.Errorf("timeout waiting for %s/%s", provider.Kind, provider.Name)
 				}
 
-				cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", provider.kind, provider.name,
+				cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", provider.Kind, provider.Name,
 					"-n", constants.NamespaceCAPI,
 					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")...)
 
@@ -446,11 +409,11 @@ func (i *OperatorInstaller) waitForProviders(ctx context.Context, timeout time.D
 				}
 
 				if string(output) == "True" {
-					fmt.Printf("[capi-init] ✓ %s/%s ready\n", provider.kind, provider.name)
+					fmt.Printf("[capi-init] ✓ %s/%s ready\n", provider.Kind, provider.Name)
 					goto nextProvider
 				}
 
-				fmt.Printf("[capi-init] Waiting for %s/%s...\n", provider.kind, provider.name)
+				fmt.Printf("[capi-init] Waiting for %s/%s...\n", provider.Kind, provider.Name)
 			}
 		}
 	nextProvider:

@@ -3,8 +3,6 @@ kind: NetworkPolicy
 metadata:
   name: nats-access
   namespace: platform-messaging
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   podSelector:
     matchLabels:

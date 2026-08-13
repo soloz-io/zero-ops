@@ -76,7 +76,7 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	validationErrors := r.validateFeatureReferences(ctx, plan)
 	if len(validationErrors) > 0 {
 		logger.Error(fmt.Errorf("feature validation failed"), "errors", validationErrors)
-		
+
 		// Update status with validation errors
 		plan.Status.ValidationErrors = validationErrors
 		meta.SetStatusCondition(&plan.Status.Conditions, metav1.Condition{
@@ -86,15 +86,15 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Message:            fmt.Sprintf("Feature validation failed: %v", validationErrors),
 			ObservedGeneration: plan.Generation,
 		})
-		
+
 		if updateErr := r.Status().Update(ctx, plan); updateErr != nil {
 			logger.Error(updateErr, "Failed to update Plan status")
 			return ctrl.Result{}, updateErr
 		}
-		
+
 		// Emit event for validation failure
 		r.emitEvent(plan, corev1.EventTypeWarning, "ValidationFailed", fmt.Sprintf("Feature validation failed: %v", validationErrors))
-		
+
 		// Requeue with backoff
 		return ctrl.Result{RequeueAfter: r.calculateBackoff(plan)}, fmt.Errorf("validation failed")
 	}
@@ -105,7 +105,7 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Sync plan to OpenMeter
 	if err := r.syncPlanToOpenMeter(ctx, plan, namespace); err != nil {
 		logger.Error(err, "Failed to sync plan to OpenMeter")
-		
+
 		// Update status with error condition
 		meta.SetStatusCondition(&plan.Status.Conditions, metav1.Condition{
 			Type:               "Synced",
@@ -114,15 +114,15 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Message:            fmt.Sprintf("Failed to sync to OpenMeter: %v", err),
 			ObservedGeneration: plan.Generation,
 		})
-		
+
 		if updateErr := r.Status().Update(ctx, plan); updateErr != nil {
 			logger.Error(updateErr, "Failed to update Plan status")
 			return ctrl.Result{}, updateErr
 		}
-		
+
 		// Emit event for sync failure
 		r.emitEvent(plan, corev1.EventTypeWarning, "SyncFailed", fmt.Sprintf("Failed to sync to OpenMeter: %v", err))
-		
+
 		// Exponential backoff
 		return ctrl.Result{RequeueAfter: r.calculateBackoff(plan)}, err
 	}
@@ -150,14 +150,14 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // handleDeletion handles Plan deletion by deleting from OpenMeter
 func (r *PlanReconciler) handleDeletion(ctx context.Context, plan *billingv1alpha1.Plan) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	
+
 	// Delete plan from OpenMeter
 	namespace := plan.Spec.TenantID
 	if err := r.deletePlanFromOpenMeter(ctx, plan, namespace); err != nil {
 		logger.Error(err, "Failed to delete plan from OpenMeter")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	}
-	
+
 	logger.Info("Successfully deleted Plan from OpenMeter", "key", plan.Spec.Key)
 	return ctrl.Result{}, nil
 }
@@ -165,7 +165,7 @@ func (r *PlanReconciler) handleDeletion(ctx context.Context, plan *billingv1alph
 // validateFeatureReferences checks that all referenced features exist
 func (r *PlanReconciler) validateFeatureReferences(ctx context.Context, plan *billingv1alpha1.Plan) []string {
 	var validationErrors []string
-	
+
 	// List all features in the same namespace
 	featureList := &billingv1alpha1.FeatureList{}
 	if err := r.List(ctx, featureList, client.InNamespace(plan.Namespace)); err != nil {
@@ -185,7 +185,7 @@ func (r *PlanReconciler) validateFeatureReferences(ctx context.Context, plan *bi
 	for _, phase := range plan.Spec.Phases {
 		for _, rateCard := range phase.RateCards {
 			if !existingFeatures[rateCard.FeatureKey] {
-				validationErrors = append(validationErrors, 
+				validationErrors = append(validationErrors,
 					fmt.Sprintf("referenced feature not found: %s (phase: %s)", rateCard.FeatureKey, phase.Key))
 			}
 		}
@@ -199,11 +199,11 @@ func (r *PlanReconciler) syncPlanToOpenMeter(ctx context.Context, plan *billingv
 	// TODO: Verify OpenMeter SDK schema and update request body type
 	// The exact SDK types need to be confirmed from openmeter/api/client/go package
 	// This is a placeholder implementation that needs SDK schema verification
-	
+
 	// Placeholder: Mark as synced for now
 	plan.Status.OpenMeterID = fmt.Sprintf("plan-%s", plan.Spec.Key)
 	return nil
-	
+
 	// Expected implementation (needs SDK schema verification):
 	// Convert phases to OpenMeter format
 	// phases := make([]openmeter.PlanPhase, len(plan.Spec.Phases))
@@ -247,10 +247,10 @@ func (r *PlanReconciler) deletePlanFromOpenMeter(ctx context.Context, plan *bill
 	// TODO: Verify OpenMeter SDK schema and update delete method
 	// The exact SDK types need to be confirmed from openmeter/api/client/go package
 	// This is a placeholder implementation that needs SDK schema verification
-	
+
 	// Placeholder: Mark as deleted for now
 	return nil
-	
+
 	// Expected implementation (needs SDK schema verification):
 	// resp, err := r.OpenMeterClient.DeletePlanWithResponse(ctx, plan.Status.OpenMeterID, m.withNamespace(namespace))
 	// if err != nil {

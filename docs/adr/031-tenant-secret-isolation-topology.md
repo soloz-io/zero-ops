@@ -29,6 +29,15 @@ Because the Spoke-scoped Machine Identity has access to *all* tenants within tha
 - **Platform Control**: Only the AINativeSaaS Crossplane XR (governed by the platform team) can create `ExternalSecret` and `SecretStore` resources.
 - **Tenant Restriction**: Per **ADR-021** (Tenant ABI), the `tenant-workloads` ArgoCD AppProject explicitly **whitelists** the resources tenants can deploy (Deployments, Rollouts, Services, etc.). Tenants are **denied** the ability to create `ExternalSecret` objects, making it impossible for a malicious tenant workload to query Infisical for another tenant's paths.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Tenant Passwords | Infisical | Tenant Identity Service | ESO | Tenant Apps, provider-sql | Day-1+ |
+| Machine Identities | Infisical | Hub Operator | Infisical API | Spokes, Operators | Day-0 |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

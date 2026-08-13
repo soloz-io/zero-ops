@@ -2,15 +2,15 @@ package components
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -61,6 +61,7 @@ func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSe
 		StringData: map[string]string{
 			"client-id":     clientID,
 			"client-secret": clientSecret,
+			"clientSecret":  clientSecret, // pki-issuer v0.2.0 compat
 		},
 	}
 
@@ -103,119 +104,68 @@ func (i *Installer) InstallInfisicalAuth(ctx context.Context, clientID, clientSe
 // 4. ArgoCD syncs ESO manifests from GitHub
 // 5. ESO takes over and replaces this secret with Infisical-backed version
 
-func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
-	// Load kubeconfig and create clientset
+// GenerateInfisicalCryptoSecrets generates the initial cryptographic keys and creates
+// the Kubernetes Secrets that Infisical and CNPG need to boot. This MUST run before
+// B02 (CNPG Cluster) so that platform-db-app exists when CNPG's initdb runs.
+//
+// Creates: infisical-secrets (without DB_ROOT_CERT — deferred), infisical-redis-credentials, platform-db-app
+//
+// Called by: GenerateLocalSecrets (between B01 and B02)
+func (i *Installer) GenerateInfisicalCryptoSecrets(ctx context.Context) error {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
-		return false, fmt.Errorf("failed to load kubeconfig: %w", err)
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	// Namespace separation: Infisical runs in security namespace, Redis in data namespace
 	securityNamespace := constants.NamespaceSecurity
 	dataNamespace := constants.NamespaceData
 
-	// Check if secrets exist in their respective namespaces
 	infSecret, err1 := clientset.CoreV1().Secrets(securityNamespace).Get(ctx, "infisical-secrets", metav1.GetOptions{})
-	redisSecret, err2 := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "infisical-redis-credentials", metav1.GetOptions{})
 
-	secretsExist := err1 == nil && err2 == nil &&
+	secretsExist := err1 == nil &&
 		len(infSecret.Data["ENCRYPTION_KEY"]) > 0 &&
-		len(infSecret.Data["REDIS_URL"]) > 0 &&
-		len(redisSecret.Data["password"]) > 0
+		len(infSecret.Data["REDIS_URL"]) > 0
 
 	if secretsExist {
-		fmt.Println("[bootstrap-secrets] Infisical & Redis secrets exist. Updating TLS configuration...")
+		fmt.Println("[bootstrap-secrets] Infisical secrets already exist, reusing")
 	} else {
-		fmt.Println("[bootstrap-secrets] Generating initial Infisical & Redis secrets...")
+		fmt.Println("[bootstrap-secrets] Generating initial Infisical secrets...")
 	}
 
-	// Generate secure random keys - MUST be exactly 32 characters for AES-256
-	// If secrets exist, reuse existing keys to avoid breaking encryption
-	var encryptionKey, authSecret, redisPassword string
+	var encryptionKey, authSecret string
 
 	if secretsExist {
-		// Reuse existing keys to maintain data integrity
 		encryptionKey = string(infSecret.Data["ENCRYPTION_KEY"])
 		authSecret = string(infSecret.Data["AUTH_SECRET"])
-
-		// Extract Redis password from URL
-		redisURL := string(infSecret.Data["REDIS_URL"])
-		// Parse: redis://:PASSWORD@redis-master.platform-data.svc:6379
-		if idx := strings.Index(redisURL, "redis://:"); idx >= 0 {
-			start := idx + len("redis://:")
-			if end := strings.Index(redisURL[start:], "@"); end >= 0 {
-				redisPassword = redisURL[start : start+end]
-			}
-		}
-
-		if redisPassword == "" {
-			redisPassword = string(redisSecret.Data["password"])
-		}
-
 		fmt.Println("[bootstrap-secrets] Reusing existing ENCRYPTION_KEY and AUTH_SECRET")
 	} else {
-		// Generate new keys
-		var err error
 		encryptionKey, err = generateSecurePassword(32)
 		if err != nil {
-			return false, fmt.Errorf("failed to generate encryption key: %w", err)
+			return fmt.Errorf("failed to generate encryption key: %w", err)
 		}
-
 		authSecret, err = generateSecurePassword(32)
 		if err != nil {
-			return false, fmt.Errorf("failed to generate auth secret: %w", err)
+			return fmt.Errorf("failed to generate auth secret: %w", err)
 		}
-
-		// Generate Redis password (use hex encoding to avoid URL-unsafe characters)
-		redisBytes := make([]byte, 32)
-		if _, err := rand.Read(redisBytes); err != nil {
-			return false, fmt.Errorf("failed to generate redis password: %w", err)
-		}
-		redisPassword = hex.EncodeToString(redisBytes)[:32]
-
 		fmt.Println("[bootstrap-secrets] Generated new ENCRYPTION_KEY and AUTH_SECRET")
 	}
-	redisURL := fmt.Sprintf("redis://:%s@redis-master.platform-data.svc:6379", redisPassword)
+	redisURL := "redis://platform-redis.platform-data.svc:6379"
 
-	// BOOTSTRAP STRATEGY: Day-0 Deterministic CA Injection
-	// The CA is generated offline by GenerateAndInjectCA() before this method runs.
-	// This breaks the chicken-and-egg problem:
-	// - CNPG uses the CLI-generated CA (via spec.certificates.serverCASecret)
-	// - Infisical uses the same CA for TLS verification (via DB_ROOT_CERT)
-	// Both components start with TLS enabled on first boot.
-	
-	// Read CA certificate from CLI-generated secret
-	caSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
-	if err != nil {
-		return false, fmt.Errorf("failed to read platform-db-ca secret: %w\nEnsure GenerateAndInjectCA() was called before this method", err)
-	}
-
-	caCert, ok := caSecret.Data["ca.crt"]
-	if !ok {
-		return false, fmt.Errorf("ca.crt not found in platform-db-ca secret")
-	}
-
-	// Base64 encode the CA certificate for Infisical
-	dbRootCert := base64.StdEncoding.EncodeToString(caCert)
-	
-	// Create the master infisical-secrets secret with TLS enabled from Day 0
-	// This secret is consumed via envFrom in the Helm chart
 	secretData := map[string]string{
 		"ENCRYPTION_KEY": encryptionKey,
 		"AUTH_SECRET":    authSecret,
 		"REDIS_URL":      redisURL,
-		"DB_ROOT_CERT":   dbRootCert, // TLS enabled from Day 0
 	}
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "infisical-secrets",
-			Namespace: securityNamespace, // Infisical runs in platform-security
+			Namespace: securityNamespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
 				"app.kubernetes.io/component":  "secret-zero",
@@ -225,47 +175,145 @@ func (i *Installer) InstallInfisicalSecrets(ctx context.Context) (bool, error) {
 		StringData: secretData,
 	}
 
-	// Try to create, if exists then update
 	_, err = clientset.CoreV1().Secrets(securityNamespace).Create(ctx, secret, metav1.CreateOptions{})
 	if err != nil {
-		// Secret might already exist, try to update
 		_, err = clientset.CoreV1().Secrets(securityNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
-			return false, fmt.Errorf("failed to create or update infisical-secrets: %w", err)
+			return fmt.Errorf("failed to create or update infisical-secrets: %w", err)
 		}
 		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets updated (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL)")
 	} else {
 		fmt.Println("[bootstrap-secrets] ✓ infisical-secrets created (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL)")
 	}
 
-	// Create Redis credentials secret (for standalone Redis pod only)
-	redisSecretObj := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "infisical-redis-credentials",
-			Namespace: dataNamespace, // Redis runs in platform-data
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
-				"app.kubernetes.io/component":  "secret-zero",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"password": redisPassword,
-		},
-	}
+	// infisical-redis-credentials generation removed per ADR-014
 
-	_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, redisSecretObj, metav1.CreateOptions{})
+	_, err = clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-app", metav1.GetOptions{})
 	if err != nil {
-		_, err = clientset.CoreV1().Secrets(dataNamespace).Update(ctx, redisSecretObj, metav1.UpdateOptions{})
-		if err != nil {
-			return false, fmt.Errorf("failed to create or update infisical-redis-credentials: %w", err)
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to check platform-db-app secret: %w", err)
 		}
-		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials updated")
+
+		fmt.Println("[bootstrap-secrets] Generating platform-db-app (CNPG Secret Zero)...")
+		appPassword, err := generateSecurePassword(32)
+		if err != nil {
+			return fmt.Errorf("failed to generate app password: %w", err)
+		}
+
+		appSecretObj := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "platform-db-app",
+				Namespace: dataNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "zero-ops-hub-cli",
+					"app.kubernetes.io/component":  "secret-zero",
+				},
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			StringData: map[string]string{
+				"username": "app",
+				"password": appPassword,
+			},
+		}
+
+		_, err = clientset.CoreV1().Secrets(dataNamespace).Create(ctx, appSecretObj, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create platform-db-app secret: %w", err)
+		}
+		fmt.Println("[bootstrap-secrets] ✓ platform-db-app created")
 	} else {
-		fmt.Println("[bootstrap-secrets] ✓ infisical-redis-credentials created")
+		fmt.Println("[bootstrap-secrets] ✓ platform-db-app already exists")
 	}
 
-	return true, nil
+	fmt.Println("[bootstrap-secrets] ✓ Cryptographic secrets ready (infisical-secrets, platform-db-app)")
+	return nil
+}
+
+// UpdateInfisicalSecretsWithCNPGCert waits for the CNPG Cluster to be Ready,
+// reads the ca.crt from the CNPG-generated platform-db-ca Secret, and injects
+// DB_ROOT_CERT into infisical-secrets. This MUST run after B02 (CNPG Cluster)
+// has been applied and the Cluster is healthy.
+//
+// Called by: BootstrapInfisicalAPI (after B03)
+func (i *Installer) UpdateInfisicalSecretsWithCNPGCert(ctx context.Context) error {
+	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	securityNamespace := constants.NamespaceSecurity
+	dataNamespace := constants.NamespaceData
+
+	// Poll for CNPG Cluster to be Ready
+	clusterWaiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewKubectlChecker("CNPG cluster platform-db",
+				[]string{"get", "clusters.postgresql.cnpg.io", "platform-db",
+					"-n", dataNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
+				},
+			),
+		},
+		Timeout: 30 * time.Minute,
+	}
+	clusterWaiter.Checkers[0].(*health.KubectlChecker).Expected = "True"
+	if err := clusterWaiter.Wait(ctx, i.Kubeconfig); err != nil {
+		return fmt.Errorf("CNPG cluster platform-db not ready: %w\nEnsure the CNPG Cluster CR is deployed and the operator is running", err)
+	}
+	fmt.Println("✓ CNPG cluster platform-db is Ready")
+
+	// Poll for platform-db-ca Secret to exist and contain ca.crt.
+	// CNPG creates this Secret during cluster bootstrap, but there is a
+	// brief propagation window between "Cluster Ready" and the Secret being
+	// fully populated. This bounded poll handles that edge case.
+	fmt.Println("Waiting for platform-db-ca Secret to be populated...")
+	var caCert []byte
+	pollErr := wait.PollImmediateWithContext(ctx, 2*time.Second, 1*time.Minute, func(ctx context.Context) (bool, error) {
+		caSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
+		if err != nil {
+			return false, nil // keep polling
+		}
+		cert, ok := caSecret.Data["ca.crt"]
+		if !ok || len(cert) == 0 {
+			return false, nil // keep polling
+		}
+		caCert = cert
+		return true, nil
+	})
+	if pollErr != nil {
+		return fmt.Errorf("platform-db-ca Secret not populated: %w", pollErr)
+	}
+	fmt.Println("✓ platform-db-ca Secret found and populated")
+
+	dbRootCert := base64.StdEncoding.EncodeToString(caCert)
+	fmt.Println("Updating infisical-secrets with DB_ROOT_CERT...")
+
+	updateSecret, err := clientset.CoreV1().Secrets(securityNamespace).Get(ctx, "infisical-secrets", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to read infisical-secrets for DB_ROOT_CERT update: %w", err)
+	}
+	if existingCert, ok := updateSecret.Data["DB_ROOT_CERT"]; ok {
+		if string(existingCert) == dbRootCert {
+			fmt.Println("✓ DB_ROOT_CERT already configured with correct value")
+			return nil
+		}
+		fmt.Println("⚠️  DB_ROOT_CERT exists but differs, updating...")
+	}
+	if updateSecret.Data == nil {
+		updateSecret.Data = make(map[string][]byte)
+	}
+	updateSecret.Data["DB_ROOT_CERT"] = []byte(dbRootCert)
+	_, err = clientset.CoreV1().Secrets(securityNamespace).Update(ctx, updateSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update infisical-secrets with DB_ROOT_CERT: %w", err)
+	}
+	fmt.Println("✓ Added DB_ROOT_CERT to infisical-secrets")
+	return nil
 }
 
 func (i *Installer) UpgradeInfisicalTLS(ctx context.Context) error {

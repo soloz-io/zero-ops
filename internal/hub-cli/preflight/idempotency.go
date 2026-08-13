@@ -39,7 +39,7 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 	   bootstrapState.CurrentPhase == state.PhasePivotMove || 
 	   bootstrapState.CurrentPhase == state.PhasePivotReady || 
 	   bootstrapState.CurrentPhase == state.PhaseClusterClassDeploy || 
-	   bootstrapState.CurrentPhase == state.PhasePostBoot || 
+	   bootstrapState.CurrentPhase == state.PhasePlatformDeploy || 
 	   bootstrapState.CurrentPhase == state.PhaseComplete {
 		fmt.Printf("[preflight] Found existing state at phase '%s' - will resume\n", bootstrapState.CurrentPhase)
 		return nil
@@ -52,7 +52,7 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 		   lastPhase == state.PhasePivotMove || 
 		   lastPhase == state.PhasePivotReady || 
 		   lastPhase == state.PhaseClusterClassDeploy || 
-		   lastPhase == state.PhasePostBoot {
+		   lastPhase == state.PhasePlatformDeploy {
 			fmt.Printf("[preflight] Found existing state at phase '%s' - will resume\n", lastPhase)
 			return nil
 		}

@@ -22,23 +22,25 @@ spec:
       serviceAccountName: infisical-issuer
       containers:
       - name: infisical-issuer
-        image: ghcr.io/infisical/infisical-issuer:v0.1.0
+        image: docker.io/infisical/pki-issuer:v0.2.0
         args:
         - --v=2
         - --leader-election-namespace=cert-manager
         env:
         - name: INFISICAL_API_URL
-          value: "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+          value: "http://infisical-standalone-infisical.platform-security.svc:8080"
         - name: INFISICAL_CLIENT_ID
           valueFrom:
             secretKeyRef:
               name: infisical-auth
               key: client-id
+              optional: true
         - name: INFISICAL_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
               name: infisical-auth
               key: client-secret
+              optional: true
         securityContext:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
@@ -64,7 +66,7 @@ kind: ClusterRole
 metadata:
   name: infisical-issuer
 rules:
-- apiGroups: ["infisical.cert-manager.io"]
+- apiGroups: ["infisical-issuer.infisical.com"]
   resources: ["*"]
   verbs: ["*"]
 - apiGroups: ["cert-manager.io"]

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 )
@@ -13,33 +14,30 @@ import (
 type Deployer struct {
 	Kubeconfig string
 	Namespace  string
+	ClassPaths []string
 }
 
 // Deploy applies all ClusterClass definitions
 func (d *Deployer) Deploy(ctx context.Context) error {
-	classes := []string{
-		"classes/hetzner-mgmt-ubuntu-v1.yaml",
-	}
-	
-	for _, classPath := range classes {
+	for _, classPath := range d.ClassPaths {
 		manifest, err := assets.ReadManifest(classPath)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", classPath, err)
 		}
-		
+
 		cmd := exec.CommandContext(ctx, "kubectl", "apply",
 			"--kubeconfig", d.Kubeconfig,
 			"-f", "-",
 		)
 		cmd.Stdin = bytes.NewReader(manifest)
-		
+
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to apply %s: %w\n%s", classPath, err, output)
 		}
-		
+
 		fmt.Printf("[clusterclass-deploy] ✓ Applied %s\n", classPath)
 	}
-	
+
 	return d.verify(ctx)
 }
 
@@ -48,22 +46,17 @@ func (d *Deployer) verify(ctx context.Context) error {
 		"--kubeconfig", d.Kubeconfig,
 		"get", "clusterclass",
 		"-n", d.Namespace,
+		"--no-headers",
 	)
-	
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to verify ClusterClasses: %w", err)
 	}
-	
-	expected := []string{
-		"hetzner-mgmt-ubuntu-v1",
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
+		return fmt.Errorf("no ClusterClass found after applying manifests")
 	}
-	
-	for _, name := range expected {
-		if !bytes.Contains(output, []byte(name)) {
-			return fmt.Errorf("ClusterClass %s not found", name)
-		}
-	}
-	
+
 	return nil
 }

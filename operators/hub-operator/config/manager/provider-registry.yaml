@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-operator-provider-registry
+  labels:
+    app.kubernetes.io/component: provider-registry
+# Provider registry: maps provider name → Crossplane Composition name.
+# Only providers with a live composition are listed (ADR-046 §WS2).
+# capd: removed (WS0 — CAPD/local provider removed)
+# aws: removed (dangling — no composition exists)
+# hybrid: added (ADR-046 — Hetzner CP + home WSL2 workers)
+data:
+  hetzner: "spokepool-hetzner"
+  hybrid: "spokepool-hybrid"

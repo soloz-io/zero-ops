@@ -1,0 +1,56 @@
+name: spoke-identity-operator
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - operators/spoke-identity-operator/**
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: operators/spoke-identity-operator
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/spoke-identity-operator:${{ github.sha }}
+            ghcr.io/soloz-io/spoke-identity-operator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      - name: Update Kustomization with new image
+        run: |
+          cd operators/spoke-identity-operator/config/manager
+          kustomize edit set image controller=ghcr.io/soloz-io/spoke-identity-operator@${{ steps.build.outputs.digest }}
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/spoke-identity-operator/config/manager/kustomization.yaml
+          git commit -m "chore(spoke-identity-operator): update image to ${{ github.sha }}" || exit 0
+          git push

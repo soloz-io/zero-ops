@@ -443,7 +443,7 @@ spec:
               backup:
                 barmanObjectStore:
                   destinationPath: s3://zero-ops-backups/tenants/
-                  endpointURL: https://fsn1.your-objectstorage.com
+                  endpointURL: https://hel1.your-objectstorage.com
     patches:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.claimRef.namespace
@@ -961,7 +961,7 @@ curl -X GET http://agentregistry.platform-agentregistry.svc.cluster.local:8080/v
 
 ```bash
 # Test spoke cluster creation (GitOps)
-hub spoke create test-spoke --type=pool --region=fsn1
+hub spoke create test-spoke --type=pool --region=hel1
 
 # Verify manifest committed to fleet repository
 git log --oneline fleet-repository/

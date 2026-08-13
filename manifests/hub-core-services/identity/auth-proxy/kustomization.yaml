@@ -7,3 +7,4 @@ resources:
 - rbac.yaml
 - deployment.yaml
 - service.yaml
+- ghcr-pull-secret-es.yaml

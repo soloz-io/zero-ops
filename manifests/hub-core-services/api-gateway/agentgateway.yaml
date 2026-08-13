@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: agentgateway
-        image: ghcr.io/agentgateway/agentgateway:v0.1.0
+        image: cr.agentgateway.dev/agentgateway:latest
         args: ["-f", "/etc/agentgateway/config.yaml"]
         ports:
         - containerPort: 3000

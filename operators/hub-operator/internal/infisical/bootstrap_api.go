@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 	"time"
 )
 
@@ -26,17 +28,13 @@ func NewBootstrapAPI() *BootstrapAPI {
 	}
 }
 
-// BootstrapResponse represents the response from /api/v1/admin/bootstrap
-type BootstrapResponse struct {
-	Identity struct {
-		Username string `json:"username"`
-		Credentials struct {
-			Token string `json:"token"`
-		} `json:"credentials"`
-	} `json:"identity"`
-	Organization struct {
-		ID string `json:"id"`
-	} `json:"organization"`
+// ProjectResponse represents the response from /api/v1/projects
+type ProjectResponse struct {
+	Project struct {
+		ID   string `json:"id"`
+		Slug string `json:"slug"`
+		Name string `json:"name"`
+	} `json:"project"`
 }
 
 // LoginResponse represents the response from /api/v3/auth/login
@@ -61,7 +59,7 @@ func (api *BootstrapAPI) Login(ctx context.Context, email, password string) (*Lo
 		return nil, fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointLogin, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointLogin, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -98,7 +96,7 @@ func (api *BootstrapAPI) SelectOrganization(ctx context.Context, token, orgID st
 		return nil, fmt.Errorf("failed to marshal select organization request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointSelectOrg, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointSelectOrg, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create select organization request: %w", err)
 	}
@@ -125,67 +123,6 @@ func (api *BootstrapAPI) SelectOrganization(ctx context.Context, token, orgID st
 	return &selectOrgResp, nil
 }
 
-// Bootstrap calls /api/v1/admin/bootstrap to create admin user
-// If instance is already bootstrapped (400 error), returns error indicating manual intervention needed
-func (api *BootstrapAPI) Bootstrap(ctx context.Context, email, password, orgName string) (*BootstrapResponse, error) {
-	payload := map[string]string{
-		"email":        email,
-		"password":     password,
-		"organization": orgName,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal bootstrap request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointBootstrap, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bootstrap request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := api.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute bootstrap request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Handle "already bootstrapped" case
-	if resp.StatusCode == http.StatusBadRequest {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		if bytes.Contains(bodyBytes, []byte("already been set up")) {
-			// Instance already bootstrapped - this is not an error, just skip bootstrap
-			// Return nil to indicate bootstrap should be skipped
-			return nil, nil
-		}
-		return nil, fmt.Errorf("bootstrap failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("bootstrap failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var bootstrapResp BootstrapResponse
-	if err := json.NewDecoder(resp.Body).Decode(&bootstrapResp); err != nil {
-		return nil, fmt.Errorf("failed to decode bootstrap response: %w", err)
-	}
-
-	return &bootstrapResp, nil
-}
-
-// ProjectResponse represents project creation response
-// API returns the project wrapped in a "project" field
-type ProjectResponse struct {
-	Project struct {
-		ID   string `json:"id"`
-		Slug string `json:"slug"`
-		Name string `json:"name"`
-	} `json:"project"`
-}
-
 // CreateProject creates a new project
 func (api *BootstrapAPI) CreateProject(ctx context.Context, adminToken, projectName, orgID string) (*ProjectResponse, error) {
 	payload := map[string]string{
@@ -198,7 +135,7 @@ func (api *BootstrapAPI) CreateProject(ctx context.Context, adminToken, projectN
 		return nil, fmt.Errorf("failed to marshal project request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointProjects, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointProjects, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create project request: %w", err)
 	}
@@ -236,7 +173,7 @@ func (api *BootstrapAPI) UpdateProjectSlug(ctx context.Context, adminToken, proj
 		return fmt.Errorf("failed to marshal update slug request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PATCH", api.baseURL+"/api/v1/projects/"+projectID, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", api.baseURL+constant.APIEndpointProjects+"/"+projectID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create update slug request: %w", err)
 	}
@@ -280,7 +217,7 @@ func (api *BootstrapAPI) CreateIdentity(ctx context.Context, adminToken, identit
 		return nil, fmt.Errorf("failed to marshal identity request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointIdentities, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointIdentities, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create identity request: %w", err)
 	}
@@ -319,13 +256,13 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 			{"ipAddress": "0.0.0.0/0"},
 			{"ipAddress": "::/0"},
 		},
-		"accessTokenTTL":       2592000, // 30 days
-		"accessTokenMaxTTL":    2592000, // 30 days
-		"accessTokenNumUsesLimit": 0,
-		"accessTokenPeriod":    0,
-		"lockoutEnabled":       true,
-		"lockoutThreshold":     3,
-		"lockoutDurationSeconds": 300,
+		"accessTokenTTL":             2592000, // 30 days
+		"accessTokenMaxTTL":          2592000, // 30 days
+		"accessTokenNumUsesLimit":    0,
+		"accessTokenPeriod":          0,
+		"lockoutEnabled":             true,
+		"lockoutThreshold":           3,
+		"lockoutDurationSeconds":     300,
 		"lockoutCounterResetSeconds": 30,
 	}
 
@@ -334,7 +271,7 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 		return fmt.Errorf("failed to marshal attach auth request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointUniversalAuth+"/"+identityID, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create attach auth request: %w", err)
 	}
@@ -364,7 +301,7 @@ func (api *BootstrapAPI) AttachUniversalAuth(ctx context.Context, adminToken, id
 
 // ClientCredentialsResponse represents client credentials generation response
 type ClientCredentialsResponse struct {
-	ClientSecret string `json:"clientSecret"`
+	ClientSecret     string `json:"clientSecret"`
 	ClientSecretData struct {
 		ID string `json:"id"`
 	} `json:"clientSecretData"`
@@ -379,7 +316,7 @@ type UniversalAuthResponse struct {
 
 // GetUniversalAuth retrieves the universal auth configuration to get clientId
 func (api *BootstrapAPI) GetUniversalAuth(ctx context.Context, adminToken, identityID string) (*UniversalAuthResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+APIEndpointUniversalAuth+"/"+identityID, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create get universal auth request: %w", err)
 	}
@@ -409,7 +346,7 @@ func (api *BootstrapAPI) GetUniversalAuth(ctx context.Context, adminToken, ident
 func (api *BootstrapAPI) GenerateClientCredentials(ctx context.Context, adminToken, identityID string) (*ClientCredentialsResponse, error) {
 	// Use default values for client secret configuration
 	payload := map[string]interface{}{
-		"description":   "",
+		"description":  "",
 		"numUsesLimit": 0,
 		"ttl":          0,
 	}
@@ -419,7 +356,7 @@ func (api *BootstrapAPI) GenerateClientCredentials(ctx context.Context, adminTok
 		return nil, fmt.Errorf("failed to marshal client credentials request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+APIEndpointUniversalAuth+"/"+identityID+APIEndpointClientSecrets, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+constant.APIEndpointUniversalAuth+"/"+identityID+constant.APIEndpointClientSecrets, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client credentials request: %w", err)
 	}
@@ -457,7 +394,7 @@ func (api *BootstrapAPI) GrantProjectAccess(ctx context.Context, adminToken, pro
 		return fmt.Errorf("failed to marshal grant access request: %w", err)
 	}
 
-	url := fmt.Sprintf(api.baseURL+APIEndpointProjectMemberships, projectID, identityID)
+	url := fmt.Sprintf(api.baseURL+constant.APIEndpointProjectMemberships, projectID, identityID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create grant access request: %w", err)
@@ -526,7 +463,7 @@ func (api *BootstrapAPI) AddUserToProject(ctx context.Context, adminToken, proje
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/projects/"+projectID+"/memberships", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(constant.APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}
@@ -561,7 +498,7 @@ func (api *BootstrapAPI) AddUserToProjectByEmail(ctx context.Context, adminToken
 		return fmt.Errorf("failed to marshal add user request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+"/api/v1/projects/"+projectID+"/memberships", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.baseURL+fmt.Sprintf(constant.APIEndpointProjectUserMemberships, projectID), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create add user request: %w", err)
 	}

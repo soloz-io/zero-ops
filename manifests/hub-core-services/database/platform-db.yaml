@@ -3,8 +3,6 @@ kind: Cluster
 metadata:
   name: platform-db
   namespace: platform-data
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   instances: 1
   storage:
@@ -14,8 +12,10 @@ spec:
   enableSuperuserAccess: true
 
   certificates:
-    serverCASecret: platform-db-ca  # Use CLI-generated CA (Day-0 Deterministic Injection)
-    clientCASecret: platform-db-ca  # Use CLI-generated CA for client certificates
+    # CNPG generates its own internal CA natively — no external CA is injected.
+    # The platform-db-ca Secret is created by CNPG during cluster bootstrap.
+    # Consumers requiring database trust material SHALL obtain the CA certificate
+    # from the CNPG-generated platform-db-ca Secret.
     serverAltDNSNames:
       - platform-db-pooler
       - platform-db-pooler.platform-core-db

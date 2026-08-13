@@ -11,11 +11,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/constant"
 )
 
 // InfisicalClient wraps Infisical API operations with Universal Auth
@@ -35,7 +36,7 @@ func NewInfisicalClient(ctx context.Context, k8sClient client.Client, baseURL st
 		// Use internal service URL instead of external HTTPS
 		// This avoids TLS certificate verification issues during bootstrap
 		// Service name follows Helm pattern: {release}-{chart}-{component}
-		baseURL = "http://platform-infisical-infisical-standalone-infisical.platform-security.svc:8080"
+		baseURL = "http://infisical-standalone-infisical.platform-security.svc:8080"
 	}
 
 	return &InfisicalClient{
@@ -56,7 +57,7 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 	secret := &corev1.Secret{}
 	if err := c.k8sClient.Get(ctx, client.ObjectKey{
 		Name:      "infisical-auth",
-		Namespace: "platform-ops",
+		Namespace: constant.NamespaceOps,
 	}, secret); err != nil {
 		return fmt.Errorf("failed to get infisical-auth secret: %w", err)
 	}
@@ -78,7 +79,7 @@ func (c *InfisicalClient) authenticate(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+constant.APIEndpointUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -241,8 +242,8 @@ func (c *InfisicalClient) getWorkspaceIdFromSlug(ctx context.Context, projectSlu
 
 // secretExists checks if a secret already exists
 func (c *InfisicalClient) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.baseURL, key, workspaceId, environmentSlug, secretPath)
+	url := fmt.Sprintf("%s%s/%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, constant.APIEndpointSecretsRaw, key, workspaceId, environmentSlug, secretPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -293,7 +294,7 @@ func (c *InfisicalClient) SecretExists(ctx context.Context, projectSlug, environ
 // createSecret creates a new secret in Infisical using v3 API
 func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	logger := log.FromContext(ctx)
-	
+
 	createReq := map[string]interface{}{
 		"workspaceId": workspaceId,
 		"environment": environmentSlug,
@@ -302,11 +303,11 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		"secretValue": value,
 		"type":        "shared",
 	}
-	
-	logger.Info("Creating secret in Infisical", 
-		"workspaceId", workspaceId, 
-		"environment", environmentSlug, 
-		"secretPath", secretPath, 
+
+	logger.Info("Creating secret in Infisical",
+		"workspaceId", workspaceId,
+		"environment", environmentSlug,
+		"secretPath", secretPath,
 		"key", key,
 		"valueLength", len(value))
 
@@ -338,7 +339,7 @@ func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environ
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create secret with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
-	
+
 	logger.Info("Secret created successfully in Infisical", "key", key, "status", resp.StatusCode)
 
 	return nil
@@ -464,7 +465,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 // last '/' so the secret name is the final segment and the folder path is the prefix.
 func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
 	logger := log.FromContext(ctx)
-	
+
 	// Ensure we have a valid token
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
@@ -498,3 +499,133 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 	return nil
 }
 
+// EnsurePKITemplate idempotently ensures a PKI template exists in Infisical.
+func (c *InfisicalClient) EnsurePKITemplate(ctx context.Context, projectSlug, caName, templateName string, ttlDays int) error {
+	logger := log.FromContext(ctx)
+
+	var lastErr error
+	err := wait.PollImmediateWithContext(ctx, 5*time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
+		if err := c.ensureAuthenticated(ctx); err != nil {
+			lastErr = fmt.Errorf("failed to authenticate: %w", err)
+			return false, nil // retriable
+		}
+
+		workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get workspace ID: %w", err)
+			return false, nil // retriable
+		}
+
+		exists, err := c.verifyPKITemplateExists(ctx, workspaceId, templateName)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to check if PKI template exists: %w", err)
+			return false, nil // retriable
+		}
+		if exists {
+			logger.Info("PKI template already exists", "templateName", templateName)
+			return true, nil
+		}
+
+		if err := c.createPKITemplate(ctx, workspaceId, caName, templateName, ttlDays); err != nil {
+			lastErr = fmt.Errorf("failed to create PKI template: %w", err)
+			return false, nil // retriable
+		}
+
+		logger.Info("Successfully created PKI template", "templateName", templateName)
+		return true, nil
+	})
+
+	if err != nil {
+		if err == context.DeadlineExceeded || err == wait.ErrWaitTimeout {
+			return fmt.Errorf("timeout ensuring PKI template %s: %w", templateName, lastErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (c *InfisicalClient) verifyPKITemplateExists(ctx context.Context, workspaceId, templateName string) (bool, error) {
+	url := fmt.Sprintf("%s%s/%s?projectId=%s", c.baseURL, constant.APIEndpointPKITemplates, templateName, workspaceId)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return result.CertificateTemplate.ID != "", nil
+}
+
+func (c *InfisicalClient) createPKITemplate(ctx context.Context, workspaceId, caName, templateName string, ttlDays int) error {
+	createReq := map[string]interface{}{
+		"projectId":              workspaceId,
+		"caName":                 caName,
+		"name":                   templateName,
+		"commonName":             ".*",
+		"subjectAlternativeName": ".*",
+		"ttl":                    fmt.Sprintf("%dh", ttlDays*24),
+		"keyUsages":              []string{"digitalSignature", "keyEncipherment"},
+		"extendedKeyUsages":      []string{"serverAuth", "clientAuth"},
+	}
+	bodyData, err := json.Marshal(createReq)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s%s", c.baseURL, constant.APIEndpointPKITemplates)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusConflict {
+		return nil
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result struct {
+		CertificateTemplate struct {
+			ID string `json:"id"`
+		} `json:"certificateTemplate"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return fmt.Errorf("failed to parse create template response: %w", err)
+	}
+	if result.CertificateTemplate.ID == "" {
+		return fmt.Errorf("API response returned empty ID: %s", string(bodyBytes))
+	}
+
+	return nil
+}

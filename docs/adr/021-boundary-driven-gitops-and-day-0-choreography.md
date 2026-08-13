@@ -14,18 +14,30 @@ This approach proved brittle:
 ## Decision
 We will separate our deployment architecture into **Day-0 Imperative Choreography** and **Day-1+ Declarative Continuous Reconciliation**.
 
-1. **Independent Boundaries:** We will split the monolithic App-of-Apps into three mathematically independent ArgoCD applications:
+1. **Independent Boundaries:** We will split the monolithic App-of-Apps into mathematically independent ArgoCD applications:
    - `01-platform-infra`: Core controllers, Operators (Crossplane, CNPG, Atlas), and CRDs.
    - `02-platform-data`: Stateful workloads (CNPG Clusters, NATS, Redis).
-   - `03-platform-services`: Stateless applications and Control Planes (Kube-SBT, Ory, Spire).
+   - `03-platform-services`: Secret Providers and Core Platform Services (Infisical, HubEnvironment, API Gateway).
+   - `04-tenant-services`: Secret Consumers, Identity, and Billing Services (Ory, OpenMeter, Auth Proxy).
 2. **Day-0 CLI Choreography:** The `hub` CLI will imperatively gate these boundaries during initial bootstrap:
    - Apply `01-platform-infra` and wait for webhooks.
-   - Inject Secret Zero (Trust/PKI).
-   - Apply `02-platform-data` and `03-platform-services`.
+   - Apply `02-platform-data` and wait for CNPG readiness.
+   - Bootstap Secret Infrastructure and apply `03-platform-services`.
+   - Bootstap Infisical API (establishing secret hierarchy).
+   - Apply `04-tenant-services` (secret consumers).
    - The CLI will then exit permanently.
 3. **Ban Application Sync-Waves:** We will purge `argocd.argoproj.io/sync-wave` annotations from all application workloads. Sync-waves are restricted exclusively to ordering CRDs before the operators that own them in the `01-platform-infra` boundary.
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 * **Positive:** Complete blast-radius isolation. An application failure will no longer block infrastructure reconciliation.
 * **Positive:** Secret Zero injection is deterministic and race-condition-free.
-* **Negative:** Applications in `03-platform-services` will attempt to start before their databases in `02-platform-data` are fully provisioned, requiring robust internal retry logic (See ADR-022).
+* **Positive:** Clear architectural boundary between Secret Providers (`03`) and Secret Consumers (`04`), eliminating circular dependencies during bootstrap.
+* **Negative:** Applications in `04-tenant-services` will attempt to start before their databases in `02-platform-data` are fully provisioned, requiring robust internal retry logic (See ADR-022).

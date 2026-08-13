@@ -33,6 +33,10 @@ We will minimize the use of ArgoCD Sync Waves and Hooks. Resources should be dep
 When provisioning multi-tenant systems, prefer using the system's native ownership models over complex, finely-grained permission scripts.
 *   *Example:* For PostgreSQL, make the tenant user the native `Owner` of the database via the CNPG `Database` CR, rather than maintaining a brittle list of `GRANT ALL ON TABLES...` statements. This ensures future schemas and tables automatically inherit the correct permissions.
 
+## Ownership
+
+This ADR defines a design principle (declarative over imperative) and does not own specific platform resources. For resource ownership, see ADR-039.
+
 ## Consequences
 
 ### Positive

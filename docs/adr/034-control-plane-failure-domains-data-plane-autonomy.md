@@ -56,6 +56,10 @@ Cross-cluster telemetry buffering (JetStream) queues locally on Spokes. Remote t
 | **Infisical Down** | ✅ | ✅ | ✅ | ⚠️ | ❌ |
 | **NATS Down** | ✅ | ⚠️ | ✅ | ✅ | ✅ |
 
+## Ownership
+
+This ADR defines failure domain boundaries and autonomy guarantees for the control plane. For resource ownership, see ADR-039.
+
 ## Consequences
 
 ### Positive

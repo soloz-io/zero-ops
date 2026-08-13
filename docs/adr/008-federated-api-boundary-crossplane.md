@@ -62,6 +62,15 @@ This decision *Amends* ADR-005 by clarifying that:
 - XRs should compose other XRs (not just managed resources) to enforce dependency ordering
 - The Hub should push exactly one XR per tenant to each Spoke
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Infrastructure XRs | Kubernetes API | Crossplane | Crossplane | Spokes, Tenants | Day-1+ |
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

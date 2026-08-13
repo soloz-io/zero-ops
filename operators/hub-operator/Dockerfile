@@ -1,5 +1,9 @@
 # Build the manager binary
-FROM golang:1.26 AS builder
+# Use --platform=$BUILDPLATFORM so the build context runs natively on the
+# build host's architecture. Cross-compilation to TARGETARCH is then done
+# by the Go compiler (CGO_ENABLED=0 + GOOS/GOARCH), which is much faster
+# than running the entire build under QEMU emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

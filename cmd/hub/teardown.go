@@ -16,15 +16,15 @@ func newTeardownCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "teardown",
 		Short: "Teardown a Hub Cluster",
-		Long: `Teardown a Hub Cluster by deleting the Cluster resource and waiting
-for CAPI/CAPH controllers to cascade delete all infrastructure resources.`,
+		Long: `Teardown a Hub Cluster by forcefully deleting all cloud infrastructure,
+Kubernetes CAPI resources, Kind/Docker artifacts, and local state.`,
 		PreRunE: validateTeardownFlags,
 		RunE:    runTeardown,
 	}
 
 	cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name (required)")
-	cmd.Flags().BoolVar(&teardownForce, "force", false, "Force deletion via Hetzner API (use only if CAPI deletion stuck)")
-	cmd.Flags().BoolVar(&teardownConfirm, "confirm", false, "Confirm force deletion (required with --force)")
+	cmd.Flags().BoolVar(&teardownForce, "force", true, "Force deletion of resources (default true)")
+	cmd.Flags().BoolVar(&teardownConfirm, "confirm", false, "Confirm deletion (required for safety)")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 
 	cmd.MarkFlagRequired("name")
@@ -37,8 +37,8 @@ func validateTeardownFlags(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--name is required")
 	}
 
-	if teardownForce && !teardownConfirm {
-		return fmt.Errorf("--force requires --confirm flag for safety")
+	if !teardownConfirm {
+		return fmt.Errorf("teardown requires --confirm flag for safety")
 	}
 
 	return nil

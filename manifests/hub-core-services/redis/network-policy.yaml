@@ -6,8 +6,6 @@ kind: NetworkPolicy
 metadata:
   name: platform-redis-access
   namespace: platform-data
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   podSelector:
     matchLabels:
@@ -28,6 +26,14 @@ spec:
         - namespaceSelector:
             matchLabels:
               name: platform-data
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow from platform-security namespace (Infisical)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: platform-security
       ports:
         - protocol: TCP
           port: 6379

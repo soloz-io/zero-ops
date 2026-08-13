@@ -5,3 +5,4 @@
 - Attaching platform design for your reference.
 - Your solutions must always refer to the ADRs and principles that it follows and make sure it is aligned with them.
 - If your solution doesn't align with the ADRs and principles, you must provide a justification for why it doesn't and propose the necessary ADRs updates to accommodate these changes.
+- Your solution must never include direct cluster changes like "kubectl rollout restart” or "kubectl apply”. Always look for bugs in the codebase and suggest the file changes instead of direct imperative cluster updates.

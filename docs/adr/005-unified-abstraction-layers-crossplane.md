@@ -76,6 +76,14 @@ A single Composition can include:
 
 **Rationale:** Crossplane v2.0+ natively supports composing any Kubernetes resource without schema resolution race conditions. No artificial separation is required.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Infrastructure XRs | Kubernetes API | Crossplane | Crossplane | Spokes, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

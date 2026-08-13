@@ -78,6 +78,10 @@ When accounts create forms or applications requiring new tables, the schema gene
 **Partitioning for Scale:**
 For large tables with millions of rows across thousands of accounts, partition by `account_id` using Postgres LIST partitioning. Partitioning provides performance benefits of database-per-account with lower operational overhead. New partitions created automatically during account onboarding.
 
+## Ownership
+
+This ADR defines an application-layer data isolation pattern. Data ownership within the application is governed by the tenant identity service. For platform resource ownership, see ADR-039.
+
 ## Consequences
 
 **Positive:**

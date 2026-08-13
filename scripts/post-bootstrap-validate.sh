@@ -11,7 +11,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ZERO_OPS_DIR="$PROJECT_ROOT"
 LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
 LOG_FILE="$LOG_DIR/post-bootstrap-validate.log"
-KUBECONFIG="${KUBECONFIG:-$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig}"
+# Auto-detect kubeconfig (cloud providers use hub.kubeconfig)
+if [[ -z "${KUBECONFIG:-}" ]]; then
+    KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
+fi
+# Provider matrix: cloud providers use hetzner infra and production spoke.
+CAPI_INFRA_PROVIDER="hetzner"
 SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
 
 # Timeout for individual checks (seconds)
@@ -501,7 +506,7 @@ check_kube_sbt_api() {
 # ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
     log_section "13. INGRESS & CERT-MANAGER"
-    check_argocd_app "ingress-nginx" "FAIL"
+    check_argocd_app "ingress-nginx-controller" "FAIL"
     check_namespace_pods "cert-manager"
     check_deployment "cert-manager" "cert-manager"
     check_deployment "cert-manager" "cert-manager-webhook"
@@ -524,7 +529,7 @@ check_spoke() {
     check_deployment "platform-capi" "capi-operator-controller-manager"
 
     # CAPI Provider CRs (all in platform-capi per ADR-015)
-    local providers=("CoreProvider/cluster-api" "BootstrapProvider/kubeadm" "ControlPlaneProvider/kubeadm" "InfrastructureProvider/hetzner")
+    local providers=("CoreProvider/cluster-api" "BootstrapProvider/kubeadm" "ControlPlaneProvider/kubeadm" "InfrastructureProvider/${CAPI_INFRA_PROVIDER}")
     for p in "${providers[@]}"; do
         local kind="${p%%/*}"
         local name="${p##*/}"
@@ -540,14 +545,14 @@ check_spoke() {
 
     local spokepool_ready
     spokepool_ready=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="CrossplaneAdminSecretGenerated")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
     local spokepool_synced
     spokepool_synced=$(kc get spokepool "$SPOKEPOOL_NAME" -n platform-ops \
-        -o jsonpath='{.status.conditions[?(@.type=="CertificatesMinted")].status}' 2>/dev/null || echo "Unknown")
+        -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || echo "Unknown")
     if [[ "$spokepool_ready" == "True" && "$spokepool_synced" == "True" ]]; then
         log_pass "SpokePool $SPOKEPOOL_NAME: Ready+Synced"
     else
-        log_fail "SpokePool $SPOKEPOOL_NAME: CrossplaneAdminSecretGenerated=$spokepool_ready CertificatesMinted=$spokepool_synced"
+        log_fail "SpokePool $SPOKEPOOL_NAME: Ready=$spokepool_ready Synced=$spokepool_synced"
     fi
 
     local capi_cluster_phase
@@ -559,15 +564,21 @@ check_spoke() {
         log_fail "CAPI Cluster $SPOKEPOOL_NAME: phase=$capi_cluster_phase"
     fi
 
-    # Certificate distributions
-    local cert_resources=(
-        "${SPOKEPOOL_NAME}-alloy-cert-dist"
-        "${SPOKEPOOL_NAME}-nats-cert-dist"
-        "${SPOKEPOOL_NAME}-argocd-cert-dist"
-    )
-    for cert in "${cert_resources[@]}"; do
-        check_crossplane_object "platform-ops" "$cert"
-    done
+    # Certificate Ready condition (cert-manager issued, hub-operator cert wrapper)
+    if kc wait --for=condition=Ready certificate "argocd-agent-${SPOKEPOOL_NAME}" \
+        -n platform-capi --timeout=5s >/dev/null 2>&1; then
+        log_pass "Bootstrap certificate: Ready"
+    else
+        log_fail "Bootstrap certificate: Not Ready — check cert-manager and infisical-issuer"
+    fi
+
+    # SpokeMachineIdentity Ready condition (provisioned by spoke-identity-operator)
+    if kc wait --for=condition=Ready spokemachineidentity "${SPOKEPOOL_NAME}" \
+        -n platform-capi --timeout=5s >/dev/null 2>&1; then
+        log_pass "SpokeMachineIdentity: Ready"
+    else
+        log_fail "SpokeMachineIdentity: Not Ready — check spoke-identity-operator logs"
+    fi
 }
 
 # ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
@@ -577,19 +588,16 @@ check_platform_argocd_apps() {
     # Critical — failure blocks operations
     local critical_apps=(
         "platform-namespaces"
-        "02-platform-data"
         "platform-external-secrets"
         "platform-crossplane"
         "platform-crossplane-providers"
         "platform-cluster-secret-store"
         "platform-cloudnative-pg"
         "platform-database"
-        "platform-identity"
         "hub-environment"
         "hub-operator"
         "platform-nats"
         "platform-redis"
-        "platform-security-certificates"
     )
     for app in "${critical_apps[@]}"; do
         check_argocd_app "$app" "FAIL"
@@ -597,8 +605,6 @@ check_platform_argocd_apps() {
 
     # Warning only — degraded but not blocking
     local warn_apps=(
-        "01-platform-infra"
-        "03-platform-services"
         "platform-kyverno"
         "platform-clickhouse"
         "clickhouse-operator"
@@ -607,7 +613,7 @@ check_platform_argocd_apps() {
         "ory-hydra"
         "ory-keto"
         "platform-spire"
-        "platform-infisical-prerequisites"
+        "platform-infisical"
     )
     for app in "${warn_apps[@]}"; do
         check_argocd_app "$app" "WARN"

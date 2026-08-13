@@ -290,7 +290,7 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: "s3://zero-ops-backups/tenant-acme-corp/"
-      endpointURL: "https://fsn1.your-objectstorage.com"
+      endpointURL: "https://hel1.your-objectstorage.com"
       s3Credentials:
         accessKeyId:
           name: s3-creds

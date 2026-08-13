@@ -2,12 +2,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: hub-operator-manager-role
+  name: manager-role
 rules:
 - apiGroups:
   - ""
   resources:
   - configmaps
+  - services
   verbs:
   - get
   - list
@@ -32,6 +33,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -40,6 +49,94 @@ rules:
   - get
   - list
   - patch
+  - update
+  - watch
+- apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features
+  - meters
+  - plans
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features/finalizers
+  - meters/finalizers
+  - plans/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - billing.nutgraf.in
+  resources:
+  - features/status
+  - meters/status
+  - plans/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - identity.zeroops.io
+  resources:
+  - spokemachineidentities
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - ainativesaases/status
+  - spokepools/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - nutgraf.in
+  resources:
+  - spokepools
+  verbs:
+  - get
+  - list
   - update
   - watch
 - apiGroups:
@@ -76,35 +173,3 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - spokepools
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - spokepools/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - ainativesaases
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - nutgraf.in
-  resources:
-  - ainativesaases/status
-  verbs:
-  - get
-  - patch
-  - update

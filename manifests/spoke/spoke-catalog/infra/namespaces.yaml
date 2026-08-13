@@ -3,40 +3,28 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-data
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-messaging
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: kagent-system
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cert-manager
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-ops
-  annotations:
-    argocd.argoproj.io/sync-wave: "-2"

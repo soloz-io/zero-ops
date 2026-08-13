@@ -1,0 +1,21 @@
+# ADR-035: Single consolidated ClusterIssuer for Hub.
+# Chains: Offline Root CA -> Fleet Intermediate CA (Infisical PKI) -> Leaf Certificate
+# cert-manager delegates PKI operations to infisical-pki-issuer, which proxies to Infisical.
+#
+# Runtime-known fields (clientId, projectId) are supplied via ADR-045
+# Bootstrap-Generated GitOps Artifact: manifests/generated/infisical-fleet-issuer-patch.yaml
+#
+# Precondition: infisical-auth Secret must exist in platform-security namespace (Day-0 CLI / ESO).
+# Precondition: infisical-issuer CRDs must be installed (infisical-issuer-crd.yaml).
+apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-fleet-issuer
+spec:
+  url: "https://infisical.nutgraf.in"
+  authentication:
+    universalAuth:
+      secretRef:
+        name: infisical-auth
+        key: client-secret
+  certificateTemplateName: "infrastructure-services"

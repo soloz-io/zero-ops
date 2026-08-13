@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - infisical-issuer-crd.yaml
+  - infisical-issuer.yaml
+  - infisical-fleet-issuer.yaml
+  - infisical-signing-issuer.yaml
+  - cert-manager-approve-infisical-issuer.yaml
+
+patches:
+  - path: generated/infisical-fleet-issuer-patch.yaml
+
+replacements:
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.url
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.url
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.projectId
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.projectId
+  - source:
+      kind: ClusterIssuer
+      name: infisical-fleet-issuer
+      fieldPath: spec.authentication.universalAuth.clientId
+    targets:
+      - select:
+          kind: ClusterIssuer
+          name: infisical-signing-issuer
+        fieldPaths:
+          - spec.authentication.universalAuth.clientId

@@ -6,6 +6,7 @@ on:
     paths:
       - cmd/auth-proxy/**
       - internal/auth-proxy/**
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,7 +30,7 @@ jobs:
         with:
           context: .
           file: cmd/auth-proxy/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/soloz-io/zero-ops/auth-proxy:latest
           cache-from: type=gha

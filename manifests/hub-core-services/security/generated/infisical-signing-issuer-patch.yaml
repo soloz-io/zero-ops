@@ -1,0 +1,10 @@
+apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-signing-issuer
+spec:
+  url: http://infisical-standalone-infisical.platform-security.svc:8080
+  projectId: 15979c5a-903c-408c-b207-943253a72000
+  authentication:
+    universalAuth:
+      clientId: 1047dbbc-0932-4c4a-8e94-5ba2445a2826

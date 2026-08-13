@@ -253,6 +253,7 @@ data:
   CLUSTER_ID: "hub-production"
   CLUSTER_REGION: "ap-south-1"
   INFISICAL_PROJECT_SLUG: "hub-platform"
+  INFISICAL_SECRETS_PROJECT_SLUG: "hub-secrets"
   INFISICAL_ENVIRONMENT_SLUG: "dev"
   DOMAIN: "nutgraf.in"
   INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"

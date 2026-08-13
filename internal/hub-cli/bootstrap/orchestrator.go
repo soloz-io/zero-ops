@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,370 +10,178 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"gopkg.in/yaml.v3"
-
-	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/capi"
-	"github.com/soloz-io/zero-ops/internal/hub-cli/cluster"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/clusterclass"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
-	"github.com/soloz-io/zero-ops/internal/hub-cli/config"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
-	"github.com/soloz-io/zero-ops/internal/hub-cli/pivot"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
-	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
+	"gopkg.in/yaml.v3"
 )
 
-// Orchestrator manages the bootstrap process
+// Orchestrator runs the 16-phase hub cluster bootstrap pipeline.
+//
+// The pipeline is identical for every provider — local or cloud. The
+// orchestrator never branches on provider name or type. Cloud-specific
+// phases (5-7) are identity/no-ops for local providers by design.
+//
+//	Phase  1: preflight               Provider.PreflightValidators()
+//	Phase  2: bootstrap-create        kind cluster (orchestrator-owned)
+//	Phase  3: day0-infra              Provider.ProvisionDayZero(kubeconfig)
+//	Phase  4: capi-init               CAPI operator + Provider.OnCAPIInit()
+//	Phase  5: cluster-provision       Provider.ProvisionManagementCluster(cfg)
+//	Phase  6: pivot-move              Provider.PivotMove(cfg) → mgmtKubeconfig
+//	Phase  7: pivot-ready             Provider.PivotReady(mgmtKubeconfig)
+//	Phase  8: cleanup                 delete kind unless --keep-bootstrap
+//	Phase  9: clusterclass            ClusterClass deploy (orchestrator-owned)
+//	Phase 10: platform-pre-reqs       Provider.OnPlatformPreReqs(kubeconfig)
+//	Phase 11a: boundary-01            ArgoCD + infra operators (orchestrator-owned)
+//	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
+//	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
+//	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
+//	Phase 11e: boundary-03            Services (Infisical, SPIRE, ingress-nginx, apps)
+//	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
+//	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 type Orchestrator struct {
+	Provider         Provider
 	ClusterName      string
-	Region           string
-	OSType           string // "ubuntu" or "talos"
-	ImageID          string // Talos snapshot ID or ubuntu-24.04
-	NetworkCIDR      string
-	SSHKey           string
 	BootstrapContext string
 	KeepBootstrap    bool
 	MergeKubeconfig  bool
-	HCloudToken      string
 	Debug            bool
-	Upgrade          bool
+	EnvironmentSlug  string
+	Topology         string
 }
 
+// Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
 		fmt.Println("[DEBUG] Orchestrator.Run() started")
-		fmt.Printf("[DEBUG] ClusterName: %s, Region: %s, OSType: %s, Upgrade: %v\n", o.ClusterName, o.Region, o.OSType, o.Upgrade)
+		fmt.Printf("[DEBUG] Provider: %s, ClusterName: %s\n",
+			o.Provider.Name(), o.ClusterName)
 	}
 
 	stateMgr := state.NewStateManager(o.ClusterName)
+	bs, err := stateMgr.Load()
+	if err == nil && bs != nil {
+		return o.handleExistingState(ctx, stateMgr, bs)
+	}
 
-	// Try to load existing state
-	bootstrapState, err := stateMgr.Load()
-	if err == nil && bootstrapState != nil {
-		fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
-		fmt.Printf("[recovery] Last completed phase: %s\n", bootstrapState.CurrentPhase)
+	// Guard: kind cluster must not already exist on fresh bootstrap
+	if err := o.checkKindClusterExists(); err != nil {
+		return err
+	}
 
-		// Check if cluster is fully bootstrapped
-		if contains(bootstrapState.CompletedPhases, state.PhaseComplete) {
-			if o.Upgrade {
-				fmt.Println("[upgrade] Cluster already exists, starting upgrade/reconciliation...")
-				return o.runUpgrade(ctx, bootstrapState)
-			} else {
-				return fmt.Errorf("cluster '%s' already exists. Use --upgrade to reconcile or --name with different name", o.ClusterName)
-			}
-		}
+	return o.runFresh(ctx, stateMgr, nil)
+}
 
-		fmt.Printf("[recovery] Resuming from next phase...\n")
-		if o.Debug {
-			fmt.Printf("[DEBUG] Completed phases: %v\n", bootstrapState.CompletedPhases)
-		}
-	} else {
-		// Fresh bootstrap - check for conflicting resources before starting
-		if err := o.checkKindClusterExists(); err != nil {
-			return err
-		}
-		if err := o.checkHetznerResourcesExist(ctx); err != nil {
-			return err
-		}
+// ──────────────────────────────────────────────────────────────────────────
+// Fresh bootstrap (or resume with existing state)
+// ──────────────────────────────────────────────────────────────────────────
 
-		// Initialize new state
-		bootstrapState = &state.BootstrapState{
+func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManager, existing *state.BootstrapState) error {
+	bs := existing
+	if bs == nil {
+		bs = &state.BootstrapState{
 			Version:      "1.0",
 			ClusterName:  o.ClusterName,
-			Region:       o.Region,
-			TalosImageId: o.ImageID,
-			NetworkCIDR:  o.NetworkCIDR,
+			Provider:     o.Provider.Name(),
 			CurrentPhase: state.PhaseBootstrapCreate,
 		}
-
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
 	}
 
-	// Determine kubeconfig and context
-	var kubeconfig string
-	var bootstrapContext string
-	var mgmtKubeconfig string
-
-	if bootstrapState.BootstrapContext != "" {
-		bootstrapContext = bootstrapState.BootstrapContext
-	} else if o.BootstrapContext != "" {
-		bootstrapContext = o.BootstrapContext
+	// ── Phase 2: Bootstrap cluster (kind) ─────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapCreate, "bootstrap-create",
+		"Creating ephemeral bootstrap cluster...",
+		func() error { return o.createKindCluster(ctx, bs) },
+		nil); err != nil {
+		return fmt.Errorf("bootstrap create failed: %w", err)
 	}
 
-	// Restore mgmt kubeconfig from state if available
-	if bootstrapState.MgmtKubeconfig != "" {
-		mgmtKubeconfig = bootstrapState.MgmtKubeconfig
+	kubeconfig, bootstrapCtx := o.kubeconfigPaths(bs)
+
+	// ── Phase 3: Day-0 infrastructure ─────────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseDayZero, "day0-infra",
+		"Applying provider-specific Day-0 infrastructure...",
+		func() error { return o.Provider.ProvisionDayZero(ctx, kubeconfig) },
+		func() { fmt.Println("[day0-infra] ✓ Day-0 infrastructure applied") },
+	); err != nil {
+		return err
 	}
 
-	// Phase 3: Bootstrap Cluster Creation
-	if !contains(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate) {
-		fmt.Println("\n[bootstrap-create] Creating ephemeral bootstrap cluster...")
-		if o.Debug {
-			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseBootstrapCreate)
-		}
+	// ── Phase 4: CAPI initialization ──────────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseCAPIInit, "capi-init",
+		"Installing cluster-api-operator...",
+		func() error { return o.installCAPI(ctx, kubeconfig, bootstrapCtx) },
+		func() { fmt.Println("[capi-init] ✓ CAPI operator installed") },
+	); err != nil {
+		return err
+	}
 
-		if bootstrapContext != "" {
-			fmt.Printf("[bootstrap-create] Using existing context: %s\n", bootstrapContext)
-			if o.Debug {
-				fmt.Printf("[DEBUG] Bootstrap context provided: %s\n", bootstrapContext)
+	// ── Phase 5: Management cluster provisioning ──────────────────────
+	provCfg := &ProvisionConfig{
+		ClusterName:         o.ClusterName,
+		BootstrapKubeconfig: kubeconfig,
+		BootstrapContext:    bootstrapCtx,
+		Debug:               o.Debug,
+	}
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
+		"",
+		func() error { return o.Provider.ProvisionManagementCluster(ctx, provCfg) },
+		nil,
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 6: Pivot move ───────────────────────────────────────────
+	pivotCfg := &PivotConfig{
+		ClusterName:         o.ClusterName,
+		BootstrapKubeconfig: kubeconfig,
+		BootstrapContext:    bootstrapCtx,
+		Debug:               o.Debug,
+	}
+
+	// Self-heal: pivot-move writes the mgmt kubeconfig on success. A phase
+	// marked complete but with no kubeconfig recorded is a torn write from a
+	// pre-1.x run (the kubeconfig was only persisted after runPhase saved).
+	// Treat it as incomplete so the move re-runs and pivot-ready receives a
+	// real path instead of "".
+	if bs.MgmtKubeconfig == "" && o.phaseDone(bs, state.PhasePivotMove) {
+		fmt.Println("[recovery] pivot-move completed without a recorded mgmt kubeconfig; re-running it")
+		bs.CompletedPhases = removePhase(bs.CompletedPhases, state.PhasePivotMove)
+	}
+
+	mgmtKubeconfig := bs.MgmtKubeconfig
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotMove, "pivot-move",
+		"",
+		func() error {
+			var err error
+			mgmtKubeconfig, err = o.Provider.PivotMove(ctx, pivotCfg)
+			if err == nil {
+				// Persist the mgmt kubeconfig with the completed phase so a
+				// resumed run passes a real path to pivot-ready instead of "".
+				bs.MgmtKubeconfig = mgmtKubeconfig
 			}
-			homeDir, _ := os.UserHomeDir()
-			kubeconfig = filepath.Join(homeDir, ".kube", "config")
-			bootstrapState.BootstrapContext = bootstrapContext
-		} else {
-			kindMgr := &KindManager{ClusterName: o.ClusterName}
-
-			if kindMgr.Exists(ctx) {
-				fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
-			} else {
-				if o.Debug {
-					fmt.Printf("[DEBUG] Creating Kind cluster: %s\n", o.ClusterName)
-				}
-				if err := kindMgr.Create(ctx); err != nil {
-					return fmt.Errorf("failed to create Kind cluster: %w", err)
-				}
-				fmt.Println("[bootstrap-create] ✓ Kind cluster created")
-			}
-
-			// Get kubeconfig path
-			homeDir, _ := os.UserHomeDir()
-			kubeconfig = filepath.Join(homeDir, ".kube", "config")
-			bootstrapState.BootstrapContext = fmt.Sprintf("kind-%s", o.ClusterName)
-		}
-
-		// Create namespace
-		nsMgr := &NamespaceManager{
-			Kubeconfig: kubeconfig,
-			Context:    bootstrapState.BootstrapContext,
-			Namespace:  constants.NamespaceCAPI,
-		}
-
-		if err := nsMgr.Create(ctx); err != nil {
-			return fmt.Errorf("failed to create namespace: %w", err)
-		}
-		fmt.Println("[bootstrap-create] ✓ Namespace created: platform-capi")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseBootstrapCreate)
-		bootstrapState.CurrentPhase = state.PhaseCAPIInit
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		// Recovery: restore kubeconfig from state
-		homeDir, _ := os.UserHomeDir()
-		kubeconfig = filepath.Join(homeDir, ".kube", "config")
-		fmt.Println("[bootstrap-create] ✓ Skipped (already completed)")
+			return err
+		},
+		nil,
+	); err != nil {
+		return err
+	}
+	if mgmtKubeconfig != "" {
+		bs.MgmtKubeconfig = mgmtKubeconfig
 	}
 
-	// Phase 4: CAPI Initialization
-	if !contains(bootstrapState.CompletedPhases, state.PhaseCAPIInit) {
-		fmt.Println("\n[capi-init] Installing cluster-api-operator...")
-		if o.Debug {
-			fmt.Printf("[DEBUG] Phase: %s\n", state.PhaseCAPIInit)
-		}
-
-		capiInstaller := &capi.OperatorInstaller{
-			Kubeconfig: kubeconfig,
-			Context:    bootstrapState.BootstrapContext,
-			Namespace:  constants.NamespaceCAPI,
-			OSType:     o.OSType,
-			Debug:      o.Debug,
-		}
-
-		if err := capiInstaller.Install(ctx); err != nil {
-			return fmt.Errorf("failed to install CAPI operator: %w", err)
-		}
-		fmt.Println("[capi-init] ✓ CAPI operator installed")
-
-		// Create Hetzner credentials secret
-		secretMgr := &capi.SecretManager{
-			Kubeconfig: kubeconfig,
-			Context:    bootstrapState.BootstrapContext,
-			Namespace:  constants.NamespaceCAPI,
-		}
-
-		if err := secretMgr.CreateHetznerSecret(ctx, o.HCloudToken); err != nil {
-			return fmt.Errorf("failed to create Hetzner secret: %w", err)
-		}
-		fmt.Println("[capi-init] ✓ Hetzner credentials secret created")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseCAPIInit)
-		bootstrapState.CurrentPhase = state.PhaseClusterProvision
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[capi-init] ✓ Skipped (already completed)")
+	// ── Phase 7: Pivot ready ──────────────────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotReady, "pivot-ready",
+		"",
+		func() error { return o.Provider.PivotReady(ctx, mgmtKubeconfig) },
+		nil,
+	); err != nil {
+		return err
 	}
 
-	// Phase 5: Management Cluster Provisioning
-	if !contains(bootstrapState.CompletedPhases, state.PhaseClusterProvision) {
-		fmt.Println("\n[cluster-provision] Provisioning Management Cluster on Hetzner...")
-
-		// Calculate subnet CIDR from network CIDR
-		subnetCIDR := o.NetworkCIDR[:len(o.NetworkCIDR)-2] + "24" // Simple: change /16 to /24
-
-		// Determine image ID based on OS
-		imageID := o.ImageID
-		if o.OSType == "ubuntu" {
-			imageID = "ubuntu-24.04"
-		}
-
-		// Load rendered manifests for CRS from Git directory (single source of truth)
-		// This reads from the same directory that ArgoCD syncs for spoke pool provisioning
-		ciliumRaw, err := o.readClusterBIOSManifest("cilium-addon-template.yaml", "cilium.yaml")
-		if err != nil {
-			return fmt.Errorf("failed to read cilium manifest: %w", err)
-		}
-
-		ccmRaw, err := o.readClusterBIOSManifest("ccm-addon-template.yaml", "ccm.yaml")
-		if err != nil {
-			return fmt.Errorf("failed to read ccm manifest: %w", err)
-		}
-
-		provisioner := &cluster.Provisioner{
-			Kubeconfig: kubeconfig,
-			Context:    bootstrapState.BootstrapContext,
-			Debug:      o.Debug,
-			Config: &cluster.Config{
-				ClusterName:             o.ClusterName,
-				Namespace:               constants.NamespaceCAPI,
-				Region:                  o.Region,
-				OSType:                  o.OSType,
-				ImageID:                 imageID,
-				KubernetesVersion:       "v1.31.6",
-				NetworkCIDR:             o.NetworkCIDR,
-				SubnetCIDR:              subnetCIDR,
-				ControlPlaneMachineType: "cx33",
-				WorkerMachineType:       "cx33",
-				ControlPlaneReplicas:    1,
-				WorkerReplicas:          2,
-				HCloudToken:             o.HCloudToken,
-				CiliumManifest:          string(ciliumRaw),
-				CCMManifest:             string(ccmRaw),
-			},
-		}
-
-		// Check if cluster already exists and is ready (recovery scenario)
-		checkCmd := exec.CommandContext(ctx, "kubectl",
-			"--kubeconfig", kubeconfig,
-			"--context", bootstrapState.BootstrapContext,
-			"get", "cluster", o.ClusterName,
-			"-n", constants.NamespaceCAPI,
-			"-o", "jsonpath={.status.phase}",
-		)
-		if output, err := checkCmd.Output(); err == nil && string(output) == "Provisioned" {
-			fmt.Println("[cluster-provision] ✓ Cluster already exists and provisioned")
-		} else {
-			if err := provisioner.Provision(ctx); err != nil {
-				return fmt.Errorf("failed to provision cluster: %w", err)
-			}
-			fmt.Println("[cluster-provision] ✓ Cluster resources and CRS applied")
-		}
-
-		// Now wait for cluster to become Ready (CRS will auto-install CNI/CCM)
-		fmt.Println("[cluster-provision] Waiting for cluster Ready (CRS installing CNI/CCM)...")
-		if err := provisioner.WaitForReady(ctx); err != nil {
-			return fmt.Errorf("cluster not ready: %w", err)
-		}
-		fmt.Println("[cluster-provision] ✓ Management Cluster ready")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterProvision)
-		bootstrapState.CurrentPhase = state.PhasePivotMove
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[cluster-provision] ✓ Skipped (already completed)")
-	}
-
-	// Phase 6: CAPI Pivot - Move Resources
-	if !contains(bootstrapState.CompletedPhases, state.PhasePivotMove) {
-		fmt.Println("\n[pivot] Moving CAPI resources to Management Cluster...")
-
-		// Refresh kubeconfig from kind (port may have changed)
-		if bootstrapState.BootstrapContext != "" && strings.HasPrefix(bootstrapState.BootstrapContext, "kind-") {
-			kindClusterName := strings.TrimPrefix(bootstrapState.BootstrapContext, "kind-")
-			cmd := exec.CommandContext(ctx, "kind", "export", "kubeconfig", "--name", kindClusterName)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				return fmt.Errorf("failed to export kind kubeconfig: %w\n%s", err, output)
-			}
-			if o.Debug {
-				fmt.Println("[DEBUG] Refreshed kubeconfig from kind")
-			}
-		}
-
-		// Wait for all machines to be Running before pivot
-		fmt.Println("[pivot] Waiting for all nodes to join cluster...")
-		if err := o.waitForAllMachinesRunning(ctx, kubeconfig, bootstrapState.BootstrapContext, 10*time.Minute); err != nil {
-			return fmt.Errorf("machines not ready for pivot: %w", err)
-		}
-		fmt.Println("[pivot] ✓ All nodes joined")
-
-		pivotOrch := &pivot.Orchestrator{
-			BootstrapKubeconfig: kubeconfig,
-			ClusterName:         o.ClusterName,
-			Namespace:           constants.NamespaceCAPI,
-			OSType:              o.OSType,
-		}
-
-		var err error
-		mgmtKubeconfig, err = pivotOrch.ExecuteMove(ctx)
-		if err != nil {
-			return fmt.Errorf("pivot move failed: %w", err)
-		}
-		fmt.Println("[pivot] ✓ Resources moved to Management Cluster")
-
-		bootstrapState.MgmtKubeconfig = mgmtKubeconfig
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivotMove)
-		bootstrapState.CurrentPhase = state.PhasePivotReady
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[pivot-move] ✓ Skipped (already completed)")
-		// Restore mgmtKubeconfig if not set
-		if mgmtKubeconfig == "" && bootstrapState.MgmtKubeconfig != "" {
-			mgmtKubeconfig = bootstrapState.MgmtKubeconfig
-		}
-	}
-
-	// Phase 7: CAPI Pivot - Wait for Ready
-	if !contains(bootstrapState.CompletedPhases, state.PhasePivotReady) {
-		fmt.Println("\n[pivot-ready] Waiting for cluster reconciliation after move...")
-
-		pivotOrch := &pivot.Orchestrator{
-			BootstrapKubeconfig: kubeconfig,
-			ClusterName:         o.ClusterName,
-			Namespace:           constants.NamespaceCAPI,
-			OSType:              o.OSType,
-		}
-
-		if err := pivotOrch.WaitForReady(ctx, mgmtKubeconfig); err != nil {
-			return fmt.Errorf("pivot ready failed: %w", err)
-		}
-		fmt.Println("[pivot-ready] ✓ Cluster ready on Management Cluster")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePivotReady)
-		bootstrapState.CurrentPhase = state.PhaseClusterClassDeploy
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[pivot-ready] ✓ Skipped (already completed)")
-	}
-
-	// Cleanup bootstrap cluster if not keeping
+	// ── Phase 8: Cleanup bootstrap cluster ────────────────────────────
 	if !o.KeepBootstrap {
 		fmt.Println("\n[cleanup] Deleting bootstrap cluster...")
 		kindMgr := &KindManager{ClusterName: o.ClusterName}
@@ -384,365 +191,252 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			fmt.Println("[cleanup] ✓ Bootstrap cluster deleted")
 		}
 	}
+	o.markPhaseComplete(bs, state.PhaseCleanup)
+	stateMgr.Save(bs)
 
-	// Phase 7: ClusterClass Library Deployment
-	if !contains(bootstrapState.CompletedPhases, state.PhaseClusterClassDeploy) {
-		fmt.Println("\n[clusterclass-deploy] Deploying ClusterClass library...")
-
-		ccDeployer := &clusterclass.Deployer{
-			Kubeconfig: mgmtKubeconfig,
-			Namespace:  constants.NamespaceCAPI,
-		}
-
-		if err := ccDeployer.Deploy(ctx); err != nil {
-			return fmt.Errorf("failed to deploy ClusterClass library: %w", err)
-		}
-		fmt.Println("[clusterclass-deploy] ✓ ClusterClass library deployed")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhaseClusterClassDeploy)
-		bootstrapState.CurrentPhase = state.PhasePostBoot
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[clusterclass-deploy] ✓ Skipped (already completed)")
+	// ── Phase 9: ClusterClass deployment ──────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterClassDeploy, "clusterclass-deploy",
+		"Deploying ClusterClass library...",
+		func() error {
+			ccd := &clusterclass.Deployer{
+				Kubeconfig: mgmtKubeconfig,
+				Namespace:  constants.NamespaceCAPI,
+				ClassPaths: o.Provider.ClusterClassPaths(),
+			}
+			return ccd.Deploy(ctx)
+		},
+		func() { fmt.Println("[clusterclass-deploy] ✓ ClusterClass library deployed") },
+	); err != nil {
+		return err
 	}
 
-	// Phase 8: Post-Bootstrap Components
-	if !contains(bootstrapState.CompletedPhases, state.PhasePostBoot) {
-		fmt.Println("\n[postboot] Installing platform components...")
-
-		compInstaller := &components.Installer{
-			Kubeconfig: mgmtKubeconfig,
-		}
-
-		if err := compInstaller.InstallAll(ctx, o.HCloudToken); err != nil {
-			return fmt.Errorf("failed to install components: %w", err)
-		}
-		fmt.Println("[postboot] ✓ All components installed")
-
-		// Apply ArgoCD bootstrap boundaries in sequence (replaces monolithic app-of-apps)
-		// Phase 1: Apply Infrastructure boundary
-		fmt.Println("[postboot] Applying 01-platform-infra boundary...")
-		cmd := exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/01-platform-infra.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 01-platform-infra: %w\n%s", err, output)
-		}
-		fmt.Println("[postboot] ✓ 01-platform-infra boundary applied")
-
-		// Wait for Operators (Crossplane, Atlas, CNPG) to establish webhooks
-		fmt.Println("[postboot] Waiting for operators to establish webhooks...")
-		if err := o.waitForOperators(ctx, mgmtKubeconfig); err != nil {
-			return fmt.Errorf("failed to wait for operators: %w", err)
-		}
-		fmt.Println("[postboot] ✓ Operators ready")
-
-		// Phase 2: Apply Data boundary
-		fmt.Println("[postboot] Applying 02-platform-data boundary...")
-		cmd = exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/02-platform-data.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 02-platform-data: %w\n%s", err, output)
-		}
-		fmt.Println("[postboot] ✓ 02-platform-data boundary applied")
-
-		// Phase 3: Apply Services boundary
-		fmt.Println("[postboot] Applying 03-platform-services boundary...")
-		cmd = exec.CommandContext(ctx, "kubectl", "apply",
-			"--kubeconfig", mgmtKubeconfig,
-			"-f", "manifests/argocd/bootstrap/03-platform-services.yaml",
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply 03-platform-services: %w\n%s", err, output)
-		}
-		fmt.Println("[postboot] ✓ 03-platform-services boundary applied")
-
-		// Update state
-		bootstrapState.CompletedPhases = append(bootstrapState.CompletedPhases, state.PhasePostBoot)
-		bootstrapState.CurrentPhase = state.PhaseComplete
-		if err := stateMgr.Save(bootstrapState); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
-	} else {
-		fmt.Println("[postboot] ✓ Skipped (already completed)")
+	// ── Phase 10: Platform pre-requisites ─────────────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePlatformPreReqs, "platform-pre-reqs",
+		"Applying platform pre-requisites...",
+		func() error { return o.Provider.OnPlatformPreReqs(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[platform-pre-reqs] ✓ Platform pre-requisites applied") },
+	); err != nil {
+		return err
 	}
 
-	// Phase 9: Kubeconfig & Talosconfig Management
-	fmt.Println("\n[config] Saving kubeconfig and talosconfig...")
-
-	configMgr := &config.Manager{
-		BootstrapKubeconfig: mgmtKubeconfig, // Use management cluster kubeconfig
-		ClusterName:         o.ClusterName,
-		Namespace:           constants.NamespaceCAPI,
+	// ── Phase 11a: Boundary 01 — platform infrastructure ──────────────
+	// Installs ArgoCD, CNPG operator, Crossplane, ESO, cert-manager, and
+	// other core operators. Waits for webhooks, CRDs, and operator pods
+	// before proceeding.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary01, "boundary01",
+		"Deploying platform infrastructure (boundary 01)...",
+		func() error { return o.deployBoundary01(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary01] ✓ Platform infrastructure deployed") },
+	); err != nil {
+		return err
 	}
 
-	kubeconfigPath, err := configMgr.SaveKubeconfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to save kubeconfig: %w", err)
+	// ── Phase 11b: Generate local secrets ─────────────────────────────
+	// Generates cryptographic keys (ENCRYPTION_KEY, AUTH_SECRET, REDIS_URL),
+	// creates infisical-secrets, infisical-redis-credentials, and
+	// platform-db-app. The latter MUST exist before CNPG's initdb runs
+	// in B02, so this phase runs between B01 and B02.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseGenerateLocalSecrets, "generate-local-secrets",
+		"Generating local bootstrap secrets...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.GenerateLocalSecrets(ctx)
+		},
+		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
+	); err != nil {
+		return err
 	}
-	fmt.Printf("[config] ✓ Kubeconfig saved to: %s\n", kubeconfigPath)
 
-	// Talosconfig only exists for Talos clusters
-	var talosconfigPath string
-	if o.OSType == "talos" {
-		talosconfigPath, err = configMgr.SaveTalosconfig(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to save talosconfig: %w", err)
+	// ── Phase 11c: Boundary 02 — platform data workloads ─────────────
+	// Deploys CNPG Cluster, Redis, NATS, ClickHouse. The CNPG Cluster
+	// CR triggers the operator (installed in B01). platform-db-app was
+	// created in the previous phase (generate-local-secrets), so CNPG's
+	// initdb has the credentials it needs immediately.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary02, "boundary02",
+		"Deploying platform data (boundary 02)...",
+		func() error { return o.deployBoundary02(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary02] ✓ Platform data deployed") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11d: Inject CNPG CA certificate ────────────────────────
+	// Waits for CNPG Cluster to be Ready, reads platform-db-ca, and
+	// injects DB_ROOT_CERT into infisical-secrets. This MUST run after
+	// B02 (CNPG Cluster applied) and before B03 (Infisical deployed)
+	// so that Infisical Helm chart renders with DB_ROOT_CERT present,
+	// enabling TLS connectivity on first boot.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseInjectCACert, "inject-ca-cert",
+		"Injecting CNPG CA certificate into infisical-secrets...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.UpdateInfisicalSecretsWithCNPGCert(ctx)
+		},
+		func() { fmt.Println("[inject-ca-cert] ✓ CNPG CA certificate injected") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11e: Boundary 03 — platform services ───────────────────
+	// Deploys ingress-nginx, API gateway, SPIRE, Infisical, and spoke
+	// cluster configs. Infisical Helm chart starts with ALL secrets
+	// already present (infisical-secrets includes DB_ROOT_CERT from the
+	// previous phase), preventing CreateContainerConfigError deadlocks.
+	// Ingress resources are applied after the ingress-nginx controller
+	// webhook is guaranteed up.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
+		"Deploying platform services (boundary 03)...",
+		func() error { return o.deployBoundary03(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary03] ✓ Platform services deployed") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11f: Bootstrap Infisical API ───────────────────────────
+	// Waits for Infisical to be healthy, then bootstraps the Infisical
+	// REST API (Org, Project, Machine Identity), creates the infisical-auth
+	// Secret, and stores Layer 1+2 credentials in Infisical vault.
+	// This MUST run after B03 when Infisical pods are Running.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
+		"Bootstrapping Infisical API...",
+		func() error {
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			return ci.BootstrapInfisicalAPI(ctx)
+		},
+		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
+		"Deploying tenant services (boundary 04)...",
+		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary04] ✓ Tenant services deployed") },
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
+	// Auto-commits generated artifacts, then polls ArgoCD until the
+	// affected apps reconcile (Synced+Healthy). This ensures the
+	// platform is in a GitOps-consistent state before Finalize.
+	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
+	if err := o.validateADR045Artifacts(ctx); err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	generatedPaths := []string{
+		"manifests/hub-core-services/security/generated/",
+		"manifests/environments/base/generated/",
+	}
+
+	// Try to auto-commit (local-only — git remote not required)
+	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
+		fmt.Printf("[adr045-commit] ⚠️  Auto-commit failed: %v\n", err)
+		fmt.Println("[adr045-commit] Manual commit required. Run:")
+		fmt.Println("  git add manifests/*/generated/")
+		fmt.Println("  git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"")
+		fmt.Println("  git push")
+	}
+
+	// Poll ArgoCD apps for health. The apps will not reconcile until
+	// the generated files are in Git (committed + pushed). If the
+	// auto-commit succeeded, only a git push is needed.
+	appsToWait := []string{"platform-security-infra", "hub-environment"}
+	fmt.Printf("[adr045-commit] Waiting for ArgoCD apps to reconcile: %v\n", appsToWait)
+	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
+	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
+
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	if err := o.waitForArgoCDAppsHealthy(waitCtx, mgmtKubeconfig, appsToWait); err != nil {
+		// Print diagnostic info even on timeout
+		fmt.Println("[adr045-commit] ❌ Some ArgoCD apps did not become healthy.")
+		fmt.Println("[adr045-commit] Diagnostic commands:")
+		for _, app := range appsToWait {
+			fmt.Printf("  kubectl describe application %s -n platform-ops\n", app)
 		}
-		fmt.Printf("[config] ✓ Talosconfig saved to: %s\n", talosconfigPath)
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+	fmt.Println("[adr045-commit] ✓ All ArgoCD apps reconciled successfully")
+
+	// ── Phase 12: Finalize ────────────────────────────────────────────
+	var kubeconfigPath string
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseFinalize, "finalize",
+		"Finalizing bootstrap...",
+		func() error {
+			var err error
+			kubeconfigPath, err = o.Provider.Finalize(ctx, &FinalizeConfig{
+				MgmtKubeconfig:  mgmtKubeconfig,
+				ClusterName:     o.ClusterName,
+				Namespace:       constants.NamespaceCAPI,
+				MergeKubeconfig: o.MergeKubeconfig,
+				Debug:           o.Debug,
+			})
+			return err
+		},
+		nil,
+	); err != nil {
+		return err
 	}
 
-	// Merge kubeconfig if requested
-	if o.MergeKubeconfig {
-		if err := configMgr.MergeKubeconfig(ctx, kubeconfigPath); err != nil {
-			fmt.Printf("[config] Warning: failed to merge kubeconfig: %v\n", err)
-		} else {
-			fmt.Println("[config] ✓ Kubeconfig merged into ~/.kube/config")
-		}
-	}
+	// ── Completion ────────────────────────────────────────────────────
+	bs.CompletedPhases = append(bs.CompletedPhases, state.PhaseComplete)
+	bs.CurrentPhase = state.PhaseComplete
+	stateMgr.Save(bs)
 
-	// Get ArgoCD password
-	compInstaller := &components.Installer{
-		Kubeconfig: mgmtKubeconfig,
-	}
-	argoCDPassword, err := compInstaller.GetArgoCDPassword(ctx)
-	if err != nil {
-		fmt.Printf("[config] Warning: failed to get ArgoCD password: %v\n", err)
-		argoCDPassword = "<check secret manually>"
-	}
-
-	// Print success message
-	fmt.Println("\n✓ Management Cluster bootstrap complete!")
+	argoCDPwd := o.getArgoCDPassword(ctx, mgmtKubeconfig)
+	fmt.Println("\n✓ Hub Cluster bootstrap complete!")
+	fmt.Printf("  Provider: %s\n", o.Provider.Name())
 	fmt.Printf("  Cluster Name: %s\n", o.ClusterName)
-	fmt.Printf("  Region: %s\n", o.Region)
 	fmt.Printf("  Kubeconfig: %s\n", kubeconfigPath)
-	if o.OSType == "talos" {
-		fmt.Printf("  Talosconfig: %s\n", talosconfigPath)
-	}
-	fmt.Printf("  ArgoCD Password: %s\n", argoCDPassword)
+	fmt.Printf("  ArgoCD Password: %s\n", argoCDPwd)
 	fmt.Println("\nNext steps:")
-	fmt.Printf("1. Verify cluster: kubectl --kubeconfig=%s get nodes\n", kubeconfigPath)
-	if o.OSType == "talos" {
-		fmt.Printf("2. Access nodes: talosctl --talosconfig=%s -n <node-ip> version\n", talosconfigPath)
-	}
-	fmt.Println("3. Access ArgoCD UI (username: admin)")
-
+	fmt.Printf("  1. Verify cluster: kubectl --kubeconfig=%s get nodes\n", kubeconfigPath)
+	fmt.Println("  2. Access ArgoCD UI (username: admin)")
 	return nil
 }
 
-func (o *Orchestrator) getMgmtKubeconfig(ctx context.Context, bootstrapKubeconfig, bootstrapContext string) (string, error) {
-	secretName := fmt.Sprintf("%s-kubeconfig", o.ClusterName)
+// ──────────────────────────────────────────────────────────────────────────
+// Phase runner
+// ──────────────────────────────────────────────────────────────────────────
 
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", bootstrapKubeconfig,
-		"--context", bootstrapContext,
-		"get", "secret", secretName,
-		"-n", constants.NamespaceCAPI,
-		"-o", "jsonpath={.data.value}",
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
+// runPhase executes a single bootstrap phase with checkpoint persistence.
+// If the phase is already completed, it skips. On success, it saves state
+// and advances to the next phase.
+func (o *Orchestrator) runPhase(
+	ctx context.Context,
+	stateMgr *state.StateManager,
+	bs *state.BootstrapState,
+	phase state.BootstrapPhase,
+	label, header string,
+	action func() error,
+	onSuccess func(),
+) error {
+	if o.phaseDone(bs, phase) {
+		fmt.Printf("[%s] ✓ Skipped (already completed)\n", label)
+		return nil
 	}
-
-	decoded, err := base64.StdEncoding.DecodeString(string(output))
-	if err != nil {
-		return "", err
+	if header != "" {
+		fmt.Println("\n[" + label + "] " + header)
 	}
-
-	// Save to temp file
-	tmpDir := os.TempDir()
-	path := filepath.Join(tmpDir, fmt.Sprintf("%s-temp.kubeconfig", o.ClusterName))
-	if err := os.WriteFile(path, decoded, 0600); err != nil {
-		return "", err
-	}
-
-	return path, nil
-}
-
-func (o *Orchestrator) waitAndGetKubeconfig(ctx context.Context, bootstrapKubeconfig, bootstrapContext string) (string, error) {
-	secretName := fmt.Sprintf("%s-kubeconfig", o.ClusterName)
-
-	// Wait for secret to exist
-	for i := 0; i < 60; i++ {
-		cmd := exec.CommandContext(ctx, "kubectl",
-			"--kubeconfig", bootstrapKubeconfig,
-			"--context", bootstrapContext,
-			"get", "secret", secretName,
-			"-n", constants.NamespaceCAPI,
-			"-o", "jsonpath={.data.value}",
-		)
-
-		output, err := cmd.Output()
-		if err == nil && len(output) > 0 {
-			decoded, err := base64.StdEncoding.DecodeString(string(output))
-			if err != nil {
-				return "", err
-			}
-
-			tmpDir := os.TempDir()
-			path := filepath.Join(tmpDir, fmt.Sprintf("%s-temp.kubeconfig", o.ClusterName))
-			if err := os.WriteFile(path, decoded, 0600); err != nil {
-				return "", err
-			}
-
-			return path, nil
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	return "", fmt.Errorf("timeout waiting for kubeconfig secret")
-}
-
-func (o *Orchestrator) waitForNodeToRegister(ctx context.Context, kubeconfig string) error {
-	// Wait for at least one node with control-plane role to appear
-	for i := 0; i < 120; i++ {
-		cmd := exec.CommandContext(ctx, "kubectl",
-			"--kubeconfig", kubeconfig,
-			"get", "nodes",
-			"-l", "node-role.kubernetes.io/control-plane",
-			"-o", "name",
-		)
-
-		output, err := cmd.Output()
-		if err == nil && len(output) > 0 {
-			return nil
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	return fmt.Errorf("timeout waiting for control plane node to register")
-}
-
-func (o *Orchestrator) runUpgrade(ctx context.Context, bootstrapState *state.BootstrapState) error {
-	fmt.Println("\n[upgrade] Starting upgrade/reconciliation...")
-
-	if bootstrapState.MgmtKubeconfig == "" {
-		return fmt.Errorf("management cluster kubeconfig not found in state")
-	}
-
-	kubeconfig := bootstrapState.MgmtKubeconfig
-
-	// Version compatibility check
-	if err := o.checkVersionCompatibility(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("version compatibility check failed: %w", err)
-	}
-
-	// Update Provider CRD versions
-	fmt.Println("\n[upgrade] Updating CAPI Provider versions...")
-	if err := o.updateProviders(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("failed to update providers: %w", err)
-	}
-	fmt.Println("[upgrade] ✓ Providers updated")
-
-	// Re-apply ClusterClass definitions
-	fmt.Println("\n[upgrade] Updating ClusterClass definitions...")
-	ccDeployer := &clusterclass.Deployer{
-		Kubeconfig: kubeconfig,
-		Namespace:  constants.NamespaceCAPI,
-	}
-
-	if err := ccDeployer.Deploy(ctx); err != nil {
-		return fmt.Errorf("failed to update ClusterClasses: %w", err)
-	}
-	fmt.Println("[upgrade] ✓ ClusterClasses updated")
-
-	// Re-apply component manifests
-	fmt.Println("\n[upgrade] Updating platform components...")
-	compInstaller := &components.Installer{
-		Kubeconfig: kubeconfig,
-	}
-
-	if err := compInstaller.InstallAll(ctx, o.HCloudToken); err != nil {
-		return fmt.Errorf("failed to update components: %w", err)
-	}
-	fmt.Println("[upgrade] ✓ Components updated")
-
-	fmt.Println("\n✓ Upgrade/reconciliation complete")
-	fmt.Println("  All Providers, ClusterClasses, and components updated to match CLI version")
-
-	return nil
-}
-
-func (o *Orchestrator) checkVersionCompatibility(ctx context.Context, kubeconfig string) error {
 	if o.Debug {
-		fmt.Println("[DEBUG] Checking version compatibility...")
+		fmt.Printf("[DEBUG] Phase: %s\n", phase)
 	}
-
-	// Check CAPI API version (v1beta1)
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"api-resources", "--api-group=cluster.x-k8s.io")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to check CAPI API version: %w", err)
+	if err := action(); err != nil {
+		return fmt.Errorf("[%s] %w", label, err)
 	}
-
-	if !bytes.Contains(output, []byte("v1beta1")) {
-		return fmt.Errorf("incompatible CAPI API version - v1beta1 required")
+	if onSuccess != nil {
+		onSuccess()
 	}
-
-	if o.Debug {
-		fmt.Println("[DEBUG] ✓ CAPI API version compatible (v1beta1)")
-	}
-
-	return nil
+	o.markPhaseComplete(bs, phase)
+	return stateMgr.Save(bs)
 }
 
-func (o *Orchestrator) updateProviders(ctx context.Context, kubeconfig string) error {
-	providers := []struct {
-		kind    string
-		name    string
-		version string
-	}{
-		{"CoreProvider", "cluster-api", versions.CAPIVersion},
-		{"BootstrapProvider", "talos", versions.TalosBootstrapProviderVersion},
-		{"ControlPlaneProvider", "talos", versions.TalosControlPlaneProviderVersion},
-		{"InfrastructureProvider", "hetzner", versions.HetznerInfraProviderVersion},
-	}
-
-	for _, p := range providers {
-		if o.Debug {
-			fmt.Printf("[DEBUG] Updating %s/%s to %s\n", p.kind, p.name, p.version)
-		}
-
-		// Patch Provider CRD spec.version
-		patch := fmt.Sprintf(`{"spec":{"version":"%s"}}`, p.version)
-		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"patch", p.kind, p.name, "-n", constants.NamespaceCAPI,
-			"--type=merge", "-p", patch)
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to update %s/%s: %w\nOutput: %s", p.kind, p.name, err, string(output))
-		}
-	}
-
-	// Wait for providers to reconcile (cluster-api-operator handles this)
-	fmt.Println("[upgrade] Waiting for Provider reconciliation...")
-	time.Sleep(10 * time.Second) // Give operator time to start reconciliation
-
-	return nil
-}
-
-func mustReadCatalog(path string) []byte {
-	data, err := assets.ReadCatalog(path)
-	if err != nil {
-		panic(fmt.Sprintf("failed to read catalog %s: %v", path, err))
-	}
-	return data
-}
-
-// contains checks if a phase is in the completed phases list
-func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
-	for _, p := range phases {
+func (o *Orchestrator) phaseDone(bs *state.BootstrapState, phase state.BootstrapPhase) bool {
+	for _, p := range bs.CompletedPhases {
 		if p == phase {
 			return true
 		}
@@ -750,200 +444,580 @@ func contains(phases []state.BootstrapPhase, phase state.BootstrapPhase) bool {
 	return false
 }
 
-// checkKindClusterExists fails bootstrap if kind cluster already exists
+func (o *Orchestrator) markPhaseComplete(bs *state.BootstrapState, phase state.BootstrapPhase) {
+	bs.CompletedPhases = append(bs.CompletedPhases, phase)
+	// advance current phase
+	bs.CurrentPhase = phase
+}
+
+// removePhase returns phases with the given entry removed (no-op if absent).
+func removePhase(phases []state.BootstrapPhase, phase state.BootstrapPhase) []state.BootstrapPhase {
+	out := phases[:0]
+	for _, p := range phases {
+		if p != phase {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Phase 2: Kind cluster
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.BootstrapState) error {
+	if o.BootstrapContext != "" {
+		fmt.Printf("[bootstrap-create] Using existing context: %s\n", o.BootstrapContext)
+		bs.BootstrapContext = o.BootstrapContext
+		return nil
+	}
+
+	kindMgr := &KindManager{
+		ClusterName: o.ClusterName,
+		ConfigPath:  o.Provider.KindConfigPath(),
+	}
+
+	if kindMgr.Exists(ctx) {
+		fmt.Println("[bootstrap-create] Bootstrap cluster already exists")
+	} else {
+		if err := kindMgr.Create(ctx); err != nil {
+			return fmt.Errorf("failed to create Kind cluster: %w", err)
+		}
+		fmt.Println("[bootstrap-create] ✓ Kind cluster created")
+	}
+
+	bs.BootstrapContext = "kind-" + o.ClusterName
+
+	// Create platform-capi namespace
+	homeDir, _ := os.UserHomeDir()
+	kubeconfig := filepath.Join(homeDir, ".kube", "config")
+	nsMgr := &NamespaceManager{
+		Kubeconfig: kubeconfig,
+		Context:    bs.BootstrapContext,
+		Namespace:  constants.NamespaceCAPI,
+	}
+	if err := nsMgr.Create(ctx); err != nil {
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+	fmt.Println("[bootstrap-create] ✓ Namespace created: platform-capi")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Phase 4: CAPI initialization
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName string) error {
+	capiInstaller := &capi.OperatorInstaller{
+		Kubeconfig: kubeconfig,
+		Context:    contextName,
+		Namespace:  constants.NamespaceCAPI,
+		Providers:  o.Provider.CAPIProviders(),
+		Debug:      o.Debug,
+	}
+	if err := capiInstaller.Install(ctx); err != nil {
+		return fmt.Errorf("failed to install CAPI operator: %w", err)
+	}
+	return o.Provider.OnCAPIInit(ctx, kubeconfig, contextName, constants.NamespaceCAPI)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 01: Platform infrastructure (ArgoCD + operators)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
+	ci := &components.Installer{Kubeconfig: kubeconfig}
+	if err := ci.InstallArgoCD(ctx); err != nil {
+		return fmt.Errorf("failed to install ArgoCD: %w", err)
+	}
+	fmt.Println("[boundary01] ✓ ArgoCD installed")
+
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false); err != nil {
+		return err
+	}
+	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
+
+	// ArgoCD apps read manifests from the private soloz-io/zero-ops repo. The
+	// repo credentials must exist before any app can sync (otherwise webhook
+	// waits below block on "authentication required"). Provision them from the
+	// GitHub PAT now so the raw CLI is self-contained (previously only the
+	// shell script's step3 did this, causing a chicken-and-egg on fresh Hubs).
+	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("failed to configure ArgoCD GitHub access: %w", err)
+	}
+
+	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
+	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
+		return fmt.Errorf("operators not ready: %w", err)
+	}
+	fmt.Println("[boundary01] ✓ Operators ready")
+
+	fmt.Println("[boundary01] Verifying CRDs are queryable...")
+	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("CRDs not queryable: %w", err)
+	}
+
+	fmt.Println("[boundary01] Waiting for operator pods to be Ready...")
+	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
+		return fmt.Errorf("operator pods not ready: %w", err)
+	}
+
+	fmt.Println("[boundary01] ✓ Platform infrastructure deployed")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 02: Platform data workloads (CNPG, Redis, NATS, ClickHouse)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false); err != nil {
+		return err
+	}
+	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 03: Platform services (ingress-nginx, SPIRE, platform services)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false); err != nil {
+		return err
+	}
+	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
+	return nil
+}
+
+func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true); err != nil {
+		return err
+	}
+	fmt.Println("[boundary04] ✓ 04-tenant-services ApplicationSet applied")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04 bool) error {
+	gitBranch := currentGitBranch()
+	envRevision := "main"
+	if gitBranch != "" && gitBranch != "main" {
+		envRevision = gitBranch
+		fmt.Printf("[render] Environment revision: %s\n", envRevision)
+	}
+
+	providerForHelm := o.Provider.Name()
+
+	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
+		"manifests/argocd/environment-manager",
+		"--set", "environmentRevision="+envRevision,
+		"--set", "environmentSlug="+o.EnvironmentSlug,
+		"--set", "provider="+providerForHelm,
+		"--set", "topology="+o.Topology,
+		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
+		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
+		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
+		"--set", fmt.Sprintf("deploy.boundary04=%t", deployB04),
+	)
+	rendered, err := helmCmd.Output()
+	if err != nil {
+		return fmt.Errorf("helm template failed: %w\n%s", err, rendered)
+	}
+	applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
+	applyCmd.Stdin = bytes.NewReader(rendered)
+	if out, err := applyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply boundary ApplicationSets: %w\n%s", err, out)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Upgrade / resume path
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.StateManager, bs *state.BootstrapState) error {
+	fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
+	fmt.Printf("[recovery] Last completed phase: %s\n", bs.CurrentPhase)
+
+	if o.phaseDone(bs, state.PhaseComplete) {
+		fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
+		return nil
+	}
+
+	// Resume from where we left off — the runFresh pipeline will skip
+	// completed phases via runPhase.
+	fmt.Println("[recovery] Resuming from next phase...")
+	if o.Debug {
+		fmt.Printf("[DEBUG] Completed phases: %v\n", bs.CompletedPhases)
+	}
+	return o.runFresh(ctx, stateMgr, bs)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
+	homeDir, _ := os.UserHomeDir()
+	kubeconfig := filepath.Join(homeDir, ".kube", "config")
+	ctx := bs.BootstrapContext
+	if ctx == "" {
+		ctx = o.BootstrapContext
+	}
+	if ctx == "" {
+		ctx = "kind-" + o.ClusterName
+	}
+	return kubeconfig, ctx
+}
+
+func (o *Orchestrator) getArgoCDPassword(ctx context.Context, kubeconfig string) string {
+	ci := &components.Installer{Kubeconfig: kubeconfig}
+	pwd, err := ci.GetArgoCDPassword(ctx)
+	if err != nil {
+		return "<check secret manually>"
+	}
+	return pwd
+}
+
 func (o *Orchestrator) checkKindClusterExists() error {
 	cmd := exec.Command("kind", "get", "clusters")
-	output, err := cmd.Output()
+	out, err := cmd.Output()
 	if err != nil {
-		// kind command failed, assume no clusters
 		return nil
 	}
-
-	clusters := string(output)
-	if strings.Contains(clusters, o.ClusterName) {
-		return fmt.Errorf("kind cluster '%s' already exists. Run teardown first: ./bin/hub teardown --name=%s", o.ClusterName, o.ClusterName)
+	if strings.Contains(string(out), o.ClusterName) {
+		return fmt.Errorf("kind cluster '%s' already exists. Run teardown first", o.ClusterName)
 	}
-
 	return nil
 }
 
-// checkHetznerResourcesExist fails bootstrap if Hetzner resources already exist
-func (o *Orchestrator) checkHetznerResourcesExist(ctx context.Context) error {
-	hcloudToken := os.Getenv("HCLOUD_TOKEN")
-	if hcloudToken == "" {
-		// No token, skip check
-		return nil
+// ──────────────────────────────────────────────────────────────────────────
+// Shared kubectl / git helpers
+// ──────────────────────────────────────────────────────────────────────────
+
+// waitForOperators waits for validating webhook configurations matching the
+// built-in platform operators and any extraPatterns provided by the
+// provider's OperatorWebhookPatterns() to be established.
+//
+// The check is a thin wrapper over the health package's
+// ValidatingWebhookHealth, composing base + extra patterns into a single
+// check. This keeps the wait loop, timeout, and context handling
+// consistent with the rest of the bootstrap pipeline.
+func waitForOperators(ctx context.Context, kubeconfig string, extraPatterns []string) error {
+	patterns := []string{"capi", "cert-manager", "cnpg", "externalsecret"}
+	patterns = append(patterns, extraPatterns...)
+
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewValidatingWebhookHealth(patterns...),
+		},
+		Interval: 10 * time.Second,
+		Timeout:  20 * time.Minute,
 	}
+	return waiter.Wait(ctx, kubeconfig)
+}
 
-	client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
+// waitForCRDs polls the API server until critical CRDs are registered in
+// resource discovery. Validating webhooks existing does not guarantee the
+// CRD is registerable — there is a propagation delay.
+func (o *Orchestrator) waitForCRDs(ctx context.Context, kubeconfig string) error {
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewCRDRegisteredHealth(
+				"externalsecrets.external-secrets.io",
+				"clusters.postgresql.cnpg.io",
+			),
+		},
+		Interval: 5 * time.Second,
+		Timeout:  10 * time.Minute,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[platform-deploy] ✓ CRDs queryable")
+		},
+	}
+	return waiter.Wait(ctx, kubeconfig)
+}
 
-	// Check for servers with cluster label pattern
-	labelPattern := fmt.Sprintf("caph-cluster-%s", o.ClusterName)
+// waitForOperatorPods polls until critical operator pods are Ready. Webhooks
+// and CRDs may exist, but webhook endpoints return 503 until their pods start.
+func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig string) error {
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewOperatorPodsHealth("cnpg-system", "app.kubernetes.io/name=cloudnative-pg"),
+			health.NewOperatorPodsHealth("platform-ops", "app.kubernetes.io/name=external-secrets"),
+		},
+		Interval: 5 * time.Second,
+		Timeout:  15 * time.Minute,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[platform-deploy] ✓ Operator pods Ready")
+		},
+	}
+	return waiter.Wait(ctx, kubeconfig)
+}
 
-	allServers, err := client.Server.All(ctx)
-	if err != nil {
-		// API error, skip check
-		if o.Debug {
-			fmt.Printf("[DEBUG] Failed to check Hetzner servers: %v\n", err)
+// ensureArgoCDGitHubAuth provisions the ArgoCD repo-creds secret (GitHub PAT)
+// so private-repo apps can sync. Token from GITHUB_TOKEN env or the local
+// k8-secrets/github/github-pat-token file.
+func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig string) error {
+	githubToken := os.Getenv("GITHUB_TOKEN")
+	if githubToken == "" {
+		data, err := os.ReadFile("k8-secrets/github/github-pat-token")
+		if err != nil {
+			return fmt.Errorf("GITHUB_TOKEN not set and github-pat-token file unreadable: %w", err)
 		}
-		return nil
+		githubToken = strings.TrimSpace(string(data))
+	}
+	if githubToken == "" {
+		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
 	}
 
-	for _, server := range allServers {
-		for labelKey := range server.Labels {
-			if strings.HasPrefix(labelKey, labelPattern) {
-				return fmt.Errorf("Hetzner resources for cluster '%s' already exist (found server: %s). Run teardown first: ./bin/hub teardown --name=%s --force --confirm", o.ClusterName, server.Name, o.ClusterName)
-			}
-		}
+	ci := &components.Installer{Kubeconfig: kubeconfig}
+	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
+		return err
 	}
-
 	return nil
 }
 
-// readClusterBIOSManifest reads a manifest from the spoke-bootstrap directory in Git
-// This ensures both hub and spoke clusters use the same CNI/CCM manifests (single source of truth)
-func (o *Orchestrator) readClusterBIOSManifest(templateFile, dataKey string) ([]byte, error) {
-	// Path to spoke-bootstrap directory relative to project root
-	biosPath := "manifests/spoke/spoke-bootstrap/" + templateFile
-
-	// Read the template file
-	data, err := os.ReadFile(biosPath)
+func currentGitBranch() string {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", biosPath, err)
+		return ""
 	}
-
-	// Parse the YAML to extract the manifest from the Secret/ConfigMap
-	var template map[string]interface{}
-	if err := yaml.Unmarshal(data, &template); err != nil {
-		return nil, fmt.Errorf("failed to parse %s: %w", templateFile, err)
-	}
-
-	// Extract the manifest content from stringData or data field
-	var manifestContent string
-	if stringData, ok := template["stringData"].(map[string]interface{}); ok {
-		if content, ok := stringData[dataKey].(string); ok {
-			manifestContent = content
-		}
-	} else if dataMap, ok := template["data"].(map[string]interface{}); ok {
-		if content, ok := dataMap[dataKey].(string); ok {
-			manifestContent = content
-		}
-	}
-
-	if manifestContent == "" {
-		return nil, fmt.Errorf("manifest content not found in %s under key %s", templateFile, dataKey)
-	}
-
-	return []byte(manifestContent), nil
+	return strings.TrimSpace(string(out))
 }
 
-// waitForAllMachinesRunning waits for all machines to have nodes joined
-func (o *Orchestrator) waitForAllMachinesRunning(ctx context.Context, kubeconfig, context string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+// ──────────────────────────────────────────────────────────────────────────
+// ADR-045 artifact validation
+// ──────────────────────────────────────────────────────────────────────────
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for machines to have nodes joined")
-			}
-
-			// Get all machines with their nodeRef status
-			cmd := exec.CommandContext(ctx, "kubectl",
-				"--kubeconfig", kubeconfig,
-				"--context", context,
-				"get", "machines",
-				"-n", constants.NamespaceCAPI,
-				"-o", "jsonpath={range .items[*]}{.metadata.name}:{.status.nodeRef.name}{\"\\n\"}{end}",
-			)
-
-			output, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			allHaveNodes := true
-			pendingCount := 0
-
-			for _, line := range lines {
-				if line == "" {
-					continue
-				}
-				parts := strings.Split(line, ":")
-				if len(parts) != 2 || parts[1] == "" {
-					// Machine doesn't have a nodeRef yet
-					allHaveNodes = false
-					pendingCount++
-				}
-			}
-
-			if allHaveNodes && len(lines) > 0 {
-				return nil
-			}
-
-			if o.Debug {
-				fmt.Printf("[DEBUG] Waiting for %d machines to have nodes joined...\n", pendingCount)
-			}
-		}
-	}
+// adr045Artifact describes a single required generated artifact.
+type adr045Artifact struct {
+	File           string   `yaml:"file"`
+	RequiredFields []string `yaml:"requiredFields"`
 }
 
-// waitForOperators waits for critical operators (Crossplane, Atlas, CNPG) to establish webhooks
-func (o *Orchestrator) waitForOperators(ctx context.Context, kubeconfig string) error {
-	deadline := time.Now().Add(10 * time.Minute)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+// adr045Registry is the top-level structure of manifests/generated/artifacts.yaml.
+type adr045Registry struct {
+	Artifacts []adr045Artifact `yaml:"artifacts"`
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for operators to establish webhooks")
-			}
+// validateADR045Artifacts reads manifests/generated/artifacts.yaml and validates
+// that every required artifact exists on disk with all required fields populated.
+// This runs after PhaseBootstrapInfisicalAPI when the CLI has generated the patches.
+func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
 
-			// Check if CAPI and Cert-Manager webhooks are ready
-			// We check by name to avoid fragile JSONPath issues
-			cmd := exec.CommandContext(ctx, "kubectl",
-				"--kubeconfig", kubeconfig,
-				"get", "validatingwebhookconfigurations",
-				"-o", "name",
-			)
+	registryPath := filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml")
+	registryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", registryPath, err)
+	}
 
-			output, err := cmd.Output()
-			if err != nil {
-				if o.Debug {
-					fmt.Printf("[DEBUG] Waiting for webhooks to be ready...\n")
-				}
-				continue
-			}
+	var registry adr045Registry
+	if err := yaml.Unmarshal(registryData, &registry); err != nil {
+		return fmt.Errorf("parse %s: %w", registryPath, err)
+	}
 
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			webhooksReady := false
+	if len(registry.Artifacts) == 0 {
+		fmt.Println("[adr045-validate] ⚠️  No artifacts registered in artifacts.yaml")
+		return nil
+	}
 
-			for _, line := range lines {
-				if line == "" {
-					continue
-				}
-				// Check if the actual core operators are present
-				if strings.Contains(line, "capi") || strings.Contains(line, "caph") || strings.Contains(line, "cert-manager") {
-					webhooksReady = true
+	for _, a := range registry.Artifacts {
+		absPath := filepath.Join(projectRoot, a.File)
+
+		// Check file exists
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return fmt.Errorf("artifact %s: file not found — ensure BootstrapInfisicalAPI completed successfully", a.File)
+		}
+
+		// Parse the patch YAML
+		var doc map[string]interface{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("artifact %s: invalid YAML: %w", a.File, err)
+		}
+
+		// Verify each required field
+		for _, field := range a.RequiredFields {
+			parts := strings.Split(field, ".")
+			current := doc
+			found := true
+
+			for i, part := range parts {
+				val, ok := current[part]
+				if !ok {
+					found = false
 					break
 				}
+				if i == len(parts)-1 {
+					// Last part — check it's non-empty
+					strVal, ok := val.(string)
+					if !ok || strings.TrimSpace(strVal) == "" {
+						found = false
+					}
+				} else {
+					// Intermediate — must be a map
+					next, ok := val.(map[string]interface{})
+					if !ok {
+						found = false
+						break
+					}
+					current = next
+				}
 			}
 
-			if webhooksReady {
+			if !found {
+				return fmt.Errorf("artifact %s: required field %s is missing or empty", a.File, field)
+			}
+		}
+
+		fmt.Printf("[adr045-validate]   ✓ %s (%d fields)\n", a.File, len(a.RequiredFields))
+	}
+
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ADR-045: auto-commit + wait for ArgoCD
+// ──────────────────────────────────────────────────────────────────────────
+
+// gitCommitArtifacts runs git add + git commit for the generated artifact
+// directories. It only requires local Git — no remote access. If git is
+// unavailable or the working tree is dirty, it returns an error but does
+// not halt the bootstrap (the user can commit manually).
+func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) error {
+	// Check if git is available
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git not found: %w", err)
+	}
+
+	// git add for each path
+	for _, p := range paths {
+		cmd := exec.CommandContext(ctx, "git", "add", p)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git add %s: %w\n%s", p, err, out)
+		}
+	}
+
+	// git commit (idempotent — fails cleanly if nothing to commit)
+	cmd := exec.CommandContext(ctx, "git", "commit", "-m",
+		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Check if it's just "nothing to commit"
+		if bytes.Contains(out, []byte("nothing to commit")) {
+			fmt.Println("[adr045-commit]   Nothing new to commit (already up to date)")
+			return nil
+		}
+		return fmt.Errorf("git commit: %w\n%s", err, out)
+	}
+
+	fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
+
+	// Try git pull --rebase before pushing to avoid non-fast-forward errors
+	// (e.g. if another agent or user pushed commits to this branch while we were bootstrapping)
+	pullCtx, pullCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer pullCancel()
+	pullCmd := exec.CommandContext(pullCtx, "git", "pull", "--rebase")
+	if out, err := pullCmd.CombinedOutput(); err != nil {
+		fmt.Printf("[adr045-commit]   ⚠️  Auto-pull (rebase) failed, continuing to push: %s\n", strings.TrimSpace(string(out)))
+	}
+
+	// Try git push (non-fatal — user may need to push manually)
+	pushCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	pushCmd := exec.CommandContext(pushCtx, "git", "push")
+	if out, err := pushCmd.CombinedOutput(); err != nil {
+		fmt.Printf("[adr045-commit]   ⚠️  Auto-push failed (manual push required): %s\n",
+			strings.TrimSpace(string(out)))
+	} else {
+		fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
+	}
+
+	return nil
+}
+
+// waitForArgoCDAppsHealthy polls ArgoCD Application resources until all
+// specified apps report Sync=Synced and Health=Healthy, or the context
+// expires. Uses kubectl with the provided kubeconfig.
+func (o *Orchestrator) waitForArgoCDAppsHealthy(ctx context.Context, kubeconfig string, appNames []string) error {
+	// helper to check a single app
+	checkApp := func(app string) (synced, healthy bool, err error) {
+		syncCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.sync.status}")
+		syncOut, syncErr := syncCmd.Output()
+		if syncErr != nil {
+			return false, false, fmt.Errorf("get sync status: %w", syncErr)
+		}
+		synced = strings.TrimSpace(string(syncOut)) == "Synced"
+
+		healthCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.health.status}")
+		healthOut, healthErr := healthCmd.Output()
+		if healthErr != nil {
+			return false, false, fmt.Errorf("get health status: %w", healthErr)
+		}
+		healthy = strings.TrimSpace(string(healthOut)) == "Healthy"
+		return synced, healthy, nil
+	}
+
+	getStatus := func(app string) string {
+		syncOut, _ := exec.CommandContext(context.Background(), "kubectl",
+			"--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.sync.status}").Output()
+		healthOut, _ := exec.CommandContext(context.Background(), "kubectl",
+			"--kubeconfig", kubeconfig,
+			"get", "application", app, "-n", "platform-ops",
+			"-o", "jsonpath={.status.health.status}").Output()
+		return fmt.Sprintf("sync=%s health=%s",
+			strings.TrimSpace(string(syncOut)), strings.TrimSpace(string(healthOut)))
+	}
+
+	pollTicker := time.NewTicker(15 * time.Second)
+	defer pollTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			var failures []string
+			for _, app := range appNames {
+				synced, healthy, _ := checkApp(app)
+				if !synced || !healthy {
+					failures = append(failures, fmt.Sprintf("%s: %s", app, getStatus(app)))
+				}
+			}
+			if len(failures) > 0 {
+				return fmt.Errorf("timeout waiting for ArgoCD apps:\n  %s",
+					strings.Join(failures, "\n  "))
+			}
+			return ctx.Err()
+
+		case <-pollTicker.C:
+			allHealthy := true
+			for _, app := range appNames {
+				synced, healthy, err := checkApp(app)
+				if err != nil {
+					fmt.Printf("[adr045-commit]   ⏳ %s: error (%v), retrying...\n", app, err)
+					allHealthy = false
+					continue
+				}
+				if !synced || !healthy {
+					fmt.Printf("[adr045-commit]   ⏳ %s: %s\n", app, getStatus(app))
+					allHealthy = false
+				}
+			}
+			if allHealthy {
 				return nil
-			}
-
-			if o.Debug {
-				fmt.Printf("[DEBUG] Waiting for operator webhooks to be established...\n")
 			}
 		}
 	}

@@ -70,7 +70,7 @@ func (r *FeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Validate referenced meter slugs
 	if err := r.validateMeterReferences(ctx, feature); err != nil {
 		logger.Error(err, "Meter validation failed")
-		
+
 		// Update status with validation error
 		meta.SetStatusCondition(&feature.Status.Conditions, metav1.Condition{
 			Type:               "Synced",
@@ -79,15 +79,15 @@ func (r *FeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            fmt.Sprintf("Meter validation failed: %v", err),
 			ObservedGeneration: feature.Generation,
 		})
-		
+
 		if updateErr := r.Status().Update(ctx, feature); updateErr != nil {
 			logger.Error(updateErr, "Failed to update Feature status")
 			return ctrl.Result{}, updateErr
 		}
-		
+
 		// Emit event for validation failure
 		r.emitEvent(feature, corev1.EventTypeWarning, "ValidationFailed", fmt.Sprintf("Meter validation failed: %v", err))
-		
+
 		// Requeue with backoff
 		return ctrl.Result{RequeueAfter: r.calculateBackoff(feature)}, err
 	}
@@ -95,7 +95,7 @@ func (r *FeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Sync feature to OpenMeter
 	if err := r.syncFeatureToOpenMeter(ctx, feature, namespace); err != nil {
 		logger.Error(err, "Failed to sync feature to OpenMeter")
-		
+
 		// Update status with error condition
 		meta.SetStatusCondition(&feature.Status.Conditions, metav1.Condition{
 			Type:               "Synced",
@@ -104,15 +104,15 @@ func (r *FeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            fmt.Sprintf("Failed to sync to OpenMeter: %v", err),
 			ObservedGeneration: feature.Generation,
 		})
-		
+
 		if updateErr := r.Status().Update(ctx, feature); updateErr != nil {
 			logger.Error(updateErr, "Failed to update Feature status")
 			return ctrl.Result{}, updateErr
 		}
-		
+
 		// Emit event for sync failure
 		r.emitEvent(feature, corev1.EventTypeWarning, "SyncFailed", fmt.Sprintf("Failed to sync to OpenMeter: %v", err))
-		
+
 		// Exponential backoff
 		return ctrl.Result{RequeueAfter: r.calculateBackoff(feature)}, err
 	}
@@ -168,11 +168,11 @@ func (r *FeatureReconciler) syncFeatureToOpenMeter(ctx context.Context, feature 
 	// TODO: Verify OpenMeter SDK schema and update request body type
 	// The exact SDK types need to be confirmed from openmeter/api/client/go package
 	// This is a placeholder implementation that needs SDK schema verification
-	
+
 	// Placeholder: Mark as synced for now
 	feature.Status.OpenMeterID = fmt.Sprintf("feature-%s", feature.Spec.Key)
 	return nil
-	
+
 	// Expected implementation (needs SDK schema verification):
 	// req := openmeter.CreateFeatureJSONRequestBody{
 	//     Key:        feature.Spec.Key,

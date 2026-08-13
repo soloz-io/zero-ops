@@ -146,6 +146,23 @@ Automated assertions for OpenMeter provider endpoints.
 ./scripts/test-openmeter-providers.sh
 ```
 
+### `validate-spokepool-compositions.sh`
+
+Regression guard for SpokePool Composition ClusterResourceSet resource
+alignment. `function-patch-and-transform` addresses resources positionally
+(`spec.forProvider.manifest.spec.resources[N].name`), so inserting or removing
+an element silently shifts downstream patches. This script renders each
+composition's cluster-resource-set `resources[]` through its index-targeted
+patches (fixed test claim) and asserts every rendered name is non-empty,
+unique, static namespace ConfigMaps stay unprefixed, and per-spoke resources
+(`{claim}-<suffix>`) resolve exactly once.
+
+```bash
+./scripts/validate-spokepool-compositions.sh
+```
+
+Runs in CI on every PR touching `manifests/**` and via `make test`.
+
 ---
 
 ## GitOps Principle

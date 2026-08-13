@@ -69,7 +69,7 @@ func (r *MeterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Sync meter to OpenMeter
 	if err := r.syncMeterToOpenMeter(ctx, meter, namespace); err != nil {
 		logger.Error(err, "Failed to sync meter to OpenMeter")
-		
+
 		// Update status with error condition
 		meta.SetStatusCondition(&meter.Status.Conditions, metav1.Condition{
 			Type:               "Synced",
@@ -78,15 +78,15 @@ func (r *MeterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Message:            fmt.Sprintf("Failed to sync to OpenMeter: %v", err),
 			ObservedGeneration: meter.Generation,
 		})
-		
+
 		if updateErr := r.Status().Update(ctx, meter); updateErr != nil {
 			logger.Error(updateErr, "Failed to update Meter status")
 			return ctrl.Result{}, updateErr
 		}
-		
+
 		// Emit Kubernetes Event for reconciliation failure
 		r.emitEvent(meter, corev1.EventTypeWarning, "SyncFailed", fmt.Sprintf("Failed to sync to OpenMeter: %v", err))
-		
+
 		// Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 5min
 		return ctrl.Result{RequeueAfter: r.calculateBackoff(meter)}, err
 	}
@@ -116,11 +116,11 @@ func (r *MeterReconciler) syncMeterToOpenMeter(ctx context.Context, meter *billi
 	// TODO: Verify OpenMeter SDK schema and update request body type
 	// The exact SDK types need to be confirmed from openmeter/api/client/go package
 	// This is a placeholder implementation that needs SDK schema verification
-	
+
 	// Placeholder: Mark as synced for now
 	meter.Status.OpenMeterID = fmt.Sprintf("meter-%s", meter.Spec.Slug)
 	return nil
-	
+
 	// Expected implementation (needs SDK schema verification):
 	// req := openmeter.CreateMeterJSONRequestBody{
 	//     Slug:          meter.Spec.Slug,

@@ -5,7 +5,6 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.12.1
     # ADR-023: Vendored CRD applied at wave -5 — before operators (wave 1)
     # and before Kyverno policies (wave 5) that reference this kind.
-    argocd.argoproj.io/sync-wave: "-5"
   name: rollouts.argoproj.io
 spec:
   group: argoproj.io

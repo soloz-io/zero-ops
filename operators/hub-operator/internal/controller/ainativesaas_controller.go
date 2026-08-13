@@ -20,12 +20,12 @@ import (
 // wait for secrets at /spoke-pool/<cellId>/tenants/<tenantId>/<secret-name>.
 //
 // Currently handles:
-//   1. db-credentials — PostgreSQL user credentials for the tenant database.
-//      ESO remoteRef.key splits on the last '/' so secret NAME is "db-credentials"
-//      and FOLDER path is /spoke-pool/<cellId>/tenants/<tenantId>.
-//      ADR-003 Pattern A2a: Kube-SBT → Infisical ONLY → ESO → Spoke K8s Secret.
-//   2. infisical-credentials — Machine Identity credentials for the tenant SDK
-//      workload. ADR-003, ADR-019: scoped identity for runtime plugin resolution.
+//  1. db-credentials — PostgreSQL user credentials for the tenant database.
+//     ESO remoteRef.key splits on the last '/' so secret NAME is "db-credentials"
+//     and FOLDER path is /spoke-pool/<cellId>/tenants/<tenantId>.
+//     ADR-003 Pattern A2a: Kube-SBT → Infisical ONLY → ESO → Spoke K8s Secret.
+//  2. infisical-credentials — Machine Identity credentials for the tenant SDK
+//     workload. ADR-003, ADR-019: scoped identity for runtime plugin resolution.
 //
 // Mirrors SpokePoolReconciler (ADR-003 Pattern A2b) for consistency.
 type AINativeSaaSReconciler struct {
@@ -71,6 +71,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	logger.Info("Reconciling TenantDatabase credentials", "tenant", tenantId, "cell", cellId)
 
+	// TODO(ADR-039): Move tenant credential generation to Kube-SBT
 	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning.
 	// isFirstTime is always true because EnsureTenantFolderAndCredentials has its own
 	// idempotency check. This handles existing tenants that were provisioned before
@@ -98,9 +99,9 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 type conditionState int
 
 const (
-	conditionSeeded       conditionState = iota // first-time: generated and uploaded
-	conditionAlreadyExists                      // idempotent: already present in Infisical
-	conditionMissing                            // error: missing post-provisioning
+	conditionSeeded        conditionState = iota // first-time: generated and uploaded
+	conditionAlreadyExists                       // idempotent: already present in Infisical
+	conditionMissing                             // error: missing post-provisioning
 )
 
 // isConditionTrue checks whether a named condition is Status=True on the unstructured object.
@@ -187,7 +188,7 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 
 	meta.SetStatusCondition(&metaConditions, cond)
 
-	// Serialise back including observedGeneration — now declared in AINativeSaaS XRD status schema.
+	// Serialise back to unstructured map format for Crossplane.
 	var updated []interface{}
 	for _, c := range metaConditions {
 		updated = append(updated, map[string]interface{}{
@@ -195,7 +196,6 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 			"status":             string(c.Status),
 			"reason":             c.Reason,
 			"message":            c.Message,
-			"observedGeneration": latest.GetGeneration(),
 			"lastTransitionTime": metav1.Now().Format("2006-01-02T15:04:05Z"),
 		})
 	}

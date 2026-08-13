@@ -1,0 +1,336 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: spokepool-v1
+  namespace: platform-capi
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
+      name: spokepool-control-plane-v1
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        name: spokepool-control-plane-machine-v1
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: HetznerClusterTemplate
+      name: spokepool-cluster-v1
+  workers:
+    machineDeployments:
+    - class: default-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
+            name: spokepool-worker-bootstrap-v1
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: spokepool-worker-machine-v1
+  patches:
+  - name: region
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/controlPlaneRegions
+        valueFrom:
+          template: '[{{ .region | quote }}]'
+      - op: add
+        path: /spec/template/spec/controlPlaneLoadBalancer/region
+        valueFrom:
+          variable: region
+      - op: add
+        path: /spec/template/spec/hcloudNetwork/networkZone
+        valueFrom:
+          template: '{{ if eq .region "hel1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
+  - name: controlPlaneEndpoint
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/controlPlaneLoadBalancer/enabled
+        valueFrom:
+          variable: controlPlaneLoadBalancerEnabled
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/host
+        valueFrom:
+          variable: controlPlaneEndpointHost
+  - name: controlPlaneMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: controlPlaneMachineType
+  - name: workerMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          machineDeploymentClass:
+            names:
+            - default-worker
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: workerMachineType
+  variables:
+  - name: region
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "hel1"
+  - name: workerMachineType
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx33"
+  - name: controlPlaneMachineType
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx33"
+  - name: controlPlaneLoadBalancerEnabled
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: boolean
+        default: true
+  - name: controlPlaneEndpointHost
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HetznerClusterTemplate
+metadata:
+  name: spokepool-cluster-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      controlPlaneEndpoint:
+        host: ""
+        port: 443
+      controlPlaneRegions:
+      - hel1
+      controlPlaneLoadBalancer:
+        enabled: true
+        type: lb11
+        algorithm: round_robin
+        region: hel1
+      hcloudNetwork:
+        enabled: true
+        cidrBlock: 10.0.0.0/16
+        subnetCidrBlock: 10.0.0.0/24
+        networkZone: eu-central
+      sshKeys:
+        hcloud: []
+      hetznerSecretRef:
+        name: hetzner-credentials
+        key:
+          hcloudToken: hcloud
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: spokepool-control-plane-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          networking:
+            podSubnet: 10.244.0.0/16
+            serviceSubnet: 10.96.0.0/12
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+              allocate-node-cidrs: "true"
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        files:
+        - path: /etc/tailscale-authkey
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Management-cluster Secret holding the reusable Tailscale auth key
+              # for CAPI control-plane nodes (ADR-046). Never committed to Git;
+              # sourced at bootstrap from the tailscale-hybrid-psk Secret.
+              name: tailscale-hybrid-psk
+              key: authkey
+        - path: /etc/tailscale-hostname
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Tailnet hostname for this CP node (<claim>-cp). Empty for
+              # pure-hetzner spokes → the pre-kubeadm Tailscale block no-ops.
+              name: tailscale-hybrid-psk
+              key: hostname
+        preKubeadmCommands:
+        - set -x
+        - export CONTAINERD=1.7.26
+        - export RUNC=1.2.5
+        - export KUBERNETES_VERSION=1.31.6
+        - export TRIMMED_KUBERNETES_VERSION=1.31
+        - ARCH="$(dpkg --print-architecture)"
+        - localectl set-locale LANG=en_US.UTF-8
+        - localectl set-locale LANGUAGE=en_US.UTF-8
+        - apt-get update -y
+        - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+        - sed -i '/swap/d' /etc/fstab
+        - swapoff -a
+        - modprobe overlay && modprobe br_netfilter && sysctl --system
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+        - sha256sum --check --ignore-missing runc.sha256sum
+        - install runc.$ARCH /usr/local/sbin/runc
+        - rm -f runc.$ARCH runc.sha256sum
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+        - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - mkdir -p /etc/containerd
+        - containerd config default > /etc/containerd/config.toml
+        - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+        - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+        - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+        - sysctl -p
+        - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+        - mkdir -p /etc/apt/keyrings/
+        - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+        - apt-get update
+        - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+        - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+        - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+        - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+        - apt-get -y autoremove && apt-get -y clean all
+        # ── Tailscale pre-kubeadm (ADR-046: tailnet-only spoke) ───────────────
+        # Join the control-plane node to the tailnet BEFORE kubeadm init so the
+        # derived controlPlaneEndpoint (<claim>-cp.<tailnet>) resolves and the
+        # API server is reachable over Tailscale. Authkey + hostname are read
+        # from /etc/tailscale-* (written by files[] contentFrom.secret above).
+        # Pure-hetzner spokes leave hostname empty → this block no-ops.
+        - curl -fsSL https://tailscale.com/install.sh | sh || true
+        - systemctl enable --now tailscaled || true
+        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HCloudMachineTemplate
+metadata:
+  name: spokepool-control-plane-machine-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      type: cx33
+      imageName: ubuntu-24.04
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: spokepool-worker-bootstrap-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            node-labels: "workload-location=hetzner"
+      preKubeadmCommands:
+      - set -x
+      - export CONTAINERD=1.7.26
+      - export RUNC=1.2.5
+      - export KUBERNETES_VERSION=1.31.6
+      - export TRIMMED_KUBERNETES_VERSION=1.31
+      - ARCH="$(dpkg --print-architecture)"
+      - localectl set-locale LANG=en_US.UTF-8
+      - localectl set-locale LANGUAGE=en_US.UTF-8
+      - apt-get update -y
+      - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+      - sed -i '/swap/d' /etc/fstab
+      - swapoff -a
+      - modprobe overlay && modprobe br_netfilter && sysctl --system
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+      - sha256sum --check --ignore-missing runc.sha256sum
+      - install runc.$ARCH /usr/local/sbin/runc
+      - rm -f runc.$ARCH runc.sha256sum
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+      - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - mkdir -p /etc/containerd
+      - containerd config default > /etc/containerd/config.toml
+      - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+      - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+      - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+      - sysctl -p
+      - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+      - mkdir -p /etc/apt/keyrings/
+      - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+      - apt-get update
+      - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+      - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+      - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+      - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+      - apt-get -y autoremove && apt-get -y clean all
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HCloudMachineTemplate
+metadata:
+  name: spokepool-worker-machine-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      type: cx33
+      imageName: ubuntu-24.04

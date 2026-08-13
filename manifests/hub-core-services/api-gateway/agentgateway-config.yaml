@@ -51,7 +51,6 @@ data:
               issuer: https://auth.nutgraf.in
               audiences:
               - https://api.nutgraf.in/mcp
-              realm: MCP
               jwks:
                 url: http://ory-hydra-public.platform-identity.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:

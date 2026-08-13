@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -101,8 +102,7 @@ type Price struct {
 
 	// Amount is the price amount
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Minimum=0
-	Amount float64 `json:"amount"`
+	Amount resource.Quantity `json:"amount"`
 
 	// BillingCadence defines billing frequency
 	// +kubebuilder:validation:Required

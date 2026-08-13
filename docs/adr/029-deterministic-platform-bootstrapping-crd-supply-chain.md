@@ -19,6 +19,10 @@ To achieve enterprise-grade determinism and supply-chain integrity, we mandate t
    - Cluster-wide validation policies (Kyverno, OPA) MUST execute at `sync-wave: "5"` or higher to guarantee the API discovery cache has fully stabilized.
 4. **Decoupled Bootstrapping (Future-Proofing):** As the platform scales, CRDs and Operators SHALL be extracted into a dedicated `platform-bootstrap` ArgoCD Application, entirely decoupled from the `platform-infrastructure` Application.
 
+## Ownership
+
+This ADR defines CRD supply chain security and bootstrapping conventions. For resource ownership, see ADR-039.
+
 ## Consequences
 - **Positive:** Disaster recovery is 100% reproducible. Air-gapped deployments are natively supported. Zero downtime or blocked queues caused by GitHub rate-limiting or outages.
 - **Negative:** Slightly increased repository footprint due to vendored CRD YAML files. Platform engineers must manually update the vendored CRDs when upgrading third-party operators.

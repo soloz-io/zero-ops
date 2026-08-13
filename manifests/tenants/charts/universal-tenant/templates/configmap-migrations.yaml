@@ -4,8 +4,6 @@ kind: ConfigMap
 metadata:
   name: tenant-{{ .Values.tenantId }}-migrations
   namespace: tenant-{{ .Values.tenantId }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
   labels:
     tenant-id: {{ .Values.tenantId }}
     tier: {{ .Values.tier }}

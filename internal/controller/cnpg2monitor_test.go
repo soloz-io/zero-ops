@@ -44,7 +44,7 @@
 // 		Expect(cnpgv1.AddToScheme(scheme)).To(Succeed())
 
 // 		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-		
+
 // 		controller = &Cnpg2Monitor{
 // 			Client:     fakeClient,
 // 			Log:        ctrl.Log.WithName("test"),
@@ -166,7 +166,7 @@
 
 // 			relabelings := controller.buildTopologyRelabelings(topologyLabels)
 // 			Expect(relabelings).To(HaveLen(2))
-			
+
 // 			// Check that all topology labels are converted to relabelings
 // 			labelMap := make(map[string]string)
 // 			for _, r := range relabelings {
@@ -251,7 +251,7 @@
 // 					Name: "test-ns",
 // 					Labels: map[string]string{
 // 						"nutgraf.in/cluster_id": "mothership",
-// 						"nutgraf.in/region":     "fsn1",
+// 						"nutgraf.in/region":     "hel1",
 // 					},
 // 				},
 // 			}
@@ -303,7 +303,7 @@
 // 				},
 // 				topologyLabels: map[string]string{
 // 					"cluster_id": "mothership",
-// 					"region":     "fsn1",
+// 					"region":     "hel1",
 // 				},
 // 			}
 

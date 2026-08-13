@@ -1,3 +1,9 @@
+// DEPRECATED: Application secret generation by the Hub Operator is prohibited by ADR-003,
+// ADR-039, and ADR-043. Application secrets must be created directly in the Infisical UI
+// (System of Record) and delivered via ESO. This file is retained for temporary backward
+// compatibility only and MUST be removed once all application secrets are migrated to
+// Infisical UI → ESO delivery.
+
 package infisical
 
 import (
@@ -46,9 +52,14 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	}
 
 	// Get project slug from environment variable (set via configmap hub-bootstrap-config)
-	projectSlug := os.Getenv("INFISICAL_PROJECT_SLUG")
+	// Use secrets project for application secrets (hub-secrets is type "secret-manager")
+	// Fall back to INFISICAL_PROJECT_SLUG for backward compatibility
+	projectSlug := os.Getenv("INFISICAL_SECRETS_PROJECT_SLUG")
 	if projectSlug == "" {
-		return fmt.Errorf("INFISICAL_PROJECT_SLUG environment variable not set")
+		projectSlug = os.Getenv("INFISICAL_PROJECT_SLUG")
+	}
+	if projectSlug == "" {
+		return fmt.Errorf("neither INFISICAL_SECRETS_PROJECT_SLUG nor INFISICAL_PROJECT_SLUG environment variable is set")
 	}
 
 	environmentSlug := EnvironmentSlug
@@ -162,7 +173,7 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 func generateSvixJWT(signingSecret string) (string, error) {
 	claims := jwt.MapClaims{
 		"iss": "svix-server",
-		"sub": "org_openmeter",  // Must be valid org ID format
+		"sub": "org_openmeter", // Must be valid org ID format
 		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(10 * 365 * 24 * time.Hour).Unix(), // 10 years validity
 	}

@@ -1,0 +1,106 @@
+{{ if .Values.deploy.boundary02 }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: 02-platform-data
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - list:
+        elements:
+          - appName: 'platform-clickhouse'
+            destinationNamespace: 'platform-data'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/clickhouse'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-database'
+            destinationNamespace: 'platform-data'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/database'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-nats'
+            destinationNamespace: 'platform-messaging'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/nats'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          - appName: 'platform-redis'
+            destinationNamespace: 'platform-data'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/redis'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+  template:
+    metadata:
+      name: '{{"{{"}} .appName {{"}}"}}'
+      namespace: platform-ops
+    spec:
+      project: default
+      source:
+        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        path: '{{"{{"}} .path {{"}}"}}'
+        chart: '{{"{{"}} .chart {{"}}"}}'
+        helm:
+          releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+          values: '{{"{{"}} .helmValues {{"}}"}}'
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 15
+          backoff:
+            duration: 30s
+            maxDuration: 10m
+  templatePatch: |
+    {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
+    spec:
+      source:
+        directory:
+          recurse: true
+    {{"{{-"}} end {{"}}"}}
+    spec:
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/persistentVolumeClaimRetentionPolicy
+            - /spec/volumeClaimTemplates
+---
+{{ end }}

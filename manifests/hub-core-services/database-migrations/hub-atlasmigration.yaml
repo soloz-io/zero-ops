@@ -17,23 +17,23 @@ spec:
       name: platform-db-superuser
       key: uri
       namespace: platform-data
-  
+
   # Migration directory from ConfigMap
   dir:
     configMapRef:
       name: hub-migrations
-  
+
   # Dev database for validation (empty = operator spins up temp container)
   devURL: ""
-  
+
   # Schema-specific revisions table (tracks migrations for this database)
   revisionsSchema: "hub"
-  
+
   # Baseline version (first migration)
   baseline: "20260511020613"
-  
+
   # Execution order
   execOrder: linear
-  
+
   # Retry policy
   backoffLimit: 20

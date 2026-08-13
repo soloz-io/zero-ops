@@ -58,12 +58,9 @@ Repo 1: zero-ops (platform code)
     └── universal-tenant/
 
 Repo 2: fleet-registry (runtime state)
-├── spokepools/
-│   ├── spokepool-01.yaml
-│   └── spokepool-02.yaml
-└── tenants/
-    ├── tenant-acme/
-    └── tenant-xyz/
+├── tenants/
+│   ├── tenant-acme/
+│   └── tenant-xyz/
 ```
 
 ### Option 3: Multi-Repository (per component)
@@ -97,12 +94,14 @@ We will maintain two separate Git repositories:
 - Helm charts (universal-tenant, spoke-pool)
 - Kyverno policies
 - Platform configuration
+- SpokePool manifests (platform infrastructure inventory)
 
-**fleet-registry = Platform State**
-- SpokePool XR instances
+**fleet-registry = Tenant Runtime State**
 - Tenant configurations (values.yaml)
-- Runtime fleet topology
-- Tenant-specific overrides
+- Tenant-specific workloads (Kustomize overlays)
+- Tenant migrations (Atlas SQL files)
+
+> **Clarification (2026-06-04):** SpokePools are platform-owned capacity management resources. They are managed from the Zero-Ops platform repository, not fleet-registry. The original ADR placed them in fleet-registry's scope; this has been corrected. Fleet-registry remains the source of truth for tenant workloads and tenant runtime configuration only.
 
 ### 2. Safer Access Control
 
@@ -192,7 +191,7 @@ docs: update Crossplane Composition schema
 
 **fleet-registry commits**:
 ```
-tenant: onboard acme (tier: starter, region: fsn1)
+tenant: onboard acme (tier: starter, region: hel1)
 spokepool: provision spokepool-03 (region: hel1)
 tenant: scale acme resources (cpu: 2 -> 4)
 ```
@@ -218,6 +217,13 @@ zero-ops/
 │   ├── charts/            # Helm charts (universal-tenant, spoke-pool)
 │   │   ├── universal-tenant/
 │   │   └── spoke-pool/
+│   ├── spoke/              # SpokePool manifests (platform infrastructure inventory)
+│   │   └── spokepools/
+│   │       ├── hetzner/
+│   │       │   └── eu-prod-01/
+│   │       │       └── spokepool.yaml
+│   │       └── local/
+│   │           └── spokepool.yaml
 │   └── crossplane/        # Crossplane XRDs and Compositions
 │       ├── xrds/
 │       └── compositions/
@@ -235,10 +241,6 @@ zero-ops/
 **fleet-registry** (https://github.com/soloz-io/fleet-registry):
 ```
 fleet-registry/
-├── spokepools/
-│   ├── spokepool-01.yaml
-│   ├── spokepool-02.yaml
-│   └── spokepool-03.yaml
 └── tenants/
     ├── tenant-acme/
     │   └── values.yaml
@@ -327,6 +329,14 @@ spec:
 **Key Point**: MCP API only writes to `fleet-registry/tenants/`, never touches `zero-ops`.
 
 ---
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Kubernetes Resources | Git | ArgoCD | ArgoCD | Platform, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 

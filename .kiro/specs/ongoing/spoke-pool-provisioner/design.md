@@ -99,7 +99,7 @@ kind: SpokePool
 metadata:
   name: spokepool-01
 spec:
-  region: fsn1                    # Hetzner datacenter
+  region: hel1                    # Hetzner datacenter
   nodePool:
     count: 3                      # Worker nodes
     instanceType: cx33            # Hetzner server type
@@ -411,7 +411,7 @@ metadata:
   name: argocd-agent-principal
   namespace: platform-ops
   annotations:
-    load-balancer.hetzner.cloud/location: fsn1
+    load-balancer.hetzner.cloud/location: hel1
     load-balancer.hetzner.cloud/name: argocd-principal
     external-dns.alpha.kubernetes.io/hostname: argocd-principal.nutgraf.in
 spec:
@@ -955,7 +955,7 @@ atlas_migrations_applied_total{cell_id="spokepool-01"}
 
 **Description**: Provision cells in multiple Hetzner datacenters
 
-**Implementation**: SpokePool XR with `region` parameter (fsn1, nbg1, hel1)
+**Implementation**: SpokePool XR with `region` parameter (hel1, nbg1, hel1)
 
 ### 12.5 Automated Certificate Rotation
 

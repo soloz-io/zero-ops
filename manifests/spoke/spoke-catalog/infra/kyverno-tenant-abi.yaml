@@ -10,12 +10,10 @@ metadata:
   labels:
     app.kubernetes.io/component: tenant-governance
     app.kubernetes.io/managed-by: argocd
-  annotations:
     # ADR-023: Delay policy injection until wave 5 to guarantee the Rollout CRD
     # (wave -5) has been applied and the API discovery cache has stabilised.
     # Kyverno validates kind references against the live API at admission time —
     # applying before the CRD is Established causes an irrecoverable rejection.
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   validationFailureAction: Enforce
   background: true

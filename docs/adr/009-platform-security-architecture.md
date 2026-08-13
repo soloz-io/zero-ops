@@ -112,6 +112,15 @@ User → [JWT] → AgentGateway (Layer 1: JWT validation)
               PostgreSQL RLS (Layer 4: Data isolation)
 ```
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Certificates | Kubernetes API | cert-manager | cert-manager | Workloads, ArgoCD Agent | Day-1+ |
+| Workload Identity | SPIRE Server | SPIRE | SPIRE | Istio, Tenant Apps | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

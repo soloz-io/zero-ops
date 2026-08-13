@@ -14,7 +14,7 @@ memory
 k8-secrets
 manifests/hub-core-services/eso/crds/
 test
-scripts
 cmd
 internal
 !internal/hub-cli
+reference-projects

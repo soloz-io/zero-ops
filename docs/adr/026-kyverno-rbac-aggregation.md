@@ -69,6 +69,14 @@ rules:
 
 ---
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Admission Policies | Git | Kyverno | Kyverno | Kubernetes API | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

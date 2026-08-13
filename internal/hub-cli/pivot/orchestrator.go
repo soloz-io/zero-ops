@@ -16,6 +16,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/binaries"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 )
 
 type resourceMetadata struct {
@@ -487,111 +488,65 @@ func (o *Orchestrator) applyBatch(ctx context.Context, kubeconfig string, batch 
 	return nil
 }
 
+// waitForCAPICRDs polls the API server until the core CAPI CRDs are
+// registered. This is the pre-condition for any CAPI resource to be
+// applied (Cluster, Machine, KubeadmControlPlane, etc.).
 func (o *Orchestrator) waitForCAPICRDs(ctx context.Context, kubeconfig string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	requiredCRDs := []string{
-		"clusters.cluster.x-k8s.io",
-		"machines.cluster.x-k8s.io",
-		"machinedeployments.cluster.x-k8s.io",
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewCRDRegisteredHealth(
+				"clusters.cluster.x-k8s.io",
+				"machines.cluster.x-k8s.io",
+				"machinedeployments.cluster.x-k8s.io",
+			),
+		},
+		Interval: 10 * time.Second,
+		Timeout:  timeout,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[pivot] ✓ CAPI CRDs ready")
+		},
 	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for CAPI CRDs")
-			}
-
-			allReady := true
-			for _, crd := range requiredCRDs {
-				cmd := exec.CommandContext(ctx, "kubectl",
-					"--kubeconfig", kubeconfig,
-					"get", "crd", crd,
-				)
-				if err := cmd.Run(); err != nil {
-					allReady = false
-					break
-				}
-			}
-
-			if allReady {
-				fmt.Println("[pivot] ✓ CAPI CRDs ready")
-				return nil
-			}
-
-			fmt.Println("[pivot] Waiting for CAPI CRDs to be installed...")
-		}
-	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
-// waitForOperatorCRDs waits for the capi-operator's Provider CRDs to be established
-// and for the webhook service endpoint to have ready addresses before applying Provider CRs.
+// waitForOperatorCRDs waits for the capi-operator's Provider CRDs to be
+// established and for the webhook service endpoint to have ready
+// addresses before applying Provider CRs.
+//
+// Two checks are composed in order:
+//  1. Provider CRDs established
+//  2. Webhook endpoint has at least one ready address
+//
+// "Established" CRD registration races with the webhook goroutine
+// binding its port — a registered CRD does not mean the webhook is
+// serving, so the second check is load-bearing.
 func (o *Orchestrator) waitForOperatorCRDs(ctx context.Context, kubeconfig string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	webhookChecker := health.NewKubectlChecker(
+		"capi-operator-webhook-service endpoint",
+		[]string{
+			"get", "endpoints", "capi-operator-webhook-service",
+			"-n", constants.NamespaceCAPI,
+			"-o", "jsonpath={.subsets[0].addresses[0].ip}",
+		},
+	)
 
-	requiredCRDs := []string{
-		"coreproviders.operator.cluster.x-k8s.io",
-		"bootstrapproviders.operator.cluster.x-k8s.io",
-		"controlplaneproviders.operator.cluster.x-k8s.io",
-		"infrastructureproviders.operator.cluster.x-k8s.io",
-	}
-
-	crdsReady := false
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for operator CRDs and webhook endpoint")
-			}
-
-			if !crdsReady {
-				allReady := true
-				for _, crd := range requiredCRDs {
-					cmd := exec.CommandContext(ctx, "kubectl",
-						"--kubeconfig", kubeconfig,
-						"wait", "--for=condition=Established",
-						"crd/"+crd,
-						"--timeout=5s",
-					)
-					if err := cmd.Run(); err != nil {
-						allReady = false
-						break
-					}
-				}
-				if !allReady {
-					fmt.Println("[pivot] Waiting for operator CRDs to be established...")
-					continue
-				}
-				crdsReady = true
-			}
-
-			// CRDs established — now confirm the webhook service has ready endpoints.
-			// "Established" CRD registration races with the webhook goroutine binding its port.
-			cmd := exec.CommandContext(ctx, "kubectl",
-				"--kubeconfig", kubeconfig,
-				"get", "endpoints", "capi-operator-webhook-service",
-				"-n", constants.NamespaceCAPI,
-				"-o", "jsonpath={.subsets[0].addresses[0].ip}",
-			)
-			out, err := cmd.Output()
-			if err != nil || strings.TrimSpace(string(out)) == "" {
-				fmt.Println("[pivot] Waiting for webhook service endpoint to be ready...")
-				continue
-			}
-
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewCRDRegisteredHealth(
+				"coreproviders.operator.cluster.x-k8s.io",
+				"bootstrapproviders.operator.cluster.x-k8s.io",
+				"controlplaneproviders.operator.cluster.x-k8s.io",
+				"infrastructureproviders.operator.cluster.x-k8s.io",
+			),
+			webhookChecker,
+		},
+		Interval: 5 * time.Second,
+		Timeout:  timeout,
+		OnCheckPass: func(_ health.HealthChecker) {
 			fmt.Println("[pivot] ✓ Operator CRDs established and webhook endpoint ready")
-			return nil
-		}
+		},
 	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 func (o *Orchestrator) applyProviders(ctx context.Context, kubeconfig string) error {
@@ -642,10 +597,17 @@ func (o *Orchestrator) move(ctx context.Context, mgmtKubeconfig string) error {
 	clusterctlMgr, _ := binaries.NewClusterctlManager()
 	clusterctlPath := clusterctlMgr.GetPath()
 
-	cmd := exec.CommandContext(ctx, clusterctlPath, "move",
-		"--to-kubeconfig", mgmtKubeconfig,
-		"--namespace", o.Namespace,
-	)
+	// Pin the SOURCE to the bootstrap kubeconfig explicitly. clusterctl move
+	// without --kubeconfig resolves the source from the ambient current-context
+	// (KUBECONFIG/~/.kube/config), which may not be the bootstrap cluster after
+	// kubeconfig patching — that silently moves nothing while still exiting 0.
+	args := []string{"move", "--to-kubeconfig", mgmtKubeconfig}
+	if o.BootstrapKubeconfig != "" {
+		args = append(args, "--kubeconfig", o.BootstrapKubeconfig)
+	}
+	args = append(args, "--namespace", o.Namespace)
+
+	cmd := exec.CommandContext(ctx, clusterctlPath, args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -673,98 +635,41 @@ func (o *Orchestrator) countResources(ctx context.Context, kubeconfig string) (i
 	return count, nil
 }
 
+// waitForProvidersReady waits for all CAPI core providers to report
+// Ready=True on the management cluster after the pivot move.
+//
+// The CAPIProvidersReadiness phase (defined in the health package)
+// encodes the four providers that every zero-ops hub needs: Core,
+// Bootstrap, ControlPlane, and Infrastructure. The OS-specific
+// provider names are computed in the phase's Checkers() method.
 func (o *Orchestrator) waitForProvidersReady(ctx context.Context, kubeconfig string, timeout time.Duration) error {
-	// Determine provider names based on OS type
-	var bootstrapProvider, controlPlaneProvider string
-	if o.OSType == "talos" {
-		bootstrapProvider = "talos"
-		controlPlaneProvider = "talos"
-	} else {
-		// ubuntu uses kubeadm
-		bootstrapProvider = "kubeadm"
-		controlPlaneProvider = "kubeadm"
+	phase := &health.CAPIProvidersReadiness{
+		Namespace: constants.NamespaceCAPI,
+		OSType:    o.OSType,
 	}
-
-	providers := []struct {
-		kind string
-		name string
-	}{
-		{"CoreProvider", "cluster-api"},
-		{"BootstrapProvider", bootstrapProvider},
-		{"ControlPlaneProvider", controlPlaneProvider},
-		{"InfrastructureProvider", "hetzner"},
+	waiter := &health.HealthWaiter{
+		Checkers: phase.Checkers(),
+		Interval: 10 * time.Second,
+		Timeout:  timeout,
+		OnCheckPass: func(c health.HealthChecker) {
+			fmt.Printf("[pivot] ✓ %s ready on Management Cluster\n", c.Name())
+		},
 	}
-
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for _, provider := range providers {
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				if time.Now().After(deadline) {
-					return fmt.Errorf("timeout waiting for %s/%s", provider.kind, provider.name)
-				}
-
-				cmd := exec.CommandContext(ctx, "kubectl",
-					"--kubeconfig", kubeconfig,
-					"get", provider.kind, provider.name,
-					"-n", constants.NamespaceCAPI,
-					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
-				)
-
-				output, err := cmd.Output()
-				if err != nil {
-					continue
-				}
-
-				if string(output) == "True" {
-					fmt.Printf("[pivot] ✓ %s/%s ready on Management Cluster\n", provider.kind, provider.name)
-					goto nextProvider
-				}
-			}
-		}
-	nextProvider:
-	}
-
-	return nil
+	return waiter.Wait(ctx, kubeconfig)
 }
 
+// waitForClusterReady waits for the spoke cluster's Ready condition to
+// become True on the management cluster after the pivot move.
 func (o *Orchestrator) waitForClusterReady(ctx context.Context, kubeconfig string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for cluster Ready condition")
-			}
-
-			cmd := exec.CommandContext(ctx, "kubectl",
-				"--kubeconfig", kubeconfig,
-				"get", "cluster", o.ClusterName,
-				"-n", o.Namespace,
-				"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
-			)
-
-			output, err := cmd.Output()
-			if err != nil {
-				continue
-			}
-
-			if string(output) == "True" {
-				fmt.Println("[pivot] ✓ Cluster Ready condition satisfied")
-				return nil
-			}
-
-			fmt.Println("[pivot] Waiting for cluster Ready condition...")
-		}
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewCAPIResourceReadyHealth("cluster", o.ClusterName, o.Namespace),
+		},
+		Interval: 30 * time.Second,
+		Timeout:  timeout,
+		OnCheckPass: func(_ health.HealthChecker) {
+			fmt.Println("[pivot] ✓ Cluster Ready condition satisfied")
+		},
 	}
+	return waiter.Wait(ctx, kubeconfig)
 }

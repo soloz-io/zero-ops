@@ -1,5 +1,16 @@
 # Zero-Ops Platform:
 
+## Development Principles & Guidelines
+
+Zero-Ops is an enterprise Hub-Spoke PaaS platform providing a complete infrastructure management solution for Kubernetes clusters across multiple cloud providers. 
+
+To maintain the integrity, stability, and production-readiness of the platform, all contributions and technical solutions must adhere to the following principles:
+
+- **Production-Ready & Idiomatic Code:** All code must be idiomatic, widely adopted, enterprise-grade, and production-ready. Non-idiomatic or experimental approaches are not accepted.
+- **Strict ADR Alignment:** Every proposed solution must explicitly reference and align with the existing Architecture Decision Records (ADRs) and core platform principles.
+- **Justified Deviations:** If a solution must deviate from existing ADRs, it must include a comprehensive justification and a proposal for the necessary ADR updates to accommodate the change.
+- **Declarative Operations (GitOps First):** Direct imperative cluster changes (e.g., `kubectl rollout restart` or `kubectl apply`) are strictly prohibited. Infrastructure mutations must be handled by finding and fixing bugs in the codebase, with all changes applied via GitOps.
+
 ## Elevator Pitch:
 
 **Zero-Ops** is an MCP-first, Gitops PAAS platform that provisions production-grade, multi-tenant environments for building AI-native SAAS products like replit, Lovable, Emergent. 
@@ -100,7 +111,7 @@ go build -o bin/hub ./cmd/hub
 # export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
 # ./bin/hub bootstrap \
 #   --name=hub \
-#   --region=fsn1 \
+#   --region=hel1 \
 #   --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
 
 # New way
@@ -148,33 +159,17 @@ kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data \
 # Step 5: Initialize bootstrap secrets (Secret Zero)
 # This generates CA certificate, Infisical master keys, and backs them up to AWS
 # TLS is enabled from Day 0 - no upgrade step needed
-# NOTE: Now works because platform-data namespace exists (created by ArgoCD)
-kubectl port-forward -n platform-security svc/platform-infisical-infisical-standalone-infisical 8080:8080 \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
-
+# Step 3.5 automatically bootstraps Infisical (Org, Project, Machine Identity)
+# No port-forward needed - the CLI uses pod exec + REST API internally
 INFISICAL_API_URL=http://localhost:8080 ./bin/hub init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
-# Step 6: Wait for Infisical to be ready (check pods are running)
-kubectl get pods -n platform-security --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
-
-# Step 7 and 8 automated in hub-operator
-# Step 7: Create Machine Identity in Infisical UI
-# 1. Access Infisical UI (port-forward or ingress)
-# 2. Go to Access Control -> Machine Identities
-# 3. Create "eso-operator" identity
-# 4. Copy Client ID and Client Secret
-
-# Step 8: Configure ESO authentication to Infisical
-# This enables ESO to sync secrets from Infisical
-# ./bin/hub configure-eso \
-#   --infisical-client-id=<client-id-from-infisical-ui> \
-#   --infisical-client-secret=<client-secret-from-infisical-ui> \
-#   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
-
-# Step 9: Wait for ArgoCD to sync and deploy database
+# Step 6: Wait for ArgoCD to sync and deploy database
 kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
   -n platform-data --timeout=600s \
   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+
+# Steps 7-8 (former manual UI steps) are now automated in init-secrets Step 3.5
+# The deprecated `hub configure-eso` has been replaced by automatic bootstrapping.
 
 # Teardown Hub cluster
 ./bin/hub teardown --name=hub
@@ -196,20 +191,18 @@ export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub spoke teardown 
 2. **`hub configure-aws-secrets-manager`** - Injects AWS credentials for disaster recovery
 3. **`hub configure-github-access`** - Injects GitHub credentials (enables ArgoCD sync and namespace creation)
 4. **Wait for namespaces** - ArgoCD creates platform-data, platform-security, etc.
-5. **`hub init-secrets`** - Generates CA certificate, Infisical master keys with TLS enabled from Day 0
-6. **Wait for Infisical** - Verify Infisical pods are running
-<!-- 7. **Create Machine Identity** - Use Infisical UI to create ESO authentication credentials -->
-<!-- 8. **`hub configure-eso`** - Injects ESO auth to Infisical (enables secret management via GitOps) -->
-7. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
+5. **`hub init-secrets`** - Generates CA, Infisical keys, AND bootstraps Infisical (Org/Project/Machine Identity)
+6. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
 
 **Why this order matters:**
 - GitHub credentials must be injected BEFORE `init-secrets` (ArgoCD needs to create platform-data namespace)
 - `init-secrets` requires platform-data namespace to exist (created by ArgoCD sync)
 - `init-secrets` generates CA certificate offline and injects it before CNPG starts (Day-0 Deterministic Injection)
+- Step 3.5 of `init-secrets` auto-creates the Infisical Machine Identity (replaces `configure-eso`)
 - CNPG uses the CLI-generated CA (via spec.certificates.serverCASecret)
 - Infisical uses the same CA for TLS verification (via DB_ROOT_CERT)
 - Both CNPG and Infisical start with TLS enabled on first boot - no restart loops
-- `configure-eso` enables GitOps workflow (ArgoCD syncs database manifests)
+- `init-secrets` also creates the `infisical-auth` Secret and patches `hub-bootstrap-config`
 - If you skip `configure-aws-secrets-manager`, disaster recovery will not work
 - If you skip `configure-github-access`, ArgoCD cannot sync and namespaces won't be created
 - GitHub credentials are organization-scoped (repo-creds type) to support multiple repositories (zero-ops, fleet-registry, etc.)

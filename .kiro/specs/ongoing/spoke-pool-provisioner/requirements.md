@@ -334,7 +334,7 @@ I want to provision the first Spoke Pool cell
 So that the platform can onboard Starter tier tenants
 
 Acceptance Criteria:
-- I apply a SpokePool XR manifest with region=fsn1, nodePool.count=3, maxTenantCapacity=100
+- I apply a SpokePool XR manifest with region=hel1, nodePool.count=3, maxTenantCapacity=100
 - CAPI provisions a 3-node Hetzner cluster in Falkenstein datacenter
 - ArgoCD Agent connects to Hub within 2 minutes
 - Edge catalog (CNPG, NATS, Alloy) deploys within 10 minutes

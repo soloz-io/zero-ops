@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: hub-operator-selfsigned-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hub-operator-serving-cert
+spec:
+  dnsNames:
+    - hub-operator-webhook-service.platform-ops.svc
+    - hub-operator-webhook-service.platform-ops.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: hub-operator-selfsigned-issuer
+  secretName: hub-operator-webhook-server-cert
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256

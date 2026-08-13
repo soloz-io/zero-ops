@@ -61,3 +61,11 @@
 **After**: Hub only knows "tenant needs a database" (platform abstraction)
 
 **Benefit**: Swap CNPG → Aurora → CockroachDB by changing **only Spoke Composition**, zero Hub changes.
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Infrastructure XRs | Kubernetes API | Crossplane | Crossplane | Spokes, Tenants | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.

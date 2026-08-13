@@ -22,7 +22,7 @@ data:
     prometheus.scrape "servicemonitors" {
       targets    = discovery.kubernetes.services.targets
       forward_to = [prometheus.remote_write.victoriametrics.receiver]
-      
+
       scrape_interval = "30s"
       scrape_timeout  = "10s"
     }
@@ -30,7 +30,7 @@ data:
     prometheus.scrape "pods" {
       targets    = discovery.kubernetes.pods.targets
       forward_to = [prometheus.remote_write.victoriametrics.receiver]
-      
+
       scrape_interval = "30s"
       scrape_timeout  = "10s"
     }

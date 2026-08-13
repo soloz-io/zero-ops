@@ -69,6 +69,14 @@ We will manage billing catalog (Meters, Features, Plans) using **declarative Kub
 
 6. **Idempotency Guarantee**: Kubernetes controllers are strictly idempotent by design.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Billing Catalog | Git | Billing Operator | Billing Operator | OpenMeter, API | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 
 ### Positive

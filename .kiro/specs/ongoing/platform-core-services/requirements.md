@@ -331,7 +331,7 @@ nats --server=nats://nats.zero-ops-system.svc.cluster.local:4222 pub test.subjec
 
 ```bash
 # Test spoke cluster creation
-hub spoke create test-spoke --type=pool --region=fsn1
+hub spoke create test-spoke --type=pool --region=hel1
 
 # Verify kubeconfig secret created
 kubectl get secret test-spoke-kubeconfig -n zero-ops-system

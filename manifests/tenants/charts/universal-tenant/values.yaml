@@ -19,7 +19,7 @@ region: fsn1
 database:
   # Schema name (auto-generated from tenantId if not specified)
   schemaName: ""
-  
+
   # Migrations configuration
   migrations:
     # Git repository URL containing migrations

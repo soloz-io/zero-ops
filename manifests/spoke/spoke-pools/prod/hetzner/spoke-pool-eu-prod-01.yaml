@@ -1,0 +1,20 @@
+---
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: spoke-pool-eu-prod-01
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: production
+    region: eu-central
+spec:
+  provider: hetzner
+  compositionSelector:
+    matchLabels:
+      provider: hetzner
+  region: hel1
+  nodePool:
+    count: 2
+    instanceType: cx33
+  maxTenantCapacity: 100

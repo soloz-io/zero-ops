@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -54,7 +55,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(opsv1alpha1.AddToScheme(scheme))
-	
+
 	// Register CNPG API for watching Cluster resources
 	utilruntime.Must(cnpgv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
@@ -221,20 +222,56 @@ func main() {
 
 	// Initialize the Infisical Client for ADR-031 topology management
 	// These env vars are injected by your hub-operator Deployment manifest
-	infisicalClient := secrets.NewInfisicalClient(
-		os.Getenv("INFISICAL_BASE_URL"),
-		os.Getenv("INFISICAL_CLIENT_ID"),
-		os.Getenv("INFISICAL_CLIENT_SECRET"),
-		os.Getenv("INFISICAL_PROJECT_ID"),
-		os.Getenv("INFISICAL_ORGANIZATION_ID"),
+	projectID := os.Getenv("INFISICAL_PROJECT_ID")
+	secretsProjectID := os.Getenv("INFISICAL_SECRETS_PROJECT_ID")
+	orgID := os.Getenv("INFISICAL_ORGANIZATION_ID")
+	clientID := os.Getenv("INFISICAL_CLIENT_ID")
+	clientSecret := os.Getenv("INFISICAL_CLIENT_SECRET")
+	baseURL := os.Getenv("INFISICAL_BASE_URL")
+
+	// Fail fast on misconfiguration (e.g., stale ConfigMap or missing injection)
+	if projectID == "" || projectID == "PLACEHOLDER_PROJECT_ID" {
+		setupLog.Error(fmt.Errorf("invalid project ID: %s", projectID), "operator misconfigured: INFISICAL_PROJECT_ID is invalid")
+		os.Exit(1)
+	}
+	if secretsProjectID == "" {
+		setupLog.Info("INFISICAL_SECRETS_PROJECT_ID is missing, falling back to INFISICAL_PROJECT_ID for backward compatibility")
+		secretsProjectID = projectID
+	}
+
+	setupLog.Info("Loaded Infisical configuration", "projectID", projectID)
+
+	if clientSecret == "" {
+		setupLog.Error(fmt.Errorf("missing client secret"), "operator misconfigured: INFISICAL_CLIENT_SECRET is missing")
+		os.Exit(1)
+	}
+
+	pkiInfisicalClient := secrets.NewInfisicalClient(
+		baseURL,
+		clientID,
+		clientSecret,
+		projectID,
+		orgID,
 	)
 	if envSlug := os.Getenv("INFISICAL_ENVIRONMENT_SLUG"); envSlug != "" {
-		infisicalClient.EnvironmentSlug = envSlug
+		pkiInfisicalClient.EnvironmentSlug = envSlug
+	}
+
+	secretsInfisicalClient := secrets.NewInfisicalClient(
+		baseURL,
+		clientID,
+		clientSecret,
+		secretsProjectID,
+		orgID,
+	)
+	if envSlug := os.Getenv("INFISICAL_ENVIRONMENT_SLUG"); envSlug != "" {
+		secretsInfisicalClient.EnvironmentSlug = envSlug
 	}
 
 	if err := (&controller.SpokePoolReconciler{
 		Client:          mgr.GetClient(),
-		InfisicalClient: infisicalClient,
+		UncachedClient:  uncachedClient,
+		InfisicalClient: secretsInfisicalClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "SpokePool")
 		os.Exit(1)
@@ -242,12 +279,14 @@ func main() {
 
 	if err := (&controller.AINativeSaaSReconciler{
 		Client:          mgr.GetClient(),
-		InfisicalClient: infisicalClient,
+		InfisicalClient: secretsInfisicalClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	ctx := ctrl.SetupSignalHandler()
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
@@ -259,7 +298,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}

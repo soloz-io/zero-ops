@@ -35,6 +35,10 @@ All custom applications and controllers implementing retry logic for external de
 - Applications must expose a `dependency_unavailable_total` Prometheus counter metric, incremented upon every failed connection attempt.
 - Applications must expose a `dependency_status` Prometheus gauge metric (0=unavailable, 1=available) for each dependency, enabling immediate determination of current failure state.
 
+## Ownership
+
+This ADR defines application-level readiness probe semantics and does not own platform resources. For resource ownership, see ADR-039.
+
 ## Consequences
 * **Positive:** Significant reduction in restart storms and false-positive alerts during cluster convergence.
 * **Positive:** Preserves memory state and provides cleaner logs for debugging dependency failures.

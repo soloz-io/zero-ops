@@ -22,6 +22,16 @@ We will unify our database management strategy and enforce strict, declarative o
    - **Atlas Operator** strictly owns schema migrations and drift detection.
 3. **Operator Scope:** The `hub-operator` will now exclusively manage external API orchestration (Infisical, Ory Hydra, NATS) and track high-level platform status (`Provisioning`, `Available`, `Degraded`, `Failed`) by observing the `Ready` conditions of Crossplane and Atlas resources.
 
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Database Clusters (physical) | Kubernetes API | CNPG | CNPG | Crossplane, Applications | Day-1+ |
+| Database Roles / Grants | PostgreSQL | Crossplane | Crossplane provider-sql | Tenant Apps | Day-1+ |
+| Database Schemas | Git | Atlas Operator | Atlas Operator | provider-sql | Day-1+ |
+
+See ADR-039 for the complete ownership matrix.
+
 ## Consequences
 * **Positive:** Symmetrical architecture across Hub and Spokes, reducing cognitive load for platform engineers.
 * **Positive:** The `hub-operator` codebase becomes significantly lighter, safer, and focused purely on SaaS business logic.

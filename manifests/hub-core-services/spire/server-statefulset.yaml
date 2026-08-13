@@ -3,8 +3,6 @@ kind: ConfigMap
 metadata:
   name: spire-server
   namespace: platform-security
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   server.conf: |
     server {
@@ -61,8 +59,6 @@ kind: ConfigMap
 metadata:
   name: spire-controller-manager-config
   namespace: platform-security
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
 data:
   config.yaml: |
     apiVersion: spire.spiffe.io/v1alpha1
@@ -89,10 +85,13 @@ metadata:
   namespace: platform-security
   labels:
     app: spire-server
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
+  podManagementPolicy: OrderedReady
   replicas: 1
+  revisionHistoryLimit: 10
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   serviceName: spire-server
   selector:
     matchLabels:
@@ -191,6 +190,7 @@ spec:
       name: spire-data
     spec:
       accessModes: ["ReadWriteOnce"]
+      volumeMode: Filesystem
       resources:
         requests:
           storage: 1Gi

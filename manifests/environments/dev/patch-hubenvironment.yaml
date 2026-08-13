@@ -1,0 +1,20 @@
+apiVersion: ops.nutgraf.in/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-environment
+spec:
+  domain: nutgraf.local
+  tls:
+    issuer: selfsigned
+    email: dev@nutgraf.local
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: "MCP Server"
+      redirectUris:
+      - "http://localhost:8080/callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code

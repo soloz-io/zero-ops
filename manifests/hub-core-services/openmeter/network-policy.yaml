@@ -4,8 +4,6 @@ kind: NetworkPolicy
 metadata:
   name: openmeter-platform-netpol
   namespace: platform-billing
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchExpressions:

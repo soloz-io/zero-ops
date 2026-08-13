@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,9 @@ type HubEnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch
+//+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop
 // Requirement 9.3: Implement Reconcile() main entry point
@@ -308,6 +312,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("Application secrets uploaded to Infisical")
 	}
 
+	// Enforce PKI Templates (Self-Healing)
+	if err := r.ensurePKITemplates(ctx, hubEnv); err != nil {
+		logger.Error(err, "Failed to ensure PKI templates")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
 	logger.Info("Phase 0 complete: Infisical bootstrapped")
 
 	// Phase 1b: Wait for ESO to create application secrets
@@ -321,34 +331,42 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Map of application secrets to their namespaces
 		// Ory secrets are in platform-identity, others in platform-data
 		requiredSecrets := map[string]string{
-			"control-plane-db-credentials": dataNamespace,       // platform-data
-			"hub-db-credentials":           dataNamespace,       // platform-data
-			"spire-server-db-credentials":  dataNamespace,       // platform-data
-			"hydra-db-credentials":         "platform-identity", // platform-identity
-			"kratos-db-credentials":        "platform-identity", // platform-identity
-			"keto-db-credentials":          "platform-identity", // platform-identity
+			"control-plane-db-credentials": dataNamespace, // platform-data
+			"hub-db-credentials":           dataNamespace, // platform-data
+			"spire-server-db-credentials":  dataNamespace, // platform-data
+			"hydra-db-credentials":         infisical.NamespaceIdentity,
+			"kratos-db-credentials":        infisical.NamespaceIdentity,
+			"keto-db-credentials":          infisical.NamespaceIdentity,
 		}
 
-		allSecretsExist := true
-		missingSecrets := []string{}
+		var missingSecrets []string
+		var allSecretsExist bool
 
-		for secretName, namespace := range requiredSecrets {
-			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{
-				Name:      secretName,
-				Namespace: namespace,
-			}, secret); err != nil {
-				if errors.IsNotFound(err) {
-					logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
-					allSecretsExist = false
-					missingSecrets = append(missingSecrets, secretName)
-				} else {
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		// Wait IN-PLACE for ESO to create application secrets instead of requeuing
+		// This prevents Phase 0 from re-running every 10s and bombarding Infisical with API requests
+		err := wait.PollImmediateWithContext(ctx, 2*time.Second, 1*time.Minute, func(ctx context.Context) (bool, error) {
+			allSecretsExist = true
+			missingSecrets = []string{}
+
+			for secretName, namespace := range requiredSecrets {
+				secret := &corev1.Secret{}
+				if err := r.Get(ctx, client.ObjectKey{
+					Name:      secretName,
+					Namespace: namespace,
+				}, secret); err != nil {
+					if errors.IsNotFound(err) {
+						logger.Info("Waiting for ESO to create secret", "secret", secretName, "namespace", namespace)
+						allSecretsExist = false
+						missingSecrets = append(missingSecrets, secretName)
+					} else {
+						return false, err
+					}
 				}
 			}
-		}
+			return allSecretsExist, nil
+		})
 
-		if !allSecretsExist {
+		if err != nil || !allSecretsExist {
 			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 				Type:               "ApplicationSecretsReady",
 				Status:             metav1.ConditionFalse,
@@ -356,9 +374,10 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Message:            fmt.Sprintf("Waiting for ESO to create secrets: %s", strings.Join(missingSecrets, ", ")),
 				ObservedGeneration: hubEnv.Generation,
 			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				return ctrl.Result{}, err
+			if updateErr := r.Status().Update(ctx, hubEnv); updateErr != nil {
+				return ctrl.Result{}, updateErr
 			}
+			// If we timed out after 1 minute, requeue and try again
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 
@@ -402,6 +421,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		defer roleManager.Close()
 
+		// TODO(ADR-023): Replace with Crossplane provider-sql for roles and Atlas Operator for migrations
 		if err := roleManager.CreateOrUpdateRoles(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to provision database roles")
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
@@ -442,7 +462,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		infisicalAuth := &corev1.Secret{}
 		if err := r.Get(ctx, client.ObjectKey{
 			Name:      "infisical-auth",
-			Namespace: "platform-ops",
+			Namespace: infisical.NamespaceOps,
 		}, infisicalAuth); err != nil {
 			if errors.IsNotFound(err) {
 				logger.Info("infisical-auth secret not found, suspending Phase 3")
@@ -480,30 +500,53 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Requirement 9.11: Check if Hydra is ready as a continuous health signal
+	hydraReady, err := r.isHydraReady(ctx, hubEnv)
+	if err != nil {
+		logger.Error(err, "Failed to check Hydra readiness")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+
+	if !hydraReady {
+		logger.Info("Waiting for Hydra to be ready")
+		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+			Type:               "IdentityReady",
+			Status:             metav1.ConditionFalse,
+			Reason:             "WaitingForHydra",
+			Message:            "Waiting for Hydra deployment to be ready",
+			ObservedGeneration: hubEnv.Generation,
+		})
+		if err := r.Status().Update(ctx, hubEnv); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Set IdentityReady to true now that Hydra is ready
+	meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+		Type:               "IdentityReady",
+		Status:             metav1.ConditionTrue,
+		Reason:             "HydraReady",
+		Message:            "Identity provider (Hydra) is ready",
+		ObservedGeneration: hubEnv.Generation,
+	})
+	if err := r.Status().Update(ctx, hubEnv); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Requirement 9.9: Phase 3 - Register OAuth Clients
 	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "OAuthClientsRegistered", hubEnv.Generation) {
 		logger.Info("Phase 3: Registering OAuth clients")
 
-		// Requirement 9.11: Check if Hydra is ready
-		hydraReady, err := r.isHydraReady(ctx, hubEnv)
-		if err != nil {
-			logger.Error(err, "Failed to check Hydra readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-		}
-		if !hydraReady {
-			logger.Info("Waiting for Hydra to be ready")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-
 		hydraClient, err := infisicalclient.NewHydraClient("")
 		if err != nil {
 			logger.Error(err, "Failed to create Hydra client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		if err := hydraClient.RegisterOAuthClients(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to register OAuth clients")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -530,7 +573,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		natsReady, err := r.isNATSReady(ctx, hubEnv)
 		if err != nil {
 			logger.Error(err, "Failed to check NATS readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 		if !natsReady {
 			logger.Info("Waiting for NATS to be ready")
@@ -540,13 +583,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		natsClient, err := infisicalclient.NewNATSClient("")
 		if err != nil {
 			logger.Error(err, "Failed to create NATS client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		defer natsClient.Close()
 
 		if err := natsClient.CreateOrUpdateStreams(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to create NATS streams")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -584,14 +627,8 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("HubEnvironment reconciliation complete")
 	}
 
-	// Requirement 23: Handle certificate rotation (runs continuously after Ready)
+	// Certificate rotation is managed by cert-manager per ADR-035. Workloads restarted via Stakater Reloader annotations.
 	if isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
-		if err := r.handleCertificateRotation(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to handle certificate rotation")
-			// Don't fail reconciliation, just log and requeue
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
 		// Requirement 23.15-23.16: Handle password rotation
 		if err := r.handlePasswordRotation(ctx, hubEnv); err != nil {
 			logger.Error(err, "Failed to handle password rotation")
@@ -646,214 +683,36 @@ func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv 
 // isHydraReady checks if Hydra Deployment is ready
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isHydraReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	// For now, assume Hydra is ready if the deployment exists
-	// In production, check deployment status
-	return true, nil
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      "ory-hydra",
+		Namespace: infisical.NamespaceIdentity,
+	}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return deployment.Status.ReadyReplicas > 0, nil
 }
 
 // isNATSReady checks if NATS StatefulSet is ready
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	// For now, assume NATS is ready if the statefulset exists
-	// In production, check statefulset status
-	return true, nil
-}
-
-// uploadSecretsToInfisical uploads all secrets to Infisical
-// handleCertificateRotation detects platform-db-ca changes and restarts services
-// Requirement 23.1-23.14: Implement certificate rotation handling
-func (r *HubEnvironmentReconciler) handleCertificateRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
-	logger := log.FromContext(ctx)
-	namespace := hubEnv.Spec.Database.Namespace
-
-	// Requirement 23.2: Read platform-db-ca secret
-	// Task 13: Use UncachedClient - operational secret, must not have data stripped
-	platformDBCA := &corev1.Secret{}
-	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
-		Name:      "platform-db-ca",
-		Namespace: namespace,
-	}, platformDBCA); err != nil {
-		if errors.IsNotFound(err) {
-			// CA not yet generated, skip rotation
-			return nil
-		}
-		return err
-	}
-
-	// Requirement 23.2: Read infisical-secrets to compare DB_ROOT_CERT
-	// Task 13: Use UncachedClient - operational secret, must not have data stripped
-	infisicalSecrets := &corev1.Secret{}
-	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
-		Name:      "infisical-secrets",
-		Namespace: namespace,
-	}, infisicalSecrets); err != nil {
-		if errors.IsNotFound(err) {
-			// Infisical secrets not yet generated, skip rotation
-			return nil
-		}
-		return err
-	}
-
-	// Extract CA certificate from platform-db-ca
-	caCert, ok := platformDBCA.Data["ca.crt"]
-	if !ok {
-		logger.Info("platform-db-ca missing ca.crt, skipping rotation")
-		return nil
-	}
-
-	// Extract current DB_ROOT_CERT from infisical-secrets
-	currentDBRootCert, ok := infisicalSecrets.Data["DB_ROOT_CERT"]
-	if !ok {
-		logger.Info("infisical-secrets missing DB_ROOT_CERT, skipping rotation")
-		return nil
-	}
-
-	// Requirement 23.3: Compare CA certificate with DB_ROOT_CERT
-	// DB_ROOT_CERT is base64-encoded, ca.crt is already base64-encoded
-	if string(caCert) == string(currentDBRootCert) {
-		// No rotation needed
-		return nil
-	}
-
-	logger.Info("Certificate rotation detected, updating DB_ROOT_CERT and restarting services")
-
-	// Requirement 23.4: Update DB_ROOT_CERT in infisical-secrets
-	infisicalSecrets.Data["DB_ROOT_CERT"] = caCert
-	if err := r.Update(ctx, infisicalSecrets); err != nil {
-		return fmt.Errorf("failed to update DB_ROOT_CERT: %w", err)
-	}
-
-	logger.Info("Updated DB_ROOT_CERT in infisical-secrets")
-
-	// Track restart failures for status condition
-	var restartFailures []string
-
-	// Requirement 23.5-23.13: Restart all database-connected services
-	services := []struct {
-		kind      string
-		name      string
-		namespace string
-	}{
-		{"Deployment", "infisical", "platform-ops"},
-		{"StatefulSet", "redis", namespace},
-		{"Deployment", "hydra", "platform-identity"},
-		{"Deployment", "kratos", "platform-identity"},
-		{"Deployment", "keto", "platform-identity"},
-		{"StatefulSet", "spire-server", "platform-security"},
-		{"Deployment", "mcp-server", "platform-ops"},
-	}
-
-	for _, svc := range services {
-		if svc.kind == "Deployment" {
-			if err := r.restartDeployment(ctx, svc.name, svc.namespace); err != nil {
-				logger.Error(err, "Failed to restart deployment", "name", svc.name, "namespace", svc.namespace)
-				restartFailures = append(restartFailures, svc.name)
-			} else {
-				logger.Info("Restarted deployment", "name", svc.name, "namespace", svc.namespace)
-			}
-		} else if svc.kind == "StatefulSet" {
-			if err := r.restartStatefulSet(ctx, svc.name, svc.namespace); err != nil {
-				logger.Error(err, "Failed to restart statefulset", "name", svc.name, "namespace", svc.namespace)
-				restartFailures = append(restartFailures, svc.name)
-			} else {
-				logger.Info("Restarted statefulset", "name", svc.name, "namespace", svc.namespace)
-			}
-		}
-	}
-
-	// Requirement 23.6-23.7: Update status condition if restart fails
-	if len(restartFailures) > 0 {
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "CertificateRotationFailed",
-			Status:             metav1.ConditionTrue,
-			Reason:             "ServiceRestartFailed",
-			Message:            fmt.Sprintf("Failed to restart services after certificate rotation: %s", strings.Join(restartFailures, ", ")),
-			ObservedGeneration: hubEnv.Generation,
-		})
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to update status condition")
-		}
-	} else {
-		// All restarts succeeded, now wait for Infisical readiness (AC 23.6)
-		infisicalReady, err := r.waitForInfisicalReadiness(ctx, hubEnv)
-		if err != nil {
-			logger.Error(err, "Failed to check Infisical readiness after restart")
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:               "CertificateRotationFailed",
-				Status:             metav1.ConditionTrue,
-				Reason:             "InfisicalNotReady",
-				Message:            fmt.Sprintf("Infisical not ready after certificate rotation: %v", err),
-				ObservedGeneration: hubEnv.Generation,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				logger.Error(err, "Failed to update status condition")
-			}
-			return nil
-		}
-
-		if !infisicalReady {
-			logger.Info("Waiting for Infisical to become ready after certificate rotation")
-			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-				Type:               "CertificateRotationInProgress",
-				Status:             metav1.ConditionTrue,
-				Reason:             "WaitingForInfisical",
-				Message:            "Waiting for Infisical Deployment to become ready after certificate rotation",
-				ObservedGeneration: hubEnv.Generation,
-			})
-			if err := r.Status().Update(ctx, hubEnv); err != nil {
-				logger.Error(err, "Failed to update status condition")
-			}
-			return nil
-		}
-
-		// Clear any previous failure condition
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "CertificateRotationFailed",
-			Status:             metav1.ConditionFalse,
-			Reason:             "ServicesRestarted",
-			Message:            "All services restarted successfully after certificate rotation",
-			ObservedGeneration: hubEnv.Generation,
-		})
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "CertificateRotationInProgress",
-			Status:             metav1.ConditionFalse,
-			Reason:             "Completed",
-			Message:            "Certificate rotation completed successfully",
-			ObservedGeneration: hubEnv.Generation,
-		})
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to update status condition")
-		}
-	}
-
-	return nil
-}
-
-// waitForInfisicalReadiness checks if Infisical Deployment is ready after restart
-// Requirement 23.6: Watch for Infisical Deployment readiness after restart
-func (r *HubEnvironmentReconciler) waitForInfisicalReadiness(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	deployment := &appsv1.Deployment{}
+	statefulset := &appsv1.StatefulSet{}
 	if err := r.Get(ctx, client.ObjectKey{
-		Name:      "infisical",
-		Namespace: "platform-ops",
-	}, deployment); err != nil {
+		Name:      "nats",
+		Namespace: infisical.NamespaceMessaging,
+	}, statefulset); err != nil {
 		if errors.IsNotFound(err) {
-			// Deployment doesn't exist yet
 			return false, nil
 		}
 		return false, err
 	}
-
-	// Check if deployment is ready
-	for _, condition := range deployment.Status.Conditions {
-		if condition.Type == appsv1.DeploymentAvailable && condition.Status == corev1.ConditionTrue {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return statefulset.Status.ReadyReplicas > 0, nil
 }
 
+// uploadSecretsToInfisical uploads all secrets to Infisical
 // handlePasswordRotation detects password changes and executes ALTER ROLE
 // Requirement 23.15-23.16: Implement password rotation handling
 func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
@@ -940,13 +799,13 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 			name      string
 			namespace string
 		}{
-			"infisical":        {"Deployment", "infisical", "platform-ops"},
-			"redis":            {"StatefulSet", "redis", namespace},
-			"hydra":            {"Deployment", "hydra", "platform-identity"},
-			"kratos":           {"Deployment", "kratos", "platform-identity"},
-			"keto":             {"Deployment", "keto", "platform-identity"},
-			"spire_server":     {"StatefulSet", "spire-server", "platform-security"},
-			"mcp_server":       {"Deployment", "mcp-server", "platform-ops"},
+			"infisical":    {"Deployment", infisical.InfisicalServiceName, infisical.InfisicalServiceNamespace},
+			"redis":        {"StatefulSet", "redis", namespace},
+			"hydra":        {"Deployment", "hydra", infisical.NamespaceIdentity},
+			"kratos":       {"Deployment", "kratos", infisical.NamespaceIdentity},
+			"keto":         {"Deployment", "keto", infisical.NamespaceIdentity},
+			"spire_server": {"StatefulSet", "spire-server", infisical.NamespaceSecurity},
+			"mcp_server":   {"Deployment", "mcp-server", infisical.NamespaceOps},
 		}
 
 		if svc, ok := serviceMap[serviceName]; ok {
@@ -1057,15 +916,6 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForCNPG),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
-		// Requirement 12.5: Watch platform-db-ca secret for certificate rotation
-		Watches(
-			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForSecret),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
-				secret := obj.(*corev1.Secret)
-				return secret.Name == "platform-db-ca"
-			})),
-		).
 		// Requirement 12.6: Watch secrets with label ops.nutgraf.in/db-credentials=true for password rotation
 		Watches(
 			&corev1.Secret{},
@@ -1085,7 +935,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "hydra" && obj.GetNamespace() == "platform-identity"
+					return obj.GetName() == "hydra" && obj.GetNamespace() == infisical.NamespaceIdentity
 				}),
 			),
 		).
@@ -1096,7 +946,7 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "infisical" && obj.GetNamespace() == "platform-ops"
+					return obj.GetName() == infisical.InfisicalServiceName && obj.GetNamespace() == infisical.InfisicalServiceNamespace
 				}),
 			),
 		).
@@ -1260,5 +1110,40 @@ func (r *HubEnvironmentReconciler) removeFinalizer(ctx context.Context, secretNa
 	}
 
 	log.FromContext(ctx).Info("Removed finalizer from secret", "secret", secretName, "namespace", namespace)
+	return nil
+}
+
+// ensurePKITemplates enforces the existence of required PKI templates in Infisical.
+func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {
+	logger := log.FromContext(ctx)
+
+	infisicalClient, err := infisicalclient.NewInfisicalClient(ctx, r.UncachedClient, "")
+	if err != nil {
+		return fmt.Errorf("failed to create Infisical client for PKI templates: %w", err)
+	}
+
+	projectSlug := "hub-platform"
+	if hubEnv.Spec.Secrets.Infisical.ProjectSlug != "" {
+		projectSlug = hubEnv.Spec.Secrets.Infisical.ProjectSlug
+	}
+
+	// Required profiles matching CLI logic
+	type certProfile struct {
+		Slug    string
+		TTLDays int
+	}
+	requiredProfiles := []certProfile{
+		{Slug: "infrastructure-services", TTLDays: 90},
+		{Slug: "argocd-principals", TTLDays: 90},
+		{Slug: "argocd-agents", TTLDays: 90},
+	}
+
+	for _, p := range requiredProfiles {
+		if err := infisicalClient.EnsurePKITemplate(ctx, projectSlug, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
+			return fmt.Errorf("ensure PKI template %q failed: %w", p.Slug, err)
+		}
+	}
+
+	logger.Info("PKI templates ensured successfully")
 	return nil
 }

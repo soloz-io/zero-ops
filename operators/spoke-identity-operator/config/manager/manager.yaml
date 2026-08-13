@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spoke-identity-operator
+  namespace: platform-security
+  labels:
+    control-plane: spoke-identity-operator
+spec:
+  selector:
+    matchLabels:
+      control-plane: spoke-identity-operator
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        control-plane: spoke-identity-operator
+    spec:
+      serviceAccountName: spoke-identity-operator
+      containers:
+      - name: manager
+        image: ghcr.io/soloz-io/spoke-identity-operator:latest
+        env:
+        - name: INFISICAL_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-id
+        - name: INFISICAL_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: client-secret
+        - name: INFISICAL_ORGANIZATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: orgId
+        - name: INFISICAL_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: projectId
+        args:
+        - --infisical-url=http://infisical-standalone-infisical.platform-security.svc:8080
+        - --infisical-org-id=$(INFISICAL_ORGANIZATION_ID)
+        - --infisical-project-id=$(INFISICAL_PROJECT_ID)
+        securityContext:
+          allowPrivilegeEscalation: false
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10

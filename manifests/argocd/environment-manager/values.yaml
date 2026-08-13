@@ -1,0 +1,27 @@
+environmentRevision: "main"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Matrix dimensions (ADR 037 §3 & ADR 036 §2)
+# These MUST be set via `helm template --set` by the hub CLI bootstrap. No
+# default is provided — every bootstrap run explicitly passes the combination.
+# ──────────────────────────────────────────────────────────────────────────────
+# environmentSlug: "dev"        # dev | stg | prod | ephemeral
+# provider: "hetzner"           # hetzner | hybrid | aws
+# topology: "single"            # single | multi (optional, modifies spoke pool lookup path)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Boundary deployment toggles (ADR-021 §sec:decision)
+# These are set by the hub CLI orchestrator to deploy boundaries sequentially:
+#
+#   PhaseBoundary01 → deploy.boundary01=true  (infra operators)
+#   PhaseBoundary02 → deploy.boundary01=true, deploy.boundary02=true  (data)
+#   PhaseBoundary03 → all three true  (services)
+#
+# On steady-state Day-1, all three are always true. Only the bootstrap
+# orchestrator ever toggles them to achieve sequential boundary gating.
+# ──────────────────────────────────────────────────────────────────────────────
+deploy:
+  boundary01: true
+  boundary02: true
+  boundary03: true
+  boundary04: true

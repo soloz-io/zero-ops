@@ -1,0 +1,56 @@
+---
+# Home-worker integration resources for the hybrid provider cell (ADR-046 §WS2).
+# These resources support the unmanaged kubeadm join lifecycle for WSL2 home workers.
+#
+# Contents:
+#   1. ClusterRole + ClusterRoleBinding: grants hub-operator permission to
+#      read spoke kubeconfigs and mint kubeadm bootstrap tokens (WS4).
+#   2. Tailscale pre-shared-key Secret: consumed by the Tailscale DaemonSet
+#      deployed via ClusterResourceSet on CAPI-managed CP/burst nodes.
+#
+# Note: The Tailscale DaemonSet itself lives in the hub-operator CRS step
+# (WS4: reconcileHomeWorkerJoin) to keep CRS lifecycle tied to token minting.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hub-operator-hybrid-worker
+  labels:
+    hybrid.zero-ops.io/component: home-worker-integration
+rules:
+  # Read spoke kubeconfigs (platform-capi namespace)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: []  # Hub operator reads <spoke>-kubeconfig secrets
+  # Write home-worker join payload Secrets
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "update", "patch", "delete"]
+  # Read home-worker-config ConfigMaps produced by Crossplane composition
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Read SpokePool CRs to gate on provider=hybrid
+  - apiGroups: ["nutgraf.in"]
+    resources: ["spokepools"]
+    verbs: ["get", "list", "watch"]
+  # Update SpokePool status (token rotation state)
+  - apiGroups: ["nutgraf.in"]
+    resources: ["spokepools/status"]
+    verbs: ["update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hub-operator-hybrid-worker
+  labels:
+    hybrid.zero-ops.io/component: home-worker-integration
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hub-operator-hybrid-worker
+subjects:
+  - kind: ServiceAccount
+    name: hub-operator-controller-manager
+    namespace: hub-operator-system

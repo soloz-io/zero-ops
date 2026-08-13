@@ -1,0 +1,6 @@
+- By default hub boostrap script uses CAPD and runs the cluster in local machine. 
+- This consumes lot of CPU and local mac machine runs OOM. 
+- I need to register my another windows laptop which has 16GB CPU and conenct as nodes to run the application in same cluster. 
+- I need you to analyse the project and suggest ways to make windows laptop securely join the cluster as worker node. 
+- After this mac control plane should see it and should start the scheduling workloads on both. 
+- This proposal is only for local development setup. My machine is 32GB CPU. I need to join the windows machines now so that i can increase the CPU to accomodate full cluster along with its fleets. This makes local setup in parity with cloud setup.

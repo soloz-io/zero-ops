@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: platform-ops
+spec:
+  project: default
+  source:
+    repoURL: https://vadimkim.github.io/cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner
+    targetRevision: "1.4.2"
+    helm:
+      values: |
+        secretName:
+          - hetzner-dns
+        resources:
+          requests:
+            cpu: 5m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-edge
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 15
+      backoff:
+        duration: 30s
+        maxDuration: 10m

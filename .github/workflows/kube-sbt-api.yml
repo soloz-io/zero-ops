@@ -9,6 +9,7 @@ on:
       - go.mod
       - go.sum
       - .github/workflows/kube-sbt-api.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,7 +34,7 @@ jobs:
         with:
           context: .
           file: cmd/kube-sbt-api/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/soloz-io/zero-ops/kube-sbt-api:${{ github.sha }}

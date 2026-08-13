@@ -10,17 +10,15 @@ kind: VMCluster
 metadata:
   name: vmcluster
   namespace: platform-observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
 spec:
   retentionPeriod: "30d"
   replicationFactor: 1
-  
+
   # Storage limits and retention policies
   # Total storage: 50Gi (vmstorage) + 10Gi (vmselect cache) = 60Gi
   # Retention: 30 days for cost management
   # Replication: 1 (single replica for MVP, increase for HA)
-  
+
   vmstorage:
     replicaCount: 1
     storageDataPath: /vm-data
@@ -39,7 +37,7 @@ spec:
       limits:
         cpu: 2000m
         memory: 4Gi
-  
+
   vmselect:
     replicaCount: 1
     cacheMountPath: /cache
@@ -58,7 +56,7 @@ spec:
       limits:
         cpu: 1000m
         memory: 2Gi
-  
+
   vminsert:
     replicaCount: 1
     resources:
@@ -74,8 +72,6 @@ kind: Service
 metadata:
   name: victoriametrics
   namespace: platform-observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
   labels:
     app: victoriametrics
     component: vmselect
@@ -100,7 +96,6 @@ metadata:
   name: victoriametrics-external
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # mTLS configuration for Alloy spoke clients
     nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
@@ -130,26 +125,24 @@ kind: ConfigMap
 metadata:
   name: victoriametrics-config
   namespace: platform-observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
 data:
   promql-config.yaml: |
     # PromQL-compatible query API configuration
     # VictoriaMetrics provides full PromQL compatibility via vmselect
     # Query endpoint: http://victoriametrics.victoriametrics.svc.cluster.local:8428
     # External endpoint: https://victoriametrics.hub.nutgrat.in
-    
+
     # Supported PromQL endpoints:
     # - /api/v1/query - Instant queries
     # - /api/v1/query_range - Range queries
     # - /api/v1/series - Series metadata
     # - /api/v1/labels - Label names
     # - /api/v1/label/<label_name>/values - Label values
-    
+
     # KEDA integration example:
     # serverAddress: https://victoriametrics.hub.nutgrat.in
     # query: sum(rate(http_requests_total[5m]))
-    
+
     # Storage limits:
     # - Retention: 30 days
     # - Storage: 50Gi (vmstorage) + 10Gi (vmselect cache)
@@ -160,8 +153,6 @@ kind: VMServiceScrape
 metadata:
   name: victoriametrics-cluster
   namespace: platform-observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
 spec:
   selector:
     matchLabels:

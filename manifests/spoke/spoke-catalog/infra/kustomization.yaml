@@ -7,6 +7,8 @@ resources:
   - crds/argo-rollouts-crd.yaml
   # ADR-035: cert-manager CRDs for spoke-side certificate management
   - crds/cert-manager-crds.yaml
+  # ADR-035: infisical-issuer CRDs (InfisicalClusterIssuer, InfisicalIssuer)
+  - crds/infisical-issuer-crd.yaml
   - namespaces.yaml
   - crossplane-admin-eso.yaml
   - crossplane-function-patch-and-transform.yaml
@@ -24,3 +26,4 @@ resources:
   - infisical-issuer.yaml
   - cluster-issuer.yaml
   - certificates.yaml
+

@@ -4,11 +4,9 @@ kind: Application
 metadata:
   name: cloudnative-pg
   namespace: platform-ops
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
-  
+
   source:
     repoURL: https://cloudnative-pg.github.io/charts
     chart: cloudnative-pg
@@ -17,7 +15,7 @@ spec:
       values: |
         crds:
           create: true
-        
+
         resources:
           requests:
             memory: "128Mi"
@@ -25,14 +23,14 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "1000m"
-        
+
         monitoring:
           podMonitorEnabled: false
-  
+
   destination:
     server: https://kubernetes.default.svc
     namespace: cnpg-system
-  
+
   syncPolicy:
     automated:
       prune: true

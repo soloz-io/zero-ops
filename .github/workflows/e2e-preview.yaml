@@ -1,0 +1,9 @@
+name: E2E Infrastructure Preview
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  # TODO: Implement hybrid provider E2E harness once the Tailscale matrix is
+  # established. The previous CAPD (local/docker) job was removed with the
+  # provider; a paid Hetzner bootstrap is intentionally NOT run on every PR.

@@ -3,15 +3,13 @@ kind: ExternalSecret
 metadata:
   name: hetzner-dns-credentials
   namespace: platform-edge
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
 spec:
   refreshInterval: 1h
-  
+
   secretStoreRef:
     name: infisical-backend
     kind: ClusterSecretStore
-  
+
   target:
     name: hetzner-dns
     creationPolicy: Owner
@@ -19,7 +17,7 @@ spec:
       type: Opaque
       data:
         api-key: "{{ .apikey }}"
-  
+
   data:
     - secretKey: apikey
       remoteRef:

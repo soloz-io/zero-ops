@@ -5,17 +5,32 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	
+
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 )
+
+// isRetryableTransportError reports whether the error returned from
+// an HTTP call is a transport-level failure (connection reset, DNS,
+// dial errors) that may succeed on a subsequent attempt. HTTP status
+// errors (401/403/5xx with a body) are not retryable here — those are
+// the caller's responsibility to interpret.
+func isRetryableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
+}
 
 // Client wraps Infisical API operations
 type Client struct {
@@ -45,14 +60,14 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	esoNamespace := constants.NamespaceOps
 	secret, err := clientset.CoreV1().Secrets(esoNamespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get infisical-auth secret: %w (run 'hub configure-eso' first)", err)
+		return nil, fmt.Errorf("failed to get infisical-auth secret: %w (run 'hub init-secrets' first)", err)
 	}
 
 	clientID := string(secret.Data["client-id"])
 	clientSecret := string(secret.Data["client-secret"])
 
 	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("infisical-auth secret missing client-id or client-secret (run 'hub configure-eso' first)")
+		return nil, fmt.Errorf("infisical-auth secret missing client-id or client-secret (run 'hub init-secrets' first)")
 	}
 
 	client := &Client{
@@ -66,9 +81,33 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 		},
 	}
 
-	// Authenticate and get access token
-	if err := client.authenticate(ctx, clientID, clientSecret); err != nil {
-		return nil, fmt.Errorf("failed to authenticate with Infisical: %w", err)
+	// Authenticate and get access token.
+	//
+	// Retry on transport errors (connection reset, DNS, dial). When the
+	// Infisical pod is restarted by Step 3.5's heavy bootstrap operations
+	// (org/project/identity/cert creation), the kubectl port-forward
+	// tunnel to the Service drops its in-flight TCP connection and emits
+	// "connection reset by peer" until it re-establishes. We give the
+	// tunnel time to reconnect by retrying with a short backoff. HTTP
+	// status errors (401, 403, 5xx with body) are NOT retried — they
+	// are auth/config issues the operator must resolve.
+	var authErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt) * 2 * time.Second
+			fmt.Printf("   → retrying Infisical authentication (attempt %d/3, waiting %s)...\n", attempt+1, backoff)
+			time.Sleep(backoff)
+		}
+		authErr = client.authenticate(ctx, clientID, clientSecret)
+		if authErr == nil {
+			break
+		}
+		if !isRetryableTransportError(authErr) {
+			break
+		}
+	}
+	if authErr != nil {
+		return nil, fmt.Errorf("failed to authenticate with Infisical: %w", authErr)
 	}
 
 	return client, nil
@@ -77,7 +116,7 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 // getWorkspaceIdFromSlug converts projectSlug to workspaceId by querying Infisical API
 func (c *Client) getWorkspaceIdFromSlug(ctx context.Context, projectSlug string) (string, error) {
 	// List all workspaces and find the one matching the slug
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/workspace", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+PathWorkspace, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -127,7 +166,7 @@ func (c *Client) authenticate(ctx context.Context, clientID, clientSecret string
 		return fmt.Errorf("failed to marshal login request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/auth/universal-auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+PathAuthUniversalAuthLogin, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create login request: %w", err)
 	}
@@ -180,8 +219,8 @@ func (c *Client) CreateOrUpdateSecret(ctx context.Context, projectSlug, environm
 
 // secretExists checks if a secret already exists
 func (c *Client) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.baseURL, key, workspaceId, environmentSlug, secretPath)
+	url := fmt.Sprintf("%s%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, fmt.Sprintf(PathSecretsRaw, key), workspaceId, environmentSlug, secretPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -224,7 +263,7 @@ func (c *Client) createSecret(ctx context.Context, workspaceId, environmentSlug,
 		return fmt.Errorf("failed to marshal create request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v3/secrets/raw/"+key, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+fmt.Sprintf(PathSecretsRaw, key), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -261,7 +300,7 @@ func (c *Client) updateSecret(ctx context.Context, workspaceId, environmentSlug,
 		return fmt.Errorf("failed to marshal update request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PATCH", c.baseURL+"/api/v3/secrets/raw/"+key, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", c.baseURL+fmt.Sprintf(PathSecretsRaw, key), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -288,20 +327,23 @@ func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*
 	// Look for the correct ConfigMap in the correct namespace
 	cm, err := clientset.CoreV1().ConfigMaps(constants.NamespaceOps).Get(ctx, "hub-bootstrap-config", metav1.GetOptions{})
 	if err != nil {
-		// Fallback to the correct hardcoded values from cluster-secret-store.yaml
+		// Fallback to hardcoded values
 		return &Config{
-			ProjectSlug:     "hub-platform",
+			ProjectSlug:     SecretsProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}
 
-	// Use the correct keys from hub-bootstrap-config
-	projectSlug := cm.Data["INFISICAL_PROJECT_SLUG"]
+	// Use the secrets project slug for secret read/write operations
+	projectSlug := cm.Data["INFISICAL_SECRETS_PROJECT_SLUG"]
+	if projectSlug == "" {
+		projectSlug = cm.Data["INFISICAL_PROJECT_SLUG"]
+	}
 	environmentSlug := cm.Data["INFISICAL_ENVIRONMENT_SLUG"]
 
 	if projectSlug == "" || environmentSlug == "" {
 		return &Config{
-			ProjectSlug:     "hub-platform",
+			ProjectSlug:     SecretsProjectSlug,
 			EnvironmentSlug: "dev",
 		}, nil
 	}

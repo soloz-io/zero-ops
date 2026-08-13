@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ClusterClass and spoke-addons live in _shared/ (ADR-046 §WS1).
+# kustomize allows ../ for sibling directories within the same repository.
+# No remote crossplane provider fetch: the hetzner composition wraps all
+# resources in provider-kubernetes; Hetzner infra is handled by CAPI's
+# infrastructure-provider-hetzner via capi-operator. (Removed a broken
+# raw.githubusercontent URL that 404'd and broke `kubectl kustomize`.)
+resources:
+  - ../_shared
+  - k8s/hcloud-ccm.yaml
+  - k8s/cert-manager-webhook-hetzner.yaml
+  - k8s/hetzner-credentials-es.yaml
+  - k8s/spokepool-hetzner-composition.yaml
+  - k8s/crossplane-provider-hetzner.yaml

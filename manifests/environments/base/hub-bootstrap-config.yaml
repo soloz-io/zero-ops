@@ -1,0 +1,14 @@
+# Runtime-known fields (INFISICAL_PROJECT_ID, INFISICAL_ORGANIZATION_ID,
+# INFISICAL_BOOTSTRAP_PROFILE_SLUG) are supplied via ADR-045
+# Bootstrap-Generated GitOps Artifact: manifests/generated/hub-bootstrap-config-patch.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-bootstrap-config
+  namespace: platform-ops
+data:
+  DOMAIN: ""
+  CLUSTER_ID: ""
+  CLUSTER_REGION: ""
+  INFISICAL_ENVIRONMENT_SLUG: ""
+  INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"

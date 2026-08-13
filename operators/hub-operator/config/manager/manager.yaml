@@ -7,6 +7,8 @@ metadata:
     control-plane: hub-operator
     app.kubernetes.io/name: hub-operator
     app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   selector:
     matchLabels:
@@ -101,6 +103,11 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: INFISICAL_PROJECT_SLUG
+        - name: INFISICAL_SECRETS_PROJECT_SLUG
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: INFISICAL_SECRETS_PROJECT_SLUG
         - name: INFISICAL_ENVIRONMENT_SLUG
           valueFrom:
             configMapKeyRef:

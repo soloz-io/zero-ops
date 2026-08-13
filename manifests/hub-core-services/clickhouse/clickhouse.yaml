@@ -9,8 +9,10 @@ kind: ClickHouseInstallation
 metadata:
   name: platform-clickhouse
   namespace: platform-data
+  labels:
+    clickhouse.altinity.com/chi: platform-clickhouse
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    clickhouse.altinity.com/managed: "true"
 spec:
   defaults:
     templates:

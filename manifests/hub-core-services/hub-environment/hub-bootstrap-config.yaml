@@ -3,8 +3,6 @@ kind: ConfigMap
 metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
 data:
   # Cluster Identity
   CLUSTER_ID: "hub-production"
@@ -12,6 +10,7 @@ data:
 
   # Infisical Configuration (Consolidated)
   INFISICAL_PROJECT_SLUG: "hub-platform"
+  INFISICAL_SECRETS_PROJECT_SLUG: "hub-secrets"
   INFISICAL_ENVIRONMENT_SLUG: "dev"
   INFISICAL_PROJECT_ID: "PLACEHOLDER_PROJECT_ID"
   INFISICAL_ORGANIZATION_ID: "PLACEHOLDER_ORG_ID"

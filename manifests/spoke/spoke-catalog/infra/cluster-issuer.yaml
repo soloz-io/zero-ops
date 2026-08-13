@@ -1,10 +1,27 @@
 ---
-# Root ClusterIssuer backed by Infisical PKI
-# All spoke certificates are issued through this issuer
-apiVersion: cert-manager.io/v1
+# ADR-035: Spoke ClusterIssuer backed by Infisical PKI.
+# Chains: Offline Root CA -> Fleet Intermediate CA (Infisical PKI) -> Leaf Certificate
+# Replaces previous spec.ca (CA-from-secret) which violated ADR-035 — Fleet
+# Intermediate CA private key must never leave Infisical.
+#
+# Dynamic values populated by Day-0 CRS payload:
+#   - spec.authentication.universalAuth.clientId: Machine Identity client ID
+#   - spec.projectId: Infisical hub-platform project UUID
+# Both values are injected by cert-operator via ClusterResourceSet.
+#
+# Correction 2: secretRef points to infisical-auth secret delivered by Day-0 CRS
+# into the cert-manager namespace.
+apiVersion: infisical-issuer.infisical.com/v1alpha1
 kind: ClusterIssuer
 metadata:
-  name: infisical-ca
+  name: infisical-fleet-issuer
 spec:
-  ca:
-    secretName: infisical-ca-key-pair
+  url: "https://infisical.nutgraf.in"
+  authentication:
+    universalAuth:
+      clientId: "" # Populated by cert-operator CRS: Machine Identity client ID
+      secretRef:
+        name: infisical-auth
+        key: client-secret
+  certificateTemplateName: "infrastructure-services"
+  projectId: "" # Populated by cert-operator CRS: hub-platform project UUID
