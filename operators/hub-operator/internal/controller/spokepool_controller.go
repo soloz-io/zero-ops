@@ -86,6 +86,12 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Non-fatal: CRS wrapper creation can be retried on next reconcile.
 	}
 
+	// create the agent root-CA CRS wrapper for ClusterResourceSet delivery
+	if err := r.ensureBootstrapCACRSWrapper(ctx, spokePool); err != nil {
+		logger.Error(err, "Failed to ensure agent-ca CRS wrapper", "spoke", spokeName)
+		// Non-fatal: retried on next reconcile.
+	}
+
 	// create SpokeMachineIdentity CR for identity lifecycle (spoke-identity-operator reconciles)
 	if err := r.ensureSpokeMachineIdentity(ctx, spokePool); err != nil {
 		logger.Error(err, "Failed to ensure SpokeMachineIdentity", "spoke", spokeName)
@@ -412,12 +418,21 @@ func (r *SpokePoolReconciler) ensureBootstrapCertCRSWrapper(ctx context.Context,
 	wrapperName := fmt.Sprintf("%s-bootstrap-cert", spokeName)
 	tlsSecretName := fmt.Sprintf("argocd-agent-%s-tls", spokeName)
 
-	// Immutable guard: if wrapper already exists with correct type, do not regenerate
+	// Immutable guard: if wrapper already exists with correct type and non-empty
+	// data, do not regenerate. If it exists but is empty (created before
+	// cert-manager issued the certificate), delete it so it is recreated with
+	// real material on the next reconcile.
 	existing := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: "platform-capi"}, existing); err == nil {
 		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
-			logger.Info("Bootstrap CRS wrapper already exists, skipping", "wrapper", wrapperName)
-			return nil
+			if len(existing.Data) > 0 && len(existing.Data["bootstrap-cert.yaml"]) > 0 {
+				logger.Info("Bootstrap CRS wrapper already exists, skipping", "wrapper", wrapperName)
+				return nil
+			}
+			logger.Info("Bootstrap CRS wrapper is empty, deleting to allow regeneration", "wrapper", wrapperName)
+			if err := r.Delete(ctx, existing); err != nil {
+				return fmt.Errorf("delete empty bootstrap CRS wrapper: %w", err)
+			}
 		}
 	}
 
@@ -432,6 +447,14 @@ func (r *SpokePoolReconciler) ensureBootstrapCertCRSWrapper(ctx context.Context,
 	tlsCrt := string(tlsSecret.Data["tls.crt"])
 	tlsKey := string(tlsSecret.Data["tls.key"])
 	caCrt := string(tlsSecret.Data["ca.crt"])
+
+	// ADR-035: never wrap an un-issued certificate. The wrapper is immutable
+	// once created, so creating it with empty data permanently breaks the spoke's
+	// ArgoCD Agent mTLS. Defer to the next reconcile instead (non-fatal).
+	if tlsCrt == "" || tlsKey == "" || caCrt == "" {
+		logger.Info("Bootstrap TLS secret not yet issued, deferring CRS wrapper", "secret", tlsSecretName, "spoke", spokeName)
+		return fmt.Errorf("bootstrap TLS secret %s not yet issued (empty data)", tlsSecretName)
+	}
 
 	// Build embedded YAML manifests for the CRS wrapper (matches cert-operator pattern)
 	// The TLS private key is included in the wrapper as required by the CRS delivery model,
@@ -481,6 +504,80 @@ stringData:
 	}
 
 	logger.Info("Created bootstrap CRS wrapper Secret", "wrapper", wrapperName, "spoke", spokeName)
+	return nil
+}
+
+// ensureBootstrapCACRSWrapper packages the principal CA into a ClusterResourceSet
+// wrapper that delivers the `argocd-agent-ca` Secret to the spoke. The agent
+// mounts this CA (agent.tls.root-ca-secret-name) to verify the principal (hub)
+// server certificate over mTLS. The CA is the same principal root CA carried in
+// the spoke's issued TLS secret (ca.crt).
+func (r *SpokePoolReconciler) ensureBootstrapCACRSWrapper(ctx context.Context, spokePool *unstructured.Unstructured) error {
+	logger := log.FromContext(ctx)
+	spokeName := spokePool.GetName()
+
+	wrapperName := fmt.Sprintf("%s-agent-ca", spokeName)
+
+	// Immutable guard: skip if the wrapper already exists with data.
+	existing := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: "platform-capi"}, existing); err == nil {
+		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
+			logger.Info("Agent-CA CRS wrapper already exists, skipping", "wrapper", wrapperName)
+			return nil
+		}
+	}
+
+	// Read the principal CA from the spoke's issued TLS secret (ca.crt).
+	tlsSecret := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("argocd-agent-%s-tls", spokeName), Namespace: "platform-capi"}, tlsSecret); err != nil {
+		return fmt.Errorf("read TLS Secret for agent CA: %w", err)
+	}
+	caCrt := string(tlsSecret.Data["ca.crt"])
+	if caCrt == "" {
+		return fmt.Errorf("TLS secret ca.crt not yet issued")
+	}
+
+	caYAML := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-agent-ca
+  namespace: argocd
+  labels:
+    platform.nutgraf.in/bootstrap: "true"
+type: Opaque
+stringData:
+  ca.crt: |
+%s
+`, indentYAML(caCrt))
+
+	wrapper := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wrapperName,
+			Namespace: "platform-capi",
+			Labels:    map[string]string{"addons.cluster.x-k8s.io/resource-set": "true"},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "nutgraf.in/v1alpha1",
+					Kind:               "SpokePool",
+					Name:               spokePool.GetName(),
+					UID:                spokePool.GetUID(),
+					Controller:         ptr.To(true),
+					BlockOwnerDeletion: ptr.To(true),
+				},
+			},
+		},
+		Type:       "addons.cluster.x-k8s.io/resource-set",
+		StringData: map[string]string{"agent-ca.yaml": caYAML},
+	}
+
+	if err := r.Create(ctx, wrapper); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("create agent-ca CRS wrapper: %w", err)
+	}
+
+	logger.Info("Created Agent-CA CRS wrapper Secret", "wrapper", wrapperName, "spoke", spokeName)
 	return nil
 }
 

@@ -48,6 +48,10 @@ data:
           labels:
             app: argocd-redis
         spec:
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
           containers:
           - name: redis
             image: redis:7.2-alpine

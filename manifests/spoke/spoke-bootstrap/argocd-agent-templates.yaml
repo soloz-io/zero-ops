@@ -30,6 +30,10 @@ data:
             app: argocd-agent
         spec:
           serviceAccountName: argocd-agent
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
           containers:
             - name: argocd-agent
               image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest

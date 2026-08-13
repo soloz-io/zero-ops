@@ -164,6 +164,9 @@ spec:
                         # 72-hour bootstrap certificate for ArgoCD Agent mTLS
                         - name: ""
                           kind: Secret
+                        # Principal root CA for ArgoCD Agent mTLS (argocd-agent-ca)
+                        - name: ""
+                          kind: Secret
                       strategy: ApplyOnce
                 providerConfigRef:
                   name: kubernetes-provider
@@ -243,6 +246,14 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-bootstrap-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-agent-ca"
 
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object

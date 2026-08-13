@@ -72,6 +72,10 @@ data:
           labels:
             app.kubernetes.io/name: argocd-repo-server
         spec:
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
           containers:
           - name: argocd-repo-server
             image: quay.io/argoproj/argocd:v2.11.2
@@ -179,6 +183,10 @@ data:
             app.kubernetes.io/name: argocd-application-controller
         spec:
           serviceAccountName: argocd-application-controller
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
           containers:
           - name: argocd-application-controller
             image: quay.io/argoproj/argocd:v2.11.2

@@ -191,6 +191,8 @@ spec:
                           kind: Secret
                         - name: ""
                           kind: Secret
+                        - name: ""
+                          kind: Secret
                       strategy: ApplyOnce
                 providerConfigRef:
                   name: kubernetes-provider
@@ -278,6 +280,14 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-bootstrap-cert"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-agent-ca"
 
           # ────────────────────────────────────────────────────────────────────
           # Home-worker join config ConfigMap

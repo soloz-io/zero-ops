@@ -45,6 +45,7 @@ dynamic_suffixes=(
   "argocd-agent-params"
   "machine-identity"
   "bootstrap-cert"
+  "agent-ca"
 )
 
 failures=0
