@@ -121,8 +121,10 @@ func (r *SpokePoolReconciler) reconcileHomeWorkerJoin(ctx context.Context, spoke
 	}
 
 	// Read the spoke kubeconfig Secret (<spoke>-kubeconfig, platform-capi).
+	// Uses the uncached client — the cache transform strips Secret .data
+	// payloads, so the cached copy would have no 'value' key.
 	kubeconfigSecret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
 		Name:      spokeName + "-" + kubeconfigSecretSuffix,
 		Namespace: "platform-capi",
 	}, kubeconfigSecret); err != nil {

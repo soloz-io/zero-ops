@@ -27,6 +27,11 @@ import (
 // SpokePoolReconciler reconciles SpokePool XRs to generate per-spoke secrets
 type SpokePoolReconciler struct {
 	client.Client
+	// UncachedClient reads Secrets directly from the API server, bypassing the
+	// cache transform that strips .data payloads (AC 19.3/19.4). Required for
+	// any Secret whose data this controller consumes (CAPI kubeconfig, TLS
+	// bootstrap cert material).
+	UncachedClient  client.Client
 	InfisicalClient *secrets.InfisicalClient
 }
 
@@ -416,9 +421,10 @@ func (r *SpokePoolReconciler) ensureBootstrapCertCRSWrapper(ctx context.Context,
 		}
 	}
 
-	// Read the cert-manager-issued TLS Secret
+	// Read the cert-manager-issued TLS Secret (uncached — data is stripped by
+	// the cache transform; only metadata is preserved).
 	tlsSecret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: tlsSecretName, Namespace: "platform-capi"}, tlsSecret); err != nil {
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: tlsSecretName, Namespace: "platform-capi"}, tlsSecret); err != nil {
 		return fmt.Errorf("read TLS Secret %s: %w", tlsSecretName, err)
 	}
 

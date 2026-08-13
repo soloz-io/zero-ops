@@ -270,6 +270,7 @@ func main() {
 
 	if err := (&controller.SpokePoolReconciler{
 		Client:          mgr.GetClient(),
+		UncachedClient:  uncachedClient,
 		InfisicalClient: secretsInfisicalClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "SpokePool")
