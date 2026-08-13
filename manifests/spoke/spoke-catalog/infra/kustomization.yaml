@@ -10,6 +10,16 @@ resources:
   # ADR-035: infisical-issuer CRDs (InfisicalClusterIssuer, InfisicalIssuer)
   - crds/infisical-issuer-crd.yaml
   - namespaces.yaml
+  # ADR-047: spoke platform operators (vendored, wave 0) — crossplane, ESO,
+  # kyverno, cloudnative-pg. Their CRDs apply at wave -5.
+  - crossplane/crd.yaml
+  - crossplane/controller.yaml
+  - external-secrets/crd.yaml
+  - external-secrets/controller.yaml
+  - kyverno/crd.yaml
+  - kyverno/controller.yaml
+  - cloudnative-pg/crd.yaml
+  - cloudnative-pg/controller.yaml
   - crossplane-admin-eso.yaml
   - crossplane-function-patch-and-transform.yaml
   - crossplane-providerconfig-sql.yaml
@@ -31,4 +41,35 @@ resources:
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+
+# ADR-047: single-node spokes run on the control-plane node, which carries the
+# control-plane taint. All platform workloads on the spoke must tolerate it.
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+  - target:
+      kind: StatefulSet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+  - target:
+      kind: DaemonSet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
 

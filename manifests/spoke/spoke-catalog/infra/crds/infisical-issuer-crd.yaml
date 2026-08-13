@@ -2,6 +2,8 @@
 # Source: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/infisical-pki-issuer-0.2.0.tgz
 # Audit: API group infisical-issuer.infisical.com, v1alpha1, cluster-scoped
 # Required by: infisical-issuer controller to reconcile ClusterIssuer resources
+# ADR-023: CRDs applied at sync-wave -5 so ArgoCD establishes them
+# before operators/resources that depend on them.
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -9,6 +11,7 @@ metadata:
   name: clusterissuers.infisical-issuer.infisical.com
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.1
+    argocd.argoproj.io/sync-wave: '-5'
   labels:
     app.kubernetes.io/component: infisical-pki-issuer
     app.kubernetes.io/name: infisical-pki-issuer
@@ -28,19 +31,24 @@ spec:
         description: ClusterIssuer is the Schema for the clusterissuers API
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
+            description: 'APIVersion defines the versioned schema of this representation of an object.
+
               Servers should convert recognized schemas to the latest internal value, and
+
               may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
+            description: 'Kind is a string value representing the REST resource this object represents.
+
               Servers may infer this from the endpoint the client submits requests to.
+
               Cannot be updated.
+
               In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -79,9 +87,9 @@ spec:
               projectId:
                 type: string
               url:
-                description: |-
-                  URL is the base URL of the instance of Infisical,
-                  for example: "https://app.infisical.com".
+                description: 'URL is the base URL of the instance of Infisical,
+
+                  for example: "https://app.infisical.com".'
                 type: string
             required:
             - authentication
@@ -93,33 +101,33 @@ spec:
             description: IssuerStatus defines the observed state of Issuer
             properties:
               conditions:
-                description: |-
-                  List of status conditions to indicate the status of a CertificateRequest.
-                  Known condition types are `Ready`.
+                description: 'List of status conditions to indicate the status of a CertificateRequest.
+
+                  Known condition types are `Ready`.'
                 items:
                   description: IssuerCondition contains condition information for an Issuer.
                   properties:
                     lastTransitionTime:
-                      description: |-
-                        LastTransitionTime is the timestamp corresponding to the last status
-                        change of this condition.
+                      description: 'LastTransitionTime is the timestamp corresponding to the last status
+
+                        change of this condition.'
                       format: date-time
                       type: string
                     message:
-                      description: |-
-                        Message is a human readable description of the details of the last
-                        transition, complementing reason.
+                      description: 'Message is a human readable description of the details of the last
+
+                        transition, complementing reason.'
                       type: string
                     reason:
-                      description: |-
-                        Reason is a brief machine readable explanation for the condition's last
-                        transition.
+                      description: 'Reason is a brief machine readable explanation for the condition''s last
+
+                        transition.'
                       type: string
                     status:
                       description: Status of the condition, one of ('True', 'False', 'Unknown').
                       enum:
-                      - "True"
-                      - "False"
+                      - 'True'
+                      - 'False'
                       - Unknown
                       type: string
                     type:
@@ -143,6 +151,7 @@ metadata:
   name: issuers.infisical-issuer.infisical.com
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.1
+    argocd.argoproj.io/sync-wave: '-5'
   labels:
     app.kubernetes.io/component: infisical-pki-issuer
     app.kubernetes.io/name: infisical-pki-issuer
@@ -162,19 +171,24 @@ spec:
         description: Issuer is the Schema for the issuers API
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
+            description: 'APIVersion defines the versioned schema of this representation of an object.
+
               Servers should convert recognized schemas to the latest internal value, and
+
               may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
+            description: 'Kind is a string value representing the REST resource this object represents.
+
               Servers may infer this from the endpoint the client submits requests to.
+
               Cannot be updated.
+
               In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -213,9 +227,9 @@ spec:
               projectId:
                 type: string
               url:
-                description: |-
-                  URL is the base URL of the instance of Infisical,
-                  for example: "https://app.infisical.com".
+                description: 'URL is the base URL of the instance of Infisical,
+
+                  for example: "https://app.infisical.com".'
                 type: string
             required:
             - authentication
@@ -227,33 +241,33 @@ spec:
             description: IssuerStatus defines the observed state of Issuer
             properties:
               conditions:
-                description: |-
-                  List of status conditions to indicate the status of a CertificateRequest.
-                  Known condition types are `Ready`.
+                description: 'List of status conditions to indicate the status of a CertificateRequest.
+
+                  Known condition types are `Ready`.'
                 items:
                   description: IssuerCondition contains condition information for an Issuer.
                   properties:
                     lastTransitionTime:
-                      description: |-
-                        LastTransitionTime is the timestamp corresponding to the last status
-                        change of this condition.
+                      description: 'LastTransitionTime is the timestamp corresponding to the last status
+
+                        change of this condition.'
                       format: date-time
                       type: string
                     message:
-                      description: |-
-                        Message is a human readable description of the details of the last
-                        transition, complementing reason.
+                      description: 'Message is a human readable description of the details of the last
+
+                        transition, complementing reason.'
                       type: string
                     reason:
-                      description: |-
-                        Reason is a brief machine readable explanation for the condition's last
-                        transition.
+                      description: 'Reason is a brief machine readable explanation for the condition''s last
+
+                        transition.'
                       type: string
                     status:
                       description: Status of the condition, one of ('True', 'False', 'Unknown').
                       enum:
-                      - "True"
-                      - "False"
+                      - 'True'
+                      - 'False'
                       - Unknown
                       type: string
                     type:
