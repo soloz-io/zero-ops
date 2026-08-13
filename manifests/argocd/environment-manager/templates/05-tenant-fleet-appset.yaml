@@ -1,0 +1,240 @@
+{{ if .Values.deploy.boundary05 }}
+---
+# ADR-047: Fleet tenant provisioning ApplicationSets.
+# Reconciles the three tenant lifecycle resources for each fleet:
+#   {fleetId}-xr       → AINativeSaaS XR on the Hub (Crossplane data plane)
+#   {fleetId}-spoke    → namespace + Tier-2 platform-rendered capabilities on the spoke
+#   tenant-{fleetId}-workloads → fleet workload app (Tier 3) on the spoke
+# Fleet values are read from fleet-registry at tenants/<tenant>/<env>/values.yaml.
+# The env slug is derived from the matched path (tenants/<tenant>/<env>/values.yaml).
+
+---
+# ApplicationSet for fleet XRs (deployed to Hub where Crossplane runs)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-fleet-xr-provisioning
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  generators:
+    # Git Generator watches fleet-registry for tenant values files.
+    - git:
+        repoURL: https://github.com/soloz-io/fleet-registry
+        revision: main
+        files:
+          - path: 'tenants/*/*/values.yaml'
+
+  template:
+    metadata:
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-xr'
+      labels:
+        tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        provisioning-type: gitops
+        resource-type: xr
+
+    spec:
+      project: default
+
+      sources:
+        # Source 1: Universal Tenant Helm Chart (only the XR template)
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          path: manifests/tenants/charts/universal-tenant
+          helm:
+            valueFiles:
+              - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml
+            parameters:
+              - name: deployXR
+                value: "true"
+
+        # Source 2: Fleet registry values file
+        - repoURL: https://github.com/soloz-io/fleet-registry
+          targetRevision: main
+          ref: values
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+
+---
+# ApplicationSet for fleet spoke resources (namespace + Tier-2 capabilities on spoke)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-fleet-spoke-provisioning
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  generators:
+    # Matrix Generator: only create applications when BOTH conditions are met:
+    # 1. Fleet values exist in Git (fleet-registry)
+    # 2. Target spoke cluster is registered in ArgoCD (by capi2argo) with the cell-id label
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry
+              revision: main
+              files:
+                - path: 'tenants/*/*/values.yaml'
+
+          - clusters:
+              selector:
+                matchLabels:
+                  cell-id: '{{"{{"}} .cellId {{"}}"}}'
+
+  template:
+    metadata:
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-spoke'
+      labels:
+        tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        provisioning-type: gitops
+        resource-type: spoke
+
+    spec:
+      project: default
+
+      sources:
+        # Source 1: Universal Tenant Helm Chart (namespace, Tier-2 RBAC, ExternalSecrets)
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          path: manifests/tenants/charts/universal-tenant
+          helm:
+            valueFiles:
+              - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml
+            parameters:
+              - name: deployXR
+                value: "false"
+
+        # Source 2: Fleet registry values file
+        - repoURL: https://github.com/soloz-io/fleet-registry
+          targetRevision: main
+          ref: values
+
+      destination:
+        name: '{{"{{"}} .name {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /spec/target/template/data
+            - /status
+
+---
+# ApplicationSet for fleet application workloads (Tier 3, BYOWR within fleet-registry)
+# ADR-047: workloads live in fleet-registry (the ArgoCD source of truth); the values
+# file's workloads.gitPath points at the fleet's rendered state under tenants/.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-fleet-workload-provisioning
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  generators:
+    # Matrix: only generate an application when BOTH the fleet values file
+    # exists in fleet-registry AND the target spoke cluster is registered.
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry
+              revision: main
+              files:
+                - path: 'tenants/*/*/values.yaml'
+
+          - clusters:
+              selector:
+                matchLabels:
+                  cell-id: '{{"{{"}} .cellId {{"}}"}}'
+
+  template:
+    metadata:
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-workloads'
+      labels:
+        tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        resource-type: workload
+        target-cluster: '{{"{{"}} .name {{"}}"}}'
+
+    spec:
+      project: tenant-workloads
+
+      sources:
+        # Single source: the fleet's rendered workload state in fleet-registry.
+        - repoURL: '{{"{{"}} .workloads.gitRepo {{"}}"}}'
+          targetRevision: '{{"{{"}} .workloads.gitRevision {{"}}"}}'
+          path: '{{"{{"}} .workloads.gitPath {{"}}"}}'
+
+      destination:
+        name: '{{"{{"}} .name {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+---
+{{ end }}

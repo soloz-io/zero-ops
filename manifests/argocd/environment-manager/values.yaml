@@ -15,9 +15,11 @@ environmentRevision: "main"
 #
 #   PhaseBoundary01 → deploy.boundary01=true  (infra operators)
 #   PhaseBoundary02 → deploy.boundary01=true, deploy.boundary02=true  (data)
-#   PhaseBoundary03 → all three true  (services)
+#   PhaseBoundary03 → all boundary01-03 true  (services)
+#   PhaseBoundary04 → boundary01-04 true       (tenant services)
+#   PhaseBoundary05 → boundary01-05 true       (fleet provisioning, ADR-047)
 #
-# On steady-state Day-1, all three are always true. Only the bootstrap
+# On steady-state Day-1, all five are always true. Only the bootstrap
 # orchestrator ever toggles them to achieve sequential boundary gating.
 # ──────────────────────────────────────────────────────────────────────────────
 deploy:
@@ -25,3 +27,4 @@ deploy:
   boundary02: true
   boundary03: true
   boundary04: true
+  boundary05: true

@@ -1,0 +1,40 @@
+# ADR-047 Tier 1: Platform-owned default-deny for sandbox pods.
+# Sandboxes run in tenant namespaces but are created by the agent-sandbox
+# controller from SDK-supplied podTemplates — they are NOT covered by the
+# tenant workload base netpol. This cluster-wide policy default-denies them:
+# DNS + public-internet egress only (agent-vault proxy + harness), no
+# cluster-internal access.
+# Sandbox pods are selected by the agents.x-k8s.io/sandbox: "true" label that
+# sandbox-capable SDKs must add to their sandbox podTemplate.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: agent-sandbox-default-deny
+spec:
+  endpointSelector:
+    matchLabels:
+      agents.x-k8s.io/sandbox: "true"
+
+  egress:
+    # DNS for FQDN rules.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Public-internet egress for the agent-vault proxy / harness tooling.
+    - toFQDNs:
+        - matchName: "api.github.com"
+        - matchName: "github.com"
+        - matchName: "api.tavily.com"
+        - matchName: "api.runpod.ai"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

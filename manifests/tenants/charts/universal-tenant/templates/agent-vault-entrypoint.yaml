@@ -1,0 +1,18 @@
+{{- if and (not .Values.deployXR) .Values.sandbox.agentVault.enabled }}
+# ADR-047 Tier 2: Platform-provisioned agent-vault entrypoint for sandbox-capable
+# fleets. The SDK's createSandbox mounts this ConfigMap into sandbox pods
+# (packages/sandbox-k8s: podTemplate volume `entrypoint-script`) and the
+# agent-vault sidecar runs /bin/sh /scripts/entrypoint.sh. Content is
+# platform-owned (files/agent-vault/entrypoint.sh); it embeds no secrets — the
+# agent-vault sidecar resolves AGENTREGISTRY_* env vars at runtime.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-vault-entrypoint
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+data:
+  entrypoint.sh: |
+{{ .Files.Get "files/agent-vault/entrypoint.sh" | indent 4 }}
+{{- end }}

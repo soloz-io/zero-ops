@@ -317,6 +317,18 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 11h: Boundary 05 — fleet provisioning (ADR-047) ────────────
+	// Deploys the tenant-fleet provisioning ApplicationSets (xr / spoke /
+	// workloads). Requires boundary04 (tenant services + ArgoCD fleet-registry
+	// auth) to be in place first.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary05, "boundary05",
+		"Deploying fleet provisioning (boundary 05)...",
+		func() error { return o.deployBoundary05(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary05] ✓ Fleet provisioning deployed") },
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
 	// Auto-commits generated artifacts, then polls ArgoCD until the
 	// affected apps reconcile (Synced+Healthy). This ensures the
@@ -532,7 +544,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	}
 	fmt.Println("[boundary01] ✓ ArgoCD installed")
 
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
@@ -571,7 +583,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
@@ -583,7 +595,7 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
@@ -591,10 +603,18 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 }
 
 func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary04] ✓ 04-tenant-services ApplicationSet applied")
+	return nil
+}
+
+func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true); err != nil {
+		return err
+	}
+	fmt.Println("[boundary05] ✓ 05-tenant-fleet ApplicationSets applied")
 	return nil
 }
 
@@ -602,7 +622,7 @@ func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) 
 // renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04 bool) error {
+func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04, deployB05 bool) error {
 	gitBranch := currentGitBranch()
 	envRevision := "main"
 	if gitBranch != "" && gitBranch != "main" {
@@ -622,6 +642,7 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
 		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
 		"--set", fmt.Sprintf("deploy.boundary04=%t", deployB04),
+		"--set", fmt.Sprintf("deploy.boundary05=%t", deployB05),
 	)
 	rendered, err := helmCmd.Output()
 	if err != nil {

@@ -26,4 +26,9 @@ resources:
   - infisical-issuer.yaml
   - cluster-issuer.yaml
   - certificates.yaml
+  # ADR-047: agent-sandbox (Sandbox CRD + controller) for sandbox-capable fleets
+  - agent-sandbox/crd.yaml
+  - agent-sandbox/controller.yaml
+  # ADR-047: platform-owned default-deny for sandbox pods
+  - sandbox-network-policy.yaml
 

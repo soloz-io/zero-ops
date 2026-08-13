@@ -1,0 +1,33 @@
+{{- if not .Values.deployXR }}
+{{- range .Values.workloadRbac }}
+# ADR-047 Tier 2: Platform-rendered namespaced RBAC for fleet workloads.
+# Rendered by the platform (not the fleet overlay) so tenant-workloads stays
+# closed to Role/RoleBinding authoring. The serviceAccount name must match the
+# fleet overlay's workload ServiceAccount (base `workload-sa` + namePrefix).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Values.tenantId }}-{{ .serviceAccount }}-role
+  namespace: tenant-{{ $.Values.tenantId }}
+  labels:
+    tenant-id: {{ $.Values.tenantId }}
+rules:
+{{ toYaml .rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Values.tenantId }}-{{ .serviceAccount }}-binding
+  namespace: tenant-{{ $.Values.tenantId }}
+  labels:
+    tenant-id: {{ $.Values.tenantId }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Values.tenantId }}-{{ .serviceAccount }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount }}
+    namespace: tenant-{{ $.Values.tenantId }}
+{{- end }}
+{{- end }}

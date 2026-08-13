@@ -418,4 +418,61 @@ spec:
             - /spec/progressDeadlineSeconds
     {{"{{-"}} end {{"}}"}}
 ---
+
+---
+# ADR-047: platform-spoke-catalog — deploys the platform's spoke capability
+# catalog (CRDs, operators, cert-manager, infisical-issuer, ESO secret store,
+# crossplane providers, CNPG, kyverno ABI, agent-sandbox, sandbox netpol) to
+# every registered pool spoke.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-spoke-catalog
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+
+  template:
+    metadata:
+      name: 'platform-spoke-catalog-{{"{{"}} .name {{"}}"}}'
+      namespace: platform-ops
+      labels:
+        app.kubernetes.io/part-of: platform
+        spoke-type: pool
+
+    spec:
+      project: default
+
+      source:
+        repoURL: https://github.com/soloz-io/zero-ops
+        targetRevision: '{{ .Values.environmentRevision }}'
+        path: manifests/spoke/spoke-catalog/infra
+
+      destination:
+        name: '{{"{{"}} .name {{"}}"}}'
+        namespace: platform-ops
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+---
 {{ end }}

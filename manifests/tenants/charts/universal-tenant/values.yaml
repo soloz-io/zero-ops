@@ -37,6 +37,45 @@ workloads:
   gitRevision: "main"
   gitPath: ""
 
+# ADR-047 Tier 2: Platform-rendered namespaced RBAC for fleet workloads.
+# Rendered only when deployXR=false (spoke provisioning). Each entry binds a
+# platform-authored Role to a fleet ServiceAccount. The serviceAccount name must
+# match the fleet overlay's workload ServiceAccount (base `workload-sa` + namePrefix).
+# Example:
+# workloadRbac:
+#   - serviceAccount: sdk-workload-sa
+#     rules:
+#       - apiGroups: ["agents.x-k8s.io"]
+#         resources: ["sandboxes"]
+#         verbs: ["get", "list", "create", "patch", "delete"]
+workloadRbac: []
+
+# ADR-047 Tier 2: Platform-rendered ExternalSecrets for fleet application secrets.
+# Rendered only when deployXR=false (spoke provisioning). Delivers secrets from
+# Infisical into the tenant namespace via the tenant-scoped SecretStore.
+# remoteKey is the Infisical folder path; remoteProperty is the key within it
+# (same convention as the tenant database composition, ADR-003/ADR-030).
+# Example:
+# externalSecrets:
+#   - name: waypoint-app-secrets
+#     secretStoreRef:
+#       name: tenant-secret-store
+#       kind: SecretStore
+#     data:
+#       - secretKey: AI_GATEWAY_API_KEY
+#         remoteKey: /spoke-pool/<cellId>/tenants/<tenant>/app-secrets
+#         remoteProperty: AI_GATEWAY_API_KEY
+externalSecrets: []
+
+# ADR-047 Tier 2: Sandbox capabilities for the fleet.
+sandbox:
+  # When true, the platform provisions the `agent-vault-entrypoint` ConfigMap
+  # in the tenant namespace (required by the waypoint SDK sandbox pods). The
+  # agent-sandbox controller itself is a platform Tier-1 spoke capability
+  # (spoke-catalog), not rendered per-tenant.
+  agentVault:
+    enabled: false
+
 # Resource quotas (tier-based defaults)
 resourceQuota:
   # CPU limits (millicores)
