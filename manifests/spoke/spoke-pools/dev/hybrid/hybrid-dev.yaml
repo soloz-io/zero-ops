@@ -3,7 +3,7 @@
 # Control plane: 1 Hetzner node (dev topology).
 # Burst workers: 0 (home WSL2 workers provide default capacity).
 # Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
-# Spoke API: direct single-CP tailnet address (no HAProxy front for dev).
+# Spoke API: CAPH-managed Hetzner Load Balancer (public TCP 443), same as hub/hetzner.
 #
 # Scheduling contract:
 #   Default: nodeSelector: workload-location: home
@@ -21,10 +21,9 @@ metadata:
   annotations:
     # Control-plane topology (patched into CAPI Cluster topology.controlPlane.replicas)
     control-plane-replicas: "1"
-    # Spoke API endpoint is DERIVED as <claim-name>-cp.<tailnet-name> (ADR-046).
-    # For dev (1 CP) it resolves directly to the single CP node's tailnet
-    # hostname; stg/prod (3 CP) resolves to the dedicated Tailscale HAProxy
-    # front with CP nodes named <claim>-cp-1/2/3.
+    # Spoke API endpoint: CAPH auto-derives controlPlaneEndpoint from the LB
+    # IPv4 (ADR-046) — no annotation needed. Home workers join via the spoke
+    # kubeconfig server (LB endpoint).
     # Home worker node list (JSON array; each entry: {hostname, tailnetHost})
     # Box A: Dell workstation (existing home node)
     # Box B: placeholder — replace with actual tailnet hostname after enrollment

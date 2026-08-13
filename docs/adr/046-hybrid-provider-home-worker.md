@@ -16,7 +16,9 @@ We need a local development and staging environment that:
 - Provides real, useful worker capacity from home-lab hardware (two WSL2
   Windows boxes, ~16GB RAM each, scalable to more).
 - Costs nothing to keep running (no idle Hetzner worker nodes).
-- Works on a Tailscale-only network (no public IPs, no subnet router).
+- Reaches home-lab workers over Tailscale while keeping the control plane on
+  Hetzner's public network (CP advertised via a CAPH-managed Hetzner Load
+  Balancer, exactly like the Hub and the pure-hetzner spokes).
 
 The CAPD/local provider is removed entirely; home-lab is the new local/staging
 ground.
@@ -35,8 +37,9 @@ Hetzner CAPI remains the infrastructure provider.
 | Hub (management) cluster | Hetzner |
 | Spoke control plane | Hetzner (1 replica dev, 3 stg/prod) |
 | Spoke burst worker pool | Hetzner CAPI `MachineDeployment` at `replicas: 0` (escape hatch) |
-| Spoke default workers | Home-lab WSL2 nodes, unmanaged kubeadm join |
-| Spoke API access | Tailnet-only |
+| Spoke default workers | Home-lab WSL2 nodes, unmanaged kubeadm join over Tailscale |
+| Spoke API access | Public Hetzner Load Balancer (CAPH-managed, `controlPlaneLoadBalancer.enabled=true`) |
+| Tailscale | Home-lab WSL2 workers only; neither the Hub nor the spoke control plane runs Tailscale |
 
 ### Provider Cell Layout
 
@@ -44,17 +47,18 @@ Hetzner CAPI remains the infrastructure provider.
   templates. Shared by hetzner and hybrid cells (kustomize `../` works within
   the repo).
 - `manifests/providers/hybrid/` — hybrid Composition, home-worker integration,
-  spoke API front, credentials.
+  credentials.
 - `manifests/providers/hetzner/` — unchanged hetzner composition + credentials,
   referencing `../_shared`.
 
 ### ClusterClass Variables
 
-The shared ClusterClass gains two variables:
-- `controlPlaneLoadBalancer.enabled` (default `true`) — hetzner keeps the
-  Hetzner LB; hybrid disables it.
-- `controlPlaneEndpointHost` (default `""`) — hybrid supplies the Tailscale
-  MagicDNS endpoint; hetzner leaves empty (LB advertises).
+The shared ClusterClass exposes two variables:
+- `controlPlaneLoadBalancer.enabled` (default `true`) — both hetzner and hybrid
+  keep the Hetzner LB; the LB IP becomes the spoke API endpoint.
+- `controlPlaneEndpointHost` (default `""`) — left empty for both providers;
+  CAPH auto-fills `controlPlaneEndpoint.host` from the LB's IPv4
+  (`ControlPlaneEndpointSet` condition).
 
 Burst workers carry kubelet label `workload-location=hetzner`; home workers are
 labeled `workload-location=home` by the join script.
@@ -81,11 +85,17 @@ Home workers never appear in the ClusterClass topology.
 
 ### Spoke API Endpoint
 
-- **dev**: direct single-CP tailnet address (`control-plane-endpoint-host`
-  annotation).
-- **stg/prod**: `spoke-api-front.yaml` — a Tailscale-enrolled HAProxy TCP front
-  exposing one MagicDNS name (`<spoke>-api-front`) over TCP 6443 to the Hetzner
-  CP nodes.
+- CAPH creates a Hetzner Load Balancer per spoke (`controlPlaneLoadBalancer`
+  `port: 6443`, `type: lb11`) and publishes the kube-apiserver on the LB IPv4,
+  TCP 443 (LB `ListenPort` = `controlPlaneEndpoint.port`, forwarding to CP
+  nodes on 6443). The endpoint is derived automatically; no tailnet name is
+  involved.
+- The segment is identical to the pure-hetzner provider; hybrid adds nothing
+  for the API path. The endpoint is stable across control-plane node rotation
+  because the LB IP does not change.
+- Home workers reach the spoke API through this same public endpoint (the
+  kubeconfig server used by the join flow); they do not depend on the CP being
+  on the tailnet.
 
 ### Scheduling Contract
 
@@ -100,27 +110,30 @@ entries were removed (no compositions exist; sole-developer clean cut).
 
 ## Ownership
 
-Defined by this ADR: hybrid cell manifests, home-worker join flow, spoke API
-front, and the provider-registry map. ClusterClass and addon templates are
-owned jointly with the hetzner cell (shared base, ADR-036).
+Defined by this ADR: hybrid cell manifests and the home-worker join flow, and
+the provider-registry map. ClusterClass and addon templates are owned jointly
+with the hetzner cell (shared base, ADR-036).
 
 ## Consequences
 
 ### Positive
 
 - Zero idle Hetzner worker cost (burst pool at `replicas: 0`).
-- Reuses the tested Hetzner CAPI control-plane path verbatim.
+- Reuses the tested Hetzner CAPI control-plane path verbatim, including the
+  CAPH-managed Load Balancer (same as the Hub and pure-hetzner spokes).
 - Real hardware capacity (~32GB across two boxes, scalable to 3+ nodes).
-- Tailnet-only network: no public API exposure, no firewall/LB management for
-  the spoke API.
+- Stable spoke API endpoint (LB IP survives control-plane rotation); home
+  workers reach the API over the public LB, Tailscale is used only for the
+  worker nodes themselves.
 
 ### Negative
 
 - Home workers are unmanaged — no CAPI-driven rollouts, upgrades, or
   remediation for them.
-- kubeadm join depends on the spoke being reachable over the tailnet and on the
+- kubeadm join depends on the spoke API being reachable (public LB) and on the
   hub-operator token being current (24h TTL, rotated by the controller).
-- No public-LB path for the spoke API in hybrid (by design).
+- The spoke API is publicly exposed on a Hetzner Load Balancer (TCP 443) rather
+  than kept tailnet-only; exposure is scoped by Hetzner firewall rules.
 
 ## References
 

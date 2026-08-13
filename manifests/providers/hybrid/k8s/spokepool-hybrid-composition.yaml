@@ -2,8 +2,8 @@
 # Hybrid provider Crossplane Composition (ADR-046)
 # Cloned from spokepool-hetzner-composition.yaml with the following changes:
 #   1. label provider: hybrid
-#   2. capi-cluster: controlPlaneLoadBalancer.enabled patched to false via ClusterClass variable
-#   3. capi-cluster: controlPlaneEndpoint.host patched from claim annotation (tailnet MagicDNS)
+#   2. capi-cluster: controlPlaneLoadBalancer.enabled left true (public Hetzner LB advertises the spoke API, same as hetzner/hub)
+#   3. capi-cluster: controlPlaneEndpoint.host left empty — CAPH auto-fills from the LB IPv4 (ControlPlaneEndpointSet)
 #   4. capi-cluster: control-plane replicas patched from annotation (1 dev / 3 stg)
 #   5. capi-cluster: workers.machineDeployments[0].replicas defaults to 0 (burst pool; home workers are unmanaged)
 #   6. home-worker-join-config ConfigMap step added (carries {hostname,tailnetHost} list from claim annotations)
@@ -35,7 +35,7 @@ spec:
         kind: Resources
         resources:
           # ────────────────────────────────────────────────────────────────────
-          # CAPI Cluster (Tailscale-only spoke: no cloud LB, tailnet endpoint)
+          # CAPI Cluster (spoke API advertised via CAPH-managed Hetzner LB)
           # ────────────────────────────────────────────────────────────────────
           - name: capi-cluster
             base:
@@ -79,9 +79,9 @@ spec:
                           - name: workerMachineType
                             value: "cx33"  # Patched from spec.nodePool.instanceType
                           - name: controlPlaneLoadBalancerEnabled
-                            value: false   # ADR-046: Tailscale-only — no cloud LB on spoke API
+                            value: true   # Public Hetzner LB advertises the spoke API (ADR-046)
                           - name: controlPlaneEndpointHost
-                            value: ""      # Patched: derived <claim>-cp.<tailnet> (CombineFromComposite)
+                            value: ""      # Left empty — CAPH auto-fills from the LB IPv4
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
@@ -109,8 +109,8 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.nodePool.instanceType
                 toFieldPath: spec.forProvider.manifest.spec.topology.variables[1].value
-              # controlPlaneLoadBalancerEnabled — always false for hybrid (Tailscale-only)
-              # (already defaulted to false in base; no patch needed — kept for explicitness)
+              # controlPlaneLoadBalancerEnabled — true for hybrid (public LB advertises
+              # the spoke API; base value already true, no patch needed — kept explicit).
               # Control-plane replicas from claim annotation
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.annotations[control-plane-replicas]
@@ -119,20 +119,9 @@ spec:
                   - type: convert
                     convert:
                       toType: int64
-              # Tailnet MagicDNS controlPlaneEndpoint host — DERIVED as
-              # <claim-name>-cp.<tailnet-name> (ADR-046, single source of truth).
-              # No claim annotation needed; every hybrid spoke gets a
-              # deterministic endpoint. e.g. spoke-pool-hybrid-dev-01-cp.taila4c44b.ts.net
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: metadata.name
-                    - fromFieldPath: metadata.annotations[tailnet-name]
-                  strategy: string
-                  string:
-                    fmt: "%s-cp.%s"
-                toFieldPath: spec.forProvider.manifest.spec.topology.variables[3].value
-
+              # controlPlaneEndpointHost — left empty. CAPH fills
+              # controlPlaneEndpoint.host from the LB IPv4 (ADR-046); no
+              # tailnet MagicDNS derivation.
           # ────────────────────────────────────────────────────────────────────
           # ClusterResourceSet (CNI, CCM, CSI, ArgoCD agent bootstrap)
           # Identical to hetzner; Tailscale DaemonSet is added via home-worker-
