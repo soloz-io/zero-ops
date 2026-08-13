@@ -46,7 +46,6 @@ func (i *Installer) GenerateLocalSecrets(ctx context.Context) error {
 //	Step 1: WaitForInfisicalHealth (data layer + Infisical pods)
 //	Step 2: InstallInfisicalAuthFromInfisical (Org, Project, Machine Identity)
 //	Step 3: InstallPlatformDatabaseCredentials (layer 2 creds via Infisical API)
-//	Step 4: InstallSPIREServerCredentials
 //
 // Port-forward lifecycle is managed internally for local clusters.
 //
@@ -84,21 +83,12 @@ func (i *Installer) BootstrapInfisicalAPI(ctx context.Context) error {
 		return fmt.Errorf("failed to install platform database credentials: %w", err)
 	}
 
-	// Step 4: Store SPIRE Server credentials in Infisical
-	changed4, err := i.InstallSPIREServerCredentials(ctx)
-	if err != nil {
-		if pfStarted {
-			pf.Stop()
-		}
-		return fmt.Errorf("failed to install SPIRE Server credentials: %w", err)
-	}
-
 	if pfStarted {
 		pf.Stop()
 	}
 
 	// Restart workloads if secrets changed
-	if changed3 || changed4 {
+	if changed3 {
 		if err := i.RestartPlatformWorkloads(ctx); err != nil {
 			return fmt.Errorf("failed to restart workloads: %w", err)
 		}
@@ -124,7 +114,6 @@ func (i *Installer) BootstrapInfisicalAPI(ctx context.Context) error {
 //	Step 4: WaitForInfisicalHealth (data layer + Infisical pods)
 //	Step 5: InstallInfisicalAuthFromInfisical (Org, Project, Machine Identity)
 //	Step 6: InstallPlatformDatabaseCredentials
-//	Step 7: InstallSPIREServerCredentials
 func (i *Installer) RunInitSecrets(ctx context.Context) error {
 	fmt.Println("Bootstrapping Layer 1 Infrastructure Secrets...")
 	fmt.Println("  (Note: Existing secrets are treated as immutable and will not be overwritten)")
@@ -139,6 +128,6 @@ func (i *Installer) RunInitSecrets(ctx context.Context) error {
 		return fmt.Errorf("failed to inject CNPG CA certificate: %w", err)
 	}
 
-	// Steps 3-7: Wait for Infisical health, bootstrap API, store credentials
+	// Steps 3-6: Wait for Infisical health, bootstrap API, store credentials
 	return i.BootstrapInfisicalAPI(ctx)
 }

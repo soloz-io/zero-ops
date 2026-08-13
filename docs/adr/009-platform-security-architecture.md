@@ -4,6 +4,16 @@
 **Status:** Accepted  
 **Context:** Zero-Trust Security Architecture
 
+> **Amendment (2026-08-13): SPIRE/SPIFFE and Istio decommissioned.**
+> The Layer 2 service mesh designation below referencing SPIFFE/SPIRE was an
+> aspirational design and the SPIRE workload identity layer was never shipped
+> to cluster infrastructure. SPIRE has since been removed entirely from the
+> platform (see ADR-041, ADR-043) because the home-lab does not meaningfully
+> require cryptographic workload identity between in-cluster services. The
+> remaining zero-trust layers (edge JWT validation, service-level JWT
+> validation, PostgreSQL RLS) continue to apply. Do not deploy SPIRE or Istio
+> to satisfy this ADR.
+
 ## Context
 
 The Zero-Ops platform utilizes a Hub-Spoke architecture to provision isolated, multi-tenant SaaS environments with **zero-trust security principles**.
@@ -210,7 +220,6 @@ spec:
 ## References
 
 - [Istio Security Best Practices (2025-2026)](https://istio.io/latest/docs/ops/configuration/security/)
-- [SPIFFE/SPIRE Workload Identity](https://spiffe.io/)
 - [PostgREST JWT Authentication](https://postgrest.org/en/stable/references/auth.html)
 - [Zero-Trust Architecture (NIST SP 800-207)](https://csrc.nist.gov/publications/detail/sp/800-207/final)
 - [Google Cloud GKE Multi-Tenancy with Workload Identity](https://cloud.google.com/service-mesh/docs/security/security-overview)

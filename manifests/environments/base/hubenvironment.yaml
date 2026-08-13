@@ -37,13 +37,6 @@ spec:
       - SELECT
       - INSERT
       - UPDATE
-    - name: spire
-      database: spire
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
     - name: hub_hydra
       database: hydra
       permissions:

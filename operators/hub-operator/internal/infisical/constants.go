@@ -69,8 +69,6 @@ const (
 	KeyControlPlaneDBPassword      = "hub-control-plane-db-password"
 	KeyHubCentralizedDBUsername    = "hub-centralized-db-username"
 	KeyHubCentralizedDBPassword    = "hub-centralized-db-password"
-	KeySpireServerDBUsername       = "spire-server-db-username"
-	KeySpireServerDBPassword       = "spire-server-db-password"
 	KeyHydraDBUsername             = "hub-hydra-db-username"
 	KeyHydraDBPassword             = "hub-hydra-db-password"
 	KeyKratosDBUsername            = "hub-kratos-db-username"

@@ -115,17 +115,6 @@ and observability.
 
 ---
 
-### `validate-spire.sh`
-
-Validates SPIRE Server and Agent deployment, registered SPIFFE identities,
-and SVID issuance.
-
-```bash
-./scripts/validate-spire.sh
-```
-
----
-
 ### `test-kube-sbt-providers-manual.sh`
 
 Interactive manual test script for kube-sbt OpenMeter providers. Guides through

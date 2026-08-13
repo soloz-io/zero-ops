@@ -133,8 +133,7 @@ kubectl delete networkpolicy -n platform-billing kube-sbt-api
 - **Limits**: 500m CPU, 512Mi memory
 
 ## Security
-- Istio mTLS enabled for service-to-service communication
-- SPIFFE workload identity via SPIRE
+- mTLS enabled for service-to-service communication
 - Network policies enforce zero-trust networking
 - JWT validation for all API endpoints
 - RBAC enforcement for admin endpoints

@@ -12,7 +12,7 @@
 #   - platform-billing    (OpenMeter)
 #   - platform-ops        (hub-operator, infisical setup jobs)
 #   - platform-data       (internal CNPG cluster communication)
-#   - platform-security   (Infisical, SPIRE)
+#   - platform-security   (Infisical)
 #
 # CNPG operator (cnpg-system) must reach instance pods on port 8000
 # for status polling. Without this, CNPG reports "Instance Status Extraction

@@ -401,8 +401,8 @@ check_openmeter() {
     # Recurring job errors (billing/subscription sync)
     local failed_jobs
     failed_jobs=$(kc get jobs -n platform-billing --no-headers 2>/dev/null \
-        | awk '$2 ~ /^0\// {print $1}' | grep -c '' || echo "0")
-    if [[ "$failed_jobs" -gt 5 ]]; then
+        | awk '$2 ~ /^0\// {print $1}' | grep -c '')
+    if [[ "$failed_jobs" =~ ^[0-9]+$ ]] && (( failed_jobs > 5 )); then
         log_warn "OpenMeter: $failed_jobs failed recurring jobs (billing/subscription cronjobs) — may indicate backend not ready"
     fi
 }
@@ -612,7 +612,6 @@ check_platform_argocd_apps() {
         "ory-kratos"
         "ory-hydra"
         "ory-keto"
-        "platform-spire"
         "platform-infisical"
     )
     for app in "${warn_apps[@]}"; do

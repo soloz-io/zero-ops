@@ -39,7 +39,7 @@ import (
 //	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
 //	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
-//	Phase 11e: boundary-03            Services (Infisical, SPIRE, ingress-nginx, apps)
+//	Phase 11e: boundary-03            Services (Infisical, ingress-nginx, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 type Orchestrator struct {
@@ -278,7 +278,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 11e: Boundary 03 — platform services ───────────────────
-	// Deploys ingress-nginx, API gateway, SPIRE, Infisical, and spoke
+	// Deploys ingress-nginx, API gateway, Infisical, and spoke
 	// cluster configs. Infisical Helm chart starts with ALL secrets
 	// already present (infisical-secrets includes DB_ROOT_CERT from the
 	// previous phase), preventing CreateContainerConfigError deadlocks.
@@ -579,7 +579,7 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 03: Platform services (ingress-nginx, SPIRE, platform services)
+// Boundary 03: Platform services (ingress-nginx, platform services)
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
