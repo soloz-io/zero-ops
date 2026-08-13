@@ -66,6 +66,7 @@ clean:
 test:
 	@echo "Running tests..."
 	$(GO) test -v ./...
+	./scripts/validate-spokepool-compositions.sh
 	@echo "✓ Tests complete"
 
 # Install binary to system

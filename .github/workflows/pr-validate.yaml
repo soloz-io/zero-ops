@@ -44,3 +44,7 @@ jobs:
       - name: Validate environment-manager helmValues
         run: |
           scripts/lint-helm-values-yaml.sh
+
+      - name: Validate SpokePool composition alignment
+        run: |
+          scripts/validate-spokepool-compositions.sh

@@ -251,7 +251,7 @@ spec:
                       fmt: "%s-tailscale-node-addon"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
                 transforms:
                   - type: string
                     string:
@@ -259,7 +259,7 @@ spec:
                       fmt: "%s-observability-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
                 transforms:
                   - type: string
                     string:
@@ -267,7 +267,7 @@ spec:
                       fmt: "%s-messaging-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[13].name
                 transforms:
                   - type: string
                     string:
@@ -275,7 +275,7 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
                 transforms:
                   - type: string
                     string:
@@ -283,7 +283,7 @@ spec:
                       fmt: "%s-machine-identity"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
                 transforms:
                   - type: string
                     string:
