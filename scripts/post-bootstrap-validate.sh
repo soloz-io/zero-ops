@@ -44,6 +44,30 @@ log_section() { log ""; log "═════════════════
 # ─── kubectl wrapper ──────────────────────────────────────────────────────────
 kc() { kubectl --kubeconfig="$KUBECONFIG" "$@" 2>/dev/null; }
 
+# ─── Spoke kubeconfig ─────────────────────────────────────────────────────────
+# The hub-side readiness signals (SpokePool Ready, CAPI Provisioned, bootstrap
+# cert Ready) do NOT prove the spoke is functional — its ArgoCD agent, platform
+# operators, and storage driver must be validated directly against the spoke
+# cluster. Extract the spoke's admin kubeconfig from the CAPI secret.
+SPOKE_KUBECONFIG=""
+SPOKE_KC_TMP=""
+get_spoke_kubeconfig() {
+    local secret="${SPOKEPOOL_NAME}-kubeconfig"
+    SPOKE_KC_TMP="$(mktemp)"
+    if ! kc get secret "$secret" -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
+        | base64 -d > "$SPOKE_KC_TMP" 2>/dev/null; then
+        log_warn "Spoke kubeconfig secret platform-capi/$secret not found — spoke platform checks skipped"
+        SPOKE_KUBECONFIG=""
+        return 0
+    fi
+    SPOKE_KUBECONFIG="$SPOKE_KC_TMP"
+    if ! kubectl --kubeconfig="$SPOKE_KUBECONFIG" cluster-info >/dev/null 2>&1; then
+        log_warn "Spoke kubeconfig unusable (agent/API unreachable) — spoke platform checks skipped"
+        SPOKE_KUBECONFIG=""
+    fi
+}
+kc_spoke() { kubectl --kubeconfig="$SPOKE_KUBECONFIG" "$@" 2>/dev/null; }
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 # Check all pods in a namespace are Running/Completed (no CrashLoop, Pending, etc.)
@@ -525,6 +549,9 @@ check_ingress() {
 check_spoke() {
     log_section "14. SPOKE POOL & CAPI"
 
+    # Extract the spoke admin kubeconfig for direct spoke-cluster validation.
+    get_spoke_kubeconfig
+
     # CAPI operator deployment (migrated to platform-capi per ADR-015)
     check_deployment "platform-capi" "capi-operator-controller-manager"
 
@@ -579,6 +606,129 @@ check_spoke() {
     else
         log_fail "SpokeMachineIdentity: Not Ready — check spoke-identity-operator logs"
     fi
+
+    check_spoke_platform
+}
+
+# ─── 14c. SPOKE PLATFORM (direct cluster validation) ─────────────────────────
+# Validates the spoke cluster directly (not hub-side signals). Catches:
+#   - spoke ArgoCD pods stuck Pending (control-plane taint / bootstrap gaps)
+#   - missing spoke platform operators (crossplane/ESO/kyverno/CNPG/cert-manager/
+#     agent-sandbox) and their CRDs
+#   - storage driver down (blocks CNPG PVs → tenant databases)
+#   - shared-cnpg not healthy (tenant DB prerequisite)
+
+check_spoke_namespace_pods() {
+    local ns="$1"
+    local label_selector="${2:-}"
+    local label_arg=""
+    [[ -n "$label_selector" ]] && label_arg="-l $label_selector"
+
+    local not_ready
+    # shellcheck disable=SC2086
+    not_ready=$(kc_spoke get pods -n "$ns" $label_arg --no-headers 2>/dev/null \
+        | grep -v -E '([0-9]+/[0-9]+\s+(Running|Completed))' \
+        | grep -v "^$" || true)
+
+    if [[ -z "$not_ready" ]]; then
+        local count
+        # shellcheck disable=SC2086
+        count=$(kc_spoke get pods -n "$ns" $label_arg --no-headers 2>/dev/null | grep -c '' || echo 0)
+        if [[ "$count" -eq 0 ]]; then
+            log_warn "Spoke ns $ns: no pods found (nothing deployed yet?)"
+        else
+            log_pass "Spoke ns $ns: all $count pod(s) healthy"
+        fi
+    else
+        local crashloop_count pending_count error_count
+        crashloop_count=$(echo "$not_ready" | grep -c "CrashLoopBackOff" || true)
+        pending_count=$(echo "$not_ready" | grep -c "Pending" || true)
+        error_count=$(echo "$not_ready" | grep -c "Error" || true)
+        log_fail "Spoke ns $ns: unhealthy pods (CrashLoop=$crashloop_count, Pending=$pending_count, Error=$error_count)"
+        echo "$not_ready" | while IFS= read -r line; do
+            [[ -n "$line" ]] && log "     → $line"
+        done
+    fi
+}
+
+check_spoke_deployment() {
+    local ns="$1"
+    local name="$2"
+    local desired available
+    desired=$(kc_spoke get deployment "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    available=$(kc_spoke get deployment "$name" -n "$ns" -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+    desired="${desired:-0}"; available="${available:-0}"
+
+    if [[ "$available" -ge "$desired" && "$desired" -gt 0 ]]; then
+        log_pass "Spoke Deployment $ns/$name: $available/$desired available"
+    else
+        log_fail "Spoke Deployment $ns/$name: $available/$desired available"
+    fi
+}
+
+check_spoke_crd() {
+    local name="$1"
+    if kc_spoke get crd "$name" >/dev/null 2>&1; then
+        log_pass "Spoke CRD $name: present"
+    else
+        log_fail "Spoke CRD $name: MISSING (operator not installed?)"
+    fi
+}
+
+check_spoke_cnpg() {
+    local phase
+    phase=$(kc_spoke get cluster shared-cnpg -n platform-data \
+        -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+    if [[ "$phase" == "Cluster in healthy state" ]]; then
+        log_pass "Spoke CNPG shared-cnpg: healthy"
+    else
+        log_fail "Spoke CNPG shared-cnpg: phase='$phase' (needs healthy storage driver + operator)"
+    fi
+}
+
+check_spoke_platform() {
+    log_section "14c. SPOKE PLATFORM (direct cluster validation)"
+
+    [[ -z "$SPOKE_KUBECONFIG" ]] && { log_warn "Skipping spoke platform checks"; return 0; }
+
+    # Spoke ArgoCD — catches the control-plane taint / bootstrap gaps that keep
+    # every spoke-targeted app from syncing.
+    check_spoke_namespace_pods "argocd"
+    check_spoke_deployment "argocd" "argocd-agent"
+    check_spoke_deployment "argocd" "argocd-repo-server"
+
+    # Required CRDs (operators must be deployed to the spoke)
+    local crds=(
+        "rollouts.argoproj.io"
+        "certificates.cert-manager.io"
+        "externalsecrets.external-secrets.io"
+        "providers.pkg.crossplane.io"
+        "clusters.postgresql.cnpg.io"
+        "sandboxes.agents.x-k8s.io"
+        "clusterpolicies.kyverno.io"
+    )
+    for c in "${crds[@]}"; do check_spoke_crd "$c"; done
+
+    # Platform operators
+    check_spoke_namespace_pods "crossplane-system"
+    check_spoke_deployment "crossplane-system" "crossplane"
+    check_spoke_deployment "crossplane-system" "crossplane-rbac-manager"
+    check_spoke_namespace_pods "external-secrets"
+    check_spoke_deployment "external-secrets" "eso-external-secrets"
+    check_spoke_namespace_pods "kyverno"
+    check_spoke_deployment "kyverno" "kyverno-admission-controller"
+    check_spoke_deployment "kyverno" "kyverno-background-controller"
+    check_spoke_deployment "cnpg-system" "cnpg-cloudnative-pg"
+    check_spoke_namespace_pods "cert-manager"
+    check_spoke_deployment "cert-manager" "cert-manager"
+    check_spoke_deployment "cert-manager" "infisical-issuer"
+    check_spoke_deployment "agent-sandbox-system" "agent-sandbox-controller"
+
+    # Storage driver — required for CNPG PVs (tenant databases)
+    check_spoke_deployment "kube-system" "hcloud-csi-controller"
+
+    # Tenant database prerequisite
+    check_spoke_cnpg
 }
 
 # ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
@@ -634,6 +784,29 @@ check_observability() {
     else
         log_warn "No observability pods running in platform-observability"
     fi
+}
+
+# ─── 15b. FLEET PROVISIONING APPS (ADR-047 boundary05) ─────────────────────
+# The tenant-fleet ApplicationSets (xr/spoke/workloads) + platform-spoke-catalog.
+check_fleet_argocd_apps() {
+    log_section "15b. FLEET PROVISIONING APPS (ADR-047)"
+
+    # platform-spoke-catalog is WARN — it deploys the spoke platform and converges
+    # over time (operator installs + CRD ordering).
+    check_argocd_app "platform-spoke-catalog-${SPOKEPOOL_NAME}" "WARN"
+
+    # Fleet tenant apps are discovered from the appset (name = <tenant>-<env>-xr);
+    # validate the ones that exist rather than failing on envs not yet deployed.
+    local fleet_apps
+    fleet_apps=$(kc get applications -n platform-ops --no-headers 2>/dev/null \
+        | awk '{print $1}' | grep -E '^tenant-.*-workloads$|-xr$|-spoke$' | grep -v '^tenant-fleet-' || true)
+    if [[ -z "$fleet_apps" ]]; then
+        log_warn "No fleet tenant apps found yet (boundary05 appsets may not have generated any)"
+        return 0
+    fi
+    for app in $fleet_apps; do
+        check_argocd_app "$app" "FAIL"
+    done
 }
 
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
@@ -697,6 +870,7 @@ main() {
     check_ingress
     check_spoke
     check_platform_argocd_apps
+    check_fleet_argocd_apps
     check_observability
 
     print_summary
@@ -708,5 +882,6 @@ main() {
 }
 
 trap 'log "Script interrupted"; print_summary; exit 1' INT TERM
+trap '[[ -n "$SPOKE_KC_TMP" ]] && rm -f "$SPOKE_KC_TMP"' EXIT
 
 main "$@"
