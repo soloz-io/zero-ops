@@ -17,7 +17,7 @@ const (
 	// Platform operations (ArgoCD, Crossplane, ESO, etc)
 	NamespaceOps = "platform-ops"
 	
-	// Security (Infisical, SPIRE)
+	// Security (Infisical)
 	NamespaceSecurity = "platform-security"
 	
 	// Edge services (AgentGateway, auth-proxy, Ingress)

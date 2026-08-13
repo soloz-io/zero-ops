@@ -37,7 +37,7 @@ We will implement a **dual collection pattern** using Grafana Alloy DaemonSet fo
 - OpenTelemetry Collector deployed as Deployment (HA, 3 replicas) in spoke clusters
 - Receives OTLP from AgentGateway (billing events)
 - Receives OTLP from MetricCollector sidecars (domain-specific metrics)
-- Forwards to OpenMeter (Hub) via OTLP with mTLS + SPIFFE validation
+- Forwards to OpenMeter (Hub) via OTLP with mTLS + certificate validation
 - Includes NATS JetStream buffer for durability
 
 **Domain-Specific Metrics:**
@@ -73,7 +73,7 @@ Hub Cluster:
 
 5. **Durability Guarantee**: NATS JetStream buffer ensures billing events are not lost during Hub unavailability.
 
-6. **Zero-Trust Security**: All spoke-to-hub communication uses Istio mTLS with SPIFFE workload identity validation.
+6. **Zero-Trust Security**: All spoke-to-hub communication uses mTLS with certificate-based workload identity validation.
 
 7. **Declarative Pattern**: Continuous sidecars align with ADR-011 (declarative operator state over imperative jobs).
 
@@ -93,7 +93,7 @@ See ADR-039 for the complete ownership matrix.
 2. **Billing Accuracy**: Durable NATS buffer prevents data loss for billing events
 3. **Tenant Isolation**: Metrics tagged with tenant_id, enforced by OpenMeter namespace isolation
 4. **Operational Separation**: VictoriaMetrics for ops, OpenMeter for billing
-5. **Zero-Trust Compliance**: mTLS + SPIFFE + AuthorizationPolicy at every hop
+5. **Zero-Trust Compliance**: mTLS + certificate-based workload identity at every hop
 6. **Declarative Pattern**: Continuous sidecars align with Kubernetes reconciliation model
 
 ### Negative
@@ -105,4 +105,4 @@ See ADR-039 for the complete ownership matrix.
 ## References
 
 - **ADR 011**: Declarative Operator State over Imperative Jobs
-- **ADR 009**: Zero-Trust Networking with Istio and SPIRE
+- **ADR 009**: Zero-Trust Networking (Layer 2 SPIRE/Istio decommissioned)

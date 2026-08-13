@@ -333,7 +333,6 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		requiredSecrets := map[string]string{
 			"control-plane-db-credentials": dataNamespace, // platform-data
 			"hub-db-credentials":           dataNamespace, // platform-data
-			"spire-server-db-credentials":  dataNamespace, // platform-data
 			"hydra-db-credentials":         infisical.NamespaceIdentity,
 			"kratos-db-credentials":        infisical.NamespaceIdentity,
 			"keto-db-credentials":          infisical.NamespaceIdentity,
@@ -799,13 +798,12 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 			name      string
 			namespace string
 		}{
-			"infisical":    {"Deployment", infisical.InfisicalServiceName, infisical.InfisicalServiceNamespace},
-			"redis":        {"StatefulSet", "redis", namespace},
-			"hydra":        {"Deployment", "hydra", infisical.NamespaceIdentity},
-			"kratos":       {"Deployment", "kratos", infisical.NamespaceIdentity},
-			"keto":         {"Deployment", "keto", infisical.NamespaceIdentity},
-			"spire_server": {"StatefulSet", "spire-server", infisical.NamespaceSecurity},
-			"mcp_server":   {"Deployment", "mcp-server", infisical.NamespaceOps},
+			"infisical":  {"Deployment", infisical.InfisicalServiceName, infisical.InfisicalServiceNamespace},
+			"redis":      {"StatefulSet", "redis", namespace},
+			"hydra":      {"Deployment", "hydra", infisical.NamespaceIdentity},
+			"kratos":     {"Deployment", "kratos", infisical.NamespaceIdentity},
+			"keto":       {"Deployment", "keto", infisical.NamespaceIdentity},
+			"mcp_server": {"Deployment", "mcp-server", infisical.NamespaceOps},
 		}
 
 		if svc, ok := serviceMap[serviceName]; ok {

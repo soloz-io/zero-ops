@@ -162,18 +162,6 @@ spec:
                 enabled: false
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-          - appName: 'platform-spire'
-            destinationNamespace: 'platform-security'
-            isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/spire'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
           - appName: 'victoria-metrics-alerts'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'true'
@@ -428,15 +416,6 @@ spec:
           jsonPointers:
             - /spec/template/spec/containers/0/resources
             - /spec/progressDeadlineSeconds
-    {{"{{-"}} end {{"}}"}}
-    {{"{{-"}} if eq .appName "platform-spire" {{"}}"}}
-    spec:
-      ignoreDifferences:
-        - group: apps
-          kind: StatefulSet
-          jsonPointers:
-            - /spec/persistentVolumeClaimRetentionPolicy
-            - /spec/volumeClaimTemplates
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

@@ -35,7 +35,7 @@ This ADR defines the single authority for each domain. Where any other ADR appea
 | Machine Identities | Hub Operator | Machine identity lifecycle (creation, scope, rotation) is a Spoke-level concern managed at the Hub. |
 | Observability | Observability Stack | Metrics, logs, and traces are collected by Alloy/OTel and stored in VictoriaMetrics/Loki/OpenMeter. No application controller owns telemetry. |
 | Admission Policy | Kyverno | Kubernetes admission control requires a policy engine integrated with the API server. |
-| Workload Identity | SPIRE | SPIFFE-based workload identity is SPIRE's exclusive domain. cert-manager must not issue workload identity certificates. |
+| Workload Identity | cert-manager | Workload identity is provided by cert-manager-issued certificates. SPIRE was decommissioned (2026-08-13); SPIFFE-based workload identity is no longer used in the platform. |
 | Billing Catalog | Billing Operator | Pricing configuration carries legal and compliance weight requiring Git audit trail and declarative reconciliation. |
 | Network Policy | CNI (Cilium) | Network policy enforcement is the CNI's exclusive domain. |
 

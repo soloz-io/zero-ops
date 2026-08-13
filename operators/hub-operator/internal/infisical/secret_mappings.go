@@ -62,7 +62,6 @@ type SecretMapping struct {
 // ├─────────────────────────────────────────────────────────────────────────┤
 // │ • control-plane-db-credentials  → Uploaded directly to Infisical       │
 // │ • hub-db-credentials            → Uploaded directly to Infisical       │
-// │ • spire-server-db-credentials   → Uploaded directly to Infisical       │
 // │ • hydra-db-credentials          → Uploaded directly to Infisical       │
 // │ • kratos-db-credentials         → Uploaded directly to Infisical       │
 // │ • keto-db-credentials           → Uploaded directly to Infisical       │
@@ -289,10 +288,9 @@ type ApplicationSecretDefinition struct {
 // │ APPLICATION SECRETS (Operator uploads to Infisical → ESO creates in K8s)│
 // ├─────────────────────────────────────────────────────────────────────────┤
 // │ 1. control-plane-db-credentials  → mcp_server database user            │
-// │ 2. spire-server-db-credentials   → spire_server database user          │
-// │ 3. hydra-db-credentials          → hydra database user                 │
-// │ 4. kratos-db-credentials         → kratos database user                │
-// │ 5. keto-db-credentials           → keto database user                  │
+// │ 2. hydra-db-credentials          → hydra database user                 │
+// │ 3. kratos-db-credentials         → kratos database user                │
+// │ 4. keto-db-credentials           → keto database user                  │
 // └─────────────────────────────────────────────────────────────────────────┘
 var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	{
@@ -302,12 +300,6 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Control Plane DB credentials (mcp-server)",
 	},
 
-	{
-		UsernameKey: "spire-server-db-username",
-		PasswordKey: "spire-server-db-password",
-		Username:    "spire",
-		Description: "Spire Server DB credentials",
-	},
 	{
 		UsernameKey: "hub-hydra-db-username",
 		PasswordKey: "hub-hydra-db-password",

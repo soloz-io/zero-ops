@@ -33,7 +33,6 @@ spec:
         - CREATE DATABASE hub;
         - CREATE DATABASE infisical;
         - CREATE DATABASE openmeter;
-        - CREATE DATABASE spire;
         - CREATE DATABASE hydra;
         - CREATE DATABASE kratos;
         - CREATE DATABASE keto;

@@ -5,7 +5,7 @@
 
 ## Context
 
-The platform includes multiple controllers (Hub Operator, Crossplane, cert-manager, ESO, ArgoCD, Atlas, CNPG, Kyverno, SPIRE, Kube-SBT) that operate across overlapping domains. Without explicit per-controller boundaries, responsibility creep is inevitable: an operator begins managing certificates, a GitOps tool begins provisioning infrastructure, a secret delivery tool begins generating secrets.
+The platform includes multiple controllers (Hub Operator, Crossplane, cert-manager, ESO, ArgoCD, Atlas, CNPG, Kyverno, Kube-SBT) that operate across overlapping domains. Without explicit per-controller boundaries, responsibility creep is inevitable: an operator begins managing certificates, a GitOps tool begins provisioning infrastructure, a secret delivery tool begins generating secrets.
 
 Each controller must operate within a bounded scope. Responsibilities must be explicitly assigned. Violations must be unambiguous.
 
@@ -157,7 +157,10 @@ Kyverno enforces admission policies across the platform.
 
 ### SPIRE
 
-SPIRE manages workload identity through SPIFFE.
+SPIRE managed workload identity through SPIFFE. **Decommissioned (2026-08-13):**
+removed from the platform for the home-lab; its workload identity responsibilities
+were assumed by cert-manager-issued certificates. No new controller may claim
+SPIRE's former scope.
 
 | Allowed | Forbidden |
 |---|---|

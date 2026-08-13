@@ -32,8 +32,6 @@ func mapRoleToSecretName(roleName string) string {
 		return "control-plane-db-credentials"
 	case "hub_centralized":
 		return "hub-db-credentials"
-	case "spire":
-		return "spire-server-db-credentials"
 	case "hub_hydra":
 		return "hydra-db-credentials"
 	case "hub_kratos":
