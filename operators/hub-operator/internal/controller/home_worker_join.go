@@ -285,6 +285,11 @@ func (r *SpokePoolReconciler) ensureSpokeBootstrapToken(ctx context.Context, spo
 			"expiration":                     []byte(time.Now().Add(ttl).UTC().Format(time.RFC3339)),
 			"usage-bootstrap-authentication": []byte("true"),
 			"usage-bootstrap-signing":        []byte("true"),
+			// Required: kubeadm join must read the kubeadm-config ConfigMap in
+			// kube-system, which the spoke grants only to the kubeadm bootstrap
+			// group. Without this, join fails with "configmaps kubeadm-config
+			// is forbidden". This mirrors what `kubeadm token create` sets.
+			"auth-extra-groups": []byte("system:bootstrappers:kubeadm:default-node-token"),
 		},
 	}
 
