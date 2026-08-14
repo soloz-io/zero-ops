@@ -293,6 +293,12 @@ spec:
                   default: false
                 admissionWebhooks:
                   enabled: true
+                  # cert-manager manages the admission webhook cert + caBundle.
+                  # The chart's default (Helm post-install hook jobs) never run
+                  # under ArgoCD, leaving the webhook caBundle empty and blocking
+                  # all Ingress creation with a TLS trust error.
+                  certManager:
+                    enabled: true
                 service:
                   enabled: true
                   type: LoadBalancer
