@@ -293,6 +293,12 @@ spec:
                   default: false
                 admissionWebhooks:
                   enabled: true
+                service:
+                  enabled: true
+                  type: LoadBalancer
+                  annotations:
+                    load-balancer.hetzner.cloud/network-zone: eu-central
+                    load-balancer.hetzner.cloud/type: lb11
               defaultBackend:
                 enabled: false
             helmReleaseName: 'ingress-nginx'

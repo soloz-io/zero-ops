@@ -54,6 +54,8 @@ metadata:
   namespace: platform-edge
   annotations:
     external-dns.alpha.kubernetes.io/hostname: api.nutgraf.in
+    load-balancer.hetzner.cloud/network-zone: eu-central
+    load-balancer.hetzner.cloud/type: lb11
 spec:
   type: LoadBalancer
   selector:
