@@ -57,6 +57,12 @@ type InfisicalConfig struct {
 	OrganizationID string `json:"organizationID,omitempty"`
 	// +optional
 	ProjectID string `json:"projectID,omitempty"`
+	// SecretsProjectID is the Infisical project ID for secret-manager access
+	// (e.g. hub-secrets) that the spoke machine identity must be granted
+	// access to so the spoke ESO ClusterSecretStore can read tenant secrets.
+	// Defaults to the operator's --infisical-secrets-project-id flag when unset.
+	// +optional
+	SecretsProjectID string `json:"secretsProjectID,omitempty"`
 	// +kubebuilder:default="universal-auth"
 	// +optional
 	AuthMethod string `json:"authMethod,omitempty"`

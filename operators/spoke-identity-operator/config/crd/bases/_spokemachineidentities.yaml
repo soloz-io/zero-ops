@@ -71,6 +71,13 @@ spec:
                     type: string
                   projectID:
                     type: string
+                  secretsProjectID:
+                    description: SecretsProjectID is the Infisical project ID for
+                      secret-manager access (e.g. hub-secrets) that the spoke machine
+                      identity must be granted access to so the spoke ESO ClusterSecretStore
+                      can read tenant secrets. Defaults to the operator's --infisical-secrets-project-id
+                      flag when unset.
+                    type: string
                 type: object
               revocationPolicy:
                 description: RevocationPolicy defines credential revocation settings

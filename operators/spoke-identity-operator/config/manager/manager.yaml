@@ -40,10 +40,16 @@ spec:
             secretKeyRef:
               name: infisical-auth
               key: projectId
+        - name: INFISICAL_SECRETS_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: secretsProjectId
         args:
         - --infisical-url=http://infisical-standalone-infisical.platform-security.svc:8080
         - --infisical-org-id=$(INFISICAL_ORGANIZATION_ID)
         - --infisical-project-id=$(INFISICAL_PROJECT_ID)
+        - --infisical-secrets-project-id=$(INFISICAL_SECRETS_PROJECT_ID)
         securityContext:
           allowPrivilegeEscalation: false
         livenessProbe:

@@ -44,6 +44,11 @@ type SpokeMachineIdentityReconciler struct {
 	InfisicalClient *infisical.Client
 	OrgID           string
 	ProjectID       string
+	// SecretsProjectID is the secret-manager project (e.g. hub-secrets) that
+	// spoke machine identities are granted access to in addition to ProjectID
+	// (the cert-manager project). This is required so the spoke's ESO
+	// ClusterSecretStore can read tenant secrets.
+	SecretsProjectID string
 }
 
 func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -94,10 +99,20 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		smi.Status.ClientID = identity.ClientID
 	}
 
-	// Grant project access
-	if projectID != "" {
-		if err := r.InfisicalClient.GrantProjectAccess(ctx, identity.ID, projectID, "admin"); err != nil {
-			logger.Error(err, "Failed to grant project access")
+	// Grant project access. The identity is granted access to both the
+	// configured cert-manager project (hub-platform) and the secrets project
+	// (hub-secrets) so it can authenticate for both cert issuance and
+	// ExternalSecret delivery.
+	secretsProjectID := r.SecretsProjectID
+	if smi.Spec.Infisical.SecretsProjectID != "" {
+		secretsProjectID = smi.Spec.Infisical.SecretsProjectID
+	}
+	for _, pid := range []string{projectID, secretsProjectID} {
+		if pid == "" {
+			continue
+		}
+		if err := r.InfisicalClient.GrantProjectAccess(ctx, identity.ID, pid, "admin"); err != nil {
+			logger.Error(err, "Failed to grant project access", "projectId", pid)
 			r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "AccessFailed", err.Error())
 			_ = r.Status().Update(ctx, smi)
 			return ctrl.Result{}, err
@@ -254,13 +269,6 @@ func (r *SpokeMachineIdentityReconciler) ensureCRSWrapper(ctx context.Context, s
 		wrapperName = fmt.Sprintf("%s-machine-identity", smi.Spec.SpokeRef.Name)
 	}
 
-	existing := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: smi.Namespace}, existing); err == nil {
-		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
-			return nil
-		}
-	}
-
 	authSecret := &corev1.Secret{}
 	authSecretName := fmt.Sprintf("smi-%s-auth", smi.Spec.SpokeRef.Name)
 	if err := r.Get(ctx, client.ObjectKey{Name: authSecretName, Namespace: smi.Namespace}, authSecret); err != nil {
@@ -302,6 +310,22 @@ stringData:
 	}
 
 	wrapper.SetOwnerReferences(smi.GetOwnerReferences())
+
+	existing := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: smi.Namespace}, existing); err == nil {
+		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
+			// Rotation keeps the wrapper up to date with the current client
+			// secret so spokes (re)provisioned from the CRS get fresh creds.
+			if string(existing.Data["identity.yaml"]) == identityYAML {
+				return nil
+			}
+			existing.Data = map[string][]byte{"identity.yaml": []byte(identityYAML)}
+			if err := r.Update(ctx, existing); err != nil {
+				return fmt.Errorf("update identity CRS wrapper: %w", err)
+			}
+			return nil
+		}
+	}
 
 	if err := r.Create(ctx, wrapper); err != nil {
 		if apierrors.IsAlreadyExists(err) {

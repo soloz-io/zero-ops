@@ -43,6 +43,7 @@ func main() {
 	var infisicalURL string
 	var orgID string
 	var projectID string
+	var secretsProjectID string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -52,6 +53,7 @@ func main() {
 	flag.StringVar(&infisicalURL, "infisical-url", "http://infisical-standalone-infisical.platform-security.svc:8080", "Infisical API base URL")
 	flag.StringVar(&orgID, "infisical-org-id", "", "Infisical organization ID")
 	flag.StringVar(&projectID, "infisical-project-id", "", "Infisical project ID")
+	flag.StringVar(&secretsProjectID, "infisical-secrets-project-id", "", "Infisical secret-manager project ID (e.g. hub-secrets) granted to spoke identities")
 
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
@@ -97,10 +99,11 @@ func main() {
 	infisicalClient := infisical.NewClient(infisicalURL)
 
 	if err = (&controller.SpokeMachineIdentityReconciler{
-		Client:          mgr.GetClient(),
-		InfisicalClient: infisicalClient,
-		OrgID:           orgID,
-		ProjectID:       projectID,
+		Client:           mgr.GetClient(),
+		InfisicalClient:  infisicalClient,
+		OrgID:            orgID,
+		ProjectID:        projectID,
+		SecretsProjectID: secretsProjectID,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SpokeMachineIdentity")
 		os.Exit(1)

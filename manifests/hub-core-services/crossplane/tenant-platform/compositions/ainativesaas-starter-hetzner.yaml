@@ -619,7 +619,7 @@ spec:
                 infisical:
                   hostAPI: "https://infisical.nutgraf.in"
                   secretsScope:
-                    projectSlug: "hub-platform"
+                    projectSlug: "hub-secrets"
                     environmentSlug: "dev"
                   auth:
                     universalAuthCredentials:
