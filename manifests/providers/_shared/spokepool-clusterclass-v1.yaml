@@ -253,9 +253,13 @@ spec:
         # API server is reachable over Tailscale. Authkey + hostname are read
         # from /etc/tailscale-* (written by files[] contentFrom.secret above).
         # Pure-hetzner spokes leave hostname empty → this block no-ops.
+        # --accept-dns=true: enable MagicDNS so the spoke resolves tailnet
+        # *.nutgraf.in names (e.g. infisical.nutgraf.in consumed by ESO and
+        # cert-manager). Without it, external DNS works but MagicDNS-only names
+        # fail, breaking Infisical-based secret/TLS provisioning on the spoke.
         - curl -fsSL https://tailscale.com/install.sh | sh || true
         - systemctl enable --now tailscaled || true
-        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=true; fi'
         - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
         - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
       postKubeadmCommands:
