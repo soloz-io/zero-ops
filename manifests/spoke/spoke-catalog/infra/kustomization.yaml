@@ -17,7 +17,7 @@ resources:
   - kyverno/controller.yaml
   - cloudnative-pg/crd.yaml
   - cloudnative-pg/controller.yaml
-  # ADR-047: argo-rollouts (v1.6.6) — tenant Rollout CRDs (5, wave -5) approved by
+  # ADR-047: argo-rollouts (v1.9.1) — tenant Rollout CRDs (5, wave -5) approved by
   # spoke kustomization. Cluster-scoped controller in dedicated argo-rollouts
   # namespace. Without it Rollout workloads never produce ReplicaSets/pods.
   - argo-rollouts/crd.yaml
@@ -35,6 +35,9 @@ resources:
   - s3-credentials-es.yaml
   # ADR-035: Spoke-side cert-manager for certificate lifecycle management
   - cert-manager.yaml
+  # ADR-035: approval RBAC for the Infisical external issuer (external issuer
+  # groups require explicit signer approval RBAC; mirrors hub precedent)
+  - cert-manager-approve-infisical-issuer.yaml
   - infisical-issuer.yaml
   - cluster-issuer.yaml
   - certificates.yaml
