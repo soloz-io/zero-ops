@@ -246,6 +246,9 @@ spec:
           fmt: "tenant-%s"
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels['tenant-id']
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
