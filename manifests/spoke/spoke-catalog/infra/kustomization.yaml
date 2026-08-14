@@ -2,9 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  # ADR-023: Vendored CRD at wave -5 — applied before operators and Kyverno policies.
-  # No remote URLs. Air-gap safe. Supply-chain auditable.
-  - crds/argo-rollouts-crd.yaml
   # ADR-035: cert-manager CRDs for spoke-side certificate management
   - crds/cert-manager-crds.yaml
   # ADR-035: infisical-issuer CRDs (InfisicalClusterIssuer, InfisicalIssuer)
@@ -20,6 +17,11 @@ resources:
   - kyverno/controller.yaml
   - cloudnative-pg/crd.yaml
   - cloudnative-pg/controller.yaml
+  # ADR-047: argo-rollouts (v1.6.6) — tenant Rollout CRDs (5, wave -5) approved by
+  # spoke kustomization. Cluster-scoped controller in dedicated argo-rollouts
+  # namespace. Without it Rollout workloads never produce ReplicaSets/pods.
+  - argo-rollouts/crd.yaml
+  - argo-rollouts/controller.yaml
   - crossplane-admin-eso.yaml
   - crossplane-function-patch-and-transform.yaml
   - crossplane-providerconfig-sql.yaml
