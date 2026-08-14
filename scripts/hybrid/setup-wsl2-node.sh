@@ -40,6 +40,34 @@ EOF
   echo "[setup] ⚠ Restart WSL2 after this script completes to activate systemd"
 fi
 
+# ── 0b. Static resolv.conf (fixes tailscaled NoState crash-loop on boot) ────
+# WSL auto-generates /etc/resolv.conf with only 172.27.x.1 (WinNAT gateway).
+# At WSL2 startup the WinNAT DNS relay is not yet ready, so tailscaled fails
+# to resolve controlplane.tailscale.com → crashes → 87+ restarts/boot.
+# Fix: pin to 1.1.1.1/8.8.8.8 (available as soon as eth0 is up), keep
+# 172.27.x.1 as last-resort for LAN names. Disable WSL auto-overwrite.
+echo "[setup] Pinning /etc/resolv.conf to static resolvers (stops auto-overwrite)..."
+if ! grep -q "generateResolvConf" /etc/wsl.conf; then
+  printf '\n[network]\ngenerateResolvConf = false\n' >> /etc/wsl.conf
+fi
+# Remove symlink if WSL installed one
+[ -L /etc/resolv.conf ] && rm /etc/resolv.conf
+cat > /etc/resolv.conf <<'EOF'
+# Static — managed by setup-wsl2-node.sh (ADR-046).
+# generateResolvConf = false in /etc/wsl.conf prevents WSL from overwriting.
+#
+# ORDERING: 172.27.32.1 (WinNAT relay) MUST be first.
+# UDP 53 to external IPs (1.1.1.1, 8.8.8.8) is blocked by Windows Defender
+# Firewall from the vEthernet (WSL) interface. The WinNAT DNS relay is the
+# only resolver reachable from WSL2 — it forwards to the Windows host DNS.
+# Keep 1.1.1.1/8.8.8.8 as last-resort only (e.g. WinNAT fully torn down).
+nameserver 172.27.32.1
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+chmod 644 /etc/resolv.conf
+echo "[setup] ✓ /etc/resolv.conf: 172.27.32.1 (WinNAT relay) first, 1.1.1.1/8.8.8.8 fallback"
+
 # ── 1. Swap off ──────────────────────────────────────────────────────────────
 echo "[setup] Disabling swap..."
 swapoff -a
@@ -66,7 +94,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
   at jq unzip wget curl socat mtr logrotate apt-transport-https \
-  ca-certificates gnupg lsb-release
+  ca-certificates gnupg lsb-release \
+  dnsutils
 
 # ── 4. runc ─────────────────────────────────────────────────────────────────
 if ! /usr/local/sbin/runc --version 2>/dev/null | grep -q "${RUNC_VERSION}"; then
@@ -125,11 +154,63 @@ if ! kubelet --version 2>/dev/null | grep -q "${K8S_VERSION}"; then
 fi
 echo "[setup] ✓ kubelet $(kubelet --version)"
 
+# kubelet → containerd ordering drop-in
+# Prevents kubelet from starting before containerd.sock exists at boot,
+# which causes a restart-loop until the socket appears.
+echo "[setup] Installing kubelet/containerd ordering drop-in..."
+mkdir -p /etc/systemd/system/kubelet.service.d
+cat > /etc/systemd/system/kubelet.service.d/10-containerd-ordering.conf <<'EOF'
+[Unit]
+After=containerd.service
+Requires=containerd.service
+EOF
+systemctl daemon-reload
+echo "[setup] ✓ kubelet drop-in: After=containerd.service Requires=containerd.service"
+
 # ── 7. Tailscale ─────────────────────────────────────────────────────────────
 if ! command -v tailscale &>/dev/null; then
   echo "[setup] Installing Tailscale..."
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
+
+# tailscaled boot drop-in: wait for DNS before launching + throttle restart loop.
+# Prevents the "no DNS fallback candidates" → NoState loop caused by tailscaled
+# starting before /etc/resolv.conf resolvers are reachable (race with WinNAT).
+echo "[setup] Installing tailscaled DNS-wait + restart-throttle drop-in..."
+mkdir -p /etc/systemd/system/tailscaled.service.d
+cat > /etc/systemd/system/tailscaled.service.d/10-wsl2-dns-wait.conf <<'EOF'
+# WSL2 boot fix (ADR-046): wait for WinNAT DNS relay before launching tailscaled.
+# Prevents "failed to resolve controlplane.tailscale.com: no DNS fallback
+# candidates remain" -> NoState crash-loop (was: 87 restarts/boot).
+#
+# Probe: dig UDP/53 @ 172.27.32.1. WinNAT relay is UDP-only; TCP/53 probe
+# (/dev/tcp) always fails. Polls every 2s for up to 90s, starts anyway if
+# the relay never responds (graceful degradation).
+#
+# TimeoutStartSec=150: ExecStartPre can run up to 90s + ~10s for daemon
+# startup. The systemd default of 90s caused the service to be killed while
+# still in start-pre, producing a misleading "timeout exceeded" failure.
+[Service]
+ExecStartPre=/bin/bash -c '\
+  echo "tailscaled-pre: waiting for 172.27.32.1 UDP/53 (max 90s)..."; \
+  for i in $(seq 1 45); do \
+    if dig @172.27.32.1 +timeout=2 +tries=1 +short controlplane.tailscale.com \
+        >/dev/null 2>&1; then \
+      echo "tailscaled-pre: DNS relay ready after $((i*2))s -- starting tailscaled"; \
+      exit 0; \
+    fi; \
+    sleep 2; \
+  done; \
+  echo "tailscaled-pre: DNS relay not ready after 90s -- starting tailscaled anyway"; \
+  exit 0'
+TimeoutStartSec=150
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=3
+EOF
+systemctl daemon-reload
+echo "[setup] ✓ tailscaled drop-in: ExecStartPre DNS-wait, RestartSec=10, burst cap=3"
+
 systemctl enable tailscaled
 systemctl start tailscaled
 echo "[setup] ✓ Tailscale $(tailscale version | head -1)"

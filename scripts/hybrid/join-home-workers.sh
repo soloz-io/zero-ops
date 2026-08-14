@@ -191,6 +191,25 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   # 5. Windows Task Scheduler auto-start (reboot resilience)
   install_windows_autostart "$SSH_TARGET" "$WSL_DISTRO" "$NODE_IDX" "$HOSTNAME"
 
+  # 5b. Kubelet → containerd ordering drop-in (idempotent).
+  # Prevents the kubelet restart-loop that occurs when kubelet starts before
+  # containerd.sock exists. Pushed on every run so already-provisioned nodes
+  # pick it up without needing a full re-setup.
+  echo "    → ensuring kubelet After=containerd drop-in"
+  DROPIN_DIR="/etc/systemd/system/kubelet.service.d"
+  DROPIN_FILE="${DROPIN_DIR}/10-containerd-ordering.conf"
+  DROPIN_CONTENT=$(printf '[Unit]\nAfter=containerd.service\nRequires=containerd.service\n')
+  DROPINB64="$(printf '%s' "$DROPIN_CONTENT" | base64 | tr -d '\n')"
+  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
+    "${SSH_TARGET}" \
+    "${WSL} 'mkdir -p ${DROPIN_DIR} && \
+      echo ${DROPINB64} | base64 -d > ${DROPIN_FILE}.tmp && \
+      if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
+        mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && systemctl daemon-reload && echo DROPIN=UPDATED; \
+      else rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; fi'" \
+    2>/dev/null | grep -E 'DROPIN=' | head -1 \
+    | sed 's/DROPIN=/    ✓ kubelet drop-in: /' || true
+
   # 6. Install self-healing systemd unit + timer (oneshot join on boot/network,
   #    plus periodic re-verify every 10 min). Already-joined → join exits 0.
   echo "    → installing systemd auto-join unit + timer"
