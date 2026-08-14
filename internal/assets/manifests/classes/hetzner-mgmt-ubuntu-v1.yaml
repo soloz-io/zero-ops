@@ -195,8 +195,6 @@ spec:
         name: hetzner-credentials
         key:
           hcloudToken: hcloud
-          hetznerRobotUser: hetzner-robot-user
-          hetznerRobotPassword: hetzner-robot-password
           sshKey: hcloud-ssh-key-name
       sshKeys:
         hcloud:

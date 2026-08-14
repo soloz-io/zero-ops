@@ -38,3 +38,7 @@ rules:
 
 ignore: |
   manifests/tenants/charts/universal-tenant/templates/
+  # Go text/template assets are not valid plain YAML until rendered.
+  internal/assets/manifests/addons/crs.yaml
+  internal/assets/manifests/secrets/hetzner-credentials.yaml
+  internal/assets/manifests/classes/archived-talos/hetzner-mgmt-talos-v1.yaml

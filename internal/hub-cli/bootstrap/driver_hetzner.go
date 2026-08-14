@@ -69,8 +69,6 @@ func (d *HetznerDriver) ProvisionDayZero(ctx context.Context, kubeconfig string)
 		"create", "secret", "generic", "hetzner",
 		"-n", constants.NamespaceCloud,
 		"--from-literal=hcloud="+d.Token,
-		"--from-literal=robot-user=",
-		"--from-literal=robot-password=",
 		"--dry-run=client", "-o", "yaml",
 	)
 	secretYAML, err := secretCmd.Output()

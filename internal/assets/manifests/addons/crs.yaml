@@ -34,8 +34,6 @@ stringData:
       namespace: kube-system
     stringData:
       hcloud: "{{.HCloudToken}}"
-      robot-user: ""
-      robot-password: ""
 ---
 apiVersion: v1
 kind: Secret

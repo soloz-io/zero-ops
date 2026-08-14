@@ -471,8 +471,6 @@ spec:
                               type: Opaque
                               stringData:
                                 hcloud: "{{ .hcloud | trim }}"
-                                robot-user: ""
-                                robot-password: ""
                       data:
                         - secretKey: hcloud
                           remoteRef:
