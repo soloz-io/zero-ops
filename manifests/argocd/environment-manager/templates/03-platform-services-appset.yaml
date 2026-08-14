@@ -291,14 +291,14 @@ spec:
                 ingressClassResource:
                   enabled: true
                   default: false
+                # admission webhook disabled: (1) the chart's cert-gen/patch
+                # Helm hook jobs don't run under ArgoCD (empty caBundle broke
+                # every Ingress create with a TLS trust error), and (2) the
+                # webhook rejects cert-manager's HTTP-01 solver Ingress
+                # ('path cannot be used with pathType Exact'), blocking ACME
+                # issuance. cert-manager relies on this for Let's Encrypt.
                 admissionWebhooks:
-                  enabled: true
-                  # cert-manager manages the admission webhook cert + caBundle.
-                  # The chart's default (Helm post-install hook jobs) never run
-                  # under ArgoCD, leaving the webhook caBundle empty and blocking
-                  # all Ingress creation with a TLS trust error.
-                  certManager:
-                    enabled: true
+                  enabled: false
                 service:
                   enabled: true
                   type: LoadBalancer
