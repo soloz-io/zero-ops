@@ -68,7 +68,23 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		logger.Error(err, "Failed to ensure Infisical credentials for SpokePool", "spoke", spokeName)
 		if result != nil && result.Result == secrets.EnsureMissing {
-			_ = r.updateStatusCondition(ctx, spokePool, spokeName, false, false)
+			_ = r.updateStatusCondition(ctx, spokePool, spokeName, false, false, secrets.EnsureMissing)
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Crossplane-admin password (platform bootstrap material per
+	// .kiro/specs/completed/tenant-db-provisioning/design.md §2). The spoke's
+	// crossplane-admin-credentials ExternalSecret reads <spoke>-crossplane-admin-password
+	// from the same secrets project. isFirstTime is derived from the status
+	// condition so a password deleted after provisioning triggers manual recovery
+	// rather than a silent regeneration that would desync the spoke CNPG role.
+	crossplaneIsFirstTime := !r.isStatusConditionTrue(spokePool, "CrossplaneAdminPasswordGenerated")
+	crossplaneResult, err := r.InfisicalClient.EnsureCrossplaneAdminPassword(ctx, spokeName, crossplaneIsFirstTime)
+	if err != nil {
+		logger.Error(err, "Failed to ensure crossplane-admin password for SpokePool", "spoke", spokeName)
+		if crossplaneResult == secrets.EnsureMissing {
+			_ = r.updateStatusCondition(ctx, spokePool, spokeName, false, false, crossplaneResult)
 		}
 		return ctrl.Result{}, err
 	}
@@ -105,7 +121,7 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Non-fatal: retried on next reconcile; token rotation is time-driven.
 	}
 
-	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists)
+	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists, crossplaneResult)
 }
 
 // isStatusConditionTrue checks if a condition is set to True
@@ -126,10 +142,13 @@ func (r *SpokePoolReconciler) isStatusConditionTrue(spokePool *unstructured.Unst
 	return false
 }
 
-// updateStatusCondition sets CrossplaneAdminSecretGenerated condition on SpokePool XR.
-// The condition tracks Machine Identity credentials at /spoke-pool/<cellId>/shared/infisical-credentials
-// (ADR-031 Cell-Based Identity Topology).
-func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePool *unstructured.Unstructured, spokeName string, success bool, alreadyExisted bool) error {
+// updateStatusCondition sets CrossplaneAdminSecretGenerated and
+// CrossplaneAdminPasswordGenerated conditions on SpokePool XR.
+// CrossplaneAdminSecretGenerated tracks Machine Identity credentials at
+// /spoke-pool/<cellId>/shared/infisical-credentials (ADR-031 Cell-Based Identity
+// Topology). CrossplaneAdminPasswordGenerated tracks the platform-bootstrap
+// crossplane_admin password at /<spoke>-crossplane-admin-password.
+func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePool *unstructured.Unstructured, spokeName string, success bool, alreadyExisted bool, crossplaneResult secrets.EnsureResult) error {
 	logger := log.FromContext(ctx)
 
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -211,6 +230,33 @@ func (r *SpokePoolReconciler) updateStatusCondition(ctx context.Context, spokePo
 		}
 
 		meta.SetStatusCondition(&metaConditions, condition)
+
+		// CrossplaneAdminPasswordGenerated — platform bootstrap password lifecycle.
+		crossplaneCondition := metav1.Condition{Type: "CrossplaneAdminPasswordGenerated"}
+		switch crossplaneResult {
+		case secrets.EnsureCreated:
+			crossplaneCondition = metav1.Condition{
+				Type:    "CrossplaneAdminPasswordGenerated",
+				Status:  metav1.ConditionTrue,
+				Reason:  "Generated",
+				Message: fmt.Sprintf("Crossplane-admin password generated and uploaded to Infisical at %s-crossplane-admin-password", spokeName),
+			}
+		case secrets.EnsureAlreadyExists:
+			crossplaneCondition = metav1.Condition{
+				Type:    "CrossplaneAdminPasswordGenerated",
+				Status:  metav1.ConditionTrue,
+				Reason:  "AlreadyExists",
+				Message: fmt.Sprintf("Crossplane-admin password already exists in Infisical at %s-crossplane-admin-password", spokeName),
+			}
+		default:
+			crossplaneCondition = metav1.Condition{
+				Type:    "CrossplaneAdminPasswordGenerated",
+				Status:  metav1.ConditionFalse,
+				Reason:  "PasswordMissing",
+				Message: "CRITICAL: Crossplane-admin password missing from Infisical for already-provisioned SpokePool. Manual recovery required.",
+			}
+		}
+		meta.SetStatusCondition(&metaConditions, crossplaneCondition)
 
 		// Serialise back to unstructured map format for Crossplane.
 		var newConditions []interface{}

@@ -272,6 +272,12 @@ func (r *SpokeMachineIdentityReconciler) ensureCRSWrapper(ctx context.Context, s
 	authSecret := &corev1.Secret{}
 	authSecretName := fmt.Sprintf("smi-%s-auth", smi.Spec.SpokeRef.Name)
 	if err := r.Get(ctx, client.ObjectKey{Name: authSecretName, Namespace: smi.Namespace}, authSecret); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Auth secret not yet available (e.g. rotation disabled or first
+			// reconcile). Keep an existing wrapper untouched; when there is no
+			// wrapper yet there is nothing deliverable, so this is a no-op.
+			return nil
+		}
 		return fmt.Errorf("read auth secret %s: %w", authSecretName, err)
 	}
 
@@ -319,7 +325,8 @@ stringData:
 			if string(existing.Data["identity.yaml"]) == identityYAML {
 				return nil
 			}
-			existing.Data = map[string][]byte{"identity.yaml": []byte(identityYAML)}
+			existing.StringData = map[string]string{"identity.yaml": identityYAML}
+			existing.Data = nil
 			if err := r.Update(ctx, existing); err != nil {
 				return fmt.Errorf("update identity CRS wrapper: %w", err)
 			}

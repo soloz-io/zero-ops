@@ -45,6 +45,7 @@ spec:
             secretKeyRef:
               name: infisical-auth
               key: secretsProjectId
+              optional: true
         args:
         - --infisical-url=http://infisical-standalone-infisical.platform-security.svc:8080
         - --infisical-org-id=$(INFISICAL_ORGANIZATION_ID)

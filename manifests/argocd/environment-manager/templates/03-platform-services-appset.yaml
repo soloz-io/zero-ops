@@ -468,6 +468,19 @@ spec:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: '{{ .Values.environmentRevision }}'
         path: manifests/spoke/spoke-catalog/infra
+        kustomize:
+          patches:
+            # Inject the per-spoke crossplane-admin password key (ADR-003/tenant-db
+            # bootstrap). The hub-operator generates <spoke>-crossplane-admin-password
+            # in the hub-secrets project; the ExternalSecret remoteRef must match
+            # that exact key for the spoke CNPG/provider-sql bootstrap to resolve.
+            - target:
+                kind: ExternalSecret
+                name: crossplane-admin-credentials
+              patch: |
+                - op: replace
+                  path: /spec/data/0/remoteRef/key
+                  value: '{{"{{"}}.name{{"}}"}}-crossplane-admin-password'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
