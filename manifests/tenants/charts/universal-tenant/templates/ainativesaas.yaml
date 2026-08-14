@@ -30,11 +30,12 @@ spec:
   database:
     name: {{ $databaseName }}
     migrations:
+      {{- $mig := ((.Values.database | default dict).migrations | default dict) }}
       baseline:
-        gitRepo: {{ .Values.database.migrations.baseline.gitRepo | default "https://github.com/soloz-io/zero-ops" }}
-        gitRevision: {{ .Values.database.migrations.baseline.gitRevision | default "main" }}
-        gitPath: {{ .Values.database.migrations.baseline.gitPath | default "migrations/tenant-baseline" }}
-      tenant: {{ .Values.database.migrations.tenantSpecific.gitPath | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
+        gitRepo: {{ ($mig.baseline | default dict).gitRepo | default "https://github.com/soloz-io/zero-ops" }}
+        gitRevision: {{ ($mig.baseline | default dict).gitRevision | default "main" }}
+        gitPath: {{ ($mig.baseline | default dict).gitPath | default "migrations/tenant-baseline" }}
+      tenant: {{ ($mig.tenantSpecific | default dict).gitPath | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
 
   pooler:
     maxConnections: {{ $poolerMaxConn }}
