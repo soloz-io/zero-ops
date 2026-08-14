@@ -39,7 +39,7 @@ stringData:
         app: ccm
         app.kubernetes.io/name: ccm-hetzner
         app.kubernetes.io/instance: ccm
-        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/version: "v2.0.7"
         app.kubernetes.io/managed-by: Helm
     ---
     # Source: ccm-hetzner/templates/serviceaccount.yaml
@@ -52,7 +52,7 @@ stringData:
         app: ccm
         app.kubernetes.io/name: ccm-hetzner
         app.kubernetes.io/instance: ccm
-        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/version: "v2.0.7"
         app.kubernetes.io/managed-by: Helm
     roleRef:
       apiGroup: rbac.authorization.k8s.io
@@ -74,7 +74,7 @@ stringData:
         app: ccm
         app.kubernetes.io/name: ccm-hetzner
         app.kubernetes.io/instance: ccm
-        app.kubernetes.io/version: "v1.18.0-0.0.5"
+        app.kubernetes.io/version: "v2.0.7"
         app.kubernetes.io/managed-by: Helm
     spec:
       replicas: 1
@@ -94,7 +94,8 @@ stringData:
           securityContext:
             {}
           tolerations:
-            # Introduced with CAPI v1.4, more info: https://cluster-api.sigs.k8s.io/developer/providers/bootstrap.html#taint-nodes-at-creation
+            # Introduced with CAPI v1.4, more info:
+            # https://cluster-api.sigs.k8s.io/developer/providers/bootstrap.html#taint-nodes-at-creation
             - key: "node.cluster.x-k8s.io/uninitialized"
               effect: "NoSchedule"
             # Allow HCCM itself to schedule on nodes that have not yet been initialized by HCCM.
@@ -116,7 +117,7 @@ stringData:
             - name: ccm-hetzner
               securityContext:
                 {}
-              image: "ghcr.io/syself/hetzner-cloud-controller-manager:v1.18.0-0.0.5"
+              image: "ghcr.io/syself/hetzner-cloud-controller-manager:v2.0.7"
               imagePullPolicy: Always
               command:
                 - "/bin/hetzner-cloud-controller-manager"
@@ -137,16 +138,6 @@ stringData:
                     secretKeyRef:
                       name: hetzner
                       key: hcloud
-                - name: ROBOT_USER_NAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: hetzner
-                      key: robot-user
-                - name: ROBOT_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: hetzner
-                      key: robot-password
                 - name: HCLOUD_DEBUG
                   value: "false"
                 - name: HCLOUD_LOAD_BALANCERS_ENABLED
