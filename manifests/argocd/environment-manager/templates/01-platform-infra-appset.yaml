@@ -79,7 +79,7 @@ spec:
                               hs.message = condition.message or "Secret synced"
                               return hs
                             else
-                              if condition.message ~= nil and string.find(condition.message, "is not ready") then
+                              if condition.reason == "SecretSyncedError" then
                                 hs.status = "Progressing"
                                 hs.message = "Waiting for secret store: " .. (condition.message or "")
                                 return hs
@@ -196,18 +196,10 @@ spec:
                 ingress:
                   enabled: false
             helmReleaseName: 'argocd'
-          - appName: 'platform-atlas-operator'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'false'
-            syncWave: '2'
-            repoURL: 'https://github.com/atlasgo/atlas-operator'
-            targetRevision: 'v0.2.0'
-            path: ''
-            chart: 'atlas-operator'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: 'atlas-operator'
+          # ADR-023: Atlas CRDs/controller are spoke-side (vendored in
+          # manifests/spoke/spoke-catalog/infra/atlas-operator). The hub had a
+          # dead repoURL (atlasgo/atlas-operator is a 404; real upstream is
+          # ariga/atlas-operator) and was never reconciling. Removed.
           - appName: 'platform-cloudnative-pg'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'

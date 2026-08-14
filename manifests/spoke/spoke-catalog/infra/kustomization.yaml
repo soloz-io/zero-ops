@@ -41,6 +41,16 @@ resources:
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+  # TenantDatabase XRD + composition (ADR-047): spoke-side Crossplane reconciles
+  # TenantDatabase XRs pushed from the hub via provider-kubernetes remote pattern.
+  # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.
+  - tenant-db/xrd.yaml
+  - tenant-db/composition.yaml
+  # ADR-023: atlas-operator (v0.7.40) — vendored CRDs + controller for spoke-side
+  # schema migrations. Vendored from ariga/atlas-operator (NOT atlasgo/*, which is
+  # a 404). CRDs: atlasmigrations.db.atlasgo.io, atlasschemas.db.atlasgo.io.
+  - atlas-operator/crd.yaml
+  - atlas-operator/controller.yaml
 
 # ADR-047: single-node spokes run on the control-plane node, which carries the
 # control-plane taint. All platform workloads on the spoke must tolerate it.
@@ -72,4 +82,3 @@ patches:
           - key: node-role.kubernetes.io/control-plane
             operator: Exists
             effect: NoSchedule
-

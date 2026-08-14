@@ -1,0 +1,438 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tenantdatabase-spoke
+  labels:
+    provider: spoke
+    resource-type: tenant-database
+spec:
+  compositeTypeRef:
+    apiVersion: nutgraf.in/v1alpha1
+    kind: TenantDatabase
+
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        patchSets:
+          - name: common-metadata
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.labels[tenant-id]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.cellId
+                toFieldPath: metadata.labels[cell-id]
+
+        resources:
+          # Resource 1: ESO ExternalSecret (restore credentials from Infisical on cluster rebuild)
+          # Aligns with ADR-003: Infisical as the single source of truth.
+          - name: db-credentials-restore
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1
+                    kind: ExternalSecret
+                    metadata:
+                      namespace: ""  # Patched to tenant-<id>
+                    spec:
+                      refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
+                      secretStoreRef:
+                        name: tenant-secret-store  # ISOLATION: Explicitly scoped to the tenant
+                        kind: SecretStore
+                      target:
+                        name: ""  # Patched to tenant-<id>-db-credentials
+                        creationPolicy: Owner
+                        template:
+                          type: Opaque
+                          data:
+                            username: "{{ .username }}"
+                            password: "{{ .password }}"
+                            database: ""  # Patched dynamically from spec.databaseName
+                            host: "shared-cnpg-rw.platform-data.svc.cluster.local"
+                            port: "5432"
+                            sslmode: "require"  # HARDENING (ADR-030): Explicit TLS enforcement
+                      data:
+                        - secretKey: username
+                          remoteRef:
+                            key: ""  # Patched
+                            property: username
+                        - secretKey: password
+                          remoteRef:
+                            key: ""  # Patched
+                            property: password
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-db-credentials-restore"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-credentials-restore"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-credentials"
+              # Patch database name into template
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
+
+          # Resource 2: CNPG Database CR
+          - name: database
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: postgresql.cnpg.io/v1
+                    kind: Database
+                    metadata:
+                      namespace: platform-data
+                    spec:
+                      cluster:
+                        name: shared-cnpg
+                      owner: ""  # Patched to tenant_<id>_user
+                      ensure: present
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-database"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.spec.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.owner
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user"
+
+          # Resource 3b: Pooler App Secret (for AtlasMigration & Workloads)
+          # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
+          # Follows ADR-030: Discrete keys + urlquery-encoded DSN + readiness gate
+          - name: pooler-app-secret
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1
+                    kind: ExternalSecret
+                    metadata:
+                      namespace: ""  # Patched to tenant-<id>
+                    spec:
+                      refreshInterval: 1h  # HARDENING (ADR-030): Drift correction and rotation support
+                      secretStoreRef:
+                        name: tenant-secret-store  # ISOLATION: Explicitly scoped to the tenant
+                        kind: SecretStore
+                      target:
+                        name: ""  # Patched to <tenantId>-pooler-app
+                        creationPolicy: Owner
+                        template:
+                          type: Opaque
+                          engineVersion: v2
+                          data:
+                            # HARDENING (ADR-030): Discrete keys for poolers, sidecars, and audit tooling
+                            username: "{{ .username }}"
+                            password: "{{ .password }}"
+                            database: ""   # Patched dynamically
+                            host: ""       # Patched dynamically (pooler host)
+                            port: "5432"
+                            sslmode: "require"
+                            url: ""        # Patched dynamically with urlquery-encoded DSN
+                      data:
+                        - secretKey: username
+                          remoteRef:
+                            key: ""  # Patched
+                            property: username
+                        - secretKey: password
+                          remoteRef:
+                            key: ""  # Patched
+                            property: password
+            readinessChecks:
+              - type: MatchCondition
+                matchCondition:
+                  type: Ready
+                  status: "True"
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-pooler-app-secret"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-pooler-app-externalsecret"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-pooler-app"
+              # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.cellId
+                    - fromFieldPath: spec.tenantId
+                  strategy: string
+                  string:
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
+              # Dynamic configuration values (not secrets)
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.host
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-pooler.platform-data.svc.cluster.local"
+              # HARDENING (ADR-030): urlquery encodes high-entropy passwords (symbols) safely into DSN
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.databaseName
+                  strategy: string
+                  string:
+                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
+
+          # Resource 4: provider-sql Role (tenant user)
+          # NOT wrapped in Object, because it's already a Crossplane MR
+          - name: db-user
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: Role
+              metadata: {}
+              spec:
+                forProvider:
+                  privileges:
+                    login: true
+                    createDb: false
+                    superUser: false
+                  passwordSecretRef:
+                    namespace: ""  # Patched to tenant-<id>
+                    name: ""  # Patched to tenant-<id>-db-credentials
+                    key: password
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Delete
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.passwordSecretRef.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.passwordSecretRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-credentials"
+
+          # Resource 5: provider-sql DefaultPrivileges (ALL privileges on tables in public schema)
+          - name: default-privileges-tables
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: DefaultPrivileges
+              metadata: {}
+              spec:
+                forProvider:
+                  privileges:
+                    - SELECT
+                    - INSERT
+                    - UPDATE
+                    - DELETE
+                    - TRUNCATE
+                    - REFERENCES
+                    - TRIGGER
+                  role: ""  # Patched to tenant_<id>_user
+                  database: ""  # Patched to tenant-<id>-db
+                  schema: "public"
+                  objectType: "table"
+                  targetRole: "crossplane_admin"  # When crossplane_admin creates tables, grant to tenant user
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Delete
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-default-privileges-tables"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.role
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.database
+
+          # Resource 6: provider-sql DefaultPrivileges (ALL privileges on sequences in public schema)
+          - name: default-privileges-sequences
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: DefaultPrivileges
+              metadata: {}
+              spec:
+                forProvider:
+                  privileges:
+                    - SELECT
+                    - UPDATE
+                    - USAGE
+                  role: ""  # Patched to tenant_<id>_user
+                  database: ""  # Patched to tenant-<id>-db
+                  schema: "public"
+                  objectType: "sequence"
+                  targetRole: "crossplane_admin"  # When crossplane_admin creates sequences, grant to tenant user
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Delete
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-default-privileges-sequences"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.role
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.databaseName
+                toFieldPath: spec.forProvider.database
