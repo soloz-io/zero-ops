@@ -12,8 +12,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-NODE_INDEX="${1:-1}"
-ENV_FILE="${2:-$(dirname "$0")/home-lab.env}"
+NODE_INDEX=""
+ENV_FILE="$(dirname "$0")/home-lab.env"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env) ENV_FILE="$2"; shift 2 ;;
+    -*)    echo "ERROR: unknown arg $1" >&2; exit 1 ;;
+    *)     NODE_INDEX="$1"; shift ;;
+  esac
+done
+NODE_INDEX="${NODE_INDEX:-1}"
 
 # ── Load env ─────────────────────────────────────────────────────────────────
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -98,6 +106,12 @@ if [[ -z "$JOIN_TOKEN" || -z "$JOIN_CA_HASH" || -z "$CONTROL_PLANE_ENDPOINT" ]];
   echo "       Check: kubectl --kubeconfig=${HUB_KUBECONFIG} get secret ${JOIN_SECRET_NAME} -n platform-capi" >&2
   exit 1
 fi
+
+# kubeadm join needs a bare host:port — never a scheme or path. Defensive
+# normalization in case the hub-operator wrote a full URL (legacy bug).
+CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT#https://}"
+CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT#http://}"
+CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT%%/*}"
 
 echo "[join] ✓ Join payload received (endpoint: ${CONTROL_PLANE_ENDPOINT})"
 

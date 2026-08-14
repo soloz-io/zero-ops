@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"net/url"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -189,17 +192,37 @@ func buildSpokeClientset(ctx context.Context, kubeconfig []byte) (*kubernetes.Cl
 	caHash := computeDiscoveryTokenCAHash(cfg.CAData)
 	server := cfg.Host
 
+	// kubeadm join needs a bare host:port (no scheme/path). cfg.Host from
+	// RESTConfigFromKubeConfig is a full URL like https://host:6443.
+	if parsed, err := url.Parse(server); err == nil && parsed.Host != "" {
+		server = parsed.Host
+	}
+
 	return clientset, caHash, server, nil
 }
 
 // computeDiscoveryTokenCAHash returns the kubeadm discovery-token-ca-cert-hash
-// (sha256:<hex of the CA cert digest>). It mirrors what kubeadm computes from the
-// cluster CA certificate.
+// (sha256:<hex of the CA public key digest>). kubeadm pins the SubjectPublicKeyInfo
+// (SPKI) of the cluster CA, NOT the certificate DER/PEM — hashing the raw cert
+// bytes yields a mismatching pin and kubeadm rejects the join with
+// "none of the public keys ... are pinned". See kubeadm pubkeypin.Hash.
 func computeDiscoveryTokenCAHash(caData []byte) string {
 	if len(caData) == 0 {
 		return ""
 	}
-	sum := sha256.Sum256(caData)
+	block, _ := pem.Decode(caData)
+	if block == nil {
+		block = &pem.Block{Type: "CERTIFICATE", Bytes: caData}
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return ""
+	}
+	spki, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(spki)
 	return hex.EncodeToString(sum[:])
 }
 
