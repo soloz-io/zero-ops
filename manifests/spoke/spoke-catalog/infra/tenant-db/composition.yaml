@@ -302,7 +302,7 @@ spec:
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
+                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require&uselibpqcompat=true"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
 
           # Resource 4: provider-sql Role (tenant user)
