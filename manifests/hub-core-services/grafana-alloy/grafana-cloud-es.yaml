@@ -1,0 +1,30 @@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-cloud-credentials
+  namespace: platform-observability
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: grafana-cloud-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: PROMETHEUS_URL
+      remoteRef:
+        key: GRAFANA_CLOUD_PROMETHEUS_URL
+    - secretKey: PROMETHEUS_USER
+      remoteRef:
+        key: GRAFANA_CLOUD_PROMETHEUS_USER
+    - secretKey: LOKI_URL
+      remoteRef:
+        key: GRAFANA_CLOUD_LOKI_URL
+    - secretKey: LOKI_USER
+      remoteRef:
+        key: GRAFANA_CLOUD_LOKI_USER
+    - secretKey: API_KEY
+      remoteRef:
+        key: GRAFANA_CLOUD_API_KEY

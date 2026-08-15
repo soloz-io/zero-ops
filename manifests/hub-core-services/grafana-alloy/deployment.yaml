@@ -5,9 +5,19 @@ metadata:
   namespace: platform-observability
 data:
   config.alloy: |
-    prometheus.remote_write "victoriametrics" {
+    // Remote-write metrics to Grafana Cloud (Mimir)
+    prometheus.remote_write "grafanacloud" {
       endpoint {
-        url = "http://victoria-metrics-cluster-vminsert.observability.svc.cluster.local:8480/insert/0/prometheus/api/v1/write"
+        url = sys.env("PROMETHEUS_URL")
+
+        basic_auth {
+          username = sys.env("PROMETHEUS_USER")
+          password = sys.env("API_KEY")
+        }
+      }
+
+      external_labels = {
+        cluster = "hub",
       }
     }
 
@@ -21,7 +31,7 @@ data:
 
     prometheus.scrape "servicemonitors" {
       targets    = discovery.kubernetes.services.targets
-      forward_to = [prometheus.remote_write.victoriametrics.receiver]
+      forward_to = [prometheus.remote_write.grafanacloud.receiver]
 
       scrape_interval = "30s"
       scrape_timeout  = "10s"
@@ -29,10 +39,66 @@ data:
 
     prometheus.scrape "pods" {
       targets    = discovery.kubernetes.pods.targets
-      forward_to = [prometheus.remote_write.victoriametrics.receiver]
+      forward_to = [prometheus.remote_write.grafanacloud.receiver]
 
       scrape_interval = "30s"
       scrape_timeout  = "10s"
+    }
+
+    // Push logs to Grafana Cloud (Loki)
+    loki.write "grafanacloud" {
+      endpoint {
+        url = sys.env("LOKI_URL")
+
+        basic_auth {
+          username = sys.env("LOKI_USER")
+          password = sys.env("API_KEY")
+        }
+      }
+    }
+
+    // Kubernetes Pod Log Collection
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        target_label = "cluster"
+        replacement  = "hub"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+        separator     = ";"
+        regex         = "^(?:;)?([^;]+)(?:;.*)?$"
+        target_label  = "app"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+        separator     = "/"
+        action        = "replace"
+        replacement   = "/var/log/pods/*$1/*.log"
+        target_label  = "__path__"
+      }
+    }
+
+    local.file_match "pod_logs" {
+      path_targets = discovery.relabel.pod_logs.output
+    }
+
+    loki.source.file "pod_logs" {
+      targets    = local.file_match.pod_logs.targets
+      forward_to = [loki.write.grafanacloud.receiver]
     }
 ---
 apiVersion: apps/v1
@@ -51,34 +117,49 @@ spec:
     spec:
       serviceAccountName: grafana-alloy
       containers:
-      - name: alloy
-        image: grafana/alloy:v1.5.1
-        args:
-        - run
-        - /etc/alloy/config.alloy
-        - --storage.path=/var/lib/alloy/data
-        - --server.http.listen-addr=0.0.0.0:12345
-        ports:
-        - containerPort: 12345
-          name: http-metrics
-        volumeMounts:
-        - name: config
-          mountPath: /etc/alloy
-        - name: data
-          mountPath: /var/lib/alloy/data
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
+        - name: alloy
+          image: grafana/alloy:v1.5.1
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy/data
+            - --server.http.listen-addr=0.0.0.0:12345
+          ports:
+            - containerPort: 12345
+              name: http-metrics
+          envFrom:
+            - secretRef:
+                name: grafana-cloud-credentials
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: data
+              mountPath: /var/lib/alloy/data
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
       volumes:
-      - name: config
-        configMap:
-          name: grafana-alloy-config
-      - name: data
-        emptyDir: {}
+        - name: config
+          configMap:
+            name: grafana-alloy-config
+        - name: data
+          emptyDir: {}
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -91,24 +172,26 @@ kind: ClusterRole
 metadata:
   name: grafana-alloy
 rules:
-- apiGroups: [""]
-  resources:
-  - nodes
-  - nodes/proxy
-  - services
-  - endpoints
-  - pods
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources:
-  - configmaps
-  verbs: ["get"]
-- apiGroups: ["networking.k8s.io"]
-  resources:
-  - ingresses
-  verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["/metrics"]
-  verbs: ["get"]
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -119,6 +202,6 @@ roleRef:
   kind: ClusterRole
   name: grafana-alloy
 subjects:
-- kind: ServiceAccount
-  name: grafana-alloy
-  namespace: platform-observability
+  - kind: ServiceAccount
+    name: grafana-alloy
+    namespace: platform-observability

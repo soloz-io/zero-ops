@@ -38,26 +38,28 @@ data:
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
 
-    // Add cell_id label to all metrics
+    // Add cell_id and cluster labels to all metrics
     prometheus.relabel "add_cell_id" {
-      forward_to = [prometheus.remote_write.hub.receiver]
+      forward_to = [prometheus.remote_write.grafanacloud.receiver]
 
       rule {
         target_label = "cell_id"
-        replacement  = env("CELL_ID")
+        replacement  = sys.env("CELL_ID")
+      }
+      rule {
+        target_label = "cluster"
+        replacement  = sys.env("CELL_ID")
       }
     }
 
-    // Remote write to Hub VictoriaMetrics using mTLS
-    prometheus.remote_write "hub" {
+    // Remote write to Grafana Cloud (Mimir)
+    prometheus.remote_write "grafanacloud" {
       endpoint {
-        url = "https://victoriametrics.hub.nutgraf.in/insert/0/prometheus/api/v1/write"
+        url = sys.env("PROMETHEUS_URL")
 
-        tls_config {
-          cert_file = "/etc/alloy/certs/tls.crt"
-          key_file  = "/etc/alloy/certs/tls.key"
-          // Server uses Let's Encrypt, client auth uses observability CA
-          // System CA bundle validates server cert, observability CA is for client cert only
+        basic_auth {
+          username = sys.env("PROMETHEUS_USER")
+          password = sys.env("API_KEY")
         }
       }
     }
@@ -79,7 +81,7 @@ spec:
       serviceAccountName: grafana-alloy
       containers:
         - name: alloy
-          image: grafana/alloy:v1.0.0
+          image: grafana/alloy:v1.5.1
           args:
             - run
             - /etc/alloy/config.alloy
@@ -93,14 +95,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['cell-id']
+          envFrom:
+            - secretRef:
+                name: grafana-cloud-credentials
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
             - name: data
               mountPath: /var/lib/alloy/data
-            - name: mtls-certs
-              mountPath: /etc/alloy/certs
-              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -114,9 +116,6 @@ spec:
             name: alloy-config
         - name: data
           emptyDir: {}
-        - name: mtls-certs
-          secret:
-            secretName: alloy-client-cert
 ---
 apiVersion: v1
 kind: ServiceAccount

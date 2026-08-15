@@ -30,6 +30,7 @@ resources:
   - cnpg-cluster.yaml
   - cluster-secret-store.yaml
   - grafana-alloy.yaml
+  - grafana-cloud-es.yaml
   - nats-leaf-node.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml
