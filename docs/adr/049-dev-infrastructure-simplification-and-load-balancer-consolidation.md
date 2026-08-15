@@ -51,6 +51,40 @@ So your architecture can become much simpler:
                        Grafana
 ```
 
+### 1. What You Should Create in Infisical
+
+In your **Infisical** dashboard:
+- **Project**: `hub-secrets`
+- **Environment**: `dev` (and later `stg` / `prod`)
+- **Secret Path**: `/platform/observability` (or root level)
+
+Create the following **5 secrets**:
+
+| Secret Key Name in Infisical | Description | Example Value |
+|---|---|---|
+| `GRAFANA_CLOUD_PROMETHEUS_URL` | Grafana Cloud Mimir remote-write push URL | `https://prometheus-prod-24-prod-eu-west-2.grafana.net/api/prom/push` |
+| `GRAFANA_CLOUD_PROMETHEUS_USER` | Numerical Prometheus Instance ID / Username | `1234567` |
+| `GRAFANA_CLOUD_LOKI_URL` | Grafana Cloud Loki push URL | `https://logs-prod-012.grafana.net/loki/api/v1/push` |
+| `GRAFANA_CLOUD_LOKI_USER` | Numerical Loki Instance ID / Username | `7654321` |
+| `GRAFANA_CLOUD_API_KEY` | Grafana Cloud Access Policy token (with `metrics:write` & `logs:write` scopes) | `glc_eyJ...` |
+
+---
+
+### 2. What Stays in Git (Hardcoded Manifests)
+
+In Git, we only commit:
+1. **The Telemetry Pipeline Logic**: What metrics to scrape (pods, services, kubelet), how often (30s), and which log streams to tail.
+2. **The ExternalSecret Definition**: Telling ESO which Infisical keys to pull and map into the Kubernetes Secret.
+
+### 3. How ESO Delivers the Secrets to Grafana Alloy
+
+#### Step A: The `ExternalSecret` Manifest
+(`manifests/hub-core-services/grafana-alloy/grafana-cloud-es.yaml`):
+
+### Summary
+- **In Infisical**: Store the 5 keys (`PROMETHEUS_URL`, `PROMETHEUS_USER`, `LOKI_URL`, `LOKI_USER`, `API_KEY`).
+- **In Git / Codebase**: We commit the declarative `ExternalSecret` and Alloy configuration. Zero credentials or specific URLs are hardcoded in the repository.
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
