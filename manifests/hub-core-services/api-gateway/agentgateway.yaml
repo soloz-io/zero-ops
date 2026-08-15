@@ -52,19 +52,27 @@ kind: Service
 metadata:
   name: agentgateway
   namespace: platform-edge
-  annotations:
-    external-dns.alpha.kubernetes.io/hostname: api.nutgraf.in
-    load-balancer.hetzner.cloud/network-zone: eu-central
-    load-balancer.hetzner.cloud/type: lb11
+  # Consolidated via Ingress NGINX (ADR-049). Standalone LoadBalancer annotations kept as comments:
+  # annotations:
+  #   external-dns.alpha.kubernetes.io/hostname: api.nutgraf.in
+  #   load-balancer.hetzner.cloud/network-zone: eu-central
+  #   load-balancer.hetzner.cloud/type: lb11
 spec:
-  type: LoadBalancer
+  # Consolidated to ClusterIP to share the ingress-nginx Load Balancer (ADR-049)
+  type: ClusterIP
   selector:
     app: agentgateway
+  # Standalone LoadBalancer port configuration:
+  # ports:
+  #   - port: 443
+  #     targetPort: 3000
+  #     protocol: TCP
+  #     name: https
   ports:
-  - port: 443
-    targetPort: 3000
-    protocol: TCP
-    name: https
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

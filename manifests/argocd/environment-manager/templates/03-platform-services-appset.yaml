@@ -25,22 +25,22 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-          - appName: 'clickhouse-operator'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'false'
-            repoURL: 'https://helm.altinity.com'
-            targetRevision: '0.26.3'
-            path: ''
-            chart: 'altinity-clickhouse-operator'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              operator:
-                env:
-                  - name: WATCH_NAMESPACES
-                    value: ".*"
-            helmReleaseName: 'clickhouse-operator'
-            ignoreDifferencesNamespace: ''
+          # - appName: 'clickhouse-operator'
+          #   destinationNamespace: 'platform-ops'
+          #   isPlatformOwned: 'false'
+          #   repoURL: 'https://helm.altinity.com'
+          #   targetRevision: '0.26.3'
+          #   path: ''
+          #   chart: 'altinity-clickhouse-operator'
+          #   directoryRecurse: ''
+          #   directoryInclude: ''
+          #   helmValues: |
+          #     operator:
+          #       env:
+          #         - name: WATCH_NAMESPACES
+          #           value: ".*"
+          #   helmReleaseName: 'clickhouse-operator'
+          #   ignoreDifferencesNamespace: ''
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -162,97 +162,97 @@ spec:
                 enabled: false
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-          - appName: 'victoria-metrics-alerts'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/victoriametrics-alerts'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-          - appName: 'platform-victoriametrics-infisical'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/victoriametrics'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: 'infisical-integration.yaml'
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-          - appName: 'victoriametrics-ingress'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'false'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
-            targetRevision: 'main'
-            path: 'manifests/hub-core-services/victoriametrics'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: 'ingress.yaml'
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-          - appName: 'victoria-metrics-operator'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'false'
-            repoURL: 'https://victoriametrics.github.io/helm-charts'
-            targetRevision: '0.59.3'
-            path: ''
-            chart: 'victoria-metrics-operator'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-          - appName: 'victoria-metrics-cluster'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'false'
-            repoURL: 'https://victoriametrics.github.io/helm-charts'
-            targetRevision: '0.37.0'
-            path: ''
-            chart: 'victoria-metrics-cluster'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              vmselect:
-                replicaCount: 1
-                resources:
-                  requests:
-                    cpu: 250m
-                    memory: 256Mi
-                  limits:
-                    cpu: 1000m
-                    memory: 2Gi
-              vminsert:
-                replicaCount: 1
-                resources:
-                  requests:
-                    cpu: 250m
-                    memory: 256Mi
-                  limits:
-                    cpu: 1000m
-                    memory: 2Gi
-              vmstorage:
-                replicaCount: 1
-                persistentVolume:
-                  enabled: true
-                  size: 50Gi
-                resources:
-                  requests:
-                    cpu: 500m
-                    memory: 512Mi
-                  limits:
-                    cpu: 2000m
-                    memory: 4Gi
-              retentionPeriod: 30d
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
+          # - appName: 'victoria-metrics-alerts'
+          #   destinationNamespace: 'platform-observability'
+          #   isPlatformOwned: 'true'
+          #   repoURL: 'https://github.com/soloz-io/zero-ops'
+          #   targetRevision: ''
+          #   path: 'manifests/hub-core-services/victoriametrics-alerts'
+          #   chart: ''
+          #   directoryRecurse: ''
+          #   directoryInclude: ''
+          #   helmValues: ''
+          #   helmReleaseName: ''
+          #   ignoreDifferencesNamespace: ''
+          # - appName: 'platform-victoriametrics-infisical'
+          #   destinationNamespace: 'platform-observability'
+          #   isPlatformOwned: 'true'
+          #   repoURL: 'https://github.com/soloz-io/zero-ops'
+          #   targetRevision: ''
+          #   path: 'manifests/hub-core-services/victoriametrics'
+          #   chart: ''
+          #   directoryRecurse: 'true'
+          #   directoryInclude: 'infisical-integration.yaml'
+          #   helmValues: ''
+          #   helmReleaseName: ''
+          #   ignoreDifferencesNamespace: ''
+          # - appName: 'victoriametrics-ingress'
+          #   destinationNamespace: 'platform-observability'
+          #   isPlatformOwned: 'false'
+          #   repoURL: 'https://github.com/soloz-io/zero-ops.git'
+          #   targetRevision: 'main'
+          #   path: 'manifests/hub-core-services/victoriametrics'
+          #   chart: ''
+          #   directoryRecurse: 'true'
+          #   directoryInclude: 'ingress.yaml'
+          #   helmValues: ''
+          #   helmReleaseName: ''
+          #   ignoreDifferencesNamespace: ''
+          # - appName: 'victoria-metrics-operator'
+          #   destinationNamespace: 'platform-observability'
+          #   isPlatformOwned: 'false'
+          #   repoURL: 'https://victoriametrics.github.io/helm-charts'
+          #   targetRevision: '0.59.3'
+          #   path: ''
+          #   chart: 'victoria-metrics-operator'
+          #   directoryRecurse: ''
+          #   directoryInclude: ''
+          #   helmValues: ''
+          #   helmReleaseName: ''
+          #   ignoreDifferencesNamespace: ''
+          # - appName: 'victoria-metrics-cluster'
+          #   destinationNamespace: 'platform-observability'
+          #   isPlatformOwned: 'false'
+          #   repoURL: 'https://victoriametrics.github.io/helm-charts'
+          #   targetRevision: '0.37.0'
+          #   path: ''
+          #   chart: 'victoria-metrics-cluster'
+          #   directoryRecurse: ''
+          #   directoryInclude: ''
+          #   helmValues: |
+          #     vmselect:
+          #       replicaCount: 1
+          #       resources:
+          #         requests:
+          #           cpu: 250m
+          #           memory: 256Mi
+          #         limits:
+          #           cpu: 1000m
+          #           memory: 2Gi
+          #     vminsert:
+          #       replicaCount: 1
+          #       resources:
+          #         requests:
+          #           cpu: 250m
+          #           memory: 256Mi
+          #         limits:
+          #           cpu: 1000m
+          #           memory: 2Gi
+          #     vmstorage:
+          #       replicaCount: 1
+          #       persistentVolume:
+          #         enabled: true
+          #         size: 50Gi
+          #       resources:
+          #         requests:
+          #           cpu: 500m
+          #           memory: 512Mi
+          #         limits:
+          #           cpu: 2000m
+          #           memory: 4Gi
+          #     retentionPeriod: 30d
+          #   helmReleaseName: ''
+          #   ignoreDifferencesNamespace: ''
           - appName: 'kube-sbt-api'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
