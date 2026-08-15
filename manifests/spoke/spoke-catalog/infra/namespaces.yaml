@@ -50,3 +50,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: argo-rollouts
+---
+# ADR-049: cilium-secrets namespace for Cilium Gateway API SecretSync (SDS TLS secrets)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cilium-secrets

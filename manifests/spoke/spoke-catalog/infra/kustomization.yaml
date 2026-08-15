@@ -6,6 +6,9 @@ resources:
   - crds/cert-manager-crds.yaml
   # ADR-035: infisical-issuer CRDs (InfisicalClusterIssuer, InfisicalIssuer)
   - crds/infisical-issuer-crd.yaml
+  # Standard Kubernetes Gateway API CRDs (GatewayClass, Gateway, HTTPRoute, ReferenceGrant)
+  - crds/gateway-api-crds.yaml
+  - gatewayclass.yaml
   - namespaces.yaml
   # ADR-047: spoke platform operators (vendored, wave 0) — crossplane, ESO,
   # kyverno, cloudnative-pg. Their CRDs apply at wave -5.

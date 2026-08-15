@@ -1,0 +1,15 @@
+[Unit]
+Description=Tailscale + Kubelet watchdog timer (runs every 60s)
+Documentation=https://github.com/soloz-io/ide/tree/main/zero-ops/scripts/hybrid/wsl2
+
+[Timer]
+# Fire 30s after boot to let network settle
+OnBootSec=30s
+# Then every 60s indefinitely
+OnUnitActiveSec=60s
+# If the service was missed (e.g. system was suspended), fire immediately on wake
+Persistent=true
+Unit=tailscale-watchdog.service
+
+[Install]
+WantedBy=timers.target

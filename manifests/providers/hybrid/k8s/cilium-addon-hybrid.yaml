@@ -186,6 +186,9 @@ stringData:
 
       # Enables L7 proxy for L7 policy enforcement and visibility
       enable-l7-proxy: "true"
+      # Enables Gateway API controller in Cilium (ADR-049)
+      enable-gateway-api: "true"
+      enable-envoy-config: "true"
 
       enable-ipv4-masquerade: "true"
       enable-ipv4-big-tcp: "false"
@@ -313,6 +316,7 @@ stringData:
       - pods
       - endpoints
       - nodes
+      - secrets
       verbs:
       - get
       - list
@@ -615,6 +619,57 @@ stringData:
       - create
       - get
       - update
+    - apiGroups:
+      - ""
+      resources:
+      - namespaces
+      - secrets
+      verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+      - patch
+    - apiGroups:
+      - ""
+      resources:
+      - services
+      - endpoints
+      verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+      - patch
+    - apiGroups:
+      - gateway.networking.k8s.io
+      resources:
+      - gatewayclasses
+      - gateways
+      - tlsroutes
+      - httproutes
+      - grpcroutes
+      - referencegrants
+      - referencepolicies
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - gateway.networking.k8s.io
+      resources:
+      - gatewayclasses/status
+      - gateways/status
+      - httproutes/status
+      - grpcroutes/status
+      - tlsroutes/status
+      verbs:
+      - update
+      - patch
     ---
     # Source: cilium/templates/cilium-agent/clusterrolebinding.yaml
     apiVersion: rbac.authorization.k8s.io/v1
