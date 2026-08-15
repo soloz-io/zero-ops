@@ -30,6 +30,27 @@ The platform runs a hybrid development topology (ADR-046) combining a Hetzner-ho
 4. **Right-Size Development Spoke Databases:**
    - Configure spoke PostgreSQL (`shared-cnpg`) with a single instance (`instances: 1`) for non-production environments.
 
+So your architecture can become much simpler:
+
+```text
+                    Applications
+                         │
+                         ↓
+                  Grafana Alloy
+                    /         \
+                   /           \
+              Metrics           Logs
+                 │                │
+                 ↓                ↓
+        Grafana Cloud          Grafana Cloud
+        Metrics (Mimir)        Logs (Loki)
+                 │                │
+                 └───────┬────────┘
+                         ↓
+                    Grafana Cloud
+                       Grafana
+```
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
