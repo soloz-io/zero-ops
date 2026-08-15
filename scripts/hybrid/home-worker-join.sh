@@ -82,20 +82,22 @@ kubectl --kubeconfig="${HUB_KUBECONFIG}" \
 
 if kubectl --kubeconfig="$SPOKE_KUBECONFIG" get node "${HOSTNAME}" &>/dev/null; then
   NODE_READY=$(kubectl --kubeconfig="$SPOKE_KUBECONFIG" get node "${HOSTNAME}" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
   echo "[join] Node ${HOSTNAME} already in cluster (Ready: ${NODE_READY})"
 
-  if [[ "$NODE_READY" == "True" ]]; then
-    # Ensure labels are present
-    kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
-      "workload-location=home" \
-      "node-role.kubernetes.io/home=" \
-      --overwrite
-    echo "[join] ✓ Labels verified"
+  # Ensure services are active and running
+  systemctl start tailscaled containerd kubelet 2>/dev/null || true
+
+  # Ensure labels are present
+  kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
+    "workload-location=home" \
+    "node-role.kubernetes.io/home=" \
+    --overwrite 2>/dev/null || true
+  echo "[join] ✓ Labels verified"
+
+  if [[ -f /etc/kubernetes/kubelet.conf ]]; then
+    echo "[join] ✓ Node is already provisioned — exiting cleanly (no reset needed)"
     exit 0
-  else
-    echo "[join] ⚠ Node ${HOSTNAME} exists in cluster but is NotReady (${NODE_READY}) — cleaning up stale API object..."
-    kubectl --kubeconfig="$SPOKE_KUBECONFIG" delete node "${HOSTNAME}" --ignore-not-found 2>/dev/null || true
   fi
 fi
 
@@ -133,9 +135,9 @@ CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT%%/*}"
 echo "[join] ✓ Join payload received (endpoint: ${CONTROL_PLANE_ENDPOINT})"
 
 # ── 4. kubeadm join ──────────────────────────────────────────────────────────
-# Guard: if a previous partial join left stale files, reset before retrying.
+# Guard: only reset if kubelet.conf is broken/unusable
 if [[ -f /etc/kubernetes/kubelet.conf || -f /etc/kubernetes/pki/ca.crt ]]; then
-  echo "[join] ⚠ Stale kubeadm files detected — running 'kubeadm reset' to clean up..."
+  echo "[join] ⚠ Cleaning up previous partial join state..."
   kubeadm reset -f --cleanup-tmp-dir 2>&1 || true
   echo "[join] ✓ Reset complete"
 fi

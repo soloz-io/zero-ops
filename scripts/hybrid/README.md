@@ -1,46 +1,47 @@
-# Hybrid Home-Lab Scripts (ADR-046)
+# Hybrid Home-Lab Operations & Runbook (ADR-046)
 
-One command to run from the Mac after any Windows reboot or network disconnect:
+## Quick Recovery (When a Node Goes `NotReady` or Drops)
+
+If any worker node shows `NotReady` or disconnects, run this single command from your Mac:
 
 ```bash
+# Recover specific node (Node 1 = Dell, Node 2 = Lenovo)
 ./scripts/hybrid/recover-wsl2-nat.sh --node 1
+./scripts/hybrid/recover-wsl2-nat.sh --node 2
+
+# Or recover ALL registered nodes at once:
+./scripts/hybrid/recover-wsl2-nat.sh
 ```
 
-That's it. It handles everything:
-- WinNAT restart on Windows (rebuilds vEthernet WSL)
-- Tailscale re-auth if needed (prints login URL; approve in browser)
-- kubelet drop-in push (After=containerd)
-- kubeadm rejoin + node Ready check
+### What this command does automatically:
+1. **Rebuilds WinNAT / HNS**: Restarts Windows Host Network Service and ICS to fix any stale virtual adapter state.
+2. **Re-establishes Tailscale Mesh**: Verifies connectivity and auto-restarts `tailscaled`.
+3. **Restores Services Non-Destructively**: Ensures `containerd` and `kubelet` are healthy without wiping cluster state.
+4. **Verifies Spoke Cluster `Ready`**: Checks and confirms `Ready: True` status in the spoke cluster.
 
 ---
 
-## Normal boot (no manual action needed)
+## Daily Operational Commands
 
-After the fixes are applied, `wsl2-node-1` self-heals on Windows boot:
-
-1. WSL2 starts → systemd starts tailscaled
-2. `ExecStartPre` polls `172.27.32.1 UDP/53` until WinNAT DNS relay is up (≤90s)
-3. tailscaled authenticates → Tailscale connects
-4. `hybrid-home-worker-join.timer` fires → kubeadm join verifies membership
-
-No Mac intervention required after a clean Windows reboot.
-
----
-
-## When to run `recover-wsl2-nat.sh`
-
-Run it when `wsl2-node-1` shows `NotReady` or Tailscale shows `NoState` and the
-self-heal hasn't kicked in (e.g. WinNAT fully crashed, not just slow to start):
-
+### 1. Check Live Cluster & Node Health
 ```bash
-# Single node (usual case)
-./scripts/hybrid/recover-wsl2-nat.sh --node 1
+SPOKE_KC=$(kubectl --kubeconfig=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig get secret spoke-pool-hybrid-dev-01-kubeconfig -n platform-capi -o jsonpath='{.data.value}' | base64 -d | cat)
 
-# Skip kubeadm rejoin (network/Tailscale fix only)
-./scripts/hybrid/recover-wsl2-nat.sh --node 1 --skip-join
+# View all nodes
+echo "$SPOKE_KC" | kubectl --kubeconfig=/dev/stdin get nodes -o wide
 
-# Check spoke node status
-kubectl --kubeconfig=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig get nodes
+# View Cilium agents
+echo "$SPOKE_KC" | kubectl --kubeconfig=/dev/stdin get pods -n kube-system -l k8s-app=cilium -o wide
+```
+
+### 2. After a Windows Reboot / Screen Idle
+The system is configured with 24/7 background keepalive (`HybridWSLKeepAlive<IDX>`). If a host was fully rebooted:
+```bash
+# 1. Ensure Windows host power & persistence policies are active:
+./scripts/hybrid/harden-windows-host.sh
+
+# 2. Verify / re-join worker nodes:
+./scripts/hybrid/join-home-workers.sh
 ```
 
 ---
