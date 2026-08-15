@@ -96,6 +96,15 @@ try {
   fi
 }
 
+# ── wsl_exec ─────────────────────────────────────────────────────────────────
+# Robustly executes a bash script snippet inside WSL via SSH to the Windows host.
+# Bypasses Windows shell quoting/escaping issues by piping the command via stdin.
+wsl_exec() {
+  local SSH_TARGET="$1" WSL_DISTRO="$2" CMD="$3"
+  printf '%s\n' "$CMD" | ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+    "$SSH_TARGET" "wsl.exe -d $WSL_DISTRO -u root -e bash -l"
+}
+
 # ── check_member_status ───────────────────────────────────────────────────────
 # Prints Ready/NotReady status for every node using the spoke kubeconfig.
 check_member_status() {
@@ -141,16 +150,13 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
     continue
   fi
 
-  # WSL entry point (Windows default shell is PowerShell; always invoke bash in WSL).
-  WSL="wsl -d ${WSL_DISTRO} -u root -e bash -lc"
-
+  # WSL entry point is now handled by wsl_exec.
   # 2. Tailscale must be up + authenticated inside WSL. tailscaled can flap
   #    (transient "NoState" during restart), so retry for up to ~60s.
   echo "    → waiting for Tailscale in ${WSL_DISTRO}..."
   TS_OK=0
   for _ in $(seq 1 12); do
-    if ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-          "${SSH_TARGET}" "${WSL} 'tailscale status --peers=false >/dev/null 2>&1'"; then
+    if wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" 'tailscale status --peers=false >/dev/null 2>&1'; then
       TS_OK=1
       break
     fi
@@ -162,17 +168,15 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   fi
   echo "    ✓ SSH + Tailscale"
 
-  # 3. Push hub kubeconfig (base64 to dodge PowerShell quoting)
+  # 3. Push hub kubeconfig
   echo "    → pushing hub kubeconfig → ${REMOTE_KUBECONFIG}"
   KCB64="$(base64 < "$HUB_KUBECONFIG" | tr -d '\n')"
-  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-    "${SSH_TARGET}" "${WSL} 'mkdir -p ${REMOTE_DIR} && echo ${KCB64} | base64 -d > ${REMOTE_KUBECONFIG} && chmod 600 ${REMOTE_KUBECONFIG}'"
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" "mkdir -p ${REMOTE_DIR} && echo ${KCB64} | base64 -d > ${REMOTE_KUBECONFIG} && chmod 600 ${REMOTE_KUBECONFIG}"
 
   # 4. Push the join script + env
   echo "    → pushing join tooling → ${REMOTE_DIR}"
   SB64="$(base64 < "$JOIN_SCRIPT" | tr -d '\n')"
-  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-    "${SSH_TARGET}" "${WSL} 'echo ${SB64} | base64 -d > ${REMOTE_DIR}/home-worker-join.sh && chmod 700 ${REMOTE_DIR}/home-worker-join.sh'"
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" "echo ${SB64} | base64 -d > ${REMOTE_DIR}/home-worker-join.sh && chmod 700 ${REMOTE_DIR}/home-worker-join.sh"
 
   # Node-local env: same registry, but HUB_KUBECONFIG is the pushed copy.
   {
@@ -185,8 +189,7 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   } > /tmp/hybrid-home-lab.$$.env
   EB64="$(base64 < /tmp/hybrid-home-lab.$$.env | tr -d '\n')"
   rm -f /tmp/hybrid-home-lab.$$.env
-  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-    "${SSH_TARGET}" "${WSL} 'echo ${EB64} | base64 -d > ${REMOTE_ENV}'"
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" "echo ${EB64} | base64 -d > ${REMOTE_ENV}"
 
   # 5. Windows Task Scheduler auto-start (reboot resilience)
   install_windows_autostart "$SSH_TARGET" "$WSL_DISTRO" "$NODE_IDX" "$HOSTNAME"
@@ -200,13 +203,12 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   DROPIN_FILE="${DROPIN_DIR}/10-containerd-ordering.conf"
   DROPIN_CONTENT=$(printf '[Unit]\nAfter=containerd.service\nRequires=containerd.service\n')
   DROPINB64="$(printf '%s' "$DROPIN_CONTENT" | base64 | tr -d '\n')"
-  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-    "${SSH_TARGET}" \
-    "${WSL} 'mkdir -p ${DROPIN_DIR} && \
-      echo ${DROPINB64} | base64 -d > ${DROPIN_FILE}.tmp && \
-      if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
-        mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && systemctl daemon-reload && echo DROPIN=UPDATED; \
-      else rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; fi'" \
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" \
+    "mkdir -p ${DROPIN_DIR} && \
+     echo ${DROPINB64} | base64 -d > ${DROPIN_FILE}.tmp && \
+     if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
+       mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && systemctl daemon-reload && echo DROPIN=UPDATED; \
+     else rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; fi" \
     2>/dev/null | grep -E 'DROPIN=' | head -1 \
     | sed 's/DROPIN=/    ✓ kubelet drop-in: /' || true
 
@@ -242,13 +244,12 @@ EOF
   SVCB64="$(base64 < /tmp/hybrid-join.$$.service | tr -d '\n')"
   TIMERB64="$(base64 < /tmp/hybrid-join.$$.timer | tr -d '\n')"
   rm -f /tmp/hybrid-join.$$.service /tmp/hybrid-join.$$.timer
-  ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-    "${SSH_TARGET}" "${WSL} 'echo ${SVCB64} | base64 -d > ${SVC} && echo ${TIMERB64} | base64 -d > ${TIMER} && systemctl daemon-reload && systemctl enable --now ${UNIT}.timer && systemctl restart ${UNIT}.service'"
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" \
+    "echo ${SVCB64} | base64 -d > ${SVC} && echo ${TIMERB64} | base64 -d > ${TIMER} && systemctl daemon-reload && systemctl enable --now ${UNIT}.timer && systemctl restart ${UNIT}.service"
 
   # 7. Run the join now and report result
   echo "    → running join on node ${NODE_IDX}"
-  if ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=no \
-        "${SSH_TARGET}" "${WSL} '${REMOTE_DIR}/home-worker-join.sh ${NODE_IDX} --env ${REMOTE_ENV}'"; then
+  if wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" "${REMOTE_DIR}/home-worker-join.sh ${NODE_IDX} --env ${REMOTE_ENV}"; then
     echo "    ✓ ${HOSTNAME} join completed (or already member)"
   else
     echo "    ✗ ${HOSTNAME} join returned non-zero — see node logs above." >&2

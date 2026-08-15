@@ -57,7 +57,19 @@ if [[ -z "$TAILSCALE_IP" ]]; then
 fi
 echo "[join] ✓ Tailscale IP: ${TAILSCALE_IP}"
 
-# ── 2. Idempotency check — already a member? ─────────────────────────────────
+# ── 1b. Pin DNS to 1.1.1.1 (Tailscale MagicDNS IPv6 misbehaves on WSL2) ─────
+# Tailscale's default /etc/resolv.conf includes fd7a:115c:a1e0::53 which causes
+# "server misbehaving" for external DNS queries, breaking containerd image pulls.
+# Disable Tailscale DNS management and lock resolv.conf to public resolvers.
+if ! grep -q '^nameserver 1.1.1.1' /etc/resolv.conf 2>/dev/null; then
+  echo "[join] Pinning DNS to 1.1.1.1 (disabling Tailscale DNS override)..."
+  tailscale set --accept-dns=false 2>/dev/null || true
+  chattr -i /etc/resolv.conf 2>/dev/null || true
+  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+  chattr +i /etc/resolv.conf
+  echo "[join] ✓ DNS pinned to 1.1.1.1"
+fi
+
 echo "[join] Checking if ${HOSTNAME} is already in the cluster..."
 SPOKE_KUBECONFIG=$(mktemp /tmp/hybrid-spoke-XXXXXX.kubeconfig)
 trap 'rm -f "$SPOKE_KUBECONFIG"' EXIT
@@ -116,6 +128,40 @@ CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT%%/*}"
 echo "[join] ✓ Join payload received (endpoint: ${CONTROL_PLANE_ENDPOINT})"
 
 # ── 4. kubeadm join ──────────────────────────────────────────────────────────
+# Guard: if a previous partial join left stale files, reset before retrying.
+if [[ -f /etc/kubernetes/kubelet.conf || -f /etc/kubernetes/pki/ca.crt ]]; then
+  echo "[join] ⚠ Stale kubeadm files detected — running 'kubeadm reset' to clean up..."
+  kubeadm reset -f --cleanup-tmp-dir 2>&1 || true
+  echo "[join] ✓ Reset complete"
+fi
+
+# Guard: WSL2 enables swap by default (/dev/sdc). Kubelet refuses to start
+# with swap on unless --fail-swap-on=false is set. Disable swap for this
+# session and install a persistent kubelet drop-in so reboots stay clean.
+echo "[join] Disabling swap (WSL2 swap causes kubelet to refuse to start)..."
+swapoff -a 2>/dev/null || true
+mkdir -p /etc/systemd/system/kubelet.service.d
+cat > /etc/systemd/system/kubelet.service.d/20-wsl2-no-swap.conf <<'EOF'
+[Service]
+Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false"
+EOF
+systemctl daemon-reload
+echo "[join] ✓ Swap off + kubelet drop-in installed"
+
+# Guard: containerd must be up before kubeadm can start kubelet successfully.
+echo "[join] Waiting for containerd socket..."
+for i in $(seq 1 30); do
+  if [[ -S /run/containerd/containerd.sock ]]; then
+    echo "[join] ✓ containerd socket ready"
+    break
+  fi
+  if [[ "$i" -eq 30 ]]; then
+    echo "ERROR: containerd not ready after 30s — is containerd.service enabled?" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
 echo "[join] Running kubeadm join..."
 kubeadm join "${CONTROL_PLANE_ENDPOINT}" \
   --token "${JOIN_TOKEN}" \

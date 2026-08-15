@@ -65,6 +65,15 @@ win_ps() {
     "$SSH_TARGET" "powershell -NoProfile -EncodedCommand $B64" 2>/dev/null
 }
 
+# ── wsl_exec ─────────────────────────────────────────────────────────────────
+# Robustly executes a bash script snippet inside WSL via SSH to the Windows host.
+# Bypasses Windows shell quoting/escaping issues by piping the command via stdin.
+wsl_exec() {
+  local SSH_TARGET="$1" WSL_DISTRO="$2" CMD="$3"
+  printf '%s\n' "$CMD" | ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+    "$SSH_TARGET" "wsl.exe -d $WSL_DISTRO -u root -e bash -l"
+}
+
 # ── restart_winnat ───────────────────────────────────────────────────────────
 # Shuts down WSL, restarts WinNAT (SharedAccess) and HNS so the vEthernet
 # (WSL) adapter is fully rebuilt.  The sequence matters:
@@ -127,13 +136,11 @@ try {
 # ── verify_wsl_tcp ───────────────────────────────────────────────────────────
 # Verify basic TCP + DNS is working inside WSL by curling 1.1.1.1 over HTTPS.
 verify_wsl_tcp() {
-  local SSH_TARGET="$1" WSL="$2"
+  local SSH_TARGET="$1" WSL_DISTRO="$2"
   echo "    → verifying WSL2 TCP (curl https://1.1.1.1, up to 30s)..."
   for _ in $(seq 1 6); do
     local HTTP_CODE
-    HTTP_CODE=$(ssh -o BatchMode=yes -o ConnectTimeout=12 -o StrictHostKeyChecking=no \
-      "$SSH_TARGET" "${WSL} 'curl -sk -o /dev/null -w \"%{http_code}\" https://1.1.1.1 --connect-timeout 8'" \
-      2>/dev/null || echo "000")
+    HTTP_CODE=$(wsl_exec "$SSH_TARGET" "$WSL_DISTRO" 'curl -sk -o /dev/null -w "%{http_code}" https://1.1.1.1 --connect-timeout 8' 2>/dev/null || echo "000")
     case "$HTTP_CODE" in
       200|301|302) echo "    ✓ WSL2 TCP OK (HTTP $HTTP_CODE)"; return 0 ;;
     esac
@@ -149,7 +156,7 @@ verify_wsl_tcp() {
 # Fixes the restart-loop caused by kubelet starting before containerd.sock exists.
 # Idempotent: no-op if the drop-in already exists with the correct content.
 ensure_kubelet_dropin() {
-  local SSH_TARGET="$1" WSL="$2"
+  local SSH_TARGET="$1" WSL_DISTRO="$2"
   echo "    → ensuring kubelet After=containerd drop-in..."
   local DROPIN_DIR="/etc/systemd/system/kubelet.service.d"
   local DROPIN_FILE="${DROPIN_DIR}/10-containerd-ordering.conf"
@@ -158,17 +165,16 @@ ensure_kubelet_dropin() {
   local B64
   B64=$(printf '%s' "$DROPIN_CONTENT" | base64 | tr -d '\n')
   local OUT
-  OUT=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-    "$SSH_TARGET" \
-    "${WSL} 'mkdir -p ${DROPIN_DIR} && \
-      echo ${B64} | base64 -d > ${DROPIN_FILE}.tmp && \
-      if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
-        mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && \
-        systemctl daemon-reload && \
-        echo DROPIN=UPDATED; \
-      else \
-        rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; \
-      fi'" 2>/dev/null || echo "DROPIN=ERR")
+  OUT=$(wsl_exec "$SSH_TARGET" "$WSL_DISTRO" \
+    "mkdir -p ${DROPIN_DIR} && \
+     echo ${B64} | base64 -d > ${DROPIN_FILE}.tmp && \
+     if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
+       mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && \
+       systemctl daemon-reload && \
+       echo DROPIN=UPDATED; \
+     else \
+       rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; \
+     fi" 2>/dev/null || echo "DROPIN=ERR")
   echo "$OUT" | grep -E 'DROPIN=' | head -1 | sed 's/DROPIN=/    ✓ kubelet drop-in: /'
 }
 
@@ -176,11 +182,10 @@ ensure_kubelet_dropin() {
 # Re-authenticate Tailscale if it is in NoState / NeedsLogin / Stopped.
 # Prints the login URL if interactive auth is required; user must approve it.
 recover_tailscale() {
-  local SSH_TARGET="$1" WSL="$2" HOSTNAME="$3"
+  local SSH_TARGET="$1" WSL_DISTRO="$2" HOSTNAME="$3"
   echo "    → checking Tailscale state..."
   local TS_STATE
-  TS_STATE=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-    "$SSH_TARGET" "${WSL} 'tailscale status --peers=false 2>&1 || true'" 2>/dev/null | head -3)
+  TS_STATE=$(wsl_exec "$SSH_TARGET" "$WSL_DISTRO" "tailscale status --peers=false 2>&1 || true" 2>/dev/null | head -3)
 
   if echo "$TS_STATE" | grep -q "100\."; then
     echo "    ✓ Tailscale already Connected"
@@ -189,17 +194,13 @@ recover_tailscale() {
 
   echo "    ⚠ Tailscale not Connected (state: $(echo "$TS_STATE" | head -1))"
   echo "    → restarting tailscaled..."
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-    "$SSH_TARGET" "${WSL} 'systemctl restart tailscaled; sleep 3'" 2>/dev/null || true
+  wsl_exec "$SSH_TARGET" "$WSL_DISTRO" "systemctl restart tailscaled; sleep 3" 2>/dev/null || true
 
   echo "    → running tailscale up --hostname=${HOSTNAME} ..."
   echo "    ─────────────────────────────────────────────────────────────"
   # Run with short timeout; prints login URL synchronously then exits non-zero if
   # waiting for approval. Capture the URL so the user sees it.
-  ssh -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no \
-    "$SSH_TARGET" \
-    "${WSL} 'timeout 20 tailscale up --hostname=${HOSTNAME} --accept-routes 2>&1 || true'" \
-    2>/dev/null || true
+  wsl_exec "$SSH_TARGET" "$WSL_DISTRO" "timeout 20 tailscale up --hostname=${HOSTNAME} --accept-routes 2>&1 || true" 2>/dev/null || true
   echo "    ─────────────────────────────────────────────────────────────"
   echo "    ℹ If a URL appeared above, approve it in your browser now."
   read -r -p "    [Press ENTER when Tailscale is approved / already connected] "
@@ -207,12 +208,11 @@ recover_tailscale() {
 
 # ── verify_tailscale ─────────────────────────────────────────────────────────
 verify_tailscale() {
-  local SSH_TARGET="$1" WSL="$2"
+  local SSH_TARGET="$1" WSL_DISTRO="$2"
   echo "    → verifying Tailscale (up to 60s)..."
   for _ in $(seq 1 12); do
     local TS_IP
-    TS_IP=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-      "$SSH_TARGET" "${WSL} 'tailscale ip -4 2>/dev/null || true'" 2>/dev/null || echo "")
+    TS_IP=$(wsl_exec "$SSH_TARGET" "$WSL_DISTRO" "tailscale ip -4 2>/dev/null || true" 2>/dev/null || echo "")
     if [[ "$TS_IP" =~ ^100\. ]]; then
       echo "    ✓ Tailscale Connected: ${TS_IP}"
       return 0
@@ -247,8 +247,6 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   fi
   echo "    ✓ SSH to Windows host"
 
-  WSL="wsl -d ${WSL_DISTRO} -u root -e bash -lc"
-
   # Step 1+2+3: WinNAT restart + adapter verify
   if ! restart_winnat "$SSH_TARGET"; then
     RECOVER_FAILED+=("${HOSTNAME}")
@@ -256,17 +254,17 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   fi
 
   # Step 4: Verify TCP inside WSL
-  if ! verify_wsl_tcp "$SSH_TARGET" "$WSL"; then
+  if ! verify_wsl_tcp "$SSH_TARGET" "$WSL_DISTRO"; then
     RECOVER_FAILED+=("${HOSTNAME}")
     continue
   fi
 
   # Step 5: Fix kubelet/containerd ordering drop-in (idempotent)
-  ensure_kubelet_dropin "$SSH_TARGET" "$WSL"
+  ensure_kubelet_dropin "$SSH_TARGET" "$WSL_DISTRO"
 
   # Step 6: Tailscale recovery + interactive re-auth
-  recover_tailscale "$SSH_TARGET" "$WSL" "$HOSTNAME"
-  if ! verify_tailscale "$SSH_TARGET" "$WSL"; then
+  recover_tailscale "$SSH_TARGET" "$WSL_DISTRO" "$HOSTNAME"
+  if ! verify_tailscale "$SSH_TARGET" "$WSL_DISTRO"; then
     RECOVER_FAILED+=("${HOSTNAME}")
     continue
   fi
