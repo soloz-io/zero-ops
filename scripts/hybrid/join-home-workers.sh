@@ -109,7 +109,7 @@ wsl_exec() {
 # Prints Ready/NotReady status for every node using the spoke kubeconfig.
 check_member_status() {
   local SPOKE_KC
-  SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX.kubeconfig)
+  SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
   trap 'rm -f "$SPOKE_KC"' RETURN
   if ! kubectl --kubeconfig="${HUB_KUBECONFIG}" \
         get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \

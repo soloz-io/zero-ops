@@ -71,7 +71,7 @@ if ! grep -q '^nameserver 1.1.1.1' /etc/resolv.conf 2>/dev/null; then
 fi
 
 echo "[join] Checking if ${HOSTNAME} is already in the cluster..."
-SPOKE_KUBECONFIG=$(mktemp /tmp/hybrid-spoke-XXXXXX.kubeconfig)
+SPOKE_KUBECONFIG=$(mktemp /tmp/hybrid-spoke-XXXXXX)
 trap 'rm -f "$SPOKE_KUBECONFIG"' EXIT
 
 # Fetch spoke kubeconfig from Hub
@@ -138,15 +138,15 @@ fi
 # Guard: WSL2 enables swap by default (/dev/sdc). Kubelet refuses to start
 # with swap on unless --fail-swap-on=false is set. Disable swap for this
 # session and install a persistent kubelet drop-in so reboots stay clean.
-echo "[join] Disabling swap (WSL2 swap causes kubelet to refuse to start)..."
+echo "[join] Disabling swap + setting --node-ip=${TAILSCALE_IP}..."
 swapoff -a 2>/dev/null || true
 mkdir -p /etc/systemd/system/kubelet.service.d
-cat > /etc/systemd/system/kubelet.service.d/20-wsl2-no-swap.conf <<'EOF'
+cat > /etc/systemd/system/kubelet.service.d/20-wsl2-node-config.conf <<EOF
 [Service]
-Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false"
+Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false --node-ip=${TAILSCALE_IP}"
 EOF
 systemctl daemon-reload
-echo "[join] ✓ Swap off + kubelet drop-in installed"
+echo "[join] ✓ Swap off + kubelet --node-ip=${TAILSCALE_IP} drop-in installed"
 
 # Guard: containerd must be up before kubeadm can start kubelet successfully.
 echo "[join] Waiting for containerd socket..."
@@ -167,6 +167,18 @@ kubeadm join "${CONTROL_PLANE_ENDPOINT}" \
   --token "${JOIN_TOKEN}" \
   --discovery-token-ca-cert-hash "sha256:${JOIN_CA_HASH}" \
   --node-name "${HOSTNAME}"
+
+# Force --node-ip=${TAILSCALE_IP} in /var/lib/kubelet/kubeadm-flags.env so kubelet registers
+# its Tailscale IP as InternalIP rather than the unroutable WSL2 internal NAT IP.
+if [[ -f /var/lib/kubelet/kubeadm-flags.env ]]; then
+  if grep -q '--node-ip=' /var/lib/kubelet/kubeadm-flags.env; then
+    sed -i "s/--node-ip=[^ \"]*/--node-ip=${TAILSCALE_IP}/g" /var/lib/kubelet/kubeadm-flags.env
+  else
+    sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TAILSCALE_IP} /g" /var/lib/kubelet/kubeadm-flags.env
+  fi
+  systemctl restart kubelet
+  echo "[join] ✓ Forced --node-ip=${TAILSCALE_IP} in kubeadm-flags.env"
+fi
 
 # ── 5. Apply labels + taints ─────────────────────────────────────────────────
 echo "[join] Applying workload-location labels..."

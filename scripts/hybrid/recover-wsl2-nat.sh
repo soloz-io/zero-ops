@@ -203,7 +203,7 @@ recover_tailscale() {
   wsl_exec "$SSH_TARGET" "$WSL_DISTRO" "timeout 20 tailscale up --hostname=${HOSTNAME} --accept-routes 2>&1 || true" 2>/dev/null || true
   echo "    ─────────────────────────────────────────────────────────────"
   echo "    ℹ If a URL appeared above, approve it in your browser now."
-  read -r -p "    [Press ENTER when Tailscale is approved / already connected] "
+  read -r -p "    [Press ENTER when Tailscale is approved / already connected] " || true
 }
 
 # ── verify_tailscale ─────────────────────────────────────────────────────────
