@@ -207,6 +207,22 @@ spec:
               # pure-hetzner spokes → the pre-kubeadm Tailscale block no-ops.
               name: tailscale-hybrid-psk
               key: hostname
+        - path: /etc/systemd/system/cilium-host-prep.service
+          owner: root
+          permissions: "0644"
+          content: |
+            [Unit]
+            Description=Cilium host cgroup2+BPF prep (control-plane node)
+            Before=containerd.service kubelet.service
+            After=local-fs.target
+
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/bash -c 'mkdir -p /run/cilium/cgroupv2 && mount -t cgroup2 none /run/cilium/cgroupv2 || true; mount --make-shared /run/cilium/cgroupv2 || true; mount -t bpf bpf /sys/fs/bpf || true; mount --make-shared /sys/fs/bpf || true'
+
+            [Install]
+            WantedBy=multi-user.target
         preKubeadmCommands:
         - set -x
         - export CONTAINERD=1.7.26
@@ -238,6 +254,18 @@ spec:
         - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
         - sysctl -p
         - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+        # Cilium host cgroup2/BPF prep (ADR-046). Cilium's socket-based
+        # kube-proxy-replacement needs a real cgroup2 mount at
+        # /run/cilium/cgroupv2 marked SHARED so the agent's mount propagations
+        # can see the host kubepods hierarchy. On the hybrid provider this is
+        # required because the hybrid cilium-addon manifest no-ops the stock
+        # mount-cgroup init (which is silently broken under WSL2's private
+        # namespaces); the CP host must therefore establish the mount itself.
+        # The systemd unit (written via files[]) also re-creates it at every
+        # boot (/run is tmpfs). Idempotent — also harmless on pure-hetzner
+        # spokes, where it simply pre-creates what stock mount-cgroup does.
+        - systemctl daemon-reload && systemctl enable cilium-host-prep.service && systemctl start cilium-host-prep.service
+        - 'findmnt -n -t cgroup2 /run/cilium/cgroupv2 || { echo "cilium-host-prep FAILED"; exit 1; }'
         - mkdir -p /etc/apt/keyrings/
         - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
         - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list

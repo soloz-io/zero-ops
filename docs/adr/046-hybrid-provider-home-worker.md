@@ -156,10 +156,18 @@ The shared `cilium-addon-template` used by Hetzner spokes is left unchanged.
 **Pre-rollout requirement**: before every `kubectl rollout restart daemonset/cilium`
 on the hybrid spoke, run `scripts/hybrid/fix-cilium-pid.sh` to clear any
 stale `/var/run/cilium/cilium.pid` (may contain PID 1) on WSL2 nodes, which
-would otherwise block the `clean-cilium-state` init container. The Hetzner CP
-node also needs the host shared cgroup2 mount (apply `prepare-wsl2-cgroup.sh`
-steps or an equivalent privileged host prep); on the CP this is a plain
-systemd service rather than the WSL2 mount workaround.
+would otherwise block the `clean-cilium-state` init container.
+
+**Control-plane durability**: the Hetzner CP node also needs the host shared
+cgroup2 mount (the hybrid manifest no-ops the stock `mount-cgroup` init, so
+the CP host must establish it itself). Codified in the shared ClusterClass
+(`_shared/spokepool-clusterclass-v1.yaml`): a `cilium-host-prep.service`
+systemd unit is written via `files[]` and enabled/started in
+`preKubeadmCommands`, re-creating the shared cgroup2/BPF mounts at every boot
+(`/run` is tmpfs), with a fail-closed `findmnt` gate. Idempotent and harmless
+on pure-hetzner spokes (it pre-creates what stock `mount-cgroup` would
+establish anyway). The WSL2 home workers use the same unit via
+`setup-wsl2-node.sh`.
 
 ### Provider Registry
 
