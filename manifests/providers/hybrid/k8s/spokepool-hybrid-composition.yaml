@@ -151,8 +151,8 @@ spec:
                         # NATS leaf node credentials
                         - name: ""
                           kind: Secret
-                        # CNI, CCM, and CSI
-                        - name: cilium-addon-template
+                        # CNI: hybrid-specific variant with WSL2 cgroup-namespace fix (ADR-046)
+                        - name: cilium-addon-hybrid
                           kind: Secret
                         - name: ccm-addon-template
                           kind: Secret

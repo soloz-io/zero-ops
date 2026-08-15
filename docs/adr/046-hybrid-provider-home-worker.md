@@ -102,6 +102,65 @@ Home workers never appear in the ClusterClass topology.
 - Default workloads: `nodeSelector: workload-location: home`.
 - Burst workloads: explicit `nodeSelector: workload-location: hetzner`.
 
+### Cilium CgroupManager — WSL2 Cgroup Namespace Isolation
+
+WSL2 worker nodes run containerd with OCI cgroup namespaces enabled
+(`/proc/1/cgroup = 0::/` inside every container). The stock Cilium DaemonSet
+initialises cgroup2 visibility via `mount-cgroup`, which uses `nsenter
+--cgroup --mount` into the host mount namespace. On WSL2 the mount lands in
+the host namespace but **does not propagate** into the agent container's
+private mount namespace. Cilium's `CheckOrMountCgrpFS` then detects
+`/run/cilium/cgroupv2` as a plain directory and stacks a fresh empty `cgroup2`
+root on top, hiding the host `kubepods*.slice`. This disables `CgroupManager`,
+which disables transparent-DNS-proxy, causing `toEndpoints kube-dns` identity
+resolution to fall back to `world` and the `strict-egress-contract` CNP to
+deny DNS.
+
+**Fix**: the hybrid provider uses a separate `cilium-addon-hybrid` Secret
+(registered in `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`,
+referenced only from `spokepool-hybrid-composition.yaml`) instead of the
+shared `cilium-addon-template`. It adds:
+
+1. **Host-level shared cgroup2/BPF mounts** (the prerequisite). Cilium's
+   socket-based kube-proxy-replacement needs a real cgroup2 mount at
+   `/run/cilium/cgroupv2` marked **shared** (`mount -t cgroup2 none
+   /run/cilium/cgroupv2 && mount --make-shared`) so the agent container's
+   mount propagations can see it. On WSL2 the stock `mount-cgroup` nsenter
+   mount never persists. Established by `scripts/hybrid/prepare-wsl2-cgroup.sh`
+   and a `cilium-host-prep.service` systemd unit at boot.
+2. **`fix-cgroup-mount` init container** (runs **after** `clean-cilium-state`,
+   immediately before the agent) — privileged, executes inside the pod's own
+   mount namespace, bind-mounts `/sys/fs/cgroup` (host real cgroup2 tree,
+   exposed via a `host-cgroup` hostPath volume) onto `/run/cilium/cgroupv2`
+   with Bidirectional propagation. Ordering is critical: `clean-cilium-state`
+   runs `cilium-dbg cleanup -f --all-state`, which unmounts the host cgroup2
+   mount; `fix-cgroup-mount` must therefore re-establish it last, right before
+   the agent (whose `cilium-cgroup` volumeMount uses HostToContainer
+   propagation). Enforces three sequential invariants and **fails closed**
+   (exit 1) if any gate breaks:
+   - Gate 1: bind-mount succeeds.
+   - Gate 2: `/run/cilium/cgroupv2` is a real cgroup2 superblock (`findmnt
+     -t cgroup2`).
+   - Gate 3: at least one `kubepods*` directory exists at depth 1 (glob
+     tolerates `kubepods/`, `kubepods.slice/`, etc.).
+3. **`mount-cgroup` replaced with a no-op** echo command. The nsenter path
+   is silently broken on WSL2; the no-op makes this explicit.
+4. **`host-cgroup` hostPath volume** — `path: /sys/fs/cgroup, type: Directory`.
+5. **Agent `cilium-cgroup` volumeMount** (`/run/cilium/cgroupv2`,
+   `mountPropagation: HostToContainer`) — the agent must mount the cgroup
+   volume itself; init containers run in their own mount namespace and cannot
+   pass mounts to the agent otherwise.
+
+The shared `cilium-addon-template` used by Hetzner spokes is left unchanged.
+
+**Pre-rollout requirement**: before every `kubectl rollout restart daemonset/cilium`
+on the hybrid spoke, run `scripts/hybrid/fix-cilium-pid.sh` to clear any
+stale `/var/run/cilium/cilium.pid` (may contain PID 1) on WSL2 nodes, which
+would otherwise block the `clean-cilium-state` init container. The Hetzner CP
+node also needs the host shared cgroup2 mount (apply `prepare-wsl2-cgroup.sh`
+steps or an equivalent privileged host prep); on the CP this is a plain
+systemd service rather than the WSL2 mount workaround.
+
 ### Provider Registry
 
 `operators/hub-operator/config/manager/provider-registry.yaml` maps exactly:

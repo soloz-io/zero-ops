@@ -135,6 +135,32 @@ systemctl enable containerd
 systemctl start containerd
 echo "[setup] ✓ containerd $(/usr/local/bin/containerd --version)"
 
+# ── 5b. Cilium host cgroup2/BPF prep (ADR-046) ─────────────────────────────
+# Cilium's socket-based kube-proxy-replacement needs a real cgroup2 mount at
+# /run/cilium/cgroupv2 marked SHARED so agent mount propagations can see it.
+# On WSL2 the stock mount-cgroup nsenter mount never persists. This systemd
+# unit re-creates the shared mounts at every boot (/run is tmpfs). The
+# equivalent one-shot is scripts/hybrid/prepare-wsl2-cgroup.sh.
+echo "[setup] Installing cilium-host-prep systemd unit..."
+mkdir -p /etc/systemd/system
+cat > /etc/systemd/system/cilium-host-prep.service <<'EOF'
+[Unit]
+Description=Cilium host cgroup2+BPF prep (WSL2 home worker)
+Before=containerd.service kubelet.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'mkdir -p /run/cilium/cgroupv2 && mount -t cgroup2 none /run/cilium/cgroupv2 || true; mount --make-shared /run/cilium/cgroupv2 || true; mount -t bpf bpf /sys/fs/bpf || true; mount --make-shared /sys/fs/bpf || true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable cilium-host-prep.service
+echo "[setup] ✓ cilium-host-prep.service enabled (cgroup2/BPF shared mounts at boot)"
+
 # ── 6. kubelet + kubeadm + kubectl ──────────────────────────────────────────
 if ! kubelet --version 2>/dev/null | grep -q "${K8S_VERSION}"; then
   echo "[setup] Installing Kubernetes ${K8S_VERSION}..."
