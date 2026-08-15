@@ -139,6 +139,21 @@ heal_cilium_pid() {
     fi
 }
 
+# ── write_health_heartbeat ───────────────────────────────────────────────────
+# Writes a health heartbeat to a Windows-visible path so the WINDOWS-side
+# watchdog can tell whether this distro is genuinely alive WITHOUT invoking
+# wsl.exe from the SYSTEM account (which hangs in mirrored-networking WSL2).
+# The Windows watchdog treats a stale heartbeat (<3 min) as a wedged VM.
+write_health_heartbeat() {
+    local hb="/mnt/c/ProgramData/soloz/wsl2-health-heartbeat.txt"
+    if mkdir -p /mnt/c/ProgramData/soloz 2>/dev/null && \
+       printf '%s\n' "$(date -u +%FT%TZ)" > "$hb" 2>/dev/null; then
+        return 0
+    fi
+    err "could not write health heartbeat to $hb"
+    return 1
+}
+
 # ── main ─────────────────────────────────────────────────────────────────────
 log "=== watchdog cycle (node=${NODE_HOSTNAME:-unknown}) ==="
 
@@ -146,5 +161,8 @@ heal_tailscale
 heal_containerd
 heal_kubelet
 heal_cilium_pid
+
+# Heartbeat LAST — only written if this script runs, i.e. the distro is alive.
+write_health_heartbeat
 
 log "=== cycle done ==="

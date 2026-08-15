@@ -229,13 +229,20 @@ systemctl enable tailscaled
 systemctl start tailscaled
 echo "[setup] ✓ Tailscale $(tailscale version | head -1)"
 
-# Interactive login: `tailscale up` without --authkey prints a browser URL and
-# waits for approval. The caller approves it in the browser. Idempotent: if the
-# node is already authenticated, tailscale up is a no-op.
+# Login: if a reusable auth-key was written by provision-home-worker.sh
+# (/etc/soloz/tailscale-authkey), re-auth is fully autonomous. Otherwise fall
+# back to interactive login (prints a browser URL the caller approves).
+# Idempotent: if the node is already authenticated, tailscale up is a no-op.
 if ! tailscale status --peers=false &>/dev/null; then
-  echo "[setup] Running interactive Tailscale login..."
-  echo "[setup] → Approve the URL below in your browser (or 'tailscale login' on the node):"
-  tailscale up --hostname="wsl2-node-${NODE_INDEX}" || echo "[setup] ⚠ tailscale up returned non-zero (login may be pending)"
+  if [[ -f /etc/soloz/tailscale-authkey && -s /etc/soloz/tailscale-authkey ]]; then
+    echo "[setup] Running autonomous Tailscale login with auth-key..."
+    tailscale up --hostname="wsl2-node-${NODE_INDEX}" --auth-key="file:/etc/soloz/tailscale-authkey" \
+      || echo "[setup] ⚠ tailscale up returned non-zero (auth-key may be exhausted)"
+  else
+    echo "[setup] Running interactive Tailscale login..."
+    echo "[setup] → Approve the URL below in your browser (or 'tailscale login' on the node):"
+    tailscale up --hostname="wsl2-node-${NODE_INDEX}" || echo "[setup] ⚠ tailscale up returned non-zero (login may be pending)"
+  fi
 else
   echo "[setup] ✓ Tailscale already authenticated"
 fi

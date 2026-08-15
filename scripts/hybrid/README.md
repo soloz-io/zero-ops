@@ -1,76 +1,92 @@
 # Hybrid Home-Lab Operations & Runbook (ADR-046)
 
-## Quick Recovery (When a Node Goes `NotReady` or Drops)
+## The Single Command
 
-If any worker node shows `NotReady` or disconnects, run this single command from your Mac:
+Nodes are fully **self-healing** — they recover from network glitches, wedged
+WSL2 VMs, and Tailscale drops **without any Mac intervention**. A Windows
+watchdog (every 2 min) and a WSL2 watchdog (every 60s) restore the node.
+
+Provisioning, recovery, and verification are all handled by **one script**:
 
 ```bash
-# Recover specific node (Node 1 = Dell, Node 2 = Lenovo)
-./scripts/hybrid/recover-wsl2-nat.sh --node 1
-./scripts/hybrid/recover-wsl2-nat.sh --node 2
+# Provision / (re)provision a node — hardens Windows, installs watchdogs,
+# provisions the WSL2 distro, installs reboot resilience, joins the spoke.
+./scripts/hybrid/provision-home-worker.sh --node 1
 
-# Or recover ALL registered nodes at once:
-./scripts/hybrid/recover-wsl2-nat.sh
+# Provision all registered nodes
+./scripts/hybrid/provision-home-worker.sh
+
+# Repair an already-provisioned node (watchdogs + join, no re-provision)
+./scripts/hybrid/provision-home-worker.sh --recover 1
+
+# Autonomous Tailscale re-auth (embed a reusable auth-key in the node)
+./scripts/hybrid/provision-home-worker.sh --node 1 --ts-authkey tskey-...
+
+# Check Ready status of all registered nodes without changing anything
+./scripts/hybrid/provision-home-worker.sh --verify
 ```
 
-### What this command does automatically:
-1. **Rebuilds WinNAT / HNS**: Restarts Windows Host Network Service and ICS to fix any stale virtual adapter state.
-2. **Re-establishes Tailscale Mesh**: Verifies connectivity and auto-restarts `tailscaled`.
-3. **Restores Services Non-Destructively**: Ensures `containerd` and `kubelet` are healthy without wiping cluster state.
-4. **Verifies Spoke Cluster `Ready`**: Checks and confirms `Ready: True` status in the spoke cluster.
+> **The run is only a success when the node reports `Ready`** in the spoke
+> cluster. The orchestrator exits non-zero if any targeted node fails to
+> become Ready.
 
----
+### Phases run per node
 
-## Daily Operational Commands
+| Phase | What it does |
+|-------|--------------|
+| [1/7] | SSH reachability gate |
+| [2/7] | Harden Windows host (power/lid, disable updates, OpenSSH, `.wslconfig`) |
+| [3/7] | Deploy self-healing watchdogs (Windows `HybridWSLWatchdog<N>` + WSL2 `tailscale-watchdog.timer`) |
+| [4/7] | Provision WSL2 distro (`setup-wsl2-node.sh`: containerd, kubelet, tailscale, cgroup) |
+| [5/7] | Install reboot resilience (Windows autostart + systemd `hybrid-home-worker-join.timer`) |
+| [6/7] | Join spoke cluster (`home-worker-join.sh`, idempotent) |
+| [7/7] | Verify node Ready — the success gate |
 
-### 1. Check Live Cluster & Node Health
-```bash
-SPOKE_KC=$(kubectl --kubeconfig=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig get secret spoke-pool-hybrid-dev-01-kubeconfig -n platform-capi -o jsonpath='{.data.value}' | base64 -d | cat)
+### How self-healing works (no Mac required)
 
-# View all nodes
-echo "$SPOKE_KC" | kubectl --kubeconfig=/dev/stdin get nodes -o wide
+1. **Windows watchdog** (`HybridWSLWatchdog<N>`, SYSTEM, every 2 min):
+   rebuilds WinNAT if missing, detects a **wedged/unresponsive WSL2 VM** and
+   performs a **full VM reset** (`wsl --shutdown` + HNS/SharedAccess restart +
+   vEthernet rebuild + distro restart) with a cooldown to prevent thrashing.
+2. **WSL2 watchdog** (`tailscale-watchdog.timer`, every 60s): restores
+   tailscaled, containerd, kubelet, and clears stale Cilium pidfiles.
+3. **Auto-join timer** (`hybrid-home-worker-join.timer`, every 10 min + on
+   boot): re-runs `home-worker-join.sh` to restore cluster membership.
 
-# View Cilium agents
-echo "$SPOKE_KC" | kubectl --kubeconfig=/dev/stdin get pods -n kube-system -l k8s-app=cilium -o wide
-```
-
-### 2. After a Windows Reboot / Screen Idle
-The system is configured with 24/7 background keepalive (`HybridWSLKeepAlive<IDX>`). If a host was fully rebooted:
-```bash
-# 1. Ensure Windows host power & persistence policies are active:
-./scripts/hybrid/harden-windows-host.sh
-
-# 2. Verify / re-join worker nodes:
-./scripts/hybrid/join-home-workers.sh
-```
-
----
-
-## One-time node setup (new box or fresh WSL install)
+### One-time node setup (new box or fresh WSL install)
 
 ```bash
 # 1. Inside WSL2 on the Windows box (as root):
 sudo ./scripts/hybrid/setup-wsl2-node.sh 1
 
-# 2. Approve Tailscale login in browser when prompted
-
-# 3. From the Mac: Harden Windows host (lid, power, updates, keep-alive)
-./scripts/hybrid/harden-windows-host.sh --node 1
-
-# 4. From the Mac: Join node to cluster
-./scripts/hybrid/join-home-workers.sh --node 1
+# 2. From the Mac — the single provisioning command:
+./scripts/hybrid/provision-home-worker.sh --node 1 --ts-authkey <reusable-key>
 ```
 
 ---
+
+## Deprecated Scripts
+
+These are now thin wrappers (or no-ops) delegating to
+`provision-home-worker.sh` — kept only for reference compatibility:
+
+| Script | Replaced by |
+|--------|-------------|
+| `harden-windows-host.sh` | phase [2/7] + [3/7] of `provision-home-worker.sh` |
+| `join-home-workers.sh` | phases [5/7] + [6/7] of `provision-home-worker.sh` |
+| `recover-wsl2-nat.sh` | `provision-home-worker.sh --recover N` + the autonomous Windows watchdog |
+| `prepare-wsl2-cgroup.sh` | `setup-wsl2-node.sh` (cilium-host-prep.service) + `tailscale-watchdog.sh` |
+| `fix-cilium-pid.sh` | `tailscale-watchdog.sh` (heal_cilium_pid) |
 
 ## Files
 
 | Script | Purpose |
 |--------|---------|
-| `harden-windows-host.sh` | **Windows Server Hardening**: Lid close do nothing, disable updates, keepalive, powercfg |
-| `recover-wsl2-nat.sh` | **Run this from Mac** after reboot/disconnect |
-| `join-home-workers.sh` | Verify/rejoin all nodes (called by recover) |
-| `home-worker-join.sh` | Runs on the WSL2 node — kubeadm join logic |
-| `setup-wsl2-node.sh` | One-time node provisioning (containerd, kubelet, Tailscale) |
+| `provision-home-worker.sh` | **THE single entry point** — provision/recover/verify + self-heal install |
+| `setup-wsl2-node.sh` | WSL2 distro provisioning (containerd, kubelet, tailscale, cgroup) |
+| `home-worker-join.sh` | Runs on the WSL2 node — kubeadm join logic (consumed by the auto-join timer) |
+| `windows/wsl2-node-watchdog.ps1` | Windows watchdog (VM reset + WinNAT heal, every 2 min) |
+| `wsl2/tailscale-watchdog.sh` (+service/timer) | WSL2 watchdog (tailscale/containerd/kubelet/cilium, every 60s) |
+| `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |
