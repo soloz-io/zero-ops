@@ -12,3 +12,31 @@ nameReference:
       - kind: Rollout
         group: argoproj.io
         path: spec/template/spec/serviceAccountName
+
+# Teach the tenant overlays' commonLabels to rewrite label fields on the CRDs
+# baked into this base. Kustomize's built-in commonLabels knows core kinds only,
+# so without this the Rollout pod template/selector and the CiliumNetworkPolicy
+# endpointSelector keep the base's `app: workload` while the Service selector
+# becomes `app: <tenant-service>` — the Service routes to nothing and the egress
+# policy scopes to nothing. Matching the pod template to the Service selector
+# also keeps the Rollout's spec.selector in sync so ArgoCD tracks its pods.
+#
+# Array fields (topologySpreadConstraints, podAntiAffinity labelSelectors) are
+# not reachable here — kustomize's label PathGetter supports no wildcards or
+# array indices — so overlays patch those per-service.
+commonLabels:
+  - path: spec/selector/matchLabels
+    kind: Rollout
+    group: argoproj.io
+    version: v1alpha1
+    create: true
+  - path: spec/template/metadata/labels
+    kind: Rollout
+    group: argoproj.io
+    version: v1alpha1
+    create: true
+  - path: spec/endpointSelector/matchLabels
+    kind: CiliumNetworkPolicy
+    group: cilium.io
+    version: v2
+    create: true
