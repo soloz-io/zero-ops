@@ -179,37 +179,25 @@ fi
 echo "[setup] Installing tailscaled DNS-wait + restart-throttle drop-in..."
 mkdir -p /etc/systemd/system/tailscaled.service.d
 cat > /etc/systemd/system/tailscaled.service.d/10-wsl2-dns-wait.conf <<'EOF'
-# WSL2 boot fix (ADR-046): wait for WinNAT DNS relay before launching tailscaled.
-# Prevents "failed to resolve controlplane.tailscale.com: no DNS fallback
-# candidates remain" -> NoState crash-loop (was: 87 restarts/boot).
-#
-# Probe: dig UDP/53 @ 172.27.32.1. WinNAT relay is UDP-only; TCP/53 probe
-# (/dev/tcp) always fails. Polls every 2s for up to 90s, starts anyway if
-# the relay never responds (graceful degradation).
-#
-# TimeoutStartSec=150: ExecStartPre can run up to 90s + ~10s for daemon
-# startup. The systemd default of 90s caused the service to be killed while
-# still in start-pre, producing a misleading "timeout exceeded" failure.
 [Service]
+ExecStartPre=
 ExecStartPre=/bin/bash -c '\
-  echo "tailscaled-pre: waiting for 172.27.32.1 UDP/53 (max 90s)..."; \
-  for i in $(seq 1 45); do \
-    if dig @172.27.32.1 +timeout=2 +tries=1 +short controlplane.tailscale.com \
-        >/dev/null 2>&1; then \
-      echo "tailscaled-pre: DNS relay ready after $((i*2))s -- starting tailscaled"; \
+  echo "tailscaled-pre: verifying DNS resolution..."; \
+  for i in $(seq 1 15); do \
+    if dig +timeout=1 +tries=1 controlplane.tailscale.com >/dev/null 2>&1; then \
+      echo "tailscaled-pre: DNS ready after $((i))s -- starting tailscaled"; \
       exit 0; \
     fi; \
-    sleep 2; \
+    sleep 1; \
   done; \
-  echo "tailscaled-pre: DNS relay not ready after 90s -- starting tailscaled anyway"; \
+  echo "tailscaled-pre: DNS check completed -- starting tailscaled"; \
   exit 0'
-TimeoutStartSec=150
-RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=3
+TimeoutStartSec=60
+Restart=always
+RestartSec=5s
 EOF
 systemctl daemon-reload
-echo "[setup] ✓ tailscaled drop-in: ExecStartPre DNS-wait, RestartSec=10, burst cap=3"
+echo "[setup] ✓ tailscaled drop-in: dynamic DNS-wait, RestartSec=5"
 
 systemctl enable tailscaled
 systemctl start tailscaled

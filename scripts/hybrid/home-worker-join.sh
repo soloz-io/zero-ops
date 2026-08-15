@@ -85,13 +85,18 @@ if kubectl --kubeconfig="$SPOKE_KUBECONFIG" get node "${HOSTNAME}" &>/dev/null; 
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
   echo "[join] Node ${HOSTNAME} already in cluster (Ready: ${NODE_READY})"
 
-  # Ensure labels are present
-  kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
-    "workload-location=home" \
-    "node-role.kubernetes.io/home=" \
-    --overwrite
-  echo "[join] ✓ Labels verified"
-  exit 0
+  if [[ "$NODE_READY" == "True" ]]; then
+    # Ensure labels are present
+    kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
+      "workload-location=home" \
+      "node-role.kubernetes.io/home=" \
+      --overwrite
+    echo "[join] ✓ Labels verified"
+    exit 0
+  else
+    echo "[join] ⚠ Node ${HOSTNAME} exists in cluster but is NotReady (${NODE_READY}) — cleaning up stale API object..."
+    kubectl --kubeconfig="$SPOKE_KUBECONFIG" delete node "${HOSTNAME}" --ignore-not-found 2>/dev/null || true
+  fi
 fi
 
 # ── 3. Fetch join payload from hub-operator Secret ───────────────────────────

@@ -70,11 +70,32 @@ echo ""
 install_windows_autostart() {
   local SSH_TARGET="$1" WSL_DISTRO="$2" NODE_IDX="$3" HOSTNAME="$4"
   local TASK="HybridHomeWorkerJoin${NODE_IDX}"
-  echo "    → installing Windows Task Scheduler auto-start (${TASK})"
+  local KEEPALIVE_TASK="HybridWSLKeepAlive${NODE_IDX}"
+  echo "    → configuring Windows host persistence (.wslconfig + keep-alive + auto-start)"
   local PS
   PS="\$distro = '$WSL_DISTRO';
 \$taskName = '$TASK';
+\$keepaliveName = '$KEEPALIVE_TASK';
 try {
+  # 1. Enforce vmIdleTimeout=-1 in .wslconfig to prevent Windows from terminating WSL2 VM on idle
+  \$wslconfigPath = Join-Path \$env:USERPROFILE '.wslconfig'
+  \$wslconfigContent = @'
+[wsl2]
+vmIdleTimeout=-1
+swap=0
+localhostForwarding=true
+'@
+  Set-Content -Path \$wslconfigPath -Value \$wslconfigContent -Encoding UTF8 -Force
+
+  # 2. Register persistent keep-alive task running sleep infinity 24/7
+  \$actionKA   = New-ScheduledTaskAction -Execute 'C:\Windows\System32\wsl.exe' -Argument ('-d ' + \$distro + ' -u root -e bash -c \"sleep infinity\"')
+  \$triggerKA1 = New-ScheduledTaskTrigger -AtStartup
+  \$triggerKA2 = New-ScheduledTaskTrigger -AtLogOn
+  \$settingsKA = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 365)
+  Register-ScheduledTask -TaskName \$keepaliveName -Action \$actionKA -Trigger @(\$triggerKA1, \$triggerKA2) -Settings \$settingsKA -Description 'Keep WSL2 VM running continuously 24/7' -Force | Out-Null
+  Start-ScheduledTask -TaskName \$keepaliveName -ErrorAction SilentlyContinue
+
+  # 3. Register auto-rejoin task
   \$action  = New-ScheduledTaskAction -Execute 'C:\Windows\System32\wsl.exe' -Argument ('-d ' + \$distro + ' -u root -e bash -lc \"\"systemctl start hybrid-home-worker-join.timer\"\"')
   \$trigger = New-ScheduledTaskTrigger -AtLogOn
   \$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -90,9 +111,9 @@ try {
   OUT=$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no \
         "$SSH_TARGET" "powershell -NoProfile -EncodedCommand $B64" 2>/dev/null)
   if echo "$OUT" | grep -q 'TASK-REGISTERED=OK'; then
-    echo "    ✓ Windows Task Scheduler: ${TASK} registered (runs on logon)"
+    echo "    ✓ Windows host persistence configured (vmIdleTimeout=-1, ${KEEPALIVE_TASK} active, ${TASK} registered)"
   else
-    echo "    ⚠ Windows Task Scheduler install issue: $(echo "$OUT" | grep 'TASK-REGISTERED=' | head -1)" >&2
+    echo "    ⚠ Windows persistence install issue: $(echo "$OUT" | grep 'TASK-REGISTERED=' | head -1)" >&2
   fi
 }
 
@@ -153,7 +174,8 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   # WSL entry point is now handled by wsl_exec.
   # 2. Tailscale must be up + authenticated inside WSL. tailscaled can flap
   #    (transient "NoState" during restart), so retry for up to ~60s.
-  echo "    → waiting for Tailscale in ${WSL_DISTRO}..."
+  echo "    → ensuring Tailscale is active in ${WSL_DISTRO}..."
+  wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" "systemctl start tailscaled 2>/dev/null || true"
   TS_OK=0
   for _ in $(seq 1 12); do
     if wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" 'tailscale status --peers=false >/dev/null 2>&1'; then
@@ -194,23 +216,42 @@ while IFS='|' read -r HOSTNAME SSH_TARGET WSL_DISTRO TAILNET_HOST BOX_TAG; do
   # 5. Windows Task Scheduler auto-start (reboot resilience)
   install_windows_autostart "$SSH_TARGET" "$WSL_DISTRO" "$NODE_IDX" "$HOSTNAME"
 
-  # 5b. Kubelet → containerd ordering drop-in (idempotent).
-  # Prevents the kubelet restart-loop that occurs when kubelet starts before
-  # containerd.sock exists. Pushed on every run so already-provisioned nodes
-  # pick it up without needing a full re-setup.
-  echo "    → ensuring kubelet After=containerd drop-in"
+  # 5b. Tailscale DNS wait & Kubelet ordering drop-ins (idempotent).
+  echo "    → configuring resilient systemd drop-ins (tailscale + kubelet)"
+  TS_DROPIN_DIR="/etc/systemd/system/tailscaled.service.d"
+  TS_DROPIN_FILE="${TS_DROPIN_DIR}/10-wsl2-dns-wait.conf"
+  TS_CONTENT=$(cat <<'EOF'
+[Service]
+ExecStartPre=
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 15); do if dig +timeout=1 +tries=1 controlplane.tailscale.com >/dev/null 2>&1; then exit 0; fi; sleep 1; done; exit 0'
+TimeoutStartSec=60
+Restart=always
+RestartSec=5s
+EOF
+)
+  TSB64="$(printf '%s' "$TS_CONTENT" | base64 | tr -d '\n')"
+
   DROPIN_DIR="/etc/systemd/system/kubelet.service.d"
   DROPIN_FILE="${DROPIN_DIR}/10-containerd-ordering.conf"
-  DROPIN_CONTENT=$(printf '[Unit]\nAfter=containerd.service\nRequires=containerd.service\n')
+  DROPIN_CONTENT=$(cat <<'EOF'
+[Unit]
+After=containerd.service network-online.target tailscaled.service
+Wants=tailscaled.service
+Requires=containerd.service
+
+[Service]
+Restart=always
+RestartSec=5s
+EOF
+)
   DROPINB64="$(printf '%s' "$DROPIN_CONTENT" | base64 | tr -d '\n')"
   wsl_exec "${SSH_TARGET}" "${WSL_DISTRO}" \
-    "mkdir -p ${DROPIN_DIR} && \
-     echo ${DROPINB64} | base64 -d > ${DROPIN_FILE}.tmp && \
-     if ! diff -q ${DROPIN_FILE}.tmp ${DROPIN_FILE} >/dev/null 2>&1; then \
-       mv ${DROPIN_FILE}.tmp ${DROPIN_FILE} && systemctl daemon-reload && echo DROPIN=UPDATED; \
-     else rm -f ${DROPIN_FILE}.tmp && echo DROPIN=ALREADY-OK; fi" \
-    2>/dev/null | grep -E 'DROPIN=' | head -1 \
-    | sed 's/DROPIN=/    ✓ kubelet drop-in: /' || true
+    "mkdir -p ${TS_DROPIN_DIR} ${DROPIN_DIR} && \
+     echo ${TSB64} | base64 -d > ${TS_DROPIN_FILE} && \
+     echo ${DROPINB64} | base64 -d > ${DROPIN_FILE} && \
+     systemctl daemon-reload && \
+     systemctl restart tailscaled" \
+    2>/dev/null && echo "    ✓ drop-ins: tailscale + kubelet configured" || true
 
   # 6. Install self-healing systemd unit + timer (oneshot join on boot/network,
   #    plus periodic re-verify every 10 min). Already-joined → join exits 0.
