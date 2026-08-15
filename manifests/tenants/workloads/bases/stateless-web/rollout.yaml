@@ -57,6 +57,14 @@ spec:
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # ADR-022: Immutable root + ephemeral writable /tmp contract.
+      # readOnlyRootFilesystem is a platform security invariant, so the base
+      # provides the standard scratch space applications require (tsx caches,
+      # bundlers, nginx uids). Persistent state must use explicitly
+      # platform-owned storage, never /tmp.
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: app
           # Tenant overlays this with their immutable digest via images: block.
@@ -68,6 +76,9 @@ spec:
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /health
