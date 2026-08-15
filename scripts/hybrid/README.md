@@ -53,7 +53,10 @@ sudo ./scripts/hybrid/setup-wsl2-node.sh 1
 
 # 2. Approve Tailscale login in browser when prompted
 
-# 3. From the Mac:
+# 3. From the Mac: Harden Windows host (lid, power, updates, keep-alive)
+./scripts/hybrid/harden-windows-host.sh --node 1
+
+# 4. From the Mac: Join node to cluster
 ./scripts/hybrid/join-home-workers.sh --node 1
 ```
 
@@ -63,6 +66,7 @@ sudo ./scripts/hybrid/setup-wsl2-node.sh 1
 
 | Script | Purpose |
 |--------|---------|
+| `harden-windows-host.sh` | **Windows Server Hardening**: Lid close do nothing, disable updates, keepalive, powercfg |
 | `recover-wsl2-nat.sh` | **Run this from Mac** after reboot/disconnect |
 | `join-home-workers.sh` | Verify/rejoin all nodes (called by recover) |
 | `home-worker-join.sh` | Runs on the WSL2 node — kubeadm join logic |
