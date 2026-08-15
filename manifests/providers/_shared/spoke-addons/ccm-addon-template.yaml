@@ -124,6 +124,15 @@ stringData:
                 - "--cloud-provider=hcloud"
                 - "--leader-elect=true"
                 - "--allow-untagged-cloud"
+                # Hybrid spokes carry home WSL2 nodes (no Hetzner providerID).
+                # The cloud-node-lifecycle controller tries to manage lifecycle
+                # for EVERY node and crash-loops on non-Hetzner nodes, which
+                # blocks LB target registration. Disable it so the CCM only
+                # manages Hetzner nodes. Home nodes are also excluded from LB
+                # target selection via the node label
+                # node.kubernetes.io/exclude-from-external-load-balancers=true
+                # (set by home-worker-join.sh kubelet --node-labels).
+                - "--controllers=*,-cloud-node-lifecycle-controller"
               resources:
                 requests:
                   cpu: 100m

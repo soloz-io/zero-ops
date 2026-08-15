@@ -88,10 +88,12 @@ if kubectl --kubeconfig="$SPOKE_KUBECONFIG" get node "${HOSTNAME}" &>/dev/null; 
   # Ensure services are active and running
   systemctl start tailscaled containerd kubelet 2>/dev/null || true
 
-  # Ensure labels are present
+  # Ensure labels are present (compat shim for nodes joined before the
+  # kubelet --node-labels drop-in; the auto-join timer converges them).
   kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
     "workload-location=home" \
     "node-role.kubernetes.io/home=" \
+    "node.kubernetes.io/exclude-from-external-load-balancers=true" \
     --overwrite 2>/dev/null || true
   echo "[join] ✓ Labels verified"
 
@@ -145,15 +147,20 @@ fi
 # Guard: WSL2 enables swap by default (/dev/sdc). Kubelet refuses to start
 # with swap on unless --fail-swap-on=false is set. Disable swap for this
 # session and install a persistent kubelet drop-in so reboots stay clean.
+# Node labels are set via kubelet --node-labels (NOT a post-join kubectl
+# patch) so they are applied at registration and survive re-joins. The
+# exclude-from-external-load-balancers label stops the Hetzner CCM from
+# crash-looping on non-Hetzner home nodes and from trying to register them
+# as LoadBalancer targets (only the spoke CP node becomes an LB target).
 echo "[join] Disabling swap + setting --node-ip=${TAILSCALE_IP}..."
 swapoff -a 2>/dev/null || true
 mkdir -p /etc/systemd/system/kubelet.service.d
 cat > /etc/systemd/system/kubelet.service.d/20-wsl2-node-config.conf <<EOF
 [Service]
-Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false --node-ip=${TAILSCALE_IP}"
+Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false --node-ip=${TAILSCALE_IP} --node-labels=workload-location=home,node-role.kubernetes.io/home=,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
 EOF
 systemctl daemon-reload
-echo "[join] ✓ Swap off + kubelet --node-ip=${TAILSCALE_IP} drop-in installed"
+echo "[join] ✓ Swap off + kubelet --node-ip=${TAILSCALE_IP} + home-node labels drop-in installed"
 
 # Guard: containerd must be up before kubeadm can start kubelet successfully.
 echo "[join] Waiting for containerd socket..."
@@ -197,12 +204,6 @@ for i in $(seq 1 24); do
   echo "[join] Waiting for node ${HOSTNAME} to appear in cluster ($((i*5))s)..."
   sleep 5
 done
-
-kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
-  "workload-location=home" \
-  "node-role.kubernetes.io/home=" \
-  "topology.kubernetes.io/zone=home" \
-  --overwrite
 
 # ── 6. Verify Ready ──────────────────────────────────────────────────────────
 echo "[join] Waiting for node Ready..."
