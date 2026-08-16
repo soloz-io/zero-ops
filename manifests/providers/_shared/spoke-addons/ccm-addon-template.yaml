@@ -113,6 +113,17 @@ stringData:
               operator: Exists
             - key: "node.kubernetes.io/not-ready"
               effect: "NoSchedule"
+          # Required when HCLOUD_NETWORK is set: the CCM must reach the
+          # Hetzner metadata service (169.254.169.254) to verify the node
+          # is attached to the Cloud Network at startup.
+          hostNetwork: true
+          # Pin to Hetzner nodes: the metadata service only exists on
+          # Hetzner provisioned nodes. Home WSL2 nodes (hybrid spokes)
+          # have no providerID and no metadata service → CCM crash-loops
+          # there. Every Hetzner node is labelled
+          # instance.hetzner.cloud/provided-by=cloud by the CCM.
+          nodeSelector:
+            instance.hetzner.cloud/provided-by: cloud
           containers:
             - name: ccm-hetzner
               securityContext:
@@ -151,3 +162,15 @@ stringData:
                   value: "false"
                 - name: HCLOUD_LOAD_BALANCERS_ENABLED
                   value: "true"
+                # Required for LoadBalancer services to route via the Hetzner
+                # Cloud Network (private IPs) instead of public IPs.  Without
+                # this the CCM adds nodes as LB targets using their public IP,
+                # which the Hetzner Cloud Firewall blocks on NodePort ranges
+                # → LB health-checks fail → SSL_ERROR_SYSCALL from clients.
+                # The value is the Cloud Network ID populated by CAPH during
+                # spoke provisioning into the hetzner-credentials secret.
+                - name: HCLOUD_NETWORK
+                  valueFrom:
+                    secretKeyRef:
+                      name: hetzner-credentials
+                      key: network
