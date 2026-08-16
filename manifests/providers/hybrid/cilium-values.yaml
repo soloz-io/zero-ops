@@ -1,0 +1,39 @@
+# Cilium Helm values for the hybrid provider (ADR-046).
+# Source of truth for regenerating cilium-addon-hybrid.yaml via
+# scripts/hybrid/render-cilium-addon.sh.
+#
+# NOTE: The rendered manifest must NOT use the chart's auto-generated
+# cilium-ca / hubble-server-certs (they rotate on every render). The render
+# script preserves the in-use secrets from the current manifest instead.
+#
+# CILIUM_VERSION (pinned): v1.17.18
+#   agent:          quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23
+#   operator:       quay.io/cilium/operator-generic:v1.17.18@sha256:ec68d574d2288f2d8cb0ae50778c1a0b08a6165cfcb6ba5bc5595d99ed3f7bda
+#   upgrade reason: Gateway-API TLS secrets fix (agent SDS) + CVE-2026-49445
+#   (world-accessible Envoy admin.sock, fixed >= 1.17.14).
+ipam:
+  mode: kubernetes
+kubeProxyReplacement: true
+MTU: 1230
+pmtuDiscovery:
+  enabled: true
+cleanState: true
+cleanBpfState: true
+gatewayAPI:
+  enabled: true
+  secretsNamespace:
+    # enable-gateway-api-secrets-sync + gateway-api-secrets-namespace:
+    # the agent-side SDS fix that 1.15.6 never delivered (the 443 bug).
+    sync: true
+    name: cilium-secrets
+envoy:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: "9964"
+socketLB:
+  enabled: false
+hubble:
+  enabled: true
+operator:
+  replicas: 2

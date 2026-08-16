@@ -42,3 +42,9 @@ ignore: |
   internal/assets/manifests/addons/crs.yaml
   internal/assets/manifests/secrets/hetzner-credentials.yaml
   internal/assets/manifests/classes/archived-talos/hetzner-mgmt-talos-v1.yaml
+  # Cilium addon manifests embed rendered Helm YAML inside stringData blocks;
+  # the 4-space indent inside the Secret is correct but triggers false-positive
+  # indentation/syntax errors from yamllint which parses the outer document only.
+  manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml
+  manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml
+  internal/assets/manifests/addons/cilium-rendered.yaml
