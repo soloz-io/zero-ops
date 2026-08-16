@@ -703,8 +703,21 @@ spec:
                       namespace: platform-capi
                     type: addons.cluster.x-k8s.io/resource-set
                     stringData:
-                      claim-name: ""
-                      cp-replicas: "1"
+                      # CRS contract: every value in a resource-set Secret must be an
+                      # applyable Kubernetes manifest. claim-name / cp-replicas are NOT
+                      # applyable objects (CAPI's isJSONList also errors on values < 32B
+                      # with io.EOF), so they are rendered into this Secret manifest and
+                      # applied to the spoke, instead of being stored as bare scalar keys.
+                      tailscale-node-addon.yaml: |
+                        apiVersion: v1
+                        kind: Secret
+                        metadata:
+                          name: tailscale-node-addon
+                          namespace: kube-system
+                        type: Opaque
+                        stringData:
+                          claim-name: "<composed-claim>"
+                          cp-replicas: "<composed-replicas>"
                       tailscale-node.yaml: |
                         apiVersion: apps/v1
                         kind: DaemonSet
@@ -881,12 +894,27 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-tailscale-node-addon"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.stringData.claim-name
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.annotations[control-plane-replicas]
-                toFieldPath: spec.forProvider.manifest.stringData.cp-replicas
+              # Render the complete tailscale-node-addon Secret manifest (spoke
+              # kube-system) with claim-name / cp-replicas substituted, so every value
+              # in the CRS resource set is an applyable Kubernetes manifest.
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.name
+                    - fromFieldPath: metadata.annotations[control-plane-replicas]
+                  strategy: string
+                  string:
+                    fmt: |
+                      apiVersion: v1
+                      kind: Secret
+                      metadata:
+                        name: tailscale-node-addon
+                        namespace: kube-system
+                      type: Opaque
+                      stringData:
+                        claim-name: "%s"
+                        cp-replicas: "%s"
+                toFieldPath: spec.forProvider.manifest.stringData["tailscale-node-addon.yaml"]
 
           # ────────────────────────────────────────────────────────────────────
           # Spoke ProviderConfig (identical to hetzner)

@@ -78,6 +78,139 @@ render_name() {
   yq "$sel | .base.spec.forProvider.manifest.spec.resources[$idx].name // \"\"" "$file" 2>/dev/null || echo ""
 }
 
+render_manifest_name() {
+  # Given a composition file and a resource name, emit the name that resource's
+  # manifest renders to (for matching composition-created CRS payloads against
+  # the ClusterResourceSet resources[] list): a %s-... Format patch on
+  # spec.forProvider.manifest.metadata.name if present, otherwise the base literal.
+  local file="$1" rname="$2"
+  local sel
+  sel=".spec.pipeline[0].input.resources[] | select(.name == \"$rname\")"
+  local patched
+  patched="$(yq "$sel | .patches[] | select(.toFieldPath == \"spec.forProvider.manifest.metadata.name\") | [.transforms[] | select(.string.type == \"Format\") | .string.fmt][0] // \"\"" "$file" 2>/dev/null || echo "")"
+
+  if [ "$patched" != "null" ] && [ -n "$patched" ]; then
+    printf '%s\n' "${patched//%s/$TEST_CLAIM}"
+    return 0
+  fi
+
+  yq "$sel | .base.spec.forProvider.manifest.metadata.name // \"\"" "$file" 2>/dev/null || echo ""
+}
+
+validate_payload_keys() {
+  # CRS contract guard: every value in a resource-set Secret/ConfigMap must be an
+  # applyable Kubernetes manifest (a YAML doc with apiVersion + kind). A value that
+  # parses as a scalar — e.g. a bare configuration parameter such as claim-name or
+  # cp-replicas — is rejected. This is the regression guard against the
+  # Peek(32)/io.EOF class of bug where a short scalar crashed CAPI's CRS apply
+  # with a bare "EOF" reconcile error.
+  local file="$1" rname="$2" mname="$3"
+  local sel sel_patches
+  sel=".spec.pipeline[0].input.resources[] | select(.name == \"$rname\") | .base.spec.forProvider.manifest"
+  sel_patches=".spec.pipeline[0].input.resources[] | select(.name == \"$rname\") | .patches"
+
+  local keys key valfile ok=1
+  keys="$(yq "$sel | (.stringData // .data) | keys[]" "$file" 2>/dev/null || echo "")"
+
+  if [ -z "$keys" ]; then
+    fail "CRS payload resource '$rname' ($mname) has no stringData/data keys"
+    return
+  fi
+
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    # Values populated at runtime by a patch (e.g. argocd-agent-config.yaml
+    # rendered by a FromCompositeFieldPath/CombineFromComposite transform) are
+    # trusted; only base-literal values are subject to the contract check.
+    if yq "$sel_patches | .[].toFieldPath" "$file" 2>/dev/null | grep -qE "manifest\.(data|stringData)\[\"?$key\"?\]"; then
+      continue
+    fi
+    valfile="$(mktemp)"
+    yq "$sel | (.stringData // .data)[\"$key\"]" "$file" > "$valfile" 2>/dev/null || true
+    # Every document in the value must be a mapping carrying apiVersion + kind.
+    local parsed
+    parsed="$(yq '.apiVersion != null and .kind != null' "$valfile" 2>/dev/null || echo false)"
+    if [ -z "$parsed" ] || echo "$parsed" | grep -q false; then
+      fail "CRS payload '$mname' key '$key' is not an applyable Kubernetes manifest (scalar or missing apiVersion/kind)"
+      ok=0
+    fi
+    rm -f "$valfile"
+  done <<<"$keys"
+
+  if [ "$ok" -eq 1 ]; then
+    echo "  ✓ CRS payload '$mname': all values are applyable Kubernetes manifests"
+  fi
+}
+
+validate_crs_contract() {
+  # Cross-check every composition-created Secret/ConfigMap whose rendered name
+  # appears in the ClusterResourceSet resources[] list, and assert its payload
+  # contract (validate_payload_keys).
+  local file="$1"
+  local base_count i
+  local -a crs_names=()
+  base_count="$(yq "$(cr) | (.base.spec.forProvider.manifest.spec.resources | length)" "$file" 2>/dev/null || echo 0)"
+  for ((i = 0; i < base_count; i++)); do
+    crs_names+=("$(render_name "$file" "$i")")
+  done
+
+  local rname mkind mname
+  while IFS= read -r rname; do
+    [ -z "$rname" ] && continue
+    mkind="$(yq ".spec.pipeline[0].input.resources[] | select(.name == \"$rname\") | .base.spec.forProvider.manifest.kind // \"\"" "$file" 2>/dev/null || echo "")"
+    case "$mkind" in
+      Secret|ConfigMap)
+        mname="$(render_manifest_name "$file" "$rname")"
+        if printf '%s\n' "${crs_names[@]}" | grep -qx "$mname"; then
+          validate_payload_keys "$file" "$rname" "$mname"
+        fi
+        ;;
+    esac
+  done <<<"$(yq '.spec.pipeline[0].input.resources[] | .name' "$file")"
+}
+
+validate_tailscale_addon() {
+  # ADR-046 tailscale-node-addon specific contract: the resource-set Secret must
+  # expose only applyable manifests, and the rendered tailscale-node-addon.yaml
+  # must be a valid Secret targeting the spoke's kube-system.
+  local file="$1"
+  if ! yq '.spec.pipeline[0].input.resources[] | select(.name == "tailscale-node-addon") | .name' "$file" 2>/dev/null | grep -q tailscale; then
+    return 0
+  fi
+
+  local sel
+  sel=".spec.pipeline[0].input.resources[] | select(.name == \"tailscale-node-addon\") | .base.spec.forProvider.manifest"
+
+  # 1. No bare scalar parameter keys.
+  local forbidden k keys
+  keys="$(yq "$sel | .stringData | keys[]" "$file" 2>/dev/null || echo "")"
+  for k in "claim-name" "cp-replicas"; do
+    if echo "$keys" | grep -qx "$k"; then
+      fail "tailscale-node-addon must NOT expose scalar param key '$k' in the CRS resource-set Secret"
+    fi
+  done
+
+  # 2. tailscale-node-addon.yaml is a valid Secret in the spoke's kube-system.
+  local valfile apiversion kind name ns
+  valfile="$(mktemp)"
+  yq "$sel | .stringData[\"tailscale-node-addon.yaml\"]" "$file" > "$valfile" 2>/dev/null || true
+  apiversion="$(yq '.apiVersion // ""' "$valfile")"
+  kind="$(yq '.kind // ""' "$valfile")"
+  name="$(yq '.metadata.name // ""' "$valfile")"
+  ns="$(yq '.metadata.namespace // ""' "$valfile")"
+  rm -f "$valfile"
+
+  if [ "$apiversion" != "v1" ] || [ "$kind" != "Secret" ]; then
+    fail "tailscale-node-addon.yaml must render apiVersion: v1, kind: Secret (got $apiversion/$kind)"
+  elif [ "$name" != "tailscale-node-addon" ]; then
+    fail "tailscale-node-addon.yaml must create Secret named 'tailscale-node-addon' (got '$name')"
+  elif [ "$ns" != "kube-system" ]; then
+    fail "tailscale-node-addon.yaml must target namespace 'kube-system' (got '$ns')"
+  else
+    echo "  ✓ tailscale-node-addon renders a valid kube-system Secret manifest"
+  fi
+}
+
 validate_composition() {
   local file="$1"
   local sel base_count i name
@@ -153,6 +286,13 @@ validate_composition() {
       fail "dynamic suffix '$d' must not render as a bare (unprefixed) name"
     fi
   done
+
+  # 5. CRS payload contract: every composition-created resource-set value must be
+  #    an applyable Kubernetes manifest (no scalar configuration parameters).
+  validate_crs_contract "$file"
+
+  # 6. Tailscale addon contract (ADR-046).
+  validate_tailscale_addon "$file"
 
   echo
 }
