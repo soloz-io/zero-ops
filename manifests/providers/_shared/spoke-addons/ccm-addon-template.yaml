@@ -143,7 +143,9 @@ stringData:
                 # target selection via the node label
                 # node.kubernetes.io/exclude-from-external-load-balancers=true
                 # (set by home-worker-join.sh kubelet --node-labels).
-                - "--controllers=*,-cloud-node-lifecycle-controller"
+                # We also disable the route controller since Cilium handles
+                # pod-to-pod networking and we don't provide a cluster CIDR.
+                - "--controllers=*,-cloud-node-lifecycle-controller,-route"
               resources:
                 requests:
                   cpu: 100m
