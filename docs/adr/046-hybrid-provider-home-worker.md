@@ -212,7 +212,10 @@ and codified so re-provisioned spokes work out of the box:
    (`kube-proxy-replacement: "true"`): its iptables REJECT chains for
    endpoint-less services (incl. the Cilium Gateway LB VIP) break Gateway API
    TLS and in-cluster service networking. Codified as
-   `spokepool-control-plane-v3` = v2 + `skipPhases: [addon/kube-proxy]`
+   `spokepool-control-plane-v3` = v2 + `postKubeadmCommands` that delete the
+   kube-proxy DaemonSet + ConfigMap post-init (this CAPI version has no
+   `skipPhases` on `KubeadmControlPlaneTemplate`; `postKubeadmCommands` run
+   after kubeadm's addon phase, so deletion is effective)
    (`manifests/providers/_shared/spokepool-clusterclass-v1.yaml`). The
    ClusterClass ref rotation to v3 is a deliberate, separate step: it
    propagates to existing clusters and rolls the control-plane machine.
@@ -221,14 +224,14 @@ and codified so re-provisioned spokes work out of the box:
    nodes by default; the Hetzner CCM honors it and registers ZERO backends for
    Cilium Gateway-API LoadBalancer services, so the external VIP accepts TCP
    but forwards nothing and TLS handshakes fail externally (they work
-   in-cluster). Codified in both v2 and v3 `postKubeadmCommands`:
+   in-cluster). Codified in v3 `postKubeadmCommands`:
    `kubectl ... label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true`.
 3. **clean-cilium-state=false.** Must stay `false` in steady state: with
    `true`, an agent restart wipes all endpoint/BPF state while existing pods
    keep their netns/veth but lose their Cilium endpoint (kubelet does not
    re-run CNI for existing sandboxes) → probes fail → CrashLoopBackOff. The
    flag was a KPR-deadlock workaround while the conflicting kube-proxy addon
-   ran; that conflict is gone (v3 `skipPhases`).
+   ran; that conflict is gone (kube-proxy removal in v3).
 4. **Firewall gap (not codified).** LB→node traffic for Cilium Gateway-API
    service nodePorts (e.g. 30657/31888) is NOT codified anywhere in this repo —
    no hcloud `Firewall` manifests, no `HetznerCluster.spec.firewall` /

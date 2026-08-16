@@ -9,7 +9,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: spokepool-control-plane-v3
+      name: spokepool-control-plane-v2
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -165,9 +165,12 @@ spec:
 # used, so v1 is frozen in place to match the live object exactly. New clusters
 # use spokepool-control-plane-v2 which carries the taint-removal
 # postKubeadmCommands (ADR-047) and the durable cilium-host-prep (ADR-046).
-# v3 = v2 + kubeadm skipPhases addon/kube-proxy (kube-proxy conflicts with
-# Cilium full KPR); rotate the ClusterClass ref to v3 deliberately — it
-# propagates to existing clusters and rolls the control-plane machine.
+# v3 = v2 + postKubeadmCommands that remove the kube-proxy kubeadm addon
+# (kube-proxy conflicts with Cilium full KPR) and the
+# exclude-from-external-load-balancers label (Hetzner CCM needs the CP node as
+# an LB backend for Cilium Gateway-API services); rotate the ClusterClass ref
+# to v3 deliberately — it propagates to existing clusters and rolls the
+# control-plane machine.
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
@@ -400,22 +403,19 @@ spec:
           # platform operators and tenant workloads can schedule on the only node.
           # Multi-node spoke pools (topology=multi) must revisit this.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
-          # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
-          # on control-plane nodes by default; the Hetzner CCM honors it and
-          # registers ZERO backends for Cilium Gateway-API LoadBalancer services
-          # → external VIP accepts TCP but forwards nothing → TLS handshake fails
-          # externally (works in-cluster). Remove the label so the CP node is a
-          # valid LB backend.
-          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
 ---
-# v3: v2 + kubeadm skipPhases addon/kube-proxy. Cilium runs full kube-proxy
-# replacement (kube-proxy-replacement: "true"); the stock kubeadm addon creates
-# a conflicting kube-proxy DaemonSet whose iptables REJECT chains for
-# endpoint-less services (incl. the Cilium Gateway LB VIP) break Gateway API
-# TLS and in-cluster service networking. Skipping the addon keeps re-provisioned
-# spokes clean. v2 is immutable (CAPI webhook) so this is a new template.
-# Ref rotation to v3 is a deliberate step: it propagates to existing clusters
-# and rolls the control-plane machine.
+# v3: v2 + kube-proxy removal + LB-backend label fix. Cilium runs full
+# kube-proxy replacement (kube-proxy-replacement: "true"); the stock kubeadm
+# addon creates a conflicting kube-proxy DaemonSet whose iptables REJECT chains
+# for endpoint-less services (incl. the Cilium Gateway LB VIP) break Gateway
+# API TLS and in-cluster service networking. This CAPI version has no
+# skipPhases on KubeadmControlPlaneTemplate, so kube-proxy is removed via
+# postKubeadmCommands instead (runs after kubeadm init created the addon).
+# Also removes the kubeadm default exclude-from-external-load-balancers label
+# (Hetzner CCM registers ZERO backends for Cilium Gateway-API LBs otherwise).
+# v2 is immutable (CAPI webhook) so this is a new template. Ref rotation to v3
+# is a deliberate step: it propagates to existing clusters and rolls the
+# control-plane machine.
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
@@ -425,8 +425,6 @@ spec:
   template:
     spec:
       kubeadmConfigSpec:
-        skipPhases:
-        - addon/kube-proxy
         clusterConfiguration:
           networking:
             podSubnet: 10.244.0.0/16
@@ -550,6 +548,13 @@ spec:
           # platform operators and tenant workloads can schedule on the only node.
           # Multi-node spoke pools (topology=multi) must revisit this.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # Cilium runs full kube-proxy replacement; the kubeadm addon's
+          # kube-proxy DaemonSet conflicts (iptables REJECT chains for
+          # endpoint-less services break Gateway API TLS + in-cluster service
+          # networking). This CAPI version has no skipPhases, so delete the
+          # addon post-init. kubeadm runs postKubeadmCommands after addons.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete ds kube-proxy --ignore-not-found=true || true'
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete cm kube-proxy --ignore-not-found=true || true'
           # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
           # on control-plane nodes by default; the Hetzner CCM honors it and
           # registers ZERO backends for Cilium Gateway-API LoadBalancer services
