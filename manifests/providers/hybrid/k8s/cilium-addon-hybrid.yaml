@@ -182,6 +182,9 @@ stringData:
       routing-mode: "tunnel"
       tunnel-protocol: "vxlan"
       service-no-backend-response: "reject"
+      # Tailscale WireGuard interface MTU (1280) minus Cilium VXLAN overhead (50)
+      mtu: "1230"
+      enable-pmtu-discovery: "true"
 
 
       # Enables L7 proxy for L7 policy enforcement and visibility

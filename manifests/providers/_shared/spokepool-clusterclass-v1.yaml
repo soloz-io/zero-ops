@@ -286,11 +286,11 @@ spec:
         - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
         - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
         - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
-      postKubeadmCommands:
-        # ADR-047: Single-node spoke model — remove the control-plane taint so
-        # platform operators and tenant workloads can schedule on the only node.
-        # Multi-node spoke pools (topology=multi) must revisit this.
-        - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+        postKubeadmCommands:
+          # ADR-047: Single-node spoke model — remove the control-plane taint so
+          # platform operators and tenant workloads can schedule on the only node.
+          # Multi-node spoke pools (topology=multi) must revisit this.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
