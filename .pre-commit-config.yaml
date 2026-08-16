@@ -27,6 +27,19 @@ repos:
         pass_filenames: true
         types: [yaml]
         files: '\.yaml$'
+      - id: validate-embedded-yaml
+        name: Validate Embedded YAML (stringData block scalars)
+        entry: python3 scripts/validate-embedded-yaml.py
+        language: system
+        pass_filenames: true
+        types: [yaml]
+        files: 'manifests/.*/k8s/.*\.yaml$|manifests/.*/spoke-bootstrap/.*\.yaml$|internal/assets/manifests/addons/.*\.yaml$'
+      - id: kustomize-build-hybrid
+        name: Kustomize Build Hybrid Provider
+        entry: bash -c "kubectl kustomize --enable-helm manifests/providers/hybrid >/dev/null || (echo 'kustomize build failed for manifests/providers/hybrid — broken YAML/manifest content will fail ArgoCD sync'; exit 1)"
+        language: system
+        pass_filenames: false
+        files: 'manifests/providers/hybrid/.*'
       - id: hub-operator-build
         name: Build Hub Operator
         entry: bash -c "cd operators/hub-operator && make build"
