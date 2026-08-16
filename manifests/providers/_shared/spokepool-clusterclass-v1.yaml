@@ -400,6 +400,13 @@ spec:
           # platform operators and tenant workloads can schedule on the only node.
           # Multi-node spoke pools (topology=multi) must revisit this.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
+          # on control-plane nodes by default; the Hetzner CCM honors it and
+          # registers ZERO backends for Cilium Gateway-API LoadBalancer services
+          # → external VIP accepts TCP but forwards nothing → TLS handshake fails
+          # externally (works in-cluster). Remove the label so the CP node is a
+          # valid LB backend.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
 ---
 # v3: v2 + kubeadm skipPhases addon/kube-proxy. Cilium runs full kube-proxy
 # replacement (kube-proxy-replacement: "true"); the stock kubeadm addon creates
@@ -543,6 +550,13 @@ spec:
           # platform operators and tenant workloads can schedule on the only node.
           # Multi-node spoke pools (topology=multi) must revisit this.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
+          # on control-plane nodes by default; the Hetzner CCM honors it and
+          # registers ZERO backends for Cilium Gateway-API LoadBalancer services
+          # → external VIP accepts TCP but forwards nothing → TLS handshake fails
+          # externally (works in-cluster). Remove the label so the CP node is a
+          # valid LB backend.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate

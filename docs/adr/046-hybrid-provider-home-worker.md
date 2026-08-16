@@ -202,6 +202,41 @@ with the hetzner cell (shared base, ADR-036).
 - The spoke API is publicly exposed on a Hetzner Load Balancer (TCP 443) rather
   than kept tailnet-only; exposure is scoped by Hetzner firewall rules.
 
+## Addenda (2026-08-17)
+
+Operational corrections applied live on `spoke-pool-hybrid-dev-01` (Aug 2026)
+and codified so re-provisioned spokes work out of the box:
+
+1. **kube-proxy addon removal (Cilium full KPR).** kubeadm's stock
+   `addon/kube-proxy` conflicts with Cilium full kube-proxy-replacement
+   (`kube-proxy-replacement: "true"`): its iptables REJECT chains for
+   endpoint-less services (incl. the Cilium Gateway LB VIP) break Gateway API
+   TLS and in-cluster service networking. Codified as
+   `spokepool-control-plane-v3` = v2 + `skipPhases: [addon/kube-proxy]`
+   (`manifests/providers/_shared/spokepool-clusterclass-v1.yaml`). The
+   ClusterClass ref rotation to v3 is a deliberate, separate step: it
+   propagates to existing clusters and rolls the control-plane machine.
+2. **LB exclude-label removal.** kubeadm sets
+   `node.kubernetes.io/exclude-from-external-load-balancers` on control-plane
+   nodes by default; the Hetzner CCM honors it and registers ZERO backends for
+   Cilium Gateway-API LoadBalancer services, so the external VIP accepts TCP
+   but forwards nothing and TLS handshakes fail externally (they work
+   in-cluster). Codified in both v2 and v3 `postKubeadmCommands`:
+   `kubectl ... label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true`.
+3. **clean-cilium-state=false.** Must stay `false` in steady state: with
+   `true`, an agent restart wipes all endpoint/BPF state while existing pods
+   keep their netns/veth but lose their Cilium endpoint (kubelet does not
+   re-run CNI for existing sandboxes) → probes fail → CrashLoopBackOff. The
+   flag was a KPR-deadlock workaround while the conflicting kube-proxy addon
+   ran; that conflict is gone (v3 `skipPhases`).
+4. **Firewall gap (not codified).** LB→node traffic for Cilium Gateway-API
+   service nodePorts (e.g. 30657/31888) is NOT codified anywhere in this repo —
+   no hcloud `Firewall` manifests, no `HetznerCluster.spec.firewall` /
+   `HCloudMachine.spec.firewall` config (firewalls are only deleted by the
+   hub-cli teardown). Hetzner-side rules for spoke load balancers are
+   provisioned out-of-band; re-provisioning a spoke requires re-adding the
+   LB→node port rules manually.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
