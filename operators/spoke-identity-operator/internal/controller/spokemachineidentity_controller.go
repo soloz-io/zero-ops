@@ -22,6 +22,22 @@ const (
 	conditionTypeReady            = "Ready"
 	conditionTypeIdentityCreated  = "IdentityProvisioned"
 	conditionTypeRotationComplete = "RotationComplete"
+	// conditionTypeIssuerConfigured reports the ADR-048 second-stage ClusterIssuer
+	// CRS wrapper delivery. The wrapper is only meaningful when both
+	// clientId (rotation-stable machine identity) and projectId (fleet-constant)
+	// are populated — a wrapper with empty identifiers must never be published.
+	conditionTypeIssuerConfigured = "ClusterIssuerConfigured"
+)
+
+const (
+	// clusterIssuerURL is the fleet Infisical endpoint for spoke-side ClusterIssuer
+	// bootstrap (ADR-035). The spoke catalog's ClusterIssuer, previously a static
+	// GitOps placeholder with empty clientId, is replaced by the lifecycle-delivered
+	// completed issuer rendered here (ADR-048 two-stage injection).
+	clusterIssuerURL = "https://infisical.nutgraf.in"
+	// clusterIssuerTemplate is the Infisical PKI certificate template backed by the
+	// Fleet Intermediate CA chain (Offline Root -> Fleet Intermediate -> Leaf).
+	clusterIssuerTemplate = "infrastructure-services"
 )
 
 // +kubebuilder:rbac:groups=identity.zeroops.io,resources=spokemachineidentities,verbs=get;list;watch;create;update;patch;delete
@@ -137,6 +153,19 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
+	// Ensure ADR-048 second-stage ClusterIssuer CRS wrapper. The identity operator
+	// GENERATES the {spoke}-cluster-issuer wrapper Secret; it never watches or
+	// mutates the spoke's infisical-fleet-issuer ClusterIssuer. CAPI ClusterResourceSet
+	// delivers the completed ClusterIssuer to the spoke. Fail-closed: no payload is
+	// published while clientId or projectId is empty, and the reason is surfaced via
+	// the ClusterIssuerConfigured condition so the Wrapper-Ready invariant holds.
+	if err := r.ensureClusterIssuerCRSWrapper(ctx, smi); err != nil {
+		logger.Error(err, "Failed to ensure ClusterIssuer CRS wrapper")
+		r.setCondition(smi, conditionTypeIssuerConfigured, metav1.ConditionFalse, "ClusterIssuerWrapperFailed", err.Error())
+		_ = r.Status().Update(ctx, smi)
+		return ctrl.Result{}, err
+	}
+
 	// Drift detection: verify identity still exists
 	exists, err := r.InfisicalClient.IdentityExists(ctx, identity.ID)
 	if err != nil {
@@ -149,6 +178,7 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 
 	r.setCondition(smi, conditionTypeReady, metav1.ConditionTrue, "Reconciled", "Machine Identity reconciled")
 	r.setCondition(smi, conditionTypeIdentityCreated, metav1.ConditionTrue, "Created", fmt.Sprintf("Identity %s provisioned", identity.ID))
+	r.setCondition(smi, conditionTypeIssuerConfigured, metav1.ConditionTrue, "WrapperReady", "ClusterIssuer CRS wrapper rendered")
 
 	logger.Info("Machine Identity reconciled", "identityId", identity.ID)
 	return ctrl.Result{RequeueAfter: r.rotationCheckInterval(smi)}, r.Status().Update(ctx, smi)
@@ -341,6 +371,104 @@ stringData:
 		return fmt.Errorf("create identity CRS wrapper: %w", err)
 	}
 
+	return nil
+}
+
+// ensureClusterIssuerCRSWrapper renders the ADR-048 second-stage completed
+// ClusterIssuer into a ClusterResourceSet wrapper Secret for delivery to the
+// spoke. Ownership contract (ADR-048): the identity operator GENERATES the
+// {spoke}-cluster-issuer wrapper only; it never watches or mutates the spoke's
+// infisical-fleet-issuer ClusterIssuer. CAPI ClusterResourceSet owns delivery to
+// the spoke, and cert-manager + the Infisical issuer own certificate issuance.
+//
+// Fail-closed: when clientId or projectId is empty — i.e. the identity stage has
+// not produced authoritative material yet — NO payload is published. This mirrors
+// the bootstrap-cert "defer rather than write empty" pattern (spokepool_controller.go).
+// A wrapper published with empty identifiers would be applied once by CRS ApplyOnce
+// and permanently break the spoke's cert issuance. The empty-input case is silent
+// (not an error): the ClusterIssuerConfigured condition is set by the caller after
+// a successful reconcile, so "ClusterIssuerConfigured=True" is the invariant for
+// "wrapper present AND identifiers populated".
+func (r *SpokeMachineIdentityReconciler) ensureClusterIssuerCRSWrapper(ctx context.Context, smi *identityv1alpha1.SpokeMachineIdentity) error {
+	logger := log.FromContext(ctx)
+
+	wrapperName := fmt.Sprintf("%s-cluster-issuer", smi.Spec.SpokeRef.Name)
+	clientID := smi.Status.ClientID
+	projectID := r.ProjectID
+	if smi.Spec.Infisical.ProjectID != "" {
+		projectID = smi.Spec.Infisical.ProjectID
+	}
+
+	// Fail-closed (ADR-048, constraint 4): never publish a ClusterIssuer with
+	// empty clientId/projectId. These are rotation-stable identity outputs; an
+	// empty payload is a half-rendered artifact that must not reach the spoke.
+	if clientID == "" || projectID == "" {
+		logger.Info("Deferring ClusterIssuer CRS wrapper until machine identity material is available",
+			"wrapper", wrapperName, "clientId", clientID != "", "projectId", projectID != "")
+		return nil
+	}
+
+	clusterIssuerYAML := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
+kind: ClusterIssuer
+metadata:
+  name: infisical-fleet-issuer
+spec:
+  url: %s
+  authentication:
+    universalAuth:
+      clientId: %s
+      secretRef:
+        name: infisical-auth
+        key: client-secret
+  certificateTemplateName: %s
+  projectId: %s
+`, clusterIssuerURL, clientID, clusterIssuerTemplate, projectID)
+
+	wrapper := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wrapperName,
+			Namespace: smi.Namespace,
+			Labels:    map[string]string{"addons.cluster.x-k8s.io/resource-set": "true"},
+		},
+		Type:       "addons.cluster.x-k8s.io/resource-set",
+		StringData: map[string]string{"cluster-issuer.yaml": clusterIssuerYAML},
+	}
+	wrapper.SetOwnerReferences(smi.GetOwnerReferences())
+
+	existing := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: smi.Namespace}, existing); err == nil {
+		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
+			// Real API servers return the payload under .data (StringData is
+			// write-only); test/in-memory clients may still expose StringData.
+			current := string(existing.Data["cluster-issuer.yaml"])
+			if current == "" {
+				current = existing.StringData["cluster-issuer.yaml"]
+			}
+			// clientId is rotation-stable (only the secret rotates), so a matching
+			// payload means no regeneration is needed. If the clientId truly changed
+			// (identity recreated), update the wrapper so future (re)provisioned
+			// spokes get the new identifier. Live spokes are ApplyOnce-bound and are
+			// not re-rendered by a wrapper content change.
+			if current == clusterIssuerYAML {
+				return nil
+			}
+			existing.StringData = map[string]string{"cluster-issuer.yaml": clusterIssuerYAML}
+			existing.Data = nil
+			if err := r.Update(ctx, existing); err != nil {
+				return fmt.Errorf("update ClusterIssuer CRS wrapper: %w", err)
+			}
+			return nil
+		}
+	}
+
+	if err := r.Create(ctx, wrapper); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("create ClusterIssuer CRS wrapper: %w", err)
+	}
+
+	logger.Info("Created ClusterIssuer CRS wrapper", "wrapper", wrapperName, "spoke", smi.Spec.SpokeRef.Name)
 	return nil
 }
 

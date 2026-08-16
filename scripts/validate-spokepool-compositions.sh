@@ -46,6 +46,7 @@ dynamic_suffixes=(
   "machine-identity"
   "bootstrap-cert"
   "agent-ca"
+  "cluster-issuer"
 )
 
 failures=0

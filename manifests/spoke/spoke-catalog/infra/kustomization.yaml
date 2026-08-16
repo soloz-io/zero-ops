@@ -43,7 +43,10 @@ resources:
   # groups require explicit signer approval RBAC; mirrors hub precedent)
   - cert-manager-approve-infisical-issuer.yaml
   - infisical-issuer.yaml
-  - cluster-issuer.yaml
+  # ADR-048: The completed ClusterIssuer (infisical-fleet-issuer) is delivered by
+  # ClusterResourceSet lifecycle injection (spoke-identity-operator -> {spoke}-cluster-issuer
+  # CRS wrapper -> CAPI). It is intentionally NOT tracked here so ArgoCD never
+  # prunes or empties the CRS-delivered object.
   - certificates.yaml
   # ADR-047: agent-sandbox (Sandbox CRD + controller) for sandbox-capable fleets
   - agent-sandbox/crd.yaml

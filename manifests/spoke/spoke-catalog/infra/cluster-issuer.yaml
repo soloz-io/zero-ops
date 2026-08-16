@@ -4,13 +4,32 @@
 # Replaces previous spec.ca (CA-from-secret) which violated ADR-035 — Fleet
 # Intermediate CA private key must never leave Infisical.
 #
-# Dynamic values populated by Day-0 CRS payload:
-#   - spec.authentication.universalAuth.clientId: Machine Identity client ID
-#   - spec.projectId: Infisical hub-platform project UUID
-# Both values are injected by cert-operator via ClusterResourceSet.
+# ❗ ADR-048 delivery: This file is a REFERENCE/TEMPLATE ONLY — it is NOT rendered
+# by the spoke catalog. The completed ClusterIssuer is delivered by ClusterResourceSet
+# lifecycle injection:
 #
-# Correction 2: secretRef points to infisical-auth secret delivered by Day-0 CRS
-# into the cert-manager namespace.
+#   machine identity (Infisical)
+#        │ spoke-identity-operator (GENERATES wrapper; never mutates issuer)
+#        ▼
+#   {spoke}-cluster-issuer CRS wrapper Secret  (type addons.cluster.x-k8s.io/resource-set)
+#        │ CAPI / ClusterResourceSet (owns delivery)
+#        ▼
+#   infisical-fleet-issuer ClusterIssuer (on the spoke, NOT GitOps-tracked)
+#        │ cert-manager + Infisical issuer (own issuance)
+#        ▼
+#   TLS Secrets
+#
+# Dynamic values rendered into the wrapper:
+#   - spec.authentication.universalAuth.clientId: Machine Identity client ID
+#     (rotation-stable, from SpokeMachineIdentity.status.clientID)
+#   - spec.projectId: Infisical hub-platform project UUID (fleet-constant)
+#
+# Ownership boundary: resources delivered by ClusterResourceSet lifecycle
+# injection MUST NOT simultaneously be tracked and pruned by the spoke platform
+# ArgoCD application. The static placeholder was removed from the catalog so
+# ArgoCD neither prunes nor self-heals the CRS-delivered issuer.
+#
+# The infra below documents the desired ClusterIssuer shape.
 apiVersion: infisical-issuer.infisical.com/v1alpha1
 kind: ClusterIssuer
 metadata:
@@ -19,9 +38,9 @@ spec:
   url: "https://infisical.nutgraf.in"
   authentication:
     universalAuth:
-      clientId: "" # Populated by cert-operator CRS: Machine Identity client ID
+      clientId: "" # Populated by ADR-048 CRS injection: Machine Identity client ID
       secretRef:
         name: infisical-auth
         key: client-secret
   certificateTemplateName: "infrastructure-services"
-  projectId: "" # Populated by cert-operator CRS: hub-platform project UUID
+  projectId: "" # Populated by ADR-048 CRS injection: hub-platform project UUID

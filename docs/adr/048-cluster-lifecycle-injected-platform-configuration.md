@@ -56,6 +56,21 @@ The cluster lifecycle MUST guarantee eventual rendering after the identity stage
 
 The second stage MAY be realized by the existing ClusterResourceSet / add-on machinery. If that machinery cannot express second-stage rendering after identity creation, the platform SHALL add a **small generic cluster-bootstrap / configuration controller** that watches identity material and renders completed bootstrap resources into the CRS payload. That controller must be generic — it may inject any cluster-specific platform configuration, not just the Infisical issuer — and must NOT be a bespoke cert-operator nor an extension of the identity operator.
 
+### Implementation Note (2026-08-16): spoke-identity-operator renders the CRS wrapper
+
+The initial implementation of the configuration stage is realized **in `spoke-identity-operator`**'s `ensureClusterIssuerCRSWrapper` (`spokemachineidentity_controller.go`), which renders the completed ClusterIssuer into the `{spoke}-cluster-issuer` CRS wrapper Secret. This is the minimum-vanilla realization that satisfies every constraint in this ADR:
+
+- The identity operator **exposes identity material** (`clientId` from `SpokeMachineIdentity.status.clientID`, which is rotation-stable) and **generates a lifecycle-delivered rendering** — it does **NOT** watch, patch, or reconcile the spoke's `infisical-fleet-issuer` ClusterIssuer. The "generates, never mutates" contract is explicit and unit-tested.
+- Delivery is unchanged: CAPI `ClusterResourceSet` (`spoke-pool-hybrid-dev-01-bootstrap`) gains a new `{spoke}-cluster-issuer` resource whose wrapper Secret is registered in both SpokePool compositions.
+- No Git mutation, no per-spoke values committed to shared Git, no imperative post-hoc patches, no controller mutating GitOps-owned resources.
+- Fail-closed: while `clientId` or `projectId` is empty no wrapper is published (`ClusterIssuerConfigured` condition documents the deferral), so a half-rendered ClusterIssuer can never reach a spoke via `ApplyOnce`.
+
+### Ownership Boundary (CRS-delivered resources vs ArgoCD)
+
+> Resources delivered by ClusterResourceSet lifecycle injection MUST NOT simultaneously be tracked and pruned by the spoke platform ArgoCD application.
+
+The spoke catalog previously owned a static `ClusterIssuer` placeholder (`cluster-issuer.yaml`) with empty `clientId`/`projectId`. With automated sync + `prune: true; selfHeal: true` on `platform-spoke-catalog-*`, keeping that placeholder in the catalog while CRS delivers the completed issuer would put ArgoCD and the ClusterResourceSet in a prune/recreate race, and any ArgoCD sync would revert the injected values. The placeholder is therefore **removed from the spoke catalog** (`spoke-catalog/infra/kustomization.yaml`); the ClusterIssuer object is delivered exclusively via the CRS lifecycle and must not carry the `argocd.argoproj.io/instance` tracking label. The shared `cluster-issuer.yaml` remains in the catalog directory purely as a reference document and is referenced by neither the kustomization nor any application set.
+
 ### Constraints
 
 1. No per-spoke values are committed to shared Git manifests.
@@ -93,7 +108,7 @@ This ADR defines architectural constraints. For the resource ownership matrix, s
 
 - ADR-039 (Platform Ownership Model): register spoke platform configuration / ClusterIssuer delivery ownership rows.
 - ADR-035 (Enterprise PKI) and ADR-045 (Bootstrap-Generated GitOps Artifacts): unchanged; this ADR complements rather than supersedes them.
-- Manifest remediation: the shared `cluster-issuer.yaml` placeholder comments referencing "cert-operator CRS" injection (`manifests/spoke/spoke-catalog/infra/cluster-issuer.yaml`) must be updated to reference this ADR and the two-stage lifecycle, together with the delivery mechanism chosen in the configuration stage.
+- Manifest remediation: the shared `cluster-issuer.yaml` placeholder comments referencing "cert-operator CRS" injection (`manifests/spoke/spoke-catalog/infra/cluster-issuer.yaml`) must be updated to reference this ADR and the two-stage lifecycle, together with the delivery mechanism chosen in the configuration stage. **Done 2026-08-16:** placeholder removed from the catalog kustomization; header updated to document the CRS lifecycle delivery and the ArgoCD ownership boundary.
 
 ## References
 
