@@ -151,7 +151,15 @@ stringData:
       # state. Endpoints will not be restored using knowledge from a
       # prior Cilium run, so they may receive new IP addresses upon
       # restart. This also triggers clean-cilium-bpf-state.
-      clean-cilium-state: "true"
+      # NOTE: must stay "false" in steady state. clean-cilium-state=true
+      # wipes all endpoint/BPF state on agent restart; existing pods keep
+      # their netns/veth but lose their Cilium endpoint (kubelet does not
+      # re-run CNI for existing sandboxes) → kube-proxy-free traffic breaks
+      # and probes fail → CrashLoopBackOff (observed after 1.17.18 rollout,
+      # Aug 2026). These flags were only needed as a KPR-deadlock workaround
+      # while the conflicting kube-proxy addon was present; that conflict is
+      # gone (spokepool-control-plane-v3 skipPhases addon/kube-proxy).
+      clean-cilium-state: "false"
       # If you want to clean cilium BPF state, set this to true;
       # Removes all BPF maps from the filesystem. Upon restart,
       # endpoints are restored with the same IP addresses, however
@@ -159,7 +167,7 @@ stringData:
       # Loadbalancing decisions will be reset, so any ongoing
       # connections via a service may be loadbalanced to a different
       # backend after restart.
-      clean-cilium-bpf-state: "true"
+      clean-cilium-bpf-state: "false"
       # Users who wish to specify their own custom CNI configuration file must set
       # custom-cni-conf to "true", otherwise Cilium may overwrite the configuration.
       custom-cni-conf: "false"
