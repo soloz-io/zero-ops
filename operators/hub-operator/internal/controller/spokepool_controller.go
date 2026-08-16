@@ -468,8 +468,13 @@ func (r *SpokePoolReconciler) ensureBootstrapCertCRSWrapper(ctx context.Context,
 	// data, do not regenerate. If it exists but is empty (created before
 	// cert-manager issued the certificate), delete it so it is recreated with
 	// real material on the next reconcile.
+	//
+	// Read via UncachedClient: the manager cache transform strips Secret .data
+	// (cmd/main.go), so a cached read always appears empty and would delete +
+	// recreate the wrapper on every reconcile — dropping the ClusterResourceSet
+	// ownerRef and stalling CRS delivery.
 	existing := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: "platform-capi"}, existing); err == nil {
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: "platform-capi"}, existing); err == nil {
 		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
 			if len(existing.Data) > 0 && len(existing.Data["bootstrap-cert.yaml"]) > 0 {
 				logger.Info("Bootstrap CRS wrapper already exists, skipping", "wrapper", wrapperName)
