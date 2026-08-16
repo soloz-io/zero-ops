@@ -198,7 +198,14 @@ spec:
                         # wrapper Secret.
                         - name: ""
                           kind: Secret
-                      strategy: ApplyOnce
+                      # Reconcile: re-applies CRS resources to EXISTING spokes when
+                      # the hub payload content changes (hash). Required for day-2
+                      # Cilium/Gateway-API upgrades (ADR-049) and resolves the
+                      # ApplyOnce gap ADR-048 worked around for the ClusterIssuer.
+                      # strategy is immutable: changing it deletes + recreates the
+                      # CRS; CAPI does not delete managed spoke resources on CRS
+                      # deletion, so this is safe.
+                      strategy: Reconcile
                 providerConfigRef:
                   name: kubernetes-provider
             patches:
