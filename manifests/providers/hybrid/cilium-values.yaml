@@ -56,7 +56,13 @@ envoy:
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
+      # maxUnavailable: 0 is rejected by the DaemonSet API ("cannot be 0
+      # when maxSurge is 0"), and surge would deadlock the release gate
+      # (old pod holds sockets until the new one is ready). Socket safety
+      # is guaranteed by the wait-for-envoy-release init container instead:
+      # per node, the old pod terminates (grace 1s) before the new Envoy
+      # binds, because the init gate waits for the host sockets to be free.
+      maxUnavailable: 1
   securityContext:
     capabilities:
       keepCapNetBindService: true

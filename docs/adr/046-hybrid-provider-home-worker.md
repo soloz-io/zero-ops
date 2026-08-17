@@ -413,29 +413,35 @@ and codified so re-provisioned spokes work out of the box:
        LB backend healthy; external HTTPS `200`.
     5. Rollback boundary: git revert of the values flip + re-render
        (`envoy.enabled: false`); the DS pods are removed and the agent
-       flip back happens **after** DS termination (maxUnavailable:0 ordering
-       below), then the same verification gate. Rollback is exercised only
-       as a deliberate operation, never as the recovery mechanism.
+       flip back happens **after** DS termination (the init-gate ordering
+       below also applies in reverse), then the same verification gate.
+       Rollback is exercised only as a deliberate operation, never as the
+       recovery mechanism.
 
-    **DS restart-overlap mitigation (concrete, enforced by the controller,
-    not by operational care).** The embedded-mode failure is fundamentally
-    the overlap of two Envoy generations competing for host sockets. In
-    decoupled mode this is prevented structurally:
+    **DS restart-overlap mitigation (concrete, enforced by the controller
+    + the init gate, not by operational care).** The embedded-mode failure
+    is fundamentally the overlap of two Envoy generations competing for
+    host sockets. In decoupled mode this is prevented structurally:
+    - Socket safety is guaranteed by the `wait-for-envoy-release` init
+      container: a new DS Envoy never binds until the host sockets
+      (`:80`/`:443`, `@envoy_domain_socket_parent_0`) are free AND the
+      agent's xDS socket is up — regardless of how the new pod was created
+      (rollout, replacement, out-of-band). 600s fail-closed deadline.
     - `envoy.updateStrategy.type: RollingUpdate` with
-      `rollingUpdate.maxUnavailable: 0` (default is `2`): DaemonSet
-      semantics then create the new pod on a node only after the old pod is
-      fully terminated — no old/new generation can coexist on the host
-      sockets, at any rollout.
+      `rollingUpdate.maxUnavailable: 1` (default is `2`). NOTE: the
+      DaemonSet API rejects `maxUnavailable: 0` ("cannot be 0 when
+      maxSurge is 0"), and surge (`maxSurge: 1`) would deadlock the
+      release gate (the old pod holds the sockets until the new pod is
+      ready — the init gate would wait forever). With `maxUnavailable: 1`
+      the per-node update is delete-old-then-create-new (grace 1s), and
+      the init gate then serializes socket ownership: no old/new Envoy
+      generation can coexist on the host sockets at any rollout.
     - Agent restarts are decoupled entirely: the agent DaemonSet rollout no
       longer restarts Envoy, so the failure trigger (overlapping agent
       replacement) cannot engage the Envoy drain state machine.
     - The DS pod's own drain on kubelet termination is safe by construction:
-      the replacement is not created until termination completes, and
-      kubelet enforces the final kill if the drain stalls.
-    - The fail-closed init container (step 3) additionally guards the first
-      deployment and any out-of-band pod replacement.
-    `maxUnavailable: 0` also serializes future Envoy upgrades, eliminating
-    the same race on version changes.
+      the replacement's init gate waits for the sockets the terminating pod
+      releases, and kubelet enforces the final kill if the drain stalls.
 
     **Out of scope** (explicitly unchanged by this amendment): BFF
     cross-node packet-loss investigation remains a separate Phase 2 effort;
@@ -444,7 +450,8 @@ and codified so re-provisioned spokes work out of the box:
 
     **Codified**: executed 2026-08-17 on `spoke-pool-hybrid-dev-01`.
     `manifests/providers/hybrid/cilium-values.yaml` now sets `envoy.enabled:
-    true`, `envoy.updateStrategy.rollingUpdate.maxUnavailable: 0`, and
+    true`, `envoy.updateStrategy.rollingUpdate.maxUnavailable: 1` (see the
+    mitigation note: `0` is invalid for DaemonSets without surge), and
     `envoy.securityContext.capabilities.envoy: [NET_ADMIN, SYS_ADMIN,
     NET_BIND_SERVICE]` (the chart default envoy cap list lacks
     NET_BIND_SERVICE; without it the DS cannot bind `:80`/`:443`).
@@ -455,7 +462,7 @@ and codified so re-provisioned spokes work out of the box:
     `wait-for-envoy-release` init container (busybox; polls for the agent
     xDS socket on the shared hostPath AND absence of LISTEN `:80`/`:443`
     and `@envoy_domain_socket_parent_0` in the host netns; 600s fail-closed
-    deadline) and `updateStrategy.maxUnavailable: 0`. The section above
+    deadline) and `updateStrategy.maxUnavailable: 1`. The section above
     ("Migration / rollback") is the operator reference for this rollout.
 
 ## References

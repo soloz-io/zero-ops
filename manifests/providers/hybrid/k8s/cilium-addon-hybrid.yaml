@@ -23,8 +23,9 @@
 #      embedded hot-restart drain/wedge (2/2 reproductions, 2026-08-17). The DS
 #      carries a wait-for-envoy-release init container (orders DS start after
 #      the embedded Envoy's host abstract sockets are released; 600s fail-closed
-#      deadline) and updateStrategy maxUnavailable: 0 (no old/new DS generation
-#      overlap on the host sockets; supersedes the addendum-7 collision note).
+#      deadline) and updateStrategy maxUnavailable: 1 (maxUnavailable: 0 is
+#      rejected by the DaemonSet API without surge, which would deadlock the
+#      release gate; socket safety is enforced by the init gate itself).
 #
 # NOTE: cilium-ca / hubble-server-certs are the ORIGINAL bootstrap-issued certs
 # (rotated exactly once, see ADR-046). Do NOT re-render this manifest through
@@ -1939,7 +1940,7 @@ stringData:
 
       updateStrategy:
         rollingUpdate:
-          maxUnavailable: 0
+          maxUnavailable: 1
         type: RollingUpdate
       template:
         metadata:
