@@ -1,10 +1,3 @@
-# ADR-022: Teach Kustomize how to rewrite ServiceAccount name references
-# inside Argo Rollout specs when a namePrefix is applied.
-#
-# Kustomize natively rewrites serviceAccountName for Deployment, StatefulSet,
-# DaemonSet etc. but not for CRDs. This configuration extends that behaviour
-# to argoproj.io/Rollout so that namePrefix: bff- correctly rewrites
-# spec.template.spec.serviceAccountName from "workload-sa" to "bff-workload-sa".
 nameReference:
   - kind: ServiceAccount
     version: v1
@@ -13,17 +6,6 @@ nameReference:
         group: argoproj.io
         path: spec/template/spec/serviceAccountName
 
-# Teach the tenant overlays' commonLabels to rewrite label fields on the CRDs
-# baked into this base. Kustomize's built-in commonLabels knows core kinds only,
-# so without this the Rollout pod template/selector and the CiliumNetworkPolicy
-# endpointSelector keep the base's `app: workload` while the Service selector
-# becomes `app: <tenant-service>` — the Service routes to nothing and the egress
-# policy scopes to nothing. Matching the pod template to the Service selector
-# also keeps the Rollout's spec.selector in sync so ArgoCD tracks its pods.
-#
-# Array fields (topologySpreadConstraints, podAntiAffinity labelSelectors) are
-# not reachable here — kustomize's label PathGetter supports no wildcards or
-# array indices — so overlays patch those per-service.
 commonLabels:
   - path: spec/selector/matchLabels
     kind: Rollout
@@ -40,3 +22,9 @@ commonLabels:
     group: cilium.io
     version: v2
     create: true
+
+images:
+  - path: spec/template/spec/containers/image
+    kind: Rollout
+    group: argoproj.io
+    version: v1alpha1
