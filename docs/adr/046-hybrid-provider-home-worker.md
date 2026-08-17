@@ -325,7 +325,138 @@ and codified so re-provisioned spokes work out of the box:
    `kubectl delete pod -n kube-system -l k8s-app=cilium --field-selector spec.nodeName=<cp-node>`.
    Deliberately NOT mitigated with a watchdog: Gateway topology is a Day-1
    operation; tracked as upstream technical debt (embedded-Envoy hot-restart
-   in hostNetwork mode).
+   in hostNetwork mode). **Superseded by addendum 10** (the same failure
+   class reproduces on plain agent restarts, without any Gateway change).
+
+10. **Confirmed restart-safety defect in the Cilium v1.17.18 hostNetwork
+    embedded-Envoy lifecycle under overlapping agent replacement — decision:
+    decouple Envoy from the agent (draft for sign-off, NOT yet applied).**
+
+    **Observed failure.** A plain Cilium agent restart on the control-plane
+    node — no Gateway configuration change, no CNP change, no certificate
+    change — repeatedly produces an HTTPS availability loss on
+    `waypoint.nutgraf.in`. `kubectl delete` of the agent pod triggers an
+    immediate DaemonSet replacement that starts **before** the old
+    container's grace-period termination releases the host abstract sockets
+    (`@envoy_domain_socket_parent_0` / `@envoy_domain_socket_child_0`) and
+    the `:80`/`:443` listeners. The new Envoy finds the previous hot-restart
+    participant still present, engages the hot-restart drain handoff at
+    startup, and the parent stays in drain until the 900s parent-shutdown
+    boundary. Gateway HTTPS goes `000` during/after that transition. Severity
+    is variable: one run stayed down until the agent pod was deleted; another
+    recovered by itself after ~4 minutes.
+
+    **Evidence (two controlled replays, 2026-08-17, all times UTC).**
+
+    | Generation | Pod start | Envoy start | Parent-shutdown (+900s) | HTTPS |
+    |---|---|---|---|---|
+    | A (wedged) | 12:19:18Z | 12:19:27Z | 12:34:27Z (+900.2s) | `000` observed 12:48:05Z–12:53:45Z (probe logs), no self-recovery; restored ~12:59:31Z only after agent pod deletion |
+    | B (self-healing) | 12:51:51Z | 12:51:52Z | 13:06:52Z (+900.0s) | `200` 12:59:31Z–13:13:45Z, `000` 13:14:01Z–13:17:44Z, self-recovered 13:18:56Z, no intervention |
+
+    Both runs share the same conditions: clean socket ownership at start
+    (single Envoy generation, 4× SO_REUSEPORT `:80` + 1× `:443`, no stale
+    external process); LDS/SDS fully converged before the failure
+    (`tenant-waypoint/cilium-gateway-waypoint-gateway/listener` added,
+    TLS cert from the `cilium-secrets` SDS sync served, continuous `200`);
+    no Gateway object mutation (Gateway 42h old, PROGRAMMED); agent log
+    silent at the boundary except the `[shutting down parent after drain`
+    line — no listener reprogramming. At the boundary the Envoy re-bound
+    its `:443` listener set 1→4 internally (no agent LDS involved) and the
+    process never exited; socket ownership stayed within the expected
+    generation throughout. The overlap window between the new pod start
+    (12:51:51Z) and the old container's termination (~12:52:30Z) explains
+    why the handoff engages on every restart, and why severity varies with
+    the race.
+
+    **Root-cause classification.** Embedded Envoy + hot-restart handoff
+    engaging during the overlapping agent replacement window, in Cilium
+    v1.17.18 hostNetwork Gateway mode. We do **not** claim a deeper upstream
+    Envoy bug: the mechanism is fully consistent with the observed data, but
+    the upstream defect boundary is not established (no source-level
+    evidence). Conclusion wording: **confirmed restart-safety defect in the
+    Cilium 1.17.18 hostNetwork embedded-Envoy lifecycle under overlapping
+    agent replacement.**
+
+    **Decision.** Move to **decoupled Envoy**; do **not** add a watchdog.
+    A watchdog that deletes agent pods on HTTPS `000` turns a deterministic
+    lifecycle defect into an availability-control loop (delete → restart →
+    re-wedge) and was rejected. Decoupling gives Envoy an independent
+    lifecycle: agent restarts (including the overlap window) never restart
+    Envoy, and Gateway `:80`/`:443` stays served. Mechanics: `envoy.enabled:
+    true` in `manifests/providers/hybrid/cilium-values.yaml` renders the
+    standalone `cilium-envoy` DaemonSet; the chart flips
+    `external-envoy-proxy: "true"` atomically with `envoy.enabled=true`
+    (templates/cilium-configmap.yaml:1508), so no dual-mode intermediate
+    state exists (the addendum-7 EADDRINUSE collision class). The DS
+    supports hostNetwork, `nodeSelector`, and
+    `keepCapNetBindService`/`NET_BIND_SERVICE` (envoy.enabled DS +
+    `gatewayAPI.hostNetwork` semantics preserved).
+
+    **Migration / rollback.** Status: draft for sign-off — nothing applied
+    yet; the addon is still the addendum-7 embedded configuration.
+    Migration sequence:
+    1. Pre-flight: verify current ingress stays serving (LB health check
+       continuity gate); identify and record current Envoy socket holders.
+    2. Render the addon with `envoy.enabled: true` (single rendered
+       manifest, `external-envoy-proxy` flips in the same sync — no
+       dual-mode window by construction).
+    3. Stale-holder handling: the flipped agents restart and release the
+       embedded Envoy's sockets **before** the DS pods bind; additionally,
+       a fail-closed init container on the DS (via the chart's
+       `envoy.initContainers` hook) verifies no foreign process holds
+       `@envoy_domain_socket_parent_0`/`:80`/`:443` and exits non-zero with
+       a clear message otherwise — the DS pod crash-loops loudly instead of
+       silently wedging.
+    4. Verify: `:80`/`:443` bound by the DS pod only (not the agent);
+       LDS listener `tenant-waypoint/cilium-gateway-waypoint-gateway/
+       listener` present; TLS cert served (SDS via `cilium-secrets`);
+       LB backend healthy; external HTTPS `200`.
+    5. Rollback boundary: git revert of the values flip + re-render
+       (`envoy.enabled: false`); the DS pods are removed and the agent
+       flip back happens **after** DS termination (maxUnavailable:0 ordering
+       below), then the same verification gate. Rollback is exercised only
+       as a deliberate operation, never as the recovery mechanism.
+
+    **DS restart-overlap mitigation (concrete, enforced by the controller,
+    not by operational care).** The embedded-mode failure is fundamentally
+    the overlap of two Envoy generations competing for host sockets. In
+    decoupled mode this is prevented structurally:
+    - `envoy.updateStrategy.type: RollingUpdate` with
+      `rollingUpdate.maxUnavailable: 0` (default is `2`): DaemonSet
+      semantics then create the new pod on a node only after the old pod is
+      fully terminated — no old/new generation can coexist on the host
+      sockets, at any rollout.
+    - Agent restarts are decoupled entirely: the agent DaemonSet rollout no
+      longer restarts Envoy, so the failure trigger (overlapping agent
+      replacement) cannot engage the Envoy drain state machine.
+    - The DS pod's own drain on kubelet termination is safe by construction:
+      the replacement is not created until termination completes, and
+      kubelet enforces the final kill if the drain stalls.
+    - The fail-closed init container (step 3) additionally guards the first
+      deployment and any out-of-band pod replacement.
+    `maxUnavailable: 0` also serializes future Envoy upgrades, eliminating
+    the same race on version changes.
+
+    **Out of scope** (explicitly unchanged by this amendment): BFF
+    cross-node packet-loss investigation remains a separate Phase 2 effort;
+    no CiliumNetworkPolicy weakening; no certificate/issuer changes; no
+    watchdog that deletes Cilium agents when HTTPS becomes unhealthy.
+
+    **Codified**: executed 2026-08-17 on `spoke-pool-hybrid-dev-01`.
+    `manifests/providers/hybrid/cilium-values.yaml` now sets `envoy.enabled:
+    true`, `envoy.updateStrategy.rollingUpdate.maxUnavailable: 0`, and
+    `envoy.securityContext.capabilities.envoy: [NET_ADMIN, SYS_ADMIN,
+    NET_BIND_SERVICE]` (the chart default envoy cap list lacks
+    NET_BIND_SERVICE; without it the DS cannot bind `:80`/`:443`).
+    `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml` carries the
+    chart-rendered cilium-envoy ServiceAccount / ConfigMap / Service /
+    DaemonSet (exactly four resources), `external-envoy-proxy: "true"` in
+    the cilium-config data, and the DS post-render additions:
+    `wait-for-envoy-release` init container (busybox; polls for the agent
+    xDS socket on the shared hostPath AND absence of LISTEN `:80`/`:443`
+    and `@envoy_domain_socket_parent_0` in the host netns; 600s fail-closed
+    deadline) and `updateStrategy.maxUnavailable: 0`. The section above
+    ("Migration / rollback") is the operator reference for this rollout.
 
 ## References
 
