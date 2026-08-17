@@ -14,6 +14,7 @@
 ipam:
   mode: kubernetes
 kubeProxyReplacement: true
+devices: "eth+ enp+ tailscale0"
 MTU: 1200
 pmtuDiscovery:
   enabled: true
@@ -26,6 +27,7 @@ gatewayAPI:
     # the agent-side SDS fix that 1.15.6 never delivered (the 443 bug).
     sync: true
     name: cilium-secrets
+  proxyProtocol: true
   hostNetwork:
     enabled: false
 # envoy.enabled=false: run Envoy EMBEDDED in the cilium-agent only. The
@@ -38,6 +40,8 @@ envoy:
   enabled: false
 socketLB:
   enabled: false
+proxy:
+  useOriginalSourceAddress: false
 hubble:
   enabled: true
 operator:

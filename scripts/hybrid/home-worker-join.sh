@@ -88,14 +88,15 @@ if kubectl --kubeconfig="$SPOKE_KUBECONFIG" get node "${HOSTNAME}" &>/dev/null; 
   # Ensure services are active and running
   systemctl start tailscaled containerd kubelet 2>/dev/null || true
 
-  # Ensure labels are present (compat shim for nodes joined before the
-  # kubelet --node-labels drop-in; the auto-join timer converges them).
+  # Ensure labels and unmanaged providerID are present so Hetzner CCM ignores home workers
   kubectl --kubeconfig="$SPOKE_KUBECONFIG" label node "${HOSTNAME}" \
     "workload-location=home" \
     "node-role.kubernetes.io/home=" \
     "node.kubernetes.io/exclude-from-external-load-balancers=true" \
     --overwrite 2>/dev/null || true
-  echo "[join] ✓ Labels verified"
+  kubectl --kubeconfig="$SPOKE_KUBECONFIG" patch node "${HOSTNAME}" \
+    -p "{\"spec\":{\"providerID\":\"unmanaged://${HOSTNAME}\"}}" 2>/dev/null || true
+  echo "[join] ✓ Labels and providerID verified"
 
   if [[ -f /etc/kubernetes/kubelet.conf ]]; then
     echo "[join] ✓ Node is already provisioned — exiting cleanly (no reset needed)"

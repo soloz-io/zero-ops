@@ -27,5 +27,4 @@ docs/prds
 
 manifests/hub-core-services
 manifests/spoke/spoke-catalog/infra/agent-sandbox
-manifests/spoke/spoke-catalog/infra/crds
 crd.yaml

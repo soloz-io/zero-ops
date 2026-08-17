@@ -259,10 +259,31 @@ and codified so re-provisioned spokes work out of the box:
    **Codified**: `mtu: "1200"` in `manifests/providers/hybrid/cilium-values.yaml`
    and `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`.
    Additionally, Cilium cross-node overlay routing between Hetzner CP and WSL2
-   workers requires the CP's routable Tailscale IP to be recognized for VXLAN
-   tunneling while preserving the Kubernetes Node `InternalIP` (`10.0.0.4`) for
-   Hetzner Load Balancer and K8s API traffic. Tested and verified up to 1MB
-   payloads across both directions with 0 packet drops or fragmentation.
+   workers requires the CP's routable Tailscale IP (`100.71.186.51`) to be
+   recognized for VXLAN tunneling while preserving the Kubernetes Node `InternalIP`
+   (`10.0.0.4`) for Hetzner Load Balancer and K8s API traffic. When Envoy (running
+   on CP host) routes traffic to WSL2 frontend pods, the Linux kernel uses the CP's
+   Cilium host router IP (`10.244.28.9`) as source; WSL2 remote workers look up
+   `10.244.28.9` in BPF ipcache and route return SYN-ACK packets back to the CP's
+   Tailscale tunnel endpoint.
+   **Codified**: `cilium-node-ip-reconciler` DaemonSet in
+   `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml` automatically maintains
+   the CP node's Tailscale IP in `CiliumNode.spec.addresses` and `CiliumEndpoint.status.networking.node`.
+   Tested and verified up to 1MB payloads across both directions with 0 packet drops or fragmentation.
+7. **Standalone `cilium-envoy` DaemonSet removed (embedded Envoy only).** The
+   rendered addon had BOTH `external-envoy-proxy: "false"` (agent runs Envoy
+   embedded, serving Gateway-API L7 on 127.0.0.1:10515) AND the standalone
+   `cilium-envoy` DaemonSet (`--base-id 0`). Both bind the same
+   `/var/run/cilium/envoy/sockets` abstract domain sockets; a stale host
+   `cilium-envoy` process (orphaned after pod restarts) left
+   `@envoy_domain_socket_parent_0` behind, and every new standalone Envoy
+   instance crashed in ~35ms with `errno=98 (EADDRINUSE)`, taking Gateway
+   traffic down. **Codified**: `envoy.enabled: false` in
+   `manifests/providers/hybrid/cilium-values.yaml` and the rendered Secret
+   `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml` no longer contains
+   the cilium-envoy ServiceAccount / ConfigMap / Service / DaemonSet. Gateway-API
+   proxying is unaffected — the agent serves it in-process. Pure-hetzner spokes
+   keep the standalone DS until re-rendered consistently.
 
 ## References
 
