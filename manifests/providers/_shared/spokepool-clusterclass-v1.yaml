@@ -561,7 +561,7 @@ spec:
           # → external VIP accepts TCP but forwards nothing → TLS handshake fails
           # externally (works in-cluster). Remove the label so the CP node is a
           # valid LB backend.
-          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes -l node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers- || true'
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
