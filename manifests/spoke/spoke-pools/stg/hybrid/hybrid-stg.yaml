@@ -1,10 +1,10 @@
 ---
-# SpokePool claim for the hybrid stg environment (ADR-046 §WS2).
+# SpokePool claim for the hybrid stg environment (ADR-046).
 # Control plane: 3 Hetzner nodes (HA topology for staging).
 # Burst workers: 0 (home WSL2 workers provide default capacity).
 # Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
-# Spoke API: dedicated Tailscale-enrolled HAProxy TCP frontend (stg/prod).
-#            HAProxy MagicDNS name must be set in control-plane-endpoint-host.
+# Spoke API: CAPH-managed Hetzner Load Balancer (public TCP 443, ADR-046) —
+#            same as hub/hetzner; hybrid adds nothing for the API path.
 #
 # Scheduling contract:
 #   Default: nodeSelector: workload-location: home
@@ -22,9 +22,9 @@ metadata:
   annotations:
     # Control-plane topology: 3 replicas for HA staging
     control-plane-replicas: "3"
-    # Spoke API endpoint is DERIVED as <claim-name>-cp.<tailnet-name> (ADR-046).
-    # For stg (3 CP) it resolves to the dedicated Tailscale HAProxy front; CP
-    # nodes get unique tailnet names <claim>-cp-1/2/3.
+    # Spoke API endpoint: CAPH auto-derives controlPlaneEndpoint from the LB
+    # IPv4 (ADR-046) — no annotation needed. Home workers join via the spoke
+    # kubeconfig server (LB endpoint).
     # Home worker node list
     home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
     # Home worker join flow settings

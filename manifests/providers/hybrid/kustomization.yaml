@@ -11,6 +11,5 @@ resources:
   - k8s/spokepool-hybrid-composition.yaml
   - k8s/home-worker-integration.yaml
   - k8s/tailscale-psk-es.yaml
-  - k8s/spoke-api-front.yaml
   # WSL2 cgroup-namespace fix (ADR-046): hybrid-only Cilium DaemonSet variant
   - k8s/cilium-addon-hybrid.yaml

@@ -239,6 +239,18 @@ and codified so re-provisioned spokes work out of the box:
    hub-cli teardown). Hetzner-side rules for spoke load balancers are
    provisioned out-of-band; re-provisioning a spoke requires re-adding the
    LB→node port rules manually.
+5. **spoke-api-front removed (stale pre-ADR artifact).** `spoke-api-front.yaml`
+   was a Tailscale-enrolled HAProxy TCP front for the spoke control-plane API —
+   a design that predates and contradicts this ADR: the Hub and spoke control
+   planes do NOT run Tailscale (topology table above), and the spoke API path
+   is the CAPH-managed Hetzner LB ("hybrid adds nothing for the API path"). It
+   referenced nonexistent ADR sections (§WS2/§WS5) and its Deployment was
+   permanently Pending (nodeSelector `workload-location: home` matches no hub
+   node). Removed from `manifests/providers/hybrid/kustomization.yaml` and the
+   stg claim comments corrected; home workers join via the spoke kubeconfig
+   server (LB endpoint) per the join flow (hub-operator WS4), which also
+   supports the `control-plane-endpoint-host` claim annotation when a
+   tailnet-resolvable endpoint is ever needed.
 
 ## References
 

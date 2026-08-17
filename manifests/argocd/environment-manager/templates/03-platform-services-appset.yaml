@@ -429,6 +429,36 @@ spec:
             - /spec/template/spec/containers/0/resources
             - /spec/progressDeadlineSeconds
     {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "infrastructure-provider" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        # CAPI webhook defaulting adds namespace refs and empty metadata
+        # blocks to ClusterClass refs/variables after creation.
+        - group: cluster.x-k8s.io
+          kind: ClusterClass
+          jqPathExpressions:
+            - .spec.controlPlane.ref.namespace
+            - .spec.controlPlane.metadata
+            - .spec.infrastructure.ref.namespace
+            - .spec.variables[].metadata
+            - .spec.workers.machineDeployments[].template.infrastructure.ref.namespace
+            - .spec.workers.machineDeployments[].template.metadata
+        # External Secrets controller adds finalizers, defaulted fields and
+        # status to ExternalSecrets after creation.
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jqPathExpressions:
+            - .metadata.finalizers
+            - .spec.data[].remoteRef.conversionStrategy
+            - .spec.data[].remoteRef.decodingStrategy
+            - .spec.data[].remoteRef.metadataPolicy
+            - .spec.target.creationPolicy
+            - .spec.target.deletionPolicy
+            - .spec.target.mergePolicy
+            - .spec.target.template.engineVersion
+            - .spec.binding
+            - .status
+    {{"{{-"}} end {{"}}"}}
 ---
 
 ---
