@@ -151,6 +151,9 @@ spec:
                         # NATS leaf node credentials
                         - name: ""
                           kind: Secret
+                        # Tailscale PSK credentials
+                        - name: ""
+                          kind: Secret
                         # CNI: hybrid-specific variant with WSL2 cgroup-namespace fix (ADR-046)
                         - name: cilium-addon-hybrid
                           kind: Secret
@@ -246,7 +249,15 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[5].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[2].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-psk"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
                 transforms:
                   - type: string
                     string:
@@ -254,7 +265,7 @@ spec:
                       fmt: "%s-tailscale-node-addon"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
                 transforms:
                   - type: string
                     string:
@@ -262,7 +273,7 @@ spec:
                       fmt: "%s-observability-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[9].name
                 transforms:
                   - type: string
                     string:
@@ -270,7 +281,7 @@ spec:
                       fmt: "%s-messaging-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[13].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
                 transforms:
                   - type: string
                     string:
@@ -278,7 +289,7 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
                 transforms:
                   - type: string
                     string:
@@ -286,7 +297,7 @@ spec:
                       fmt: "%s-machine-identity"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
                 transforms:
                   - type: string
                     string:
@@ -294,7 +305,7 @@ spec:
                       fmt: "%s-bootstrap-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
                 transforms:
                   - type: string
                     string:
@@ -302,7 +313,7 @@ spec:
                       fmt: "%s-agent-ca"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[19].name
                 transforms:
                   - type: string
                     string:
@@ -687,6 +698,75 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
+
+          # ────────────────────────────────────────────────────────────────────
+          # Tailscale PSK ExternalSecret (ADR-046): syncs tailscale-hybrid-psk
+          # from Infisical into the spoke's kube-system via CRS.
+          # ────────────────────────────────────────────────────────────────────
+          - name: tailscale-psk-externalsecret
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies:
+                  - "*"
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1
+                    kind: ExternalSecret
+                    metadata:
+                      namespace: platform-capi
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRef:
+                        name: infisical-backend
+                        kind: ClusterSecretStore
+                      target:
+                        name: ""
+                        creationPolicy: Owner
+                        template:
+                          type: addons.cluster.x-k8s.io/resource-set
+                          data:
+                            secret.yaml: |
+                              apiVersion: v1
+                              kind: Secret
+                              metadata:
+                                name: tailscale-hybrid-psk
+                                namespace: kube-system
+                              type: Opaque
+                              stringData:
+                                authkey: "{{ .authkey | trim }}"
+                      data:
+                        - secretKey: authkey
+                          remoteRef:
+                            key: tailscale-authkey
+                providerConfigRef:
+                  name: kubernetes-provider
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-psk-es"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-psk-es"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-tailscale-psk"
 
           # ────────────────────────────────────────────────────────────────────
           # Tailscale node addon (ADR-046): per-claim resource-set Secret that

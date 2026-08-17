@@ -274,7 +274,11 @@ validate_composition() {
 
   # 4. Dynamic suffixes render to {claim}-<suffix> exactly once.
   local d expected hits
-  for d in "${dynamic_suffixes[@]}"; do
+  local -a comp_dynamic_suffixes=("${dynamic_suffixes[@]}")
+  if [[ "$file" == *"hybrid"* ]]; then
+    comp_dynamic_suffixes+=("tailscale-psk")
+  fi
+  for d in "${comp_dynamic_suffixes[@]}"; do
     expected="$TEST_CLAIM-$d"
     hits="$(echo "$rendered_all" | grep -cx "$expected" || true)"
     if [ "$hits" -eq 1 ]; then
