@@ -29,7 +29,17 @@ gatewayAPI:
     name: cilium-secrets
   proxyProtocol: true
   hostNetwork:
-    enabled: false
+    # Serve Gateway API listeners directly on the host network (ports 80/443
+    # bound by the embedded Envoy on the selected nodes) instead of the
+    # NodePort+TPROXY redirect path, which drops genuinely-external SYN/ACK
+    # traffic (Cilium mangle transparent-socket marking bug, see ADR-046
+    # addendum + cilium-hostnetwork-mangle-guard DaemonSet in the rendered
+    # addon). Requires envoy.securityContext.capabilities.keepCapNetBindService
+    # and NET_BIND_SERVICE on the agent container to bind privileged ports.
+    enabled: true
+    nodes:
+      matchLabels:
+        node-role.kubernetes.io/control-plane: ""
 # envoy.enabled=false: run Envoy EMBEDDED in the cilium-agent only. The
 # standalone cilium-envoy DaemonSet (rendered by envoy.enabled=true) collides
 # with the agent's embedded Envoy on the /var/run/cilium/envoy/sockets
@@ -38,6 +48,27 @@ gatewayAPI:
 # is unaffected: cilium-agent serves it in-process (external-envoy-proxy false).
 envoy:
   enabled: false
+  securityContext:
+    capabilities:
+      # Required for the embedded Envoy to bind privileged hostNetwork
+      # listener ports 80/443 (hostNetwork mode above).
+      keepCapNetBindService: true
+securityContext:
+  capabilities:
+    ciliumAgent:
+      - CHOWN
+      - KILL
+      - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
+      - SYS_MODULE
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
 socketLB:
   enabled: false
 proxy:

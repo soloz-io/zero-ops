@@ -284,6 +284,37 @@ and codified so re-provisioned spokes work out of the box:
    the cilium-envoy ServiceAccount / ConfigMap / Service / DaemonSet. Gateway-API
    proxying is unaffected — the agent serves it in-process. Pure-hetzner spokes
    keep the standalone DS until re-rendered consistently.
+8. **Gateway API hostNetwork mode + Hetzner LB (external provision).**
+   NodePort+TPROXY (L7LB) silently drops genuinely-external SYNs (no SYN-ACK,
+   no RST, no BPF trace) on ALL interfaces — a known Cilium class of bugs
+   (#8971/PR#12434, #35012, #43819) — while loopback/self-originated tests
+   pass (false positives). **Codified**: `gatewayAPI.hostNetwork.enabled: true`
+   with `nodes.matchLabels: node-role.kubernetes.io/control-plane=` — the
+   embedded Envoy binds `0.0.0.0:80/443` directly on the CP node; the gateway
+   Service becomes ClusterIP so the Hetzner CCM no longer provisions an LB.
+   Two prerequisites (both codified):
+   - `envoy.securityContext.capabilities.keepCapNetBindService: true` +
+     `NET_BIND_SERVICE` capability on the cilium-agent container, otherwise
+     Envoy fails `cannot bind '0.0.0.0:80': Permission denied`.
+   - Cilium's stock `CILIUM_PRE_mangle` rule
+     `-m socket --transparent ... -j MARK --set-xmark 0x200` matches
+     post-handshake packets destined to the transparent host-bound listener
+     and reroutes them via table 2004 (local lo), breaking the TCP handshake
+     for external traffic (loopback exempt via Cilium's `! -o lo` exclusion).
+     Since Cilium wipes foreign rules on every chain re-sync, a guard
+     DaemonSet (`cilium-hostnetwork-mangle-guard`, codified in the rendered
+     addon) continuously re-asserts
+     `iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN`.
+   The public-facing Hetzner LB (`waypoint-gateway-lb`, lb11/hel1, public
+   `77.42.12.176`, private `10.0.0.5` on network 12543641) is an EXTERNAL
+   resource — out of scope for in-cluster GitOps and unmanageable by the CCM
+   in hostNetwork mode (ClusterIP Service, no NodePorts). **Codified**:
+   `scripts/hybrid/ensure-waypoint-lb.sh` (idempotent hcloud CLI: services
+   80/443 with PROXY protocol, HTTP health checks with relaxed timeouts, CP
+   server target over the private network `use_private_ip=true` — the
+   embedded Envoy binds IPv4-only, so public-IPv4 health probes must be
+   avoided). DNS `waypoint.nutgraf.in`/`api.waypoint.nutgraf.in` → LB public
+   IPv4 (Hetzner Cloud DNS).
 
 ## References
 
