@@ -1846,7 +1846,11 @@ stringData:
           terminationGracePeriodSeconds: 0
           containers:
             - name: guard
-              image: alpine/k8s:1.31.0
+              # The cilium-agent image (already pulled on every node of the
+              # spoke) ships iptables v1.8.8; alpine/k8s does NOT, so the
+              # earlier variant silently never enforced the rule. Digest is
+              # pinned to the agent's so no extra image is ever pulled.
+              image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
               securityContext:
                 privileged: true
               command:
