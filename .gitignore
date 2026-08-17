@@ -12,7 +12,7 @@ kubeconfig.zero-ops/
 .env
 fixes
 # Helm charts cached by local kustomize --enable-helm builds (ArgoCD fetches them itself)
-manifests/**/charts/
+manifests/spoke/**/charts/
 # Hybrid home-lab environment (contains real IPs/hostnames - do not commit)
 scripts/hybrid/home-lab.env
 reference-projects
