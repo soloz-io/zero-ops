@@ -316,8 +316,13 @@ spec:
             targetRevision: ''
             path: 'manifests/hub-core-services/ingress'
             chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: '{cluster-issuer.yaml,ingress.yaml}'
+            # No directoryRecurse: with recurse:true ArgoCD lists every file
+            # including kustomization.yaml and tries to apply it as a
+            # Kustomization CR (not installed) → SyncFailed. Without it,
+            # ArgoCD auto-detects kustomize from kustomization.yaml which
+            # already lists exactly {cluster-issuer.yaml,ingress.yaml}.
+            directoryRecurse: ''
+            directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
@@ -442,6 +447,7 @@ spec:
             - .spec.infrastructure.ref.namespace
             - .spec.variables[].metadata
             - .spec.workers.machineDeployments[].template.infrastructure.ref.namespace
+            - .spec.workers.machineDeployments[].template.bootstrap.ref.namespace
             - .spec.workers.machineDeployments[].template.metadata
         # External Secrets controller adds finalizers, defaulted fields and
         # status to ExternalSecrets after creation.
