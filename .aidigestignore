@@ -24,5 +24,8 @@ docs/hub-operator
 docs/infisical
 docs/prds
 
+
 manifests/hub-core-services
-crds
+manifests/spoke/spoke-catalog/infra/agent-sandbox
+manifests/spoke/spoke-catalog/infra/crds
+crd.yaml

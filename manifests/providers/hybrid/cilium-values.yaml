@@ -17,8 +17,8 @@ kubeProxyReplacement: true
 MTU: 1200
 pmtuDiscovery:
   enabled: true
-cleanState: true
-cleanBpfState: true
+cleanState: false
+cleanBpfState: false
 gatewayAPI:
   enabled: true
   secretsNamespace:
@@ -26,11 +26,16 @@ gatewayAPI:
     # the agent-side SDS fix that 1.15.6 never delivered (the 443 bug).
     sync: true
     name: cilium-secrets
+  hostNetwork:
+    enabled: false
+# envoy.enabled=false: run Envoy EMBEDDED in the cilium-agent only. The
+# standalone cilium-envoy DaemonSet (rendered by envoy.enabled=true) collides
+# with the agent's embedded Envoy on the /var/run/cilium/envoy/sockets
+# abstract domain sockets (--base-id 0) -> EADDRINUSE crash loop (~35ms) when
+# a stale host process or a prior DS pod holds them. Gateway-API (L7) proxying
+# is unaffected: cilium-agent serves it in-process (external-envoy-proxy false).
 envoy:
-  enabled: true
-  prometheus:
-    enabled: true
-    port: "9964"
+  enabled: false
 socketLB:
   enabled: false
 hubble:
