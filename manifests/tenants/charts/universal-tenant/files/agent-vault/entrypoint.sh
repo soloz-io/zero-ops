@@ -4,6 +4,11 @@ set -e
 
 MASTER_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
 
+cd /shared
+export HOME=/shared
+export XDG_DATA_HOME=/shared
+export XDG_CONFIG_HOME=/shared
+
 AGENT_VAULT_MASTER_PASSWORD="$MASTER_PASSWORD" \
   /usr/local/bin/agent-vault server \
   --host 0.0.0.0 --port 14321 --mitm-port 14322 &
