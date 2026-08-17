@@ -82,7 +82,6 @@ spec:
                     description: "Maximum concurrent connections per tenant"
                     default: 5
                     minimum: 1
-                    maximum: 50
                   poolMode:
                     type: string
                     description: "PgBouncer pooling mode (MUST be transaction)"
