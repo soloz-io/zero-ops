@@ -85,8 +85,8 @@ spec:
               pgbouncer:
                 poolMode: transaction
                 parameters:
-                  max_client_conn: "100"
-                  default_pool_size: "5"
+                  max_client_conn: "300"
+                  default_pool_size: "25"
                   ignore_startup_parameters: "search_path, extra_float_digits"
                 authQueryUser:
                   secretRef:
@@ -121,6 +121,13 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
       toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].value
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.pooler.maxConnections
+      toFieldPath: spec.forProvider.manifest.spec.pgbouncer.parameters.default_pool_size
+      transforms:
+      - type: convert
+        convert:
+          toType: string
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']

@@ -1,9 +1,9 @@
 {{- if and .Values.deployXR (ne (((.Values.database | default dict).enabled) | toString) "false") }}
 {{- $databaseName := ((.Values.database | default dict).name) | default (printf "tenant-%s-db" .Values.tenantId) -}}
-{{- $poolerMaxConn := 5 -}}
+{{- $poolerMaxConn := 25 -}}
 {{- $poolerMode := "transaction" -}}
 {{- if .Values.pooler -}}
-  {{- $poolerMaxConn = .Values.pooler.maxConnections | default 5 -}}
+  {{- $poolerMaxConn = .Values.pooler.maxConnections | default 25 -}}
   {{- $poolerMode = .Values.pooler.poolMode | default "transaction" -}}
 {{- end -}}
 {{- $dbSchema := "public" -}}
