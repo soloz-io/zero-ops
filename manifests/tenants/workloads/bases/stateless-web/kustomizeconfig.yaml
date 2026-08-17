@@ -40,3 +40,9 @@ commonLabels:
     group: cilium.io
     version: v2
     create: true
+
+images:
+  - path: spec/template/spec/containers[]/image
+    kind: Rollout
+    group: argoproj.io
+    version: v1alpha1
