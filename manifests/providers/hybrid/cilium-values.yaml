@@ -14,7 +14,7 @@
 ipam:
   mode: kubernetes
 kubeProxyReplacement: true
-MTU: 1230
+MTU: 1200
 pmtuDiscovery:
   enabled: true
 cleanState: true

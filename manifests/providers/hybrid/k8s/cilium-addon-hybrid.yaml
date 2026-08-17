@@ -240,7 +240,7 @@ stringData:
       tunnel-protocol: "vxlan"
       tunnel-source-port-range: "0-0"
       service-no-backend-response: "reject"
-      mtu: "1230"
+      mtu: "1200"
 
 
       # Enables L7 proxy for L7 policy enforcement and visibility
