@@ -313,8 +313,19 @@ and codified so re-provisioned spokes work out of the box:
    80/443 with PROXY protocol, HTTP health checks with relaxed timeouts, CP
    server target over the private network `use_private_ip=true` — the
    embedded Envoy binds IPv4-only, so public-IPv4 health probes must be
-   avoided). DNS `waypoint.nutgraf.in`/`api.waypoint.nutgraf.in` → LB public
+   avoided).    DNS `waypoint.nutgraf.in`/`api.waypoint.nutgraf.in` → LB public
    IPv4 (Hetzner Cloud DNS).
+9. **Known limitation: Envoy stuck-drain on Gateway changes.** Modifying
+   `Gateway` annotations or listeners triggers an Envoy hot-restart in
+   Cilium. In hostNetwork mode this frequently results in a stuck drain
+   state (parent shuts down after drain, child fails to bind, traffic drops
+   to `000` on every port while the sockets remain bound by the draining
+   parent — observed twice). **Workaround**: after applying Gateway changes,
+   manually restart the Cilium agent on the control-plane node:
+   `kubectl delete pod -n kube-system -l k8s-app=cilium --field-selector spec.nodeName=<cp-node>`.
+   Deliberately NOT mitigated with a watchdog: Gateway topology is a Day-1
+   operation; tracked as upstream technical debt (embedded-Envoy hot-restart
+   in hostNetwork mode).
 
 ## References
 
