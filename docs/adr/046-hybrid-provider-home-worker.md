@@ -251,6 +251,18 @@ and codified so re-provisioned spokes work out of the box:
    server (LB endpoint) per the join flow (hub-operator WS4), which also
    supports the `control-plane-endpoint-host` claim annotation when a
    tailnet-resolvable endpoint is ever needed.
+6. **Hybrid Cilium VXLAN MTU (1200) & Tailscale Overlay Invariant.**
+   Tailscale's WireGuard underlay operates at MTU 1280 (`tailscale0`). The stock
+   Cilium VXLAN overlay MTU (1230) produces outer encapsulated UDP packets of
+   ~1308 bytes, causing IP fragmentation on `tailscale0` and packet drops in the
+   Cilium BPF datapath (`First logical datagram fragment not found`).
+   **Codified**: `mtu: "1200"` in `manifests/providers/hybrid/cilium-values.yaml`
+   and `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`.
+   Additionally, Cilium cross-node overlay routing between Hetzner CP and WSL2
+   workers requires the CP's routable Tailscale IP to be recognized for VXLAN
+   tunneling while preserving the Kubernetes Node `InternalIP` (`10.0.0.4`) for
+   Hetzner Load Balancer and K8s API traffic. Tested and verified up to 1MB
+   payloads across both directions with 0 packet drops or fragmentation.
 
 ## References
 
