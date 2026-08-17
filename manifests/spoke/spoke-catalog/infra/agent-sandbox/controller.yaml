@@ -98,6 +98,13 @@ spec:
         app: agent-sandbox-controller
     spec:
       serviceAccountName: agent-sandbox-controller
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
       containers:
       - name: agent-sandbox-controller
         image: registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.0
