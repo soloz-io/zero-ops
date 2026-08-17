@@ -552,6 +552,13 @@ spec:
         app.kubernetes.io/version: v2.2.0
         app.kubernetes.io/managed-by: Helm
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
       serviceAccountName: external-secrets-cert-controller
       automountServiceAccountToken: true
       hostNetwork: false
@@ -622,6 +629,13 @@ spec:
         app.kubernetes.io/version: v2.2.0
         app.kubernetes.io/managed-by: Helm
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
       serviceAccountName: eso-external-secrets
       automountServiceAccountToken: true
       hostNetwork: false
@@ -677,6 +691,13 @@ spec:
         app.kubernetes.io/version: v2.2.0
         app.kubernetes.io/managed-by: Helm
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
       hostNetwork: false
       serviceAccountName: external-secrets-webhook
       automountServiceAccountToken: true
@@ -764,7 +785,7 @@ webhooks:
   - v1beta1
   sideEffects: None
   timeoutSeconds: 5
-  failurePolicy: Fail
+  failurePolicy: Ignore
 - name: validate.clustersecretstore.external-secrets.io
   rules:
   - apiGroups:
@@ -824,4 +845,4 @@ webhooks:
   - v1beta1
   sideEffects: None
   timeoutSeconds: 5
-  failurePolicy: Fail
+  failurePolicy: Ignore
