@@ -31,6 +31,10 @@ const (
 	// clientId (rotation-stable machine identity) and projectId (fleet-constant)
 	// are populated — a wrapper with empty identifiers must never be published.
 	conditionTypeIssuerConfigured = "ClusterIssuerConfigured"
+	// identityHealthCheckInterval caps the reconcile cadence (rotationCheckInterval
+	// can be weeks when NextRotation is far out) so the Phase 2 lockout self-heal
+	// always probes within a bounded window, independent of the rotation schedule.
+	identityHealthCheckInterval = 5 * time.Minute
 )
 
 const (
@@ -195,7 +199,15 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	logger.Info("Machine Identity reconciled", "identityId", identity.ID)
-	return ctrl.Result{RequeueAfter: r.rotationCheckInterval(smi)}, r.Status().Update(ctx, smi)
+	requeueAfter := r.rotationCheckInterval(smi)
+	if requeueAfter > identityHealthCheckInterval {
+		// Self-heal must never sleep for the whole rotation window (until/4 can
+		// be weeks out). Cap the health probe cadence so a lockout is detected
+		// and cleared within the health check interval regardless of the
+		// certificate rotation schedule.
+		requeueAfter = identityHealthCheckInterval
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, r.Status().Update(ctx, smi)
 }
 
 // ensureIdentityUnlock implements the Phase 2 lockout self-heal against the
