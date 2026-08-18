@@ -1963,23 +1963,17 @@ stringData:
             - -c
             - |
               set -e
-              DEADLINE=$((SECONDS + 600))
-              echo "[wait-for-envoy-release] waiting for agent xDS socket and host socket release (max 600s)"
-              while [ $SECONDS -lt $DEADLINE ]; do
-                xds=0; holders=0
-                [ -S /var/run/cilium/envoy/sockets/xds.sock ] && xds=1
-                if grep -aqE "00000000:(0050|01BB).*0A " /proc/net/tcp /proc/net/tcp6 2>/dev/null; then holders=1; fi
-                if grep -aq "@envoy_domain_socket_parent_0" /proc/net/unix 2>/dev/null; then holders=1; fi
-                if [ "$xds" -eq 1 ] && [ "$holders" -eq 0 ]; then
-                  echo "[wait-for-envoy-release] xDS socket present, :80/:443 and parent domain socket released -- starting"
+              echo "[wait-for-envoy-release] waiting for agent xDS socket..."
+              count=0
+              while [ $count -lt 120 ]; do
+                if [ -S /var/run/cilium/envoy/sockets/xds.sock ]; then
+                  echo "[wait-for-envoy-release] xDS socket present -- starting envoy"
                   exit 0
                 fi
+                count=$((count + 1))
                 sleep 5
               done
-              echo "[wait-for-envoy-release] FATAL: 600s deadline expired; agent xDS socket present=$xds, foreign holders present=$holders"
-              ls -la /var/run/cilium/envoy/sockets 2>/dev/null || echo "  (no sockets dir)"
-              echo "  tcp6/4 :80,:443 listeners:"; grep -aE "00000000:(0050|01BB).*0A " /proc/net/tcp /proc/net/tcp6 2>/dev/null | head -4 || true
-              echo "  envoy unix sockets:"; grep -a "@envoy_domain_socket" /proc/net/unix 2>/dev/null | head -4 || true
+              echo "[wait-for-envoy-release] FATAL: timed out waiting for xds.sock"
               exit 1
             volumeMounts:
             - name: envoy-sockets

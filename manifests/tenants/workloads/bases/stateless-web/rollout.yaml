@@ -7,6 +7,8 @@ apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: workload
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
 spec:
   replicas: 2
   strategy:
@@ -50,6 +52,8 @@ spec:
                 labelSelector:
                   matchLabels:
                     app: workload
+      # Zero-downtime rollout graceful termination
+      terminationGracePeriodSeconds: 60
       # ADR-021 Blocker 5: Pod-level security context — non-root, seccomp.
       securityContext:
         runAsNonRoot: true
@@ -69,6 +73,13 @@ spec:
         - name: app
           # Tenant overlays this with their immutable digest via images: block.
           image: placeholder
+          # Zero-downtime preStop hook allows ingress / iptables draining before SIGTERM
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sleep
+                  - "5"
           # ADR-021 Blocker 5: Container-level security context.
           securityContext:
             allowPrivilegeEscalation: false
