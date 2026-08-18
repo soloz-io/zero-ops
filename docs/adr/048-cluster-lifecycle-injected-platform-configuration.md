@@ -104,6 +104,27 @@ This ADR defines architectural constraints. For the resource ownership matrix, s
 - Requires a two-stage lifecycle; the second-stage rendering point may require a new generic controller if the current add-on machinery cannot express it.
 - The injected ClusterIssuer is lifecycle-delivered rather than plainly visible in the spoke catalog, increasing the need for clear operational documentation.
 
+### Amendment (2026-08-18): CRS `Reconcile` semantics and delivery assurance
+
+Constraint 6 above needs sharpening after the ADR-046 §12 incident: `ApplyOnce`
+applies strictly at provision time, and the spoke CRS strategy `Reconcile`
+re-applies payloads **only when the payload/binding hash changes** — neither
+performs live-state drift repair. Concretely:
+
+- A CRS-delivered resource deleted after a successful apply (e.g., by an
+  ArgoCD namespace-cascade prune) **stays deleted** until the payload hash
+  changes. The binding's `applied: true` does not mean the live resources
+  still exist.
+- CRS is therefore **creation/delivery assurance, not steady-state
+  enforcement**. Steady-state enforcement for lifecycle-delivered
+  configuration is out of scope by design (constraint: CRS-delivered
+  resources are not ArgoCD-tracked); operators rely on the SMI rotation
+  procedure (ADR-046 §12) to re-render and re-deliver.
+- Health attestation for lifecycle-delivered configuration should be
+  *readiness-based* (e.g., a condition on the spoke) rather than assumed
+  from a binding status. Tracked as future work: expose a
+  CRS-delivery-complete condition via spoke-identity-operator.
+
 ## Impact
 
 - ADR-039 (Platform Ownership Model): register spoke platform configuration / ClusterIssuer delivery ownership rows.
