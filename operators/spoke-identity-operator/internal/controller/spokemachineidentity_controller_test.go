@@ -61,6 +61,59 @@ func getWrapperSecret(t *testing.T, c client.Client, name string) (*corev1.Secre
 	return secret, payload
 }
 
+// ensureCRSWrapper renders both infisical-auth copies. infisical-issuer v0.2.0
+// authenticates via the hardcoded secretData["clientSecret"] key (secretRef.key
+// is never consulted), so the cert-manager copy MUST contain clientSecret or
+// the issuer logs in with an empty secret and trips identity lockout
+// (401 Invalid credentials x3 -> 401 "temporarily locked" loop, CRs pending).
+func TestEnsureCRSWrapperRendersClientSecretKey(t *testing.T) {
+	scheme := newSchemeForTest(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}
+
+	smi := newTestSMI("spoke-h", "b3d5ec56-623e-4a04-b82e-3960d84196c7")
+	authSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "smi-spoke-h-auth", Namespace: "platform-capi"},
+		StringData: map[string]string{
+			"clientId":     "b3d5ec56-623e-4a04-b82e-3960d84196c7",
+			"clientSecret": "c54dc1e82716766396779dcd75b678f1ecbc7ffcb026db8a189d6be6b0fa21c1",
+		},
+	}
+	if err := c.Create(context.Background(), authSecret); err != nil {
+		t.Fatalf("seed auth secret: %v", err)
+	}
+
+	if err := r.ensureCRSWrapper(context.Background(), smi); err != nil {
+		t.Fatalf("render identity CRS wrapper: %v", err)
+	}
+
+	wrapper := &corev1.Secret{}
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "spoke-h-machine-identity", Namespace: "platform-capi"}, wrapper); err != nil {
+		t.Fatalf("get identity wrapper: %v", err)
+	}
+	payload := string(wrapper.Data["identity.yaml"])
+	if payload == "" {
+		payload = wrapper.StringData["identity.yaml"]
+	}
+
+	wantSecretBlocks := []string{
+		"name: infisical-auth\n  namespace: platform-ops",
+		"name: infisical-auth\n  namespace: cert-manager",
+	}
+	for _, want := range wantSecretBlocks {
+		if !strings.Contains(payload, want) {
+			t.Errorf("rendered identity.yaml missing %q in:\n%s", want, payload)
+		}
+	}
+	// Both copies: client-id/client-secret for ESO + issuer env, clientSecret
+	// for the isser's hardcoded signer lookup.
+	for _, key := range []string{"client-id", "client-secret", "clientSecret"} {
+		if got := strings.Count(payload, key+":"); got != 2 {
+			t.Errorf("expected %q exactly twice (platform-ops + cert-manager), got %d in:\n%s", key, got, payload)
+		}
+	}
+}
+
 // missing machine identity material -> no wrapper is ever published (fail-closed)
 func TestEnsureClusterIssuerCRSWrapperEmptyIdentityNotPublished(t *testing.T) {
 	scheme := newSchemeForTest(t)

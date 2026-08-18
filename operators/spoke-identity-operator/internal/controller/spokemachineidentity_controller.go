@@ -314,6 +314,16 @@ func (r *SpokeMachineIdentityReconciler) ensureCRSWrapper(ctx context.Context, s
 	clientID := string(authSecret.Data["clientId"])
 	clientSecret := string(authSecret.Data["clientSecret"])
 
+	// The cert-manager copy must carry a duplicate `clientSecret` data key in
+	// addition to `client-secret`: infisical-issuer v0.2.0 authenticates by
+	// reading secretData["clientSecret"] hardcoded (internal/issuer/signer/
+	// signer.go) and never consults the ClusterIssuer secretRef.key. Without it
+	// the issuer signs in with an empty client secret, tripping identity login
+	// lockout (401 Invalid credentials x3 -> 401 "temporarily locked" retry
+	// loop) and leaving every spoke CertificateRequest pending. `client-secret`
+	// stays for the ESO ClusterSecretStore and the issuer Deployment env, which
+	// reference those keys by name; the platform-ops copy carries clientSecret
+	// too to keep parity with the hub-delivered secret shape.
 	identityYAML := fmt.Sprintf(`apiVersion: v1
 kind: Secret
 metadata:
@@ -323,6 +333,7 @@ type: Opaque
 stringData:
   client-id: %s
   client-secret: %s
+  clientSecret: %s
 ---
 apiVersion: v1
 kind: Secret
@@ -333,7 +344,8 @@ type: Opaque
 stringData:
   client-id: %s
   client-secret: %s
-`, clientID, clientSecret, clientID, clientSecret)
+  clientSecret: %s
+`, clientID, clientSecret, clientSecret, clientID, clientSecret, clientSecret)
 
 	wrapper := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
