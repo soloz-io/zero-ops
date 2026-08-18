@@ -532,6 +532,20 @@ spec:
                 - op: replace
                   path: /spec/backup/barmanObjectStore/destinationPath
                   value: 's3://spoke-pool-backups/{{"{{"}}.name{{"}}"}}/'
+            # ADR-014 backup contract: per-spoke S3 keys in the hub-secrets
+            # project at /spoke-pool/<spoke>/shared/. The hcloud-token is an
+            # HCloud API token, NOT a Hetzner Object Storage key — it fails with
+            # InvalidAccessKeyId (verified live 2026-08-18).
+            - target:
+                kind: ExternalSecret
+                name: s3-credentials
+              patch: |
+                - op: replace
+                  path: /spec/data/0/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/S3_ACCESS_KEY_ID'
+                - op: replace
+                  path: /spec/data/1/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/S3_SECRET_ACCESS_KEY'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
