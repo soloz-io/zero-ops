@@ -18,7 +18,35 @@ OpenMeter Helm chart includes embedded Bitnami PostgreSQL and Redis. This create
 **Guiding Principle:**
 > "Stateful infrastructure is a platform concern; applications consume it—they don't own it."
 
+> "Stateful infrastructure runs on worker nodes — never on control-plane nodes — in every cluster, every provider cell, and every environment."
+
 The platform provides centralized stateful services with enterprise-grade GitOps management. Applications consume them via declarative connection patterns without managing infrastructure lifecycle.
+
+### Platform-Wide Placement Rule (Mandatory)
+
+> **Stateful infrastructure runs on worker nodes — never on control-plane nodes — in the Hub and in every Spoke, in every provider cell (Hetzner, hybrid), and in every environment (dev, staging, prod). There are no exceptions and no per-cluster opt-outs.**
+
+This rule is platform-wide and topology-independent. It carries forward the node-scheduling requirement from ADR-002 (superseded) and is the single authority for stateful workload placement.
+
+**Rationale.** Control-plane nodes run `etcd`, `kube-apiserver`, and the scheduling/control loops the entire fleet depends on (ADR-034). Co-locating stateful workloads there mixes data-plane risk into the control plane: disk pressure, I/O contention, and pod churn from a database can destabilise cluster control operations — and every CP node is a failure domain for every pod scheduled onto it. Worker nodes are the designated runtime capacity; the control plane is infrastructure, not capacity. Placement must therefore be a declared property of the workload, never an accident of storage binding or available disk.
+
+**The rule (mandatory, SHALL):**
+
+- ✅ SHALL: CNPG Clusters, CNPG Poolers, Redis, ClickHouse, and **every stateful workload pod** run on **worker nodes only**, in every cluster.
+- ✅ SHALL: database migration jobs run on **worker nodes only**, in every cluster.
+- ✅ SHALL: stateful platform workloads pin placement with `nodeSelector: node-role.kubernetes.io/worker: ""` — the CAPI/kubeadm **key-only** label; the value `"true"` is **invalid and never matches**.
+- ✅ SHALL: control-plane nodes carry the `control-plane:NoSchedule` taint (kubeadm default). The taint SHALL NOT be removed, and stateful workloads SHALL NOT tolerate it.
+- ✅ SHALL: placement be **enforced by selector + taint** — never incidentally by storage binding (a node that can attach a PVC is not a placement decision).
+- ✅ SHALL: every stateful workload's StorageClass be provisionable on **its worker node class**: Hetzner workers → `hcloud-volumes`; home-lab workers in hybrid cells → `local-path` (ADR-046). A PVC whose storage class the scheduled node cannot serve is a placement violation, not a scheduling detail.
+
+**BANNED (never, in any topology):**
+
+- ❌ SHALL NOT: any stateful workload (CNPG, Redis, ClickHouse, stateful jobs) run on a control-plane node.
+- ❌ SHALL NOT: any workload tolerate the control-plane taint to place stateful data on the CP.
+- ❌ SHALL NOT: `node-role.kubernetes.io/worker: "true"` be used anywhere — it silently never matches and silently schedules onto the CP instead.
+- ❌ SHALL NOT: placement be left implicit (no nodeSelector) and "whatever node has the right storage class" be relied upon.
+
+**Enforcement owner.** Placement selectors and taints are platform-owned (spoke catalog / hub core services manifests); fleets do not choose placement for stateful resources (ADR-047 tier boundaries). Verification: each cluster is inspected for stateful pods on CP nodes and for missing `control-plane:NoSchedule` taints during post-bootstrap validation.
 
 ## Architecture
 
@@ -179,6 +207,7 @@ platform-data Namespace
 
 ### PostgreSQL
 - **Platform provides**: CNPG clusters in `platform-data` namespace
+- **Placement**: CNPG clusters, poolers, and migration jobs run on **worker nodes only** (`nodeSelector: node-role.kubernetes.io/worker: ""`) per the Platform-Wide Placement Rule; never on control-plane nodes.
 - **Declarative creation**: Crossplane provider-sql creates databases/users
 - **Credentials**: Infisical → ESO → Kubernetes secrets
 - **Access control**: Database owner `crossplane_admin`, app users via DefaultPrivileges
@@ -186,7 +215,8 @@ platform-data Namespace
 - **✅ BANNED**: Application postInitSQL for database creation
 
 ### Redis
-- **Platform provides**: StatefulSet in `platform-data` namespace  
+- **Platform provides**: StatefulSet in `platform-data` namespace
+- **Placement**: worker nodes only per the Platform-Wide Placement Rule; never on control-plane nodes.
 - **High availability**: Master-replica configuration
 - **Applications consume**: Service endpoint with internal cluster networking
 - **Security**: Service mesh mTLS for external access
@@ -194,6 +224,7 @@ platform-data Namespace
 
 ### ClickHouse
 - **Platform provides**: ClickHouseInstallation (Altinity operator) in `platform-data` namespace
+- **Placement**: worker nodes only per the Platform-Wide Placement Rule; never on control-plane nodes.
 - **Shared cluster**: Database-level isolation per service
 - **Enterprise features**: Distributed tables, query quotas, user-level access control
 - **Credentials**: Stored in Infisical (System of Record). Lifecycle owned by Hub Operator per ADR-039.
@@ -202,6 +233,7 @@ platform-data Namespace
 
 **Production Readiness Checklist:**
 - [ ] HA configuration (≥ 2 replicas) - deferred until staging/production
+- [ ] **Placement Rule verified in every cluster**: no stateful pods on control-plane nodes, `nodeSelector: node-role.kubernetes.io/worker: ""` present on all stateful platform workloads, `control-plane:NoSchedule` taint present on every CP node
 - [ ] Network access restricted to Pod CIDR (not `::/0`)
 - [ ] User-level quotas and query limits enforced
 - [ ] Storage sizing based on workload projections (current: 10Gi for dev/MVP)
@@ -222,6 +254,7 @@ platform-data Namespace
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
 |---|---|---|---|---|---|
 | Database Clusters (physical) | Kubernetes API | CNPG | CNPG | Crossplane, Applications | Day-1+ |
+| Stateful Workload Placement (nodeSelector + taints) | Kubernetes API / spoke catalog / hub core services manifests | Platform Engineering | kube-scheduler + ArgoCD | All stateful platform workloads | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
 
@@ -253,3 +286,6 @@ See ADR-039 for the complete ownership matrix.
 
 - **ADR 003**: ESO-Infisical Integration Pattern
 - **ADR-0009**: Zero-Trust Multi-Layer Authentication with JWKS and Service Mesh
+- **ADR 034**: Control-Plane Failure Domains (etcd/kube-apiserver blast radius — the basis for the Platform-Wide Placement Rule)
+- **ADR 046**: Hybrid workload location contract (home vs Hetzner workers; `local-path` vs `hcloud-volumes` storage)
+- **ADR 047**: Tier boundaries (placement selectors are platform-owned, not fleet-owned)
