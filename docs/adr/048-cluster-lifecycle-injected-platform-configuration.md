@@ -118,8 +118,9 @@ performs live-state drift repair. Concretely:
 - CRS is therefore **creation/delivery assurance, not steady-state
   enforcement**. Steady-state enforcement for lifecycle-delivered
   configuration is out of scope by design (constraint: CRS-delivered
-  resources are not ArgoCD-tracked); operators rely on the SMI rotation
-  procedure (ADR-046 §12) to re-render and re-deliver.
+  resources are not ArgoCD-tracked); the SMI rotation procedure
+  (ADR-046 §12, runbook `docs/runbooks/backup-credential-chain-recovery.md`)
+  is the re-render/re-delivery mechanism when a payload must be restored.
 - Health attestation for lifecycle-delivered configuration should be
   *readiness-based* (e.g., a condition on the spoke) rather than assumed
   from a binding status. Tracked as future work: expose a

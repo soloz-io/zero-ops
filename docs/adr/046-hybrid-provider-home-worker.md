@@ -668,115 +668,114 @@ Wave-1 merge (per §11 review):
 
 ### 12. Backup-credential chain incident (2026-08-18) — codified lessons
 
-**Incident.** On `spoke-pool-hybrid-dev-01` the CRS-delivered `infisical-auth`
-Secrets (platform-ops + cert-manager) vanished, taking down the ESO
-`infisical-backend` store, all ExternalSecrets, and — via the CNPG barman
-envs — WAL archiving (G1 gate). Root cause was **self-inflicted** during
-unrelated Wave-0 tooling: the ArgoCD Application
-`platform-spoke-catalog-spoke-pool-hybrid-dev-01` was deleted (with forced
-finalizer removal) while the ApplicationSet had
-`preserveResourcesOnDeletion: false`. ArgoCD's prune then deleted the
-**tracked** platform Namespaces (`namespaces.yaml` is part of the catalog),
-and the namespace cascade deleted the **untracked** CRS-delivered
-`infisical-auth` Secrets inside them. The CRS (`spoke-pool-hybrid-dev-01-bootstrap`,
-strategy `Reconcile`) did not self-heal, and no store/ES revalidation
-occurred. Recovery required: SMI rotation → wrapper re-render → binding
-hash bump + re-apply → annotation-poke revalidation → CNPG pod restart →
-ES credential correction. All adhoc steps below are now codified.
+**Incident (facts).** On `spoke-pool-hybrid-dev-01` the CRS-delivered
+`infisical-auth` Secrets (platform-ops + cert-manager) vanished, taking
+down the ESO `infisical-backend` store, all ExternalSecrets, and — via the
+CNPG barman envs — WAL archiving (the G1 gate). The root cause was an
+ArgoCD Application deletion performed with forced finalizer removal while
+the ApplicationSet still declared
+`syncPolicy.preserveResourcesOnDeletion: false`. The resulting prune
+deleted the ArgoCD-tracked platform Namespaces (`namespaces.yaml` is part
+of the catalog), and the namespace cascade deleted the untracked
+CRS-delivered Secrets inside them. The CRS
+(`spoke-pool-hybrid-dev-01-bootstrap`, strategy `Reconcile`) did not
+self-heal, and no store/externalsecret revalidation occurred. Recovery
+sequence: SMI rotation, wrapper re-render, binding hash bump + re-apply,
+ESO revalidation nudges, CNPG instance restart, and the ES credential
+correction. The operational procedure lives in
+`docs/runbooks/backup-credential-chain-recovery.md`.
 
-**Hardening codified (root cause prevention).**
-
-- Both ApplicationSets in `03-platform-services-appset.yaml` now set
-  `syncPolicy.preserveResourcesOnDeletion: true` (commit `3d7c65fd`).
-  Deleting an app must never prune platform state; spoke removal is a
-  rotation concern, not a deletion.
-- **BANNED (reinforced):** deleting or regenerating an
-  appset-managed Application. Recreate/regenerate does not restore pruned
-  untracked resources either — CRS only re-applies payloads when the
-  binding hash changes (see CRS semantics below).
+**Hardening (root cause prevention, codified).** Both ApplicationSets in
+`03-platform-services-appset.yaml` now declare
+`syncPolicy.preserveResourcesOnDeletion: true` (commit `3d7c65fd`).
+Deleting an Application must never prune platform state; spoke removal is
+a rotation concern, never a deletion. Deleting or regenerating
+appset-managed Applications is banned — recreate/regenerate does not
+restore pruned untracked resources either: a CRS re-applies payloads only
+when the payload/binding hash changes.
 
 **CRS `Reconcile` semantics (ADR-048 amendment).** A CRS with
-`strategy: Reconcile` re-applies payloads **only when the payload hash or
-the generated binding hash changes** — it performs **no live-state drift
-repair**. A resource deleted from a namespace after a successful apply stays
-deleted until the payload changes. `ApplyOnce` (hub's CRS) is weaker still:
-apply strictly at provision time. **Implication:** CRS-delivered Secrets
-are present only because the last apply put them there; anything that
-removes them (namespace cascade, manual delete) is permanent until the next
-rotation. The SMI rotation procedure below is the sanctioned way to force a
-re-render (hash bump) when a CRS payload needs re-delivery.
+`strategy: Reconcile` re-applies payloads only when the payload or binding
+hash changes — it performs no live-state drift repair. A payload deleted
+after a successful apply stays deleted until the payload changes;
+`ApplyOnce` (the hub's CRS) is weaker still (apply strictly at provision
+time). CRS guarantees creation, not steady state. The sanctioned way to
+force a re-render (hash bump) is the SMI rotation below.
 
-**Rotation trigger procedure (the sanctioned re-render).** Hub-operator
-`ensureSpokeMachineIdentity` codifies `rotationPolicy` in Go
-(`{enabled: true, interval: 60d, overlapPeriod: 24h}`) on the
-`SpokeMachineIdentity` CR — no YAML to edit. To rotate and re-render the
-wrapper immediately:
+**Rotation (the sanctioned re-render).** `rotationPolicy`
+(`{enabled: true, interval: 60d, overlapPeriod: 24h}`) is codified in
+hub-operator Go on the `SpokeMachineIdentity` CR — there is no YAML to
+edit. Immediate rotation is triggered by clearing `Status.NextRotation`;
+the operator then rotates `smi-<spoke>-auth`, re-renders the CRS wrapper,
+bumps the binding hash, and re-applies — re-delivering both
+`infisical-auth` Secrets. The verification chain (secret resourceVersions,
+binding generation/hash/applied) and the exact trigger command are in the
+runbook. A plain status patch that omits the subresource is a no-op.
 
-```bash
-kubectl patch spokemachineidentity <spoke> -n platform-capi \
-  --subresource=status --type=merge \
-  -p '{"status":{"nextRotation":null}}'
-```
-
-The operator updates `smi-<spoke>-auth`, re-renders the CRS wrapper
-(`spoke-identity-operator` `ensureCRSWrapper`), bumps the binding hash, and
-re-applies `identity.yaml` — re-delivering the two `infisical-auth` Secrets
-(platform-ops + cert-manager). A plain (non-`--subresource`) patch is a
-no-op. Verification chain: `smi-<spoke>-auth` secret rv bump → wrapper
-Secret rv bump → ClusterResourceSetBinding generation bump + new hash +
-`applied: true`.
-
-**ESO revalidation gap + workaround.** ESO's store/externalsecret
-controllers do **not** watch the source Secrets backing the store
-credentials, so a recreated `infisical-auth` leaves the store and ESes
-stuck in their last conditions indefinitely. The safe (non-mutating)
-nudge, used 2026-08-18:
-
-```bash
-kubectl annotate clustersecretstore infisical-backend \
-  recovery.zeroops.io/rotation-triggered="$(date -Iseconds)" --overwrite
-# repeat on each ExternalSecret that must revalidate
-```
-
-Annotations are stripped once conditions are healthy (they are adhoc
-triggers, not state — do not add them to manifests). Durable fix (future):
-a periodic reconcile of store references by a controller.
+**ESO revalidation gap.** The store/externalsecret controllers do not
+watch the source Secrets backing store credentials, so a recreated
+`infisical-auth` leaves the store and ExternalSecrets stuck in their last
+conditions indefinitely. The workaround is a benign annotation trigger on
+each object; annotations are transient triggers — stripped once conditions
+are healthy, never added to manifests. A durable fix (a periodic reconcile
+of store references by a controller) is future work.
 
 **CNPG barman env cache.** The instance manager resolves
-`Cluster.spec.backup.barmanObjectStore.s3Credentials` **once at instance
-boot**; secret changes after boot are not picked up (observed as stale
-`InvalidAccessKeyId` after the credential fix). Remediation: restart the
-instance pod (`kubectl delete pod <cluster>-1 -n <ns> --wait=false`).
-Documented here so no one chases phantom permission errors.
+`barmanObjectStore.s3Credentials` once at instance boot; changes to the
+referenced Secret after boot are not picked up (observed as a stale
+`InvalidAccessKeyId` after the credential fix). Restoration requires an
+instance restart — remediation commands are in the runbook.
 
-**`hcloud-token` is not an S3 key.** The Wave-1
-`s3-credentials` ExternalSecret pointed both `accessKeyId` and
-`secretAccessKey` at the Infisical `hcloud-token` (an HCloud API token).
-barman proved it live with
-`InvalidAccessKeyId ... The access key ID that you provided does not exist`
-(exit status 4; distinct from AccessDenied, which means the key is known but
-unauthorized). Fixed in commit `60aa3c66`: the ES now reads
+**`hcloud-token` is not an S3 key.** The previous `s3-credentials`
+ExternalSecret pointed both `accessKeyId` and `secretAccessKey` at the
+Infisical `hcloud-token` (an HCloud API token). barman proved it live with
+`InvalidAccessKeyId ... does not exist in our records` (exit status 4),
+distinct from `AccessDenied` (key known but unauthorized) and
+`NoSuchBucket`. Fix codified in commit `60aa3c66`: the ES reads
 `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` from
 `/spoke-pool/<spoke>/shared/` in the hub-secrets project, injected
-per-spoke by the `platform-spoke-catalog` ApplicationSet kustomize patch
+per-spoke by the spoke-catalog ApplicationSet kustomize patch
 (`PLACEHOLDER` default, mirroring the `crossplane-admin-credentials` and
-`destinationPath` patches). Raw-value Infisical secrets: plain
-`remoteRef.key` with full path (no `property`). Hetzner Object Storage keys
-are identifiable: access keys start `0A…` (24 chars), never `HT…`.
+`destinationPath` patches). These are raw-value secrets: plain
+`remoteRef.key` with the full path, no `property`. Hetzner Object Storage
+access keys start `0A…` (24 chars), never `HT…`.
 
-**Immediate base backup (operator convention).** `ScheduledBackup` fires on
-its schedule only; a manual base backup is a one-shot `Backup` CR with
-`spec.cluster.name` + `spec.method: barmanObjectStore` (name
-`<cluster>-<YYYYMMDDHHMMSS>`), the same object the scheduled controller
-creates. It is operational, not steady-state — it must not be added to the
-catalog. Verify via Backup `status.phase: completed` and the Cluster's
-`status.lastSuccessfulBackup`.
+**Immediate base backup (operator convention).** `ScheduledBackup` fires
+only on its schedule; a manual base backup is a one-shot `Backup` CR
+(`spec.cluster.name`, `spec.method: barmanObjectStore`) — operational,
+not steady-state, and must not be added to the catalog. Verification is
+Backup `phase: completed` plus the Cluster's `lastSuccessfulBackup`.
 
-**Adhoc-change rule (this incident's meta-lesson).** Every change made via
-`kubectl` during recovery had a manifest/commit counterpart or is a
-documented operational procedure above; nothing lives only in shell
-history. Anything applied to a cluster that is not reproducible from Git is
-a debt that will recur as an incident.
+**CRS-delivered ClusterIssuer restoration.** The `infisical-fleet-issuer`
+ClusterIssuer (delivered by the `{spoke}-cluster-issuer` wrapper) was
+found missing on the spoke although the binding recorded `applied: true` —
+the same no-drift-repair trap as the Secrets (a namespace cascade cannot
+remove a cluster-scoped object; the issuer is untracked, so nothing
+re-created it and the alloy / argocd-agent / nats certificates blocked on
+it). Restoration re-applies the authoritative wrapper payload — always
+operator-rendered, never hand-edited; per-spoke `clientId` must not be
+committed to shared Git (ADR-048). After re-applying, a stale
+exponential-backoff retry queue on the operator's CertificateRequest
+controller may keep failing with `issuer not found`; a restart of the
+infisical-issuer operator flushes the queue and surfaces the next layer
+(auth or permission errors from Infisical itself). A durable fix
+(spoke-identity-operator monitoring CRS delivery completeness) is
+referenced in the ADR-048 amendment.
+
+**Infisical Universal-Auth lockout.** Repeated failed logins with a
+machine identity lock its auth method, surfaced as
+`401 "This identity auth method is temporarily locked, please try again
+later"` (and, on earlier attempts, `"... not allowed for the current
+project"`). Every subsequent failed login extends the lock; credentials
+must not be probed repeatedly. After the lock window (or an Infisical-side
+unlock), a single login probe distinguishes a valid pair (202) from an
+invalid one (401) — see the runbook. G1 gate: no cluster-change work may
+proceed as long as the store/archiver chain is red or locked.
+
+**Adhoc-change rule (meta-lesson).** Every change made during recovery has
+a manifest/commit counterpart, a runbook procedure, or an ADR decision —
+nothing may live only in shell history. Anything applied to a cluster that
+is not reproducible from Git is debt that will recur as an incident.
 
 ## References
 
