@@ -9,7 +9,12 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   syncPolicy:
-    preserveResourcesOnDeletion: false
+    # ADR-046 incident (2026-08-18): preserveResourcesOnDeletion: false allowed
+    # ArgoCD pruning to cascade-delete platform Namespaces (tracked in the
+    # catalog) on app removal, which in turn cascade-deleted untracked
+    # CRS-delivered Secrets (infisical-auth). Deletion must never be the
+    # mechanism that removes platform state — rotate spokes instead.
+    preserveResourcesOnDeletion: true
   generators:
     - list:
         elements:
@@ -481,7 +486,12 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   syncPolicy:
-    preserveResourcesOnDeletion: false
+    # ADR-046 incident (2026-08-18): preserveResourcesOnDeletion: false allowed
+    # ArgoCD pruning to cascade-delete platform Namespaces (tracked in the
+    # catalog) on app removal, which in turn cascade-deleted untracked
+    # CRS-delivered Secrets (infisical-auth). Deletion must never be the
+    # mechanism that removes platform state — rotate spokes instead.
+    preserveResourcesOnDeletion: true
 
   generators:
     - clusters:
