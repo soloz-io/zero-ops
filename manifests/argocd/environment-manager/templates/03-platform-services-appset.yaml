@@ -504,11 +504,11 @@ spec:
         repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: '{{ .Values.environmentRevision }}'
         # ADR-046 §11: spoke-catalog is structured per environment and provider;
-        # the CNPG overlay lives at manifests/spoke/spoke-catalog/<env>/<provider>.
+        # the CNPG overlay lives at manifests/spoke/spoke-catalog/environments/<env>/<provider>.
         # The cluster generator exposes labels under .metadata.labels; fail closed
         # on any provider other than hybrid/hetzner (index + fail primitive also
         # covers a spoke whose provider take-along label is missing).
-        path: 'manifests/spoke/spoke-catalog/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
+        path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
         kustomize:
           patches:
             # Inject the per-spoke crossplane-admin password key (ADR-003/tenant-db
