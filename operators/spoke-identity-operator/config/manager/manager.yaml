@@ -18,7 +18,7 @@ spec:
       serviceAccountName: spoke-identity-operator
       containers:
       - name: manager
-        image: ghcr.io/soloz-io/spoke-identity-operator:latest
+        image: controller
         env:
         - name: INFISICAL_CLIENT_ID
           valueFrom:
