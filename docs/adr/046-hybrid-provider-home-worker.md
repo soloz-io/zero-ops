@@ -465,9 +465,145 @@ and codified so re-provisioned spokes work out of the box:
     deadline) and `updateStrategy.maxUnavailable: 1`. The section above
     ("Migration / rollback") is the operator reference for this rollout.
 
+## Addenda (2026-08-18)
+
+### 11. Hybrid Topology Database Model (placement + storage per location)
+
+**Foundation.** ADR-014's Platform-Wide Placement Rule applies to hybrid cells
+unchanged: every stateful workload runs on **worker nodes only**
+(`nodeSelector: node-role.kubernetes.io/worker: ""` — key-only label, never
+`"true"`), control-plane nodes keep `control-plane:NoSchedule`, and placement is
+declared, never inferred from storage binding. Hybrid adds one orthogonal axis:
+`workload-location` (home vs hetzner), which determines the storage class a
+stateful workload may use.
+
+**Failure that motivated this model.** On `spoke-pool-hybrid-dev-01`,
+`shared-cnpg` (`manifests/spoke/spoke-catalog/infra/cnpg-cluster.yaml`) was
+created with `storage.storageClass: hcloud-volumes` and **no nodeSelector**.
+With placement undeclared, CNPG scheduled the sole instance onto the
+control-plane node. Storage binding did not save it: `hcloud-volumes` is
+attachable on the Hetzner CP host, so the PVC bound and the cluster ran "fine"
+on the CP — placement by accident of storage topology, exactly the failure
+class ADR-014 now bans.
+
+#### Placement classes (one per location)
+
+| Class | nodeSelector (BOTH required) | StorageClass | Nodes |
+|---|---|---|---|
+| home | `node-role.kubernetes.io/worker: ""` + `workload-location: home` | `local-path` | WSL2 home workers |
+| hetzner | `node-role.kubernetes.io/worker: ""` + `workload-location: hetzner` | `hcloud-volumes` | burst pool (`replicas: 0` default in dev) |
+
+- A stateful workload is **bound to exactly one location at creation**; the
+  location never changes afterwards (storage is node-local in the home class).
+- `workload-location` is **never sufficient on its own** — the platform-wide
+  worker selector is mandatory in both classes (ADR-014).
+- The home-located dev cluster keeps the name `shared-cnpg`; a hetzner-located
+  twin is named `shared-cnpg-hetzner`. In dev/stg only the home cluster is
+  provisioned; the hetzner twin is provisioned only when burst capacity is
+  actually scaled.
+
+#### Storage class contract
+
+| StorageClass | Provisioner | Binds on | Snapshots |
+|---|---|---|---|
+| `hcloud-volumes` | csi.hetzner.cloud | Hetzner nodes only (WaitForFirstConsumer) | yes |
+| `local-path` | rancher.io/local-path | home workers only (node-local) | **no** |
+
+- `hcloud-volumes` remains the **default** class in hybrid cells; `local-path`
+  is referenced explicitly by name. A PVC with no class on a home worker gets
+  `hcloud-volumes`, cannot bind (no Hetzner topology), and stays Pending — this
+  is the correct failure mode, not an invitation to remove the class.
+- `local-path` PVCs are **node-pinned**: data lives on the exact home worker
+  that bound the claim. Node affinity on the PVC is a *consequence* of declared
+  placement, never the placement mechanism itself (ADR-014).
+- **BANNED**: `hcloud-volumes` on a home worker (hcloud CSI cannot provision
+  for a WSL2 node) and `local-path` on a Hetzner worker (provisioner runs on
+  home nodes only via nodeAffinity).
+- Durability for home-located clusters: `barmanObjectStore` →
+  `s3://spoke-pool-backups` (already configured) is the **primary** recovery
+  path, not a fallback — local-path has no volume-snapshot support, so CNPG WAL
+  archiving + S3 restore is the only restore mechanism. Retention stays
+  `30d`.
+
+#### CSI daemonset boundary
+
+The shared `csi-addon-template.yaml` runs `hcloud-csi-node` on **every** node
+(its affinity excludes only Hetzner robot/root servers; a label-less WSL2 home
+worker matches and gets a driver that cannot reach block devices). Codified
+in a new hybrid-cell addon `manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml`
+(referenced from `spokepool-hybrid-composition.yaml`, analogous to
+`cilium-addon-hybrid`):
+
+1. `hcloud-csi-node` DaemonSet: add `nodeAffinity required NotIn
+   workload-location: home` (exclude home workers).
+2. `local-path-provisioner` DaemonSet: `nodeAffinity required In
+   workload-location: home`, hostPath `/opt/local-path-provisioner`.
+3. `local-path` StorageClass (`WaitForFirstConsumer`, `reclaimPolicy: Delete`,
+   **not** default).
+
+#### CNPG pattern for hybrid spokes
+
+`cnpg-cluster.yaml` (`shared-cnpg`) declares, for the home class:
+
+```yaml
+spec:
+  storage:
+    size: 100Gi
+    storageClass: local-path
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+      workload-location: home
+```
+
+- Instances, the Pooler, barman WAL-archiver jobs, and Atlas migration jobs all
+  inherit this placement. The Pooler's own `affinity` must **mirror** the
+  cluster selector — the CP-pinning bug reproduces in poolers.
+- With `instances: 1` on local-path, pod anti-affinity is moot but retained so
+  a later `instances: 2` spreads replicas across two home workers (each replica
+  node-pinned via its PVC).
+- Crossplane `tenant-db` flow unchanged: provider-sql over
+  `shared-cnpg-rw.platform-data.svc.cluster.local`, credentials via ESO from
+  Infisical (ADR-003); DB/user creation is storage-agnostic.
+
+#### Migration of the existing dev spoke (codified procedure)
+
+Storage class cannot change in place. The instance moves onto the home pool
+with fresh `local-path` storage:
+
+1. Apply the nodeSelector + `storageClass: local-path` block to `shared-cnpg`.
+2. Bootstrap a new cluster via `bootstrap.recovery` from the existing barman
+   S3 store (`s3://spoke-pool-backups`) with the new placement + storage.
+3. Tenant connections keep working unchanged (host `shared-cnpg-rw` is
+   preserved if the name is kept).
+4. Verify per ADR-014: instance pod on a home worker, `local-path` PVC, no
+   stateful pods on CP nodes.
+5. Delete the old cluster after the cutover window; barman `retentionPolicy:
+   "30d"` remains the safety net.
+
+#### Enforcement / verification (hybrid-specific)
+
+Beyond the ADR-014 post-bootstrap validation, in every hybrid spoke:
+
+- every stateful workload's nodeSelector contains **both**
+  `node-role.kubernetes.io/worker: ""` and exactly one `workload-location`;
+- storageClass and location agree (`local-path` ↔ home, `hcloud-volumes` ↔
+  hetzner);
+- zero `hcloud-csi-node` pods on home workers; `local-path-provisioner` pods
+  on all home workers.
+
+**Codified:** the model above is the spec. Manifest changes required (not yet
+applied): (1) `cnpg-cluster.yaml` nodeSelector + `local-path` storage and the
+recovery-bootstrap migration on the live dev spoke; (2) `csi-addon-hybrid.yaml`
+(new) with the CSI boundary + local-path provisioner + `local-path`
+StorageClass, wired into `spokepool-hybrid-composition.yaml`.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
 - ADR-037 / ADR-038 (environment matrix).
 - ADR-044 (local provider abstraction) — superseded; CAPD removed.
+- ADR-014 (Platform-Wide Placement Rule) — §11 builds on its worker-only/taint/selector contract.
 - PRD: hybrid home-lab cluster integration using Hetzner and Tailscale.
