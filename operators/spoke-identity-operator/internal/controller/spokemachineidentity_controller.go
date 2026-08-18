@@ -2,9 +2,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	logr "github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 
 	identityv1alpha1 "github.com/soloz-io/zero-ops/operators/spoke-identity-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/spoke-identity-operator/internal/infisical"
@@ -180,8 +184,140 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 	r.setCondition(smi, conditionTypeIdentityCreated, metav1.ConditionTrue, "Created", fmt.Sprintf("Identity %s provisioned", identity.ID))
 	r.setCondition(smi, conditionTypeIssuerConfigured, metav1.ConditionTrue, "WrapperReady", "ClusterIssuer CRS wrapper rendered")
 
+	// Phase 2 self-heal (P0 single-authority gate, see
+	// .kiro/specs/completed/infisical-pki-authority/): probe the identity's
+	// login state and clear an active lockout only; an "Invalid credentials"
+	// response is a secret defect that must surface (Ready=False
+	// AuthenticationDefect), never be cleared. Runs last so its condition
+	// overrides the Ready=True above when a defect is present.
+	if err := r.ensureIdentityUnlock(ctx, smi, logger); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	logger.Info("Machine Identity reconciled", "identityId", identity.ID)
 	return ctrl.Result{RequeueAfter: r.rotationCheckInterval(smi)}, r.Status().Update(ctx, smi)
+}
+
+// ensureIdentityUnlock implements the Phase 2 lockout self-heal against the
+// single authoritative Infisical instance. Credentials come from the
+// {spoke}-machine-identity CRS wrapper (platform-ops copy of infisical-auth)
+// with fallback to the rotation secret smi-{spoke}-auth. Behavior:
+//   - no credentials material yet: skip (fail-closed, mirrors ADR-048).
+//   - probe 200: healthy, no action (success resets the lockout counter).
+//   - probe 401 "temporarily locked": clear the lockout, then re-probe to
+//     confirm recovery.
+//   - probe 401 "Invalid credentials": set Ready=False reason
+//     AuthenticationDefect and do NOT clear — clearing a defective secret
+//     would re-arm the failure loop and hide the defect.
+func (r *SpokeMachineIdentityReconciler) ensureIdentityUnlock(ctx context.Context, smi *identityv1alpha1.SpokeMachineIdentity, logger logr.Logger) error {
+	if smi.Status.ClientID == "" || smi.Status.IdentityID == "" {
+		return nil
+	}
+
+	clientID, clientSecret, found, err := r.identityCredentials(ctx, smi)
+	if err != nil {
+		return fmt.Errorf("read identity credentials: %w", err)
+	}
+	if !found {
+		logger.Info("No credentials material for identity, skipping lockout self-heal", "identityId", smi.Status.IdentityID)
+		return nil
+	}
+
+	locked, err := r.InfisicalClient.ProbeIdentityLockout(ctx, clientID, clientSecret)
+	if err != nil {
+		if errors.Is(err, infisical.ErrInvalidCredentials) {
+			r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "AuthenticationDefect", err.Error())
+			logger.Error(err, "Identity auth defect detected — lockout self-heal will NOT clear it", "identityId", smi.Status.IdentityID)
+			return nil
+		}
+		return fmt.Errorf("probe identity lockout: %w", err)
+	}
+	if !locked {
+		return nil
+	}
+
+	logger.Info("Identity auth method locked — clearing lockout", "identityId", smi.Status.IdentityID, "clientId", clientID)
+	if err := r.InfisicalClient.ClearLockout(ctx, smi.Status.IdentityID, clientID); err != nil {
+		return fmt.Errorf("clear identity lockout: %w", err)
+	}
+
+	stillLocked, err := r.InfisicalClient.ProbeIdentityLockout(ctx, clientID, clientSecret)
+	if err != nil {
+		if errors.Is(err, infisical.ErrInvalidCredentials) {
+			r.setCondition(smi, conditionTypeReady, metav1.ConditionFalse, "AuthenticationDefect", err.Error())
+			return nil
+		}
+		return fmt.Errorf("re-probe identity lockout after clear: %w", err)
+	}
+	if stillLocked {
+		return fmt.Errorf("identity lockout not cleared: %s", clientID)
+	}
+	logger.Info("Identity lockout cleared and verified", "identityId", smi.Status.IdentityID)
+	return nil
+}
+
+// identityCredentials returns the machine identity's client credentials from
+// the CRS wrapper secret ({spoke}-machine-identity, identity.yaml) or, if the
+// wrapper is not yet delivered, from the rotation secret (smi-{spoke}-auth).
+func (r *SpokeMachineIdentityReconciler) identityCredentials(ctx context.Context, smi *identityv1alpha1.SpokeMachineIdentity) (clientID, clientSecret string, found bool, err error) {
+	wrapperName := smi.Spec.SecretName
+	if wrapperName == "" {
+		wrapperName = fmt.Sprintf("%s-machine-identity", smi.Spec.SpokeRef.Name)
+	}
+	wrapper := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: smi.Namespace}, wrapper); err == nil {
+		payload := string(wrapper.Data["identity.yaml"])
+		if payload == "" {
+			payload = wrapper.StringData["identity.yaml"]
+		}
+		if id, secret, ok := parseIdentityAuthDoc(payload); ok {
+			return id, secret, true, nil
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return "", "", false, fmt.Errorf("read identity CRS wrapper: %w", err)
+	}
+
+	authSecret := &corev1.Secret{}
+	authSecretName := fmt.Sprintf("smi-%s-auth", smi.Spec.SpokeRef.Name)
+	if err := r.Get(ctx, client.ObjectKey{Name: authSecretName, Namespace: smi.Namespace}, authSecret); err == nil {
+		id := string(authSecret.Data["clientId"])
+		secret := string(authSecret.Data["clientSecret"])
+		if id != "" && secret != "" {
+			return id, secret, true, nil
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return "", "", false, fmt.Errorf("read identity auth secret: %w", err)
+	}
+
+	return "", "", false, nil
+}
+
+// parseIdentityAuthDoc extracts client-id/client-secret from the first
+// infisical-auth Secret document inside an identity.yaml CRS payload.
+func parseIdentityAuthDoc(payload string) (clientID, clientSecret string, ok bool) {
+	if payload == "" {
+		return "", "", false
+	}
+	for _, doc := range strings.Split(payload, "---") {
+		var decoded struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			StringData map[string]string `json:"stringData"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &decoded); err != nil {
+			continue
+		}
+		if decoded.Metadata.Name != "infisical-auth" {
+			continue
+		}
+		id := decoded.StringData["client-id"]
+		secret := decoded.StringData["client-secret"]
+		if id != "" && secret != "" {
+			return id, secret, true
+		}
+	}
+	return "", "", false
 }
 
 func (r *SpokeMachineIdentityReconciler) handleDeletion(ctx context.Context, smi *identityv1alpha1.SpokeMachineIdentity) (ctrl.Result, error) {

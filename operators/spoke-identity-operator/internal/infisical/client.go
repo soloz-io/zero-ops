@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -117,6 +119,105 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.token, nil
+}
+
+// ErrInvalidCredentials is returned by ProbeIdentityLockout when the API
+// rejects the supplied credentials as wrong (401 "Invalid credentials").
+// It MUST NOT be treated like a lockout: the stored secret is defective and
+// clearing a lockout would only re-arm the failure loop.
+var ErrInvalidCredentials = errors.New("invalid credentials for identity auth method")
+
+// ProbeIdentityLockout authenticates with the identity's own credentials and
+// classifies the result. locked=true only when the API reports an active
+// lockout (401 "temporarily locked"); a successful login (200) returns
+// locked=false,nil; wrong credentials return ErrInvalidCredentials; any other
+// status returns a wrapped error. A successful probe is side-effect free and
+// the backend resets the lockout counter on success.
+func (c *Client) ProbeIdentityLockout(ctx context.Context, clientID, clientSecret string) (bool, error) {
+	loginReq := map[string]string{
+		"clientId":     clientID,
+		"clientSecret": clientSecret,
+	}
+	body, err := json.Marshal(loginReq)
+	if err != nil {
+		return false, fmt.Errorf("marshal probe login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.BaseURL+PathAuthUniversalAuthLogin, bytes.NewReader(body))
+	if err != nil {
+		return false, fmt.Errorf("create probe login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("execute probe login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return false, nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	msg := string(respBody)
+	if resp.StatusCode == http.StatusUnauthorized {
+		switch {
+		case strings.Contains(msg, "temporarily locked"):
+			return true, nil
+		case strings.Contains(msg, "Invalid credentials"):
+			return false, fmt.Errorf("%w: %s", ErrInvalidCredentials, msg)
+		}
+	}
+	return false, fmt.Errorf("probe login failed: status %d: %s", resp.StatusCode, msg)
+}
+
+// ClearLockout clears an active identity auth-method lockout on the
+// authoritative Infisical instance using the operator's own (admin) token.
+// Idempotent: an already-unlocked identity is treated as success. Only call
+// this after ProbeIdentityLockout reported locked=true — never for
+// ErrInvalidCredentials.
+func (c *Client) ClearLockout(ctx context.Context, identityID, clientID string) error {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate: %w", err)
+	}
+
+	payload := map[string]interface{}{
+		"identityId": identityID,
+		"clientId":   clientID,
+		"lockedOut":  false,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal clear lockout request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.BaseURL+PathAuthUniversalAuthClearLockout, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create clear lockout request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute clear lockout request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+		return nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusBadRequest &&
+		(bytes.Contains(respBody, []byte("not locked")) || bytes.Contains(respBody, []byte("lockout"))) {
+		return nil
+	}
+	return fmt.Errorf("clear lockout failed: status %d: %s", resp.StatusCode, string(respBody))
 }
 
 // GetOrCreateMachineIdentity finds or creates a Machine Identity in Infisical.

@@ -2,6 +2,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -10,8 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	identityv1alpha1 "github.com/soloz-io/zero-ops/operators/spoke-identity-operator/api/v1alpha1"
+	"github.com/soloz-io/zero-ops/operators/spoke-identity-operator/internal/infisical"
 )
 
 func newSchemeForTest(t *testing.T) *runtime.Scheme {
@@ -277,5 +283,225 @@ func TestEnsureClusterIssuerCRSWrapperClientIDChangesUpdatesWrapper(t *testing.T
 	}
 	if strings.Contains(yamlBody, "old-client-id") {
 		t.Errorf("stale clientId still present in wrapper payload:\n%s", yamlBody)
+	}
+}
+
+// --- Phase 2 lockout self-heal (P0 single authority) ---
+
+const testSpokeClientID = "b3d5ec56-623e-4a04-b82e-3960d84196c7"
+
+func newSelfHealReconciler(t *testing.T, handler http.HandlerFunc) (*SpokeMachineIdentityReconciler, client.Client, *httptest.Server) {
+	t.Helper()
+	t.Setenv("INFISICAL_CLIENT_ID", "op-client")
+	t.Setenv("INFISICAL_CLIENT_SECRET", "op-secret")
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	scheme := newSchemeForTest(t)
+	k8s := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&identityv1alpha1.SpokeMachineIdentity{}).Build()
+	r := &SpokeMachineIdentityReconciler{
+		Client:          k8s,
+		InfisicalClient: infisical.NewClient(srv.URL),
+	}
+	return r, k8s, srv
+}
+
+// identity.yaml-style payload matching what ensureCRSWrapper renders: two
+// infisical-auth copies (platform-ops + cert-manager) with identical creds.
+func seedIdentityWrapper(t *testing.T, c client.Client, smi *identityv1alpha1.SpokeMachineIdentity) {
+	t.Helper()
+	payload := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: platform-ops
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: secret-123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: cert-manager
+type: Opaque
+stringData:
+  client-id: %s
+  client-secret: secret-123
+`, testSpokeClientID, testSpokeClientID)
+	wrapper := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-machine-identity", smi.Spec.SpokeRef.Name),
+			Namespace: smi.Namespace,
+		},
+		Type:       "addons.cluster.x-k8s.io/resource-set",
+		StringData: map[string]string{"identity.yaml": payload},
+	}
+	if err := c.Create(context.Background(), wrapper); err != nil {
+		t.Fatalf("seed wrapper: %v", err)
+	}
+}
+
+func readyCondition(smi *identityv1alpha1.SpokeMachineIdentity) *metav1.Condition {
+	for i := range smi.Status.Conditions {
+		if smi.Status.Conditions[i].Type == conditionTypeReady {
+			return &smi.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// identity locked -> clear-lockout called with admin token, re-probe healthy.
+func TestEnsureIdentityUnlockClearsLockout(t *testing.T) {
+	var sawClear bool
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		clientID := body["clientId"]
+		switch r.URL.Path {
+		case infisical.PathAuthUniversalAuthLogin:
+			if clientID == "op-client" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"accessToken":"op-token","expiresIn":60}`))
+				return
+			}
+			if sawClear {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"accessToken":"t","expiresIn":60}`))
+				return
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"This identity auth method is temporarily locked out"}`))
+		case infisical.PathAuthUniversalAuthClearLockout:
+			sawClear = true
+			if got := r.Header.Get("Authorization"); got != "Bearer op-token" {
+				t.Errorf("expected admin bearer token, got %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deleted":1}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}
+
+	r, c, _ := newSelfHealReconciler(t, handler)
+	smi := newTestSMI("spoke-s1", testSpokeClientID)
+	seedIdentityWrapper(t, c, smi)
+
+	if err := r.ensureIdentityUnlock(context.Background(), smi, log.FromContext(context.Background())); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !sawClear {
+		t.Fatal("expected clear-lockout to be called for a locked identity")
+	}
+	if cond := readyCondition(smi); cond != nil && cond.Status == metav1.ConditionFalse {
+		t.Fatalf("unexpected failure condition: %+v", cond)
+	}
+}
+
+// invalid credentials -> NEVER clear; surface Ready=False AuthenticationDefect.
+func TestEnsureIdentityUnlockDefectDoesNotClear(t *testing.T) {
+	var sawClear bool
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case infisical.PathAuthUniversalAuthLogin:
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"Invalid credentials"}`))
+		case infisical.PathAuthUniversalAuthClearLockout:
+			sawClear = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deleted":1}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}
+
+	r, c, _ := newSelfHealReconciler(t, handler)
+	smi := newTestSMI("spoke-s2", testSpokeClientID)
+	seedIdentityWrapper(t, c, smi)
+
+	// Simulate the reconcile order: Ready=True is set before the self-heal runs
+	// so the defect condition must override it.
+	smi.Status.Conditions = append(smi.Status.Conditions, metav1.Condition{
+		Type: conditionTypeReady, Status: metav1.ConditionTrue, Reason: "Reconciled", LastTransitionTime: metav1.Now(),
+	})
+
+	if err := r.ensureIdentityUnlock(context.Background(), smi, log.FromContext(context.Background())); err != nil {
+		t.Fatalf("expected nil error (defect is surfaced, not fatal), got %v", err)
+	}
+	if sawClear {
+		t.Fatal("must NEVER clear lockout on Invalid credentials")
+	}
+	cond := readyCondition(smi)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "AuthenticationDefect" {
+		t.Fatalf("expected Ready=False AuthenticationDefect, got %+v", cond)
+	}
+}
+
+// no credentials material yet -> skip, no API traffic.
+func TestEnsureIdentityUnlockSkipsWithoutMaterial(t *testing.T) {
+	var calls int
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	r, _, _ := newSelfHealReconciler(t, handler)
+	smi := newTestSMI("spoke-s3", testSpokeClientID)
+
+	if err := r.ensureIdentityUnlock(context.Background(), smi, log.FromContext(context.Background())); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no API calls without material, got %d", calls)
+	}
+}
+
+// empty status clientId -> fail-closed skip.
+func TestEnsureIdentityUnlockSkipsWithoutClientID(t *testing.T) {
+	var calls int
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	r, _, _ := newSelfHealReconciler(t, handler)
+	smi := newTestSMI("spoke-s4", "")
+	if err := r.ensureIdentityUnlock(context.Background(), smi, log.FromContext(context.Background())); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no API calls without clientId, got %d", calls)
+	}
+}
+
+// parser contract: picks client-id/client-secret from the platform-ops copy.
+func TestParseIdentityAuthDoc(t *testing.T) {
+	payload := `apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: platform-ops
+type: Opaque
+stringData:
+  client-id: cid-1
+  client-secret: csec-1
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-auth
+  namespace: cert-manager
+type: Opaque
+stringData:
+  client-id: cid-1
+  client-secret: csec-1
+`
+	id, secret, ok := parseIdentityAuthDoc(payload)
+	if !ok || id != "cid-1" || secret != "csec-1" {
+		t.Fatalf("unexpected parse result: %q %q %v", id, secret, ok)
+	}
+	if _, _, ok := parseIdentityAuthDoc(""); ok {
+		t.Fatal("empty payload must not parse")
 	}
 }
