@@ -54,6 +54,7 @@ spec:
                         spoke-type: pool
                         take-along-label.capi-to-argocd.spoke-type: ""
                         take-along-label.capi-to-argocd.cell-id: ""
+                        take-along-label.capi-to-argocd.provider: ""
                         take-along-label.capi-to-argocd.argocd-agent.argoproj-labs.io/agent-name: ""
                     spec:
                       clusterNetwork:

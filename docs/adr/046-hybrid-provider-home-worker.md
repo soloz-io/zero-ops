@@ -478,7 +478,8 @@ declared, never inferred from storage binding. Hybrid adds one orthogonal axis:
 stateful workload may use.
 
 **Failure that motivated this model.** On `spoke-pool-hybrid-dev-01`,
-`shared-cnpg` (`manifests/spoke/spoke-catalog/infra/cnpg-cluster.yaml`) was
+`shared-cnpg` (then at `manifests/spoke/spoke-catalog/infra/cnpg-cluster.yaml`;
+deployed from per-environment overlays since Wave 1, see Codified) was
 created with `storage.storageClass: hcloud-volumes` and **no nodeSelector**.
 With placement undeclared, CNPG scheduled the sole instance onto the
 control-plane node. Storage binding did not save it: `hcloud-volumes` is
@@ -519,11 +520,32 @@ class ADR-014 now bans.
 - **BANNED**: `hcloud-volumes` on a home worker (hcloud CSI cannot provision
   for a WSL2 node) and `local-path` on a Hetzner worker (provisioner runs on
   home nodes only via nodeAffinity).
-- Durability for home-located clusters: `barmanObjectStore` →
-  `s3://spoke-pool-backups` (already configured) is the **primary** recovery
-  path, not a fallback — local-path has no volume-snapshot support, so CNPG WAL
-  archiving + S3 restore is the only restore mechanism. Retention stays
-  `30d`.
+- Durability for home-located clusters: recovery is **barman restore only**
+  (ADR-014 §Backup and restore contract — Hetzner Object Storage,
+  `spoke-pool-backups` @ `https://hel1.your-objectstorage.com`) — local-path
+  has no volume-snapshot support, so CNPG WAL archiving + S3 restore is the
+  sole restore mechanism; see "Backup and restore isolation" below.
+  Restoration requires a base backup **plus** WALs. Retention stays `30d`.
+
+#### Backup and restore isolation
+
+- Each spoke's backup data lives in a **per-spoke prefix**,
+  `s3://spoke-pool-backups/<spoke-name>/` (bucket on Hetzner Object Storage per
+  ADR-014 §Backup and restore contract), set via the
+  `platform-spoke-catalog` ApplicationSet kustomize patch on
+  `Cluster.spec.backup.barmanObjectStore.destinationPath` (keyed on the ArgoCD
+  cluster name `{{ .name }}`). Previously every spoke shared the single
+  `shared-cnpg` folder — a dev/stg collision that would cross-contaminate
+  recoveries. The isolated prefix is established and proven **before** any
+  destructive cutover.
+- Base backups are declared per spoke via a static `ScheduledBackup`
+  (`spec.cluster.name: shared-cnpg`, `backupOwnerReference: cluster`, daily
+  schedule); none existed before Wave 1. `destinationPath` is **not** set on
+  the ScheduledBackup — its CRD (CNPG 1.29) carries no destination fields; the
+  backups inherit the Cluster's barman configuration.
+- `spec.immediate: true` fires the first base backup at resource creation —
+  the declarative **G1 gate**: the backup must reach `completed` (Backup CR)
+  and appear in the new prefix before Wave A of any environment.
 
 #### CSI daemonset boundary
 
@@ -543,7 +565,9 @@ in a new hybrid-cell addon `manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml
 
 #### CNPG pattern for hybrid spokes
 
-`cnpg-cluster.yaml` (`shared-cnpg`) declares, for the home class:
+The CNPG Cluster manifest for the home class (`shared-cnpg`, per-environment
+overlay `manifests/spoke/spoke-catalog/environments/{dev,stg,prod}/hybrid/cnpg-cluster.yaml`)
+declares:
 
 ```yaml
 spec:
@@ -568,20 +592,36 @@ spec:
   `shared-cnpg-rw.platform-data.svc.cluster.local`, credentials via ESO from
   Infisical (ADR-003); DB/user creation is storage-agnostic.
 
-#### Migration of the existing dev spoke (codified procedure)
+#### Migration of existing spokes (codified procedure)
 
-Storage class cannot change in place. The instance moves onto the home pool
-with fresh `local-path` storage:
+Storage class cannot change in place and the recovery source requires an
+isolated, proven prefix. The cutover is therefore a destructive-first GitOps
+state machine (per-environment overlay state; dev and stg progress
+independently because their authoritative state is directory-scoped):
 
-1. Apply the nodeSelector + `storageClass: local-path` block to `shared-cnpg`.
-2. Bootstrap a new cluster via `bootstrap.recovery` from the existing barman
-   S3 store (`s3://spoke-pool-backups`) with the new placement + storage.
-3. Tenant connections keep working unchanged (host `shared-cnpg-rw` is
-   preserved if the name is kept).
-4. Verify per ADR-014: instance pod on a home worker, `local-path` PVC, no
-   stateful pods on CP nodes.
-5. Delete the old cluster after the cutover window; barman `retentionPolicy:
-   "30d"` remains the safety net.
+1. **Wave A — prune.** Remove both `cnpg-cluster.yaml` and
+   `scheduled-backup.yaml` from the environment overlay; ArgoCD prunes the
+   Cluster **and its ScheduledBackup**. No resource references the pruned
+   cluster during the WAL-only window — the `ScheduledBackup → Cluster`
+   dependency is pruned along with its root. The barman store is untouched.
+2. **Wave B — recover.** Re-add `cnpg-cluster.yaml` with
+   `bootstrap.recovery` (method `object_store`, source = per-spoke prefix),
+   the home-class placement + `local-path` storage, and re-add
+   `scheduled-backup.yaml` with `immediate: true`. The name `shared-cnpg` is
+   kept, so tenant connections (`shared-cnpg-rw.platform-data...`) are
+   unchanged. Recovery is proven by: restored data + ADR-014/§11 placement
+   checks + a completed post-recovery base backup (CNPG fires no backup while
+   the cluster is still restoring).
+3. **Wave C — steady state.** Return `bootstrap` to `initdb` in the manifest.
+   `.spec.bootstrap` is creation-time state (CNPG does not re-reconcile it);
+   the spoke-catalog ApplicationSet permanently ignores `/spec/bootstrap` —
+   the declarative steady-state manifest cannot represent the historical
+   bootstrap mechanism of an already-initialized cluster.
+4. **Hetzner-only spokes skip A→B→C:** `hcloud-volumes` block devices attach
+   anywhere in the zone, so changing `nodeSelector` rolls instances onto
+   workers with their existing PVCs (placement-only rotation).
+5. barman `retentionPolicy: "30d"` remains the safety net; WALs under the old
+   shared prefix become orphaned garbage once the per-spoke prefix is live.
 
 #### Enforcement / verification (hybrid-specific)
 
@@ -592,13 +632,37 @@ Beyond the ADR-014 post-bootstrap validation, in every hybrid spoke:
 - storageClass and location agree (`local-path` ↔ home, `hcloud-volumes` ↔
   hetzner);
 - zero `hcloud-csi-node` pods on home workers; `local-path-provisioner` pods
-  on all home workers.
+  on all home workers;
+- every `ScheduledBackup` references an existing Cluster; per-spoke barman
+  prefixes `s3://spoke-pool-backups/<spoke-name>/` are unique across spokes.
 
-**Codified:** the model above is the spec. Manifest changes required (not yet
-applied): (1) `cnpg-cluster.yaml` nodeSelector + `local-path` storage and the
-recovery-bootstrap migration on the live dev spoke; (2) `csi-addon-hybrid.yaml`
-(new) with the CSI boundary + local-path provisioner + `local-path`
-StorageClass, wired into `spokepool-hybrid-composition.yaml`.
+**Codified:** the model above is the spec. Manifest changes required by the
+Wave-1 merge (per §11 review):
+
+1. CNPG moves out of `manifests/spoke/spoke-catalog/infra` (the base stays
+   provider-neutral): `cnpg-cluster.yaml` + `scheduled-backup.yaml` land in
+   `manifests/spoke/spoke-catalog/environments/{dev,stg,prod}/{hybrid,hetzner}/`.
+2. `take-along-label.capi-to-argocd.provider` added to both provider
+   compositions (`hybrid` / `hetzner`); the `platform-spoke-catalog`
+   ApplicationSet path resolves `{{ .Values.environmentSlug }}/{{ provider }}`
+   and hard-fails with `{{ fail }}` on any other provider value
+   (`missingkey=error` on the label).
+3. ApplicationSet kustomize patch targets **`Cluster/shared-cnpg` only**:
+   `/spec/backup/barmanObjectStore/destinationPath` →
+   `s3://spoke-pool-backups/{{ .name }}/`; every overlay manifest declares
+   `endpointURL: https://hel1.your-objectstorage.com` per the ADR-014 backup
+   contract (the pre-contract manifest shipped without it).
+4. `scheduled-backup.yaml` per overlay — static (no per-spoke fields):
+   `spec.immediate: true` at creation (fires the G1 base backup), daily
+   schedule in steady state, `backupOwnerReference: cluster`.
+5. spoke-catalog syncOptions gain `RespectIgnoreDifferences=true`, together
+   with `ignoreDifferences: Cluster/shared-cnpg → /spec/bootstrap`.
+6. `csi-addon-hybrid.yaml` (new, wired into `spokepool-hybrid-composition.yaml`):
+   hcloud-csi-node excludes home workers, `local-path-provisioner` DaemonSet
+   on home workers, `local-path` StorageClass (`WaitForFirstConsumer`,
+   `reclaimPolicy: Delete`, **not** default).
+7. post-bootstrap-validate.sh gains the §11 enforcement checks (Wave-8
+   enforcement pass).
 
 ## References
 

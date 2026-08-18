@@ -1,0 +1,18 @@
+---
+# ADR-014 backup contract: base backups for shared-cnpg (per spoke).
+# Static resource — the CRD carries no destination fields; backups inherit the
+# Cluster's barman configuration. immediate: true fires the G1 base backup at
+# creation; steady state drops it (Wave C).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: shared-cnpg-daily
+  namespace: platform-data
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  immediate: true
+  schedule: "0 0 1 * * *"
+  backupOwnerReference: cluster
+  cluster:
+    name: shared-cnpg

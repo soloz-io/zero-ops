@@ -30,7 +30,6 @@ resources:
   - crossplane-providerconfig-sql.yaml
   - crossplane-provider-sql.yaml
   - crossplane-provider-kubernetes.yaml
-  - cnpg-cluster.yaml
   - cluster-secret-store.yaml
   - grafana-alloy.yaml
   - grafana-cloud-es.yaml

@@ -1,4 +1,7 @@
 ---
+# ADR-014/ADR-046 §11: hetzner-cell CNPG overlay — prod, Wave-1 state.
+# PROD UNTOUCHED beyond the ADR-014 backup contract: no placement change here
+# (placement enforcement for prod is a separate pass).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -56,14 +59,21 @@ spec:
 
   backup:
     barmanObjectStore:
+      # Per-spoke prefix applied by the platform-spoke-catalog ApplicationSet
+      # patch on /spec/backup/barmanObjectStore/destinationPath.
       destinationPath: s3://spoke-pool-backups/
+      # ADR-014 backup contract: Hetzner Object Storage, hel1.
+      endpointURL: https://hel1.your-objectstorage.com
       s3Credentials:
         accessKeyId:
           name: s3-credentials
-          key: ACCESS_KEY_ID
+          key: access-key-id
         secretAccessKey:
           name: s3-credentials
-          key: SECRET_ACCESS_KEY
+          key: secret-access-key
+        region:
+          name: s3-credentials
+          key: region
       wal:
         compression: gzip
         maxParallel: 2

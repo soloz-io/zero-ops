@@ -261,7 +261,7 @@ See ADR-039 for the complete ownership matrix.
 ## Consequences
 
 ### Positive
-- Unified backup strategy via CNPG continuous archiving (PostgreSQL)
+- Unified backup strategy via CNPG continuous archiving to Hetzner Object Storage (PostgreSQL)
 - Centralized monitoring via cnpg2monitor operator (PostgreSQL)
 - Consistent upgrade procedures across all applications
 - Resource efficiency through shared clusters
@@ -282,10 +282,55 @@ See ADR-039 for the complete ownership matrix.
 - Maintenance windows communicated via platform calendar
 - Move metering and billing to separate HA cluster in future
 
+## Backup and restore contract
+
+**Vendor and endpoint.** The platform supports a single cloud vendor — Hetzner —
+and a single backup store: Hetzner Object Storage, bucket `spoke-pool-backups`,
+endpoint `https://hel1.your-objectstorage.com`. This contract applies to every
+platform-owned CNPG cluster (`shared-cnpg`) on every spoke, in every topology
+and every environment.
+
+**`endpointURL` is mandatory.** Every CNPG manifest must declare
+`spec.backup.barmanObjectStore.endpointURL`; without it barman defaults to the
+AWS S3 endpoint (`s3.amazonaws.com`) — a misconfiguration class this contract
+bans. (The pre-contract `cnpg-cluster.yaml` shipped without it; the ADR-046 §11
+codified procedure corrects it.)
+
+**Credentials.** CNPG authenticates to the store with the platform's existing
+Hetzner credential: Infisical key `hcloud-token`, delivered to every spoke via
+ESO into the `s3-credentials` Secret (keys `access-key-id` /
+`secret-access-key`). The signing region is the static literal `hel1` — the
+S3 endpoint is region-authoritative and no regional key exists in Infisical.
+The hub-operator's Secrets-Manager IAM user is **BANNED** as a barman
+credential: the pre-contract manifest used it, and archiving failed on every
+WAL from cluster creation (13,948 failures, zero archives; barman attempted
+`CreateBucket` on the default S3 endpoint — the incident that produced this
+contract).
+
+**Per-spoke isolation.** Each spoke's backups live under
+`s3://spoke-pool-backups/<spoke-name>/`, applied by the
+`platform-spoke-catalog` ApplicationSet kustomize patch on
+`spec.backup.barmanObjectStore.destinationPath`. The shared prefix
+(`shared-cnpg/`) is **BANNED**: it cross-contaminates recoveries between
+spokes.
+
+**Base backups.** Recovery requires a base backup plus WALs. Each spoke
+declares a static `ScheduledBackup` (`cluster.name: shared-cnpg`,
+`backupOwnerReference: cluster`, daily schedule, `immediate: true` at
+creation); it inherits the Cluster's barman configuration — the CRD carries no
+destination fields of its own. Retention: `30d`.
+
+**Ownership.** CNPG owns the physical backup lifecycle (ADR-043); the contract
+above is platform-owned and enforced by post-bootstrap validation. ADR-046 §11
+holds the isolation mechanics and the cutover procedure that implements this
+contract.
+
 ## References
 
 - **ADR 003**: ESO-Infisical Integration Pattern
 - **ADR-0009**: Zero-Trust Multi-Layer Authentication with JWKS and Service Mesh
 - **ADR 034**: Control-Plane Failure Domains (etcd/kube-apiserver blast radius — the basis for the Platform-Wide Placement Rule)
+- **ADR 043**: Control-plane authority model — CNPG owns the database physical lifecycle, including backup
 - **ADR 046**: Hybrid workload location contract (home vs Hetzner workers; `local-path` vs `hcloud-volumes` storage)
+- **ADR 046 §11**: Hybrid topology database model — isolation mechanics and the cutover procedure implementing this contract
 - **ADR 047**: Tier boundaries (placement selectors are platform-owned, not fleet-owned)
