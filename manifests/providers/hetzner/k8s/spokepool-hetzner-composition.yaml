@@ -37,6 +37,7 @@ spec:
                       namespace: platform-capi
                       labels:
                         spoke-type: pool
+                        provider: hetzner
                         take-along-label.capi-to-argocd.spoke-type: ""
                         take-along-label.capi-to-argocd.cell-id: ""
                         take-along-label.capi-to-argocd.provider: ""
