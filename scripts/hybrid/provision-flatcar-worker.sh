@@ -544,7 +544,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=node-role.kubernetes.io/worker=,node-role.kubernetes.io/home=,workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -660,7 +660,7 @@ coreos:
         ConditionPathExists=/var/lib/kubelet/config.yaml
 
         [Service]
-        Environment="KUBELET_EXTRA_ARGS=--node-labels=node-role.kubernetes.io/worker=,node-role.kubernetes.io/home=,workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
+        Environment="KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
         ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
         Restart=always
