@@ -1,14 +1,17 @@
 name: Publish zero-ops-auth
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - "packages/auth/**"
+      - ".github/workflows/publish-auth.yml"
   pull_request:
     branches: [main]
     paths:
       - "packages/auth/**"
+      - ".github/workflows/publish-auth.yml"
 
 jobs:
   validate-and-build:
