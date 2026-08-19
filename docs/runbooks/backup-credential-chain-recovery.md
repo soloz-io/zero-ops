@@ -176,8 +176,27 @@ Signatures (401):
 - `This identity auth method is temporarily locked, please try again later`
 - `This identity auth method is not allowed for the current project`
 
-Rules: do NOT probe repeatedly — every failed login extends the lock.
-Wait out the lock window (or un-lock in the Infisical UI). Verify the pair
+Recovery hierarchy (do NOT skip the operator path):
+
+```text
+normal   -> spoke-identity-operator self-heal (primary)
+fallback -> human admin recovery via clear-lockouts API (emergency only)
+```
+
+#### 8a. Primary: operator self-heal
+
+`spoke-identity-operator` (hub, `platform-security`) probes every
+SpokeMachineIdentity on a bounded cadence (max 5min, independent of the
+certificate rotation window) and:
+
+- `temporarily locked` → clears the lockout and re-probes to verify.
+  Operator log markers: `Identity auth method locked — clearing lockout`
+  then `Identity lockout cleared and verified`.
+- `Invalid credentials` → sets `Ready=False / AuthenticationDefect` and
+  does NOT clear. This is a credential/secret defect, not a lockout:
+  follow §2 (rotate the machine identity), never clear-lockouts.
+
+Usually no action is needed; wait one reconcile window (≤5min) and verify
 with a single probe:
 
 ```bash
@@ -190,8 +209,36 @@ curl -sk -X POST "https://infisical.nutgraf.in/api/v1/auth/universal-auth/login"
   -d "{\"clientId\":\"$CID\",\"clientSecret\":\"$CSEC\"}"
 ```
 
-202 = credentials valid; continue with project role / signing permission
-inspection. 401 = still locked or invalid pair.
+Rules: do NOT probe repeatedly — every failed login extends the lock. 200 =
+credentials valid; 401 `temporarily locked` = operator has not cleared yet
+(check SMI `Ready` condition and operator logs); 401 `Invalid credentials` =
+AuthenticationDefect, go to §2.
+
+#### 8b. Emergency fallback: manual clear-lockouts API
+
+Only when the operator is unable to act (operator down, CR missing, or the
+lock is on a non-SMI identity). Uses the hub admin identity
+(`platform-security/infisical-auth`, client-id/client-secret GitOps-rendered)
+to call the same endpoint the operator uses:
+
+```bash
+HUB_ADMIN_CID=$(kubectl --kubeconfig $HUB_KC get secret infisical-auth -n platform-security \
+  -o jsonpath='{.data.client-id}' | base64 -d)
+HUB_ADMIN_CSEC=$(kubectl --kubeconfig $HUB_KC get secret infisical-auth -n platform-security \
+  -o jsonpath='{.data.client-secret}' | base64 -d)
+TOKEN=$(curl -sk -X POST "https://infisical.nutgraf.in/api/v1/auth/universal-auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"clientId\":\"$HUB_ADMIN_CID\",\"clientSecret\":\"$HUB_ADMIN_CSEC\"}" | jq -r .accessToken)
+curl -sk -X POST "https://infisical.nutgraf.in/api/v1/auth/universal-auth/sign-in/clear-lockout" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"identityId\":\"<smi.status.identityID>\",\"clientId\":\"<smi.status.clientID>\",\"lockedOut\":false}"
+```
+
+The call is idempotent (400 on an already-unlocked identity is expected).
+Then verify with a single probe as in 8a. Confirm the identity was NOT
+locked for an auth defect first — see IdentityProvisioned / Ready
+conditions; if `AuthenticationDefect` is present, run §2 and do not clear.
 
 ## ArgoCD operational notes (adjacent to this incident)
 
