@@ -1,25 +1,12 @@
 ---
-# Hybrid provider Crossplane Composition (ADR-046)
-# Cloned from spokepool-hetzner-composition.yaml with the following changes:
-#   1. label provider: hybrid
-#   2. capi-cluster: controlPlaneLoadBalancer.enabled left true
-#      (public Hetzner LB advertises the spoke API, same as hetzner/hub)
-#   3. capi-cluster: controlPlaneEndpoint.host left empty — CAPH auto-fills from the LB IPv4 (ControlPlaneEndpointSet)
-#   4. capi-cluster: control-plane replicas patched from annotation (1 dev / 3 stg)
-#   5. capi-cluster: workers.machineDeployments[0].replicas defaults to 0 (burst pool; home workers are unmanaged)
-#   6. home-worker-join-config ConfigMap step added (carries {hostname,tailnetHost} list from claim annotations)
-#
-# Worker lifecycle split (ADR-046 §1):
-#   Home workers → unmanaged kubeadm join + hub-operator token minting (WS4)
-#   Hetzner burst workers → native CAPI KubeadmConfigTemplate; replicas:0 by default
-#   Scheduling → nodeSelector: workload-location: home (default)
-#               nodeSelector: workload-location: hetzner (burst; explicit)
+# Hybrid-Flatcar provider Crossplane Composition (ADR-046 + Flatcar)
+# Hyper-V + Flatcar Linux worker topology.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: spokepool-hybrid
+  name: spokepool-hybrid-flatcar
   labels:
-    provider: hybrid
+    provider: hybrid-flatcar
     cluster-type: spoke-pool
 spec:
   compositeTypeRef:
@@ -53,7 +40,7 @@ spec:
                       namespace: platform-capi
                       labels:
                         spoke-type: pool
-                        provider: hybrid
+                        provider: hybrid-flatcar
                         take-along-label.capi-to-argocd.spoke-type: ""
                         take-along-label.capi-to-argocd.cell-id: ""
                         take-along-label.capi-to-argocd.provider: ""
@@ -127,8 +114,6 @@ spec:
                       toType: int64
           # ────────────────────────────────────────────────────────────────────
           # ClusterResourceSet (CNI, CCM, CSI, ArgoCD agent bootstrap)
-          # Identical to hetzner; Tailscale DaemonSet is added via home-worker-
-          # integration.yaml ClusterResourceSet (separate step — WS4).
           # ────────────────────────────────────────────────────────────────────
           - name: cluster-resource-set
             base:
@@ -157,14 +142,13 @@ spec:
                         # Tailscale PSK credentials
                         - name: ""
                           kind: Secret
-                        # CNI: hybrid-specific variant with WSL2 cgroup-namespace fix (ADR-046)
-                        - name: cilium-addon-hybrid
+                        # CNI: hybrid-flatcar specific variant
+                        - name: cilium-addon-flatcar
                           kind: Secret
                         - name: ccm-addon-template
                           kind: Secret
-                        # ADR-046 §11: hybrid variant excludes home workers from
-                        # hcloud-csi and provisions local-path on home workers
-                        - name: csi-addon-hybrid
+                        # CSI: hybrid-flatcar variant (local-path on /var/local-path-provisioner)
+                        - name: csi-addon-flatcar
                           kind: Secret
                         # Tailscale node DaemonSet (ADR-046: tailnet-only spoke)
                         - name: tailscale-node-addon

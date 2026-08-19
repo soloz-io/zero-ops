@@ -1,0 +1,31 @@
+# Hybrid Flatcar Cilium Helm Values (ADR-046 §13)
+# Flatcar provides native cgroups v2 and standard Linux kernel, eliminating WSL2 cgroup hacks.
+
+cluster:
+  name: ""
+  id: 1
+
+ipam:
+  mode: "kubernetes"
+
+kubeProxyReplacement: "true"
+
+k8sServiceHost: "127.0.0.1"
+k8sServicePort: 6444
+
+cgroup:
+  autoMount:
+    enabled: true
+
+# Tailscale encapsulation MTU
+mtu: 1200
+
+# Envoy daemonset decoupled
+envoy:
+  enabled: true
+
+operator:
+  replicas: 1
+
+hubble:
+  enabled: false

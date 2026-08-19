@@ -72,22 +72,24 @@ const kubeadmBootstrapTokenCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 // homeWorkerTokenPrefix is the Secret name prefix for spoke bootstrap tokens.
 const homeWorkerTokenPrefix = "bootstrap-token-"
 
-// homeWorkerJoinRequiringProvider is the provider value that activates the flow.
-const homeWorkerJoinRequiringProvider = "hybrid"
+// isHomeWorkerProvider returns true for provider types that support home workers (WSL2, Flatcar, or Talos).
+func isHomeWorkerProvider(provider string) bool {
+	return provider == "hybrid" || provider == "hybrid-flatcar" || provider == "hybrid-talos"
+}
 
 // reconcileHomeWorkerJoin ensures the home-worker join payload Secret and spoke
-// bootstrap token for a hybrid SpokePool. Gated on spec.provider == "hybrid" and
-// the home-worker-enabled annotation. Idempotent and rotation-aware.
+// bootstrap token for a hybrid / hybrid-talos SpokePool. Gated on isHomeWorkerProvider
+// and the home-worker-enabled annotation. Idempotent and rotation-aware.
 func (r *SpokePoolReconciler) reconcileHomeWorkerJoin(ctx context.Context, spokePool *unstructured.Unstructured) error {
 	logger := log.FromContext(ctx)
 	spokeName := spokePool.GetName()
 
-	// Gate: hybrid provider only.
+	// Gate: hybrid / hybrid-talos providers only.
 	provider, found, err := unstructured.NestedString(spokePool.Object, "spec", "provider")
 	if err != nil || !found {
 		return nil
 	}
-	if provider != homeWorkerJoinRequiringProvider {
+	if !isHomeWorkerProvider(provider) {
 		return nil
 	}
 

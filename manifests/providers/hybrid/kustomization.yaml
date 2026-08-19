@@ -13,3 +13,6 @@ resources:
   - k8s/tailscale-psk-es.yaml
   # WSL2 cgroup-namespace fix (ADR-046): hybrid-only Cilium DaemonSet variant
   - k8s/cilium-addon-hybrid.yaml
+  # ADR-046 §11: hcloud-csi excludes home workers; local-path provisioner +
+  # StorageClass for the home placement class
+  - k8s/csi-addon-hybrid.yaml

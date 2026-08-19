@@ -86,6 +86,13 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
+# Auto-fetch Tailscale authkey from k8-secrets if not passed via CLI
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+DEFAULT_TS_AUTHKEY_FILE="${REPO_ROOT}/k8-secrets/tailscale/authkey"
+if [[ -z "$TS_AUTHKEY" && -f "$DEFAULT_TS_AUTHKEY_FILE" ]]; then
+  TS_AUTHKEY="$(tr -d '\r\n' < "$DEFAULT_TS_AUTHKEY_FILE")"
+fi
+
 if [[ ! -f "$HUB_KUBECONFIG" ]]; then
   echo "ERROR: HUB_KUBECONFIG not found: $HUB_KUBECONFIG" >&2
   echo "       Check home-lab.env — the hub kubeconfig must exist on the Mac." >&2

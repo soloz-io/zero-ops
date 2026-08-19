@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-addon-flatcar
+  namespace: platform-capi
+  labels:
+    provider: hybrid-flatcar
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  local-path-config.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: local-path-config
+      namespace: kube-system
+    data:
+      config.json: |-
+        {
+          "nodePathMap":[
+            {
+              "node":"DEFAULT_PATH_FOR_NON_LISTED_NODES",
+              "paths":["/var/local-path-provisioner"]
+            }
+          ]
+        }

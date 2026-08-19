@@ -777,6 +777,32 @@ a manifest/commit counterpart, a runbook procedure, or an ADR decision —
 nothing may live only in shell history. Anything applied to a cluster that
 is not reproducible from Git is debt that will recur as an incident.
 
+### 13. Hyper-V Worker OS Evolution: Rejection of Talos and Adoption of Flatcar Container Linux (2026-08-19)
+
+**Context & Motivation.**
+The initial home worker design relied on WSL2 Ubuntu distributions hosted on Windows 11 hardware. While functional, WSL2 introduced severe operational friction:
+- Modified Microsoft kernel lacking standard modules.
+- Broken cgroup v2 namespace propagation requiring fragile `fix-cgroup-mount` init containers and `cilium-host-prep.service` workarounds.
+- Inability to safely run `clean-cilium-state=true` on restart.
+- Windows host sleep/standby lifecycle coupling.
+
+To eliminate these constraints, the platform transitions home-lab workers from WSL2 to dedicated Generation 2 Hyper-V virtual machines running an immutable, container-optimized Linux OS orchestrated 100% remotely from macOS via SSH.
+
+**Evaluation & Rejection of Talos Linux.**
+Talos Linux was evaluated and live-tested on Hyper-V Gen2:
+1. **Control Plane Incompatibility**: Talos Linux is an immutable appliance governed by its own `machined` daemon. Talos workers expect to connect to a Talos Control Plane (`apid` on port 50000) to receive cluster PKI and certificates. Because our hybrid Spoke control planes are standard CAPI Hetzner VMs running Ubuntu + Kubeadm (`v1.31.6`), a standalone Talos worker cannot complete the join without replacing the entire Hetzner control plane with Talos.
+2. **Non-Standard Bootstrap**: Talos does not run `kubeadm join` or consume standard Kubeadm bootstrap tokens (`bootstrap.kubernetes.io/token`) minted by `hub-operator`.
+3. **Hyper-V Boot Overhead**: Talos does not publish pre-formatted Hyper-V VHDX images with embedded extensions, requiring ISO transfer, maintenance-mode portproxies (`50000`), and UEFI boot-order manipulation.
+*Conclusion*: Talos Linux is rejected for hybrid home workers because it cannot join a standard Kubeadm/CAPI control plane.
+
+**Decision: Adoption of Flatcar Container Linux on Hyper-V.**
+Flatcar Container Linux is adopted as the definitive OS for Hyper-V home-lab worker nodes:
+1. **100% Native Kubeadm & CAPI Compatibility**: Flatcar runs standard systemd, `containerd`, and standard `kubeadm join`, seamlessly consuming the `<spoke>-home-worker-join` tokens minted by `hub-operator`.
+2. **Immutable & Minimal**: Read-only `/usr` partition with atomic updates, zero package-manager drift, and purpose-built container isolation.
+3. **Clean cgroup v2 & eBPF**: Standard Linux kernel with native cgroups v2 and BPF filesystem support, completely eliminating the WSL2 `fix-cgroup-mount` init container and allowing standard Cilium CNI deployment.
+4. **Declarative Ignition Provisioning**: Node configuration (hostname, Tailscale auth key, SSH keys, kubelet, and `kubeadm join` oneshot systemd unit) is declaratively defined via Ignition (`config.ign`) attached as a virtual CD-ROM (`ignition.iso`) on first boot.
+5. **Official Hyper-V Gen2 Artifacts**: Pre-built Generation 2 VHDX images (`flatcar_production_hyperv.vhdx.bz2`) downloaded and resized dynamically on the host.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
@@ -784,3 +810,4 @@ is not reproducible from Git is debt that will recur as an incident.
 - ADR-044 (local provider abstraction) — superseded; CAPD removed.
 - ADR-014 (Platform-Wide Placement Rule) — §11 builds on its worker-only/taint/selector contract.
 - PRD: hybrid home-lab cluster integration using Hetzner and Tailscale.
+

@@ -35,6 +35,11 @@ HC_CODES="2xx,3xx,404"
 HC_TIMEOUT="10s"
 HC_INTERVAL="15s"
 HC_RETRIES="3"
+# Health checks MUST be TCP: the embedded Envoy's hostNetwork listeners carry
+# the proxy_protocol listener filter (gateway-api proxy protocol is required
+# for the LB's PROXY-protocol traffic), so plain HTTP probes are reset
+# ("connection reset by peer") and every HTTP health check fails. TCP checks
+# only need the handshake, which succeeds through the filter.
 
 # Discover the control-plane server by the spoke node's ExternalIP.
 CP_PUBLIC_IP="${CP_PUBLIC_IP:-$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true)}"
@@ -63,7 +68,7 @@ if ! hcloud load-balancer describe "$LB_NAME" -o json | grep -q "\"network\": $N
   echo "Attached $LB_NAME to network $NETWORK_ID at $LB_PRIVATE_IP"
 fi
 
-# Ensure the 80/443 TCP-proxy services with PROXY protocol and HTTP health
+# Ensure the 80/443 TCP-proxy services with PROXY protocol and TCP health
 # checks (idempotent: update-service overwrites the health check settings).
 for PORT in 80 443; do
   if ! hcloud load-balancer describe "$LB_NAME" -o json | grep -q "\"listen_port\": $PORT"; then
@@ -72,12 +77,10 @@ for PORT in 80 443; do
       --proxy-protocol=true >/dev/null
   fi
   hcloud load-balancer update-service "$LB_NAME" --listen-port "$PORT" \
-    --health-check-protocol http --health-check-port "$PORT" \
+    --health-check-protocol tcp --health-check-port "$PORT" \
     --health-check-interval "$HC_INTERVAL" --health-check-retries "$HC_RETRIES" \
-    --health-check-timeout "$HC_TIMEOUT" \
-    --health-check-http-path="$HC_PATH" --health-check-http-domain="$HC_DOMAIN" \
-    --health-check-http-status-codes="$HC_CODES" >/dev/null
-  echo "Service $PORT -> $PORT (proxyprotocol, HTTP health check) ensured"
+    --health-check-timeout "$HC_TIMEOUT" >/dev/null
+  echo "Service $PORT -> $PORT (proxyprotocol, TCP health check) ensured"
 done
 
 # Ensure the private-IP server target (re-add to flip use_private_ip if it

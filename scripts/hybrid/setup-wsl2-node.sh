@@ -161,6 +161,52 @@ systemctl daemon-reload
 systemctl enable cilium-host-prep.service
 echo "[setup] ✓ cilium-host-prep.service enabled (cgroup2/BPF shared mounts at boot)"
 
+# ── 5c. Cilium bootstrap apiserver DNAT (ADR-046 addendum 13) ───────────────
+# With kube-proxy removed (addendum 1) the kube-apiserver ClusterIP
+# 10.96.0.1:443 has no DNAT on a freshly booted home worker until the Cilium
+# agent's BPF KPR is live — and the agent's config init container needs the
+# apiserver (10.96.0.1) BEFORE it can start. Without kube-proxy's iptables
+# this is a deadlock: the cilium pod's config init crash-loops, the agent never
+# runs, the node never gets CNI. Fix: a boot-time host OUTPUT DNAT shim that
+# directs 10.96.0.1:443 to the spoke's public control-plane endpoint (LB IP,
+# derived from /etc/kubernetes/kubelet.conf — the same endpoint the join flow
+# used, ADR-046). The rule only needs to survive until the agent bootstraps;
+# Cilium's own KPR rules take over afterwards. Unit is idempotent and fails
+# safe (no-op when it cannot parse the endpoint).
+echo "[setup] Installing cilium-bootstrap-dnat systemd unit..."
+mkdir -p /etc/systemd/system
+cat > /etc/systemd/system/cilium-bootstrap-dnat.service <<'EOF'
+[Unit]
+Description=Cilium bootstrap apiserver DNAT (WSL2 home worker, kube-proxy-free)
+DefaultDependencies=no
+Before=containerd.service kubelet.service
+After=cilium-host-prep.service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  EP=$(awk "/server:/{print \\$2}" /etc/kubernetes/kubelet.conf 2>/dev/null | sed "s#https://##"); \
+  HOST=${EP%%:*}; PORT=${EP##*:}; \
+  if [ -z "${HOST}" ] || [ -z "${PORT}" ]; then \
+    echo "cilium-bootstrap-dnat: kubelet.conf endpoint not parseable (${EP}) -- skipping"; exit 0; \
+  fi; \
+  if iptables -t nat -C OUTPUT -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination ${HOST}:${PORT} 2>/dev/null; then \
+    echo "cilium-bootstrap-dnat: rule already present"; \
+  else \
+    iptables -t nat -I OUTPUT 1 -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination ${HOST}:${PORT}; \
+    echo "cilium-bootstrap-dnat: inserted 10.96.0.1:443 -> ${HOST}:${PORT}"; \
+  fi'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable cilium-bootstrap-dnat.service
+echo "[setup] ✓ cilium-bootstrap-dnat.service enabled (10.96.0.1:443 → spoke LB at boot)"
+
 # ── 6. kubelet + kubeadm + kubectl ──────────────────────────────────────────
 if ! kubelet --version 2>/dev/null | grep -q "${K8S_VERSION}"; then
   echo "[setup] Installing Kubernetes ${K8S_VERSION}..."

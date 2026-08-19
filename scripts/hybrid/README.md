@@ -78,13 +78,28 @@ These are now thin wrappers (or no-ops) delegating to
 | `prepare-wsl2-cgroup.sh` | `setup-wsl2-node.sh` (cilium-host-prep.service) + `tailscale-watchdog.sh` |
 | `fix-cilium-pid.sh` | `tailscale-watchdog.sh` (heal_cilium_pid) |
 
-## Files
+## Hyper-V + Talos Linux Topology (Proposed / Next-Gen)
 
-| Script | Purpose |
+Replaces WSL2 convenience nodes with **Hyper-V Gen2 VMs running immutable Talos Linux**.
+Eliminates WSL2 cgroup namespace isolation quirks and PID collisions, running native Linux cgroup v2 & eBPF.
+
+```bash
+# Provision / bootstrap a Talos worker node via Hyper-V + talosctl:
+./scripts/hybrid/provision-talos-worker.sh --node 1 --ts-authkey <key>
+
+# Verify Ready status of Talos worker nodes:
+./scripts/hybrid/provision-talos-worker.sh --verify
+```
+
+### Files
+
+| Script / Template | Purpose |
 |--------|---------|
-| `provision-home-worker.sh` | **THE single entry point** — provision/recover/verify + self-heal install |
+| `provision-talos-worker.sh` | **THE entry point for Hyper-V + Talos** — provisions Gen2 VM + Talos apply |
+| `talos/talos-worker.template.yaml` | Talos worker node machine configuration template |
+| `provision-home-worker.sh` | Entry point for legacy WSL2 nodes (self-healing watchdogs + kubeadm) |
 | `setup-wsl2-node.sh` | WSL2 distro provisioning (containerd, kubelet, tailscale, cgroup) |
-| `home-worker-join.sh` | Runs on the WSL2 node — kubeadm join logic (consumed by the auto-join timer) |
+| `home-worker-join.sh` | Runs on WSL2 node — kubeadm join logic (consumed by auto-join timer) |
 | `windows/wsl2-node-watchdog.ps1` | Windows watchdog (VM reset + WinNAT heal, every 2 min) |
 | `wsl2/tailscale-watchdog.sh` (+service/timer) | WSL2 watchdog (tailscale/containerd/kubelet/cilium, every 60s) |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |

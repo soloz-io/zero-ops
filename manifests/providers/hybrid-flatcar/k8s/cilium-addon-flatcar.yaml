@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cilium-addon-flatcar
+  namespace: platform-capi
+  labels:
+    provider: hybrid-flatcar
+type: addons.cluster.x-k8s.io/resource-set
+stringData:
+  cilium-values.yaml: |
+    # Hybrid Flatcar Cilium Addon (ADR-046 §13)
+    # Native Linux cgroup v2 & eBPF with MTU 1200 for Tailscale mesh
+    cluster:
+      name: "${CLUSTER_NAME}"
+      id: 1
+    ipam:
+      mode: "kubernetes"
+    kubeProxyReplacement: "true"
+    k8sServiceHost: "127.0.0.1"
+    k8sServicePort: 6444
+    cgroup:
+      autoMount:
+        enabled: true
+    mtu: 1200
+    envoy:
+      enabled: true
+    operator:
+      replicas: 1
+    hubble:
+      enabled: false

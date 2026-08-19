@@ -10,6 +10,8 @@ metadata:
 # capd: removed (WS0 — CAPD/local provider removed)
 # aws: removed (dangling — no composition exists)
 # hybrid: added (ADR-046 — Hetzner CP + home WSL2 workers)
+# hybrid-flatcar: added (Hetzner CP + home Hyper-V Flatcar workers)
 data:
   hetzner: "spokepool-hetzner"
   hybrid: "spokepool-hybrid"
+  hybrid-flatcar: "spokepool-hybrid-flatcar"
