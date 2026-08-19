@@ -814,6 +814,19 @@ spec:
                               hostNetwork: true
                               dnsPolicy: ClusterFirstWithHostNet
                               serviceAccountName: tailscale-node
+                              # ADR-046 §WS3: home workers run NATIVE tailscaled at
+                              # the host level (provision script), so the pod-based
+                              # tailscale-node DS must NOT schedule there — two
+                              # tailscaled daemons fight over tailscale0.
+                              affinity:
+                                nodeAffinity:
+                                  requiredDuringSchedulingIgnoredDuringExecution:
+                                    nodeSelectorTerms:
+                                    - matchExpressions:
+                                      - key: workload-location
+                                        operator: NotIn
+                                        values:
+                                        - home
                               tolerations:
                                 - operator: Exists
                               initContainers:

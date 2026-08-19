@@ -544,7 +544,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=node-role.kubernetes.io/worker=,node-role.kubernetes.io/home=,workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -660,8 +660,9 @@ coreos:
         ConditionPathExists=/var/lib/kubelet/config.yaml
 
         [Service]
-        Environment="KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
-        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS
+        Environment="KUBELET_EXTRA_ARGS=--node-labels=node-role.kubernetes.io/worker=,node-role.kubernetes.io/home=,workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
+        EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
+        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
         Restart=always
         StartLimitInterval=0
         RestartSec=10
@@ -875,14 +876,15 @@ phase_monitor_and_verify() {
     if node_ready "$HOSTNAME" 2>/dev/null | grep -q "Ready"; then
       echo "      [${attempt}/30] (${ELAPSED}s) VM: ${VM_STATUS} | SSH: ${SSH_STATUS} | Install: ${INST_STATUS} | Tailscale: ${TS_STATUS} | CRI: ${CRI_STATUS} | Join: ${JOIN_STATUS} | Kubelet: ${KUBE_STATUS} | Spoke: Ready ✓"
       echo "    ✓ ${HOSTNAME}: Ready in Spoke cluster"
-      # Apply node-role.kubernetes.io/home label from cluster side
+      # Apply node-role labels from cluster side (idempotent with kubelet --node-labels)
       local SPOKE_KC
       SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
       if kubectl --kubeconfig="${HUB_KUBECONFIG}" \
             get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
             -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
             | base64 -d > "$SPOKE_KC"; then
-        kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" node-role.kubernetes.io/home= --overwrite >/dev/null 2>&1 || true
+        kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" \
+          node-role.kubernetes.io/home= node-role.kubernetes.io/worker= --overwrite >/dev/null 2>&1 || true
         rm -f "$SPOKE_KC"
       fi
       return 0
