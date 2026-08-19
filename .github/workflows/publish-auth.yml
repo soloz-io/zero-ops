@@ -27,7 +27,7 @@ jobs:
           version: 11.1.3
       - name: Install dependencies
         working-directory: packages/auth
-        run: pnpm install --frozen-lockfile --config.minimumReleaseAge=""
+        run: pnpm install --frozen-lockfile --config.minimumReleaseAge="" --ignore-scripts
       - name: Typecheck
         working-directory: packages/auth
         run: pnpm typecheck
@@ -57,7 +57,7 @@ jobs:
           version: 11.1.3
       - name: Install dependencies
         working-directory: packages/auth
-        run: pnpm install --frozen-lockfile --config.minimumReleaseAge=""
+        run: pnpm install --frozen-lockfile --config.minimumReleaseAge="" --ignore-scripts
       - name: Build
         working-directory: packages/auth
         run: pnpm build
