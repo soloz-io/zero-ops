@@ -426,19 +426,12 @@ stringData:
         }
       setup: |-
         #!/bin/sh
-        set -x
-        node_pv_dir=$1
-        node_pv_ref=$2
-        shift 2
-        mkdir -m 0777 -p "${node_pv_dir}"
-        # an example to write the node pv reference to the pv directory
-        (umask 022; echo "${node_pv_ref}" > "${node_pv_dir}/.holder")
+        set -eu
+        mkdir -m 0777 -p "$VOL_DIR"
       teardown: |-
         #!/bin/sh
-        set -x
-        node_pv_dir=$1
-        shift 1
-        rm -rf "${node_pv_dir}"
+        set -eu
+        rm -rf "$VOL_DIR"
       helperPod.yaml: |
         apiVersion: v1
         kind: Pod
@@ -446,23 +439,14 @@ stringData:
           name: helper-pod
         spec:
           priorityClassName: system-node-critical
-          nodeName: {{ .NodeName }}
-          hostNetwork: true
+          tolerations:
+            - key: node.kubernetes.io/disk-pressure
+              operator: Exists
+              effect: NoSchedule
           containers:
             - name: helper-pod
               image: rancher/local-path-provisioner:v0.0.30
               imagePullPolicy: IfNotPresent
-              securityContext:
-                privileged: true
-              volumeMounts:
-                - name: data
-                  mountPath: /data
-              command: ["/bin/sh", "-c", "{{ .HelperScript }} /data {{ .NodePvRef }}"]
-          volumes:
-            - name: data
-              hostPath:
-                path: /opt/local-path-provisioner
-                type: DirectoryOrCreate
           restartPolicy: Never
     ---
     apiVersion: apps/v1
