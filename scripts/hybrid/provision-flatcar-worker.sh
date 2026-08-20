@@ -36,7 +36,7 @@ ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
 VSWITCH_NAME="Hybrid-Switch"
-MEMORY_BYTES="0"         # 0 = auto-detect (4GB or max)
+MEMORY_BYTES="0"         # 0 = auto-detect (14GB or TotalHostRAM - 2GB)
 MIN_MEMORY_BYTES="0"     # 0 = auto-detect (2GB)
 MAX_MEMORY_BYTES="0"     # 0 = auto-detect (TotalHostRAM - 2GB)
 CPU_COUNT="0"            # 0 = auto-detect (all host logical cores)
@@ -59,7 +59,7 @@ Options:
   --ts-authkey KEY     Tailscale auth-key (auto-loaded from k8-secrets/tailscale/authkey if omitted).
   --vswitch NAME       Hyper-V Virtual Switch name (default: 'Default Switch').
   --upgrade-flatcar    Re-download fresh Flatcar base VHDX image from current release.
-  --memory-gb N        Startup memory in GB (default: auto 4GB).
+  --memory-gb N        Startup memory in GB (default: auto 14GB).
   --max-memory-gb N    Maximum memory ceiling in GB (default: auto TotalHostRAM - 2GB).
   --min-memory-gb N    Minimum dynamic memory floor in GB (default: auto 2GB).
   --cpus N             Virtual CPU count (default: auto all host logical cores).
@@ -846,7 +846,7 @@ Write-Output '    → Creating Generation 2 VM (\$vmName)...'
 \$totalRamBytes = [int64]\$cs.TotalPhysicalMemory
 \$reserveBytes = [int64](2GB)
 \$autoMaxRam = [math]::Max([int64](4GB), (\$totalRamBytes - \$reserveBytes))
-\$autoStartup = [math]::Min([int64](4GB), \$autoMaxRam)
+\$autoStartup = [math]::Min([int64](14GB), \$autoMaxRam)
 \$autoMin = [int64](2GB)
 
 \$proc = Get-CimInstance Win32_Processor
