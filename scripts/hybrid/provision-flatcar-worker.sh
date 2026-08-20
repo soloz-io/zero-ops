@@ -394,13 +394,23 @@ if [ -f /etc/kubernetes/kubelet.conf ]; then
   EP=$(awk '/server:/{print $2}' /etc/kubernetes/kubelet.conf 2>/dev/null | sed 's#https://##')
   CP_HOST=${EP%%:*}; CP_PORT=${EP##*:}
   if [ -n "$CP_HOST" ] && [ -n "$CP_PORT" ]; then
+    sysctl -w net.ipv4.conf.all.route_localnet=1 2>/dev/null || true
     iptables -t nat -I OUTPUT 1 -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
     iptables -t nat -I PREROUTING 1 -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+    iptables -t nat -I OUTPUT 1 -d 127.0.0.1 -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+    iptables -t nat -I POSTROUTING 1 -d "${CP_HOST}" -j MASQUERADE 2>/dev/null || true
   fi
 fi
 
 containerd config default > /etc/containerd/config.toml 2>/dev/null || true
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml 2>/dev/null || true
+
+cat <<'CRI_EOF' > /etc/crictl.yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+debug: false
+CRI_EOF
 
 for dev in /sys/class/net/*; do
   d=$(basename "$dev")
@@ -439,32 +449,43 @@ for i in $(seq 1 30); do
       --cri-socket unix:///run/containerd/containerd.sock \
       --ignore-preflight-errors=all \
       --v=2 2>&1; then
-    # Advertise this node's pod CIDR as a tailscale subnet route so the peer
-    # CP's tailscaled accepts pod-CIDR traffic (Cilium native routing hands it
-    # to tailscale0). Pod CIDR is assigned by the CP after join → read it from
-    # the node object once the kubelet registers. Dynamic — never hardcode.
-    # Requires admin approval of the subnet route in the tailnet admin console.
-    for i in $(seq 1 30); do
-      POD_CIDR=$(/opt/bin/kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$(hostname)" -o jsonpath='{.spec.podCIDR}' 2>/dev/null || true)
-      [ -n "$POD_CIDR" ] && break
-      sleep 2
-    done
-    if [ -n "$POD_CIDR" ]; then
-      /opt/bin/tailscale set --advertise-routes="$POD_CIDR" 2>/dev/null || true
-      echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
-    fi
-
-    # Insert bootstrap DNAT: 10.96.0.1:443 -> Control Plane Endpoint (for Cilium config init container)
+    # 1. IMMEDIATELY insert bootstrap DNAT: 10.96.0.1:443 & status.hostIP:6443 -> Control Plane Endpoint
     EP=$(awk '/server:/{print $2}' /etc/kubernetes/kubelet.conf 2>/dev/null | sed 's#https://##')
     CP_HOST=${EP%%:*}; CP_PORT=${EP##*:}
     if [ -n "$CP_HOST" ] && [ -n "$CP_PORT" ]; then
+      sysctl -w net.ipv4.conf.all.route_localnet=1 2>/dev/null || true
       iptables -t nat -I OUTPUT 1 -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
       iptables -t nat -I PREROUTING 1 -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
-      echo "[join] ✓ Inserted bootstrap DNAT: 10.96.0.1:443 -> ${CP_HOST}:${CP_PORT}"
+      if [ -n "$TS_IP" ]; then
+        iptables -t nat -I OUTPUT 1 -d "${TS_IP}" -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+        iptables -t nat -I PREROUTING 1 -d "${TS_IP}" -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+      fi
+      iptables -t nat -I OUTPUT 1 -d 127.0.0.1 -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+      iptables -t nat -I POSTROUTING 1 -d "${CP_HOST}" -j MASQUERADE 2>/dev/null || true
+      echo "[join] ✓ Inserted bootstrap DNAT: 10.96.0.1:443 & ${TS_IP}:6443 -> ${CP_HOST}:${CP_PORT}"
     fi
 
+    # 2. Dynamic kubelet --node-ip assertion and restart
+    TS_IP=$(/opt/bin/tailscale ip -4 2>/dev/null || true)
+    if [ -n "$TS_IP" ] && [ -f /var/lib/kubelet/kubeadm-flags.env ]; then
+      sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" /var/lib/kubelet/kubeadm-flags.env 2>/dev/null || true
+    fi
     systemctl restart kubelet
     echo "[join] ✓ kubeadm join succeeded"
+
+    # 3. Non-blocking background advertisement of pod CIDR over tailnet
+    (
+      for i in $(seq 1 30); do
+        POD_CIDR=$(/opt/bin/kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "__VM_NAME__" -o jsonpath='{.spec.podCIDR}' 2>/dev/null || true)
+        [ -n "$POD_CIDR" ] && break
+        sleep 2
+      done
+      if [ -n "$POD_CIDR" ]; then
+        /opt/bin/tailscale set --advertise-routes="$POD_CIDR" 2>/dev/null || true
+        echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
+      fi
+    ) &
+
     exit 0
   fi
   echo "[join] Join attempt $i failed, retrying in 3s..."
@@ -886,7 +907,7 @@ phase_monitor_and_verify() {
       [[ -z "$KUBE_STATUS" ]] && KUBE_STATUS="unknown"
 
       CRI_PODS=$(ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
-        "crictl pods -o json 2>/dev/null | jq -r '[.items[]? | \"\(.metadata.name) (\(.state))\"] | join(\", \")' 2>/dev/null" || true)
+        "sudo crictl pods -o json 2>/dev/null | jq -r '[.items[]? | \"\(.metadata.name) (\(.state))\"] | join(\", \")' 2>/dev/null" || true)
 
       LAST_LOG=$(ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
         "journalctl -u k8s-install.service -u tailscaled.service -u containerd.service -u kubeadm-join.service -u kubelet.service -n 1 --no-pager -q 2>/dev/null | tr -d '\r\n'" 2>/dev/null || true)
