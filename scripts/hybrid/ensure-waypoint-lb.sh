@@ -27,7 +27,10 @@
 set -euo pipefail
 
 LB_NAME="${1:-waypoint-gateway-lb}"
-NETWORK_ID="${2:-12543641}"
+NETWORK_ID="${2:-}"
+if [ -z "$NETWORK_ID" ]; then
+  NETWORK_ID="$(hcloud network list -o noheader -o columns=id,name 2>/dev/null | grep "spoke-pool-" | head -1 | awk '{print $1}')"
+fi
 LB_PRIVATE_IP="${3:-10.0.0.5}"
 HC_PATH="/"
 HC_DOMAIN="waypoint.nutgraf.in"
@@ -41,20 +44,25 @@ HC_RETRIES="3"
 # ("connection reset by peer") and every HTTP health check fails. TCP checks
 # only need the handshake, which succeeds through the filter.
 
-# Discover the control-plane server by the spoke node's ExternalIP.
-CP_PUBLIC_IP="${CP_PUBLIC_IP:-$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true)}"
-if [ -z "$CP_PUBLIC_IP" ]; then
-  echo "ERROR: cannot determine control-plane public IP (set CP_PUBLIC_IP)" >&2
+# Discover the control-plane server by node name or ExternalIP.
+CP_NODE_NAME="${CP_NODE_NAME:-$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)}"
+if [ -n "$CP_NODE_NAME" ]; then
+  SERVER_ID="$(hcloud server list -o noheader -o columns=id,name 2>/dev/null | awk -v name="$CP_NODE_NAME" '$2==name {print $1}' | head -1)"
+fi
+
+if [ -z "${SERVER_ID:-}" ]; then
+  CP_PUBLIC_IP="${CP_PUBLIC_IP:-$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true)}"
+  if [ -n "$CP_PUBLIC_IP" ]; then
+    SERVER_ID="$(hcloud server list -o noheader -o columns=id,ipv4 2>/dev/null | awk -v ip="$CP_PUBLIC_IP" '$2==ip {print $1}' | head -1)"
+  fi
+fi
+
+if [ -z "${SERVER_ID:-}" ]; then
+  echo "ERROR: cannot determine control-plane server in hcloud" >&2
   exit 1
 fi
 
-SERVER_ID="$(hcloud server list -o noheader -o columns=id,public_net.primary_ipv4 2>/dev/null | awk -v ip="$CP_PUBLIC_IP" '$2==ip {print $1}' | head -1)"
-if [ -z "$SERVER_ID" ]; then
-  echo "ERROR: no hcloud server found with public IP $CP_PUBLIC_IP" >&2
-  exit 1
-fi
-
-echo "Using server $SERVER_ID ($CP_PUBLIC_IP) as LB target"
+echo "Using server $SERVER_ID as LB target"
 
 # Create the LB if missing.
 if ! hcloud load-balancer describe "$LB_NAME" >/dev/null 2>&1; then
