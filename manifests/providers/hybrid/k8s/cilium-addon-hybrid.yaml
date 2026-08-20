@@ -135,14 +135,14 @@ stringData:
       envoy-config-retry-interval: "15s"
       enable-gateway-api: "true"
       enable-gateway-api-secrets-sync: "true"
-      enable-gateway-api-proxy-protocol: "false"
+      enable-gateway-api-proxy-protocol: "true"
       enable-gateway-api-app-protocol: "false"
       enable-gateway-api-alpn: "false"
       gateway-api-xff-num-trusted-hops: "0"
       gateway-api-service-externaltrafficpolicy: "Cluster"
       gateway-api-secrets-namespace: "cilium-secrets"
-      gateway-api-hostnetwork-enabled: "false"
-      gateway-api-hostnetwork-nodelabelselector: ""
+      gateway-api-hostnetwork-enabled: "true"
+      gateway-api-hostnetwork-nodelabelselector: "node-role.kubernetes.io/control-plane="
       enable-policy-secrets-sync: "true"
       policy-secrets-only-from-secrets-namespace: "true"
       policy-secrets-namespace: "cilium-secrets"
@@ -363,7 +363,7 @@ stringData:
       external-envoy-proxy: "true"
       envoy-base-id: "0"
       envoy-access-log-buffer-size: "4096"
-      envoy-keep-cap-netbindservice: "false"
+      envoy-keep-cap-netbindservice: "true"
       max-connected-clusters: "255"
       clustermesh-enable-endpoint-sync: "false"
       clustermesh-enable-mcs-api: "false"
@@ -1621,6 +1621,67 @@ stringData:
           - name: cilium-config-path
             configMap:
               name: cilium-config
+    ---
+    # Source: zero-ops/hybrid (ADR-046 addendum 8): hostNetwork-gateway mangle guard.
+    #
+    # When Envoy serves Gateway API listeners directly on the host network
+    # (gateway-api-hostnetwork-enabled=true), Cilium's stock CILIUM_PRE_mangle
+    # rule "any->pod redirect proxied traffic to host proxy" (-m socket --transparent)
+    # matches post-handshake packets destined to the transparent host-bound listener
+    # sockets and sets the to-proxy mark (0x200), which reroutes them via table 2004 (lo).
+    # This breaks the TCP 3-way handshake for EXTERNAL traffic.
+    # This guard DaemonSet continuously re-asserts an early RETURN rule for dports 80/443.
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: cilium-hostnetwork-mangle-guard
+      namespace: kube-system
+    ---
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: cilium-hostnetwork-mangle-guard
+      namespace: kube-system
+      labels:
+        app.kubernetes.io/name: cilium-hostnetwork-mangle-guard
+        app.kubernetes.io/part-of: cilium
+    spec:
+      selector:
+        matchLabels:
+          name: cilium-hostnetwork-mangle-guard
+      updateStrategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            name: cilium-hostnetwork-mangle-guard
+        spec:
+          hostNetwork: true
+          hostPID: true
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - operator: Exists
+          priorityClassName: system-node-critical
+          serviceAccountName: cilium-hostnetwork-mangle-guard
+          terminationGracePeriodSeconds: 0
+          containers:
+            - name: guard
+              image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
+              securityContext:
+                privileged: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Starting hostNetwork gateway mangle guard (dports 80/443)..."
+                  while true; do
+                    if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null; then
+                      iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null || true
+                      echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for dports 80/443"
+                    fi
+                    sleep 3
+                  done
     ---
     # Source: cilium/templates/cilium-envoy/serviceaccount.yaml
     apiVersion: v1

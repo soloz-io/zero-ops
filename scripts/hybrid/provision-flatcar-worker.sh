@@ -350,10 +350,11 @@ if (\$existingVM) {
   SYSCTL_B64=$(printf 'net.ipv4.ip_forward = 1\nnet.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1\nfs.inotify.max_user_watches = 524288\nfs.inotify.max_user_instances = 8192\n' | base64 | tr -d '\r\n')
   MODULES_B64=$(printf 'overlay\nbr_netfilter\n' | base64 | tr -d '\r\n')
   local STATIC_NET="[Match]
-Type=ether
+Name=eth*
+Name=!cilium_* !lxc* !tailscale*
 
 [Network]
-DHCP=yes
+DHCP=no
 Address=172.30.0.$((10 + NODE_IDX))/24
 Gateway=172.30.0.1
 DNS=8.8.8.8
@@ -412,14 +413,9 @@ timeout: 10
 debug: false
 CRI_EOF
 
-for dev in /sys/class/net/*; do
-  d=$(basename "$dev")
-  [ "$d" = "lo" ] && continue
-  ip addr add 172.30.0.__NODE_IP__/24 dev "$d" 2>/dev/null || true
-  ip link set "$d" up 2>/dev/null || true
-  ip route add default via 172.30.0.1 dev "$d" 2>/dev/null || true
-  break
-done
+ip addr add 172.30.0.__NODE_IP__/24 dev eth0 2>/dev/null || true
+ip link set eth0 up 2>/dev/null || true
+ip route add default via 172.30.0.1 dev eth0 2>/dev/null || true
 systemctl restart systemd-networkd 2>/dev/null || true
 SH_EOF
   sed -i '' "s/__NODE_IP__/$((10 + NODE_IDX))/g" "${ISO_ROOT}/bin/setup-node.sh" 2>/dev/null || sed -i "s/__NODE_IP__/$((10 + NODE_IDX))/g" "${ISO_ROOT}/bin/setup-node.sh"
@@ -481,7 +477,7 @@ for i in $(seq 1 30); do
         sleep 2
       done
       if [ -n "$POD_CIDR" ]; then
-        /opt/bin/tailscale set --advertise-routes="$POD_CIDR" 2>/dev/null || true
+        /opt/bin/tailscale set --advertise-routes="$POD_CIDR" --accept-routes 2>/dev/null || true
         echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
       fi
     ) &
@@ -688,10 +684,11 @@ write_files:
     permissions: '0644'
     content: |
       [Match]
-      Type=ether
+      Name=eth*
+      Name=!cilium_* !lxc* !tailscale*
 
       [Network]
-      DHCP=yes
+      DHCP=no
       Address=172.30.0.$((10 + NODE_IDX))/24
       Gateway=172.30.0.1
       DNS=8.8.8.8
