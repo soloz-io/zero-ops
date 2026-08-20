@@ -1142,13 +1142,12 @@ spec:
           # to use the tailnet IP so the kubernetes Service endpoints point to the
           # address Cilium BPF can actually route to.
           - 'TS_IP="$(tailscale ip -4 2>/dev/null || true)"; if [ -n "$TS_IP" ]; then sed -i "s/--advertise-address=[0-9.]*/--advertise-address=${TS_IP}/" /etc/kubernetes/manifests/kube-apiserver.yaml; fi'
-          # ── Taint removal ──────────────────────────────────────────────────────
-          # ADR-047: Single-node spoke model — remove control-plane taint so
-          # platform operators and tenant workloads can schedule on the only node.
-          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # ── Uninitialized taint removal ────────────────────────────────────────
           # CCM disables cloud-node-lifecycle-controller (to avoid crash-looping on
           # home Flatcar nodes), so the uninitialized taint is never removed
-          # automatically. Remove it explicitly so pods can schedule.
+          # automatically. Remove it explicitly so pods can schedule on WORKER
+          # nodes once they join. The control-plane taint is intentionally kept
+          # — CP nodes must not run workloads per ADR-046.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node.cloudprovider.kubernetes.io/uninitialized- || true'
           # Cilium runs full kube-proxy replacement; the kubeadm addon's
           # kube-proxy DaemonSet conflicts (iptables REJECT chains for
