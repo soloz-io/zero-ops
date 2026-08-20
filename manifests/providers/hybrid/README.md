@@ -9,10 +9,16 @@ the full topology, invariants and codified workarounds.
 - `gatewayAPI.hostNetwork.enabled: true` — the embedded Envoy binds
   `0.0.0.0:80/443` directly on the control-plane node; the generated Service
   is ClusterIP.
-- Public entry point is the external Hetzner LB (`waypoint-gateway-lb`,
-  `77.42.12.176`), provisioned idempotently via
-  `scripts/hybrid/ensure-waypoint-lb.sh` (external resource — out of GitOps
-  scope; the CCM cannot manage it in hostNetwork mode).
+- Public entry point is the **CAPH-managed** control-plane LB. Ports 80/443 are
+  declared as `HetznerCluster.spec.controlPlaneLoadBalancer.extraServices` in
+  `manifests/providers/_shared/spokepool-clusterclass-v1.yaml`, so the entry
+  point is fully in GitOps and CAPH retargets it automatically when the CP
+  machine rolls. (Was: an out-of-band `waypoint-gateway-lb` created by
+  `scripts/hybrid/ensure-waypoint-lb.sh`, now deleted — it targeted a fixed
+  server ID and silently broke on every spoke reprovision.)
+- **PROXY protocol is OFF.** CAPH's `extraServices` has no `proxyProtocol`
+  field, so `enable-gateway-api-proxy-protocol` must stay `"false"`. Client
+  source IP does not reach Envoy; a mismatch between the two resets connections.
 - `cilium-hostnetwork-mangle-guard` DaemonSet continuously re-asserts the
   `CILIUM_PRE_mangle` RETURN rule for dports 80/443 (Cilium's stock
   transparent-socket mark rule breaks the external TCP handshake; Cilium wipes

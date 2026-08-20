@@ -31,15 +31,19 @@ gatewayAPI:
     # the agent-side SDS fix that 1.15.6 never delivered (the 443 bug).
     sync: true
     name: cilium-secrets
-  proxyProtocol: true
+  # WS2: OFF — the CAPH-managed LB (controlPlaneLoadBalancer.extraServices) has
+  # no proxyProtocol field, so the LB never sends a PROXY preamble. Must stay in
+  # lockstep with enable-gateway-api-proxy-protocol in cilium-addon-hybrid.yaml.
+  proxyProtocol: false
   hostNetwork:
     # Serve Gateway API listeners directly on the host network (ports 80/443
     # bound by Envoy on the selected nodes) instead of the NodePort+TPROXY
     # redirect path, which silently drops genuinely-external SYN traffic
     # (ADR-046 addendum 8 + the cilium-hostnetwork-mangle-guard DaemonSet in
     # the rendered addon). The public waypoint-gateway-lb targets the CP
-    # node's private IP on host ports 80/443, which only exist in this mode;
-    # scripts/hybrid/ensure-waypoint-lb.sh depends on it.
+    # node's private IP on host ports 80/443, which only exist in this mode.
+    # Those ports are declared on the CAPH-managed LB via
+    # controlPlaneLoadBalancer.extraServices in the shared ClusterClass.
     # Requires NET_BIND_SERVICE on the Envoy container to bind privileged
     # ports (see envoy.securityContext.capabilities below).
     enabled: true

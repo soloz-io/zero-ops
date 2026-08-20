@@ -1,0 +1,62 @@
+# WS0.3 / ADR-046 addendum 18 — public ACME issuer for internet-facing hostnames.
+#
+# Why this exists: waypoint.nutgraf.in was served a leaf signed by the PRIVATE
+# "O=Zero-Ops / CN=Fleet Intermediate CA", so every browser rejected it
+# (`Verify return code: 20 — unable to get local issuer certificate`), and the
+# intermediate was not even included in the served chain (depth 0).
+#
+# Division of responsibility — these are complementary, not alternatives:
+#   infisical-fleet-issuer  → internal fleet / mTLS certs (ADR-035, ADR-048).
+#                             Private CA is CORRECT there.
+#   letsencrypt-*           → public browser-facing Gateway listeners ONLY.
+#
+# Solver: HTTP-01 via Gateway API. The spoke runs no Ingress controller, so the
+# gatewayHTTPRoute solver is required; it needs
+# --feature-gates=ExperimentalGatewayAPISupport=true on the controller
+# (set in cert-manager.yaml).
+#
+# cert-manager creates a temporary HTTPRoute attached to the parent Gateway
+# below; it must match the Gateway that actually terminates :80 for the
+# hostname, i.e. the CAPH LB -> Envoy hostNetwork listener.
+#
+# ⚠ Start on STAGING. Let's Encrypt production rate-limits (5 duplicate certs
+# per week) are unforgiving while iterating. Switch the Certificate's issuerRef
+# to letsencrypt-prod only once a staging cert is issued successfully.
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: platform@nutgraf.in
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+    - http01:
+        gatewayHTTPRoute:
+          parentRefs:
+          - name: waypoint-gateway
+            namespace: tenant-waypoint
+            kind: Gateway
+            group: gateway.networking.k8s.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: platform@nutgraf.in
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+    - http01:
+        gatewayHTTPRoute:
+          parentRefs:
+          - name: waypoint-gateway
+            namespace: tenant-waypoint
+            kind: Gateway
+            group: gateway.networking.k8s.io

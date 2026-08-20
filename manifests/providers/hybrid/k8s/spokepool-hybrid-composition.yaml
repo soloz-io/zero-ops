@@ -146,6 +146,33 @@ spec:
                       clusterSelector:
                         matchLabels:
                           spoke-type: pool
+                      # ⚠ INDEX-ADDRESSED LIST — DO NOT REORDER OR INSERT MID-LIST.
+                      # The patches below write per-cluster names by position
+                      # (spec.resources[N].name). Inserting or reordering an entry
+                      # silently retargets every downstream patch onto the wrong
+                      # resource. Append new entries at the END only, then add a
+                      # matching patch and update this map.
+                      # Verified by scripts/validate-spokepool-compositions.sh.
+                      #
+                      #   idx  patched  resource
+                      #   [ 0]   yes    <spoke>-hetzner-credentials  (Secret)
+                      #   [ 1]   yes    <spoke>-nats-leaf-creds      (Secret)
+                      #   [ 2]    no    cilium-addon-hybrid          (Secret)
+                      #   [ 3]    no    ccm-addon-template           (Secret)
+                      #   [ 4]    no    csi-addon-hybrid             (Secret)
+                      #   [ 5]    no    argocd-namespace             (ConfigMap)
+                      #   [ 6]   yes    observability-namespace      (ConfigMap)
+                      #   [ 7]   yes    messaging-namespace          (ConfigMap)
+                      #   [ 8]    no    argocd-crds-template         (Secret)
+                      #   [ 9]    no    argocd-redis                 (ConfigMap)
+                      #   [10]    no    argocd-core-components       (ConfigMap)
+                      #   [11]    no    argocd-agent-deployment      (ConfigMap)
+                      #   [12]   yes    <spoke>-argocd-agent-params  (ConfigMap)
+                      #   [13]    no    argocd-agent-rbac            (ConfigMap)
+                      #   [14]   yes    <spoke>-bootstrap            (Secret)
+                      #   [15]   yes    <spoke>-cluster-issuer       (Secret)
+                      #   [16]   yes    <spoke>-argocd-agent-certs   (Secret)
+                      #   [17]   yes    <spoke>-home-worker-join     (Secret)
                       resources:
                         # Hetzner credentials (CP + burst worker cloud provider)
                         - name: ""

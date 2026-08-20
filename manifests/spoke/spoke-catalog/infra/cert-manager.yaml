@@ -1076,6 +1076,12 @@ spec:
           - --leader-election-namespace=kube-system
           - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.20.2
           - --max-concurrent-challenges=60
+          # WS0.3 (ADR-046 addendum 18): required for the ACME HTTP-01
+          # `gatewayHTTPRoute` solver. The spoke has no Ingress controller —
+          # ingress is Cilium Gateway API — so the default ingress solver cannot
+          # complete a challenge here. RBAC for gateway.networking.k8s.io
+          # httproutes is already present in cm-cert-manager-controller-challenges.
+          - --feature-gates=ExperimentalGatewayAPISupport=true
           ports:
           - containerPort: 9402
             name: http-metrics

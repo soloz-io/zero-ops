@@ -70,6 +70,5 @@ The same node list lives in the SpokePool claim annotation
 |--------|---------|
 | `provision-flatcar-worker.sh` | **THE entry point** — Hyper-V + Flatcar provisioning |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
-| `ensure-waypoint-lb.sh` | Idempotently create the external Hetzner LB for the spoke API |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |

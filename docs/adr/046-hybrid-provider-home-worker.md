@@ -54,8 +54,10 @@ Hetzner CAPI remains the infrastructure provider.
 ### ClusterClass Variables
 
 The shared ClusterClass exposes two variables:
-- `controlPlaneLoadBalancer.enabled` (default `true`) — both hetzner and hybrid
-  keep the Hetzner LB; the LB IP becomes the spoke API endpoint.
+- `controlPlaneLoadBalancerEnabled` (default `true`) — both hetzner and hybrid
+  keep the Hetzner LB; the LB IP becomes the spoke API endpoint. (The ADR
+  previously named this `controlPlaneLoadBalancer.enabled`, which never matched
+  the manifest; the flat name is authoritative.)
 - `controlPlaneEndpointHost` (default `""`) — left empty for both providers;
   CAPH auto-fills `controlPlaneEndpoint.host` from the LB's IPv4
   (`ControlPlaneEndpointSet` condition).
@@ -116,18 +118,21 @@ The hybrid provider uses a separate `cilium-addon-hybrid` Secret (registered
 in `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`, referenced only
 from `spokepool-hybrid-composition.yaml`) for the deltas that remain:
 
-1. **routing-mode: native** (no VXLAN tunnel) — the home worker reaches the
-   Hetzner CP directly over its tailscale `InternalIP`.
-2. **devices `eth+ enp+ tailscale0` + `direct-routing-device: tailscale0`**
-   with `auto-direct-node-routes: true` — pod traffic between the Hetzner CP
-   and the home node egresses tailnet.
+1. **routing-mode: tunnel (VXLAN)** — *superseded addendum 14; this item
+   previously read "routing-mode: native (no VXLAN tunnel)".* Cross-node pod
+   traffic is VXLAN-encapsulated between node tailnet IPs, so pod IPs never
+   appear on the wire and Tailscale needs no knowledge of pod CIDRs.
+2. **devices `eth+ enp+ tailscale0`** — `direct-routing-device` and
+   `auto-direct-node-routes` are **unset/false**; they are native-routing
+   settings and must not be re-enabled (addendum 14, and addendum 17 for the
+   table-52 shadowing they leave behind).
 3. **mtu: 1200** — Tailscale's WireGuard underlay runs at MTU 1280; the stock
    VXLAN overlay MTU caused IP fragmentation on `tailscale0` and BPF datapath
    drops.
-4. **`cilium-netns` volumeMount with `mountPropagation: None`** — the root
-   filesystem on home VMs is neither shared nor slave, so kubelet rejects
-   `HostToContainer` for `/var/run/netns`; pod-netns exec via `cilium-dbg` is
-   unavailable on hybrid but the datapath is unaffected.
+4. **`cilium-netns` volumeMount with `mountPropagation: HostToContainer`** —
+   *superseded; this item previously specified `None`, a WSL2-era workaround.*
+   Flatcar mounts `/run` as tmpfs with shared propagation (verified live), so
+   `HostToContainer` is accepted and `cilium-dbg` pod-netns exec works.
 
 The shared `cilium-addon-template` used by Hetzner spokes is left unchanged.
 
@@ -829,6 +834,131 @@ Flatcar worker provisioning scripts initially wrote `/etc/systemd/network/10-sta
    Name=!cilium_* !lxc* !tailscale*
    ```
 2. **Explicit Static Addressing**: Network configurations must set `DHCP=no` with deterministic static `Address=` and `Gateway=` assignments bound exclusively to `eth0`.
+
+### 17. Post-outage hardening: Tailscale underlay invariant, ClusterClass collapse, and ingress LB into GitOps (2026-08-20)
+
+Follow-on to addenda 14–16, closing the architectural fault lines the
+`waypoint.nutgraf.in` outage exposed. Dev environment; changes are deliberately
+not backward-compatible.
+
+**17.1 — Tailscale is a node-level underlay ONLY (invariant).**
+Under `routingMode: tunnel` (addendum 14) cross-node pod traffic is VXLAN-
+encapsulated between node tailnet IPs, so pod IPs never reach the wire.
+Advertising or accepting podCIDR subnet routes is therefore unnecessary **and
+actively harmful**: `tailscaled` installs accepted routes into table 52, whose
+`ip rule` priority (5270) precedes `main` (32766), so they **shadow Cilium's
+tunnel route** for host-originated traffic to remote pods:
+
+```
+ip route get 10.244.1.57  →  dev tailscale0 table 52          # stale, unencapsulated
+table main:                  10.244.1.0/24 via 10.244.0.86 dev cilium_host mtu 1150
+```
+
+Envoy was unaffected only because its proxy mark (`0x80b00`) matches rule 5210
+(`fwmark 0x80000 → main`); unmarked host traffic — kubelet exec/logs/probes,
+hostNetwork pods — took the stale path. **Codified**: `--advertise-routes` and
+`--accept-routes` removed from both node classes
+(`manifests/providers/_shared/spokepool-clusterclass-v1.yaml`,
+`scripts/hybrid/provision-flatcar-worker.sh`). This retroactively vindicates the
+instinct behind `347dfe53` — the route collisions were real — while removing the
+dependency that made removing the flag fatal under native routing.
+
+**17.2 — `spokepool-control-plane-v7` regression (fixed).**
+v7 was the live-referenced template and had silently dropped, relative to v6,
+both `preKubeadmCommands` lines that enable and verify `cilium-host-prep`:
+`systemctl enable/start cilium-host-prep.service` and the fail-closed
+`findmnt -n -t cgroup2 /run/cilium/cgroupv2` gate. The unit was still written by
+`files[]`, but `WantedBy=multi-user.target` does not start an un-enabled unit, so
+the shared cgroup2 mount kube-proxy-replacement requires would have been absent
+on the next CP roll or reboot (`/run` is tmpfs). Also restored: the
+`node.cloudprovider.kubernetes.io/uninitialized-` taint removal. Deliberately
+**not** restored: control-plane taint removal (reverted by `d74cbeaa`) and the
+bootstrap DNAT rules + `--advertise-address` patch (obsolete under tunnel mode).
+
+**17.3 — ClusterClass collapsed to one control-plane template.**
+The v1…v7 chain (7 near-identical `KubeadmControlPlaneTemplate`s, ~1000 lines of
+duplication — the containerd/runc install block appeared 8×) is **deleted**.
+There is now a single `spokepool-control-plane-v1`. That copy-paste chain is the
+mechanism behind 17.2 and behind the worker bootstrap template drifting from the
+CP templates. CAPI treats `KubeadmControlPlaneTemplate.spec.template.spec` as
+immutable once referenced, so editing it now requires **reprovisioning the
+spoke** instead of rotating a version suffix — the accepted dev-environment
+tradeoff that replaces the version chain.
+
+**17.4 — Ingress LB moved into GitOps; `ensure-waypoint-lb.sh` deleted.**
+Supersedes addendum 8's "EXTERNAL resource — out of scope for in-cluster GitOps".
+Ports 80/443 are now declared as
+`HetznerCluster.spec.controlPlaneLoadBalancer.extraServices` on
+`spokepool-cluster-v1`, so CAPH owns the public entry point and **retargets it
+automatically when the CP machine rolls** — eliminating the failure mode where
+the LB kept pointing at a deleted server ID after every spoke reprovision.
+`scripts/hybrid/ensure-waypoint-lb.sh` (which had zero call sites and was manual-
+only) is removed.
+
+*Consequence — PROXY protocol is OFF.* CAPH's `extraServices` API exposes only
+`{protocol, listenPort, destinationPort}`; there is no `proxyProtocol` field, so
+the LB cannot prepend a PROXY preamble. `enable-gateway-api-proxy-protocol` is
+therefore `"false"` in `cilium-addon-hybrid.yaml` (ConfigMap key *and* operator
+arg) and `proxyProtocol: false` in `cilium-values.yaml`. **These must move in
+lockstep** — a mismatch makes Envoy read the preamble as malformed HTTP and reset
+the connection. Client source IP no longer reaches Envoy; accepted for dev.
+
+*Known gap — firewall rules remain uncodified.* CAPH's `HetznerCluster` v1beta1
+has no `firewall` field (verified against the live CRD schema), so addendum 4's
+manual LB→node rule step still stands. Intended fix is to extend the existing
+hcloud SDK usage in `internal/hub-cli/` (currently delete-only) to create the
+rules at spoke provision.
+
+*Known tradeoff — shared LB blast radius.* Tenant ingress now shares an LB with
+kube-apiserver. A dedicated ingress node pool is the production answer and would
+break this ADR's "zero idle Hetzner worker cost" premise; deferred deliberately.
+
+**17.5 — Corrections.** `driver_hybrid.go` set `base.LoadBalancer = false`
+("Tailscale-only"), contradicting the composition
+(`controlPlaneLoadBalancerEnabled: true`) and this ADR — reconciled. Spoke
+`function-patch-and-transform` realigned v0.2.1 → v0.8.0 (hub was already v0.8.0).
+The pre-commit kustomize gate now covers `hetzner/` and `_shared/`, not just
+`hybrid/` — `_shared` feeds both cells and was previously ungated.
+
+### 18. Public TLS: ACME issuer for browser-facing Gateway hostnames (2026-08-20)
+
+**Fault.** `https://waypoint.nutgraf.in` was never browser-trusted. The served
+leaf was signed by the PRIVATE fleet CA, and the intermediate was not included
+in the chain:
+
+```
+subject= /CN=waypoint.nutgraf.in
+issuer=  /O=Zero-Ops/CN=Fleet Intermediate CA
+Verify return code: 20 (unable to get local issuer certificate)   # chain depth 0
+```
+
+Two independent defects: a private CA on a public hostname (fatal for browsers
+regardless of chain), and an incomplete chain (fatal even for a client that
+trusts the Zero-Ops root). HTTP worked, so the outage runbook's "resolved"
+state masked this.
+
+**Decision.** Public, internet-facing Gateway hostnames use ACME
+(Let's Encrypt). `infisical-fleet-issuer` remains the issuer for internal fleet
+and mTLS certificates (ADR-035, ADR-048) — the private CA is correct there.
+These are complementary issuers, not a replacement.
+
+**Codified.** `manifests/spoke/spoke-catalog/infra/acme-cluster-issuer.yaml`
+defines `letsencrypt-staging` and `letsencrypt-prod`, wired into the
+spoke-catalog kustomization.
+
+Solver is **HTTP-01 via `gatewayHTTPRoute`**, not the ingress solver: the spoke
+runs no Ingress controller (ingress is Cilium Gateway API), so the default
+solver cannot complete a challenge. That solver requires
+`--feature-gates=ExperimentalGatewayAPISupport=true` on the cert-manager
+controller, added in `manifests/spoke/spoke-catalog/infra/cert-manager.yaml`.
+The RBAC it needs (`gateway.networking.k8s.io/httproutes`) was already present
+in `cm-cert-manager-controller-challenges`.
+
+**Operational note.** Issue against `letsencrypt-staging` first. Let's Encrypt
+production enforces 5 duplicate certificates per week, which is easily exhausted
+while iterating on a Gateway/solver configuration. The `Certificate` for
+`waypoint-tls` lives in the fleet-registry repo (`tenants/waypoint/workloads`),
+so the `issuerRef` switch lands there, not in this repo.
 
 ## References
 

@@ -751,6 +751,38 @@ check_spoke_datapath() {
         log_fail "Spoke Cilium Agent: Degraded or not Ok"
     fi
 
+    # ── WS1 / ADR-046 addendum 17: datapath-ownership invariants ────────────
+    # Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium must own pod routing via
+    # VXLAN. These two checks catch the exact regressions behind the 2026-08-20
+    # outage: native routing re-enabled, and podCIDR subnet routes reappearing
+    # in table 52 where they shadow the tunnel route (ip rule 5270 < 32766).
+    local routing_mode
+    routing_mode=$(kc_spoke get cm -n kube-system cilium-config -o jsonpath='{.data.routing-mode}' 2>/dev/null || echo "")
+    if [[ "$routing_mode" == "tunnel" ]]; then
+        log_pass "Spoke Cilium routing-mode: tunnel (VXLAN)"
+    else
+        log_fail "Spoke Cilium routing-mode: '$routing_mode' (expected 'tunnel' — ADR-046 addendum 14)"
+    fi
+
+    local adnr
+    adnr=$(kc_spoke get cm -n kube-system cilium-config -o jsonpath='{.data.auto-direct-node-routes}' 2>/dev/null || echo "")
+    if [[ "$adnr" == "true" ]]; then
+        log_fail "Spoke Cilium auto-direct-node-routes: true (native-routing setting; must be false under tunnel mode)"
+    else
+        log_pass "Spoke Cilium auto-direct-node-routes: disabled"
+    fi
+
+    # No node may advertise a podCIDR over the tailnet. Checked from inside each
+    # Cilium agent's host netns view of table 52 (tailscaled's routing table).
+    local ts_shadow=0 n
+    for n in $(kc_spoke get pods -n kube-system -l k8s-app=cilium --no-headers 2>/dev/null | grep Running | awk '{print $1}'); do
+        if kc_spoke exec -n kube-system "$n" -c cilium-agent -- ip route show table 52 2>/dev/null | grep -qE '10\.244\.'; then
+            log_fail "Tailscale table 52 on $n carries a podCIDR route — shadows the VXLAN path (ADR-046 addendum 17)"
+            ts_shadow=1
+        fi
+    done
+    [[ "$ts_shadow" -eq 0 ]] && log_pass "Tailscale table 52: no podCIDR shadow routes on any node"
+
     # Check for multi-node / home-worker presence
     local nodes_count
     nodes_count=$(kc_spoke get nodes --no-headers 2>/dev/null | grep -c '' || echo "0")

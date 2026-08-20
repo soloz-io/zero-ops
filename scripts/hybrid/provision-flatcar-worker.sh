@@ -469,18 +469,14 @@ for i in $(seq 1 30); do
     systemctl restart kubelet
     echo "[join] ✓ kubeadm join succeeded"
 
-    # 3. Non-blocking background advertisement of pod CIDR over tailnet
-    (
-      for i in $(seq 1 30); do
-        POD_CIDR=$(/opt/bin/kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "__VM_NAME__" -o jsonpath='{.spec.podCIDR}' 2>/dev/null || true)
-        [ -n "$POD_CIDR" ] && break
-        sleep 2
-      done
-      if [ -n "$POD_CIDR" ]; then
-        /opt/bin/tailscale set --advertise-routes="$POD_CIDR" --accept-routes 2>/dev/null || true
-        echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
-      fi
-    ) &
+    # 3. Tailscale carries NODE traffic only (ADR-046 addendum: Tailscale is a
+    #    node-level underlay). Cilium runs routing-mode=tunnel, so cross-node pod
+    #    traffic is VXLAN-encapsulated between tailnet IPs and pod IPs never appear
+    #    on the wire. Advertising/accepting podCIDR subnet routes is therefore
+    #    unnecessary AND harmful: tailscaled installs them into table 52, whose
+    #    ip rule (5270) precedes main (32766), so they shadow Cilium's tunnel route
+    #    for host-originated traffic to remote pods. Deliberately NOT advertised.
+    echo "[join] ✓ Tailscale left as node-only underlay (no podCIDR advertisement)"
 
     exit 0
   fi

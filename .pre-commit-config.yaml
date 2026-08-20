@@ -34,12 +34,15 @@ repos:
         pass_filenames: true
         types: [yaml]
         files: 'manifests/.*/k8s/.*\.yaml$|manifests/.*/spoke-bootstrap/.*\.yaml$|internal/assets/manifests/addons/.*\.yaml$'
-      - id: kustomize-build-hybrid
-        name: Kustomize Build Hybrid Provider
-        entry: bash -c "kubectl kustomize --enable-helm manifests/providers/hybrid >/dev/null || (echo 'kustomize build failed for manifests/providers/hybrid — broken YAML/manifest content will fail ArgoCD sync'; exit 1)"
+      - id: kustomize-build-providers
+        name: Kustomize Build Provider Cells (hybrid + hetzner)
+        # _shared is consumed by BOTH cells, so a change there must build both.
+        # The previous hook watched only manifests/providers/hybrid/, so edits to
+        # _shared/ or hetzner/ could break ArgoCD sync ungated.
+        entry: bash -c 'for c in hybrid hetzner; do kubectl kustomize --enable-helm "manifests/providers/$c" >/dev/null || { echo "kustomize build failed for manifests/providers/$c - broken YAML will fail ArgoCD sync"; exit 1; }; done'
         language: system
         pass_filenames: false
-        files: 'manifests/providers/hybrid/.*'
+        files: 'manifests/providers/(hybrid|hetzner|_shared)/.*'
       - id: hub-operator-build
         name: Build Hub Operator
         entry: bash -c "cd operators/hub-operator && make build"

@@ -135,7 +135,14 @@ stringData:
       envoy-config-retry-interval: "15s"
       enable-gateway-api: "true"
       enable-gateway-api-secrets-sync: "true"
-      enable-gateway-api-proxy-protocol: "true"
+      # WS2: PROXY protocol is OFF. Tenant ingress now rides the CAPH-managed LB
+      # via HetznerCluster.spec.controlPlaneLoadBalancer.extraServices, whose API
+      # exposes only {protocol,listenPort,destinationPort} — there is no
+      # proxyProtocol field, so the LB cannot prepend a PROXY preamble.
+      # Both sides MUST agree: a mismatch makes Envoy read the preamble as
+      # malformed HTTP and reset the connection ("Empty reply from server").
+      # Consequence: client source IP no longer reaches Envoy.
+      enable-gateway-api-proxy-protocol: "false"
       enable-gateway-api-app-protocol: "false"
       enable-gateway-api-alpn: "false"
       gateway-api-xff-num-trusted-hops: "0"
@@ -1552,7 +1559,7 @@ stringData:
             args:
             - --config-dir=/tmp/cilium/config-map
             - --debug=$(CILIUM_DEBUG)
-            - --enable-gateway-api-proxy-protocol=true
+            - --enable-gateway-api-proxy-protocol=false
             env:
             - name: K8S_NODE_NAME
               valueFrom:

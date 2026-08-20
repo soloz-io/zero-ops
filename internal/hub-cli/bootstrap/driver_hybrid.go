@@ -118,7 +118,12 @@ func (d *HybridDriver) ClusterClassPaths() []string {
 }
 
 // ── Capabilities ────────────────────────────────────────────────────────────
-// Hybrid: no cloud LoadBalancer on the spoke API path (Tailscale-only).
+// Hybrid: the spoke API IS fronted by a cloud LoadBalancer — the CAPH-managed
+// Hetzner LB (controlPlaneLoadBalancer.enabled=true, ADR-046 "Spoke API
+// Endpoint"). The composition sets controlPlaneLoadBalancerEnabled: true and
+// the same LB now also carries tenant ingress on 80/443 via extraServices.
+// The earlier "Tailscale-only" comment described a pre-ADR-046 design that the
+// spoke-api-front removal (addendum 5) already retired.
 // StorageClass comes from Hetzner CSI (same as hetzner provider).
 
 func (d *HybridDriver) OperatorWebhookPatterns() []string {
@@ -127,7 +132,7 @@ func (d *HybridDriver) OperatorWebhookPatterns() []string {
 
 func (d *HybridDriver) Capabilities() CapabilityContract {
 	base := d.Driver.Capabilities()
-	// Spoke API is Tailscale-only — no cloud load balancer (ADR-046 §1).
-	base.LoadBalancer = false
+	// CAPH provisions the spoke control-plane LB (and, via extraServices, the
+	// tenant ingress ports). Keep the inherited LoadBalancer capability.
 	return base
 }

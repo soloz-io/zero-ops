@@ -42,6 +42,10 @@ resources:
   # groups require explicit signer approval RBAC; mirrors hub precedent)
   - cert-manager-approve-infisical-issuer.yaml
   - infisical-issuer.yaml
+  # WS0.3: public ACME issuers (letsencrypt-staging / -prod) for browser-facing
+  # Gateway hostnames. Complements infisical-fleet-issuer, which stays the
+  # issuer for internal fleet/mTLS certs (ADR-046 addendum 18).
+  - acme-cluster-issuer.yaml
   # ADR-048: The completed ClusterIssuer (infisical-fleet-issuer) is delivered by
   # ClusterResourceSet lifecycle injection (spoke-identity-operator -> {spoke}-cluster-issuer
   # CRS wrapper -> CAPI). It is intentionally NOT tracked here so ArgoCD never
