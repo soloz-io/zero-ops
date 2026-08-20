@@ -15,6 +15,28 @@ spec:
     nodeSelector:
       node-role.kubernetes.io/worker: ""
 
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://hub-db-backups/hub/
+      endpointURL: https://hel1.your-objectstorage.com
+      s3Credentials:
+        accessKeyId:
+          name: s3-credentials
+          key: access-key-id
+        secretAccessKey:
+          name: s3-credentials
+          key: secret-access-key
+        region:
+          name: s3-credentials
+          key: region
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+        jobs: 2
+    retentionPolicy: "30d"
+
   certificates:
     # CNPG generates its own internal CA natively — no external CA is injected.
     # The platform-db-ca Secret is created by CNPG during cluster bootstrap.
