@@ -162,7 +162,7 @@ win_ps() { # Execute PowerShell on the Windows host via SSH (buffered)
 }
 
 win_ps_stream() { # Stream PowerShell output live from Windows host via SSH
-  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|→|===|⚠}"
+  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|→|===|⚠|Error|Failed|Exception}"
   printf '%s\n' "$PS_SCRIPT" | ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
     "$SSH_TARGET" "powershell -NoProfile -ExecutionPolicy Bypass -Command -" 2>&1 | \
     grep --line-buffered -E "$FILTER" | sed 's/^/      /' || true
@@ -911,8 +911,8 @@ Write-Output '    → Creating Generation 2 VM (\$vmName)...'
 \$cs = Get-CimInstance Win32_ComputerSystem
 \$totalRamBytes = [int64]\$cs.TotalPhysicalMemory
 \$reserveBytes = [int64](2GB)
-\$autoMaxRam = [math]::Max([int64](4GB), (\$totalRamBytes - \$reserveBytes))
-\$autoStartup = [math]::Min([int64](14GB), \$autoMaxRam)
+\$autoMaxRam = [int64]([math]::Max(4, [math]::Floor((\$totalRamBytes - \$reserveBytes) / 1GB)) * 1GB)
+\$autoStartup = [int64]([math]::Min([int64](14GB), \$autoMaxRam))
 \$autoMin = [int64](2GB)
 
 \$proc = Get-CimInstance Win32_Processor
