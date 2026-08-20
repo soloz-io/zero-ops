@@ -62,10 +62,10 @@ Options:
   --ts-authkey KEY     Tailscale auth-key (auto-loaded from k8-secrets/tailscale/authkey if omitted).
   --vswitch NAME       Hyper-V Virtual Switch name (default: 'Default Switch').
   --upgrade-flatcar    Re-download fresh Flatcar base VHDX image from current release.
-  --memory-gb N        Startup memory in GB (default: auto 14GB).
-  --max-memory-gb N    Maximum memory ceiling in GB (default: auto TotalHostRAM - 2GB).
-  --min-memory-gb N    Minimum dynamic memory floor in GB (default: auto 2GB).
-  --cpus N             Virtual CPU count (default: auto all host logical cores).
+  --memory-gb N        OVERRIDE startup memory in GB (default: per-node from home-lab.env registry).
+  --max-memory-gb N    OVERRIDE maximum memory ceiling in GB (default: per-node from registry).
+  --min-memory-gb N    OVERRIDE minimum dynamic memory floor in GB (default: per-node from registry).
+  --cpus N             OVERRIDE virtual CPU count (default: per-node from registry).
   --disk-gb N          Virtual disk size in GB (default: 20).
   --verify             Only check Ready status of registered nodes; no changes.
   -h, --help           Show this help message
@@ -103,6 +103,13 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR: unknown option $1" >&2; usage 1 ;;
   esac
 done
+
+# Snapshot explicit CLI capacity (if any) — per-node registry values become the
+# default and are applied at each node iteration; CLI values always win.
+CLI_MEMORY_BYTES="$MEMORY_BYTES"
+CLI_MIN_MEMORY_BYTES="$MIN_MEMORY_BYTES"
+CLI_MAX_MEMORY_BYTES="$MAX_MEMORY_BYTES"
+CLI_CPU_COUNT="$CPU_COUNT"
 
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 export ZERO_OPS_DIR="${REPO_ROOT}"
@@ -1100,7 +1107,7 @@ if [[ "$MODE" == "verify" ]]; then
   echo "=== Verify mode — checking Flatcar node Ready status ==="
   local_ok=1
   idx=0
-  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET; do
+  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS; do
     [[ -z "$_HOST" && -z "$_SSH" ]] && continue
     idx=$((idx + 1))
     CURR_TARGET="hub"
@@ -1137,10 +1144,23 @@ echo ""
 
 phase_prep_binaries
 
-while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET; do
+while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
+
+  # Per-node capacity: registry fields are the DEFAULT; CLI flags override.
+  MEMORY_BYTES="0"; MIN_MEMORY_BYTES="0"; MAX_MEMORY_BYTES="0"; CPU_COUNT="0"
+  if [[ "${STARTUP_GB:-}" =~ ^[0-9]+$ ]]; then
+    MEMORY_BYTES="$((${STARTUP_GB} * 1024 * 1024 * 1024))"
+    [[ "${MIN_GB:-}" =~ ^[0-9]+$ ]] && MIN_MEMORY_BYTES="$((${MIN_GB} * 1024 * 1024 * 1024))"
+    [[ "${MAX_GB:-}" =~ ^[0-9]+$ ]] && MAX_MEMORY_BYTES="$((${MAX_GB} * 1024 * 1024 * 1024))"
+    [[ "${CPUS:-}" =~ ^[0-9]+$ ]] && CPU_COUNT="${CPUS}"
+  fi
+  [[ "$CLI_MEMORY_BYTES" -gt 0 ]] && MEMORY_BYTES="$CLI_MEMORY_BYTES"
+  [[ "$CLI_MIN_MEMORY_BYTES" -gt 0 ]] && MIN_MEMORY_BYTES="$CLI_MIN_MEMORY_BYTES"
+  [[ "$CLI_MAX_MEMORY_BYTES" -gt 0 ]] && MAX_MEMORY_BYTES="$CLI_MAX_MEMORY_BYTES"
+  [[ "$CLI_CPU_COUNT" -gt 0 ]] && CPU_COUNT="$CLI_CPU_COUNT"
 
   CURR_TARGET="hub"
   if [[ "$NODE_IDX" -gt 1 ]]; then CURR_TARGET="spoke"; fi
@@ -1159,6 +1179,10 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET; 
 
   echo "── node ${NODE_IDX}: ${HOSTNAME} (${BOX_TAG} → ${CURR_TARGET}) ─────────────────"
   echo "    SSH: ${SSH_TARGET}  VM: ${HOSTNAME}  Tailnet: ${TAILNET_HOST}  Target: ${CURR_TARGET}"
+  if [[ "$MEMORY_BYTES" -gt 0 || "$CPU_COUNT" -gt 0 ]]; then
+    MCAP="$((MEMORY_BYTES / 1024 / 1024 / 1024))" MMIN="$((MIN_MEMORY_BYTES / 1024 / 1024 / 1024))" MMAX="$((MAX_MEMORY_BYTES / 1024 / 1024 / 1024))"
+    echo "    Capacity: ${CPU_COUNT:-auto} vCPUs, ${MCAP:-auto} GB startup (${MMIN:-auto}-${MMAX:-auto} GB dynamic range)"
+  fi
 
   # [1/6] SSH reachability gate
   echo "    [1/6] SSH reachability gate..."
