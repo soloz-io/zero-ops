@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - agentgateway-config.yaml
   - agentgateway.yaml
+  - oidc-cookie-secret-es.yaml

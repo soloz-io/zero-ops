@@ -20,6 +20,12 @@ spec:
         ports:
         - containerPort: 3000
           name: http
+        env:
+        - name: OIDC_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: agentgateway-oidc-cookie-secret
+              key: oidc-cookie-secret
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway

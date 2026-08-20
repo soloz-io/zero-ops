@@ -47,6 +47,8 @@ spec:
       kind: "HTTPRoute"
     - group: "cilium.io"
       kind: "CiliumNetworkPolicy"
+    - group: "cert-manager.io"
+      kind: "Certificate"
     - group: "autoscaling"
       kind: "HorizontalPodAutoscaler"
     - group: "policy"

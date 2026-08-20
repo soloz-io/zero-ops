@@ -19,6 +19,7 @@ type Config struct {
 	TrustedClientIDs        string
 	AuthPublicBaseURL       string // public-facing base URL for auth server metadata (e.g. https://auth.nutgraf.in)
 	MCPGatewayBaseURL       string // base URL of the MCP gateway (e.g. https://api.nutgraf.in) used as issuer in gateway-served metadata
+	WaypointBFFClientSecret string // client secret for the confidential waypoint-bff-client, delivered via Infisical/ESO
 }
 
 func LoadConfig() (*Config, error) {
@@ -49,6 +50,7 @@ func LoadConfig() (*Config, error) {
 		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
 		AuthPublicBaseURL:       getEnv("AUTH_PUBLIC_BASE_URL", "https://auth.nutgraf.in"),
 		MCPGatewayBaseURL:       getEnv("MCP_GATEWAY_BASE_URL", "https://api.nutgraf.in"),
+		WaypointBFFClientSecret: os.Getenv("WAYPOINT_BFF_CLIENT_SECRET"),
 	}, nil
 }
 

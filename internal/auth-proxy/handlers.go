@@ -223,20 +223,36 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 	// Build session with custom claims
 	session := map[string]interface{}{
 		"id_token": map[string]interface{}{
-			"email": traits["email"],
-			"role":  traits["role"],
+			"email":     traits["email"],
+			"role":      traits["role"],
+			"tenant_id": traits["tenant_id"],
 		},
 		"access_token": map[string]interface{}{
-			"email": traits["email"],
-			"role":  traits["role"],
+			"email":     traits["email"],
+			"role":      traits["role"],
+			"tenant_id": traits["tenant_id"],
 		},
+	}
+
+	// Grant the audience requested by the client, defaulting to the MCP audience.
+	// The Waypoint browser client does not request an audience (OIDC flow);
+	// MCP clients request the MCP resource audience.
+	requestedAudience, _ := consentReq["requested_access_token_audience"].([]interface{})
+	grantedAudience := []string{h.mcpGatewayBaseURL + "/mcp"}
+	if len(requestedAudience) > 0 {
+		grantedAudience = make([]string, 0, len(requestedAudience))
+		for _, aud := range requestedAudience {
+			if s, ok := aud.(string); ok {
+				grantedAudience = append(grantedAudience, s)
+			}
+		}
 	}
 
 	// Accept consent
 	acceptReq := map[string]interface{}{
-		"grant_scope":                requestedScopes,
-		"grant_access_token_audience": []string{h.mcpGatewayBaseURL + "/mcp"},
-		"session":                    session,
+		"grant_scope":                 requestedScopes,
+		"grant_access_token_audience": grantedAudience,
+		"session":                     session,
 	}
 
 	h.acceptConsent(w, r, challenge, acceptReq)

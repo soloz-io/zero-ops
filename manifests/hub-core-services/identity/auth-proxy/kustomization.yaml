@@ -8,3 +8,4 @@ resources:
 - deployment.yaml
 - service.yaml
 - ghcr-pull-secret-es.yaml
+- waypoint-bff-client-secret-es.yaml

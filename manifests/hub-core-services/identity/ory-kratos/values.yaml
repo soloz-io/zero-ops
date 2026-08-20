@@ -24,6 +24,7 @@ kratos:
       allowed_return_urls:
         - https://auth.nutgraf.in/
         - https://console.nutgraf.in/
+        - https://waypoint.nutgraf.in/
         - http://127.0.0.1:6274/oauth/callback
         - http://localhost:6274/oauth/callback
       methods:

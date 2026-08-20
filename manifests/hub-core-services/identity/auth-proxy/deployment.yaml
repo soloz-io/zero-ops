@@ -59,6 +59,11 @@ spec:
           value: "https://api.nutgraf.in"
         - name: TRUSTED_CLIENT_IDS
           value: "mcp-public-client"
+        - name: WAYPOINT_BFF_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: waypoint-bff-client-secret
+              key: client-secret
         livenessProbe:
           httpGet:
             path: /health/ready
