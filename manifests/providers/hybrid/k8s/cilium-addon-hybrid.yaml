@@ -364,6 +364,7 @@ stringData:
       envoy-base-id: "0"
       envoy-access-log-buffer-size: "4096"
       envoy-keep-cap-netbindservice: "true"
+      disable-envoy-version-check: "true"
       max-connected-clusters: "255"
       clustermesh-enable-endpoint-sync: "false"
       clustermesh-enable-mcs-api: "false"
