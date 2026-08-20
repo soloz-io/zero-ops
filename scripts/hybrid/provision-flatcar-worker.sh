@@ -104,6 +104,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+export ZERO_OPS_DIR="${REPO_ROOT}"
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: Environment file not found: $ENV_FILE" >&2
   echo "       Copy home-lab.env.example → home-lab.env and fill in real values." >&2
@@ -113,7 +116,6 @@ fi
 source "$ENV_FILE"
 
 # Auto-fetch Tailscale authkey from k8-secrets if not passed via CLI
-REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 DEFAULT_TS_AUTHKEY_FILE="${REPO_ROOT}/k8-secrets/tailscale/authkey"
 if [[ -z "$TS_AUTHKEY" && -f "$DEFAULT_TS_AUTHKEY_FILE" ]]; then
   TS_AUTHKEY="$(tr -d '\r\n' < "$DEFAULT_TS_AUTHKEY_FILE")"
