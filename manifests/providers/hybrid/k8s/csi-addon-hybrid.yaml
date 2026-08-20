@@ -175,6 +175,7 @@ stringData:
               operator: Exists
             - key: CriticalAddonsOnly
               operator: Exists
+          hostNetwork: true
           securityContext:
             fsGroup: 1001
           containers:
