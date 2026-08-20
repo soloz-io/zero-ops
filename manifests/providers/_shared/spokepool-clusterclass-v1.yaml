@@ -9,7 +9,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: spokepool-control-plane-v3
+      name: spokepool-control-plane-v4
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -420,6 +420,165 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlaneTemplate
 metadata:
   name: spokepool-control-plane-v3
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          networking:
+            podSubnet: 10.244.0.0/16
+            serviceSubnet: 10.96.0.0/12
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+              allocate-node-cidrs: "true"
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        files:
+        - path: /etc/tailscale-authkey
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Management-cluster Secret holding the reusable Tailscale auth key
+              # for CAPI control-plane nodes (ADR-046). Never committed to Git;
+              # sourced at bootstrap from the tailscale-hybrid-psk Secret.
+              name: tailscale-hybrid-psk
+              key: authkey
+        - path: /etc/tailscale-hostname
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              # Tailnet hostname for this CP node (<claim>-cp). Empty for
+              # pure-hetzner spokes → the pre-kubeadm Tailscale block no-ops.
+              name: tailscale-hybrid-psk
+              key: hostname
+        - path: /etc/systemd/system/cilium-host-prep.service
+          owner: root
+          permissions: "0644"
+          content: |
+            [Unit]
+            Description=Cilium host cgroup2+BPF prep (control-plane node)
+            Before=containerd.service kubelet.service
+            After=local-fs.target
+
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/bash -c 'mkdir -p /run/cilium/cgroupv2 && mount -t cgroup2 none /run/cilium/cgroupv2 || true; mount --make-shared /run/cilium/cgroupv2 || true; mount -t bpf bpf /sys/fs/bpf || true; mount --make-shared /sys/fs/bpf || true'
+
+            [Install]
+            WantedBy=multi-user.target
+        preKubeadmCommands:
+        - set -x
+        - export CONTAINERD=1.7.26
+        - export RUNC=1.2.5
+        - export KUBERNETES_VERSION=1.31.6
+        - export TRIMMED_KUBERNETES_VERSION=1.31
+        - ARCH="$(dpkg --print-architecture)"
+        - localectl set-locale LANG=en_US.UTF-8
+        - localectl set-locale LANGUAGE=en_US.UTF-8
+        - apt-get update -y
+        - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+        - sed -i '/swap/d' /etc/fstab
+        - swapoff -a
+        - modprobe overlay && modprobe br_netfilter && sysctl --system
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+        - sha256sum --check --ignore-missing runc.sha256sum
+        - install runc.$ARCH /usr/local/sbin/runc
+        - rm -f runc.$ARCH runc.sha256sum
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+        - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - mkdir -p /etc/containerd
+        - containerd config default > /etc/containerd/config.toml
+        - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+        - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+        - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+        - sysctl -p
+        - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+        # Cilium host cgroup2/BPF prep (ADR-046). Cilium's socket-based
+        # kube-proxy-replacement needs a real cgroup2 mount at
+        # /run/cilium/cgroupv2 marked SHARED so the agent's mount propagations
+        # can see the host kubepods hierarchy. On the hybrid provider this is
+        # required because the hybrid cilium-addon manifest no-ops the stock
+        # mount-cgroup init (which is silently broken under private
+        # cgroup namespaces); the CP host must therefore establish the mount itself.
+        # The systemd unit (written via files[]) also re-creates it at every
+        # boot (/run is tmpfs). Idempotent — also harmless on pure-hetzner
+        # spokes, where it simply pre-creates what stock mount-cgroup does.
+        - systemctl daemon-reload && systemctl enable cilium-host-prep.service && systemctl start cilium-host-prep.service
+        - 'findmnt -n -t cgroup2 /run/cilium/cgroupv2 || { echo "cilium-host-prep FAILED"; exit 1; }'
+        - mkdir -p /etc/apt/keyrings/
+        - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+        - apt-get update
+        - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+        - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+        - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+        - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+        - apt-get -y autoremove && apt-get -y clean all
+        # ── Tailscale pre-kubeadm (ADR-046: tailnet-only spoke) ───────────────
+        # Join the control-plane node to the tailnet BEFORE kubeadm init so the
+        # derived controlPlaneEndpoint (<claim>-cp.<tailnet>) resolves and the
+        # API server is reachable over Tailscale. Authkey + hostname are read
+        # from /etc/tailscale-* (written by files[] contentFrom.secret above).
+        # Pure-hetzner spokes leave hostname empty → this block no-ops.
+        - curl -fsSL https://tailscale.com/install.sh | sh || true
+        - systemctl enable --now tailscaled || true
+        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+        postKubeadmCommands:
+          # ADR-047: Single-node spoke model — remove the control-plane taint so
+          # platform operators and tenant workloads can schedule on the only node.
+          # Multi-node spoke pools (topology=multi) must revisit this.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # Cilium runs full kube-proxy replacement; the kubeadm addon's
+          # kube-proxy DaemonSet conflicts (iptables REJECT chains for
+          # endpoint-less services break Gateway API TLS + in-cluster service
+          # networking). This CAPI version has no skipPhases, so delete the
+          # addon post-init. kubeadm runs postKubeadmCommands after addons.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete ds kube-proxy --ignore-not-found=true || true'
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete cm kube-proxy --ignore-not-found=true || true'
+          # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
+          # on control-plane nodes by default; the Hetzner CCM honors it and
+          # registers ZERO backends for Cilium Gateway-API LoadBalancer services
+          # → external VIP accepts TCP but forwards nothing → TLS handshake fails
+          # externally (works in-cluster). Remove the label so the CP node is a
+          # valid LB backend.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
+---
+# v4: v3 + tailscale-native Cilium routing (ADR-046 §13).
+#   1) kubelet --node-ip = tailnet IPv4, re-asserted dynamically before every
+#      kubelet start via a systemd drop-in (files[] → /usr/local/bin/
+#      dynamic-node-ip.sh + /etc/systemd/system/kubelet.service.d/10-dynamic-
+#      node-ip.conf ExecStartPre). The Node/CiliumNode then advertise the
+#      tailnet address (never the Hetzner private 10.0.0.x) so Cilium native
+#      routing sends peer pod CIDRs over tailscale0. Dynamic — never hardcode.
+#   2) Advertise this node's pod CIDR as a tailscale subnet route so the peer
+#      node's tailscaled accepts/forwards pod-CIDR traffic. Requires admin
+#      approval of the subnet route in the tailnet admin console.
+# v3 is immutable (CAPI webhook) so this is a new template; ref rotation to v4
+# is a deliberate step.
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: spokepool-control-plane-v4
   namespace: platform-capi
 spec:
   template:
