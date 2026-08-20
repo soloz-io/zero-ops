@@ -244,10 +244,10 @@ stringData:
       #   - vxlan (default)
       #   - geneve
 
-      # Flatcar-native (ADR-046 §13): native routing over the tailnet.
-      # Nodes reach each other directly via their tailscale InternalIPs on
-      # tailscale0 — no VXLAN tunnel needed.
-      routing-mode: "native"
+      # Tunnel mode (VXLAN over tailscale0) per ADR-046 addendum 6 / runbook 3d-C
+      routing-mode: "tunnel"
+      tunnel-protocol: "vxlan"
+      tunnel-port: "8472"
       service-no-backend-response: "reject"
       mtu: "1200"
 
@@ -267,12 +267,11 @@ stringData:
       install-no-conntrack-iptables-rules: "false"
       iptables-random-fully: "false"
 
-      auto-direct-node-routes: "true"
+      auto-direct-node-routes: "false"
+      direct-routing-device: ""
       direct-routing-skip-unreachable: "false"
       enable-local-redirect-policy: "false"
       devices: "eth+ enp+ tailscale0"
-      direct-routing-device: "tailscale0"
-      ipv4-native-routing-cidr: "10.244.0.0/16"
       node-port-mode: "snat"
       kube-proxy-replacement: "true"
       kube-proxy-replacement-healthz-bind-address: ""

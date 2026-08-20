@@ -2,8 +2,7 @@
 
 **Date:** 2026-08-20
 **Cluster:** `spoke-pool-hybrid-dev-01` (hybrid provider, ADR-046)
-**Hub:** `hub-hybrid-dev`
-**Status:** Diagnosed, not yet fixed. This document is the implementation brief.
+**Status:** Resolved. All phases (1, 2, 3, 3b, 3c, 3d-C, 4, 5) implemented, codified, and verified live.
 
 ---
 
@@ -500,6 +499,124 @@ are *not* codified anywhere in this repo and must be re-created by hand after ev
 re-provision. Under hostNetwork mode the required rules are LB → CP node **TCP 80 and 443**
 over the private network (not the old nodePort range). Missing rules present exactly the
 same symptom as a missing listener.
+
+### Phase 3d — FIX THE 503: ingress-endpoint return path loops on the CP (TTL exceeded)
+
+**Status: this is the only remaining blocker. Phases 1, 2, 3, 3b, 3c and 4 are done.**
+External requests now reach Envoy, match `waypoint.nutgraf.in`, and select
+`frontend-workload` endpoints on `flatcar-node-1` — then Envoy returns
+`HTTP 503 upstream_reset_before_response_started{connection_timeout}` after 5s.
+
+#### Evidence
+
+Envoy's upstream socket (host netns, `ss -tnie` on the CP):
+
+```
+10.244.0.125:41119 -> 10.244.1.57:3000  fwmark:0x80b00  retrans:1/4 lost:1
+```
+
+- source `10.244.0.125` = Cilium **ingress endpoint** (endpoint id 1017,
+  `identity 8 / reserved:ingress`) — not the node IP, not `cilium_host`
+- `fwmark 0x80b00` = identity 8 in the upper bits + `0xb00` proxy-egress magic
+
+The SYN reaches the backend and the backend answers. `cilium-dbg monitor` on
+`flatcar-node-1`:
+
+```
+-> endpoint 3044  identity ingress->4557  10.244.0.125:34353 -> 10.244.1.57:3000 tcp SYN
+-> stack          identity 4557->ingress  10.244.1.57:3000 -> 10.244.0.125:34353 tcp SYN, ACK
+```
+
+Simultaneous `tcpdump -i tailscale0` on both nodes shows the SYN-ACK **does arrive at the
+CP** — and the CP then emits:
+
+```
+14:07:38.322420 IP 100.118.202.60 > 10.244.1.57: ICMP time exceeded in-transit, length 68
+```
+
+`time exceeded **in-transit**` = the CP is *forwarding* the packet, not delivering it, and
+the TTL reaches zero. The backend keeps retransmitting SYN-ACK; the handshake never
+completes; Envoy times out at 5s and returns 503.
+
+#### Mechanism
+
+On the CP, `10.244.0.125` has **no local delivery path**:
+
+```
+$ ip route show table local | grep -c 10.244.0.125
+0
+$ ip route get 10.244.0.125
+10.244.0.125 dev cilium_host src 10.244.0.86        # routed, not local
+$ cilium-dbg status | grep 'Proxy Status'
+Proxy Status: OK, ip 10.244.0.86, 0 redirects active on ports 10000-20000, Envoy: external
+```
+
+In the **NodePort/TPROXY** ingress path, traffic to the ingress endpoint IP is intercepted
+by a proxy redirect (`0x200` to-proxy mark → table 2004 → local `lo`) and handed to Envoy's
+socket. In **hostNetwork Gateway mode there are zero redirects installed** — Envoy binds
+`0.0.0.0:80/443` directly and the TPROXY path is not used.
+
+So a packet addressed to `10.244.0.125` arriving from **off-node** on `tailscale0` has
+nowhere to go: it is not a local address, no redirect claims it, and the routing table
+sends it to `cilium_host`, which returns it to the stack — looping until TTL expires.
+
+This never manifests for CP-local backends: the reply stays inside the node and Cilium's
+BPF delivers pod → ingress-endpoint entirely in the local datapath. It only breaks for
+**remote (home-worker) backends**, which is every waypoint workload.
+
+This is the same failure class ADR-046 addendum 6 documented and codified
+`cilium-node-ip-reconciler` to solve. **That DaemonSet is not deployed** — it was removed
+from the rendered addon (`cilium-addon-hybrid.yaml` header note 7, "cilium-node-ip-reconciler
+removed"). Confirmed live: `kubectl get ds -n kube-system` lists `cilium`, `cilium-envoy`,
+`cilium-hostnetwork-mangle-guard`, `hcloud-csi-node`, `local-path-provisioner` only.
+
+#### Fix options (pick one; 3d-A is the smallest, 3d-C the most durable)
+
+**3d-A — DISPROVEN (tested 2026-08-20, do not retry).** Masquerading the ingress source IP
+and adding a host-local route both failed, for a reason that also rules out any host-side
+netfilter/routing remedy:
+
+- `cilium-dbg bpf endpoint list` shows endpoint 1017 (`10.244.0.125`, `reserved:ingress`)
+  with **`ifindex=0`, `flags=0x0002`** — the ingress endpoint has **no veth**.
+- Cilium attaches TCX programs (`tailscale0 tcx/ingress cil_from_netdev`,
+  `tailscale0 tcx/egress cil_to_netdev`, `cilium_host tcx/egress cil_from_host`). The
+  inbound SYN-ACK is claimed by `cil_from_netdev` at the device layer, **before** the kernel
+  network stack, so `ip route add local 10.244.0.125 dev lo` and
+  `ip addr add 10.244.0.125/32 dev lo` never take effect.
+- With `ifindex=0` there is no veth to redirect to, so Cilium bounces the packet into
+  `cilium_host` and it loops between `cil_from_netdev` and `cilium_host` until TTL expires.
+- Egress masquerade is equally ineffective: the upstream SYN leaves via
+  `tailscale0 tcx/egress`, bypassing netfilter `POSTROUTING` entirely.
+
+Retained below for the record only — the original text follows.
+
+**~~3d-A — Masquerade the ingress source IP when egressing to remote pod CIDRs.~~**
+Make Envoy's upstream traffic leave the CP as `100.118.202.60` (a real local address), so
+the SYN-ACK returns to an address the node actually owns and conntrack un-NATs it back to
+`10.244.0.125`. Today no masquerade applies because
+`CILIUM_POST_nat -s 10.244.0.0/24 ! -d 10.244.0.0/16 -j MASQUERADE` excludes the
+destination — `10.244.1.57` is inside `ipv4-native-routing-cidr=10.244.0.0/16`. Either add
+an explicit rule for `-s 10.244.0.125 -o tailscale0 -j MASQUERADE`, or narrow
+`ipv4-native-routing-cidr` to the node's own `/24`. Verify this does not break pod-to-pod
+source-IP preservation or the CiliumNetworkPolicy egress contracts, which match on identity
+rather than IP but should still be re-tested.
+
+**3d-B — Restore `cilium-node-ip-reconciler`.** The ADR-codified remedy for this exact
+class. Re-render it into `cilium-addon-hybrid.yaml`. Before adopting, confirm it actually
+addresses the ingress-endpoint case and not only the `cilium_host` case described in
+addendum 6 — the addendum was written against the **embedded** Envoy and VXLAN mode, and
+the source IP here is the ingress endpoint, not `cilium_host` (`10.244.0.86`).
+
+**3d-C — Switch `routing-mode` to `tunnel` (VXLAN). (IMPLEMENTED & VERIFIED)**
+Switched `routingMode: tunnel`, `tunnelProtocol: vxlan`, `tunnelPort: 8472`, `autoDirectNodeRoutes: false` in `cilium-values.yaml` and `cilium-addon-hybrid.yaml`.
+- Removed stale native routes (`10.244.1.0/24 dev tailscale0` / `10.244.0.0/24 dev tailscale0`) from main routing tables on both nodes; replaced by `cilium_host mtu 1150`.
+- Rolled Cilium agents and restarted standalone Envoy DaemonSet.
+- Cross-node pod-to-apiserver (`10.96.0.1:443`) and pod-to-CoreDNS (`10.244.0.196:53`) verified working over VXLAN.
+- Verified external ingress through Hetzner Load Balancer:
+  - `curl -Iv http://waypoint.nutgraf.in` → **`HTTP/1.1 200 OK`**
+  - `curl -Iv -k https://waypoint.nutgraf.in` → **`HTTP/1.1 200 OK`** (with valid `waypoint-tls` cert issued by `Fleet Intermediate CA`)
+  - `curl -Iv -k https://api.waypoint.nutgraf.in` → **`HTTP/1.1 404 Not Found`** (served by BFF workload on flatcar)
+  - `cilium-dbg monitor -t drop` during request burst confirmed **zero drops and zero ICMP time exceeded**.
 
 ### Phase 4 — Unblock ArgoCD delivery
 
