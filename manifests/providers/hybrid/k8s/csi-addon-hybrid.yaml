@@ -163,7 +163,7 @@ stringData:
                     values:
                     - robot
                   # ADR-046 §11: NEVER run the Hetzner CSI node driver on a home
-                  # worker (no block devices; WSL2 cannot attach hcloud volumes).
+                  # worker (no block devices; Flatcar home VMs cannot attach hcloud volumes).
                   - key: workload-location
                     operator: NotIn
                     values:
@@ -365,7 +365,7 @@ stringData:
       - Persistent
     ---
     # Local-Path Provisioner — home placement class (ADR-046 §11).
-    # Node-local storage on WSL2 home workers only. NOT the default class.
+    # Node-local storage on Flatcar home workers only. NOT the default class.
     apiVersion: v1
     kind: ServiceAccount
     metadata:

@@ -31,7 +31,7 @@ import (
 //  3. Mints a kubeadm bootstrap token Secret (bootstrap.kubernetes.io/token) in
 //     the spoke's kube-system namespace (pure-API, no kubeadm binary required).
 //  4. Writes the join payload Secret (<spoke>-home-worker-join, platform-capi)
-//     consumed by scripts/hybrid/home-worker-join.sh.
+//     consumed by provision-flatcar-worker.sh (ADR-046 §13).
 //  5. Rotates the token before expiry (rotation window = TTL/2) and cleans up
 //     expired tokens for the same spoke.
 //
@@ -164,7 +164,7 @@ func (r *SpokePoolReconciler) reconcileHomeWorkerJoin(ctx context.Context, spoke
 		return fmt.Errorf("ensure spoke bootstrap token: %w", err)
 	}
 
-	// Write the join payload Secret consumed by home-worker-join.sh.
+	// Write the join payload Secret consumed by provision-flatcar-worker.sh.
 	if err := r.writeJoinPayloadSecret(ctx, spokeName, workerList, tokenID, tokenSecret, caHash, controlPlaneEndpoint); err != nil {
 		return fmt.Errorf("write home-worker join Secret: %w", err)
 	}
@@ -333,7 +333,7 @@ func (r *SpokePoolReconciler) pruneExpiredBootstrapTokens(ctx context.Context, s
 }
 
 // writeJoinPayloadSecret writes the join payload Secret on the Hub
-// (<spoke>-home-worker-join, platform-capi) consumed by home-worker-join.sh.
+// (<spoke>-home-worker-join, platform-capi) consumed by provision-flatcar-worker.sh.
 // Keys: node-<idx>-token (idx 1-based), ca-cert-hash, control-plane-endpoint.
 func (r *SpokePoolReconciler) writeJoinPayloadSecret(ctx context.Context, spokeName string, workers []struct {
 	Hostname string `json:"hostname"`

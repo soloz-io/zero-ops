@@ -371,8 +371,8 @@ spec:
         # /run/cilium/cgroupv2 marked SHARED so the agent's mount propagations
         # can see the host kubepods hierarchy. On the hybrid provider this is
         # required because the hybrid cilium-addon manifest no-ops the stock
-        # mount-cgroup init (which is silently broken under WSL2's private
-        # namespaces); the CP host must therefore establish the mount itself.
+        # mount-cgroup init (which is silently broken under private
+        # cgroup namespaces); the CP host must therefore establish the mount itself.
         # The systemd unit (written via files[]) also re-creates it at every
         # boot (/run is tmpfs). Idempotent — also harmless on pure-hetzner
         # spokes, where it simply pre-creates what stock mount-cgroup does.
@@ -516,8 +516,8 @@ spec:
         # /run/cilium/cgroupv2 marked SHARED so the agent's mount propagations
         # can see the host kubepods hierarchy. On the hybrid provider this is
         # required because the hybrid cilium-addon manifest no-ops the stock
-        # mount-cgroup init (which is silently broken under WSL2's private
-        # namespaces); the CP host must therefore establish the mount itself.
+        # mount-cgroup init (which is silently broken under private
+        # cgroup namespaces); the CP host must therefore establish the mount itself.
         # The systemd unit (written via files[]) also re-creates it at every
         # boot (/run is tmpfs). Idempotent — also harmless on pure-hetzner
         # spokes, where it simply pre-creates what stock mount-cgroup does.

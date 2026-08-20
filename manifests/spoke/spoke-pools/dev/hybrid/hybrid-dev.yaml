@@ -1,8 +1,8 @@
 ---
-# SpokePool claim for the hybrid dev environment (ADR-046 §WS2).
+# SpokePool claim for the hybrid dev environment (ADR-046 §13).
 # Control plane: 1 Hetzner node (dev topology).
-# Burst workers: 0 (home WSL2 workers provide default capacity).
-# Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
+# Burst workers: 0 (home workers provide default capacity).
+# Home workers: Hyper-V Flatcar nodes via unmanaged kubeadm join (ADR-046 §13).
 # Spoke API: CAPH-managed Hetzner Load Balancer (public TCP 443), same as hub/hetzner.
 #
 # Scheduling contract:
@@ -25,9 +25,8 @@ metadata:
     # IPv4 (ADR-046) — no annotation needed. Home workers join via the spoke
     # kubeconfig server (LB endpoint).
     # Home worker node list (JSON array; each entry: {hostname, tailnetHost})
-    # Box A: Dell workstation (existing home node)
-    # Box B: placeholder — replace with actual tailnet hostname after enrollment
-    home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
+    # Flatcar Hyper-V nodes, provisioned via scripts/hybrid/provision-flatcar-worker.sh
+    home-workers: '[{"hostname":"flatcar-node-1","tailnetHost":"flatcar-node-1.taila4c44b.ts.net"}]'
     # Home worker join flow settings (read by hub-operator reconcileHomeWorkerJoin)
     home-worker-enabled: "true"
     home-worker-ttl: "24h"

@@ -3,7 +3,7 @@
 ## Status
 Accepted
 
-> **§3 superseded by [ADR-046](./046-hybrid-provider-home-worker.md).** The CAPD local-development model (decision 3) was removed with the CAPD/local provider in WS0. The hybrid provider cell (Hetzner CP + home-lab WSL2 workers) replaces local development on real hardware.
+> **§3 superseded by [ADR-046](./046-hybrid-provider-home-worker.md).** The CAPD local-development model (decision 3) was removed with the CAPD/local provider in WS0. The hybrid provider cell (Hetzner CP + home-lab Flatcar workers) replaces local development on real hardware.
 
 ## Context
 The platform's infrastructure provisioning logic is tightly coupled to Hetzner Cloud. Elements such as Cluster API (CAPI) `ClusterClass` definitions, Crossplane Compositions, Hub CLI preflight checks, and Day-0 bootstrap secrets explicitly expect Hetzner environments. This tight coupling prevents local development, limits future multi-cloud expansion, and makes continuous integration testing expensive and slow.

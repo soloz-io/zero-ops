@@ -11,7 +11,7 @@
 #   - Storage: Zero host disk formatting; VM runs from isolated 20GB VHDX
 #   - Provisioning: Declarative Ignition config + offline binaries delivered via DVD ISO
 #   - Kubernetes: Kubeadm join v1.31.6 via one-shot systemd service
-#   - CNI: Cilium v1.17.18 (clean native cgroup & eBPF, no WSL2 cgroup hacks)
+#   - CNI: Cilium v1.17.18 (clean native cgroup & eBPF, no cgroup hacks)
 #   - Storage Addon: local-path-provisioner on persistent /var/local-path-provisioner
 #   - Network Mesh: Native Tailscale daemon connecting to tailnet
 #

@@ -6,14 +6,14 @@
 #
 # Deliberate deltas vs. cilium-addon-template (hetzner clean base):
 #   1. routing-mode: native (no tunnel/vxlan) — the home worker is a native
-#      Flatcar Linux box, not a WSL2 container behind Windows NAT, so no
+#      Flatcar Linux box, not a containerized VM behind NAT, so no
 #      VXLAN encapsulation over the tailnet is required.
 #   2. devices: eth+ enp+ tailscale0 + direct-routing-device: tailscale0 —
 #      pod traffic between the Hetzner CP and the home node egresses tailnet.
 #   3. auto-direct-node-routes: true — remote pod CIDRs route via the remote
 #      node's InternalIP (tailscale IP) over tailscale0.
 #   4. mtu: 1200 (tailscale encapsulation overhead).
-#   5. Standard mount-cgroup init (native cgroup v2) — the WSL2
+#   5. Standard mount-cgroup init (native cgroup v2) — the legacy
 #      fix-cgroup-mount / host-cgroup / mount-cgroup no-op hacks are removed.
 #   6. gateway-api-hostnetwork-enabled: false — no hostNetwork gateway, so the
 #      cilium-hostnetwork-mangle-guard DaemonSet is removed.
@@ -1168,9 +1168,9 @@ stringData:
               mountPath: /var/run/cilium
             - name: cilium-netns
               mountPath: /var/run/cilium/netns
-              # WSL2 (ADR-046): HostToContainer propagation requires the source
+              # Hybrid (ADR-046): HostToContainer propagation requires the source
               # mount (/var/run/netns on the root fs) to be shared or slave.
-              # WSL2's root filesystem is neither, so kubelet fails the container
+              # Home VMs' root filesystem is neither, so kubelet fails the container
               # spec with "not a shared or slave mount". Degrade to a plain bind
               # mount — pod-netns exec via cilium-dbg is unavailable on hybrid.
               # Hetzner (real VMs) keeps HostToContainer (shared mounts present).
@@ -1215,7 +1215,7 @@ stringData:
               mountPath: /tmp
             terminationMessagePolicy: FallbackToLogsOnError
           # Standard mount-cgroup (native cgroup v2 — Flatcar/Linux).
-          # The WSL2-origin hybrid no-op'd this because nsenter into the HOST
+          # The legacy hybrid no-op'd this because nsenter into the HOST
           # mount ns never propagated into the agent's private ns; on native
           # Flatcar the stock path (host mount ns via nsenter) works normally.
           - name: mount-cgroup

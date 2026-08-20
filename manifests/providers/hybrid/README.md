@@ -1,8 +1,8 @@
 # Hybrid Provider Cell (ADR-046)
 
-Hybrid spoke: Hetzner control-plane + home-lab (WSL2) worker nodes, connected
-via Tailscale. See `docs/adr/046-hybrid-provider-home-worker.md` for the full
-topology, invariants and codified workarounds.
+Hybrid spoke: Hetzner control-plane + home-lab (Flatcar Hyper-V) worker nodes,
+connected via Tailscale. See `docs/adr/046-hybrid-provider-home-worker.md` for
+the full topology, invariants and codified workarounds.
 
 ## Gateway API on the host network (hostNetwork mode)
 

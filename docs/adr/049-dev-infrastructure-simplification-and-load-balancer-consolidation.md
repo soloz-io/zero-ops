@@ -5,7 +5,7 @@
 
 ## Context
 
-The platform runs a hybrid development topology (ADR-046) combining a Hetzner-hosted management plane and control plane with home-lab WSL2 worker nodes. Operating this topology under the standard Day-1 service deployment incurred an unnecessary infrastructure footprint on Hetzner:
+The platform runs a hybrid development topology (ADR-046) combining a Hetzner-hosted management plane and control plane with home-lab Flatcar worker nodes. Operating this topology under the standard Day-1 service deployment incurred an unnecessary infrastructure footprint on Hetzner:
 
 1. **Stateful Telemetry Overhead:** Self-hosting VictoriaMetrics (`vmstorage`, `vmselect`, `vminsert`, operator, alerts) consumed 60Gi of block storage across 2 Persistent Volumes along with significant memory and CPU.
 2. **Premature Analytics Stack:** Deploying ClickHouse (`platform-clickhouse` with 12Gi across 2 PVs, Altinity operator) and OpenMeter for financial metering was premature for development and hybrid evaluation.

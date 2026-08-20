@@ -10,7 +10,7 @@ import (
 )
 
 // HybridDriver implements CloudDriver for the hybrid provider cell
-// (Hetzner control plane + home-lab WSL2 workers over Tailscale).
+// (Hetzner control plane + home-lab Flatcar workers over Tailscale).
 // The Hetzner driver handles the cloud control-plane and burst pool;
 // hybrid-specific behavior (Tailscale-only networking, home worker
 // integration) is layered on top here.
@@ -48,7 +48,7 @@ func (d *HybridDriver) OSType() string { return d.Driver.OSType() }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
 // Reuse Hetzner preflight (token, region, SSH key). Tailscale connectivity
-// is checked by the WSL2 join scripts, not here.
+// is checked by the Flatcar worker provisioning scripts, not here.
 
 func (d *HybridDriver) PreflightValidators() []preflight.Validator {
 	return d.Driver.PreflightValidators()

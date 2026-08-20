@@ -11,7 +11,7 @@ resources:
   - k8s/spokepool-hybrid-composition.yaml
   - k8s/home-worker-integration.yaml
   - k8s/tailscale-psk-es.yaml
-  # Flatcar-native Cilium (native routing over tailnet, no VXLAN, no WSL2 hacks)
+  # Flatcar-native Cilium (native routing over tailnet, no VXLAN overlay)
   - k8s/cilium-addon-hybrid.yaml
   # ADR-046 §11: hcloud-csi excludes home workers; local-path provisioner +
   # StorageClass for the home placement class

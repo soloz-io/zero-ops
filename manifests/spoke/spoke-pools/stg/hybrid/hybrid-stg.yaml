@@ -1,8 +1,8 @@
 ---
-# SpokePool claim for the hybrid stg environment (ADR-046).
+# SpokePool claim for the hybrid stg environment (ADR-046 §13).
 # Control plane: 3 Hetzner nodes (HA topology for staging).
-# Burst workers: 0 (home WSL2 workers provide default capacity).
-# Home workers: 2 WSL2 Ubuntu nodes via unmanaged kubeadm join (WS4).
+# Burst workers: 0 (home workers provide default capacity).
+# Home workers: Hyper-V Flatcar nodes via unmanaged kubeadm join (ADR-046 §13).
 # Spoke API: CAPH-managed Hetzner Load Balancer (public TCP 443, ADR-046) —
 #            same as hub/hetzner; hybrid adds nothing for the API path.
 #
@@ -26,7 +26,7 @@ metadata:
     # IPv4 (ADR-046) — no annotation needed. Home workers join via the spoke
     # kubeconfig server (LB endpoint).
     # Home worker node list
-    home-workers: '[{"hostname":"wsl2-node-1","tailnetHost":"wsl2-node-1.example.ts.net"},{"hostname":"wsl2-node-2","tailnetHost":"wsl2-node-2.example.ts.net"}]'
+    home-workers: '[{"hostname":"flatcar-node-1","tailnetHost":"flatcar-node-1.taila4c44b.ts.net"}]'
     # Home worker join flow settings
     home-worker-enabled: "true"
     home-worker-ttl: "24h"
