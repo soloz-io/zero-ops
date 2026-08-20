@@ -36,7 +36,7 @@ ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
 VSWITCH_NAME="Hybrid-Switch"
-TARGET_CLUSTER="hub"    # Default target cluster: 'hub' (or 'spoke' via --cluster/--spoke)
+TARGET_CLUSTER="all"    # Default: 'all' (auto-routes nodes to Hub/Spoke per home-lab.env)
 MEMORY_BYTES="0"         # 0 = auto-detect (14GB or TotalHostRAM - 2GB)
 MIN_MEMORY_BYTES="0"     # 0 = auto-detect (2GB)
 MAX_MEMORY_BYTES="0"     # 0 = auto-detect (TotalHostRAM - 2GB)
@@ -55,7 +55,7 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --cluster <hub|spoke> Target cluster (default: 'hub').
+  --cluster <hub|spoke|all> Target cluster (default: 'all', auto-routes per home-lab.env).
   --spoke <name>       Shorthand to target a specific spoke cluster.
   --node N             Provision only node index N (1-based from home-lab.env).
   --env FILE           Path to environment file (default: scripts/hybrid/home-lab.env)
@@ -1103,8 +1103,10 @@ if [[ "$MODE" == "verify" ]]; then
   while IFS='|' read -r HOSTNAME _SSH _WSL _TAILNET _TAG NODE_TARGET; do
     [[ -z "$HOSTNAME" ]] && continue
     idx=$((idx + 1))
-    CURR_TARGET="$TARGET_CLUSTER"
+    CURR_TARGET="hub"
+    if [[ "$idx" -gt 1 ]]; then CURR_TARGET="spoke"; fi
     if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
+    if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
     VM_NAME="flatcar-node-${idx}"
     if [[ "$CURR_TARGET" == "hub" ]]; then VM_NAME="flatcar-hub-node-${idx}"; fi
     if node_ready "$VM_NAME" "$CURR_TARGET"; then :; else local_ok=0; fi
@@ -1117,7 +1119,7 @@ NODE_IDX=0
 FAILED_NODES=()
 
 echo "=== Hybrid Hyper-V + Flatcar Container Linux worker provisioner ==="
-echo "    Target Cluster: ${TARGET_CLUSTER}"
+echo "    Target Mode:    ${TARGET_CLUSTER} (Hub + Spoke auto-routing)"
 echo "    Spoke:          ${HYBRID_SPOKE_NAME}"
 echo "    Tailnet:        ${TAILNET_NAME}"
 echo "    Hub kc:         ${HUB_KUBECONFIG}"
@@ -1134,12 +1136,10 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET; 
   NODE_IDX=$((NODE_IDX + 1))
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
 
-  CURR_TARGET="$TARGET_CLUSTER"
-  if [[ -n "${NODE_TARGET:-}" && "$TARGET_CLUSTER" == "all" ]]; then
-    CURR_TARGET="$NODE_TARGET"
-  elif [[ -n "${NODE_TARGET:-}" && "$TARGET_CLUSTER" == "default" ]]; then
-    CURR_TARGET="$NODE_TARGET"
-  fi
+  CURR_TARGET="hub"
+  if [[ "$NODE_IDX" -gt 1 ]]; then CURR_TARGET="spoke"; fi
+  if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
+  if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
 
   HOSTNAME="flatcar-node-${NODE_IDX}"
   if [[ "$CURR_TARGET" == "hub" ]]; then
