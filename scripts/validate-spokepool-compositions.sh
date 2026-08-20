@@ -169,48 +169,6 @@ validate_crs_contract() {
   done <<<"$(yq '.spec.pipeline[0].input.resources[] | .name' "$file")"
 }
 
-validate_tailscale_addon() {
-  # ADR-046 tailscale-node-addon specific contract: the resource-set Secret must
-  # expose only applyable manifests, and the rendered tailscale-node-addon.yaml
-  # must be a valid Secret targeting the spoke's kube-system.
-  local file="$1"
-  if ! yq '.spec.pipeline[0].input.resources[] | select(.name == "tailscale-node-addon") | .name' "$file" 2>/dev/null | grep -q tailscale; then
-    return 0
-  fi
-
-  local sel
-  sel=".spec.pipeline[0].input.resources[] | select(.name == \"tailscale-node-addon\") | .base.spec.forProvider.manifest"
-
-  # 1. No bare scalar parameter keys.
-  local forbidden k keys
-  keys="$(yq "$sel | .stringData | keys[]" "$file" 2>/dev/null || echo "")"
-  for k in "claim-name" "cp-replicas"; do
-    if echo "$keys" | grep -qx "$k"; then
-      fail "tailscale-node-addon must NOT expose scalar param key '$k' in the CRS resource-set Secret"
-    fi
-  done
-
-  # 2. tailscale-node-addon.yaml is a valid Secret in the spoke's kube-system.
-  local valfile apiversion kind name ns
-  valfile="$(mktemp)"
-  yq "$sel | .stringData[\"tailscale-node-addon.yaml\"]" "$file" > "$valfile" 2>/dev/null || true
-  apiversion="$(yq '.apiVersion // ""' "$valfile")"
-  kind="$(yq '.kind // ""' "$valfile")"
-  name="$(yq '.metadata.name // ""' "$valfile")"
-  ns="$(yq '.metadata.namespace // ""' "$valfile")"
-  rm -f "$valfile"
-
-  if [ "$apiversion" != "v1" ] || [ "$kind" != "Secret" ]; then
-    fail "tailscale-node-addon.yaml must render apiVersion: v1, kind: Secret (got $apiversion/$kind)"
-  elif [ "$name" != "tailscale-node-addon" ]; then
-    fail "tailscale-node-addon.yaml must create Secret named 'tailscale-node-addon' (got '$name')"
-  elif [ "$ns" != "kube-system" ]; then
-    fail "tailscale-node-addon.yaml must target namespace 'kube-system' (got '$ns')"
-  else
-    echo "  ✓ tailscale-node-addon renders a valid kube-system Secret manifest"
-  fi
-}
-
 validate_composition() {
   local file="$1"
   local sel base_count i name
@@ -275,9 +233,6 @@ validate_composition() {
   # 4. Dynamic suffixes render to {claim}-<suffix> exactly once.
   local d expected hits
   local -a comp_dynamic_suffixes=("${dynamic_suffixes[@]}")
-  if [[ "$file" == *"hybrid"* ]]; then
-    comp_dynamic_suffixes+=("tailscale-psk")
-  fi
   for d in "${comp_dynamic_suffixes[@]}"; do
     expected="$TEST_CLAIM-$d"
     hits="$(echo "$rendered_all" | grep -cx "$expected" || true)"
@@ -294,9 +249,6 @@ validate_composition() {
   # 5. CRS payload contract: every composition-created resource-set value must be
   #    an applyable Kubernetes manifest (no scalar configuration parameters).
   validate_crs_contract "$file"
-
-  # 6. Tailscale addon contract (ADR-046).
-  validate_tailscale_addon "$file"
 
   echo
 }

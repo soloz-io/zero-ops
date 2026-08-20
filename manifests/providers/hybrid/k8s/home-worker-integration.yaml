@@ -6,11 +6,10 @@
 # Contents:
 #   1. ClusterRole + ClusterRoleBinding: grants hub-operator permission to
 #      read spoke kubeconfigs and mint kubeadm bootstrap tokens (WS4).
-#   2. Tailscale pre-shared-key Secret: consumed by the Tailscale DaemonSet
-#      deployed via ClusterResourceSet on CAPI-managed CP/burst nodes.
 #
-# Note: The Tailscale DaemonSet itself lives in the hub-operator CRS step
-# (WS4: reconcileHomeWorkerJoin) to keep CRS lifecycle tied to token minting.
+# Note: Tailscale runs natively on all nodes (CP, home, burst workers) per
+# ADR-046 §13; the legacy pod-based Tailscale DaemonSet and its in-composition
+# PSK ExternalSecret were removed from the hybrid composition.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

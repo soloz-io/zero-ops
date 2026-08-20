@@ -39,7 +39,7 @@ Hetzner CAPI remains the infrastructure provider.
 | Spoke burst worker pool | Hetzner CAPI `MachineDeployment` at `replicas: 0` (escape hatch) |
 | Spoke default workers | Home-lab Flatcar nodes, unmanaged kubeadm join over Tailscale |
 | Spoke API access | Public Hetzner Load Balancer (CAPH-managed, `controlPlaneLoadBalancer.enabled=true`) |
-| Tailscale | Home-lab workers only; neither the Hub nor the spoke control plane runs Tailscale |
+| Tailscale | Home-lab workers only, run via native tailscaled (Ignition/DVD boot, §13). The spoke control plane also joins the tailnet via native tailscaled bootstrapped by the ClusterClass `preKubeadmCommands` (invariant 6 requires the CP's routable Tailscale IP for cross-node routing); the hub does not run Tailscale |
 
 ### Provider Cell Layout
 
@@ -774,6 +774,18 @@ Flatcar Container Linux is adopted as the definitive OS for Hyper-V home-lab wor
 3. **Clean cgroup v2 & eBPF**: Standard Linux kernel with native cgroups v2 and BPF filesystem support, completely eliminating the WSL2 `fix-cgroup-mount` init container and allowing standard Cilium CNI deployment.
 4. **Declarative Ignition Provisioning**: Node configuration (hostname, Tailscale auth key, SSH keys, kubelet, and `kubeadm join` oneshot systemd unit) is declaratively defined via Ignition (`config.ign`) attached as a virtual CD-ROM (`ignition.iso`) on first boot.
 5. **Official Hyper-V Gen2 Artifacts**: Pre-built Generation 2 VHDX images (`flatcar_production_hyperv.vhdx.bz2`) downloaded and resized dynamically on the host.
+
+**Addendum (2026-08-20): pod-based Tailscale DaemonSet retired.**
+The composition-mounted `tailscale-node-addon` DaemonSet (and its in-composition
+PSK ExternalSecret step) were removed from `spokepool-hybrid-composition.yaml`.
+Live verification showed the DS pod crash-looping (119 restarts) while tailnet
+connectivity was already provided natively on all node classes: control plane
+via ClusterClass `preKubeadmCommands` `files[]`/tailscale up, home workers via
+Flatcar Ignition §13, and burst (Hetzner) workers via the same ClusterClass
+`preKubeadmCommands` block added to `spokepool-worker-bootstrap-v1`. The hub-side
+`tailscale-hybrid-psk` ExternalSecret
+(`manifests/providers/hybrid/k8s/tailscale-psk-es.yaml`, authkey + hostname,
+consumed by the ClusterClass CP bootstrap) is unaffected and remains.
 
 ## References
 

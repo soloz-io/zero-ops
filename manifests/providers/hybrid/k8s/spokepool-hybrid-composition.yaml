@@ -126,9 +126,8 @@ spec:
                     convert:
                       toType: int64
           # ────────────────────────────────────────────────────────────────────
-          # ClusterResourceSet (CNI, CCM, CSI, ArgoCD agent bootstrap)
-          # Identical to hetzner; Tailscale DaemonSet is added via home-worker-
-          # integration.yaml ClusterResourceSet (separate step — WS4).
+          # ClusterResourceSet (CNI, CCM, CSI, ArgoCD agent bootstrap, home-worker
+          # integration). Tailscale runs natively on all nodes (ADR-046 §13).
           # ────────────────────────────────────────────────────────────────────
           - name: cluster-resource-set
             base:
@@ -154,9 +153,6 @@ spec:
                         # NATS leaf node credentials
                         - name: ""
                           kind: Secret
-                        # Tailscale PSK credentials
-                        - name: ""
-                          kind: Secret
                         # CNI: flatcar-native hybrid variant (native routing over tailnet, no VXLAN)
                         - name: cilium-addon-hybrid
                           kind: Secret
@@ -165,9 +161,6 @@ spec:
                         # ADR-046 §11: hybrid variant excludes home workers from
                         # hcloud-csi and provisions local-path on home workers
                         - name: csi-addon-hybrid
-                          kind: Secret
-                        # Tailscale node DaemonSet (ADR-046: tailnet-only spoke)
-                        - name: tailscale-node-addon
                           kind: Secret
                         # ArgoCD namespace
                         - name: argocd-namespace
@@ -254,23 +247,7 @@ spec:
                       fmt: "%s-nats-leaf-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[2].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-psk"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.spec.resources[6].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-node-addon"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[8].name
                 transforms:
                   - type: string
                     string:
@@ -278,7 +255,7 @@ spec:
                       fmt: "%s-observability-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[9].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
                 transforms:
                   - type: string
                     string:
@@ -286,7 +263,7 @@ spec:
                       fmt: "%s-messaging-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
                 transforms:
                   - type: string
                     string:
@@ -294,7 +271,7 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
                 transforms:
                   - type: string
                     string:
@@ -302,7 +279,7 @@ spec:
                       fmt: "%s-machine-identity"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
                 transforms:
                   - type: string
                     string:
@@ -310,7 +287,7 @@ spec:
                       fmt: "%s-bootstrap-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
                 transforms:
                   - type: string
                     string:
@@ -318,7 +295,7 @@ spec:
                       fmt: "%s-agent-ca"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[19].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
                 transforms:
                   - type: string
                     string:
@@ -703,325 +680,6 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-nats-leaf-credentials"
-
-          # ────────────────────────────────────────────────────────────────────
-          # Tailscale PSK ExternalSecret (ADR-046): syncs tailscale-hybrid-psk
-          # from Infisical into the spoke's kube-system via CRS.
-          # ────────────────────────────────────────────────────────────────────
-          - name: tailscale-psk-externalsecret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: external-secrets.io/v1
-                    kind: ExternalSecret
-                    metadata:
-                      namespace: platform-capi
-                    spec:
-                      refreshInterval: 1h
-                      secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
-                      target:
-                        name: ""
-                        creationPolicy: Owner
-                        template:
-                          type: addons.cluster.x-k8s.io/resource-set
-                          data:
-                            secret.yaml: |
-                              apiVersion: v1
-                              kind: Secret
-                              metadata:
-                                name: tailscale-hybrid-psk
-                                namespace: kube-system
-                              type: Opaque
-                              stringData:
-                                authkey: "{{ .authkey | trim }}"
-                      data:
-                        - secretKey: authkey
-                          remoteRef:
-                            key: tailscale-authkey
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-psk-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-psk-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.target.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-psk"
-
-          # ────────────────────────────────────────────────────────────────────
-          # Tailscale node addon (ADR-046): per-claim resource-set Secret that
-          # CAPI applies to the spoke's kube-system. Embeds the tailscale-node
-          # DaemonSet + RBAC and injects claim-name / cp-replicas so each node
-          # advertises a unique tailnet hostname (see home-worker-join-config
-          # for the source-of-truth naming convention).
-          # ────────────────────────────────────────────────────────────────────
-          - name: tailscale-node-addon
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: Secret
-                    metadata:
-                      namespace: platform-capi
-                    type: addons.cluster.x-k8s.io/resource-set
-                    stringData:
-                      # CRS contract: every value in a resource-set Secret must be an
-                      # applyable Kubernetes manifest. claim-name / cp-replicas are NOT
-                      # applyable objects (CAPI's isJSONList also errors on values < 32B
-                      # with io.EOF), so they are rendered into this Secret manifest and
-                      # applied to the spoke, instead of being stored as bare scalar keys.
-                      tailscale-node-addon.yaml: |
-                        apiVersion: v1
-                        kind: Secret
-                        metadata:
-                          name: tailscale-node-addon
-                          namespace: kube-system
-                        type: Opaque
-                        stringData:
-                          claim-name: "<composed-claim>"
-                          cp-replicas: "<composed-replicas>"
-                      tailscale-node.yaml: |
-                        apiVersion: apps/v1
-                        kind: DaemonSet
-                        metadata:
-                          name: tailscale-node
-                          namespace: kube-system
-                          labels:
-                            app.kubernetes.io/name: tailscale-node
-                        spec:
-                          selector:
-                            matchLabels:
-                              app.kubernetes.io/name: tailscale-node
-                          template:
-                            metadata:
-                              labels:
-                                app.kubernetes.io/name: tailscale-node
-                            spec:
-                              hostNetwork: true
-                              dnsPolicy: ClusterFirstWithHostNet
-                              serviceAccountName: tailscale-node
-                              # ADR-046 §WS3: home workers run NATIVE tailscaled at
-                              # the host level (provision script), so the pod-based
-                              # tailscale-node DS must NOT schedule there — two
-                              # tailscaled daemons fight over tailscale0.
-                              affinity:
-                                nodeAffinity:
-                                  requiredDuringSchedulingIgnoredDuringExecution:
-                                    nodeSelectorTerms:
-                                    - matchExpressions:
-                                      - key: workload-location
-                                        operator: NotIn
-                                        values:
-                                        - home
-                              tolerations:
-                                - operator: Exists
-                              initContainers:
-                                - name: compute-hostname
-                                  image: curlimages/curl:8.14.1
-                                  env:
-                                    - name: NODE_NAME
-                                      valueFrom:
-                                        fieldRef:
-                                          fieldPath: spec.nodeName
-                                    - name: CLAIM_NAME
-                                      valueFrom:
-                                        secretKeyRef:
-                                          name: tailscale-node-addon
-                                          key: claim-name
-                                    - name: CP_REPLICAS
-                                      valueFrom:
-                                        secretKeyRef:
-                                          name: tailscale-node-addon
-                                          key: cp-replicas
-                                  command: ["/bin/sh", "-c"]
-                                  args:
-                                    - |
-                                      set -e
-                                      TOKEN=""
-                                      if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
-                                        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-                                      fi
-                                      LABELS=""
-                                      if [ -n "$TOKEN" ]; then
-                                        CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                                        API=https://kubernetes.default.svc
-                                        LABELS=$(curl -sk --cacert "$CA" \
-                                          -H "Authorization: Bearer $TOKEN" \
-                                          "$API/api/v1/nodes/$NODE_NAME" | \
-                                          grep -o 'node-role.kubernetes.io/control-plane' || true)
-                                      fi
-                                      IS_CP=""
-                                      if [ -n "${LABELS:-}" ]; then
-                                        IS_CP="1"
-                                      elif echo "$NODE_NAME" | grep -qE -- "-cp|-control-plane$"; then
-                                        IS_CP="1"
-                                      fi
-                                      SHORT=$(echo "$NODE_NAME" | awk -F- '{print $NF}')
-                                      if [ -n "$IS_CP" ] && [ "$CP_REPLICAS" = "1" ]; then
-                                        HOSTNAME="${CLAIM_NAME}-cp"
-                                      elif [ -n "$IS_CP" ]; then
-                                        HOSTNAME="${CLAIM_NAME}-cp-${SHORT}"
-                                      else
-                                        HOSTNAME="${CLAIM_NAME}-burst-${SHORT}"
-                                      fi
-                                      echo "$HOSTNAME" > /hostname/name
-                                      echo "Computed tailnet hostname: $HOSTNAME (cp=$IS_CP replicas=$CP_REPLICAS)"
-                                  volumeMounts:
-                                    - name: hostname
-                                      mountPath: /hostname
-                              containers:
-                                - name: tailscale
-                                  image: tailscale/tailscale:v1.82.5
-                                  command: ["/bin/sh", "-c"]
-                                  args:
-                                    - |
-                                      set -e
-                                      if [ -f /hostname/name ]; then
-                                        export TS_HOSTNAME="$(cat /hostname/name)"
-                                      fi
-                                      echo "tailnet hostname: ${TS_HOSTNAME:-unset}"
-                                      exec /usr/local/bin/containerboot
-                                  env:
-                                    - name: TS_AUTHKEY
-                                      valueFrom:
-                                        secretKeyRef:
-                                          name: tailscale-hybrid-psk
-                                          key: authkey
-                                    - name: TS_STATE_DIR
-                                      value: /var/lib/tailscale
-                                    - name: TS_USERSPACE
-                                      value: "false"
-                                    - name: TS_KUBE_SECRET
-                                      value: tailscale-node-state
-                                    - name: TS_EXTRA_ARGS
-                                      value: "--accept-dns=false"
-                                  securityContext:
-                                    capabilities:
-                                      add:
-                                        - NET_ADMIN
-                                        - SYS_MODULE
-                                  volumeMounts:
-                                    - name: tailscale-state
-                                      mountPath: /var/lib/tailscale
-                                    - name: hostname
-                                      mountPath: /hostname
-                                    - name: lib-modules
-                                      mountPath: /lib/modules
-                                      readOnly: true
-                                    - name: run-netns
-                                      mountPath: /run/netns
-                              volumes:
-                                - name: tailscale-state
-                                  emptyDir: {}
-                                - name: hostname
-                                  emptyDir: {}
-                                - name: lib-modules
-                                  hostPath:
-                                    path: /lib/modules
-                                - name: run-netns
-                                  hostPath:
-                                    path: /run/netns
-                        ---
-                        apiVersion: v1
-                        kind: ServiceAccount
-                        metadata:
-                          name: tailscale-node
-                          namespace: kube-system
-                        ---
-                        apiVersion: rbac.authorization.k8s.io/v1
-                        kind: ClusterRole
-                        metadata:
-                          name: tailscale-node
-                        rules:
-                          - apiGroups: [""]
-                            resources: ["secrets"]
-                            verbs: ["get", "list", "watch", "create", "update", "patch"]
-                          - apiGroups: [""]
-                            resources: ["nodes"]
-                            verbs: ["get", "list", "watch"]
-                        ---
-                        apiVersion: rbac.authorization.k8s.io/v1
-                        kind: ClusterRoleBinding
-                        metadata:
-                          name: tailscale-node
-                        roleRef:
-                          apiGroup: rbac.authorization.k8s.io
-                          kind: ClusterRole
-                          name: tailscale-node
-                        subjects:
-                          - kind: ServiceAccount
-                            name: tailscale-node
-                            namespace: kube-system
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-node-addon"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-tailscale-node-addon"
-              # Render the complete tailscale-node-addon Secret manifest (spoke
-              # kube-system) with claim-name / cp-replicas substituted, so every value
-              # in the CRS resource set is an applyable Kubernetes manifest.
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: metadata.name
-                    - fromFieldPath: metadata.annotations[control-plane-replicas]
-                  strategy: string
-                  string:
-                    fmt: |
-                      apiVersion: v1
-                      kind: Secret
-                      metadata:
-                        name: tailscale-node-addon
-                        namespace: kube-system
-                      type: Opaque
-                      stringData:
-                        claim-name: "%s"
-                        cp-replicas: "%s"
-                toFieldPath: spec.forProvider.manifest.stringData["tailscale-node-addon.yaml"]
 
           # ────────────────────────────────────────────────────────────────────
           # Spoke ProviderConfig (identical to hetzner)
