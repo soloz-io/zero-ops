@@ -884,8 +884,8 @@ EOF
 
 # ── Phase 4: Provision Generation 2 Hyper-V VM ───────────────────────────────
 phase_provision_flatcar_vm() {
-  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3"
-  echo "    [4/6] Provisioning Flatcar Gen2 VM via Hyper-V KVP + DVD (${VM_NAME})..."
+  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-hub}"
+  echo "    [4/6] Provisioning Flatcar Gen2 VM via Hyper-V KVP + DVD (${VM_NAME} → ${CLUSTER_TARGET})..."
 
   local PS_VM="
 \$vmName = '${VM_NAME}';
@@ -917,10 +917,19 @@ Resize-VHD -Path \$vhdPath -SizeBytes $DISK_SIZE_BYTES
 Write-Output '    → Creating Generation 2 VM (\$vmName)...'
 \$cs = Get-CimInstance Win32_ComputerSystem
 \$totalRamBytes = [int64]\$cs.TotalPhysicalMemory
-\$reserveBytes = [int64](2GB)
-\$autoMaxRam = [int64]([math]::Max(4, [math]::Floor((\$totalRamBytes - \$reserveBytes) / 1GB)) * 1GB)
-\$autoStartup = [int64]([math]::Min([int64](14GB), \$autoMaxRam))
-\$autoMin = [int64](2GB)
+\$reserveBytes = [int64](5GB)
+
+# Co-located Dual-VM memory layout (16 GB Dell):
+# Windows + Hyper-V ~5 GB | Hub VM 6 GB | Spoke VM 4 GB | Safety margin ~1 GB
+if ('$CLUSTER_TARGET' -eq 'spoke') {
+  \$autoMaxRam = [int64](4GB)
+  \$autoStartup = [int64](3GB)
+  \$autoMin = [int64](2GB)
+} else {
+  \$autoMaxRam = [int64](6GB)
+  \$autoStartup = [int64](3.5GB)
+  \$autoMin = [int64](2GB)
+}
 
 \$proc = Get-CimInstance Win32_Processor
 \$autoCpus = [math]::Max(2, [int]\$proc.NumberOfLogicalProcessors)
@@ -934,7 +943,7 @@ if ($MIN_MEMORY_BYTES -gt 0) { \$finalMin = [int64]$MIN_MEMORY_BYTES }
 \$finalCpus = \$autoCpus
 if ($CPU_COUNT -gt 0) { \$finalCpus = [int]$CPU_COUNT }
 
-Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, 2 GB Host Reserve)')
+Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, 5 GB Host OS Reserve)')
 
 New-VM -Name \$vmName -Generation 2 -MemoryStartupBytes \$finalStartup -VHDPath \$vhdPath -SwitchName '$VSWITCH_NAME' | Out-Null
 Add-VMDvdDrive -VMName \$vmName -Path \$isoPath | Out-Null
@@ -1196,7 +1205,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
 
   phase_prep_hyperv "$SSH_TARGET" "$HOSTNAME"
   phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"
-  phase_provision_flatcar_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX"
+  phase_provision_flatcar_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"
 
   if ! phase_monitor_and_verify "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
     FAILED_NODES+=("${HOSTNAME}")
