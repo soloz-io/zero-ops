@@ -1,0 +1,39 @@
+# CoreDNS override — IPv4-only upstreams.
+#
+# Why: the CP node's /etc/resolv.conf lists Hetzner's IPv6-first nameservers
+# (2a01:4ff:ff00::add:2). CoreDNS forwards external queries to that file, so
+# `infisical.nutgraf.in` (which has both A + AAAA) resolves to its IPv6 address
+# first. Cluster nodes have no working IPv6 default route, so ESO's dial to
+# the IPv6 address hangs ("lookup ... i/o timeout") and every ExternalSecret
+# fails. The cluster CAN reach the IPv4 A record (65.109.41.89:443) — it just
+# never gets a chance because resolution prefers AAAA.
+#
+# Fix: pin the forward plugin to IPv4 public resolvers instead of the node's
+# resolv.conf. IPv4-only → A records are returned → IPv4 dial succeeds.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . 8.8.8.8 1.1.1.1 {
+           max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }

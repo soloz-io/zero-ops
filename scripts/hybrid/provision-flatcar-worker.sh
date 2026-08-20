@@ -439,9 +439,19 @@ for i in $(seq 1 30); do
       --cri-socket unix:///run/containerd/containerd.sock \
       --ignore-preflight-errors=all \
       --v=2 2>&1; then
-    TS_IP=$(/opt/bin/tailscale ip -4 2>/dev/null || true)
-    if [ -n "$TS_IP" ] && [ -f /var/lib/kubelet/kubeadm-flags.env ]; then
-      sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" /var/lib/kubelet/kubeadm-flags.env 2>/dev/null || true
+    # Advertise this node's pod CIDR as a tailscale subnet route so the peer
+    # CP's tailscaled accepts pod-CIDR traffic (Cilium native routing hands it
+    # to tailscale0). Pod CIDR is assigned by the CP after join → read it from
+    # the node object once the kubelet registers. Dynamic — never hardcode.
+    # Requires admin approval of the subnet route in the tailnet admin console.
+    for i in $(seq 1 30); do
+      POD_CIDR=$(/opt/bin/kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$(hostname)" -o jsonpath='{.spec.podCIDR}' 2>/dev/null || true)
+      [ -n "$POD_CIDR" ] && break
+      sleep 2
+    done
+    if [ -n "$POD_CIDR" ]; then
+      /opt/bin/tailscale set --advertise-routes="$POD_CIDR" --accept-routes 2>/dev/null || true
+      echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
     fi
 
     # Insert bootstrap DNAT: 10.96.0.1:443 -> Control Plane Endpoint (for Cilium config init container)
@@ -464,6 +474,24 @@ exit 1
 SH_EOF
   sed -i '' "s|__ENDPOINT__|${CONTROL_PLANE_ENDPOINT}|g; s|__TOKEN__|${JOIN_TOKEN}|g; s|__HASH__|${CA_CERT_HASH}|g; s|__VM_NAME__|${VM_NAME}|g" "${ISO_ROOT}/bin/join-cluster.sh" 2>/dev/null || sed -i "s|__ENDPOINT__|${CONTROL_PLANE_ENDPOINT}|g; s|__TOKEN__|${JOIN_TOKEN}|g; s|__HASH__|${CA_CERT_HASH}|g; s|__VM_NAME__|${VM_NAME}|g" "${ISO_ROOT}/bin/join-cluster.sh"
   chmod +x "${ISO_ROOT}/bin/join-cluster.sh"
+
+  # Dynamic kubelet --node-ip re-assertion (ADR-046 §13). The kubelet.service
+  # ExecStartPre runs this before EVERY kubelet start so the Node/CiliumNode
+  # advertise the tailnet IPv4 (never the home-LAN 172.30.0.x), dynamically —
+  # never hardcoded. Survives reboots and kubeadm upgrades. Idempotent.
+  cat <<'SH_EOF' > "${ISO_ROOT}/bin/dynamic-node-ip.sh"
+#!/bin/sh
+TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+FLAGS=/var/lib/kubelet/kubeadm-flags.env
+[ -f "$FLAGS" ] || exit 0
+[ -x "$TS_BIN" ] || exit 0
+TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+[ -n "$TS_IP" ] || exit 0
+sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+exit 0
+SH_EOF
+  chmod +x "${ISO_ROOT}/bin/dynamic-node-ip.sh"
 
   local IGN_FILE="${ISO_ROOT}/config.ign"
   cat <<EOF > "$IGN_FILE"
@@ -544,7 +572,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -662,6 +690,7 @@ coreos:
         [Service]
         Environment="KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
+        ExecStartPre=/opt/bin/dynamic-node-ip.sh
         ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
         Restart=always
         StartLimitInterval=0

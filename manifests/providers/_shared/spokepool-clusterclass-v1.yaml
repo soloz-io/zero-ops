@@ -480,6 +480,37 @@ spec:
 
             [Install]
             WantedBy=multi-user.target
+        # kubelet --node-ip = tailnet IPv4, resolved dynamically before EVERY
+        # kubelet start (ExecStartPre drop-in → dynamic-node-ip.sh) so the Node
+        # and CiliumNode always advertise the tailnet address (never the Hetzner
+        # private 10.0.0.x). Dynamic — never hardcode. Survives reboots and
+        # `kubeadm upgrade` (kubeadm rewrites kubeadm-flags.env; the drop-in
+        # re-applies the tailnet IP on the next kubelet start).
+        - path: /usr/local/bin/dynamic-node-ip.sh
+          owner: root
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            # Re-assert kubelet --node-ip = tailnet IPv4. Idempotent.
+            TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+            FLAGS=/var/lib/kubelet/kubeadm-flags.env
+            [ -f "$FLAGS" ] || exit 0
+            [ -x "$TS_BIN" ] || exit 0
+            TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+            [ -n "$TS_IP" ] || exit 0
+            sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+            exit 0
+        - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
+          owner: root
+          permissions: "0644"
+          content: |
+            [Unit]
+            After=tailscaled.service
+            Wants=tailscaled.service
+
+            [Service]
+            ExecStartPre=/usr/local/bin/dynamic-node-ip.sh
         preKubeadmCommands:
         - set -x
         - export CONTAINERD=1.7.26
@@ -562,6 +593,18 @@ spec:
           # externally (works in-cluster). Remove the label so the CP node is a
           # valid LB backend.
           - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
+          # ── Tailscale-native Cilium routing (ADR-046 §13) ──────────────────
+          # 1) kubelet --node-ip = tailnet IPv4 (never the Hetzner private
+          #    10.0.0.x) so the Node/CiliumNode advertise the tailnet address.
+          #    The systemd drop-in (files[] → /usr/local/bin/dynamic-node-ip.sh
+          #    via ExecStartPre) re-asserts it before every kubelet start.
+          #    Apply once now and restart kubelet to pick it up dynamically.
+          - 'if [ -s /etc/tailscale-hostname ]; then systemctl daemon-reload && /usr/local/bin/dynamic-node-ip.sh && systemctl restart kubelet; fi'
+          # 2) Advertise this node's pod CIDR as a tailscale subnet route so the
+          #    peer node's tailscaled accepts and forwards pod-CIDR traffic
+          #    (Cilium native routing hands it to tailscale0). Requires admin
+          #    approval of the subnet route in the tailnet admin console.
+          - 'if [ -s /etc/tailscale-hostname ]; then POD_CIDR="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf get node "$(hostname)" -o jsonpath="{.spec.podCIDR}" 2>/dev/null || true)"; [ -n "$POD_CIDR" ] && tailscale set --advertise-routes="${POD_CIDR}" --accept-routes; fi'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
@@ -654,7 +697,7 @@ spec:
       # this block no-ops. Per-machine uniqueness via $(hostname).
       - curl -fsSL https://tailscale.com/install.sh | sh || true
       - systemctl enable --now tailscaled || true
-      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)-wrk-$(hostname)" --accept-dns=false; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false --accept-routes; fi'
       - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
       - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
 ---

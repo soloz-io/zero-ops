@@ -52,6 +52,9 @@ resources:
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+  # IPv4-only CoreDNS upstreams (spoke nodes have no working IPv6 default
+  # route; AAAA-first resolution broke ESO/ExternalSecrets). See coredns.yaml.
+  - coredns.yaml
   # TenantDatabase XRD + composition (ADR-047): spoke-side Crossplane reconciles
   # TenantDatabase XRs pushed from the hub via provider-kubernetes remote pattern.
   # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.
