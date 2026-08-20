@@ -312,9 +312,9 @@ if (!(Test-Path \$baseVhdx)) {
 "
   win_ps_stream "$SSH_TARGET" "$PS_VHDX"
 
-  # 2. Stop and remove existing VM to release file locks (checks both legacy and current names)
+  # 2. Stop and remove existing VM to release file locks (checks legacy, hub, and spoke names)
   local PS_STOP="
-\$vmNames = @('$VM_NAME', 'flatcar-node-${NODE_IDX}', 'flatcar-hub-node-${NODE_IDX}') | Select-Object -Unique;
+\$vmNames = @('$VM_NAME', 'flatcar-node-${NODE_IDX}', 'flatcar-hub-node-${NODE_IDX}', 'flatcar-spoke-node-${NODE_IDX}') | Select-Object -Unique;
 foreach (\$name in \$vmNames) {
   \$existingVM = Get-VM -Name \$name -ErrorAction SilentlyContinue
   if (\$existingVM) {
@@ -327,7 +327,7 @@ foreach (\$name in \$vmNames) {
 
   # 2b. Clean up any stale Kubernetes node registration (idempotent across Hub & Spoke)
   echo "    → Cleaning up any stale Kubernetes node registration (${VM_NAME})..."
-  kubectl --kubeconfig="${HUB_KUBECONFIG}" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl --kubeconfig="${HUB_KUBECONFIG}" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" "flatcar-spoke-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
 
   local SPOKE_KC
   SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
@@ -335,7 +335,7 @@ foreach (\$name in \$vmNames) {
         get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
         -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
         | base64 -d > "$SPOKE_KC" 2>/dev/null; then
-    kubectl --kubeconfig="$SPOKE_KC" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+    kubectl --kubeconfig="$SPOKE_KC" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" "flatcar-spoke-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
     rm -f "$SPOKE_KC"
   else
     rm -f "$SPOKE_KC"
@@ -1100,15 +1100,21 @@ if [[ "$MODE" == "verify" ]]; then
   echo "=== Verify mode — checking Flatcar node Ready status ==="
   local_ok=1
   idx=0
-  while IFS='|' read -r HOSTNAME _SSH _WSL _TAILNET _TAG NODE_TARGET; do
-    [[ -z "$HOSTNAME" ]] && continue
+  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET; do
+    [[ -z "$_HOST" && -z "$_SSH" ]] && continue
     idx=$((idx + 1))
     CURR_TARGET="hub"
     if [[ "$idx" -gt 1 ]]; then CURR_TARGET="spoke"; fi
     if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
     if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
-    VM_NAME="flatcar-node-${idx}"
-    if [[ "$CURR_TARGET" == "hub" ]]; then VM_NAME="flatcar-hub-node-${idx}"; fi
+    VM_NAME="${_HOST}"
+    if [[ -z "$VM_NAME" ]]; then
+      if [[ "$CURR_TARGET" == "hub" ]]; then
+        VM_NAME="flatcar-hub-node-${idx}"
+      else
+        VM_NAME="flatcar-spoke-node-${idx}"
+      fi
+    fi
     if node_ready "$VM_NAME" "$CURR_TARGET"; then :; else local_ok=0; fi
   done <<< "$HOME_WORKER_NODES"
   [[ "$local_ok" == "1" ]] && echo "=== ALL REGISTERED NODES READY ===" || echo "=== SOME NODES NOT READY ==="
@@ -1141,9 +1147,13 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET; 
   if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
   if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
 
-  HOSTNAME="flatcar-node-${NODE_IDX}"
-  if [[ "$CURR_TARGET" == "hub" ]]; then
-    HOSTNAME="flatcar-hub-node-${NODE_IDX}"
+  HOSTNAME="${_HOST}"
+  if [[ -z "$HOSTNAME" ]]; then
+    if [[ "$CURR_TARGET" == "hub" ]]; then
+      HOSTNAME="flatcar-hub-node-${NODE_IDX}"
+    else
+      HOSTNAME="flatcar-spoke-node-${NODE_IDX}"
+    fi
   fi
   TAILNET_HOST="${HOSTNAME}.${TAILNET_NAME}"
 
