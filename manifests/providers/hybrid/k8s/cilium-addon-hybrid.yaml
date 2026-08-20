@@ -1088,6 +1088,13 @@ stringData:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.hostIP
+            - name: KUBERNETES_SERVICE_PORT
+              value: "6443"
             - name: CILIUM_CLUSTERMESH_CONFIG
               value: /var/lib/cilium/clustermesh/
             - name: GOMEMLIMIT
@@ -1210,6 +1217,17 @@ stringData:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            # Override the default Kubernetes service ClusterIP (10.96.0.1)
+            # with the node's InternalIP so the config init container can reach
+            # the API server during Cilium bootstrap (before BPF kube-proxy
+            # replacement is loaded). hostNetwork: true is required for this.
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.hostIP
+            - name: KUBERNETES_SERVICE_PORT
+              value: "6443"
             volumeMounts:
             - name: tmp
               mountPath: /tmp
