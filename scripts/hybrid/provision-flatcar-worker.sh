@@ -36,6 +36,7 @@ ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
 VSWITCH_NAME="Hybrid-Switch"
+TARGET_CLUSTER="hub"    # Default target cluster: 'hub' (or 'spoke' via --cluster/--spoke)
 MEMORY_BYTES="0"         # 0 = auto-detect (14GB or TotalHostRAM - 2GB)
 MIN_MEMORY_BYTES="0"     # 0 = auto-detect (2GB)
 MAX_MEMORY_BYTES="0"     # 0 = auto-detect (TotalHostRAM - 2GB)
@@ -54,6 +55,8 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
+  --cluster <hub|spoke> Target cluster (default: 'hub').
+  --spoke <name>       Shorthand to target a specific spoke cluster.
   --node N             Provision only node index N (1-based from home-lab.env).
   --env FILE           Path to environment file (default: scripts/hybrid/home-lab.env)
   --ts-authkey KEY     Tailscale auth-key (auto-loaded from k8-secrets/tailscale/authkey if omitted).
@@ -74,7 +77,7 @@ Phases per node:
   [3/6] Flatcar base VHDX & Ignition ISO bundle preparation
   [4/6] Provision Generation 2 Hyper-V VM with attached Ignition DVD ISO
   [5/6] Wait for Flatcar First-Boot, Tailscale mesh & Kubeadm join
-  [6/6] Verify node Ready in Spoke cluster (success gate)
+  [6/6] Verify node Ready in target cluster (success gate)
 
 Exit code 0 only if all targeted nodes are Ready.
 EOF
@@ -83,6 +86,8 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --cluster)          TARGET_CLUSTER="$2"; shift 2 ;;
+    --spoke)            TARGET_CLUSTER="spoke"; HYBRID_SPOKE_NAME="$2"; shift 2 ;;
     --node)             ONLY_NODE="$2"; shift 2 ;;
     --env)              ENV_FILE="$2"; shift 2 ;;
     --ts-authkey)       TS_AUTHKEY="$2"; shift 2 ;;
@@ -316,22 +321,58 @@ if (\$existingVM) {
 "
   win_ps "$SSH_TARGET" "$PS_STOP" >/dev/null
 
-  # 3. Fetch Spoke join credentials from Hub
-  local JOIN_SECRET_NAME="${HYBRID_SPOKE_NAME}-home-worker-join"
-  local JOIN_TOKEN CA_CERT_HASH CONTROL_PLANE_ENDPOINT
-  JOIN_TOKEN=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
-    get secret "${JOIN_SECRET_NAME}" -n platform-capi \
-    -o jsonpath="{.data.node-${NODE_IDX}-token}" 2>/dev/null | base64 -d || true)
-  CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
-    get secret "${JOIN_SECRET_NAME}" -n platform-capi \
-    -o jsonpath='{.data.ca-cert-hash}' 2>/dev/null | base64 -d || true)
-  CONTROL_PLANE_ENDPOINT=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
-    get secret "${JOIN_SECRET_NAME}" -n platform-capi \
-    -o jsonpath="{.data.control-plane-endpoint}" 2>/dev/null | base64 -d || true)
+  # 3. Fetch or mint join credentials
+  local JOIN_TOKEN="" CA_CERT_HASH="" CONTROL_PLANE_ENDPOINT=""
+  local CLUSTER_TARGET="${4:-$TARGET_CLUSTER}"
 
-  if [[ -z "$JOIN_TOKEN" || -z "$CA_CERT_HASH" || -z "$CONTROL_PLANE_ENDPOINT" ]]; then
-    echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
-    return 1
+  if [[ "$CLUSTER_TARGET" == "hub" ]]; then
+    echo "    → Minting Hub bootstrap token for node ${VM_NAME}..."
+    local TOKEN_ID TOKEN_SECRET
+    TOKEN_ID=$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(6)))")
+    TOKEN_SECRET=$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16)))")
+    JOIN_TOKEN="${TOKEN_ID}.${TOKEN_SECRET}"
+
+    cat <<EOF | kubectl --kubeconfig="${HUB_KUBECONFIG}" apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bootstrap-token-${TOKEN_ID}
+  namespace: kube-system
+type: bootstrap.kubernetes.io/token
+stringData:
+  token-id: "${TOKEN_ID}"
+  token-secret: "${TOKEN_SECRET}"
+  usage-bootstrap-authentication: "true"
+  usage-bootstrap-signing: "true"
+  auth-extra-groups: "system:bootstrappers:kubeadm:default-node-token"
+EOF
+
+    CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" get cm -n kube-system kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null \
+      | openssl x509 -pubkey -noout 2>/dev/null \
+      | openssl rsa -pubin -outform der 2>/dev/null \
+      | openssl dgst -sha256 -hex 2>/dev/null \
+      | sed 's/^.* //')
+
+    local SERVER
+    SERVER=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+    CONTROL_PLANE_ENDPOINT="${SERVER}"
+  else
+    # Fetch Spoke join credentials from Hub
+    local JOIN_SECRET_NAME="${HYBRID_SPOKE_NAME}-home-worker-join"
+    JOIN_TOKEN=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+      get secret "${JOIN_SECRET_NAME}" -n platform-capi \
+      -o jsonpath="{.data.node-${NODE_IDX}-token}" 2>/dev/null | base64 -d || true)
+    CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+      get secret "${JOIN_SECRET_NAME}" -n platform-capi \
+      -o jsonpath='{.data.ca-cert-hash}' 2>/dev/null | base64 -d || true)
+    CONTROL_PLANE_ENDPOINT=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+      get secret "${JOIN_SECRET_NAME}" -n platform-capi \
+      -o jsonpath="{.data.control-plane-endpoint}" 2>/dev/null | base64 -d || true)
+
+    if [[ -z "$JOIN_TOKEN" || -z "$CA_CERT_HASH" || -z "$CONTROL_PLANE_ENDPOINT" ]]; then
+      echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
+      return 1
+    fi
   fi
 
   # Normalize endpoint (host:port)
@@ -344,6 +385,11 @@ if (\$existingVM) {
   local TMP_DIR
   TMP_DIR=$(mktemp -d /tmp/ignition-gen-XXXXXX)
   trap 'rm -rf "$TMP_DIR"' RETURN
+
+  local NODE_LABELS="workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  if [[ "$CLUSTER_TARGET" == "hub" ]]; then
+    NODE_LABELS="workload-location=home,hub-role=worker,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  fi
 
   local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
   HOSTNAME_B64=$(printf '%s' "${VM_NAME}" | base64 | tr -d '\r\n')
@@ -625,7 +671,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -747,7 +793,7 @@ coreos:
         ConditionPathExists=/var/lib/kubelet/config.yaml
 
         [Service]
-        Environment="KUBELET_EXTRA_ARGS=--node-labels=workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true --provider-id=unmanaged://${VM_NAME}"
+        Environment="KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
         ExecStartPre=/opt/bin/dynamic-node-ip.sh
         ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
@@ -903,38 +949,49 @@ Write-Output 'VM-READY=OK'
 # ── Phase 6: Verify node Ready ───────────────────────────────────────────────
 node_ready() {
   local HOSTNAME="$1"
-  local SPOKE_KC
-  SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
-  trap 'rm -f "$SPOKE_KC"' RETURN
-  if ! kubectl --kubeconfig="${HUB_KUBECONFIG}" \
-        get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
-        -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
-        | base64 -d > "$SPOKE_KC"; then
-    echo "    ✗ could not fetch spoke kubeconfig" >&2
-    return 1
+  local CLUSTER_TARGET="${2:-$TARGET_CLUSTER}"
+  local TARGET_KC
+  local TMP_KC=""
+
+  if [[ "$CLUSTER_TARGET" == "hub" ]]; then
+    TARGET_KC="${HUB_KUBECONFIG}"
+  else
+    TMP_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
+    if ! kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+          get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
+          -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
+          | base64 -d > "$TMP_KC"; then
+      echo "    ✗ could not fetch spoke kubeconfig" >&2
+      rm -f "$TMP_KC"
+      return 1
+    fi
+    TARGET_KC="$TMP_KC"
   fi
-  if kubectl --kubeconfig="$SPOKE_KC" get node "${HOSTNAME}" &>/dev/null; then
+
+  if kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" &>/dev/null; then
     local READY
-    READY=$(kubectl --kubeconfig="$SPOKE_KC" get node "${HOSTNAME}" \
+    READY=$(kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" \
       -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+    [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
     if [[ "$READY" == "True" ]]; then
-      echo "    ✓ ${HOSTNAME}: Ready"
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
       return 0
     else
-      echo "    ✗ ${HOSTNAME}: exists but Ready=${READY}" >&2
+      echo "    ✗ ${HOSTNAME}: exists in ${CLUSTER_TARGET} but Ready=${READY}" >&2
       return 1
     fi
   else
-    echo "    ✗ ${HOSTNAME}: not a member of ${HYBRID_SPOKE_NAME}" >&2
+    [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
+    echo "    ✗ ${HOSTNAME}: not a member of ${CLUSTER_TARGET} cluster" >&2
     return 1
   fi
 }
 
 # ── Phase 5 & 6: Monitor guest boot & verify node Ready ─────────────────────
 phase_monitor_and_verify() {
-  local SSH_TARGET="$1" HOSTNAME="$2" NODE_IDX="$3"
+  local SSH_TARGET="$1" HOSTNAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-$TARGET_CLUSTER}"
   echo "    [5/6] Flatcar VM booted — monitoring guest startup & join progress..."
-  echo "    [6/6] Waiting for node Ready in Spoke cluster (up to 5 min)..."
+  echo "    [6/6] Waiting for node Ready in ${CLUSTER_TARGET} cluster (up to 5 min)..."
   local HOST_IP="${SSH_TARGET#*@}"
   local GUEST_PORT=$((2220 + NODE_IDX))
   for attempt in $(seq 1 30); do
@@ -977,24 +1034,29 @@ phase_monitor_and_verify() {
       LAST_LOG=""
     fi
 
-    # Check Spoke cluster membership
-    if node_ready "$HOSTNAME" 2>/dev/null | grep -q "Ready"; then
-      echo "      [${attempt}/30] (${ELAPSED}s) VM: ${VM_STATUS} | SSH: ${SSH_STATUS} | Install: ${INST_STATUS} | Tailscale: ${TS_STATUS} | CRI: ${CRI_STATUS} | Join: ${JOIN_STATUS} | Kubelet: ${KUBE_STATUS} | Spoke: Ready ✓"
-      echo "    ✓ ${HOSTNAME}: Ready in Spoke cluster"
+    # Check cluster membership
+    if node_ready "$HOSTNAME" "$CLUSTER_TARGET" 2>/dev/null | grep -q "Ready"; then
+      echo "      [${attempt}/30] (${ELAPSED}s) VM: ${VM_STATUS} | SSH: ${SSH_STATUS} | Install: ${INST_STATUS} | Tailscale: ${TS_STATUS} | CRI: ${CRI_STATUS} | Join: ${JOIN_STATUS} | Kubelet: ${KUBE_STATUS} | ${CLUSTER_TARGET}: Ready ✓"
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
       # Apply node-role labels from cluster side (idempotent with kubelet --node-labels)
-      local SPOKE_KC
-      SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
-      if kubectl --kubeconfig="${HUB_KUBECONFIG}" \
-            get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
-            -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
-            | base64 -d > "$SPOKE_KC"; then
-        kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" \
-          node-role.kubernetes.io/home= node-role.kubernetes.io/worker= --overwrite >/dev/null 2>&1 || true
-        rm -f "$SPOKE_KC"
+      if [[ "$CLUSTER_TARGET" == "hub" ]]; then
+        kubectl --kubeconfig="${HUB_KUBECONFIG}" label node "${HOSTNAME}" \
+          node-role.kubernetes.io/home= node-role.kubernetes.io/worker= hub-role=worker workload-location=home --overwrite >/dev/null 2>&1 || true
+      else
+        local SPOKE_KC
+        SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
+        if kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+              get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
+              -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
+              | base64 -d > "$SPOKE_KC"; then
+          kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" \
+            node-role.kubernetes.io/home= node-role.kubernetes.io/worker= workload-location=home --overwrite >/dev/null 2>&1 || true
+          rm -f "$SPOKE_KC"
+        fi
       fi
       return 0
     else
-      echo "      [${attempt}/30] (${ELAPSED}s) VM: ${VM_STATUS} | SSH: ${SSH_STATUS} | Install: ${INST_STATUS} | Tailscale: ${TS_STATUS} | CRI: ${CRI_STATUS} | Join: ${JOIN_STATUS} | Kubelet: ${KUBE_STATUS} | Spoke: Joining..."
+      echo "      [${attempt}/30] (${ELAPSED}s) VM: ${VM_STATUS} | SSH: ${SSH_STATUS} | Install: ${INST_STATUS} | Tailscale: ${TS_STATUS} | CRI: ${CRI_STATUS} | Join: ${JOIN_STATUS} | Kubelet: ${KUBE_STATUS} | ${CLUSTER_TARGET}: Joining..."
       if [[ -n "$CRI_PODS" ]]; then
         echo "        ↳ [CRI Pods]: ${CRI_PODS}"
       fi
@@ -1018,11 +1080,14 @@ if [[ "$MODE" == "verify" ]]; then
   echo "=== Verify mode — checking Flatcar node Ready status ==="
   local_ok=1
   idx=0
-  while IFS='|' read -r HOSTNAME _SSH _WSL _TAILNET _TAG; do
+  while IFS='|' read -r HOSTNAME _SSH _WSL _TAILNET _TAG NODE_TARGET; do
     [[ -z "$HOSTNAME" ]] && continue
     idx=$((idx + 1))
+    CURR_TARGET="$TARGET_CLUSTER"
+    if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
     VM_NAME="flatcar-node-${idx}"
-    if node_ready "$VM_NAME"; then :; else local_ok=0; fi
+    if [[ "$CURR_TARGET" == "hub" ]]; then VM_NAME="flatcar-hub-node-${idx}"; fi
+    if node_ready "$VM_NAME" "$CURR_TARGET"; then :; else local_ok=0; fi
   done <<< "$HOME_WORKER_NODES"
   [[ "$local_ok" == "1" ]] && echo "=== ALL REGISTERED NODES READY ===" || echo "=== SOME NODES NOT READY ==="
   exit $((1 - local_ok))
@@ -1032,6 +1097,7 @@ NODE_IDX=0
 FAILED_NODES=()
 
 echo "=== Hybrid Hyper-V + Flatcar Container Linux worker provisioner ==="
+echo "    Target Cluster: ${TARGET_CLUSTER}"
 echo "    Spoke:          ${HYBRID_SPOKE_NAME}"
 echo "    Tailnet:        ${TAILNET_NAME}"
 echo "    Hub kc:         ${HUB_KUBECONFIG}"
@@ -1043,16 +1109,26 @@ echo ""
 
 phase_prep_binaries
 
-while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG; do
+while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
 
-  HOSTNAME="flatcar-node-${NODE_IDX}"
-  TAILNET_HOST="flatcar-node-${NODE_IDX}.${TAILNET_NAME}"
+  CURR_TARGET="$TARGET_CLUSTER"
+  if [[ -n "${NODE_TARGET:-}" && "$TARGET_CLUSTER" == "all" ]]; then
+    CURR_TARGET="$NODE_TARGET"
+  elif [[ -n "${NODE_TARGET:-}" && "$TARGET_CLUSTER" == "default" ]]; then
+    CURR_TARGET="$NODE_TARGET"
+  fi
 
-  echo "── node ${NODE_IDX}: ${HOSTNAME} (${BOX_TAG}) ─────────────────"
-  echo "    SSH: ${SSH_TARGET}  VM: ${HOSTNAME}  Tailnet: ${TAILNET_HOST}"
+  HOSTNAME="flatcar-node-${NODE_IDX}"
+  if [[ "$CURR_TARGET" == "hub" ]]; then
+    HOSTNAME="flatcar-hub-node-${NODE_IDX}"
+  fi
+  TAILNET_HOST="${HOSTNAME}.${TAILNET_NAME}"
+
+  echo "── node ${NODE_IDX}: ${HOSTNAME} (${BOX_TAG} → ${CURR_TARGET}) ─────────────────"
+  echo "    SSH: ${SSH_TARGET}  VM: ${HOSTNAME}  Tailnet: ${TAILNET_HOST}  Target: ${CURR_TARGET}"
 
   # [1/6] SSH reachability gate
   echo "    [1/6] SSH reachability gate..."
@@ -1065,10 +1141,10 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG; do
   echo "    ✓ SSH connected"
 
   phase_prep_hyperv "$SSH_TARGET" "$HOSTNAME"
-  phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX"
+  phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"
   phase_provision_flatcar_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX"
 
-  if ! phase_monitor_and_verify "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX"; then
+  if ! phase_monitor_and_verify "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
     FAILED_NODES+=("${HOSTNAME}")
   fi
   echo ""

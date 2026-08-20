@@ -11,6 +11,10 @@ spec:
 
   enableSuperuserAccess: true
 
+  affinity:
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+
   certificates:
     # CNPG generates its own internal CA natively — no external CA is injected.
     # The platform-db-ca Secret is created by CNPG during cluster bootstrap.
