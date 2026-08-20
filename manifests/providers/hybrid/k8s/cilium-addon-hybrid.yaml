@@ -1170,11 +1170,10 @@ stringData:
               mountPath: /var/run/cilium/netns
               # Hybrid (ADR-046): HostToContainer propagation requires the source
               # mount (/var/run/netns on the root fs) to be shared or slave.
-              # Home VMs' root filesystem is neither, so kubelet fails the container
-              # spec with "not a shared or slave mount". Degrade to a plain bind
-              # mount — pod-netns exec via cilium-dbg is unavailable on hybrid.
-              # Hetzner (real VMs) keeps HostToContainer (shared mounts present).
-              mountPropagation: None
+              # Flatcar (systemd-based) mounts /run as tmpfs with shared propagation
+              # by default — verified on live worker (findmnt /run PROPAGATION=shared).
+              # HostToContainer works; preserves cilium-dbg netns exec capability.
+              mountPropagation: HostToContainer
             - name: etc-cni-netd
               mountPath: /host/etc/cni/net.d
             - name: clustermesh-secrets
@@ -1355,7 +1354,7 @@ stringData:
               mountPath: /run/cilium/cgroupv2
               mountPropagation: HostToContainer
             - name: cilium-run
-              mountPath: /var/run/cilium # wait-for-kube-proxy
+              mountPath: /var/run/cilium
           # Install the CNI binaries in an InitContainer so we don't have a writable host mount in the agent
           - name: install-cni-binaries
             image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"

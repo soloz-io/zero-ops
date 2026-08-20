@@ -1,6 +1,7 @@
 # Cilium Helm values for the hybrid provider (ADR-046).
-# Source of truth for regenerating cilium-addon-hybrid.yaml via
-# scripts/hybrid/render-cilium-addon.sh.
+# The rendered cilium-addon-hybrid.yaml is maintained manually (not auto-
+# generated from helm template). This values file documents the delta
+# between the stock chart and the hybrid addon for reference.
 #
 # NOTE: The rendered manifest must NOT use the chart's auto-generated
 # cilium-ca / hubble-server-certs (they rotate on every render). The render
@@ -30,12 +31,14 @@ gatewayAPI:
   proxyProtocol: true
   hostNetwork:
     # Serve Gateway API listeners directly on the host network (ports 80/443
-    # bound by the embedded Envoy on the selected nodes) instead of the
-    # NodePort+TPROXY redirect path, which drops genuinely-external SYN/ACK
-    # traffic (Cilium mangle transparent-socket marking bug, see ADR-046
-    # addendum + cilium-hostnetwork-mangle-guard DaemonSet in the rendered
-    # addon). Requires envoy.securityContext.capabilities.keepCapNetBindService
-    # and NET_BIND_SERVICE on the agent container to bind privileged ports.
+    # bound by Envoy on the selected nodes) instead of the NodePort+TPROXY
+    # redirect path, which silently drops genuinely-external SYN traffic
+    # (ADR-046 addendum 8 + the cilium-hostnetwork-mangle-guard DaemonSet in
+    # the rendered addon). The public waypoint-gateway-lb targets the CP
+    # node's private IP on host ports 80/443, which only exist in this mode;
+    # scripts/hybrid/ensure-waypoint-lb.sh depends on it.
+    # Requires NET_BIND_SERVICE on the Envoy container to bind privileged
+    # ports (see envoy.securityContext.capabilities below).
     enabled: true
     nodes:
       matchLabels:

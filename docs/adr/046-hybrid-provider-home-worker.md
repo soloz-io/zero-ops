@@ -132,8 +132,9 @@ from `spokepool-hybrid-composition.yaml`) for the deltas that remain:
 The shared `cilium-addon-template` used by Hetzner spokes is left unchanged.
 
 **Control-plane durability**: the Hetzner CP host must still establish the
-shared cgroup2 mount itself (the hybrid manifest no-ops the stock
-`mount-cgroup` init so the CP host provides it). Codified in the shared
+shared cgroup2 mount itself (the stock mount-cgroup init does this, but the
+cgroup2 mount is lost on `/run` tmpfs reboots, so cilium-host-prep
+re-creates it at boot). Codified in the shared
 ClusterClass (`_shared/spokepool-clusterclass-v1.yaml`): a
 `cilium-host-prep.service` systemd unit is written via `files[]` and
 enabled/started in `preKubeadmCommands`, re-creating the shared cgroup2/BPF
