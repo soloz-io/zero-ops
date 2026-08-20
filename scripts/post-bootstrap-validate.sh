@@ -729,6 +729,57 @@ check_spoke_platform() {
 
     # Tenant database prerequisite
     check_spoke_cnpg
+
+    # Cross-node CNI datapath & Cilium health gate (ADR-046 Addendum 14)
+    check_spoke_datapath
+}
+
+check_spoke_datapath() {
+    log "  Checking Spoke cross-node CNI datapath & Cilium health..."
+    local cilium_pod
+    cilium_pod=$(kc_spoke get pods -n kube-system -l k8s-app=cilium --no-headers 2>/dev/null | grep "Running" | head -1 | awk '{print $1}' || echo "")
+    if [[ -z "$cilium_pod" ]]; then
+        log_fail "Spoke Cilium: no running agent pods in kube-system"
+        return 0
+    fi
+
+    local c_status
+    c_status=$(kc_spoke exec -n kube-system "$cilium_pod" -c cilium-agent -- cilium-dbg status 2>/dev/null || echo "")
+    if echo "$c_status" | grep -q "Cilium:                  Ok"; then
+        log_pass "Spoke Cilium Agent: Ok (healthy)"
+    else
+        log_fail "Spoke Cilium Agent: Degraded or not Ok"
+    fi
+
+    # Check for multi-node / home-worker presence
+    local nodes_count
+    nodes_count=$(kc_spoke get nodes --no-headers 2>/dev/null | grep -c '' || echo "0")
+    if [[ "$nodes_count" -ge 2 ]]; then
+        local worker_node
+        worker_node=$(kc_spoke get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [[ -n "$worker_node" ]]; then
+            log "  Validating worker $worker_node cross-node control-plane & ClusterIP connectivity..."
+            local worker_cilium
+            worker_cilium=$(kc_spoke get pods -n kube-system -l k8s-app=cilium --field-selector spec.nodeName="$worker_node" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [[ -n "$worker_cilium" ]]; then
+                local bpf_lb
+                bpf_lb=$(kc_spoke exec -n kube-system "$worker_cilium" -c cilium-agent -- cilium-dbg bpf lb list 2>/dev/null || echo "")
+                if echo "$bpf_lb" | grep -q "10.96.0.1:443"; then
+                    log_pass "Worker $worker_node Cilium eBPF Service Map: 10.96.0.1:443 active"
+                else
+                    log_fail "Worker $worker_node Cilium eBPF Service Map: 10.96.0.1:443 missing"
+                fi
+            fi
+
+            local worker_crashloops
+            worker_crashloops=$(kc_spoke get pods -A --field-selector spec.nodeName="$worker_node" --no-headers 2>/dev/null | grep "CrashLoopBackOff" | grep -c '' || echo "0")
+            if [[ "$worker_crashloops" -eq 0 ]]; then
+                log_pass "Worker $worker_node Workloads: 0 CrashLoopBackOff pods"
+            else
+                log_fail "Worker $worker_node Workloads: $worker_crashloops CrashLoopBackOff pod(s)"
+            fi
+        fi
+    fi
 }
 
 # ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
