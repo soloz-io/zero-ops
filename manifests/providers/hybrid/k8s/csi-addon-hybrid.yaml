@@ -1,12 +1,12 @@
 ---
 # Hetzner CSI Driver + Local-Path Provisioner Addon — Hybrid Provider (ADR-046 §11)
-# WSL2-specific variant of csi-addon-template. Applies only to hybrid spokes
+# Hybrid-specific variant of csi-addon-template. Applies only to hybrid spokes
 # via spokepool-hybrid-composition.yaml CRS. Do NOT reference from hetzner compositions.
 #
 # Changes vs. the shared template (ADR-046 §11 "CSI daemonset boundary"):
 #   1. hcloud-csi-node DaemonSet: nodeAffinity gains `required NotIn
-#      workload-location: home` — a label-less (or worse, labeled) WSL2 home
-#      worker must NEVER run the Hetzner CSI node driver (no block devices).
+#      workload-location: home` — a home worker must NEVER run the Hetzner CSI
+#      node driver (no block devices).
 #   2. local-path-provisioner DaemonSet: `required In workload-location: home`,
 #      hostPath /opt/local-path-provisioner (node-local storage for the home
 #      placement class).

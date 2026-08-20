@@ -35,9 +35,9 @@ import (
 //  5. Rotates the token before expiry (rotation window = TTL/2) and cleans up
 //     expired tokens for the same spoke.
 //
-// The join flow is unmanaged by design: home WSL2 workers are convenience nodes
-// that join via a plain `kubeadm join` with a minted bootstrap token. They never
-// enter the CAPI topology (the ClusterClass stays CAPI-managed).
+// The join flow is unmanaged by design: home (Flatcar) workers are convenience
+// nodes that join via a plain `kubeadm join` with a minted bootstrap token. They
+// never enter the CAPI topology (the ClusterClass stays CAPI-managed).
 
 // bootstrapTokenSecretType is the kubeadm bootstrap-token Secret type.
 const bootstrapTokenSecretType = "bootstrap.kubernetes.io/token"
@@ -72,19 +72,19 @@ const kubeadmBootstrapTokenCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 // homeWorkerTokenPrefix is the Secret name prefix for spoke bootstrap tokens.
 const homeWorkerTokenPrefix = "bootstrap-token-"
 
-// isHomeWorkerProvider returns true for provider types that support home workers (WSL2, Flatcar, or Talos).
+// isHomeWorkerProvider returns true for provider types that support home workers (hybrid / Flatcar).
 func isHomeWorkerProvider(provider string) bool {
-	return provider == "hybrid" || provider == "hybrid-flatcar" || provider == "hybrid-talos"
+	return provider == "hybrid"
 }
 
 // reconcileHomeWorkerJoin ensures the home-worker join payload Secret and spoke
-// bootstrap token for a hybrid / hybrid-talos SpokePool. Gated on isHomeWorkerProvider
+// bootstrap token for a hybrid SpokePool. Gated on isHomeWorkerProvider
 // and the home-worker-enabled annotation. Idempotent and rotation-aware.
 func (r *SpokePoolReconciler) reconcileHomeWorkerJoin(ctx context.Context, spokePool *unstructured.Unstructured) error {
 	logger := log.FromContext(ctx)
 	spokeName := spokePool.GetName()
 
-	// Gate: hybrid / hybrid-talos providers only.
+	// Gate: hybrid providers only.
 	provider, found, err := unstructured.NestedString(spokePool.Object, "spec", "provider")
 	if err != nil || !found {
 		return nil

@@ -157,7 +157,7 @@ spec:
                         # Tailscale PSK credentials
                         - name: ""
                           kind: Secret
-                        # CNI: hybrid-specific variant with WSL2 cgroup-namespace fix (ADR-046)
+                        # CNI: flatcar-native hybrid variant (native routing over tailnet, no VXLAN)
                         - name: cilium-addon-hybrid
                           kind: Secret
                         - name: ccm-addon-template
@@ -327,7 +327,7 @@ spec:
 
           # ────────────────────────────────────────────────────────────────────
           # Home-worker join config ConfigMap
-          # Carries {hostname, tailnetHost} per WSL2 node from claim annotations.
+          # Carries {hostname, tailnetHost} per home (Flatcar) node from claim annotations.
           # Consumed by hub-operator reconcileHomeWorkerJoin (WS4).
           # ────────────────────────────────────────────────────────────────────
           - name: home-worker-join-config

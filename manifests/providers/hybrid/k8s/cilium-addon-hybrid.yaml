@@ -1,31 +1,29 @@
 ---
-# Cilium CNI Addon — Hybrid Provider (ADR-046)
-# WSL2-specific variant of cilium-addon-template. Applies only to hybrid spokes
-# via spokepool-hybrid-composition.yaml CRS. Do NOT reference from hetzner compositions.
+# Cilium CNI Addon — Hybrid Provider (ADR-046 §13 Flatcar-native)
+# Flatcar home worker runs native Linux cgroups v2 + eBPF over the tailnet.
+# Native routing mode (NO VXLAN overlay) — the Hetzner CP and the Flatcar
+# home worker reach each other directly via their tailscale InternalIPs.
 #
-# Cilium v1.17.18 — Gateway-API secrets sync (enable-gateway-api-secrets-sync) fixes
-# Envoy SDS delivery of the waypoint TLS secret (previously empty /certs on 1.15.6).
-# See ADR-049 (codified Cilium lifecycle).
+# Deliberate deltas vs. cilium-addon-template (hetzner clean base):
+#   1. routing-mode: native (no tunnel/vxlan) — the home worker is a native
+#      Flatcar Linux box, not a WSL2 container behind Windows NAT, so no
+#      VXLAN encapsulation over the tailnet is required.
+#   2. devices: eth+ enp+ tailscale0 + direct-routing-device: tailscale0 —
+#      pod traffic between the Hetzner CP and the home node egresses tailnet.
+#   3. auto-direct-node-routes: true — remote pod CIDRs route via the remote
+#      node's InternalIP (tailscale IP) over tailscale0.
+#   4. mtu: 1200 (tailscale encapsulation overhead).
+#   5. Standard mount-cgroup init (native cgroup v2) — the WSL2
+#      fix-cgroup-mount / host-cgroup / mount-cgroup no-op hacks are removed.
+#   6. gateway-api-hostnetwork-enabled: false — no hostNetwork gateway, so the
+#      cilium-hostnetwork-mangle-guard DaemonSet is removed.
+#   7. cilium-node-ip-reconciler removed — native routing needs the CP to
+#      advertise its tailscale InternalIP; set via kubelet --node-ip in the
+#      ClusterClass (postKubeadmCommands), no runtime patcher required.
 #
-# Changes vs. the shared template:
-#   1. fix-cgroup-mount init container: bind-mounts /sys/fs/cgroup (host real
-#      cgroup2 hierarchy) onto /run/cilium/cgroupv2 inside the pod's OWN mount
-#      namespace, enforcing three sequential invariants (Gate 1: mount succeeds,
-#      Gate 2: cgroup2 superblock, Gate 3: kubepods* exists). Fails closed if
-#      any gate fails — Cilium will not start in a degraded CgroupManager state.
-#   2. mount-cgroup replaced with no-op. The nsenter --cgroup --mount path runs
-#      in the host mnt ns and never propagates into the container's private ns.
-#   3. host-cgroup hostPath volume: /sys/fs/cgroup (host unified cgroup2 tree).
-#   4. Envoy decoupled (ADR-046 addendum 10): envoy.enabled=true renders the
-#      standalone cilium-envoy DaemonSet; the chart flips external-envoy-proxy
-#      to "true" atomically (external-envoy-proxy: "true" below). The agent no
-#      longer runs an embedded Envoy, so agent restarts cannot trigger the
-#      embedded hot-restart drain/wedge (2/2 reproductions, 2026-08-17). The DS
-#      carries a wait-for-envoy-release init container (orders DS start after
-#      the embedded Envoy's host abstract sockets are released; 600s fail-closed
-#      deadline) and updateStrategy maxUnavailable: 1 (maxUnavailable: 0 is
-#      rejected by the DaemonSet API without surge, which would deadlock the
-#      release gate; socket safety is enforced by the init gate itself).
+# Cilium v1.17.18 — Gateway-API secrets sync (enable-gateway-api-secrets-sync)
+# delivers the waypoint TLS secret to Envoy SDS. See ADR-049.
+# Envoy decoupled (ADR-046 addendum 10): standalone cilium-envoy DaemonSet.
 #
 # NOTE: cilium-ca / hubble-server-certs are the ORIGINAL bootstrap-issued certs
 # (rotated exactly once, see ADR-046). Do NOT re-render this manifest through
@@ -143,8 +141,8 @@ stringData:
       gateway-api-xff-num-trusted-hops: "0"
       gateway-api-service-externaltrafficpolicy: "Cluster"
       gateway-api-secrets-namespace: "cilium-secrets"
-      gateway-api-hostnetwork-enabled: "true"
-      gateway-api-hostnetwork-nodelabelselector: "node-role.kubernetes.io/control-plane="
+      gateway-api-hostnetwork-enabled: "false"
+      gateway-api-hostnetwork-nodelabelselector: ""
       enable-policy-secrets-sync: "true"
       policy-secrets-only-from-secrets-namespace: "true"
       policy-secrets-namespace: "cilium-secrets"
@@ -246,9 +244,10 @@ stringData:
       #   - vxlan (default)
       #   - geneve
 
-      routing-mode: "tunnel"
-      tunnel-protocol: "vxlan"
-      tunnel-source-port-range: "0-0"
+      # Flatcar-native (ADR-046 §13): native routing over the tailnet.
+      # Nodes reach each other directly via their tailscale InternalIPs on
+      # tailscale0 — no VXLAN tunnel needed.
+      routing-mode: "native"
       service-no-backend-response: "reject"
       mtu: "1200"
 
@@ -268,11 +267,12 @@ stringData:
       install-no-conntrack-iptables-rules: "false"
       iptables-random-fully: "false"
 
-      auto-direct-node-routes: "false"
+      auto-direct-node-routes: "true"
       direct-routing-skip-unreachable: "false"
       enable-local-redirect-policy: "false"
       devices: "eth+ enp+ tailscale0"
       direct-routing-device: "tailscale0"
+      ipv4-native-routing-cidr: "10.244.0.0/16"
       node-port-mode: "snat"
       kube-proxy-replacement: "true"
       kube-proxy-replacement-healthz-bind-address: ""
@@ -363,7 +363,7 @@ stringData:
       external-envoy-proxy: "true"
       envoy-base-id: "0"
       envoy-access-log-buffer-size: "4096"
-      envoy-keep-cap-netbindservice: "true"
+      envoy-keep-cap-netbindservice: "false"
       max-connected-clusters: "255"
       clustermesh-enable-endpoint-sync: "false"
       clustermesh-enable-mcs-api: "false"
@@ -374,7 +374,6 @@ stringData:
       enable-lb-ipam: "true"
       enable-non-default-deny-policies: "true"
       enable-source-ip-verification: "false"
-      enable-gateway-api-proxy-protocol: "true"
 
     # Extra config allows adding arbitrary properties to the cilium config.
     # By putting it at the end of the ConfigMap, it's also possible to override existing properties.
@@ -1192,14 +1191,6 @@ stringData:
               readOnly: true
             - name: tmp
               mountPath: /tmp
-            # host shared cgroup2 (ADR-046): the agent must mount the cilium-cgroup
-            # hostPath volume itself. fix-cgroup-mount (init) creates the host-level
-            # shared cgroup2 mount, but init containers run in their own mount
-            # namespace — the agent only sees it via this volumeMount with
-            # HostToContainer propagation.
-            - name: cilium-cgroup
-              mountPath: /run/cilium/cgroupv2
-              mountPropagation: HostToContainer
 
           initContainers:
           - name: config
@@ -1223,21 +1214,40 @@ stringData:
             - name: tmp
               mountPath: /tmp
             terminationMessagePolicy: FallbackToLogsOnError
-          # mount-cgroup: no-op on hybrid spokes (ADR-046).
-          # The nsenter --cgroup --mount path executes in the HOST mount namespace
-          # and does not propagate into the agent container's private mount ns.
-          # fix-cgroup-mount (above) handles cgroup2 visibility instead.
+          # Standard mount-cgroup (native cgroup v2 — Flatcar/Linux).
+          # The WSL2-origin hybrid no-op'd this because nsenter into the HOST
+          # mount ns never propagated into the agent's private ns; on native
+          # Flatcar the stock path (host mount ns via nsenter) works normally.
           - name: mount-cgroup
             image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
             imagePullPolicy: IfNotPresent
+            env:
+            - name: CGROUP_ROOT
+              value: /run/cilium/cgroupv2
+            - name: BIN_PATH
+              value: /opt/cni/bin
             command:
-            - /bin/sh
-            - -c
+            - sh
+            - -ec
+            # The statically linked Go program binary is invoked to avoid any
+            # dependency on utilities like sh and mount that can be missing on certain
+            # distros installed on the underlying host. Copy the binary to the
+            # same directory where we install cilium cni plugin so that exec permissions
+            # are available.
             - |
-              echo "mount-cgroup: no-op on hybrid spoke — fix-cgroup-mount owns cgroup2 setup (ADR-046)"
-              exit 0
+              cp /usr/bin/cilium-mount /hostbin/cilium-mount;
+              nsenter --cgroup=/hostproc/1/ns/cgroup --mount=/hostproc/1/ns/mnt "${BIN_PATH}/cilium-mount" $CGROUP_ROOT;
+              rm /hostbin/cilium-mount
+            volumeMounts:
+            - name: hostproc
+              mountPath: /hostproc
+            - name: cni-path
+              mountPath: /hostbin
             terminationMessagePolicy: FallbackToLogsOnError
             securityContext:
+              seLinuxOptions:
+                level: s0
+                type: spc_t
               capabilities:
                 add:
                   - SYS_ADMIN
@@ -1346,94 +1356,6 @@ stringData:
               mountPropagation: HostToContainer
             - name: cilium-run
               mountPath: /var/run/cilium # wait-for-kube-proxy
-          # ── WSL2 cgroup-namespace fix (ADR-046 §Cilium-CgroupManager) ───────
-          # Runs AFTER clean-cilium-state on purpose: that init runs
-          # `cilium-dbg cleanup -f --all-state`, which unmounts the host
-          # /run/cilium/cgroupv2 cgroup2 mount we rely on. This container must
-          # therefore re-establish the mount last, immediately before the agent.
-          #
-          # WSL2 nodes run in a private OCI cgroup+mount namespace (/proc/1/cgroup
-          # = 0::/ inside the container). The stock mount-cgroup init container
-          # uses nsenter --cgroup --mount into the HOST mount namespace; that mount
-          # lands in the host ns but never propagates into the agent container's
-          # private namespace. Cilium's CheckOrMountCgrpFS then detects
-          # /run/cilium/cgroupv2 as a plain directory (not cgroup2 superblock from
-          # inside the container's ns) and stacks a fresh empty cgroup2 root on
-          # top, masking the host kubepods hierarchy → CgroupManager disabled →
-          # transparent-DNS-proxy inactive → toEndpoints kube-dns = world → DENY.
-          #
-          # fix-cgroup-mount runs privileged inside the pod's OWN mount namespace.
-          # It bind-mounts /host-cgroup (= host /sys/fs/cgroup, see volumes) onto
-          # /run/cilium/cgroupv2 with Bidirectional propagation so the mount is
-          # visible to the agent (which mounts cilium-cgroup HostToContainer).
-          # The agent then sees a real cgroup2 superblock with kubepods*.slice and
-          # CheckOrMountCgrpFS skips the remount.
-          #
-          # The container enforces three sequential invariants and fails closed
-          # (exit 1) if any gate fails, preventing Cilium from starting in a
-          # degraded configuration where CgroupManager would be silently disabled.
-          - name: fix-cgroup-mount
-            image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
-            imagePullPolicy: IfNotPresent
-            command:
-            - /bin/bash
-            - -c
-            - |
-              set -euo pipefail
-
-              # ── Gate 1: bind-mount ───────────────────────────────────────────
-              # Skip if /run/cilium/cgroupv2 is already a cgroup2 superblock
-              # (e.g. pod rescheduled on a node where the bind persists).
-              if findmnt -n -t cgroup2 /run/cilium/cgroupv2 >/dev/null 2>&1; then
-                echo "fix-cgroup-mount: Gate 1 PASS — already cgroup2, skipping bind"
-              else
-                echo "fix-cgroup-mount: Gate 1 — bind-mounting /host-cgroup -> /run/cilium/cgroupv2"
-                mkdir -p /run/cilium/cgroupv2
-                mount --bind /host-cgroup /run/cilium/cgroupv2
-                echo "fix-cgroup-mount: Gate 1 PASS — bind-mount succeeded"
-              fi
-
-              # ── Gate 2: assert cgroup2 superblock ───────────────────────────
-              # Fails if /sys/fs/cgroup on the host is not unified cgroup2
-              # (hybrid nodes use systemd cgroup driver + SystemdCgroup=true,
-              # so /sys/fs/cgroup IS the unified cgroup2 hierarchy).
-              if ! findmnt -n -t cgroup2 /run/cilium/cgroupv2 >/dev/null 2>&1; then
-                echo "fix-cgroup-mount: Gate 2 FAIL — not a cgroup2 filesystem" >&2
-                findmnt /run/cilium/cgroupv2 >&2 || true
-                exit 1
-              fi
-              echo "fix-cgroup-mount: Gate 2 PASS — cgroup2 superblock confirmed"
-
-              # ── Gate 3: assert kubepods* hierarchy ──────────────────────────
-              # CgroupManager searches for kubepods* at cgroup-root depth 1.
-              # Glob is distro-tolerant:
-              #   kubepods/              (cgroupv2 flat layout)
-              #   kubepods.slice/        (systemd driver — WSL2 nodes)
-              #   kubepods-burstable.slice/ etc. are children, found by the agent.
-              KUBEPODS=$(find /run/cilium/cgroupv2 -maxdepth 1 -name 'kubepods*' -type d 2>/dev/null | head -1)
-              if [[ -z "${KUBEPODS}" ]]; then
-                echo "fix-cgroup-mount: Gate 3 FAIL — no kubepods* under /run/cilium/cgroupv2" >&2
-                echo "fix-cgroup-mount: top-level entries:" >&2
-                ls -la /run/cilium/cgroupv2/ >&2
-                echo "fix-cgroup-mount: CgroupManager would be disabled — refusing to start Cilium" >&2
-                exit 1
-              fi
-              echo "fix-cgroup-mount: Gate 3 PASS — kubepods hierarchy: ${KUBEPODS}"
-
-              # ── All gates passed ─────────────────────────────────────────────
-              echo "fix-cgroup-mount: invariants satisfied — CgroupManager will be enabled"
-              echo "fix-cgroup-mount: cgroup2 tree top-level:"
-              ls /run/cilium/cgroupv2/ | head -20
-            securityContext:
-              privileged: true
-            terminationMessagePolicy: FallbackToLogsOnError
-            volumeMounts:
-            - name: host-cgroup
-              mountPath: /host-cgroup
-              readOnly: true
-            - name: cilium-cgroup
-              mountPath: /run/cilium/cgroupv2
-              mountPropagation: Bidirectional
           # Install the CNI binaries in an InitContainer so we don't have a writable host mount in the agent
           - name: install-cni-binaries
             image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
@@ -1496,13 +1418,6 @@ stringData:
           - name: hostproc
             hostPath:
               path: /proc
-              type: Directory
-          # host-cgroup: exposes the host's unified cgroup2 hierarchy
-          # (/sys/fs/cgroup on WSL2, kubepods*.slice present) into the pod.
-          # fix-cgroup-mount bind-mounts this onto /run/cilium/cgroupv2.
-          - name: host-cgroup
-            hostPath:
-              path: /sys/fs/cgroup
               type: Directory
           # To keep state between restarts / upgrades for cgroup2 filesystem
           - name: cilium-cgroup
@@ -1707,177 +1622,6 @@ stringData:
           - name: cilium-config-path
             configMap:
               name: cilium-config
-    ---
-    # Source: hybrid/cilium-node-ip-reconciler (ADR-046 addendum 6)
-    # Reconciles CP node's Tailscale IP into CiliumNode.spec.addresses and
-    # CiliumEndpoint.status.networking.node on hybrid control-plane nodes so remote
-    # WSL2 workers maintain the correct VXLAN tunnel endpoint in BPF ipcache.
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: cilium-node-ip-reconciler
-      namespace: kube-system
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRole
-    metadata:
-      name: cilium-node-ip-reconciler
-    rules:
-    - apiGroups: ["cilium.io"]
-      resources: ["ciliumnodes", "ciliumnodes/status", "ciliumendpoints", "ciliumendpoints/status"]
-      verbs: ["get", "list", "watch", "update", "patch"]
-    - apiGroups: [""]
-      resources: ["nodes"]
-      verbs: ["get", "list", "watch"]
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRoleBinding
-    metadata:
-      name: cilium-node-ip-reconciler
-    roleRef:
-      apiGroup: rbac.authorization.k8s.io
-      kind: ClusterRole
-      name: cilium-node-ip-reconciler
-    subjects:
-    - kind: ServiceAccount
-      name: cilium-node-ip-reconciler
-      namespace: kube-system
-    ---
-    apiVersion: apps/v1
-    kind: DaemonSet
-    metadata:
-      name: cilium-node-ip-reconciler
-      namespace: kube-system
-      labels:
-        hybrid.zero-ops.io/component: node-ip-reconciler
-    spec:
-      selector:
-        matchLabels:
-          name: cilium-node-ip-reconciler
-      template:
-        metadata:
-          labels:
-            name: cilium-node-ip-reconciler
-        spec:
-          nodeSelector:
-            node-role.kubernetes.io/control-plane: ""
-          tolerations:
-          - operator: Exists
-          hostNetwork: true
-          serviceAccountName: cilium-node-ip-reconciler
-          containers:
-          - name: reconciler
-            image: alpine/k8s:1.31.0
-            securityContext:
-              privileged: true
-            command:
-            - /bin/sh
-            - -c
-            - |
-              echo "Starting Cilium CP Tailscale IP reconciler..."
-              TS_IP="100.71.186.51"
-              NODE_NAME="spoke-pool-hybrid-dev-01-rz2c6-g8lc2"
-              while true; do
-                # 1. Reconcile CiliumNode
-                CURRENT_IP=$(kubectl get ciliumnode "$NODE_NAME" -o jsonpath='{.spec.addresses[?(@.type=="InternalIP")].ip}' 2>/dev/null || true)
-                if [ "$CURRENT_IP" != "$TS_IP" ]; then
-                  echo "[$(date -u +%T)] Reconciling CiliumNode $NODE_NAME: $CURRENT_IP -> $TS_IP"
-                  kubectl patch ciliumnode "$NODE_NAME" --type=json -p="[{\"op\": \"replace\", \"path\": \"/spec/addresses/0/ip\", \"value\": \"$TS_IP\"}]" 2>/dev/null || true
-                fi
-
-                # 2. Reconcile CiliumEndpoints on CP node
-                kubectl get ciliumendpoints -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,NODE:.status.networking.node' --no-headers 2>/dev/null | while read -r ns name node; do
-                  if [ -n "$ns" ] && [ -n "$name" ] && [ "$node" != "$TS_IP" ] && [ "$node" != "100.90.90.13" ] && [ "$node" != "100.93.88.95" ]; then
-                    echo "[$(date -u +%T)] Reconciling CEP $ns/$name: $node -> $TS_IP"
-                    kubectl patch ciliumendpoint -n "$ns" "$name" --type=merge -p "{\"status\":{\"networking\":{\"node\":\"$TS_IP\"}}}" 2>/dev/null || true
-                  fi
-                done
-
-                # 3. Ensure Ingress IP is bound to cilium_host interface
-                INGRESS_IP=$(kubectl get ciliumnode "$NODE_NAME" -o jsonpath='{.spec.ingress.ipv4}' 2>/dev/null || true)
-                if [ -n "$INGRESS_IP" ]; then
-                  ip addr show dev cilium_host 2>/dev/null | grep -q "$INGRESS_IP" || ip addr add "$INGRESS_IP/32" dev cilium_host 2>/dev/null || true
-                fi
-                sleep 3
-              done
-
-    ---
-    # Source: zero-ops/hybrid (ADR-046 addendum): hostNetwork-gateway mangle guard.
-    #
-    # When the embedded Envoy serves Gateway API listeners directly on the host
-    # network (gateway-api-hostnetwork-enabled=true), Cilium's stock
-    # CILIUM_PRE_mangle rule "any->pod redirect proxied traffic to host proxy"
-    # (-m socket --transparent) matches post-handshake packets destined to the
-    # transparent host-bound listener sockets and sets the to-proxy mark
-    # (0x200), which reroutes them via ip rule lookup table 2004 (local lo).
-    # For hostNetwork listeners this breaks the TCP 3-way handshake for
-    # EXTERNAL traffic (kernel never processes the final ACK; SYN-ACK storms
-    # retransmit) - verified exhaustively on the hybrid spoke (loopback
-    # traffic is exempt via Cilium's own "! -o lo" exclusion, which is why
-    # in-cluster tests pass while LB traffic fails).
-    #
-    # Cilium re-creates its mangle chains on every agent restart/re-sync and
-    # wipes any foreign rules, so the workaround cannot be a one-shot
-    # iptables insert - it must be continuously re-asserted. This guard
-    # DaemonSet runs on the gateway hostNetwork nodes (control-plane),
-    # idempotently ensuring an early RETURN rule for dports 80/443 sits at
-    # the top of CILIUM_PRE_mangle.
-    apiVersion: apps/v1
-    kind: DaemonSet
-    metadata:
-      name: cilium-hostnetwork-mangle-guard
-      namespace: kube-system
-      labels:
-        app.kubernetes.io/name: cilium-hostnetwork-mangle-guard
-        app.kubernetes.io/part-of: cilium
-    spec:
-      selector:
-        matchLabels:
-          name: cilium-hostnetwork-mangle-guard
-      updateStrategy:
-        type: RollingUpdate
-      template:
-        metadata:
-          labels:
-            name: cilium-hostnetwork-mangle-guard
-        spec:
-          hostNetwork: true
-          hostPID: true
-          nodeSelector:
-            node-role.kubernetes.io/control-plane: ""
-          tolerations:
-            - operator: Exists
-          priorityClassName: system-node-critical
-          serviceAccountName: cilium-hostnetwork-mangle-guard
-          terminationGracePeriodSeconds: 0
-          containers:
-            - name: guard
-              # The cilium-agent image (already pulled on every node of the
-              # spoke) ships iptables v1.8.8; alpine/k8s does NOT, so the
-              # earlier variant silently never enforced the rule. Digest is
-              # pinned to the agent's so no extra image is ever pulled.
-              image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
-              securityContext:
-                privileged: true
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  echo "Starting hostNetwork gateway mangle guard (dports 80/443)..."
-                  while true; do
-                    if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null; then
-                      iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null || true
-                      echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for dports 80/443"
-                    fi
-                    sleep 3
-                  done
-    ---
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: cilium-hostnetwork-mangle-guard
-      namespace: kube-system
-    ---
     ---
     # Source: cilium/templates/cilium-envoy/serviceaccount.yaml
     apiVersion: v1

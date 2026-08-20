@@ -1,6 +1,7 @@
 ---
 # Home-worker integration resources for the hybrid provider cell (ADR-046 §WS2).
-# These resources support the unmanaged kubeadm join lifecycle for WSL2 home workers.
+# These resources support the unmanaged kubeadm join lifecycle for home
+# (Flatcar) workers.
 #
 # Contents:
 #   1. ClusterRole + ClusterRoleBinding: grants hub-operator permission to

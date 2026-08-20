@@ -9,9 +9,7 @@ metadata:
 # Only providers with a live composition are listed (ADR-046 §WS2).
 # capd: removed (WS0 — CAPD/local provider removed)
 # aws: removed (dangling — no composition exists)
-# hybrid: added (ADR-046 — Hetzner CP + home WSL2 workers)
-# hybrid-flatcar: added (Hetzner CP + home Hyper-V Flatcar workers)
+# hybrid: added (ADR-046 §13 — Hetzner CP + home Flatcar workers, native routing)
 data:
   hetzner: "spokepool-hetzner"
   hybrid: "spokepool-hybrid"
-  hybrid-flatcar: "spokepool-hybrid-flatcar"
