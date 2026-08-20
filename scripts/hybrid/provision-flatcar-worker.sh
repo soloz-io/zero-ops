@@ -881,16 +881,16 @@ phase_provision_flatcar_vm() {
   echo "    [4/6] Provisioning Flatcar Gen2 VM via Hyper-V KVP + DVD (${VM_NAME})..."
 
   local PS_VM="
-\$vmName = '$VM_NAME';
+\$vmName = '${VM_NAME}';
 \$solozDir = 'C:\ProgramData\soloz\flatcar';
 \$baseVhdx = Join-Path \$solozDir 'flatcar-base.vhdx';
 \$rawVhdx = Join-Path \$solozDir 'flatcar_production_hyperv_vhdx_image.vhdx';
 if (!(Test-Path \$baseVhdx) -and (Test-Path \$rawVhdx)) {
   Move-Item -Path \$rawVhdx -Destination \$baseVhdx -Force
 }
-\$vhdPath = Join-Path \$solozDir (\$vmName + '.vhdx');
-\$ignPath = Join-Path \$solozDir (\$vmName + '-config.ign');
-\$isoPath = Join-Path \$solozDir (\$vmName + '-ignition.iso');
+\$vhdPath = Join-Path \$solozDir '${VM_NAME}.vhdx';
+\$ignPath = Join-Path \$solozDir '${VM_NAME}-config.ign';
+\$isoPath = Join-Path \$solozDir '${VM_NAME}-ignition.iso';
 \$kvpctl = Join-Path \$solozDir 'kvpctl.exe';
 
 \$existingVM = Get-VM -Name \$vmName -ErrorAction SilentlyContinue
@@ -901,7 +901,7 @@ if (\$existingVM) {
 }
 
 # Clean any stale checkpoint avhdx files
-Get-ChildItem \$solozDir -Filter (\$vmName + '*.avhdx') | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem \$solozDir -Filter '${VM_NAME}*.avhdx' | Remove-Item -Force -ErrorAction SilentlyContinue
 
 Write-Output '    → Creating fresh VM disk from pristine base Flatcar VHDX...'
 Copy-Item -Path \$baseVhdx -Destination \$vhdPath -Force
