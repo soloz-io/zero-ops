@@ -450,7 +450,7 @@ for i in $(seq 1 30); do
       sleep 2
     done
     if [ -n "$POD_CIDR" ]; then
-      /opt/bin/tailscale set --advertise-routes="$POD_CIDR" --accept-routes 2>/dev/null || true
+      /opt/bin/tailscale set --advertise-routes="$POD_CIDR" 2>/dev/null || true
       echo "[join] ✓ Advertised pod CIDR ${POD_CIDR} over tailnet"
     fi
 
@@ -567,7 +567,7 @@ SH_EOF
       {
         "name": "tailscaled.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=Tailscale Node Agent\nAfter=k8s-install.service\nWants=k8s-install.service\n\n[Service]\nExecStartPre=/usr/bin/mkdir -p /var/lib/tailscale /opt/bin\nExecStart=/opt/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock\nExecStartPost=/bin/sh -c 'sleep 2; /opt/bin/tailscale up --authkey=${TS_AUTHKEY} --hostname=${VM_NAME} --accept-routes'\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=Tailscale Node Agent\nAfter=k8s-install.service\nWants=k8s-install.service\n\n[Service]\nExecStartPre=/usr/bin/mkdir -p /var/lib/tailscale /opt/bin\nExecStart=/opt/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock\nExecStartPost=/bin/sh -c 'sleep 2; /opt/bin/tailscale up --authkey=${TS_AUTHKEY} --hostname=${VM_NAME}'\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubelet.service",
@@ -670,7 +670,7 @@ coreos:
         [Service]
         ExecStartPre=/usr/bin/mkdir -p /var/lib/tailscale /opt/bin
         ExecStart=/opt/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock
-        ExecStartPost=/bin/sh -c 'sleep 2; /opt/bin/tailscale up --authkey=${TS_AUTHKEY} --hostname=${VM_NAME} --accept-routes'
+        ExecStartPost=/bin/sh -c 'sleep 2; /opt/bin/tailscale up --authkey=${TS_AUTHKEY} --hostname=${VM_NAME}'
         Restart=always
         RestartSec=5
 

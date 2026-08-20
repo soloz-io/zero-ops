@@ -9,7 +9,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: spokepool-control-plane-v5
+      name: spokepool-control-plane-v6
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -973,6 +973,212 @@ spec:
           #    approval of the subnet route in the tailnet admin console.
           - 'if [ -s /etc/tailscale-hostname ]; then POD_CIDR="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf get node "$(hostname)" -o jsonpath="{.spec.podCIDR}" 2>/dev/null || true)"; [ -n "$POD_CIDR" ] && tailscale set --advertise-routes="${POD_CIDR}" --accept-routes; fi'
 ---
+# ── v6: Remove --accept-routes to prevent Tailscale route collision ──────
+# v5 bug: --accept-routes caused the CP to accept stale podCIDR routes from
+# orphaned tailnet nodes (e.g. old flatcar-node-1), hijacking local pod
+# traffic into table 52 (tailscale0) instead of the local cilium_host.
+# Cilium handles cross-node pod routing natively via Kubernetes node
+# InternalIPs; Tailscale subnet route acceptance is unnecessary and dangerous.
+# v6 = v5 minus --accept-routes on the tailscale set line.
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: spokepool-control-plane-v6
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          networking:
+            podSubnet: 10.244.0.0/16
+            serviceSubnet: 10.96.0.0/12
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+              allocate-node-cidrs: "true"
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+              node-labels: "instance.hetzner.cloud/provided-by=cloud"
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+              node-labels: "instance.hetzner.cloud/provided-by=cloud"
+        files:
+        - path: /etc/tailscale-authkey
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              name: tailscale-hybrid-psk
+              key: authkey
+        - path: /etc/tailscale-hostname
+          owner: root
+          permissions: "0600"
+          contentFrom:
+            secret:
+              name: tailscale-hybrid-psk
+              key: hostname
+        - path: /etc/systemd/system/cilium-host-prep.service
+          owner: root
+          permissions: "0644"
+          content: |
+            [Unit]
+            Description=Cilium host cgroup2+BPF prep (control-plane node)
+            Before=containerd.service kubelet.service
+            After=local-fs.target
+
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/bash -c 'mkdir -p /run/cilium/cgroupv2 && mount -t cgroup2 none /run/cilium/cgroupv2 || true; mount --make-shared /run/cilium/cgroupv2 || true; mount -t bpf bpf /sys/fs/bpf || true; mount --make-shared /sys/fs/bpf || true'
+
+            [Install]
+            WantedBy=multi-user.target
+        # kubelet --node-ip = tailnet IPv4, resolved dynamically before EVERY
+        # kubelet start (ExecStartPre drop-in → dynamic-node-ip.sh) so the Node
+        # and CiliumNode always advertise the tailnet address (never the Hetzner
+        # private 10.0.0.x). Dynamic — never hardcode. Survives reboots and
+        # `kubeadm upgrade` (kubeadm rewrites kubeadm-flags.env; the drop-in
+        # re-applies the tailnet IP on the next kubelet start).
+        # v6: Same as v5 — injects --node-labels so CCM/CSI can schedule on fresh nodes.
+        - path: /usr/local/bin/dynamic-node-ip.sh
+          owner: root
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            # Re-assert kubelet --node-ip = tailnet IPv4 and --node-labels.
+            # Idempotent. Survives kubeadm upgrade (which rewrites kubeadm-flags.env).
+            TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+            FLAGS=/var/lib/kubelet/kubeadm-flags.env
+            [ -f "$FLAGS" ] || exit 0
+            [ -x "$TS_BIN" ] || exit 0
+            TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+            [ -n "$TS_IP" ] || exit 0
+            # Inject --node-ip=<tailnet IP>
+            sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+            # Inject --node-labels if not already present
+            if ! grep -q '\-\-node-labels=' "$FLAGS"; then
+              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
+            fi
+            exit 0
+        - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
+          owner: root
+          permissions: "0644"
+          content: |
+            [Unit]
+            After=tailscaled.service
+            Wants=tailscaled.service
+
+            [Service]
+            ExecStartPre=/usr/local/bin/dynamic-node-ip.sh
+        preKubeadmCommands:
+        - set -x
+        - export CONTAINERD=1.7.26
+        - export RUNC=1.2.5
+        - export KUBERNETES_VERSION=1.31.6
+        - export TRIMMED_KUBERNETES_VERSION=1.31
+        - ARCH="$(dpkg --print-architecture)"
+        - localectl set-locale LANG=en_US.UTF-8
+        - localectl set-locale LANGUAGE=en_US.UTF-8
+        - apt-get update -y
+        - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+        - sed -i '/swap/d' /etc/fstab
+        - swapoff -a
+        - modprobe overlay && modprobe br_netfilter && sysctl --system
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+        - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+        - sha256sum --check --ignore-missing runc.sha256sum
+        - install runc.$ARCH /usr/local/sbin/runc
+        - rm -f runc.$ARCH runc.sha256sum
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+        - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+        - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+        - mkdir -p /etc/containerd
+        - containerd config default > /etc/containerd/config.toml
+        - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+        - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+        - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+        - sysctl -p
+        - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+        - systemctl daemon-reload && systemctl enable cilium-host-prep.service && systemctl start cilium-host-prep.service
+        - 'findmnt -n -t cgroup2 /run/cilium/cgroupv2 || { echo "cilium-host-prep FAILED"; exit 1; }'
+        - mkdir -p /etc/apt/keyrings/
+        - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+        - apt-get update
+        - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+        - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+        - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+        - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+        - apt-get -y autoremove && apt-get -y clean all
+        # ── Tailscale pre-kubeadm (ADR-046: tailnet-only spoke) ───────────────
+        - curl -fsSL https://tailscale.com/install.sh | sh || true
+        - systemctl enable --now tailscaled || true
+        - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+        - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+        postKubeadmCommands:
+          # ── Bootstrap DNAT (Cilium kube-proxy replacement init) ────────────────
+          # Before Cilium BPF is loaded (kube-proxy removed, no iptables), kubelet
+          # cannot reach the API server via the ClusterIP 10.96.0.1. Insert a
+          # one-time DNAT so the Cilium config init container and kubelet bootstrap
+          # can reach the API server. The BPF program takes over once loaded.
+          - 'iptables -t nat -A OUTPUT -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination 127.0.0.1:6443 || true'
+          - 'iptables -t nat -A PREROUTING -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination 127.0.0.1:6443 || true'
+          # ── kube-apiserver advertise-address fix ────────────────────────────────
+          # kubeadm picks the public IP (37.x) instead of the tailnet IP for
+          # --advertise-address because the tailscale interface isn't fully ready
+          # when kubeadm probes network interfaces. Patch the static pod manifest
+          # to use the tailnet IP so the kubernetes Service endpoints point to the
+          # address Cilium BPF can actually route to.
+          - 'TS_IP="$(tailscale ip -4 2>/dev/null || true)"; if [ -n "$TS_IP" ]; then sed -i "s/--advertise-address=[0-9.]*/--advertise-address=${TS_IP}/" /etc/kubernetes/manifests/kube-apiserver.yaml; fi'
+          # ── Taint removal ──────────────────────────────────────────────────────
+          # ADR-047: Single-node spoke model — remove control-plane taint so
+          # platform operators and tenant workloads can schedule on the only node.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true'
+          # CCM disables cloud-node-lifecycle-controller (to avoid crash-looping on
+          # home Flatcar nodes), so the uninitialized taint is never removed
+          # automatically. Remove it explicitly so pods can schedule.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node.cloudprovider.kubernetes.io/uninitialized- || true'
+          # Cilium runs full kube-proxy replacement; the kubeadm addon's
+          # kube-proxy DaemonSet conflicts (iptables REJECT chains for
+          # endpoint-less services break Gateway API TLS + in-cluster service
+          # networking). This CAPI version has no skipPhases, so delete the
+          # addon post-init. kubeadm runs postKubeadmCommands after addons.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete ds kube-proxy --ignore-not-found=true || true'
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system delete cm kube-proxy --ignore-not-found=true || true'
+          # kubeadm sets node.kubernetes.io/exclude-from-external-load-balancers
+          # on control-plane nodes by default; the Hetzner CCM honors it and
+          # registers ZERO backends for Cilium Gateway-API LoadBalancer services
+          # → external VIP accepts TCP but forwards nothing → TLS handshake fails
+          # externally (works in-cluster). Remove the label so the CP node is a
+          # valid LB backend.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
+          # ── Tailscale-native Cilium routing (ADR-046 §13) ──────────────────
+          # 1) kubelet --node-ip = tailnet IPv4 (never the Hetzner private
+          #    10.0.0.x) so the Node/CiliumNode advertise the tailnet address.
+          #    The systemd drop-in (files[] → /usr/local/bin/dynamic-node-ip.sh
+          #    via ExecStartPre) re-asserts it before every kubelet start.
+          #    Apply once now and restart kubelet to pick it up dynamically.
+          - 'if [ -s /etc/tailscale-hostname ]; then systemctl daemon-reload && /usr/local/bin/dynamic-node-ip.sh && systemctl restart kubelet; fi'
+          # 2) Advertise this node's pod CIDR as a tailscale subnet route so the
+          #    peer node's tailscaled can forward pod-CIDR traffic
+          #    (Cilium native routing hands it to tailscale0). Requires admin
+          #    approval of the subnet route in the tailnet admin console.
+          #    v6: Removed --accept-routes to prevent Tailscale route collision
+          #    with orphaned tailnet nodes reusing the same podCIDR.
+          - 'if [ -s /etc/tailscale-hostname ]; then POD_CIDR="$(kubectl --kubeconfig=/etc/kubernetes/admin.conf get node "$(hostname)" -o jsonpath="{.spec.podCIDR}" 2>/dev/null || true)"; [ -n "$POD_CIDR" ] && tailscale set --advertise-routes="${POD_CIDR}"; fi'
+---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
@@ -1064,7 +1270,7 @@ spec:
       # this block no-ops. Per-machine uniqueness via $(hostname).
       - curl -fsSL https://tailscale.com/install.sh | sh || true
       - systemctl enable --now tailscaled || true
-      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false --accept-routes; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
       - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
       - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
 ---
