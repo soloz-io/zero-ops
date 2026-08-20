@@ -496,6 +496,46 @@ SH_EOF
   sed -i '' "s|__ENDPOINT__|${CONTROL_PLANE_ENDPOINT}|g; s|__TOKEN__|${JOIN_TOKEN}|g; s|__HASH__|${CA_CERT_HASH}|g; s|__VM_NAME__|${VM_NAME}|g" "${ISO_ROOT}/bin/join-cluster.sh" 2>/dev/null || sed -i "s|__ENDPOINT__|${CONTROL_PLANE_ENDPOINT}|g; s|__TOKEN__|${JOIN_TOKEN}|g; s|__HASH__|${CA_CERT_HASH}|g; s|__VM_NAME__|${VM_NAME}|g" "${ISO_ROOT}/bin/join-cluster.sh"
   chmod +x "${ISO_ROOT}/bin/join-cluster.sh"
 
+  # Cilium bootstrap-DNAT cleanup (ADR-046 §13). join-cluster.sh inserts
+  # iptables rules (10.96.0.1:443 / <tailnet-ip>:6443 -> CP endpoint) so
+  # kubelet/Cilium can reach the API server BEFORE Cilium's BPF kube-proxy
+  # replacement is loaded. Once Cilium is Ready, those rules shadow the BPF
+  # datapath (and go stale if the CP endpoint rotates) — this oneshot removes
+  # them after the cilium-agent container is Running.
+  cat <<'SH_EOF' > "${ISO_ROOT}/bin/cilium-bootstrap-cleanup.sh"
+#!/bin/sh
+export PATH="/opt/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+for i in $(seq 1 90); do
+  if crictl ps --name cilium-agent 2>/dev/null | grep -q "Running"; then
+    break
+  fi
+  sleep 2
+done
+
+sleep 10
+
+[ -f /etc/kubernetes/kubelet.conf ] || exit 0
+EP=$(awk '/server:/{print $2}' /etc/kubernetes/kubelet.conf 2>/dev/null | sed 's#https://##')
+CP_HOST=${EP%%:*}; CP_PORT=${EP##*:}
+TS_IP=$(/opt/bin/tailscale ip -4 2>/dev/null || true)
+[ -n "$CP_HOST" ] && [ -n "$CP_PORT" ] || exit 0
+
+# setup-node.sh bootstrap rules
+iptables -t nat -D OUTPUT -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+iptables -t nat -D PREROUTING -d 10.96.0.1 -p tcp --dport 443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+iptables -t nat -D OUTPUT -d 127.0.0.1 -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+iptables -t nat -D POSTROUTING -d "${CP_HOST}" -j MASQUERADE 2>/dev/null || true
+# join-cluster.sh bootstrap rules (node tailnet IP variants)
+if [ -n "$TS_IP" ]; then
+  iptables -t nat -D OUTPUT -d "${TS_IP}" -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -d "${TS_IP}" -p tcp --dport 6443 -j DNAT --to-destination "${CP_HOST}:${CP_PORT}" 2>/dev/null || true
+fi
+echo "[cleanup] ✓ Removed bootstrap DNAT rules (Cilium BPF kube-proxy replacement active)"
+exit 0
+SH_EOF
+  chmod +x "${ISO_ROOT}/bin/cilium-bootstrap-cleanup.sh"
+
   # Dynamic kubelet --node-ip re-assertion (ADR-046 §13). The kubelet.service
   # ExecStartPre runs this before EVERY kubelet start so the Node/CiliumNode
   # advertise the tailnet IPv4 (never the home-LAN 172.30.0.x), dynamically —
@@ -599,6 +639,11 @@ SH_EOF
         "name": "kubeadm-join.service",
         "enabled": true,
         "contents": "[Unit]\nDescription=Join Kubernetes Cluster via Kubeadm\nAfter=tailscaled.service containerd.service\nWants=tailscaled.service containerd.service\nConditionPathExists=!/etc/kubernetes/kubelet.conf\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/bin/join-cluster.sh\n\n[Install]\nWantedBy=multi-user.target\n"
+      },
+      {
+        "name": "cilium-bootstrap-cleanup.service",
+        "enabled": true,
+        "contents": "[Unit]\nDescription=Remove Cilium bootstrap DNAT rules after Cilium is Ready\nAfter=kubeadm-join.service tailscaled.service\nWants=kubeadm-join.service\nConditionPathExists=/etc/kubernetes/kubelet.conf\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/bin/cilium-bootstrap-cleanup.sh\n\n[Install]\nWantedBy=multi-user.target\n"
       }
     ]
   }
@@ -733,6 +778,23 @@ coreos:
         Type=oneshot
         RemainAfterExit=yes
         ExecStart=/opt/bin/join-cluster.sh
+
+        [Install]
+        WantedBy=multi-user.target
+
+    - name: cilium-bootstrap-cleanup.service
+      command: start
+      content: |
+        [Unit]
+        Description=Remove Cilium bootstrap DNAT rules after Cilium is Ready
+        After=kubeadm-join.service tailscaled.service
+        Wants=kubeadm-join.service
+        ConditionPathExists=/etc/kubernetes/kubelet.conf
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/bin/cilium-bootstrap-cleanup.sh
 
         [Install]
         WantedBy=multi-user.target
