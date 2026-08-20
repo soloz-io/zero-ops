@@ -310,16 +310,34 @@ if (!(Test-Path \$baseVhdx)) {
 "
   win_ps_stream "$SSH_TARGET" "$PS_VHDX"
 
-  # 2. Stop existing VM to release file locks
+  # 2. Stop and remove existing VM to release file locks (checks both legacy and current names)
   local PS_STOP="
-\$vmName = '$VM_NAME';
-\$existingVM = Get-VM -Name \$vmName -ErrorAction SilentlyContinue
-if (\$existingVM) {
-  Stop-VM -Name \$vmName -Force -TurnOff -ErrorAction SilentlyContinue
-  Remove-VM -Name \$vmName -Force -ErrorAction SilentlyContinue
+\$vmNames = @('$VM_NAME', 'flatcar-node-${NODE_IDX}', 'flatcar-hub-node-${NODE_IDX}') | Select-Object -Unique;
+foreach (\$name in \$vmNames) {
+  \$existingVM = Get-VM -Name \$name -ErrorAction SilentlyContinue
+  if (\$existingVM) {
+    Stop-VM -Name \$name -Force -TurnOff -ErrorAction SilentlyContinue
+    Remove-VM -Name \$name -Force -ErrorAction SilentlyContinue
+  }
 }
 "
   win_ps "$SSH_TARGET" "$PS_STOP" >/dev/null
+
+  # 2b. Clean up any stale Kubernetes node registration (idempotent across Hub & Spoke)
+  echo "    → Cleaning up any stale Kubernetes node registration (${VM_NAME})..."
+  kubectl --kubeconfig="${HUB_KUBECONFIG}" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+
+  local SPOKE_KC
+  SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
+  if kubectl --kubeconfig="${HUB_KUBECONFIG}" \
+        get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
+        -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
+        | base64 -d > "$SPOKE_KC" 2>/dev/null; then
+    kubectl --kubeconfig="$SPOKE_KC" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+    rm -f "$SPOKE_KC"
+  else
+    rm -f "$SPOKE_KC"
+  fi
 
   # 3. Fetch or mint join credentials
   local JOIN_TOKEN="" CA_CERT_HASH="" CONTROL_PLANE_ENDPOINT=""
