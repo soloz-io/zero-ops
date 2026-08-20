@@ -788,6 +788,48 @@ Flatcar Ignition §13, and burst (Hetzner) workers via the same ClusterClass
 (`manifests/providers/hybrid/k8s/tailscale-psk-es.yaml`, authkey + hostname,
 consumed by the ClusterClass CP bootstrap) is unaffected and remains.
 
+### 14. Cross-Node Datapath Architecture: Adoption of VXLAN Tunneling over Tailscale (`routingMode: tunnel`) and Removal of Native Direct Node Routes (2026-08-20)
+
+**Context & Failure Mode in Native Mode.**
+In the hybrid spoke topology, node `InternalIP`s are Tailscale IPs (`100.x.x.x`). Running Cilium in `routing-mode: native` required Tailscale subnet-route advertisement (`--advertise-routes`) and route acceptance (`--accept-routes`), coupling Linux kernel routing table 52 to Tailscale's cryptokey routing and exposing nodes to stale-route collisions when orphaned tailnet devices persisted.
+
+More critically, in native routing mode with Gateway API `hostNetwork` listeners (Addendum 8), Envoy's upstream egress sockets sourced from the local Cilium ingress endpoint (`10.244.0.125`, endpoint id 1017, `identity 8 / reserved:ingress`, with `ifindex=0` and no veth). When remote home-worker backends answered with SYN-ACK, the inbound packets on `tailscale0` were intercepted by Cilium's TCX ingress hook (`cil_from_netdev`). Because endpoint 1017 has `ifindex=0`, Cilium's BPF redirected the packet into `cilium_host`, where it looped indefinitely between `cil_from_netdev` and `cilium_host` (`ICMP time exceeded in-transit`), timing out after 5s and returning `HTTP 503 Service Unavailable`. Host-side iptables masquerade and kernel routing table additions (`table local` / `lo /32`) were completely bypassed because Cilium's TCX BPF program captured the packet at the device layer before kernel stack processing.
+
+**Decision: Definitive Adoption of VXLAN Tunneling (`routingMode: tunnel`).**
+1. **VXLAN over Tailscale Transport**: Cilium hybrid clusters configure `routingMode: tunnel`, `tunnelProtocol: vxlan`, and `tunnelPort: 8472`.
+2. **Removal of Native Direct Routes**: `auto-direct-node-routes` and `direct-routing-device` are disabled and removed. Stale native routes (`10.244.1.0/24 dev tailscale0` and `10.244.0.0/24 dev tailscale0`) are superseded by `cilium_host mtu 1150`.
+3. **Structural Loop Prevention**: Under VXLAN encapsulation, cross-node pod-to-pod and ingress return traffic is encapsulated in UDP 8472 datagrams with outer node Tailscale IPs (`100.118.202.60:8472` ↔ `100.85.175.14:8472`). Upon arrival on the node's Tailscale endpoint, Cilium's VXLAN decapsulation handler directly delivers the inner packet to the local ingress endpoint without any unencapsulated device-layer routing loops.
+4. **Tailscale Subnet Decoupling**: Because only UDP 8472 packets between node tailnet IPs traverse `tailscale0`, Tailscale subnet route advertisement and acceptance (`--advertise-routes` / `--accept-routes`) are no longer load-bearing for the datapath, permanently eliminating the v5 stale-route collision class.
+5. **MTU Invariant**: `MTU: 1200` inner + 50B VXLAN header = 1250B outer, fitting strictly inside `tailscale0`'s MTU of 1280B with zero fragmentation (reconciling the VXLAN MTU invariant in Addendum 6).
+
+### 15. Decoupled Standalone Envoy xDS Protocol Architecture and Gateway API HostNetwork Invariants (2026-08-20)
+
+**Context & Discovery.**
+Decoupled standalone Envoy (`envoy.enabled: true`, `external-envoy-proxy: "true"`, Addendum 10) connects to the Cilium agent's xDS server over the host Unix Domain Socket at `/var/run/cilium/envoy/sockets/xds.sock`.
+
+Inspection of official Cilium source (`pkg/envoy/grpc.go`) revealed that Cilium v1.17 implements individual discovery services (`CDS`, `LDS`, `RDS`, `SDS`, `EDS`) and explicitly disables ADS (`AggregatedDiscoveryServiceServer` is commented out). When Envoy boots with `ads: {}` under `dynamicResources.cdsConfig` / `ldsConfig`, Envoy requests `StreamAggregatedResources`, causing gRPC stream resets (`unknown service envoy.service.discovery.v3.AggregatedDiscoveryService`).
+
+**Decision & Codified Configuration:**
+1. **ConfigMap Bootstrap xDS Mode**: In `cilium-envoy-config` (`bootstrap-config.json`), dynamic resources must use `apiConfigSource` (pointing to static cluster `xds-grpc-cilium` with `transportApiVersion: V3`, `apiType: GRPC`) for both `cdsConfig` and `ldsConfig`, rather than `adsConfig`.
+2. **Version Check Bypass & Pinned Image**: When running decoupled standalone Envoy on Kubernetes 1.31+, the image must be pinned to the matching agent binary build (`quay.io/cilium/cilium-envoy:v1.36.9-1782267392-edeb3f2af56c37c407efa1f63f0b32f595399bbc`), `disable-envoy-version-check: "true"` must be set in `cilium-config`, and container arguments in the DaemonSet must be cleanly delimited strings.
+3. **Capabilities & Host Binding**: The Envoy container requires `NET_BIND_SERVICE`, `NET_ADMIN`, `SYS_ADMIN` and `envoy-keep-cap-netbindservice: "true"` to bind privileged host ports 80/443 on the control-plane node (`node-role.kubernetes.io/control-plane: ""`).
+4. **PROXY Protocol Alignment**: Gateway API PROXY protocol parsing (`enable-gateway-api-proxy-protocol: "true"`) must be consistently configured across `cilium-values.yaml`, `cilium-config`, and operator flags, matching the Hetzner Load Balancer's `--proxy-protocol=true` setting.
+5. **Mangle Guard DaemonSet**: The `cilium-hostnetwork-mangle-guard` DaemonSet on the control plane maintains `iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN`, preventing Cilium's transparent socket filter from diverting incoming LB SYN/ACK packets into table 2004 loopback.
+
+### 16. systemd-networkd Link Matching Invariant on CNI Nodes (2026-08-20)
+
+**Context & Defect.**
+Flatcar worker provisioning scripts initially wrote `/etc/systemd/network/10-static.network` with `[Match] Type=ether`. On Kubernetes nodes running Cilium CNI, `Type=ether` matches every dynamically created ethernet-class interface, including `cilium_net`, `cilium_host`, and every container veth (`lxc*`). Consequently, `systemd-networkd` attached static IP addresses (`172.30.0.11/24`) and default gateway routes to all pod network interfaces, corrupting the host routing table with duplicate default routes.
+
+**Decision & Invariant:**
+1. **Strict Link Name Pattern**: `10-static.network` must match only the physical uplink interface and explicitly exclude CNI and overlay links:
+   ```ini
+   [Match]
+   Name=eth*
+   Name=!cilium_* !lxc* !tailscale*
+   ```
+2. **Explicit Static Addressing**: Network configurations must set `DHCP=no` with deterministic static `Address=` and `Gateway=` assignments bound exclusively to `eth0`.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
