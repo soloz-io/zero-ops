@@ -960,11 +960,25 @@ while iterating on a Gateway/solver configuration. The `Certificate` for
 `waypoint-tls` lives in the fleet-registry repo (`tenants/waypoint/workloads`),
 so the `issuerRef` switch lands there, not in this repo.
 
+### 18. Extension of Hybrid Home-Lab Pattern to Hub Cluster and S3 Barman Backup Invariant (2026-08-20)
+
+**Context & Scope Expansion.**
+The hybrid home-lab pattern established in ADR-046 initially targeted Spoke tenant clusters. To eliminate cloud compute costs on the Hub management plane, the pattern is extended to the Hub cluster:
+1. Home-lab Flatcar VMs (`flatcar-hub-node-1`) join the Hub cluster over Tailscale as primary workload nodes with `hub-role=worker` and `workload-location=home`.
+2. Cloud Hetzner worker MachineDeployment (`hub-hybrid-dev-md-0`) scales to `replicas: 0`.
+
+**Durability Invariant: Mandatory S3 Barman Backups for Home-Located Stateful Workloads.**
+Because home-lab Flatcar nodes utilize ephemeral local disk (`local-path-provisioner` on `/opt/local-path-provisioner`) without volume snapshot or block replication capabilities, **data durability relies entirely on S3 Barman object storage backups**:
+1. **S3 Backup Destination**: All CNPG PostgreSQL clusters (`platform-db` on Hub, `shared-cnpg` on Spokes) MUST configure `spec.backup.barmanObjectStore` targeting S3-compatible Hetzner Object Storage (`https://hel1.your-objectstorage.com`) with isolated bucket/prefix paths (e.g. `s3://hub-db-backups/<hub-name>/` for Hub, `s3://spoke-pool-backups/<spoke-name>/` for Spokes).
+2. **Continuous WAL Archiving**: CNPG streams write-ahead logs (WAL) continuously to S3 with compression (`gzip`), enabling Point-In-Time Recovery (PITR).
+3. **Scheduled & Immediate Base Backups**: `ScheduledBackup` resources with `immediate: true` ensure a baseline physical backup is taken immediately upon cluster creation and retained for `30d`.
+4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: home`) to guarantee separation from the control plane.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
 - ADR-037 / ADR-038 (environment matrix).
 - ADR-044 (local provider abstraction) — superseded; CAPD removed.
-- ADR-014 (Platform-Wide Placement Rule) — §11 builds on its worker-only/taint/selector contract.
+- ADR-014 (Platform-Wide Placement Rule & Stateful Infrastructure) — §Backup and restore contract.
 - PRD: hybrid home-lab cluster integration using Hetzner and Tailscale.
 
