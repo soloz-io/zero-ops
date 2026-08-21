@@ -1,0 +1,147 @@
+# Tailscale on the hub control plane (ADR-046 amendment).
+#
+# ADR-046 originally said "the hub does not run Tailscale" — true while the hub
+# had only Hetzner nodes. It stopped being true when the hub gained home-lab
+# workers: flatcar-hub-node-1 is behind home NAT and its ONLY InternalIP is its
+# tailnet address (100.96.x.x).
+#
+# The join direction works without this, because the kubelet dials OUT to the
+# public API endpoint. The reverse direction does not: kube-apiserver → kubelet
+# :10250 backs `kubectl logs`, `exec`, `port-forward` and metrics, and every one
+# of them fails with "dial tcp 100.96.x.x:10250: i/o timeout". Debugging any
+# workload that lands on a home worker is impossible until the control plane can
+# route to the tailnet.
+#
+# The spoke solves this by bootstrapping tailscaled in the ClusterClass
+# preKubeadmCommands (ADR-046 invariant 6, "the CP's routable Tailscale IP").
+# The hub cannot reuse that as-is: its ClusterClass is shared with the pure-Hetzner
+# hub, and the authkey is not present in the kind bootstrap cluster when the hub
+# Cluster is created. Running tailscaled as a hostNetwork DaemonSet reaches the
+# same end state — tailscale0 in the host netns, so the host and every
+# hostNetwork pod (kube-apiserver included) can route 100.96.0.0/10 — without
+# reprovisioning the control plane.
+#
+# ADR-046 §WS0.1 still holds: Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium
+# keeps routing-mode=tunnel and owns pod traffic. Hence --accept-routes=false
+# below: accepting routes would install pod CIDRs into table 52 and collide with
+# Cilium's datapath (ADR-046 addendum 17.1).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-node
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-node
+  namespace: kube-system
+rules:
+  # tailscaled persists its node state in a Secret so a pod restart re-uses the
+  # same tailnet identity instead of burning a new one from the authkey.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-node
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailscale-node
+subjects:
+  - kind: ServiceAccount
+    name: tailscale-node
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tailscale-node
+  namespace: kube-system
+  labels:
+    app: tailscale-node
+spec:
+  selector:
+    matchLabels:
+      app: tailscale-node
+  template:
+    metadata:
+      labels:
+        app: tailscale-node
+    spec:
+      serviceAccountName: tailscale-node
+      # Host netns: tailscale0 must exist on the HOST, not in a pod sandbox, or
+      # kube-apiserver (itself hostNetwork) still cannot reach 100.96.x.x.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      priorityClassName: system-node-critical
+      # Control-plane nodes only. Home workers already run tailscaled natively
+      # from their Ignition config; a second instance would fight it for the
+      # interface and the state directory.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        # Must start before the CNI is ready: this is underlay plumbing, and the
+        # node is of little use for debugging until it is up.
+        - key: node.cilium.io/agent-not-ready
+          operator: Exists
+        - key: node.cloudprovider.kubernetes.io/uninitialized
+          operator: Exists
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+      containers:
+        - name: tailscale
+          # Pinned to the same version the home workers install
+          # (TAILSCALE_VERSION in provision-flatcar-worker.sh), so the whole
+          # tailnet runs one build.
+          image: ghcr.io/tailscale/tailscale:v1.102.2@sha256:321ce041508c19079b57a28b6666c8d81ab0b08accc0a2585b3ab663d557ac24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: tailscale-node-authkey
+                  key: authkey
+            - name: TS_KUBE_SECRET
+              value: tailscale-node-state
+            - name: TS_USERSPACE
+              value: "false"
+            # Underlay only — see the header. Never accept or advertise pod CIDRs.
+            - name: TS_EXTRA_ARGS
+              value: "--accept-routes=false --accept-dns=false"
+            - name: TS_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            privileged: false
+            capabilities:
+              add: ["NET_ADMIN"]
+          volumeMounts:
+            - name: dev-net-tun
+              mountPath: /dev/net/tun
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 192Mi
+      volumes:
+        - name: dev-net-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice

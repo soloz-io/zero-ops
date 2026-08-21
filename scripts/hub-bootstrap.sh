@@ -767,6 +767,19 @@ step1c_configure_tailscale() {
     "$HUB_BINARY" configure-tailscale \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-tailscale failed"
 
+    # Authkey for the hub control plane's own tailscaled DaemonSet
+    # (manifests/hub-core-services/tailscale). Created here rather than committed,
+    # because secrets never live in git; the DaemonSet that consumes it does.
+    # Without it the API server cannot reach home-worker kubelets and
+    # kubectl logs/exec/port-forward fail against every pod on a home node.
+    log "  Creating kube-system/tailscale-node-authkey for the hub CP agent..."
+    kubectl --kubeconfig="$KUBECONFIG_PATH" -n kube-system \
+        create secret generic tailscale-node-authkey \
+        --from-file=authkey="$ZERO_OPS_DIR/k8-secrets/tailscale/authkey" \
+        --dry-run=client -o yaml \
+        | kubectl --kubeconfig="$KUBECONFIG_PATH" apply -f - >/dev/null \
+        || log "  ⚠️  could not create tailscale-node-authkey — kubectl logs against home workers will time out"
+
     mark_step_completed "configure_tailscale"
     log "Tailscale credentials configuration completed"
 }

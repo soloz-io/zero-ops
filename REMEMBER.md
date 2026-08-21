@@ -61,6 +61,14 @@ happened and reported success while broken.
 - `manifests/hub-core-services/**` reaches the hub only if an ApplicationSet
   lists its path. Several directories exist that nothing delivers — check
   `manifests/argocd/environment-manager/templates/*-appset.yaml` before assuming.
+- **ArgoCD syncs from GitHub, not your working tree.** Editing a manifest under a
+  path an Application points at changes nothing until it is committed and pushed.
+  The AppSet itself *is* rendered locally by the orchestrator, so a new entry
+  appears immediately while its content stays stale — a confusing half-state.
+- The hub AppSet (`01-platform-infra-appset.yaml`) is shared by all providers.
+  Anything home-lab-specific must be wrapped in
+  `{{- if eq .Values.provider "hybrid" }}`, or a Hetzner hub gets a workload whose
+  prerequisites are never created.
 
 ## CLI traps
 
