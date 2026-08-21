@@ -8,7 +8,7 @@ resources:
 - network-policy.yaml
 
 images:
-- digest: sha256:fabec91d1c48a0c1b2af3f097d3fd5cda8f1af72c65132babd2ecc0248bb468f
+- digest: sha256:e4ab345cce005acd58cb7d2c406430b2e958172f77f9fb7b226adc55933a0f09
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/kube-sbt-api
 
