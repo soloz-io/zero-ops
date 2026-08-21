@@ -21,6 +21,17 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses"]
     verbs: ["get", "list", "watch"]
+  # local-path does not write to disk itself: for every volume it launches a
+  # short-lived "helper pod" on the target node to mkdir/rmdir the hostPath. The
+  # read-only pods rule above is not enough, and without create/delete every
+  # provision fails with:
+  #   pods is forbidden: User "system:serviceaccount:kube-system:local-path-provisioner"
+  #   cannot create resource "pods" in the namespace "kube-system"
+  # The PVC then sits Pending while the StorageClass, the provisioner and the node
+  # all look healthy — the failure is only visible in PVC events.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -39,8 +50,14 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: local-path
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
+  # NOT the default class. ADR-046 §11: "hcloud-volumes remains the default class
+  # in hybrid cells; local-path is referenced explicitly by name."
+  #
+  # Marking it default would silently redirect every class-less PVC on the hub to
+  # node-local storage that only exists on home workers — including PVCs that are
+  # meant to land on Hetzner volumes. The §11 contract relies on a class-less PVC
+  # getting hcloud-volumes and failing loudly if it cannot bind, which is the
+  # correct failure mode rather than binding to the wrong storage.
 provisioner: rancher.io/local-path
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
@@ -99,6 +116,22 @@ spec:
       priorityClassName: system-node-critical
       tolerations:
         - operator: Exists
+      # ADR-046 §11: the provisioner runs on home workers ONLY. It hands out
+      # node-local hostPath volumes, so a replica on a Hetzner node would advertise
+      # storage that no home-class workload can ever reach, and would let a PVC
+      # bind on the wrong side of the location boundary — the same
+      # placement-by-accident failure §11 bans.
+      #
+      # `tolerations: [operator: Exists]` above tolerates every taint, so without
+      # this affinity the DaemonSet lands on the control plane too.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: workload-location
+                    operator: In
+                    values: ["home"]
       containers:
         - name: local-path-provisioner
           image: rancher/local-path-provisioner:v0.0.30

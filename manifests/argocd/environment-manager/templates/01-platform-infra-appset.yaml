@@ -200,6 +200,24 @@ spec:
           # manifests/spoke/spoke-catalog/infra/atlas-operator). The hub had a
           # dead repoURL (atlasgo/atlas-operator is a 404; real upstream is
           # ariga/atlas-operator) and was never reconciling. Removed.
+          # ADR-046 §11: the local-path StorageClass + provisioner for home-class
+          # stateful workloads (platform-db). Previously present in the repo but
+          # referenced by NO ApplicationSet, so the class never existed on the hub
+          # and platform-db's PVC stayed Pending forever, hanging the bootstrap at
+          # inject-ca-cert. Wave 1: the class must exist before boundary-02 creates
+          # the CNPG cluster that asks for it.
+          - appName: 'platform-storage'
+            destinationNamespace: 'kube-system'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/storage'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
           - appName: 'platform-cloudnative-pg'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'

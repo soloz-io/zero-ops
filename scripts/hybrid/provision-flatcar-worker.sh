@@ -1187,10 +1187,26 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   [[ "$CLI_MAX_MEMORY_BYTES" -gt 0 ]] && MAX_MEMORY_BYTES="$CLI_MAX_MEMORY_BYTES"
   [[ "$CLI_CPU_COUNT" -gt 0 ]] && CPU_COUNT="$CLI_CPU_COUNT"
 
+  # Where this node belongs. The registry's target field (column 6) is
+  # authoritative; the index heuristic is only a fallback for older registries
+  # that predate that column.
   CURR_TARGET="hub"
   if [[ "$NODE_IDX" -gt 1 ]]; then CURR_TARGET="spoke"; fi
   if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
-  if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
+
+  # --cluster SELECTS which registered nodes to act on; it does not retarget them.
+  #
+  # It used to overwrite CURR_TARGET, so `--cluster hub` walked every entry in
+  # home-lab.env and joined them all to the hub — flatcar-spoke-node-1 included,
+  # built under its spoke name but wired into the hub. That silently contradicts
+  # the registry, whose whole purpose is to say where each node belongs, and the
+  # documented behaviour ("auto-routes per home-lab.env").
+  if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then
+    if [[ "$CURR_TARGET" != "$TARGET_CLUSTER" ]]; then
+      echo "── node ${NODE_IDX}: ${_HOST:-node-${NODE_IDX}} → ${CURR_TARGET}, skipped (--cluster ${TARGET_CLUSTER})"
+      continue
+    fi
+  fi
 
   HOSTNAME="${_HOST}"
   if [[ -z "$HOSTNAME" ]]; then

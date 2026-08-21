@@ -194,6 +194,15 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 
 // ── Phase 9: ClusterClass ───────────────────────────────────────────────────
 
+// HomeWorkersRequested forwards the driver's answer when it has one. Only the
+// hybrid driver does; a Hetzner cell has no home workers and reports false.
+func (p *CloudProvider) HomeWorkersRequested() bool {
+	if hw, ok := p.driver.(interface{ HomeWorkersRequested() bool }); ok {
+		return hw.HomeWorkersRequested()
+	}
+	return false
+}
+
 func (p *CloudProvider) ClusterClassPaths() []string {
 	return p.driver.ClusterClassPaths()
 }

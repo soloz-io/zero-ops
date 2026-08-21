@@ -44,6 +44,11 @@ type HybridDriver struct {
 // ── CloudDriver interface ──────────────────────────────────────────────────
 
 func (d *HybridDriver) Name() string   { return "hybrid" }
+
+// HomeWorkersRequested reports whether this cell expects home-lab worker nodes.
+// The orchestrator's home-worker-join phase keys off this: only a hybrid cell that
+// asked for home workers has one to wait for. Hetzner cells do not implement it.
+func (d *HybridDriver) HomeWorkersRequested() bool { return d.HomeWorkerEnabled }
 func (d *HybridDriver) OSType() string { return d.Driver.OSType() }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
@@ -106,14 +111,21 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	// not consulted — hybrid's own shape is the default when none is passed.
 	// --provider=hetzner is untouched and keeps 2 Hetzner workers.
 	//
-	// Zero workers is only safe because the control plane is made schedulable
-	// alongside it: home workers join manually AFTER the bootstrap completes, so
-	// during boundary-01..05 the control-plane node is the only node that exists.
-	// The two settings must always move together — see the topology tests in
-	// internal/hub-cli/cluster. (The opposite decision in d74cbeaa — keep the
-	// control-plane taint — applies to the SPOKE ClusterClass, not the hub.)
+	// Zero Hetzner workers means SOMETHING else has to be able to run the platform,
+	// or every workload sits Pending and the bootstrap hangs.
+	//
+	// With --home-worker-enabled the home-lab nodes are that something: the
+	// home-worker-join phase brings one up before boundary-01, and the control
+	// plane keeps its taint exactly as ADR-046 §11 / ADR-014 require ("every
+	// stateful workload runs on worker nodes only, control-plane nodes keep
+	// control-plane:NoSchedule"). Untainting it here would re-create the failure
+	// §11 was written to ban — CNPG landing on the control plane because storage
+	// happened to bind there.
+	//
+	// Without home workers there is no other node at all, so the control plane has
+	// to carry the platform and is registered without the taint.
 	cfg.WorkerReplicas = 0
-	cfg.ControlPlaneSchedulable = true
+	cfg.ControlPlaneSchedulable = !d.HomeWorkerEnabled
 
 	// The cilium operator declares hostPorts, so its two replicas cannot share one
 	// node; on a single-node hub the second would sit Pending forever and register

@@ -220,6 +220,26 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 10b: Home-lab worker join (hybrid) ──────────────────────
+	// The hybrid hub runs no Hetzner workers (ADR-046), so its worker capacity is
+	// a home-lab Flatcar node. It has to be in the cluster BEFORE boundary-01, not
+	// after the bootstrap: ADR-014/ADR-046 §11 place every platform workload on
+	// worker nodes, so with no worker present ArgoCD, the operators and CNPG have
+	// nowhere legal to run and the bootstrap hangs at inject-ca-cert.
+	//
+	// CAPI cannot provision these nodes (they are Hyper-V VMs on a workstation),
+	// which is why this shells out to the provisioning script rather than creating
+	// a Machine. For --cluster hub the script mints its own bootstrap token
+	// straight from the hub kubeconfig, so this phase depends on nothing that
+	// boundary-01 installs.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
+		"Joining home-lab worker(s) to the hub...",
+		func() error { return o.joinHomeWorkers(ctx, mgmtKubeconfig) },
+		nil,
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 11a: Boundary 01 — platform infrastructure ──────────────
 	// Installs ArgoCD, CNPG operator, Crossplane, ESO, cert-manager, and
 	// other core operators. Waits for webhooks, CRDs, and operator pods
@@ -465,6 +485,78 @@ func (o *Orchestrator) runPhase(
 	})
 	o.markPhaseComplete(bs, phase)
 	return stateMgr.Save(bs)
+}
+
+// hubWorkerSelector identifies a joined home-lab hub worker. provision-flatcar-worker.sh
+// applies hub-role=worker for its "hub" target, both via kubelet --node-labels and
+// again cluster-side after the join.
+const hubWorkerSelector = "hub-role=worker"
+
+// joinHomeWorkers brings up the home-lab worker(s) this hub needs before any
+// platform workload is deployed. No-op unless the provider asked for home workers.
+func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {
+	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
+	if !ok || !hw.HomeWorkersRequested() {
+		fmt.Println("[home-worker-join] Not a home-worker cell — skipping")
+		return nil
+	}
+
+	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
+	// bootstrap must not pay that again for a node that is already serving.
+	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+		fmt.Printf("[home-worker-join] ✓ %s already Ready — skipping provisioning\n", name)
+		return nil
+	}
+
+	script := filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh")
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("home-lab worker is required before boundary-01 but %s is missing.\n"+
+			"Provision it manually, then re-run:\n"+
+			"    ./scripts/hybrid/provision-flatcar-worker.sh --cluster hub", script)
+	}
+
+	fmt.Println("[home-worker-join] Running provision-flatcar-worker.sh --cluster hub")
+	fmt.Println("[home-worker-join] (Hyper-V VM creation over SSH — this takes several minutes)")
+
+	cmd := exec.CommandContext(ctx, "bash", script, "--cluster", "hub")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "HUB_KUBECONFIG="+kubeconfig)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("home-lab worker provisioning failed: %w\n"+
+			"Fix the cause, then re-run this bootstrap — the phase is idempotent and will\n"+
+			"skip if the node is already Ready:\n"+
+			"    ./scripts/hybrid/provision-flatcar-worker.sh --cluster hub", err)
+	}
+
+	// The script has its own Ready gate, but the cluster's view is what the next
+	// phase depends on, so confirm it here too.
+	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+		fmt.Printf("[home-worker-join] ✓ %s Ready\n", name)
+		return nil
+	}
+	return fmt.Errorf("provisioning reported success but no Ready node carries %s;\n"+
+		"platform workloads would have nowhere to schedule (ADR-046 §11)", hubWorkerSelector)
+}
+
+// readyHubWorker reports whether a home-lab hub worker is joined and Ready.
+func (o *Orchestrator) readyHubWorker(ctx context.Context, kubeconfig string) (bool, string) {
+	out, err := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", kubeconfig,
+		"get", "nodes", "-l", hubWorkerSelector,
+		"-o", "jsonpath={range .items[*]}{.metadata.name}{\"=\"}"+
+			"{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}",
+	).Output()
+	if err != nil {
+		return false, ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		name, status, found := strings.Cut(strings.TrimSpace(line), "=")
+		if found && status == "True" {
+			return true, name
+		}
+	}
+	return false, ""
 }
 
 // formatDuration renders a duration for humans reading a bootstrap log: seconds

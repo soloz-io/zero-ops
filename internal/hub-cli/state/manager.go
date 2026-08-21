@@ -22,6 +22,7 @@ const (
 	PhaseCleanup               BootstrapPhase = "cleanup"
 	PhaseClusterClassDeploy    BootstrapPhase = "clusterclass-deploy"
 	PhasePlatformPreReqs       BootstrapPhase = "platform-pre-reqs"
+	PhaseHomeWorkerJoin        BootstrapPhase = "home-worker-join"
 	PhaseBoundary01            BootstrapPhase = "boundary-01"
 	PhaseGenerateLocalSecrets  BootstrapPhase = "generate-local-secrets"
 	PhaseBoundary02            BootstrapPhase = "boundary-02"

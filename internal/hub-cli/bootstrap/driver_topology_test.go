@@ -11,7 +11,10 @@ import (
 // statement that worker capacity comes from home-lab hardware, so the hub runs a
 // single Hetzner control-plane node and nothing else.
 func TestHybridDriverProducesSingleNodeHub(t *testing.T) {
-	d := &HybridDriver{Driver: &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"}}
+	d := &HybridDriver{
+		Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+		HomeWorkerEnabled: true,
+	}
 
 	var cfg cluster.Config
 	d.PopulateClusterConfig(&cfg)
@@ -19,8 +22,11 @@ func TestHybridDriverProducesSingleNodeHub(t *testing.T) {
 	if cfg.WorkerReplicas != 0 {
 		t.Errorf("WorkerReplicas = %d, want 0 (hybrid hub workers are home-lab nodes)", cfg.WorkerReplicas)
 	}
-	if !cfg.ControlPlaneSchedulable {
-		t.Error("ControlPlaneSchedulable = false with 0 workers: the hub would have nowhere to schedule platform workloads")
+	// With home workers the control plane KEEPS its taint: ADR-046 §11 places every
+	// platform workload on worker nodes, and the home-worker-join phase guarantees
+	// one exists before boundary-01.
+	if cfg.ControlPlaneSchedulable {
+		t.Error("ControlPlaneSchedulable = true with home workers enabled: the control plane must keep its ADR-014 taint")
 	}
 	if cfg.CiliumOperatorReplicas != 1 {
 		t.Errorf("CiliumOperatorReplicas = %d, want 1 (hostPorts stop two replicas sharing one node)", cfg.CiliumOperatorReplicas)
@@ -49,17 +55,40 @@ func TestHetznerDriverKeepsMultiNodeHub(t *testing.T) {
 // Zero workers and a tainted control plane is the combination that hangs a
 // bootstrap with every pod Pending, so the two settings must never drift apart.
 func TestZeroWorkersImpliesSchedulableControlPlane(t *testing.T) {
+	homeWorkers := map[string]bool{"hybrid": true, "hetzner": false}
 	for name, d := range map[string]interface {
 		PopulateClusterConfig(*cluster.Config)
 	}{
-		"hybrid":  &HybridDriver{Driver: &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"}},
+		"hybrid": &HybridDriver{
+			Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+			HomeWorkerEnabled: true,
+		},
 		"hetzner": &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
 	} {
 		var cfg cluster.Config
 		d.PopulateClusterConfig(&cfg)
-		if cfg.WorkerReplicas == 0 && !cfg.ControlPlaneSchedulable {
-			t.Errorf("%s: 0 workers with a tainted control plane — the hub cannot schedule anything", name)
+		if cfg.WorkerReplicas == 0 && !cfg.ControlPlaneSchedulable && !homeWorkers[name] {
+			t.Errorf("%s: 0 Hetzner workers, a tainted control plane and no home workers — nothing can schedule", name)
 		}
+	}
+}
+
+// A hybrid cell with NO home workers has no other node at all, so the control
+// plane has to carry the platform.
+func TestHybridWithoutHomeWorkersUntaintsControlPlane(t *testing.T) {
+	d := &HybridDriver{
+		Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+		HomeWorkerEnabled: false,
+	}
+
+	var cfg cluster.Config
+	d.PopulateClusterConfig(&cfg)
+
+	if cfg.WorkerReplicas != 0 {
+		t.Errorf("WorkerReplicas = %d, want 0", cfg.WorkerReplicas)
+	}
+	if !cfg.ControlPlaneSchedulable {
+		t.Error("ControlPlaneSchedulable = false with no workers of any kind: the hub could not schedule anything")
 	}
 }
 
