@@ -3,12 +3,12 @@ hydra:
   config:
     urls:
       self:
-        issuer: https://auth.nutgraf.in
-      login: https://auth.nutgraf.in/login
-      consent: https://auth.nutgraf.in/consent
+        issuer: https://auth.dev.nutgraf.in
+      login: https://auth.dev.nutgraf.in/login
+      consent: https://auth.dev.nutgraf.in/consent
     serve:
       public:
-        base_url: https://auth.nutgraf.in
+        base_url: https://auth.dev.nutgraf.in
         cors:
           enabled: true
           allowed_origins:
@@ -23,7 +23,7 @@ hydra:
             - MCP-Protocol-Version
     webfinger:
       oidc_discovery:
-        client_registration_url: https://auth.nutgraf.in/oauth2/register
+        client_registration_url: https://auth.dev.nutgraf.in/oauth2/register
     oauth2:
       expose_internal_errors: false
     oidc:
@@ -87,4 +87,3 @@ deployment:
     periodSeconds: 10
     failureThreshold: 30
     timeoutSeconds: 5
-

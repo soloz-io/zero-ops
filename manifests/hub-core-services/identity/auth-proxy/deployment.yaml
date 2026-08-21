@@ -20,7 +20,7 @@ spec:
       - name: ghcr-pull-secret
       initContainers:
       - name: wait-for-hydra
-        image: curlimages/curl:latest
+        image: curlimages/curl:8.18.0@sha256:d94d07ba9e7d6de898b6d96c1a072f6f8266c687af78a74f380087a0addf5d17
         command:
         - sh
         - -c
@@ -31,7 +31,7 @@ spec:
           done
       containers:
       - name: auth-proxy
-        image: ghcr.io/soloz-io/zero-ops/auth-proxy:latest
+        image: ghcr.io/soloz-io/zero-ops/auth-proxy
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -56,9 +56,18 @@ spec:
         - name: JWKS_REFRESH_MIN_INTERVAL
           value: "10s"
         - name: EXPECTED_JWT_AUDIENCE
-          value: "https://api.nutgraf.in"
+          value: "https://api.dev.nutgraf.in"
         - name: TRUSTED_CLIENT_IDS
           value: "mcp-public-client"
+        # Public, environment-zoned hostnames (ADR-051). These were previously ABSENT
+        # from this Deployment and silently satisfied by compiled-in defaults in
+        # config.go — the process ran against hardcoded values that no manifest
+        # declared. LoadConfig now fails hard on any missing variable, so every
+        # setting must appear here.
+        - name: AUTH_PUBLIC_BASE_URL
+          value: "https://auth.dev.nutgraf.in"
+        - name: MCP_GATEWAY_BASE_URL
+          value: "https://api.dev.nutgraf.in"
         - name: WAYPOINT_BFF_CLIENT_SECRET
           valueFrom:
             secretKeyRef:

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -27,11 +27,46 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - uses: docker/build-push-action@v5
+        id: build
         with:
           context: .
           file: cmd/auth-proxy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/soloz-io/zero-ops/auth-proxy:latest
+          tags: |
+            ghcr.io/soloz-io/zero-ops/auth-proxy:${{ github.sha }}
+            ghcr.io/soloz-io/zero-ops/auth-proxy:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Pin the manifest to the digest just built
+        run: |
+          cd manifests/hub-core-services/identity/auth-proxy
+          kustomize edit set image ghcr.io/soloz-io/zero-ops/auth-proxy@${{ steps.build.outputs.digest }}
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifests/hub-core-services/identity/auth-proxy/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "image digest unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(auth-proxy): pin image to ${{ github.sha }}"
+          # The build takes minutes, so main has usually moved on by now and a
+          # plain push from this stale checkout is rejected with "fetch first"
+          # (that is exactly how the 2026-08-13 run failed, leaving the manifest
+          # pinned to a digest that was never committed). Rebase this one-line
+          # change onto whatever landed meanwhile, and retry.
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
+               && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push attempt $attempt failed; retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not push the image pin after 5 attempts"
+          exit 1

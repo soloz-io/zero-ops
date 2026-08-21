@@ -63,7 +63,8 @@ spec:
       toFieldPath: spec.forProvider.manifest.spec.cellId
 
   # 2. CNPG Pooler CR - Wrapped in provider-kubernetes Object
-  #    Uses tenant-specific credentials from tenant-<id>-db-credentials Secret (created by TenantDatabase Composition on Spoke).
+  #    Uses tenant-specific credentials from tenant-<id>-db-credentials Secret
+  #    (created by TenantDatabase Composition on Spoke).
   - name: pooler
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -933,7 +934,7 @@ spec:
             spec:
               provider:
                 infisical:
-                  hostAPI: "https://infisical.nutgraf.in"
+                  hostAPI: "https://infisical.dev.nutgraf.in"
                   secretsScope:
                     projectSlug: "hub-secrets"
                     environmentSlug: "dev"

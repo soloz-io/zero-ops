@@ -36,8 +36,11 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
     try {
       const claims = await opts.validator.validate(token);
 
-      if (opts.requiredScopes?.length && claims.scope) {
-        const tokenScopes = claims.scope.split(/\s+/);
+      // A token with NO scope claim previously skipped this check entirely and was
+      // admitted. Absence of scope must be treated as "no scopes granted", not as
+      // "check not applicable".
+      if (opts.requiredScopes?.length) {
+        const tokenScopes = (claims.scope ?? "").split(/\s+/).filter(Boolean);
         const missing = opts.requiredScopes.filter((s) => !tokenScopes.includes(s));
         if (missing.length > 0) {
           return c.json(

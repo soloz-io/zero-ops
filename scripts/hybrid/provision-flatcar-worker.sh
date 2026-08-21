@@ -864,6 +864,22 @@ coreos:
 
         [Install]
         WantedBy=multi-user.target
+
+    - name: iso-cleanup.service
+      command: start
+      content: |
+        [Unit]
+        Description=Unmount Ignition ISO to prevent false DiskPressure condition
+        After=local-fs.target
+        ConditionPathIsMountPoint=/media/iso
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/bin/umount -f /media/iso
+
+        [Install]
+        WantedBy=multi-user.target
 EOF
 
   cp "$IGN_FILE" "${ISO_ROOT}/ignition/config.ign"

@@ -16,6 +16,12 @@ export interface TokenStore {
   releaseRefreshLock(subject: string, owner: string): Promise<boolean>;
   beginFlow(subject: string, flowTtlMs?: number): Promise<{ state: string; stateHash: string }>;
   resolveFlow(state: string, flowTtlMs?: number): Promise<PendingOAuthFlow | undefined>;
+  /**
+   * Mutex-protected refresh. Declared here because a consumer typing its field as
+   * `TokenStore` would otherwise lose access to it and fall back to an unguarded
+   * refresh — the exact race acquireRefreshLock exists to prevent.
+   */
+  refreshToken(subject: string, refreshFn: () => Promise<TokenSet>): Promise<TokenSet>;
 }
 
 const DEFAULT_TOKEN_PREFIX = "auth:tokens:";
@@ -105,13 +111,20 @@ export class RedisTokenStore implements TokenStore {
     return result === "OK" ? lockValue : null;
   }
 
+  /**
+   * Release the refresh lock ONLY if this caller still owns it.
+   *
+   * Previously a GET, a comparison, then a DEL — three round trips with a gap. If
+   * the lock expired between the GET and the DEL, and another replica acquired it,
+   * this call deleted the new owner's lock and two replicas refreshed concurrently.
+   * Hydra rotates refresh tokens, so the loser's token is invalidated and that
+   * subject is silently signed out. The compare-and-delete is now one atomic script.
+   */
   async releaseRefreshLock(subject: string, owner: string): Promise<boolean> {
-    const current = await this.redis.get(this.lockKey(subject));
-    if (current === owner) {
-      await this.redis.del(this.lockKey(subject));
-      return true;
-    }
-    return false;
+    const script =
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+    const released = await this.redis.eval(script, 1, this.lockKey(subject), owner);
+    return released === 1;
   }
 
   /**

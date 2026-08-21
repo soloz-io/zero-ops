@@ -31,10 +31,17 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
     email: String(payload.email ?? ""),
     tenant_id: String(payload.tenant_id ?? ""),
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,
+    // The platform's auth-proxy injects a SINGULAR `role` claim
+    // (internal/auth-proxy/validate.go). Without this fallback `roles` was always
+    // empty and every requireRole() check denied.
     roles: Array.isArray(payload.roles)
       ? (payload.roles as unknown[]).map(String)
       : typeof payload.roles === "string"
         ? [payload.roles]
+        : Array.isArray(payload.role)
+          ? (payload.role as unknown[]).map(String)
+          : typeof payload.role === "string"
+            ? [payload.role]
         : [],
     iss: payload.iss ? String(payload.iss) : undefined,
     aud: payload.aud as TenantClaims["aud"],

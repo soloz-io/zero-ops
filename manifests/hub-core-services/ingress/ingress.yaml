@@ -12,10 +12,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - api.nutgraf.in
+    - api.dev.nutgraf.in
     secretName: api-zero-ops-tls
   rules:
-  - host: api.nutgraf.in
+  - host: api.dev.nutgraf.in
     http:
       paths:
       - path: /
@@ -40,10 +40,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - auth.nutgraf.in
+    - auth.dev.nutgraf.in
     secretName: auth-zero-ops-tls
   rules:
-  - host: auth.nutgraf.in
+  - host: auth.dev.nutgraf.in
     http:
       paths:
       - path: /
@@ -66,10 +66,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - console.nutgraf.in
+    - console.dev.nutgraf.in
     secretName: console-zero-ops-tls
   rules:
-  - host: console.nutgraf.in
+  - host: console.dev.nutgraf.in
     http:
       paths:
       - path: /self-service
@@ -102,10 +102,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - argocd.nutgraf.in
+    - argocd.dev.nutgraf.in
     secretName: argocd-server-tls
   rules:
-  - host: argocd.nutgraf.in
+  - host: argocd.dev.nutgraf.in
     http:
       paths:
       - path: /

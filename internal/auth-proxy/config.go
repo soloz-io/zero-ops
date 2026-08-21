@@ -1,62 +1,103 @@
 package authproxy
 
 import (
+	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	ListenAddr              string
-	HydraPublicURL          string
-	HydraAdminURL           string
-	HydraInternalJWKSURL    string
-	KratosPublicURL         string
-	KratosAdminURL          string
-	JWKSCacheTTL            time.Duration
-	JWKSFetchTimeout        time.Duration
-	JWKSRefreshMinInterval  time.Duration
-	ExpectedJWTAudience     string
-	TrustedClientIDs        string
-	AuthPublicBaseURL       string // public-facing base URL for auth server metadata (e.g. https://auth.nutgraf.in)
-	MCPGatewayBaseURL       string // base URL of the MCP gateway (e.g. https://api.nutgraf.in) used as issuer in gateway-served metadata
-	WaypointBFFClientSecret string // client secret for the confidential waypoint-bff-client, delivered via Infisical/ESO
+	ListenAddr             string
+	HydraPublicURL         string
+	HydraAdminURL          string
+	HydraInternalJWKSURL   string
+	KratosPublicURL        string
+	KratosAdminURL         string
+	JWKSCacheTTL           time.Duration
+	JWKSFetchTimeout       time.Duration
+	JWKSRefreshMinInterval time.Duration
+	ExpectedJWTAudience    string
+	TrustedClientIDs       string
+	// AuthPublicBaseURL is the public-facing base URL for authorization-server
+	// metadata. Public hostnames are environment-zoned (ADR-051): they carry the
+	// env label (auth.dev.nutgraf.in) because a single DNS namespace is shared
+	// across environments.
+	AuthPublicBaseURL string
+	// MCPGatewayBaseURL is the public base URL of the MCP gateway, used as the
+	// issuer in gateway-served metadata. Environment-zoned, as above.
+	MCPGatewayBaseURL string
+	// WaypointBFFClientSecret is the confidential client secret for
+	// waypoint-bff-client, delivered via Infisical/ESO (ADR-003).
+	WaypointBFFClientSecret string
 }
 
+// Note on the in-cluster URLs above (Hydra, Kratos): these are Kubernetes Service
+// DNS names (*.svc.cluster.local). They are NOT environment-zoned and must not be —
+// each environment is a physically separate cluster (ADR-037), so the name is already
+// env-scoped by virtue of resolving only inside that cluster. Only PUBLIC hostnames
+// carry the env label.
+
+// missingEnv accumulates every unset variable so a misconfigured deployment reports
+// all of them at once rather than one restart at a time.
+type missingEnv struct{ names []string }
+
+func (m *missingEnv) get(key string) string {
+	v := os.Getenv(key)
+	if strings.TrimSpace(v) == "" {
+		m.names = append(m.names, key)
+		return ""
+	}
+	return v
+}
+
+func (m *missingEnv) duration(key string) time.Duration {
+	raw := m.get(key)
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		m.names = append(m.names, fmt.Sprintf("%s (invalid duration %q)", key, raw))
+		return 0
+	}
+	return d
+}
+
+// LoadConfig reads every setting from the environment and fails hard if any is
+// missing. There are deliberately NO defaults: a hardcoded fallback lets a
+// misconfigured deployment start and silently talk to the wrong endpoint — which is
+// exactly how AUTH_PUBLIC_BASE_URL and MCP_GATEWAY_BASE_URL came to be absent from
+// the Deployment while the process still ran against compiled-in values.
 func LoadConfig() (*Config, error) {
-	cacheTTL, err := time.ParseDuration(getEnv("JWKS_CACHE_TTL", "1h"))
-	if err != nil {
-		return nil, err
-	}
-	fetchTimeout, err := time.ParseDuration(getEnv("JWKS_FETCH_TIMEOUT", "5s"))
-	if err != nil {
-		return nil, err
-	}
-	refreshInterval, err := time.ParseDuration(getEnv("JWKS_REFRESH_MIN_INTERVAL", "10s"))
-	if err != nil {
-		return nil, err
+	m := &missingEnv{}
+
+	cfg := &Config{
+		ListenAddr:             m.get("LISTEN_ADDR"),
+		HydraPublicURL:         m.get("HYDRA_PUBLIC_URL"),
+		HydraAdminURL:          m.get("HYDRA_ADMIN_URL"),
+		HydraInternalJWKSURL:   m.get("HYDRA_INTERNAL_JWKS_URL"),
+		KratosPublicURL:        m.get("KRATOS_PUBLIC_URL"),
+		KratosAdminURL:         m.get("KRATOS_ADMIN_URL"),
+		JWKSCacheTTL:           m.duration("JWKS_CACHE_TTL"),
+		JWKSFetchTimeout:       m.duration("JWKS_FETCH_TIMEOUT"),
+		JWKSRefreshMinInterval: m.duration("JWKS_REFRESH_MIN_INTERVAL"),
+		ExpectedJWTAudience:    m.get("EXPECTED_JWT_AUDIENCE"),
+		TrustedClientIDs:       m.get("TRUSTED_CLIENT_IDS"),
+		AuthPublicBaseURL:      m.get("AUTH_PUBLIC_BASE_URL"),
+		MCPGatewayBaseURL:      m.get("MCP_GATEWAY_BASE_URL"),
+		// Required: without it the waypoint-bff-client registration is skipped,
+		// which previously happened silently and left ADR-050's delegated-token
+		// client absent from Hydra.
+		WaypointBFFClientSecret: m.get("WAYPOINT_BFF_CLIENT_SECRET"),
 	}
 
-	return &Config{
-		ListenAddr:              getEnv("LISTEN_ADDR", ":8080"),
-		HydraPublicURL:          getEnv("HYDRA_PUBLIC_URL", "http://ory-hydra-public.platform-identity.svc.cluster.local:4444"),
-		HydraAdminURL:           getEnv("HYDRA_ADMIN_URL", "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"),
-		HydraInternalJWKSURL:    getEnv("HYDRA_INTERNAL_JWKS_URL", "http://ory-hydra-public.platform-identity.svc.cluster.local:4444/.well-known/jwks.json"),
-		KratosPublicURL:         getEnv("KRATOS_PUBLIC_URL", "http://ory-kratos-public.platform-identity.svc.cluster.local:4433"),
-		KratosAdminURL:          getEnv("KRATOS_ADMIN_URL", "http://ory-kratos-admin.platform-identity.svc.cluster.local:4434"),
-		JWKSCacheTTL:            cacheTTL,
-		JWKSFetchTimeout:        fetchTimeout,
-		JWKSRefreshMinInterval:  refreshInterval,
-		ExpectedJWTAudience:     getEnv("EXPECTED_JWT_AUDIENCE", "https://api.nutgraf.in"),
-		TrustedClientIDs:        getEnv("TRUSTED_CLIENT_IDS", "mcp-public-client"),
-		AuthPublicBaseURL:       getEnv("AUTH_PUBLIC_BASE_URL", "https://auth.nutgraf.in"),
-		MCPGatewayBaseURL:       getEnv("MCP_GATEWAY_BASE_URL", "https://api.nutgraf.in"),
-		WaypointBFFClientSecret: os.Getenv("WAYPOINT_BFF_CLIENT_SECRET"),
-	}, nil
-}
-
-func getEnv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+	if len(m.names) > 0 {
+		sort.Strings(m.names)
+		return nil, fmt.Errorf(
+			"auth-proxy configuration incomplete: %d required environment variable(s) missing or invalid: %s",
+			len(m.names), strings.Join(m.names, ", "))
 	}
-	return def
+	return cfg, nil
 }

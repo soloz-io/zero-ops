@@ -15,6 +15,33 @@
 > which (audience restriction, BFF authorization, trusted-header enforcement,
 > logout/revocation) are **security blockers**, not optional hardening.
 
+> **Amendment 2026-08-21 — Gateway placement, token semantics and client lifecycle.**
+> Three corrections, each verified against vendored upstream source. They change *where*
+> the gateway runs and *what is claimed about it*; the trust model is unchanged.
+>
+> **1. The gateway is per-spoke, not the hub.** Tenant traffic terminates at the spoke that
+> runs the workload. The security requirement — the BFF is never publicly reachable except
+> through an authenticating gateway — is unchanged and still enforced; only the network
+> path changes. Hub-terminated ingress placed the management plane (CAPI, Crossplane,
+> ArgoCD, Infisical PKI) in the tenant data path and required a cross-cluster hop per
+> request. Wherever this ADR says "the hub AgentGateway" in a *security* context, read "an
+> AgentGateway". See ADR-051 for the routing and naming model.
+>
+> **2. Upstream gap 5 (JWKS) was wrong.** AgentGateway refreshes JWKS on a schedule —
+> 15 min default, honouring `Cache-Control`/`Expires`, floored at 60s — and a change
+> triggers a config reload. Hydra signing-key rotation does **not** require a gateway
+> restart. The real gap is narrower: no on-demand refresh on an unknown `kid`, so a token
+> signed with a freshly published key can fail for up to one refresh interval.
+>
+> **3. The ID-token-as-credential choice is now a recorded deviation, not an omission.**
+> Forwarding the ID token (`aud = <tenant>-public-client`) to the BFF is audience
+> confusion: the BFF is not the audience, so one credential is valid at two hops. The
+> idiomatic remedy — RFC 8693 token exchange — is **unavailable**: Ory Hydra advertises no
+> token-exchange grant, and AgentGateway's `jwtSign` accepts only static claims, so it
+> cannot carry the user. The deviation therefore stands, and its mitigation is
+> **mandatory**: the BFF must validate `aud` explicitly. Third-party options were
+> evaluated and not adopted (see Impact).
+
 ---
 
 ## Context
@@ -324,11 +351,12 @@ BFF's client credential.
 |---|---|---|---|---|---|
 | `zero-ops-auth` npm package | npm registry | zero-ops platform team | CI publish workflow (`.github/workflows/publish-auth.yml`) | Tenant services | Day-0 |
 | OIDC browser session (AgentGateway cookie) | AgentGateway | platform-edge | AgentGateway | Tenant BFF/SPA | Day-1+ |
-| `<tenant>-public-client` OAuth client | Hydra | auth-proxy (registration) | auth-proxy startup | AgentGateway `oidc` policy | Day-0 |
-| `<tenant>-bff-client` confidential OAuth client | Hydra | auth-proxy (registration) | auth-proxy startup | Tenant BFF | Day-0 |
+| `<tenant>-public-client` OAuth client | Hydra | auth-proxy (registration) | auth-proxy startup | AgentGateway `oidc` policy | Day-0 — *superseded by the hydra-maester row above (2026-08-21)* |
+| `<tenant>-bff-client` confidential OAuth client | Hydra | auth-proxy (registration) | auth-proxy startup | Tenant BFF | Day-0 — *superseded by the hydra-maester row above (2026-08-21)* |
 | Delegated OAuth access/refresh tokens (user) | Fleet Redis (tenant-namespaced, fleet-owned) | Tenant BFF | Tenant BFF token lifecycle | Tenant BFF server-side calls | Day-1+ |
 | Identity claims (`email`, `role`, `tenant_id`) | Kratos traits | auth-proxy (consent injection) | auth-proxy consent handler | AgentGateway → BFF | Day-1+ |
-| Tenant hostnames | DNS | hub ingress | external-dns | hub AgentGateway | Day-1+ |
+| Tenant hostnames | DNS | Platform Networking | external-dns (spoke, zone-scoped) | spoke AgentGateway | Day-1+ |
+| `<tenant>-public-client` / `<tenant>-bff-client` OAuth clients | Hydra | Platform Engineering | hydra-maester (`OAuth2Client` CRD) | AgentGateway `oidc` policy / Tenant BFF | Day-1+ |
 
 ---
 
@@ -626,7 +654,7 @@ Recorded as upstream requirements, not accepted risk:
 3. No claims revalidation within session lifetime (role/tenant changes apply
    only at expiry/TTL).
 4. No structured OIDC audit events (debug traces only).
-5. JWKS is static — loaded once at startup, no refresh on unknown `kid`;
+5. ~~JWKS is static — loaded once at startup~~ **(corrected 2026-08-21: JWKS refreshes on a schedule; see the amendment above).** The remaining gap is no refresh on unknown `kid`;
    Hydra signing-key rotation requires gateway restart.
 
 ---
@@ -657,8 +685,10 @@ Recorded as upstream requirements, not accepted risk:
 
 ### Negative
 
-- Cross-cluster prerequisite: AgentGateway (hub) reaches tenant BFF/SPA
-  (spoke) only via Multi-Cluster Service export, which is not yet wired.
+- ~~Cross-cluster prerequisite: AgentGateway (hub) reaches tenant BFF/SPA (spoke) only via
+  Multi-Cluster Service export, which is not yet wired.~~ **Void as of the 2026-08-21
+  amendment** — the gateway now runs on the spoke alongside the workload, so no
+  Multi-Cluster Service export, ClusterMesh, or cross-cluster hop is required at all.
 - Two OAuth clients are required per tenant (`<tenant>-public-client` for the
   AgentGateway browser session, `<tenant>-bff-client` for the BFF's delegated
   token lifecycle), so the user completes an additional consent step for the BFF.
@@ -712,6 +742,39 @@ Recorded as upstream requirements, not accepted risk:
   npm package.
 
 ---
+
+### Impact of the 2026-08-21 amendment
+
+**Amends this ADR.** Gateway placement moves from hub to spoke; the Ownership rows for
+tenant hostnames and OAuth clients change accordingly; upstream gap 5 is corrected; the
+ID-token deviation is recorded with a mandatory mitigation. The trust model, the token
+semantics between browser and gateway, and every P0/P1 contract are unchanged.
+
+**Relies on ADR-051** for the hostname scheme and the routing model that decides which
+spoke serves a request.
+
+**Voids one prerequisite.** The Multi-Cluster Service export named as a negative
+consequence is no longer required.
+
+**Client lifecycle moves to a controller.** OAuth client registration is reconciled from
+`OAuth2Client` resources by hydra-maester rather than performed imperatively at auth-proxy
+startup. auth-proxy retains its login/consent, authorization-server metadata, JWKS-proxy and
+token-validation roles; Hydra is headless and still requires a login/consent provider, and
+the platform's `tenant_id`/`role` claim injection has no stock equivalent.
+
+**Alternatives evaluated and not adopted.** Ory Oathkeeper cannot supply a login/consent
+provider and performs no OAuth2 client-side flows, so it replaces neither component; its
+decision API is HTTP while AgentGateway's external authorization is gRPC, so it could only
+be added as a further in-path hop. A third-party RFC 8693 implementation for Hydra exists
+but performs no verification of the subject token — that responsibility falls entirely to
+the deploying service — so adopting it would trade a recorded audience deviation for a
+larger authentication risk. Both remain open should closing the audience deviation become a
+hard requirement.
+
+**A live authentication bypass was found and closed during this work.** The tenant BFF
+treated caller-supplied identity headers as authoritative whenever token validation failed,
+ungated by environment. Identity resolution is now fail-closed, and the development
+fallback requires an explicit opt-in that cannot be enabled in production, satisfying P1-7.
 
 ## References
 

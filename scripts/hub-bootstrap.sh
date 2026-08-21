@@ -54,6 +54,11 @@ fi
 # Kubeconfig path — set by step1 from the Go bootstrap result contract
 KUBECONFIG_PATH=""
 
+# Full-environment teardown (hub + spoke). Kept in its own module because the
+# ordering and the CLI work-arounds it encodes are the whole point of it.
+# shellcheck source=lib/teardown.sh
+source "$SCRIPT_DIR/lib/teardown.sh"
+
 # Create log directory
 mkdir -p "$LOG_DIR"
 # Start fresh log on every run (not just on teardown) so old entries
@@ -384,26 +389,69 @@ check_prerequisites() {
                 failed=1
             fi
         elif ! docker info >/dev/null 2>&1; then
-            log "WARNING: Docker is installed but the daemon is not running."
-            log "  Attempting to start Docker Desktop..."
-            local docker_exe
-            docker_exe="$(command -v docker)"
-            local docker_dir
-            docker_dir="$(dirname "$docker_exe")"
-            local desktop_exe="${docker_dir}/../Docker Desktop.exe"
-            if [[ -f "$desktop_exe" ]]; then
-                "$desktop_exe" &>/dev/null &
-                log "  Docker Desktop launched — waiting 30s for daemon to initialize..."
-                sleep 30
+            log "WARNING: Docker is installed but no daemon is reachable."
+            # kind runs the CAPI bootstrap cluster locally before the pivot, so a
+            # container runtime is required here — this is unrelated to image
+            # builds, which happen in GitHub workflows.
+            #
+            # Launching is platform-specific. The previous code only knew how to
+            # start "Docker Desktop.exe", so on macOS and Linux it announced that
+            # it was starting Docker and then did nothing.
+            local started=0
+            case "$(uname -s)" in
+                Darwin)
+                    if [[ -d "/Applications/Docker.app" ]]; then
+                        log "  Starting Docker Desktop (macOS)..."
+                        open -a Docker >/dev/null 2>&1 && started=1
+                    elif command -v colima >/dev/null 2>&1; then
+                        log "  Starting Colima..."
+                        colima start >/dev/null 2>&1 && started=1
+                    elif [[ -d "/Applications/OrbStack.app" ]]; then
+                        log "  Starting OrbStack..."
+                        open -a OrbStack >/dev/null 2>&1 && started=1
+                    fi
+                    ;;
+                Linux)
+                    if command -v systemctl >/dev/null 2>&1; then
+                        log "  Starting the docker service..."
+                        sudo systemctl start docker >/dev/null 2>&1 && started=1
+                    fi
+                    ;;
+                *)
+                    local docker_dir desktop_exe
+                    docker_dir="$(dirname "$(command -v docker)")"
+                    desktop_exe="${docker_dir}/../Docker Desktop.exe"
+                    if [[ -f "$desktop_exe" ]]; then
+                        log "  Starting Docker Desktop (Windows)..."
+                        "$desktop_exe" &>/dev/null & started=1
+                    fi
+                    ;;
+            esac
+
+            if (( started )); then
+                log "  Waiting up to 90s for the daemon to accept connections..."
+                local waited=0
+                while (( waited < 90 )); do
+                    if docker info >/dev/null 2>&1; then break; fi
+                    sleep 5; waited=$(( waited + 5 ))
+                done
                 if docker info >/dev/null 2>&1; then
-                    log "  ✓ Docker daemon is now running"
+                    log "  ✓ Docker daemon is now running (after ${waited}s)"
                 else
-                    log "  ⚠️ Docker Desktop may still be starting. Continue waiting or check the system tray."
-                    log "  If it fails, start Docker Desktop manually and re-run."
+                    log "ERROR: the runtime was launched but the daemon is still unreachable after ${waited}s."
                     failed=1
                 fi
             else
-                log "  ⚠️ Docker CLI found but daemon not running. Start Docker Desktop manually."
+                log "ERROR: no container runtime is available on this machine."
+                log "  'docker' here is only the CLI — there is no daemon behind it."
+                log "  The bootstrap needs one because kind hosts the CAPI bootstrap"
+                log "  cluster locally before pivoting to the Hetzner hub."
+                log "  Install any one of these, then re-run:"
+                log "    brew install --cask docker        # Docker Desktop"
+                log "    brew install colima && colima start --cpu 4 --memory 8"
+                log "    brew install --cask orbstack"
+                log "  Or point DOCKER_HOST / 'docker context use' at a remote daemon;"
+                log "  a remote context is detected and used as-is."
                 failed=1
             fi
         else
@@ -1168,6 +1216,21 @@ step10_wait_spokepool() {
 }
 
 # Main execution
+# Run one validation module at the bootstrap step where the condition it checks
+# first becomes true, so a violation halts the run at its cause instead of
+# surfacing later as an unrelated symptom in the post-bootstrap summary.
+# mode=gate tolerates resources that have not converged yet; anything that cannot
+# self-heal (a wrong environment slug, an unsubstituted DNS filter) still fails.
+run_gate() {
+    local modules="$1" label="$2"
+    log "Gate: $label"
+    if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" ENVIRONMENT="$ENVIRONMENT" \
+         SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
+         bash "$SCRIPT_DIR/validate/run.sh" cluster --only="$modules" --mode=gate; then
+        error_exit "Gate '$label' failed — see above. Continuing would build the rest of the platform on a broken foundation."
+    fi
+}
+
 main() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -1244,9 +1307,19 @@ main() {
                 TAILNET_NAME="$2"
                 shift 2
                 ;;
-            *)
-                log "WARNING: Unknown argument: $1"
+            --yes|-y)
+                TEARDOWN_YES="1"
                 shift
+                ;;
+            dev|stg|prod|ephemeral)
+                # Positional environment: `hub-bootstrap.sh dev --teardown`.
+                ENVIRONMENT="$1"
+                shift
+                ;;
+            *)
+                # A typo in a flag used to be logged and ignored, which meant the
+                # run continued with a silently wrong configuration.
+                error_exit "Unknown argument: $1"
                 ;;
         esac
     done
@@ -1255,11 +1328,31 @@ main() {
         error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'hybrid')"
     fi
 
+    # An empty --environment is not a no-op: cmd/hub/bootstrap.go coerces "" to
+    # "prod", which makes the spoke AppSet path spoke-pools/prod/... — a path that
+    # does not exist — so the spoke silently never provisions. Refuse it here,
+    # where the message can say so, rather than debugging a missing spoke later.
+    if [[ -z "$ENVIRONMENT" ]]; then
+        error_exit "--environment is required (the CLI coerces an empty value to 'prod', and the spoke then never provisions)"
+    fi
+    case "$ENVIRONMENT" in
+        dev|stg|prod|ephemeral) ;;
+        *) error_exit "Invalid environment: $ENVIRONMENT (expected dev, stg, prod or ephemeral)" ;;
+    esac
+
     # Export KUBECONFIG so the Go bootstrap binary's internal bare-kubectl calls
     # (e.g. infisical bootstrap pod discovery) resolve the same cluster instead
     # of a stale default context. The path is deterministic per cluster name.
     if [[ -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig" ]]; then
         export KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+    fi
+
+    # --teardown destroys the environment and exits. It deliberately does NOT fall
+    # through into a bootstrap: a rebuild is two explicit commands, so an
+    # interrupted teardown can never half-build a replacement on top of the wreck.
+    if [[ "$TEARDOWN" == "true" ]]; then
+        run_full_teardown
+        exit $?
     fi
 
     log "Starting Zero-Ops Hub Bootstrap Process"
@@ -1272,6 +1365,19 @@ main() {
     # Check prerequisites
     check_prerequisites
 
+    # Pre-bootstrap validation. Every check is statically decidable from the repo
+    # and needs no cluster, so config faults are found before the first Hetzner
+    # server is billed rather than after a 40-minute provision. Fatal by design:
+    # what it reports cannot be fixed forward from a half-built platform.
+    if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
+        log "Running pre-bootstrap validation..."
+        if ! ENVIRONMENT="$ENVIRONMENT" bash "$SCRIPT_DIR/validate/run.sh" preflight; then
+            error_exit "Pre-bootstrap validation failed — nothing was created. Fix the reported invariants and re-run (SKIP_PREFLIGHT=1 overrides)."
+        fi
+    else
+        log "⚠️  SKIP_PREFLIGHT=1 — pre-bootstrap validation bypassed"
+    fi
+
     # Execute steps in order (each step is independently idempotent)
     # The hub bootstrap orchestrator internally manages sequential boundary
     # gating (B01 → B02 → init-secrets → B03). No fixed sleeps needed
@@ -1279,6 +1385,11 @@ main() {
     step1_bootstrap_hub
 
     step1b_reconcile_appsets
+
+    # The HubEnvironment and ClusterSecretStore now exist, so the Infisical slug is
+    # decidable. A wrong slug is invisible afterwards: every ExternalSecret
+    # resolves against another environment and reports Healthy doing it.
+    run_gate "environment-isolation" "environment isolation"
 
     step1c_configure_tailscale
 
@@ -1301,12 +1412,24 @@ main() {
 
     step7_8_configure_eso
 
+    # Infisical is up and ESO has had a reconcile window, so an ExternalSecret that
+    # still cannot resolve is a seeding fault rather than a race.
+    run_gate "secrets-resolve" "secret resolution"
+
     step9_wait_database
+
+    # The identity stack is up; prove hydra-maester actually registered the OAuth
+    # clients. An unregistered redirect_uri fails only in the browser.
+    run_gate "oauth-clients" "OAuth client registration"
 
     if [[ -z "$SPOKEPOOL_NAME" ]]; then
         error_exit "SPOKEPOOL_NAME must be set via --spoke flag or SPOKEPOOL_NAME env var for provider '$PROVIDER'"
     fi
     step10_wait_spokepool
+
+    # The spoke is Ready, so its ingress path is decidable — and under ADR-051 it
+    # is the path that actually serves tenant traffic.
+    run_gate "tenant-ingress" "spoke tenant ingress"
 
     log "Zero-Ops Hub Bootstrap Process completed successfully!"
     log "🎯 Hub cluster: Ready and operational"
@@ -1320,7 +1443,11 @@ main() {
     log "Running post-bootstrap core services validation..."
     local validate_script="$SCRIPT_DIR/post-bootstrap-validate.sh"
     if [[ -f "$validate_script" ]]; then
-        SPOKEPOOL_NAME="$SPOKEPOOL_NAME" bash "$validate_script" || log "⚠️  Post-bootstrap validation reported failures — review the summary above"
+        # Fatal: swallowing this into a warning is how a bootstrap "succeeds"
+        # while leaving a platform that does not work.
+        if ! SPOKEPOOL_NAME="$SPOKEPOOL_NAME" ENVIRONMENT="$ENVIRONMENT" bash "$validate_script"; then
+            error_exit "Post-bootstrap validation FAILED — see the summary above."
+        fi
     else
         log "⚠️  post-bootstrap-validate.sh not found at $validate_script — skipping validation"
     fi

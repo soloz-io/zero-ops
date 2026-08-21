@@ -53,7 +53,7 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	// Allow override for local port-forwarding or custom DNS
 	baseURL := os.Getenv("INFISICAL_API_URL")
 	if baseURL == "" {
-		baseURL = "https://infisical.nutgraf.in"
+		baseURL = "https://infisical.dev.nutgraf.in"
 	}
 	
 	// Get Universal Auth credentials from the same secret ESO uses

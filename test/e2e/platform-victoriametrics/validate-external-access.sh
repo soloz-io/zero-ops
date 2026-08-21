@@ -4,7 +4,7 @@
 # Purpose: Validate TLS, DNS, and authentication for spoke cluster access
 #
 # Requirements:
-# - DNS record victoriametrics.hub.nutgraf.in → 167.235.217.188
+# - DNS record victoriametrics.hub.dev.nutgraf.in → 167.235.217.188
 # - TLS certificate issued and valid
 # - Basic auth credentials configured
 # - PromQL API accessible externally
@@ -19,7 +19,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-DOMAIN="victoriametrics.hub.nutgraf.in"
+DOMAIN="victoriametrics.hub.dev.nutgraf.in"
 EXPECTED_IP="167.235.217.188"
 NAMESPACE="observability"
 SECRET_NAME="victoriametrics-basic-auth"

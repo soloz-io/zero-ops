@@ -322,7 +322,7 @@ spec:
                         data:
                           agent.mode: "managed"
                           agent.name: "%s"
-                          agent.server.address: "argocd-principal.nutgraf.in"
+                          agent.server.address: "argocd-principal.dev.nutgraf.in"
                           agent.server.port: "8443"
                           agent.creds: "mtls:^CN=(.+)$"
                           agent.tls.secret-name: "argocd-agent-client-cert"
@@ -677,8 +677,8 @@ spec:
                       type: Format
                       fmt: "%s-kubeconfig"
 
-          # ========================================================================
-          # PKI Distribution via CRS (hub-operator + spoke-identity-operator create per-spoke CRS Secrets)
-          # hub-operator: bootstrap-cert wrapper; spoke-identity-operator: machine-identity wrapper
-          # ADR-035: hub-operator declares Certificate intent, spoke cert-manager handles Day-2
-          # ========================================================================
+# ========================================================================
+# PKI Distribution via CRS (hub-operator + spoke-identity-operator create per-spoke CRS Secrets)
+# hub-operator: bootstrap-cert wrapper; spoke-identity-operator: machine-identity wrapper
+# ADR-035: hub-operator declares Certificate intent, spoke cert-manager handles Day-2
+# ========================================================================

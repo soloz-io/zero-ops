@@ -18,7 +18,7 @@ data:
     leafnodes {
       remotes = [
         {
-          url: "tls://argocd-principal.nutgraf.in:7422"
+          url: "tls://argocd-principal.dev.nutgraf.in:7422"
           tls {
             cert_file: "/etc/nats/certs/tls.crt"
             key_file: "/etc/nats/certs/tls.key"

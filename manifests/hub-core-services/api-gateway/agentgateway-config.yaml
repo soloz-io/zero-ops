@@ -48,13 +48,13 @@ data:
               - Mcp-Session-Id
             mcpAuthentication:
               mode: strict
-              issuer: https://auth.nutgraf.in
+              issuer: https://auth.dev.nutgraf.in
               audiences:
-              - https://api.nutgraf.in/mcp
+              - https://api.dev.nutgraf.in/mcp
               jwks:
                 url: http://ory-hydra-public.platform-identity.svc.cluster.local:4444/.well-known/jwks.json
               resourceMetadata:
-                resource: https://api.nutgraf.in/mcp
+                resource: https://api.dev.nutgraf.in/mcp
                 mcpProtocolVersion: "2024-11-05"
                 scopesSupported:
                 - tenant:read
@@ -65,52 +65,10 @@ data:
                 - openid
                 bearerMethodsSupported:
                 - header
-        # Waypoint BFF: browser-authenticated via the gateway-native oidc policy.
-        # auth-proxy remains ONLY as Hydra's login/consent provider (not in the
-        # request path). The OIDC session cookie (agw_oidc_s_*) is host-only, so
-        # the frontend + BFF share the waypoint.nutgraf.in host (relative /api).
-        # NOTE: backends are spoke services reachable via Multi-Cluster Service
-        # (ServiceImport) once exported from the spoke cell. Until MCS wiring
-        # lands, this route has no live backend.
-        - backends:
-          - host: bff-workload.tenant-waypoint.svc.cluster.local:3001
-          hostnames:
-          - waypoint.nutgraf.in
-          - api.waypoint.nutgraf.in
-          matches:
-          - path:
-              pathPrefix: /api
-          policies:
-            oidc:
-              issuer: https://auth.nutgraf.in
-              clientId: waypoint-public-client
-              tokenEndpointAuth: null
-              redirectURI: https://waypoint.nutgraf.in/oauth/callback
-              scopes:
-              - tenant:read
-              - tenant:write
-            transformations:
-              request:
-                set:
-                  X-Auth-Subject: jwt.sub
-                  X-Auth-Email: jwt.email
-                  X-Auth-Role: jwt.role
-                  X-Auth-Tenant: jwt.tenant_id
-        # Waypoint frontend: static SPA served behind the same oidc session.
-        # Unauthenticated browser hits are redirected to Hydra by the oidc policy.
-        - backends:
-          - host: frontend-workload.tenant-waypoint.svc.cluster.local:3000
-          hostnames:
-          - waypoint.nutgraf.in
-          matches:
-          - path:
-              pathPrefix: /
-          policies:
-            oidc:
-              issuer: https://auth.nutgraf.in
-              clientId: waypoint-public-client
-              tokenEndpointAuth: null
-              redirectURI: https://waypoint.nutgraf.in/oauth/callback
-              scopes:
-              - tenant:read
-              - tenant:write
+        # ADR-051: the waypoint route blocks were REMOVED from the hub.
+        # Tenant browser traffic now terminates on the spoke that runs the workload
+        # (manifests/spoke/spoke-catalog/infra/agentgateway-config.yaml). Keeping them
+        # here would create a second, competing path for the same hostnames — and they
+        # never had a live backend, because the Multi-Cluster Service export they
+        # assumed was never wired and is no longer required.
+        # The hub AgentGateway retains the /mcp resource-server role only.

@@ -38,9 +38,9 @@ config:
       tls: false
   postgres:
     url: postgres://openmeter@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require
-  # NOTE: svix.apiKey (signedJwt) cannot use secretKeyRef because it goes into ConfigMap
-  # Helm chart limitation: ConfigMap values must be literals, not secret references
-  # TODO Phase 6: Implement Kustomize ConfigMap generator or use external config management
+# NOTE: svix.apiKey (signedJwt) cannot use secretKeyRef because it goes into ConfigMap
+# Helm chart limitation: ConfigMap values must be literals, not secret references
+# TODO Phase 6: Implement Kustomize ConfigMap generator or use external config management
 
 kafka:
   enabled: true
@@ -106,13 +106,6 @@ billingWorker:
 svix:
   enabled: true
   replicaCount: 1
-  database:
-    # CRITICAL: Svix requires full DSN with password embedded
-    # Helm chart limitation: cannot use secretKeyRef for external database
-    # Password will be injected via Kustomize patch from Secret
-    dsn: "postgres://openmeter:PLACEHOLDER_PASSWORD@platform-db-rw.platform-data.svc.cluster.local:5432/openmeter?sslmode=require"
-  redis:
-    dsn: "redis://platform-redis.platform-data.svc.cluster.local:6379"
   signingSecret: "placeholder"  # Replaced by Secret openmeter-svix
   database:
     dsn: ""  # Empty = use internal PostgreSQL (official pattern)

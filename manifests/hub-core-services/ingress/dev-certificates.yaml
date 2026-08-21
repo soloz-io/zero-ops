@@ -16,7 +16,7 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - api.nutgraf.in
+  - api.dev.nutgraf.in
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -29,7 +29,7 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - auth.nutgraf.in
+  - auth.dev.nutgraf.in
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -42,7 +42,7 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - console.nutgraf.in
+  - console.dev.nutgraf.in
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -55,4 +55,4 @@ spec:
     name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-  - argocd.nutgraf.in
+  - argocd.dev.nutgraf.in

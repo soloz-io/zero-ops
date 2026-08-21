@@ -23,7 +23,7 @@ spec:
         - name: KRATOS_PUBLIC_URL
           value: "http://ory-kratos-public.platform-identity.svc.cluster.local:80"
         - name: KRATOS_BROWSER_URL
-          value: "https://console.nutgraf.in"
+          value: "https://console.dev.nutgraf.in"
         - name: COOKIE_SECRET
           valueFrom:
             secretKeyRef:

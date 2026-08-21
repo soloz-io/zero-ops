@@ -12,7 +12,7 @@ kind: ClusterIssuer
 metadata:
   name: infisical-fleet-issuer
 spec:
-  url: "https://infisical.nutgraf.in"
+  url: "https://infisical.dev.nutgraf.in"
   authentication:
     universalAuth:
       secretRef:

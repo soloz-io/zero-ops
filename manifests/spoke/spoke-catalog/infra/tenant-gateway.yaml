@@ -1,0 +1,66 @@
+# ADR-051: the public entry point is PLATFORM-OWNED.
+#
+# The Gateway and the route binding a public hostname to the authenticating gateway
+# both live here, in the platform namespace. Two consequences, both deliberate:
+#
+#   1. The backendRef is same-namespace, so no ReferenceGrant is required and none
+#      exists to grant. A tenant cannot author a route reaching its own backends
+#      without traversing AgentGateway — ADR-050's no-bypass requirement holds
+#      structurally rather than by review.
+#   2. Adding or changing a hostname is a platform-side change. Tenants declare
+#      hostname and backends as data (fleet-registry values) rendered into
+#      agentgateway-config; they do not author routing.
+#
+# TLS terminates here (Cilium Gateway, hostNetwork Envoy on the CP node, published
+# through the CAPH LB's extraServices 80/443). AgentGateway receives plaintext on the
+# internal hop; its callback URL is config-driven and its cookie Secure flag derives
+# from that https scheme, so the session is unaffected.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: tenant-gateway
+  namespace: platform-ops
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    hostname: "*.dev.nutgraf.in"
+    allowedRoutes:
+      namespaces:
+        from: Same
+  - name: https
+    protocol: HTTPS
+    port: 443
+    hostname: "*.dev.nutgraf.in"
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - kind: Secret
+        name: tenant-gateway-tls
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+# Every tenant hostname on this spoke resolves to AgentGateway. Adding a tenant means
+# adding its hostname here and a route block in agentgateway-config.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tenant-ingress
+  namespace: platform-ops
+spec:
+  parentRefs:
+  - name: tenant-gateway
+    namespace: platform-ops
+  hostnames:
+  - waypoint.dev.nutgraf.in
+  - api.waypoint.dev.nutgraf.in
+  rules:
+  - backendRefs:
+    - name: agentgateway
+      port: 3000

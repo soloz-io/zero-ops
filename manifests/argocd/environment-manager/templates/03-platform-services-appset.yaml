@@ -556,6 +556,39 @@ spec:
                 - op: replace
                   path: /spec/data/1/remoteRef/key
                   value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/S3_SECRET_ACCESS_KEY'
+            # WS3: external-dns blast-radius + record ownership.
+            # --domain-filter scopes which zone this spoke may write, so a dev
+            # spoke can never touch prod records. --txt-owner-id keys the TXT
+            # registry; two spokes sharing an owner id would fight over records.
+            # Both are args[0]/args[1] by contract (see external-dns.yaml) — they
+            # are pinned first precisely so appended flags cannot shift the index.
+            # environmentSlug is a Helm value resolved at bootstrap; .name is the
+            # ArgoCD cluster name resolved per generated Application.
+            - target:
+                kind: Deployment
+                name: external-dns
+              patch: |
+                - op: replace
+                  path: /spec/template/spec/containers/0/args/0
+                  value: '--domain-filter={{ if eq .Values.environmentSlug "prod" }}nutgraf.in{{ else }}{{ .Values.environmentSlug }}.nutgraf.in{{ end }}'
+                - op: replace
+                  path: /spec/template/spec/containers/0/args/1
+                  value: '--txt-owner-id={{"{{"}}.name{{"}}"}}'
+            # Environment isolation (ADR-037). The spoke ClusterSecretStore ships
+            # with environmentSlug hardcoded to "dev"
+            # (manifests/spoke/spoke-catalog/infra/cluster-secret-store.yaml), so a
+            # stg or prod spoke would read DEV secrets out of Infisical. The Hub's
+            # environmentSlug is the authority and is a Helm value resolved at
+            # bootstrap. spoke-catalog is KUSTOMIZE-rendered, not Helm, so
+            # `{{ .Values.x }}` cannot be written into the manifest itself — the
+            # substitution has to happen here.
+            - target:
+                kind: ClusterSecretStore
+                name: infisical-backend
+              patch: |
+                - op: replace
+                  path: /spec/provider/infisical/secretsScope/environmentSlug
+                  value: '{{ .Values.environmentSlug }}'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'

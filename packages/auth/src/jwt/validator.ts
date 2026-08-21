@@ -80,11 +80,20 @@ export class JwtValidator {
       if (joseErr.code === "ERR_JWT_EXPIRED") {
         throw new TokenExpiredError(undefined, err);
       }
-      if (joseErr.code === "ERR_JWT_INVALIDIssuer") {
-        throw new InvalidIssuerError(this.issuer ?? "", (err as { claim?: string }).claim ?? "");
-      }
-      if (joseErr.code === "ERR_JWT_INVALID_AUDIENCE") {
-        throw new InvalidAudienceError(this.audience ?? "", (err as { claim?: string }).claim ?? "");
+      // jose v6 reports both issuer and audience mismatches as
+      // ERR_JWT_CLAIM_VALIDATION_FAILED and names the offending claim on `claim`.
+      // The previous code tested "ERR_JWT_INVALIDIssuer" and
+      // "ERR_JWT_INVALID_AUDIENCE" — neither is emitted — so InvalidIssuerError and
+      // InvalidAudienceError were unreachable and a P0-1 audience violation looked
+      // identical to any other malformed token.
+      const claim = (err as { claim?: string }).claim;
+      if (joseErr.code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+        if (claim === "iss") {
+          throw new InvalidIssuerError(this.issuer ?? "", claim);
+        }
+        if (claim === "aud") {
+          throw new InvalidAudienceError(this.audience ?? "", claim);
+        }
       }
 
       throw new AuthError({

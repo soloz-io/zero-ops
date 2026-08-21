@@ -176,7 +176,7 @@ func TestEnsureClusterIssuerCRSWrapperInitialRendersCompletedIssuer(t *testing.T
 		"name: infisical-auth",
 		"key: client-secret",
 		"certificateTemplateName: infrastructure-services",
-		"url: https://infisical.nutgraf.in",
+		"url: https://infisical.dev.nutgraf.in",
 	} {
 		if !strings.Contains(yamlBody, want) {
 			t.Errorf("rendered ClusterIssuer missing %q in:\n%s", want, yamlBody)

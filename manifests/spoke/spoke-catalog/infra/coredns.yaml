@@ -2,7 +2,7 @@
 #
 # Why: the CP node's /etc/resolv.conf lists Hetzner's IPv6-first nameservers
 # (2a01:4ff:ff00::add:2). CoreDNS forwards external queries to that file, so
-# `infisical.nutgraf.in` (which has both A + AAAA) resolves to its IPv6 address
+# `infisical.dev.nutgraf.in` (which has both A + AAAA) resolves to its IPv6 address
 # first. Cluster nodes have no working IPv6 default route, so ESO's dial to
 # the IPv6 address hangs ("lookup ... i/o timeout") and every ExternalSecret
 # fails. The cluster CAN reach the IPv4 A record (65.109.41.89:443) — it just

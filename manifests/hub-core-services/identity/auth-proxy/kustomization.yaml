@@ -9,3 +9,11 @@ resources:
 - service.yaml
 - ghcr-pull-secret-es.yaml
 - waypoint-bff-client-secret-es.yaml
+
+# Pinned by digest, not by tag. The auth-proxy workflow rewrites this line with
+# `kustomize edit set image` after each build and commits it, so the running
+# image is always an immutable reference to a specific build rather than whatever
+# `latest` happened to point at when a pod last restarted.
+images:
+- name: ghcr.io/soloz-io/zero-ops/auth-proxy
+  digest: sha256:582fef214d493234b2059a758ccfe11afedf17d325774606a9716b03fbdf7b56

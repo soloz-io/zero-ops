@@ -447,7 +447,7 @@ spec:
                         data:
                           agent.mode: "managed"
                           agent.name: "%s"
-                          agent.server.address: "argocd-principal.nutgraf.in"
+                          agent.server.address: "argocd-principal.dev.nutgraf.in"
                           agent.server.port: "8443"
                           agent.creds: "mtls:^CN=(.+)$"
                           agent.tls.secret-name: "argocd-agent-client-cert"

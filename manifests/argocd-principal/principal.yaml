@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: argocd-agent-principal
-        image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest
+        image: quay.io/argoprojlabs/argocd-agent:v0.9.0@sha256:394b9166d03895146a82c3a8f33ae5c99fda9f54e3b903bbd15737ea9890a766
         imagePullPolicy: IfNotPresent
         args:
         - principal

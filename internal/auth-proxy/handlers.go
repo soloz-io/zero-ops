@@ -185,7 +185,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No session exists, redirect to Kratos UI with login_challenge
-	kratosURL := fmt.Sprintf("https://console.nutgraf.in/login?login_challenge=%s", challenge)
+	kratosURL := fmt.Sprintf("https://console.dev.nutgraf.in/login?login_challenge=%s", challenge)
 	http.Redirect(w, r, kratosURL, http.StatusFound)
 }
 

@@ -52,5 +52,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add manifests/hub-core-services/kube-sbt-api/kustomization.yaml
-          git commit -m "chore(kube-sbt-api): update image to ${{ github.sha }}" || exit 0
-          git push
+          if git diff --cached --quiet; then
+            echo "image digest unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(kube-sbt-api): pin image to ${{ github.sha }}"
+          # The build takes minutes, so main has usually moved on by now and a
+          # plain push from this stale checkout is rejected with "fetch first"
+          # (that is exactly how the 2026-08-13 run failed, leaving the manifest
+          # pinned to a digest that was never committed). Rebase this one-line
+          # change onto whatever landed meanwhile, and retry.
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
+               && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push attempt $attempt failed; retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not push the image pin after 5 attempts"
+          exit 1

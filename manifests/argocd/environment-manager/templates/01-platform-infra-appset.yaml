@@ -51,7 +51,7 @@ spec:
               configs:
                 cm:
                   # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
-                  url: "https://argocd.nutgraf.in"
+                  url: "https://argocd.dev.nutgraf.in"
                   admin.enabled: "true"
                   application.instanceLabelKey: argocd.argoproj.io/instance
                   exec.enabled: "false"
@@ -220,7 +220,11 @@ spec:
             targetRevision: ''
             path: 'manifests/hub-core-services/cluster-secret-store'
             chart: ''
-            directoryRecurse: 'true'
+            # Rendered with kustomize (see the kustomization.yaml in that path and
+            # the templatePatch below) so environmentSlug can be substituted per
+            # Hub. ArgoCD rejects source.directory and source.kustomize together,
+            # so directoryRecurse MUST stay empty for this entry.
+            directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
@@ -518,6 +522,19 @@ spec:
       source:
         directory:
           recurse: true
+    {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "platform-cluster-secret-store" {{"}}"}}
+    spec:
+      source:
+        kustomize:
+          patches:
+            - target:
+                kind: ClusterSecretStore
+                name: infisical-backend
+              patch: |
+                - op: replace
+                  path: /spec/provider/infisical/secretsScope/environmentSlug
+                  value: '{{ .Values.environmentSlug }}'
     {{"{{-"}} end {{"}}"}}
 ---
 {{ end }}

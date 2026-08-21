@@ -16,7 +16,7 @@ kind: ClusterIssuer
 metadata:
   name: infisical-signing-issuer
 spec:
-  url: "https://infisical.nutgraf.in"
+  url: "https://infisical.dev.nutgraf.in"
   projectId: ""
   authentication:
     universalAuth:

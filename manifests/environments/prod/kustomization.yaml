@@ -6,3 +6,4 @@ bases:
 
 patchesStrategicMerge:
   - patch-config.yaml
+  - patch-hubenvironment.yaml

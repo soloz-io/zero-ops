@@ -960,7 +960,7 @@ while iterating on a Gateway/solver configuration. The `Certificate` for
 `waypoint-tls` lives in the fleet-registry repo (`tenants/waypoint/workloads`),
 so the `issuerRef` switch lands there, not in this repo.
 
-### 18. Extension of Hybrid Home-Lab Pattern to Hub Cluster and S3 Barman Backup Invariant (2026-08-20)
+### 19. Extension of Hybrid Home-Lab Pattern to Hub Cluster and S3 Barman Backup Invariant (2026-08-20)
 
 **Context & Scope Expansion.**
 The hybrid home-lab pattern established in ADR-046 initially targeted Spoke tenant clusters. To eliminate cloud compute costs on the Hub management plane, the pattern is extended to the Hub cluster:
@@ -973,6 +973,85 @@ Because home-lab Flatcar nodes utilize ephemeral local disk (`local-path-provisi
 2. **Continuous WAL Archiving**: CNPG streams write-ahead logs (WAL) continuously to S3 with compression (`gzip`), enabling Point-In-Time Recovery (PITR).
 3. **Scheduled & Immediate Base Backups**: `ScheduledBackup` resources with `immediate: true` ensure a baseline physical backup is taken immediately upon cluster creation and retained for `30d`.
 4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: home`) to guarantee separation from the control plane.
+
+### 20. Per-environment hostname scheme and DNS automation (2026-08-20)
+
+**Decision — environment is a DNS zone; production is bare.**
+
+```
+dev    waypoint.dev.nutgraf.in    api.waypoint.dev.nutgraf.in    oranger.dev.nutgraf.in
+stg    waypoint.stg.nutgraf.in    api.waypoint.stg.nutgraf.in    oranger.stg.nutgraf.in
+prod   waypoint.nutgraf.in        api.waypoint.nutgraf.in        oranger.nutgraf.in
+```
+
+Env-as-zone (rather than `dev.waypoint.…`) means **one wildcard per environment
+covers every tenant**, instead of one per tenant. With two tenants already live
+(`waypoint`, `oranger`) that difference compounds with each onboarding. It also
+matches intent already in the repo: `manifests/environments/stg/patch-config.yaml`
+had `DOMAIN: stg.nutgraf.in` before this change.
+
+**Codified:** `DOMAIN` per overlay in `manifests/environments/{dev,stg,prod}/patch-config.yaml`
+(dev was `nutgraf.local`, a local-dev artifact that never matched the real dev
+endpoints). `manifests/environments/stg/patch-hubenvironment.yaml` is **new** — stg
+previously had no HubEnvironment patch and silently inherited `nutgraf.in` from
+base, i.e. staging claimed the production domain. prod deliberately has no patch:
+inheriting bare `nutgraf.in` is correct under this scheme.
+
+*Caveat:* `HubEnvironment.spec.domain` and `spec.tls` have **no Go consumers** —
+they are declarative only. Making them load-bearing, and removing the ~15 hostname
+literals (plus two compiled into `internal/auth-proxy/hydra.go`), is tracked
+separately as the base-domain centralisation work.
+
+**20.1 — ACME solver de-coupled from a single tenant.** Addendum 18's issuer
+hard-pinned `parentRefs` to `waypoint-gateway`/`tenant-waypoint`, which could never
+issue for a second tenant. Replaced with **one solver per tenant Gateway**,
+discriminated by `selector.dnsZones`. cert-manager matches a dnsName against
+dnsZones by suffix and takes the most specific, so `waypoint.dev.nutgraf.in` also
+covers `api.waypoint.dev.nutgraf.in` without a separate entry. There is
+deliberately **no catch-all solver**: an unmatched hostname must fail loudly rather
+than attach a challenge to another tenant's Gateway.
+
+**20.2 — Cross-namespace challenge attach (prerequisite, external).** These are
+*Cluster*Issuers and cert-manager runs with
+`--cluster-resource-namespace=cert-manager`, so challenge HTTPRoutes are created in
+`cert-manager` while `parentRefs` targets the tenant namespace. The tenant Gateway's
+**:80 listener must set `allowedRoutes.namespaces.from: All`** (or a selector
+matching `cert-manager`) or every challenge fails to attach. That Gateway spec lives
+in the private `fleet-registry` repo — it is a prerequisite this repo cannot enforce.
+
+**20.3 — external-dns deployed on the spoke.** `manifests/spoke/spoke-catalog/infra/external-dns.yaml`
+runs external-dns with the Hetzner **webhook** provider (Hetzner is not an in-tree
+external-dns provider) and `--source=gateway-httproute`. It runs on the spoke, not
+the hub, because the Gateways it publishes records for live there — the hub copy at
+`manifests/hub-core-services/external-dns/` was never referenced by any
+ApplicationSet and has never run, which is why the
+`external-dns.alpha.kubernetes.io/hostname` annotation on the waypoint Gateway has
+been inert.
+
+`--domain-filter` and `--txt-owner-id` are `args[0]`/`args[1]` **by contract**,
+pinned first so appended flags can never shift the patched index, and rewritten
+per-spoke by the spoke-catalog ApplicationSet. `--domain-filter` is the
+blast-radius control: a dev spoke cannot write prod records.
+
+*Note:* spoke-catalog is **kustomize-rendered, not Helm** — `{{ .Values.x }}` does
+not resolve there. `manifests/spoke/spoke-catalog/infra/certificates.yaml`
+demonstrates the trap: its `commonName` reaches the live cluster as the literal
+`argocd-agent:{{ .Values.spokeName }}`. Index patching via the ApplicationSet is
+therefore the only injection mechanism available in that tree.
+
+**20.4 — `hetzner-dns-credentials` pointed at the wrong credential.** It mapped
+`remoteRef.key: hcloud-token`. A Hetzner **Cloud** API token (console.hetzner.cloud —
+CAPH/CCM/CSI) is **not** a Hetzner **DNS** API token (dns.hetzner.com): different
+product, different console, different credential. This is the same failure class
+addendum 12 recorded for `hcloud-token` being mistaken for an S3 access key.
+Repointed to a distinct `hetzner-dns-token` key, which must be created in the
+hub-secrets Infisical project before external-dns can authenticate.
+
+**20.5 — Wildcard follow-up.** `manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml`
+already installs the Hetzner DNS-01 webhook (v1.4.2) and is **installed and unused** —
+no `dns01` solver exists anywhere. Once 20.4 lands a real DNS token, switching to a
+per-env wildcard (`*.dev.nutgraf.in`) via DNS-01 becomes cheap and removes the
+per-tenant Gateway coupling of 20.1 and the prerequisite of 20.2 entirely.
 
 ## References
 

@@ -4,7 +4,9 @@ metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
 data:
-  DOMAIN: "nutgraf.local"
+  # WS1: env-as-zone hostname scheme. Was "nutgraf.local", a local-dev
+  # artifact that never matched the real dev endpoints (infisical.dev.nutgraf.in etc).
+  DOMAIN: "dev.nutgraf.in"
   CLUSTER_ID: "hub-dev"
   INFISICAL_ENVIRONMENT_SLUG: "dev"
   INFISICAL_PROJECT_SLUG: "hub-platform"

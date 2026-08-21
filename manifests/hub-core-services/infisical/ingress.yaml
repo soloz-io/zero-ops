@@ -9,7 +9,7 @@ metadata:
     # The nutgraf.in zone + A/AAAA rrsets are managed via the Hetzner Cloud API.
     # Note: the legacy Hetzner DNS API (dns.hetzner.com/api/v1) is retired; the
     # existing hcloud-token works and has DNS scope.
-    external-dns.alpha.kubernetes.io/hostname: infisical.nutgraf.in
+    external-dns.alpha.kubernetes.io/hostname: infisical.dev.nutgraf.in
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
 spec:
@@ -17,9 +17,9 @@ spec:
   tls:
     - secretName: infisical-tls
       hosts:
-        - infisical.nutgraf.in
+        - infisical.dev.nutgraf.in
   rules:
-    - host: infisical.nutgraf.in
+    - host: infisical.dev.nutgraf.in
       http:
         paths:
           - path: /

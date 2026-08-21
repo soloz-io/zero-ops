@@ -64,7 +64,7 @@ func (h *HydraClient) RegisterClient(waypointBFFClientSecret string) error {
 		GrantTypes: []string{"authorization_code", "refresh_token"},
 		ResponseTypes: []string{"code"},
 		RedirectURIs: []string{
-			"https://waypoint.nutgraf.in/oauth/callback",
+			"https://waypoint.dev.nutgraf.in/oauth/callback",
 			"http://localhost:3000/oauth/callback",
 			"http://127.0.0.1:3000/oauth/callback",
 		},
@@ -89,7 +89,7 @@ func (h *HydraClient) RegisterClient(waypointBFFClientSecret string) error {
 		GrantTypes: []string{"authorization_code", "refresh_token"},
 		ResponseTypes: []string{"code"},
 		RedirectURIs: []string{
-			"https://waypoint.nutgraf.in/api/v1/auth/oauth/callback",
+			"https://waypoint.dev.nutgraf.in/api/v1/auth/oauth/callback",
 			"http://localhost:3001/api/v1/auth/oauth/callback",
 			"http://127.0.0.1:3001/api/v1/auth/oauth/callback",
 		},

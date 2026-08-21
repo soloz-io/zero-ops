@@ -27,6 +27,10 @@ mkdir -p "$LOG_DIR"
 # Clear log on each run (do not append to stale output from previous runs)
 > "$LOG_FILE"
 
+# The environment this hub belongs to. Passed through by hub-bootstrap.sh;
+# defaults to dev for manual runs.
+ENVIRONMENT="${ENVIRONMENT:-dev}"
+
 # ─── Counters ─────────────────────────────────────────────────────────────────
 PASS=0
 FAIL=0
@@ -958,7 +962,17 @@ main() {
 
     print_summary
 
-    if [[ "$FAIL" -gt 0 ]]; then
+    # ADR-050/051 checks live as modules under scripts/validate/cluster/ so the
+    # same implementations run as in-flight bootstrap gates and here, in strict
+    # mode, instead of two copies drifting apart. See scripts/validate/run.sh.
+    log ""
+    log "Running ADR-050/051 validation modules (strict)..."
+    local adr_rc=0
+    HUB_KUBECONFIG="$KUBECONFIG" ENVIRONMENT="$ENVIRONMENT" SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
+        bash "$(dirname "${BASH_SOURCE[0]}")/validate/run.sh" cluster --mode=final \
+        2>&1 | tee -a "$LOG_FILE" || adr_rc=1
+
+    if [[ "$FAIL" -gt 0 || "$adr_rc" -ne 0 ]]; then
         exit 1
     fi
     exit 0

@@ -38,8 +38,8 @@ spec:
     # 3. Platform identity endpoints — present in every tenant workload.
     #    Tenant overlays add their own FQDN entries on top of these.
     - toFQDNs:
-        - matchName: "auth.nutgraf.in"
-        - matchName: "console.nutgraf.in"
+        - matchName: "auth.dev.nutgraf.in"
+        - matchName: "console.dev.nutgraf.in"
       toPorts:
         - ports:
             - port: "443"

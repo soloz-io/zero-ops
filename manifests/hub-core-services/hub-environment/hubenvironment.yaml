@@ -83,7 +83,7 @@ spec:
     - clientId: mcp-server
       clientName: "MCP Server"
       redirectUris:
-      - "https://mcp.nutgraf.in/callback"
+      - "https://mcp.dev.nutgraf.in/callback"
       grantTypes:
       - authorization_code
       - refresh_token

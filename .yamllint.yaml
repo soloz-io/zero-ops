@@ -15,6 +15,8 @@ rules:
   line-length:
     max: 120
     level: warning
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
 
   truthy:
     allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
@@ -37,7 +39,10 @@ rules:
     level: warning
 
 ignore: |
+  # Helm chart templates (Go text/template) are validated by helm lint/kubeconform, not yamllint.
   manifests/tenants/charts/universal-tenant/templates/
+  manifests/argocd/environment-manager/templates/
+  internal/opensbt/providers/gitops/helm-chart/templates/
   # Go text/template assets are not valid plain YAML until rendered.
   internal/assets/manifests/addons/crs.yaml
   internal/assets/manifests/secrets/hetzner-credentials.yaml

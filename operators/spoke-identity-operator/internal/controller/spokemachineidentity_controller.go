@@ -42,7 +42,7 @@ const (
 	// bootstrap (ADR-035). The spoke catalog's ClusterIssuer, previously a static
 	// GitOps placeholder with empty clientId, is replaced by the lifecycle-delivered
 	// completed issuer rendered here (ADR-048 two-stage injection).
-	clusterIssuerURL = "https://infisical.nutgraf.in"
+	clusterIssuerURL = "https://infisical.dev.nutgraf.in"
 	// clusterIssuerTemplate is the Infisical PKI certificate template backed by the
 	// Fleet Intermediate CA chain (Offline Root -> Fleet Intermediate -> Leaf).
 	clusterIssuerTemplate = "infrastructure-services"

@@ -2,7 +2,7 @@ kratos:
   config:
     serve:
       public:
-        base_url: https://console.nutgraf.in
+        base_url: https://console.dev.nutgraf.in
         cors:
           enabled: true
     session:
@@ -20,11 +20,11 @@ kratos:
       url: http://ory-hydra-admin.platform-identity.svc.cluster.local:4445
       override_return_to: true
     selfservice:
-      default_browser_return_url: https://console.nutgraf.in/
+      default_browser_return_url: https://console.dev.nutgraf.in/
       allowed_return_urls:
-        - https://auth.nutgraf.in/
-        - https://console.nutgraf.in/
-        - https://waypoint.nutgraf.in/
+        - https://auth.dev.nutgraf.in/
+        - https://console.dev.nutgraf.in/
+        - https://waypoint.dev.nutgraf.in/
         - http://127.0.0.1:6274/oauth/callback
         - http://localhost:6274/oauth/callback
       methods:
@@ -32,9 +32,9 @@ kratos:
           enabled: true
       flows:
         login:
-          ui_url: https://console.nutgraf.in/login
+          ui_url: https://console.dev.nutgraf.in/login
         registration:
-          ui_url: https://console.nutgraf.in/registration
+          ui_url: https://console.dev.nutgraf.in/registration
     dsn: env://DSN
 
   automigration:
@@ -80,4 +80,3 @@ deployment:
     - name: identity-schema
       mountPath: /etc/config/schemas
       readOnly: true
-

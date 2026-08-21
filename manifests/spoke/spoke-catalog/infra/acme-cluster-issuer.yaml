@@ -1,27 +1,49 @@
-# WS0.3 / ADR-046 addendum 18 — public ACME issuer for internet-facing hostnames.
+# ADR-046 addendum 18 — public ACME issuers for internet-facing Gateway hostnames.
 #
-# Why this exists: waypoint.nutgraf.in was served a leaf signed by the PRIVATE
+# Why this exists: waypoint.dev.nutgraf.in was served a leaf signed by the PRIVATE
 # "O=Zero-Ops / CN=Fleet Intermediate CA", so every browser rejected it
 # (`Verify return code: 20 — unable to get local issuer certificate`), and the
 # intermediate was not even included in the served chain (depth 0).
 #
-# Division of responsibility — these are complementary, not alternatives:
+# Division of responsibility — complementary, not alternatives:
 #   infisical-fleet-issuer  → internal fleet / mTLS certs (ADR-035, ADR-048).
-#                             Private CA is CORRECT there.
+#                             A private CA is CORRECT there.
 #   letsencrypt-*           → public browser-facing Gateway listeners ONLY.
 #
-# Solver: HTTP-01 via Gateway API. The spoke runs no Ingress controller, so the
+# ── Solver model (WS2.1) ────────────────────────────────────────────────────
+# HTTP-01 via Gateway API. The spoke runs no Ingress controller, so the
 # gatewayHTTPRoute solver is required; it needs
-# --feature-gates=ExperimentalGatewayAPISupport=true on the controller
-# (set in cert-manager.yaml).
+# --feature-gates=ExperimentalGatewayAPISupport=true on the cert-manager
+# controller (set in cert-manager.yaml).
 #
-# cert-manager creates a temporary HTTPRoute attached to the parent Gateway
-# below; it must match the Gateway that actually terminates :80 for the
-# hostname, i.e. the CAPH LB -> Envoy hostNetwork listener.
+# ONE SOLVER PER TENANT GATEWAY, discriminated by selector.dnsZones. An earlier
+# revision hard-pinned a single solver to waypoint-gateway/tenant-waypoint, which
+# could never issue for a second tenant (tenant-oranger has its own Gateway).
+# cert-manager matches a dnsName against dnsZones by suffix and picks the MOST
+# SPECIFIC zone, so `waypoint.dev.nutgraf.in` also covers
+# `api.waypoint.dev.nutgraf.in` without a separate entry.
 #
-# ⚠ Start on STAGING. Let's Encrypt production rate-limits (5 duplicate certs
-# per week) are unforgiving while iterating. Switch the Certificate's issuerRef
-# to letsencrypt-prod only once a staging cert is issued successfully.
+# Hostname scheme (env is a DNS zone; prod is bare):
+#   dev   waypoint.dev.nutgraf.in   api.waypoint.dev.nutgraf.in
+#   stg   waypoint.stg.nutgraf.in   api.waypoint.stg.nutgraf.in
+#   prod  waypoint.dev.nutgraf.in       api.waypoint.dev.nutgraf.in
+# Each solver lists all three envs; a given spoke is only ever asked for its own,
+# and the surplus zones are inert.
+#
+# ⚠ NO CATCH-ALL SOLVER — deliberately. A Certificate for a hostname that matches
+# no solver fails loudly rather than silently attaching a challenge to another
+# tenant's Gateway. Onboarding a tenant means adding its solver block here.
+#
+# ⚠ CROSS-NAMESPACE ATTACH: these are ClusterIssuers and cert-manager runs with
+# --cluster-resource-namespace=cert-manager, so challenge HTTPRoutes are created
+# in the `cert-manager` namespace while parentRefs targets the tenant namespace.
+# The tenant Gateway's :80 listener MUST allow routes from that namespace
+# (allowedRoutes.namespaces.from: All, or a selector matching cert-manager) or
+# every challenge will fail to attach. That Gateway spec lives in fleet-registry.
+#
+# ⚠ START ON STAGING. Let's Encrypt production allows 5 duplicate certs per week;
+# iterating on a Gateway solver will exhaust that. Point a Certificate's
+# issuerRef at letsencrypt-prod only after staging issues successfully.
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -34,11 +56,32 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
-    - http01:
+    # ── tenant: waypoint ────────────────────────────────────────────────────
+    - selector:
+        dnsZones:
+        - waypoint.dev.nutgraf.in
+        - waypoint.stg.nutgraf.in
+        - waypoint.dev.nutgraf.in
+      http01:
         gatewayHTTPRoute:
           parentRefs:
           - name: waypoint-gateway
             namespace: tenant-waypoint
+            kind: Gateway
+            group: gateway.networking.k8s.io
+    # ── tenant: oranger ─────────────────────────────────────────────────────
+    # Forward-looking: tenant-oranger currently runs a workload Service but has
+    # no Gateway yet. Issuance for these zones stays Pending until it exists.
+    - selector:
+        dnsZones:
+        - oranger.dev.nutgraf.in
+        - oranger.stg.nutgraf.in
+        - oranger.dev.nutgraf.in
+      http01:
+        gatewayHTTPRoute:
+          parentRefs:
+          - name: oranger-gateway
+            namespace: tenant-oranger
             kind: Gateway
             group: gateway.networking.k8s.io
 ---
@@ -53,10 +96,29 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
-    - http01:
+    # ── tenant: waypoint ────────────────────────────────────────────────────
+    - selector:
+        dnsZones:
+        - waypoint.dev.nutgraf.in
+        - waypoint.stg.nutgraf.in
+        - waypoint.dev.nutgraf.in
+      http01:
         gatewayHTTPRoute:
           parentRefs:
           - name: waypoint-gateway
             namespace: tenant-waypoint
+            kind: Gateway
+            group: gateway.networking.k8s.io
+    # ── tenant: oranger ─────────────────────────────────────────────────────
+    - selector:
+        dnsZones:
+        - oranger.dev.nutgraf.in
+        - oranger.stg.nutgraf.in
+        - oranger.dev.nutgraf.in
+      http01:
+        gatewayHTTPRoute:
+          parentRefs:
+          - name: oranger-gateway
+            namespace: tenant-oranger
             kind: Gateway
             group: gateway.networking.k8s.io

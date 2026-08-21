@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import type { TokenSet } from "../authz/types.js";
 
 export interface OidcClientOptions {
-  /** OIDC issuer URL (e.g., "https://auth.nutgraf.in") */
+  /** OIDC issuer URL (e.g., "https://auth.dev.nutgraf.in") */
   issuerUrl: string;
   /** OAuth client ID */
   clientId: string;
@@ -123,6 +123,12 @@ export class OidcClient {
       state?: string;
       codeChallenge?: string;
       codeChallengeMethod?: "S256";
+      /**
+       * The verifier matching `codeChallenge`. Passed through to the return value so
+       * a caller can hand both to exchangeCode() without threading it separately —
+       * the previous signature promised a codeVerifier it could never produce.
+       */
+      codeVerifier?: string;
       additionalParams?: Record<string, string>;
     },
   ): Promise<{ url: string; state: string; codeVerifier?: string }> {
@@ -155,7 +161,9 @@ export class OidcClient {
     return {
       url: `${provider.authorization_endpoint}?${params.toString()}`,
       state,
-      codeVerifier: opts?.codeChallenge ? undefined : undefined,
+      // Was a dead ternary that always yielded undefined, so callers had to retain
+      // the verifier from generatePkce() themselves or silently break PKCE.
+      codeVerifier: opts?.codeVerifier,
     };
   }
 

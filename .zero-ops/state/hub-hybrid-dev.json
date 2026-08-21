@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "clusterName": "hub-hybrid-dev",
+  "provider": "hybrid",
+  "region": "",
+  "bootstrapId": "",
+  "currentPhase": "bootstrap-create",
+  "completedPhases": [
+    "bootstrap-create"
+  ],
+  "bootstrapContext": "kind-hub-hybrid-dev",
+  "mgmtKubeconfig": "",
+  "talosConfig": "",
+  "talosImageId": "",
+  "networkCIDR": "",
+  "timestamp": "0001-01-01T00:00:00Z",
+  "metadata": null
+}

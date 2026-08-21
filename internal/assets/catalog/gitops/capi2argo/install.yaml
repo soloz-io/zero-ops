@@ -21,7 +21,7 @@ spec:
       serviceAccountName: capi2argo-controller-manager
       containers:
       - name: manager
-        image: ghcr.io/dntosas/capi2argo-cluster-operator:latest
+        image: ghcr.io/dntosas/capi2argo-cluster-operator:v1.5.0@sha256:fb8c6457ef6e44d4c4d8a3468feb0d19e973867e0544d6cbc38f837411f3498c
         env:
         - name: ARGOCD_NAMESPACE
           value: "platform-ops"

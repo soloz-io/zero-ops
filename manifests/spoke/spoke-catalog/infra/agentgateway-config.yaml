@@ -1,0 +1,76 @@
+# ADR-051: spoke AgentGateway routing — tenant browser traffic.
+#
+# One gateway serves every tenant on this spoke. Isolation is per-hostname: each
+# tenant has its own route block, its own oidc policy and its own OAuth client.
+# AgentGateway derives its session cookie name from sha256(policy_id) and scopes
+# cookies host-only, so a session issued for one tenant hostname is never presented
+# at another.
+#
+# Backends are same-cluster (cluster.local). This is AgentGateway's own routing, not
+# Gateway API, so crossing namespaces here is a NetworkPolicy concern and never a
+# Gateway API RefNotPermitted failure — which is why no ReferenceGrant is needed.
+#
+# Hostnames follow the env-as-zone scheme (ADR-051): <tenant>.<env>.nutgraf.in, with
+# production unlabelled. The values below are dev.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: platform-ops
+data:
+  config.yaml: |
+    binds:
+    - port: 3000
+      listeners:
+      - routes:
+        # ── tenant: waypoint ──────────────────────────────────────────────────
+        # BFF first: the more specific /api prefix must precede the catch-all.
+        # The frontend and BFF share one host so the host-only session cookie
+        # covers both (relative /api calls from the SPA).
+        - backends:
+          - host: bff-workload.tenant-waypoint.svc.cluster.local:3001
+          hostnames:
+          - waypoint.dev.nutgraf.in
+          - api.waypoint.dev.nutgraf.in
+          matches:
+          - path:
+              pathPrefix: /api
+          policies:
+            oidc:
+              issuer: https://auth.dev.nutgraf.in
+              clientId: waypoint-public-client
+              tokenEndpointAuth: null
+              redirectURI: https://waypoint.dev.nutgraf.in/oauth/callback
+              scopes:
+              - tenant:read
+              - tenant:write
+            transformations:
+              request:
+                set:
+                  X-Auth-Subject: jwt.sub
+                  X-Auth-Email: jwt.email
+                  X-Auth-Role: jwt.role
+                  X-Auth-Tenant: jwt.tenant_id
+        - backends:
+          - host: frontend-workload.tenant-waypoint.svc.cluster.local:3000
+          hostnames:
+          - waypoint.dev.nutgraf.in
+          matches:
+          - path:
+              pathPrefix: /
+          policies:
+            oidc:
+              issuer: https://auth.dev.nutgraf.in
+              clientId: waypoint-public-client
+              tokenEndpointAuth: null
+              redirectURI: https://waypoint.dev.nutgraf.in/oauth/callback
+              scopes:
+              - tenant:read
+              - tenant:write
+            transformations:
+              request:
+                set:
+                  X-Auth-Subject: jwt.sub
+                  X-Auth-Email: jwt.email
+                  X-Auth-Role: jwt.role
+                  X-Auth-Tenant: jwt.tenant_id

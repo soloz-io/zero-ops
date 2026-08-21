@@ -1,0 +1,121 @@
+# ADR-051: spoke-terminated public ingress.
+#
+# Tenant browser traffic terminates on the spoke that runs the workload, not on the
+# hub. The security contract of ADR-050 is unchanged — a tenant BFF is reachable only
+# through an authenticating gateway — but the gateway now sits beside the workload, so
+# the management cluster leaves the tenant data path and no cross-cluster transport
+# (ClusterMesh / MCS) is required.
+#
+# Request path:
+#   browser -> spoke LB (CAPH extraServices 80/443)
+#           -> Cilium Gateway (hostNetwork Envoy, terminates TLS)
+#           -> HTTPRoute host-match -> this Service
+#           -> agentgateway (oidc policy) -> tenant Service (cluster.local)
+#
+# Identity remains on the hub: this gateway redirects the browser to Hydra at
+# auth.<env>.nutgraf.in over public HTTPS. There is no cluster-to-cluster call.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentgateway
+  namespace: platform-ops
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: platform-ops
+  labels:
+    app: agentgateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentgateway
+  template:
+    metadata:
+      labels:
+        app: agentgateway
+    spec:
+      serviceAccountName: agentgateway
+      # ADR-014: platform workloads run on worker nodes only.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      containers:
+      - name: agentgateway
+        # Pinned to tag + digest. `:latest` is non-reproducible — a rebuild of the
+        # same manifest can silently change the gateway binary. Digest captured from
+        # the running hub pods; v1.4.1 is the release matching the vendored source at
+        # reference-projects/agentgateway (v1.4.1-166-g25664ff5).
+        image: cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29
+        args: ["-f", "/etc/agentgateway/config.yaml"]
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        # Config compile HARD-FAILS without this — the OIDC session cookie is
+        # AES-256-GCM encrypted with it. Per-spoke value; sessions are host-scoped
+        # so it need not match the hub's.
+        - name: OIDC_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: agentgateway-oidc-cookie-secret
+              key: oidc-cookie-secret
+        volumeMounts:
+        - name: config
+          mountPath: /etc/agentgateway
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          httpGet: {path: /health, port: 3000}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet: {path: /health, port: 3000}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: agentgateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: platform-ops
+  labels:
+    app: agentgateway
+spec:
+  type: ClusterIP
+  selector:
+    app: agentgateway
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: agentgateway-oidc-cookie-secret
+  namespace: platform-ops
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: agentgateway-oidc-cookie-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: oidc-cookie-secret
+      remoteRef:
+        key: agentgateway-oidc-cookie-secret

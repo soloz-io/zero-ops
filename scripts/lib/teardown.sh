@@ -1,0 +1,522 @@
+#!/usr/bin/env bash
+# Full-environment teardown (hub + spoke).
+#
+# Sourced by hub-bootstrap.sh; invoked by `hub-bootstrap.sh <env> --teardown`.
+#
+# Three defects make a naive teardown leave paid infrastructure running, and each
+# one is silent — the command exits 0 either way:
+#
+#   1. `hub teardown --name=<hub>` matches Hetzner resources by name/label
+#      containing the HUB name (teardown/orchestrator.go:137). Spoke resources are
+#      named spoke-pool-*, so the spoke is never touched. Tearing the hub down
+#      first also removes the CAPI controllers that would have unwound the spoke,
+#      which is why the spoke must go first.
+#
+#   2. `hub spoke teardown --name=<spoke>` is a no-op. discoverSpokeClusters
+#      rebuilds the name from label parts as strings.Join(parts[2:5], "-")
+#      (spoke/orchestrator.go:104), so caph-cluster-spoke-pool-hybrid-dev-01-*
+#      yields "spoke-pool-hybrid" — which never equals "spoke-pool-hybrid-dev-01",
+#      so the filter skips it. It must be called WITHOUT --name, which deletes
+#      every spoke in the project; this script therefore takes an inventory first
+#      and refuses if a spoke from another environment would be caught.
+#
+#   3. ArgoCD re-creates the SpokePool while it is being deleted, so the claim has
+#      to be removed before the infrastructure.
+#
+# A verification sweep runs afterwards and deletes anything the CLI missed, scoped
+# to this environment's names, because "teardown succeeded" with servers still
+# billing is the failure mode being fixed.
+
+# ─── Hetzner inventory ───────────────────────────────────────────────────────
+# Everything is scoped by exact name prefix (hub name, spoke name), never by a
+# loose substring, so a teardown of dev can never reach stg or prod.
+_hcloud_api() {
+    local path="$1"
+    curl -sS -m 30 -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+        "https://api.hetzner.cloud/v1/${path}" 2>/dev/null
+}
+
+# Prints: <type>\t<id>\t<name>\t<scope>   (scope = hub | spoke | other)
+_hcloud_inventory() {
+    local hub="$1" spoke="$2"
+    local kind
+    for kind in servers load_balancers volumes firewalls networks placement_groups; do
+        _hcloud_api "${kind}?per_page=100" | python3 -c "
+import json, sys
+kind = sys.argv[1]; hub = sys.argv[2]; spoke = sys.argv[3]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for item in payload.get(kind, []) or []:
+    name = item.get('name') or ''
+    labels = item.get('labels') or {}
+    blob = name + ' ' + ' '.join('%s=%s' % kv for kv in labels.items())
+    if hub and (name.startswith(hub) or ('caph-cluster-' + hub) in blob):
+        scope = 'hub'
+    elif spoke and (name.startswith(spoke) or ('caph-cluster-' + spoke) in blob):
+        scope = 'spoke'
+    elif name.startswith('spoke-pool-') or 'caph-cluster-spoke-pool-' in blob:
+        scope = 'other'      # a spoke, but not this environment's
+    else:
+        continue
+    print('\t'.join([kind, str(item.get('id')), name, scope]))
+" "$kind" "$hub" "$spoke"
+    done
+}
+
+_print_inventory() {
+    local inv="$1" label="$2"
+    if [[ -z "$inv" ]]; then
+        log "  ($label: nothing found)"
+        return
+    fi
+    local kind id name scope
+    while IFS=$'\t' read -r kind id name scope; do
+        [[ -z "$kind" ]] && continue
+        log "  [$scope] ${kind%s}: $name (id $id)"
+    done <<< "$inv"
+}
+
+# ─── Resolve which cluster we are tearing down ───────────────────────────────
+# Derived from on-disk state so `hub-bootstrap.sh dev --teardown` needs no other
+# flags, while --name / --spoke still override.
+_resolve_teardown_targets() {
+    if [[ -z "$CLUSTER_NAME" || "$CLUSTER_NAME" == "hub" ]]; then
+        local state
+        state=$(ls "$ZERO_OPS_DIR/.zero-ops/state/"*"-${ENVIRONMENT}.json" 2>/dev/null | head -1 || true)
+        if [[ -n "$state" ]]; then
+            CLUSTER_NAME="$(basename "$state" .json)"
+        else
+            local kcfg
+            kcfg=$(ls "$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub-"*"-${ENVIRONMENT}.kubeconfig" 2>/dev/null | head -1 || true)
+            [[ -n "$kcfg" ]] && CLUSTER_NAME="$(basename "$kcfg" .kubeconfig)"
+        fi
+    fi
+    if [[ -z "$CLUSTER_NAME" || "$CLUSTER_NAME" == "hub" ]]; then
+        # No local state left. Discover the real hub from the cloud, so a repeat
+        # run still targets the right names instead of a plausible-looking guess.
+        local discovered
+        discovered=$(_hcloud_api "servers?per_page=100" | python3 -c "
+import json, sys, re
+env = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for item in payload.get('servers', []) or []:
+    m = re.match(r'^(hub-[a-z0-9]+-%s)-' % re.escape(env), item.get('name') or '')
+    if m:
+        print(m.group(1)); break
+" "$ENVIRONMENT" 2>/dev/null || true)
+        if [[ -n "$discovered" ]]; then
+            CLUSTER_NAME="$discovered"
+            log "  hub discovered from Hetzner: $CLUSTER_NAME"
+        else
+            CLUSTER_NAME="hub-${PROVIDER}-${ENVIRONMENT}"
+        fi
+    fi
+
+    # `hub-bootstrap.sh dev --teardown` passes no --provider, and PROVIDER defaults
+    # to hetzner — which would send the spoke lookup to spoke-pools/dev/hetzner/
+    # for a hybrid environment and silently find nothing. The hub name that was
+    # just resolved from on-disk state carries the real provider.
+    if [[ "$CLUSTER_NAME" =~ ^hub-([a-z0-9]+)-${ENVIRONMENT}$ ]]; then
+        PROVIDER="${BASH_REMATCH[1]}"
+    fi
+
+    # If that name was only a guess (nothing on disk, nothing left in the cloud),
+    # ask the repo which provider this environment is actually defined for.
+    local pooldir="$ZERO_OPS_DIR/manifests/spoke/spoke-pools/${ENVIRONMENT}"
+    if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig" && -d "$pooldir" ]]; then
+        local providers=()
+        local d
+        for d in "$pooldir"/*/; do
+            [[ -d "$d" ]] && providers+=("$(basename "$d")")
+        done
+        if [[ "${#providers[@]}" == "1" && "${providers[0]}" != "$PROVIDER" ]]; then
+            PROVIDER="${providers[0]}"
+            CLUSTER_NAME="hub-${PROVIDER}-${ENVIRONMENT}"
+            log "  provider resolved from manifests/spoke/spoke-pools/${ENVIRONMENT}: $PROVIDER"
+        fi
+    fi
+    log "  provider: $PROVIDER"
+
+    if [[ -z "$SPOKEPOOL_NAME" ]]; then
+        local spoke_manifest
+        spoke_manifest=$(ls "$ZERO_OPS_DIR/manifests/spoke/spoke-pools/${ENVIRONMENT}/${PROVIDER}/"*.yaml 2>/dev/null | head -1 || true)
+        if [[ -n "$spoke_manifest" ]]; then
+            SPOKEPOOL_NAME=$(python3 -c "
+import yaml, sys
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get('kind') == 'SpokePool':
+        print(d['metadata']['name']); break
+" "$spoke_manifest" 2>/dev/null)
+        fi
+    fi
+    [[ -z "$SPOKEPOOL_NAME" ]] && SPOKEPOOL_NAME="spoke-pool-${PROVIDER}-${ENVIRONMENT}-01"
+
+    KUBECONFIG_PATH="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+}
+
+# ─── Stop ArgoCD from re-creating what we delete ─────────────────────────────
+_release_spoke_claim() {
+    [[ ! -f "$KUBECONFIG_PATH" ]] && { log "  hub kubeconfig absent — skipping (nothing is reconciling)"; return 0; }
+    if ! kubectl --kubeconfig="$KUBECONFIG_PATH" --request-timeout=15s cluster-info >/dev/null 2>&1; then
+        log "  hub API unreachable — skipping (nothing is reconciling)"
+        return 0
+    fi
+
+    # Force, never graceful. Every object here is bookkeeping: the actual cloud
+    # infrastructure is deleted directly through the Hetzner API further down. A
+    # graceful delete blocks on finalizers whose controllers are about to be
+    # destroyed anyway — Crossplane's on the SpokePool, and ArgoCD's
+    # resources-finalizer, which additionally triggers a cascading delete of every
+    # managed resource. Waiting on either buys nothing and can hang indefinitely.
+    #
+    # So: strip finalizers first, then delete with --wait=false, and never block.
+    local kc=(kubectl --kubeconfig="$KUBECONFIG_PATH" --request-timeout=20s)
+
+    log "  force-deleting ArgoCD Application platform-spoke-pools"
+    "${kc[@]}" patch application platform-spoke-pools -n platform-ops \
+        --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+    "${kc[@]}" delete application platform-spoke-pools -n platform-ops \
+        --ignore-not-found --wait=false 2>&1 | sed 's/^/    /' || true
+
+    log "  force-deleting SpokePool ${SPOKEPOOL_NAME}"
+    "${kc[@]}" patch spokepool "$SPOKEPOOL_NAME" \
+        --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+    "${kc[@]}" delete spokepool "$SPOKEPOOL_NAME" \
+        --ignore-not-found --wait=false 2>&1 | sed 's/^/    /' || true
+
+    # CAPI objects hold finalizers that block on draining nodes and de-provisioning
+    # cloud resources through controllers that are seconds from deletion. Strip
+    # them so nothing downstream waits on a controller that no longer exists.
+    local kind
+    for kind in clusters machinedeployments machinesets machines hetznerclusters hetznerbaremetalhosts; do
+        local objs
+        objs=$("${kc[@]}" get "$kind" -A --no-headers -o custom-columns=NS:.metadata.namespace,N:.metadata.name 2>/dev/null || true)
+        [[ -z "$objs" ]] && continue
+        local ns name
+        while read -r ns name; do
+            [[ -z "$name" ]] && continue
+            "${kc[@]}" patch "$kind" "$name" -n "$ns" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 \
+                && log "    stripped finalizers: ${kind%s}/$name"
+        done <<< "$objs"
+    done
+}
+
+# ─── Delete whatever the CLI left behind ─────────────────────────────────────
+# Dependency order matters: a network cannot be deleted while servers or load
+# balancers still attach to it, and a volume cannot be deleted while attached.
+_sweep_leftovers() {
+    local hub="$1" spoke="$2"
+    local inv
+    inv=$(_hcloud_inventory "$hub" "$spoke" | grep -v $'\tother$' || true)
+    [[ -z "$inv" ]] && { log "  nothing left in Hetzner for this environment"; return 0; }
+
+    log "  the CLI left these behind — deleting directly:"
+    _print_inventory "$inv" "leftovers"
+
+    local kind id name scope
+    for pass in servers load_balancers volumes firewalls placement_groups networks; do
+        while IFS=$'\t' read -r kind id name scope; do
+            [[ "$kind" == "$pass" ]] || continue
+            # A volume still attached to a (now deleted) server needs detaching first.
+            if [[ "$kind" == "volumes" ]]; then
+                curl -sS -m 30 -X POST -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+                    "https://api.hetzner.cloud/v1/volumes/${id}/actions/detach" >/dev/null 2>&1 || true
+                sleep 2
+            fi
+            local code
+            code=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -X DELETE \
+                -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+                "https://api.hetzner.cloud/v1/${kind}/${id}")
+            if [[ "$code" =~ ^(200|204)$ ]]; then
+                log "    ✓ deleted ${kind%s} $name"
+            else
+                log "    ⚠️  ${kind%s} $name — HTTP $code (may have dependents; re-run to retry)"
+            fi
+        done <<< "$inv"
+    done
+}
+
+
+# ─── Home-lab worker VMs (ADR-046 hybrid provider) ───────────────────────────
+# The Hyper-V workers are provisioned out-of-band by provision-flatcar-worker.sh
+# and have no CAPI owner, so nothing in the Hetzner or Kubernetes teardown path
+# touches them: they keep running, holding their Tailscale identities and RAM on
+# the Windows box, and rejoin nothing.
+#
+# Node registry: scripts/hybrid/home-lab.env (gitignored, real values only)
+#   <hostname>|<ssh-target>|<wsl-distro>|<tailnet-host>|<box>|<cluster>|<gb...>|<cpus>
+#
+# Deletion mirrors provisioning exactly — Stop-VM -Force -TurnOff, Remove-VM
+# -Force, then the VM's own disk and Ignition config. The shared base image
+# (flatcar-base.vhdx) is deliberately kept: it is a large download shared by every
+# node and re-fetching it costs minutes on the next provision.
+_teardown_home_workers() {
+    local envfile="$ZERO_OPS_DIR/scripts/hybrid/home-lab.env"
+    if [[ ! -f "$envfile" ]]; then
+        log "  no scripts/hybrid/home-lab.env — no home-lab workers registered"
+        return 0
+    fi
+
+    # Read in a subshell so the registry cannot clobber this script's variables.
+    local nodes registry_spoke
+    nodes=$(set +u; . "$envfile" >/dev/null 2>&1; printf '%s\n' "${HOME_WORKER_NODES:-}")
+    registry_spoke=$(set +u; . "$envfile" >/dev/null 2>&1; printf '%s\n' "${HYBRID_SPOKE_NAME:-}")
+
+    # The registry carries no environment field, so its spoke name is what ties it
+    # to an environment. If it points somewhere else, these are not our VMs.
+    if [[ -n "$registry_spoke" && "$registry_spoke" != *"-${ENVIRONMENT}-"* ]]; then
+        log "  ⚠️  home-lab.env targets '$registry_spoke', which is not environment '${ENVIRONMENT}'"
+        log "      — leaving its VMs alone"
+        return 0
+    fi
+    [[ -n "$registry_spoke" ]] && log "  registry '$registry_spoke' belongs to '$ENVIRONMENT' — proceeding"
+
+    local any=0 line host ssh_target rest
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        [[ -z "${line// }" ]] && continue
+        IFS='|' read -r host ssh_target rest <<< "$line"
+        [[ -z "$host" || -z "$ssh_target" ]] && continue
+        any=1
+        _delete_one_home_vm "$host" "$ssh_target"
+    done <<< "$nodes"
+
+    [[ "$any" == "0" ]] && log "  home-lab.env lists no worker nodes"
+    return 0
+}
+
+
+# macOS has no coreutils `timeout`. Use gtimeout when present, otherwise run a
+# watchdog that kills the child, so a wedged remote call can never stall a teardown.
+_with_timeout() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$secs" "$@"
+    else
+        "$@" &
+        local pid=$!
+        ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+        local watcher=$!
+        wait "$pid"; local rc=$?
+        kill "$watcher" 2>/dev/null || true
+        return $rc
+    fi
+}
+
+_delete_one_home_vm() {
+    local vm="$1" ssh_target="$2"
+
+    # -n keeps ssh from draining the caller's `while read` loop; without it only
+    # the first VM in the registry is ever processed.
+    if ! ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
+             "$ssh_target" "echo ok" >/dev/null 2>&1; then
+        log "  ⚠️  $vm — cannot reach $ssh_target over SSH; VM left running"
+        log "       delete manually:  Stop-VM -Name $vm -Force -TurnOff; Remove-VM -Name $vm -Force"
+        return 0
+    fi
+
+    log "  deleting VM $vm on $ssh_target"
+
+    # Sent as -EncodedCommand, NOT piped into `powershell -Command -`.
+    # `-Command -` reads stdin line-by-line and silently produces NO output for a
+    # brace block spanning multiple lines: the VM is never stopped and the exit
+    # status is still 0. Base64 UTF-16LE is the only form that reliably carries a
+    # multi-line script, and it sidesteps shell/PowerShell quoting entirely.
+    local ps
+    ps="\$ErrorActionPreference = 'SilentlyContinue'
+\$solozDir = 'C:\\ProgramData\\soloz\\flatcar'
+\$target = Get-VM -Name '${vm}' -ErrorAction SilentlyContinue
+if (\$target) {
+  Stop-VM -Name '${vm}' -Force -TurnOff -ErrorAction SilentlyContinue
+  Remove-VM -Name '${vm}' -Force -ErrorAction SilentlyContinue
+  Write-Output 'removed VM ${vm}'
+} else {
+  Write-Output 'VM ${vm} not present'
+}
+foreach (\$f in @('${vm}.vhdx','${vm}-config.ign','${vm}-ignition.iso','${vm}-ign.vhdx')) {
+  \$fp = Join-Path \$solozDir \$f
+  if (Test-Path \$fp) {
+    Remove-Item \$fp -Force -ErrorAction SilentlyContinue
+    if (Test-Path \$fp) { Write-Output ('KEPT ' + \$f) } else { Write-Output ('removed ' + \$f) }
+  }
+}
+if (Get-VM -Name '${vm}' -ErrorAction SilentlyContinue) {
+  Write-Output 'STILL-PRESENT ${vm}'
+} else {
+  Write-Output 'verified gone: ${vm}'
+}"
+
+    local encoded
+    encoded=$(printf '%s' "$ps" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n')
+
+    local out rc=0
+    out=$(_with_timeout 240 ssh -n -o BatchMode=yes -o ConnectTimeout=20 \
+            -o StrictHostKeyChecking=no "$ssh_target" \
+            "powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" 2>&1) || rc=$?
+
+    local shown
+    shown=$(printf '%s\n' "$out" | sed 's/\r$//' \
+            | grep -E "removed |not present|verified gone|STILL-PRESENT|KEPT " || true)
+
+    if [[ -z "$shown" ]]; then
+        log "  ⚠️  $vm — no confirmation from the host (rc=$rc); verify manually with Get-VM"
+        return 0
+    fi
+    printf '%s\n' "$shown" | sed 's/^/    /'
+
+    if grep -q "STILL-PRESENT" <<< "$shown"; then
+        log "  ⚠️  $vm still exists after Remove-VM — check Hyper-V on $ssh_target"
+    fi
+    return 0
+}
+
+# ─── Local artifacts ─────────────────────────────────────────────────────────
+_local_cleanup() {
+    if command -v kind >/dev/null 2>&1; then
+        local kc
+        for kc in $(kind get clusters 2>/dev/null); do
+            log "  deleting kind cluster: $kc"
+            kind delete cluster --name "$kc" 2>&1 | tail -1 | sed 's/^/    /' || true
+        done
+    fi
+    if docker network ls --format '{{.Name}}' 2>/dev/null | grep -qx 'kind'; then
+        log "  removing stale 'kind' docker network"
+        docker network rm kind >/dev/null 2>&1 || log "    (still in use)"
+    fi
+
+    local state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    if [[ -f "$state" ]]; then
+        rm -f "$state"
+        log "  removed bootstrap state: ${CLUSTER_NAME}.json"
+    fi
+
+    # Kubeconfigs are archived rather than deleted: they are the only record of
+    # what was running if the teardown has to be investigated afterwards.
+    local archive="$ZERO_OPS_DIR/k8-secrets/kubeconfig/archived"
+    mkdir -p "$archive"
+    local f stamp
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    for f in "$CLUSTER_NAME" "$SPOKEPOOL_NAME"; do
+        local kc="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${f}.kubeconfig"
+        if [[ -f "$kc" ]]; then
+            mv "$kc" "${archive}/${f}.kubeconfig.${stamp}"
+            log "  archived ${f}.kubeconfig"
+        fi
+    done
+    return 0
+}
+
+# ─── Entry point ─────────────────────────────────────────────────────────────
+run_full_teardown() {
+    # The teardown is driven by the hub CLI; without it only the sweep would run,
+    # which would leave the Kubernetes-side cleanup (finalizers, CAPI objects) undone.
+    if [[ ! -x "$HUB_BINARY" ]]; then
+        log "bin/hub not found — building it (teardown drives the CLI, not just the API)"
+        (cd "$ZERO_OPS_DIR" && go build -o bin/hub ./cmd/hub) \
+            || error_exit "could not build bin/hub; teardown needs it"
+    fi
+
+    export HCLOUD_TOKEN="${HCLOUD_TOKEN:-$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token" 2>/dev/null | tr -d '\n')}"
+    [[ -z "$HCLOUD_TOKEN" ]] && error_exit "HCLOUD_TOKEN not set and k8-secrets/hetzner/token is unreadable — teardown cannot delete cloud resources"
+
+    # After the token, because resolving the hub name may have to ask Hetzner.
+    _resolve_teardown_targets
+
+
+    log "═══════════════════════════════════════════════════════════"
+    log " FULL TEARDOWN — environment: $ENVIRONMENT"
+    log "   hub:   $CLUSTER_NAME"
+    log "   spoke: $SPOKEPOOL_NAME"
+    log "═══════════════════════════════════════════════════════════"
+
+    log ""
+    log "Taking a Hetzner inventory before deleting anything..."
+    local inv
+    inv=$(_hcloud_inventory "$CLUSTER_NAME" "$SPOKEPOOL_NAME" || true)
+    _print_inventory "$inv" "inventory"
+
+    # `hub spoke teardown` must run without --name (see header), which deletes
+    # EVERY spoke in the project. Refuse if that would take out another
+    # environment's spoke rather than discovering it afterwards.
+    local foreign
+    foreign=$(grep $'\tother$' <<< "$inv" | awk -F'\t' '{print $3}' | sort -u || true)
+    if [[ -n "$foreign" ]]; then
+        log ""
+        log "⚠️  Spoke resources NOT belonging to '$ENVIRONMENT' are present in this Hetzner project:"
+        while IFS= read -r n; do log "     $n"; done <<< "$foreign"
+        log "   'hub spoke teardown' cannot be scoped by name (its --name filter is a no-op),"
+        log "   so running it would delete these too."
+        SKIP_CLI_SPOKE_TEARDOWN=1
+        log "   Skipping the CLI spoke teardown; this environment's spoke will be removed by the"
+        log "   scoped sweep instead, which deletes only names matching $SPOKEPOOL_NAME."
+    fi
+
+    if [[ "${TEARDOWN_YES:-0}" != "1" ]]; then
+        log ""
+        log "This permanently deletes the resources listed above, plus local state."
+        read -r -p "Type the environment name ('$ENVIRONMENT') to confirm: " reply
+        [[ "$reply" == "$ENVIRONMENT" ]] || error_exit "Teardown aborted (got '$reply')"
+    fi
+
+    log ""
+    log "── 1/6 releasing the spoke claim (ArgoCD + Crossplane) ──"
+    _release_spoke_claim
+
+    log ""
+    log "── 2/6 tearing down the spoke (must precede the hub) ──"
+    if [[ "${SKIP_CLI_SPOKE_TEARDOWN:-0}" == "1" ]]; then
+        log "  skipped — handled by the scoped sweep (foreign spokes present)"
+    else
+        "$HUB_BINARY" spoke teardown --force --debug 2>&1 | sed 's/^/  /' \
+            || log "  ⚠️  spoke teardown returned non-zero — the sweep below will catch leftovers"
+    fi
+
+    log ""
+    log "── 3/6 tearing down the hub ──"
+    "$HUB_BINARY" teardown --name="$CLUSTER_NAME" --confirm --force --debug 2>&1 | sed 's/^/  /' \
+        || log "  ⚠️  hub teardown returned non-zero — the sweep below will catch leftovers"
+
+    log ""
+    log "── 4/6 home-lab worker VMs (Hyper-V) ──"
+    _teardown_home_workers
+
+    log ""
+    log "── 5/6 verification sweep ──"
+    _sweep_leftovers "$CLUSTER_NAME" "$SPOKEPOOL_NAME"
+
+    log ""
+    log "── 6/6 local artifacts ──"
+    _local_cleanup
+
+    log ""
+    log "── final verification ──"
+    local remaining
+    remaining=$(_hcloud_inventory "$CLUSTER_NAME" "$SPOKEPOOL_NAME" | grep -v $'\tother$' || true)
+    if [[ -z "$remaining" ]]; then
+        log "✅ No Hetzner resources remain for environment '$ENVIRONMENT'."
+    else
+        log "❌ Resources still present after teardown:"
+        _print_inventory "$remaining" "remaining"
+        log ""
+        log "Re-run the teardown — deletions that fail on dependencies usually succeed"
+        log "on a second pass once their dependents are gone."
+        return 1
+    fi
+
+    log ""
+    log "Out-of-band cleanup this script deliberately does not touch:"
+    log "  • Tailscale devices (flatcar-hub-node-1, flatcar-spoke-node-1) — remove in the admin console"
+    log "  • AWS Secrets Manager: delete the old ENCRYPTION_KEY / AUTH_SECRET entries."
+    log "    Restoring a stale key against a fresh Infisical database is the failure to avoid."
+    log "  • The shared Flatcar base image (C:\\ProgramData\\soloz\\flatcar\\flatcar-base.vhdx)"
+    log "    is kept on purpose — it is reused by the next provision."
+    return 0
+}

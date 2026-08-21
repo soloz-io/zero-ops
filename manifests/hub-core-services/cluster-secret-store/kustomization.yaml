@@ -1,0 +1,8 @@
+# Environment isolation (ADR-037): this directory is rendered with kustomize so the
+# ApplicationSet can patch `environmentSlug` per Hub. As a plain directory app the
+# hardcoded "dev" in cluster-secret-store.yaml would be applied verbatim in every
+# environment, pointing stg/prod Hubs at DEV secrets in Infisical.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cluster-secret-store.yaml
