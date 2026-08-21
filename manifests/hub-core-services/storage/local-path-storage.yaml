@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: local-path-provisioner
+  name: local-path-provisioner-service-account
   namespace: kube-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -25,7 +25,7 @@ rules:
   # short-lived "helper pod" on the target node to mkdir/rmdir the hostPath. The
   # read-only pods rule above is not enough, and without create/delete every
   # provision fails with:
-  #   pods is forbidden: User "system:serviceaccount:kube-system:local-path-provisioner"
+  #   pods is forbidden: User "system:serviceaccount:kube-system:local-path-provisioner-service-account"
   #   cannot create resource "pods" in the namespace "kube-system"
   # The PVC then sits Pending while the StorageClass, the provisioner and the node
   # all look healthy — the failure is only visible in PVC events.
@@ -43,7 +43,7 @@ roleRef:
   name: local-path-provisioner-role
 subjects:
   - kind: ServiceAccount
-    name: local-path-provisioner
+    name: local-path-provisioner-service-account
     namespace: kube-system
 ---
 apiVersion: storage.k8s.io/v1
@@ -112,7 +112,7 @@ spec:
       labels:
         app: local-path-provisioner
     spec:
-      serviceAccountName: local-path-provisioner
+      serviceAccountName: local-path-provisioner-service-account
       priorityClassName: system-node-critical
       tolerations:
         - operator: Exists
