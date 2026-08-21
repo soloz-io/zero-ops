@@ -84,10 +84,42 @@ func (d *HybridDriver) OnPlatformPreReqs(ctx context.Context, kubeconfig string)
 //     for SPOKES lives in the hybrid Crossplane composition, not here.
 
 func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
-	// Start from Hetzner defaults (region, OS, image, machine types, K8s version,
-	// worker replicas). The Hub management plane is provisioned identically to
-	// hetzner; hybrid-specific spoke behavior is expressed in the composition.
+	// Start from Hetzner defaults (region, OS, image, machine types, K8s version).
 	d.Driver.PopulateClusterConfig(cfg)
+
+	// ADR-046: the hybrid cell exists so that worker capacity comes from home-lab
+	// hardware — "Costs nothing to keep running (no idle Hetzner worker nodes)".
+	// The Hetzner driver provisions 2 cx33 workers for the hub, which is right for
+	// a pure-Hetzner hub but is exactly the idle capacity this provider avoids.
+	//
+	// The hub's workers are the Flatcar home-lab nodes: provision-flatcar-worker.sh
+	// joins them with hub-role=worker + node-role.kubernetes.io/worker +
+	// workload-location=home when its target cluster is "hub" (see home-lab.env,
+	// where flatcar-hub-node-1 is registered against the hub).
+	//
+	// Overriding here rather than in HetznerDriver keeps the tested pure-Hetzner
+	// path (WorkerReplicas = 2) untouched — this applies only when --provider=hybrid.
+	//
+	// Keyed on the PROVIDER, not the environment: choosing --provider=hybrid is
+	// itself the statement that this cell's worker capacity comes from home-lab
+	// hardware. It therefore applies to every hybrid environment, and topology is
+	// not consulted — hybrid's own shape is the default when none is passed.
+	// --provider=hetzner is untouched and keeps 2 Hetzner workers.
+	//
+	// Zero workers is only safe because the control plane is made schedulable
+	// alongside it: home workers join manually AFTER the bootstrap completes, so
+	// during boundary-01..05 the control-plane node is the only node that exists.
+	// The two settings must always move together — see the topology tests in
+	// internal/hub-cli/cluster. (The opposite decision in d74cbeaa — keep the
+	// control-plane taint — applies to the SPOKE ClusterClass, not the hub.)
+	cfg.WorkerReplicas = 0
+	cfg.ControlPlaneSchedulable = true
+
+	// The cilium operator declares hostPorts, so its two replicas cannot share one
+	// node; on a single-node hub the second would sit Pending forever and register
+	// as a permanently unhealthy pod. Scaled here rather than in the shared addon
+	// manifest, which the multi-node Hetzner hub also consumes.
+	cfg.CiliumOperatorReplicas = 1
 
 	// Re-read CCM from _shared/ — driver_hetzner already reads from _shared/
 	// after WS1 fix, so this is a no-op path correction guard. Explicit for clarity.

@@ -1481,6 +1481,15 @@ stringData:
     spec:
       # See docs on ServerCapabilities.LeasesResourceLock in file pkg/k8s/version/version.go
       # for more details.
+      #
+      # Two replicas for HA. This file is shared by the pure-Hetzner hub (1 CP +
+      # 2 workers), where both replicas schedule fine.
+      #
+      # The operator declares hostPorts, so two replicas can never share a node.
+      # On a SINGLE-NODE hub (hybrid dev, ADR-046: no Hetzner workers) the second
+      # replica would sit Pending forever. That case is handled by the hybrid
+      # driver scaling this down for dev — see HybridDriver.PopulateClusterConfig —
+      # rather than by reducing HA for every environment here.
       replicas: 2
       selector:
         matchLabels:

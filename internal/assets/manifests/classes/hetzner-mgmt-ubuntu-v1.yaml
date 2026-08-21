@@ -46,6 +46,21 @@ spec:
       openAPIV3Schema:
         type: string
         default: ubuntu-24.04
+  # ADR-046: on the hybrid cell the hub runs NO Hetzner workers — worker capacity
+  # comes from the Flatcar home-lab nodes, which join manually after the bootstrap
+  # finishes. During boundary-01..05 the control plane is therefore the only node
+  # that exists, so it must be schedulable or every platform workload sits Pending
+  # and the bootstrap stalls.
+  #
+  # Defaults to false so the pure-Hetzner hub (2 cx33 workers) keeps its
+  # control-plane taint exactly as tested. Only the hybrid driver turns it on.
+  # The spoke is unaffected and deliberately keeps its taint (d74cbeaa).
+  - name: controlPlaneSchedulable
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: boolean
+        default: false
   - name: hcloudControlPlaneMachineType
     required: false
     schema:
@@ -79,6 +94,26 @@ spec:
         type: string
         default: "mac-mini-ssh"
   patches:
+  # An empty taint list is kubeadm's declarative "register this node with no
+  # taints". Preferred over letting the default control-plane taint apply and
+  # removing it afterwards in a postKubeadmCommand, which races the scheduler
+  # placing the first pods. enabledIf keeps the patch off entirely unless the
+  # hybrid driver asks for it.
+  - name: controlPlaneSchedulable
+    enabledIf: "{{ if .controlPlaneSchedulable }}true{{ end }}"
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/initConfiguration/nodeRegistration/taints
+        value: []
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/joinConfiguration/nodeRegistration/taints
+        value: []
   - name: region
     definitions:
     - selector:

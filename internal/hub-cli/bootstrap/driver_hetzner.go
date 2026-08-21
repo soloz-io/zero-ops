@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
@@ -86,6 +87,32 @@ func (d *HetznerDriver) ProvisionDayZero(ctx context.Context, kubeconfig string)
 	}
 	fmt.Println("[day0] ✓ Hetzner secret created")
 
+	// The hcloud CSI controller can only run on a Hetzner Cloud server: it resolves
+	// its own location from the metadata service at 169.254.169.254, and falls back
+	// to looking itself up in the Hetzner API by KUBE_NODE_NAME. On an ephemeral
+	// kind bootstrap cluster neither exists — the node is kind://docker/... — so the
+	// driver container CrashLoops and this phase times out after 3 minutes.
+	//
+	// Nothing on the bootstrap cluster needs it. Its job is to run the CAPI/CAPH
+	// controllers that provision the hub and then pivot; it creates no PVCs. The
+	// management cluster gets its own CSI install in the platform-pre phase below,
+	// where the nodes really are Hetzner servers.
+	//
+	// This surfaced with the hybrid provider (ADR-046), where the bootstrap cluster
+	// is kind on a workstation. Gate on what the CSI actually requires rather than
+	// on the provider name, so a bootstrap cluster that *is* hosted on Hetzner
+	// (--bootstrap-context) still gets the driver.
+	onHetzner, err := nodesAreHetznerServers(ctx, kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to inspect bootstrap cluster nodes: %w", err)
+	}
+	if !onHetzner {
+		fmt.Println("[day0] Skipping hetzner-csi: bootstrap cluster nodes are not Hetzner servers")
+		fmt.Println("[day0]   (the CSI controller requires the Hetzner metadata service;")
+		fmt.Println("[day0]    it is installed on the management cluster in platform-pre)")
+		return nil
+	}
+
 	// Install CSI driver
 	fmt.Println("[day0] Installing hetzner-csi...")
 	csiManifest, err := assets.ReadCatalog("cloud-providers/hetzner/csi/install.yaml")
@@ -104,6 +131,37 @@ func (d *HetznerDriver) ProvisionDayZero(ctx context.Context, kubeconfig string)
 	}
 	fmt.Println("[day0] ✓ hetzner-csi ready")
 	return nil
+}
+
+// nodesAreHetznerServers reports whether every node in the target cluster is a
+// Hetzner Cloud server, judged by providerID (hcloud://...). A kind node reports
+// kind://docker/..., and a node that has not yet been assigned a providerID
+// reports an empty string — neither can run the hcloud CSI controller.
+func nodesAreHetznerServers(ctx context.Context, kubeconfig string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", kubeconfig,
+		"get", "nodes",
+		"-o", "jsonpath={range .items[*]}{.spec.providerID}{\"\\n\"}{end}",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("kubectl get nodes: %w", err)
+	}
+
+	found := false
+	for _, line := range strings.Split(string(out), "\n") {
+		id := strings.TrimSpace(line)
+		if id == "" {
+			continue
+		}
+		found = true
+		if !strings.HasPrefix(id, "hcloud://") {
+			return false, nil
+		}
+	}
+	// No providerIDs at all: the cloud-controller-manager has not run yet, so this
+	// is certainly not a ready Hetzner cluster.
+	return found, nil
 }
 
 // ── Phase 4: CAPI Initialization ────────────────────────────────────────────

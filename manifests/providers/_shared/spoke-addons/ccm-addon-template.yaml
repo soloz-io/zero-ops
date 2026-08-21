@@ -113,6 +113,24 @@ stringData:
               operator: Exists
             - key: "node.kubernetes.io/not-ready"
               effect: "NoSchedule"
+            # Cilium taints every node with node.cilium.io/agent-not-ready until its
+            # agent is up. Without this toleration the cluster deadlocks on first
+            # boot and never recovers:
+            #
+            #   HCCM is Pending (untolerated cilium taint)
+            #     -> node never gets .spec.providerID or its addresses
+            #       -> cilium-agent aborts with "unable to determine direct routing
+            #          device" because k8sNodeIP is nil
+            #         -> the agent-not-ready taint is never removed
+            #           -> HCCM stays Pending
+            #
+            # CCM is the component that initialises the node, so it must be able to
+            # run BEFORE the CNI is ready — it cannot wait on something that is
+            # waiting on it. On multi-node clusters this only showed up as a
+            # scheduling race (some node briefly had no taint); a single-node hub
+            # makes it deterministic.
+            - key: "node.cilium.io/agent-not-ready"
+              operator: "Exists"
           # Required when HCLOUD_NETWORK is set: the CCM must reach the
           # Hetzner metadata service (169.254.169.254) to verify the node
           # is attached to the Cloud Network at startup.
@@ -122,8 +140,18 @@ stringData:
           # have no providerID and no metadata service → CCM crash-loops
           # there. Every Hetzner node is labelled
           # instance.hetzner.cloud/provided-by=cloud by the CCM.
-          nodeSelector:
-            instance.hetzner.cloud/provided-by: cloud
+          # NO nodeSelector here, deliberately.
+          #
+          # The upstream chart selects instance.hetzner.cloud/provided-by=cloud to
+          # keep HCCM off Hetzner Robot (bare-metal) nodes. That label is applied
+          # BY HCCM as it initialises each node, so on a fresh cluster nothing
+          # carries it yet and the selector can never be satisfied — HCCM would
+          # require a label that only HCCM can create, and the node stays
+          # uninitialised forever ("didn't match Pod's node affinity/selector").
+          #
+          # Robot support was removed from this platform (aa599928, "remove robot
+          # creds from all manifests and templates"), so every node is a cloud
+          # server and the discriminator has nothing left to discriminate.
           containers:
             - name: ccm-hetzner
               securityContext:

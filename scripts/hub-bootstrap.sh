@@ -70,9 +70,33 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_DIR/bootstrap.log"
 }
 
+# End-to-end wall clock. The Go bootstrap reports its own per-phase timings, but
+# creating a usable cluster also includes everything this script does afterwards
+# (tailscale, AWS/GitHub wiring, waiting for Infisical, the database and the
+# spoke). This is the number to quote for "how long does a cluster take".
+RUN_START_EPOCH=$(date +%s)
+
+format_elapsed() {
+    local secs="$1"
+    if (( secs < 60 )); then
+        printf '%ds' "$secs"
+    else
+        printf '%dm%02ds' $(( secs / 60 )) $(( secs % 60 ))
+    fi
+}
+
+report_elapsed() {
+    local outcome="$1"
+    local secs=$(( $(date +%s) - RUN_START_EPOCH ))
+    log ""
+    log "⏱  Total elapsed ($outcome): $(format_elapsed "$secs")"
+    log "   started $(date -r "$RUN_START_EPOCH" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date '+%Y-%m-%d %H:%M:%S')  →  ended $(date '+%Y-%m-%d %H:%M:%S')"
+}
+
 # Error handling
 error_exit() {
     log "ERROR: $1"
+    report_elapsed "failed"
     exit 1
 }
 
@@ -1451,10 +1475,12 @@ main() {
     else
         log "⚠️  post-bootstrap-validate.sh not found at $validate_script — skipping validation"
     fi
+
+    report_elapsed "success"
 }
 
 # Handle script interruption
-trap 'log "Script interrupted"; exit 1' INT TERM
+trap 'log "Script interrupted"; report_elapsed "interrupted"; exit 1' INT TERM
 
 # Run main function
 main "$@"

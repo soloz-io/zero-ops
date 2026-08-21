@@ -1525,6 +1525,14 @@ stringData:
     spec:
       # See docs on ServerCapabilities.LeasesResourceLock in file pkg/k8s/version/version.go
       # for more details.
+      #
+      # Two replicas for HA. stg/prod hybrid spokes run 3 control-plane nodes plus
+      # home workers (ADR-046), so both schedule.
+      #
+      # The operator declares hostPorts, so two replicas can never share a node.
+      # A single-node dev spoke (ADR-047) therefore leaves the second replica
+      # Pending. That is scoped per environment in the spoke-catalog overlay rather
+      # than by reducing HA for stg/prod here.
       replicas: 2
       selector:
         matchLabels:

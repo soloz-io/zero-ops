@@ -23,3 +23,57 @@
 
 ## Dell Spoke VM
 ./scripts/hybrid/provision-flatcar-worker.sh --node 2
+
+## Prompts
+
+claude code building "lord of rings" world
+
+building ios app on devin
+
+ask questions in free form text. 
+not using ask tool. 
+is easy to copy
+
+Report me back when http://waypoint.nutgraf.in/ is accessible and frontend + bff+ sdk + cnpg all running well.
+
+------------
+summarize the current status and challenge yu have in making the waypoint url accssible
+
+-------
+Always launch multiple subagents in parallel to complete the tasks quicker.
+
+-------
+report back the current status update on changes made nd findings so that i can provide feedback.
+keep the feedback loop open.
+
+-------
+make sure all adhoc changes are codified in respective manifest files following gitops principles. so that fixes dont get lost in commands.
+Better approach is to make changes to manifest files and apply the files to cluster to verify its working.
+it is important that any adhoc changes you make to cluster must be updated in codebase so that it is not lost and we end up again same issues in future. 
+
+cluster access:
+Hub - zero-ops/k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig
+Spoke -  KUBECONFIG=/tmp/spoke-fresh.kubeconfig
+
+------
+# ADR Critic thread:
+read the ADR and underatnd the expectation of the platform. let me know once you are ready to understand the proposal from the team.
+
+You should first get the assumptions clarified from the existing codebase. dont ask for the files. ask for the details that you need to verify. I will verify and provide you the current status of codebase. Then you should find for ambiguities or gaps in the proposal? Only approve if the design is idiomatic enterprise grade.
+
+Note: Do not provide critic just fr the sake. Your critic must be a really valid critic that needs addressing. 
+
+Let me know when u r ready to take team proposal.
+
+----------------------------------------
+# Implementation Plan thread:
+your task is not to implement. you have to report back with a implementation plan that can be used by another agent for implmentation. Now go through waypoint/packages/frontend/ and report back. The idea is to use the nodeeditor feature to display the iframe like in attached images. 
+
+do not assume and craete a plan. only proceed when i ask u to.
+
+-------------------------
+
+your task is not to implement. you have to report back with a implementation plan that can be used by another agent for implmentation. cluster access:
+Hub - zero-ops/k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig
+Spoke -  KUBECONFIG=/tmp/spoke-fresh.kubeconfig ......... find why http://waypoint.nutgrafin is not accessble from browser. read zero-ops/docs/adr/046-hybrid-provider-home-worker.mdfirst. waypoint workloads run on flatcar node 1 worker node which is created by script -zero-ops/scripts/hybrid/provision-flatcar-worker.sh 
+-----------------------------------------

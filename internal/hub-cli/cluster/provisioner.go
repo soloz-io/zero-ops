@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
@@ -29,12 +30,24 @@ type Config struct {
 	ControlPlaneReplicas    int
 	WorkerReplicas          int
 
+	// ControlPlaneSchedulable registers the hub control plane with no taints.
+	// Required whenever WorkerReplicas is 0, otherwise platform workloads have
+	// nowhere to run. Set only by HybridDriver (ADR-046): the hybrid hub's workers
+	// are home-lab Flatcar nodes that join after the bootstrap completes.
+	ControlPlaneSchedulable bool
+
+	// CiliumOperatorReplicas overrides the replica count in the Cilium addon.
+	// Zero means "leave the manifest alone", which is what every multi-node hub
+	// does. A single-node hub sets 1, because the operator's hostPorts stop two
+	// replicas from sharing a node.
+	CiliumOperatorReplicas int
+
 	// SSHKeyName is the Hetzner SSH key name injected into the management
 	// cluster (rescue/emergency access). Wired from the CLI --ssh-key flag.
-	SSHKeyName string
-	HCloudToken             string
-	CiliumManifest          string
-	CCMManifest             string
+	SSHKeyName     string
+	HCloudToken    string
+	CiliumManifest string
+	CCMManifest    string
 
 	// HomeWorker carries hybrid-cell home-lab worker configuration (ADR-046 §WS4).
 	// Only populated by HybridDriver; zero-value means "no home workers".
@@ -55,7 +68,6 @@ type HomeWorkerConfig struct {
 	// TailnetName is the Tailscale tailnet for MagicDNS name construction.
 	TailnetName string
 }
-
 
 // Provisioner provisions a CAPI cluster
 type Provisioner struct {
@@ -89,17 +101,17 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 	if err := p.applyClusterClass(ctx); err != nil {
 		return err
 	}
-	
+
 	// Apply ClusterResourceSet (CNI, CCM, Secrets)
 	if err := p.applyCRS(ctx); err != nil {
 		return err
 	}
-	
+
 	// Generate and apply Cluster resource
 	if err := p.applyCluster(ctx); err != nil {
 		return err
 	}
-	
+
 	// Don't wait here - CRS will handle CNI/CCM installation automatically
 	return nil
 }
@@ -112,53 +124,114 @@ func (p *Provisioner) applyClusterClass(ctx context.Context) error {
 	} else {
 		classFile = "classes/hetzner-mgmt-talos-v1.yaml"
 	}
-	
+
 	manifest, err := assets.ReadManifest(classFile)
 	if err != nil {
 		return err
 	}
-	
+
 	// Try to apply - if it fails due to immutable fields, delete and recreate
 	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
 	cmd.Stdin = bytes.NewReader(manifest)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check if error is due to immutable fields
 		if bytes.Contains(output, []byte("field is immutable")) || bytes.Contains(output, []byte("spec.template.spec: Invalid value")) {
 			fmt.Println("[cluster-provision] Detected immutable field changes, recreating resources...")
-			
+
 			// Delete existing ClusterClass and templates
 			deleteCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("delete", "-f", "-", "--ignore-not-found=true")...)
 			deleteCmd.Stdin = bytes.NewReader(manifest)
 			if deleteOutput, deleteErr := deleteCmd.CombinedOutput(); deleteErr != nil {
 				return fmt.Errorf("failed to delete ClusterClass: %w\n%s", deleteErr, deleteOutput)
 			}
-			
+
 			// Reapply
 			applyCmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
 			applyCmd.Stdin = bytes.NewReader(manifest)
 			if applyOutput, applyErr := applyCmd.CombinedOutput(); applyErr != nil {
 				return fmt.Errorf("failed to reapply ClusterClass: %w\n%s", applyErr, applyOutput)
 			}
-			
+
 			fmt.Println("[cluster-provision] ✓ ClusterClass recreated")
 			return nil
 		}
-		
+
 		return fmt.Errorf("failed to apply ClusterClass: %w\n%s", err, output)
 	}
-	
+
 	return nil
 }
 
 func (p *Provisioner) applyCluster(ctx context.Context) error {
+	rendered, err := p.renderClusterManifest()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
+	cmd.Stdin = strings.NewReader(rendered)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply Cluster: %w\n%s", err, output)
+	}
+
+	return nil
+}
+
+// scaleCiliumOperator rewrites the cilium-operator replica count in the Cilium
+// addon. replicas <= 0 returns the manifest untouched, which is the multi-node
+// default; a single-node hub passes 1 because the operator's hostPorts prevent
+// two replicas from sharing a node.
+//
+// The edit is anchored to the operator Deployment's own `spec:` block rather than
+// applied globally: the addon also contains the cilium DaemonSet and several
+// other resources, and a blanket replacement would corrupt them.
+func scaleCiliumOperator(manifest string, replicas int) string {
+	if replicas <= 0 || manifest == "" {
+		return manifest
+	}
+
+	const marker = "name: cilium-operator"
+	idx := strings.Index(manifest, marker)
+	if idx < 0 {
+		return manifest
+	}
+
+	// Only rewrite the first `replicas:` after the operator's name, and only if it
+	// is close enough to belong to that Deployment.
+	rest := manifest[idx:]
+	rIdx := strings.Index(rest, "replicas:")
+	if rIdx < 0 || rIdx > 2000 {
+		return manifest
+	}
+	lineEnd := strings.Index(rest[rIdx:], "\n")
+	if lineEnd < 0 {
+		return manifest
+	}
+
+	replaced := fmt.Sprintf("replicas: %d", replicas)
+	return manifest[:idx] + rest[:rIdx] + replaced + rest[rIdx+lineEnd:]
+}
+
+// ScaleCiliumOperatorForTest exposes scaleCiliumOperator to tests in sibling
+// packages. Not for production use.
+func ScaleCiliumOperatorForTest(manifest string, replicas int) string {
+	return scaleCiliumOperator(manifest, replicas)
+}
+
+// renderClusterManifest builds the Cluster topology YAML. Split out from
+// applyCluster so the rendered output can be asserted in tests: a mistake in this
+// template is otherwise only visible as a kubectl rejection partway through a
+// bootstrap that has already provisioned cloud infrastructure.
+func (p *Provisioner) renderClusterManifest() (string, error) {
 	// Select cluster class name based on OS
 	className := "hetzner-mgmt-talos-v1"
 	if p.Config.OSType == "ubuntu" {
 		className = "hetzner-mgmt-ubuntu-v1"
 	}
-	
+
 	clusterYAML := `apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
@@ -183,6 +256,8 @@ spec:
         name: md-0
         replicas: {{.WorkerReplicas}}
     variables:
+    - name: controlPlaneSchedulable
+      value: {{.ControlPlaneSchedulable}}
     - name: region
       value: {{.Region}}
     - name: imageId
@@ -200,25 +275,18 @@ spec:
     - name: hcloudSSHKeyName
       value: "{{.SSHKeyName}}"
 `
-	
+
 	tmpl, err := template.New("cluster").Parse(clusterYAML)
 	if err != nil {
-		return err
+		return "", err
 	}
-	
+
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, p.Config); err != nil {
-		return err
+		return "", err
 	}
-	
-	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
-	cmd.Stdin = &buf
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply Cluster: %w\n%s", err, output)
-	}
-	
-	return nil
+
+	return buf.String(), nil
 }
 
 // WaitForReady waits for cluster to be ready (exported for use after CNI/CCM install)
@@ -305,36 +373,35 @@ func (p *Provisioner) kubeconfigPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".kube", "config")
 }
 
-
 func (p *Provisioner) applyCRS(ctx context.Context) error {
 	manifest, err := assets.ReadManifest("addons/crs.yaml")
 	if err != nil {
 		return err
 	}
-	
+
 	tmpl, err := template.New("crs").Parse(string(manifest))
 	if err != nil {
 		return err
 	}
-	
+
 	// Read node-labeler manifest from assets
 	nodeLabelerManifest, err := assets.ReadManifest("addons/node-labeler.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to read node-labeler manifest: %w", err)
 	}
-	
+
 	// Indent manifests for YAML embedding
-	ciliumIndented := indentYAML(p.Config.CiliumManifest, 4)
+	ciliumIndented := indentYAML(scaleCiliumOperator(p.Config.CiliumManifest, p.Config.CiliumOperatorReplicas), 4)
 	ccmIndented := indentYAML(p.Config.CCMManifest, 4)
 	nodeLabelerIndented := indentYAML(string(nodeLabelerManifest), 4)
-	
+
 	data := struct {
-		ClusterName          string
-		Namespace            string
-		HCloudToken          string
-		CiliumManifest       string
-		CCMManifest          string
-		NodeLabelerManifest  string
+		ClusterName         string
+		Namespace           string
+		HCloudToken         string
+		CiliumManifest      string
+		CCMManifest         string
+		NodeLabelerManifest string
 	}{
 		ClusterName:         p.Config.ClusterName,
 		Namespace:           p.Config.Namespace,
@@ -343,26 +410,26 @@ func (p *Provisioner) applyCRS(ctx context.Context) error {
 		CCMManifest:         ccmIndented,
 		NodeLabelerManifest: nodeLabelerIndented,
 	}
-	
+
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return err
 	}
-	
+
 	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
 	cmd.Stdin = &buf
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply CRS: %w\n%s", err, output)
 	}
-	
+
 	return nil
 }
 
 func indentYAML(content string, spaces int) string {
 	lines := bytes.Split([]byte(content), []byte("\n"))
 	indent := bytes.Repeat([]byte(" "), spaces)
-	
+
 	var result []byte
 	for _, line := range lines {
 		if len(line) > 0 {
@@ -371,6 +438,6 @@ func indentYAML(content string, spaces int) string {
 		result = append(result, line...)
 		result = append(result, '\n')
 	}
-	
+
 	return string(result)
 }

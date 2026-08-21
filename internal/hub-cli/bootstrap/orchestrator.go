@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -397,7 +398,11 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// ── Completion ────────────────────────────────────────────────────
 	bs.CompletedPhases = append(bs.CompletedPhases, state.PhaseComplete)
 	bs.CurrentPhase = state.PhaseComplete
+	completed := time.Now().UTC()
+	bs.CompletedAt = &completed
 	stateMgr.Save(bs)
+
+	o.printTimingSummary(bs)
 
 	argoCDPwd := o.getArgoCDPassword(ctx, mgmtKubeconfig)
 	fmt.Println("\n✓ Hub Cluster bootstrap complete!")
@@ -437,14 +442,84 @@ func (o *Orchestrator) runPhase(
 	if o.Debug {
 		fmt.Printf("[DEBUG] Phase: %s\n", phase)
 	}
+
+	// Timed here because runPhase is the single choke point every phase passes
+	// through, so no phase can be added later and silently escape accounting.
+	started := time.Now().UTC()
 	if err := action(); err != nil {
+		fmt.Printf("[%s] ✗ failed after %s\n", label, formatDuration(time.Since(started)))
 		return fmt.Errorf("[%s] %w", label, err)
 	}
+	elapsed := time.Since(started)
+
 	if onSuccess != nil {
 		onSuccess()
 	}
+	fmt.Printf("[%s] ⏱  %s\n", label, formatDuration(elapsed))
+
+	bs.PhaseTimings = append(bs.PhaseTimings, state.PhaseTiming{
+		Phase:       phase,
+		StartedAt:   started,
+		CompletedAt: started.Add(elapsed),
+		Seconds:     elapsed.Round(time.Millisecond).Seconds(),
+	})
 	o.markPhaseComplete(bs, phase)
 	return stateMgr.Save(bs)
+}
+
+// formatDuration renders a duration for humans reading a bootstrap log: seconds
+// below a minute, m/s above it. time.Duration's own String() gives "7m12.3841s",
+// which is noisy in a column.
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// printTimingSummary reports where end-to-end cluster creation time actually
+// went. Phases are listed slowest-first: the point is to answer "what should we
+// optimise", which a chronological list buries.
+func (o *Orchestrator) printTimingSummary(bs *state.BootstrapState) {
+	if len(bs.PhaseTimings) == 0 {
+		return
+	}
+
+	var worked time.Duration
+	for _, t := range bs.PhaseTimings {
+		worked += time.Duration(t.Seconds * float64(time.Second))
+	}
+
+	ranked := make([]state.PhaseTiming, len(bs.PhaseTimings))
+	copy(ranked, bs.PhaseTimings)
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].Seconds > ranked[j].Seconds })
+
+	fmt.Println("\n⏱  Bootstrap timing")
+	fmt.Printf("   %-28s %8s  %s\n", "PHASE", "TIME", "SHARE")
+	for _, t := range ranked {
+		d := time.Duration(t.Seconds * float64(time.Second))
+		share := 0.0
+		if worked > 0 {
+			share = 100 * float64(d) / float64(worked)
+		}
+		fmt.Printf("   %-28s %8s  %4.1f%%\n", t.Phase, formatDuration(d), share)
+	}
+
+	fmt.Printf("   %-28s %8s\n", "phases run this invocation", formatDuration(worked))
+
+	// Wall time spans any gap between a failed run and its resume, so it is
+	// reported separately rather than presented as the cost of building a cluster.
+	if bs.StartedAt != nil && bs.CompletedAt != nil {
+		wall := bs.CompletedAt.Sub(*bs.StartedAt)
+		fmt.Printf("   %-28s %8s  (%s → %s)\n", "wall clock, first start → end",
+			formatDuration(wall),
+			bs.StartedAt.Format("15:04:05"), bs.CompletedAt.Format("15:04:05"))
+		if wall > worked+30*time.Second {
+			fmt.Println("   note: wall clock exceeds phase time — this bootstrap was resumed,")
+			fmt.Println("         so it includes time the process was not running.")
+		}
+	}
 }
 
 func (o *Orchestrator) phaseDone(bs *state.BootstrapState, phase state.BootstrapPhase) bool {

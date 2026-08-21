@@ -4,15 +4,74 @@
   "provider": "hybrid",
   "region": "",
   "bootstrapId": "",
-  "currentPhase": "bootstrap-create",
+  "currentPhase": "platform-pre-reqs",
   "completedPhases": [
-    "bootstrap-create"
+    "bootstrap-create",
+    "day0-infra",
+    "capi-init",
+    "cluster-provision",
+    "pivot-move",
+    "pivot-ready",
+    "cleanup",
+    "clusterclass-deploy",
+    "platform-pre-reqs"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
-  "mgmtKubeconfig": "",
+  "mgmtKubeconfig": "k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "0001-01-01T00:00:00Z",
-  "metadata": null
+  "timestamp": "2026-08-21T10:24:53.017892Z",
+  "metadata": null,
+  "startedAt": "2026-08-21T08:54:49.336249Z",
+  "phaseTimings": [
+    {
+      "phase": "bootstrap-create",
+      "startedAt": "2026-08-21T08:53:57.566803Z",
+      "completedAt": "2026-08-21T08:54:49.336226Z",
+      "seconds": 51.769
+    },
+    {
+      "phase": "day0-infra",
+      "startedAt": "2026-08-21T08:54:49.33726Z",
+      "completedAt": "2026-08-21T08:54:49.556873Z",
+      "seconds": 0.22
+    },
+    {
+      "phase": "capi-init",
+      "startedAt": "2026-08-21T08:54:49.557311Z",
+      "completedAt": "2026-08-21T08:58:32.171296Z",
+      "seconds": 222.614
+    },
+    {
+      "phase": "cluster-provision",
+      "startedAt": "2026-08-21T08:58:32.173404Z",
+      "completedAt": "2026-08-21T09:01:43.774628Z",
+      "seconds": 191.601
+    },
+    {
+      "phase": "pivot-move",
+      "startedAt": "2026-08-21T10:20:35.348294Z",
+      "completedAt": "2026-08-21T10:24:01.423473Z",
+      "seconds": 206.075
+    },
+    {
+      "phase": "pivot-ready",
+      "startedAt": "2026-08-21T10:24:01.426107Z",
+      "completedAt": "2026-08-21T10:24:07.91105Z",
+      "seconds": 6.485
+    },
+    {
+      "phase": "clusterclass-deploy",
+      "startedAt": "2026-08-21T10:24:36.701956Z",
+      "completedAt": "2026-08-21T10:24:38.012732Z",
+      "seconds": 1.311
+    },
+    {
+      "phase": "platform-pre-reqs",
+      "startedAt": "2026-08-21T10:24:38.014409Z",
+      "completedAt": "2026-08-21T10:24:53.017757Z",
+      "seconds": 15.003
+    }
+  ]
 }
