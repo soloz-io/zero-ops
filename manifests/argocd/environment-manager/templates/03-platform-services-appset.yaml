@@ -421,6 +421,42 @@ spec:
             - /metadata/annotations
             - /metadata/labels
     {{"{{-"}} end {{"}}"}}
+    {{"{{-"}} if eq .appName "platform-infisical" {{"}}"}}
+    spec:
+      ignoreDifferences:
+        # ROOT CAUSE of recurring Infisical migration-lock failures.
+        #
+        # The chart stamps a wall-clock timestamp into the Deployment AND its pod
+        # template (templates/infisical.yaml, both 1.7.5 and 1.10.0):
+        #
+        #     updatedAt: {{"{{"}} now | date "2006-01-01 MST 15:04:05" {{"}}"}}
+        #
+        # Every render therefore differs from the live object, so ArgoCD sees the
+        # Deployment as permanently OutOfSync and self-heal rewrites it. Each rewrite
+        # changes the pod template, producing a new ReplicaSet and killing the
+        # running pod — observed as generation=4 within 28 minutes and a stream of
+        # short-lived pods.
+        #
+        # That is fatal here because Infisical runs its schema migrations INSIDE the
+        # app pod at boot. A pod killed mid-migration leaves
+        # infisical_migrations_lock.is_locked = 1, and every later pod then refuses
+        # to start with "Migration table is already locked". Nothing self-heals.
+        #
+        # On a hybrid hub the window is wide: the image lands on a home-lab node over
+        # a domestic link and the pull alone ran past 4m26s, so a sync almost always
+        # lands mid-pull or mid-migration.
+        #
+        # Ignoring the annotation makes the Deployment converge, which stops the
+        # rollout loop at its source. The startupProbe patch in the infisical
+        # kustomization handles the other half (readiness killing a slow migration);
+        # the migration-unlock init container is the last-resort cleanup.
+        - group: apps
+          kind: Deployment
+          name: infisical-standalone-infisical
+          jsonPointers:
+            - /metadata/annotations/updatedAt
+            - /spec/template/metadata/annotations/updatedAt
+    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .appName "ingress-nginx-controller" {{"}}"}}
     spec:
       ignoreDifferences:
