@@ -432,6 +432,54 @@ renewal, or 90 days is accepted for this class and the table is wrong. Until tha
 is decided the registry preserves the working value and this note is the record of
 the discrepancy.
 
+### 4. Renewal is cert-manager's; reload is the consumer's problem
+
+Ownership of the certificate lifecycle splits cleanly, and it is worth stating
+because the hub-operator's involvement is easy to overestimate:
+
+```
+hub-operator     ensures the PKI template exists          (and nothing more)
+cert-manager     issues, schedules renewal, rewrites the Secret
+the consumer     must actually pick the new material up
+```
+
+The hub-operator never issues or renews a certificate. It cannot compensate for a
+missing template either — which is why the drift in §2 was fatal rather than
+cosmetic.
+
+Renewal itself is automatic and needs no operator action: cert-manager schedules
+it at `notAfter - renewBefore` (for the argocd-principal certificates, ~83 days
+into a 90-day lifetime) and rewrites the Secret in place.
+
+**The last step is not automatic.** A Secret being rewritten does not mean the
+process using it has reloaded. For `argocd-agent-principal` it demonstrably does
+not: the upstream source reads the Secret once during option assembly, memoises
+the resulting `tls.Config`, never invalidates it, installs no `GetCertificate`
+callback, and watches no Secret. Upstream's own documentation says to restart the
+component after rotating certificates.
+
+Left alone this produces a failure that actively misleads: the rotation succeeds
+at day 83, the process keeps serving the *previous* certificate, and that
+certificate stays valid for another 7 days — so the outage surfaces a week later
+with nothing pointing back at the rotation.
+
+The restart is therefore declared, via Stakater Reloader, on the consuming
+Deployment. Two details are load-bearing:
+
+- the **explicit** `secret.reloader.stakater.com/reload` list is required, not
+  `reloader.stakater.com/auto`. Only `argocd-agent-jwt` is mounted as a volume;
+  the TLS secrets are referenced by name through `principal-params-cm` and never
+  mounted, so `auto` would track the one secret that matters least and ignore the
+  three that rotate;
+- Reloader keys on Secret **data**, not metadata, so it is inert for annotation-
+  only changes — which is correct, and worth knowing when testing it.
+
+**Rule for any new certificate consumer:** establish whether the process reloads
+its own certificate material. Native reload is preferable — restarting a
+security-sensitive control-plane component because a certificate changed is
+operationally heavier. Only when the consumer cannot reload does the declared
+restart apply.
+
 ## References
 
 - ADR-015: Namespace Alignment
