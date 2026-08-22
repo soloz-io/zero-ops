@@ -4,7 +4,7 @@ resources:
 - ghcr-pull-secret-es.yaml
 
 images:
-- digest: sha256:3a1b366f04ca3ed4c3a342805f6d3d68a30fc4c761e35b6e646d0acd2cc25425
+- digest: sha256:692a1eb9a6f0d8e7b8e7bad50e10f9535632a45dcae1e33d68787c94f6639e08
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/hub-operator
 apiVersion: kustomize.config.k8s.io/v1beta1
