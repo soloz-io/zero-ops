@@ -277,7 +277,52 @@ func (i *OperatorInstaller) waitForCAInjection(ctx context.Context, crdName stri
 	return fmt.Errorf("timeout waiting for cert-manager cainjector to inject CA bundle for CRD %s", crdName)
 }
 
+// applyBatch applies a group of manifests, retrying while an admission webhook is
+// still coming up.
+//
+// Every batch here passes through cert-manager's validating webhook, and on a
+// hybrid hub that webhook runs on the home-lab worker: a ~200ms link, with images
+// pulled over the same link. A batch applied while the pod is still starting fails
+// with
+//
+//	failed calling webhook "webhook.cert-manager.io": ... net/http: TLS handshake timeout
+//
+// even though the datapath is healthy — verified by hand: TCP to the webhook pod
+// opens and TLS responds once it has settled. Waiting for the Deployment is not
+// enough, because Ready precedes the webhook actually serving TLS.
 func (i *OperatorInstaller) applyBatch(ctx context.Context, batch [][]byte) error {
+	const attempts = 12 // ~2 minutes at 10s spacing
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := i.applyBatchOnce(ctx, batch)
+		if err == nil {
+			if attempt > 1 {
+				fmt.Printf("[capi-init] ✓ batch applied on attempt %d\n", attempt)
+			}
+			return nil
+		}
+		lastErr = err
+
+		if !transientWebhookError(err.Error()) {
+			return err
+		}
+		if attempt == attempts {
+			break
+		}
+		if attempt == 1 {
+			fmt.Println("[capi-init] admission webhook not serving yet, retrying...")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Second):
+		}
+	}
+	return fmt.Errorf("admission webhook never became serviceable after %d attempts: %w", attempts, lastErr)
+}
+
+func (i *OperatorInstaller) applyBatchOnce(ctx context.Context, batch [][]byte) error {
 	if len(batch) == 0 {
 		return nil
 	}
@@ -342,6 +387,7 @@ func transientWebhookError(output string) bool {
 		"no endpoints available",
 		"context deadline exceeded",
 		"i/o timeout",
+		"TLS handshake timeout",
 		"EOF",
 	} {
 		if strings.Contains(output, sig) {

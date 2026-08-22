@@ -4,45 +4,52 @@
   "provider": "hybrid",
   "region": "",
   "bootstrapId": "",
-  "currentPhase": "cluster-provision",
+  "currentPhase": "home-worker-join",
   "completedPhases": [
     "bootstrap-create",
     "day0-infra",
     "capi-init",
-    "cluster-provision"
+    "cluster-provision",
+    "home-worker-join"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
   "mgmtKubeconfig": "",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-08-22T07:34:45.430399Z",
+  "timestamp": "2026-08-22T08:20:41.908227Z",
   "metadata": null,
-  "startedAt": "2026-08-22T07:27:14.612111Z",
+  "startedAt": "2026-08-22T07:48:14.460868Z",
   "phaseTimings": [
     {
       "phase": "bootstrap-create",
-      "startedAt": "2026-08-22T07:26:05.035142Z",
-      "completedAt": "2026-08-22T07:27:14.612061Z",
-      "seconds": 69.577
+      "startedAt": "2026-08-22T07:47:23.296079Z",
+      "completedAt": "2026-08-22T07:48:14.460852Z",
+      "seconds": 51.165
     },
     {
       "phase": "day0-infra",
-      "startedAt": "2026-08-22T07:27:14.613581Z",
-      "completedAt": "2026-08-22T07:27:14.885497Z",
-      "seconds": 0.272
+      "startedAt": "2026-08-22T07:48:14.462667Z",
+      "completedAt": "2026-08-22T07:48:14.699681Z",
+      "seconds": 0.237
     },
     {
       "phase": "capi-init",
-      "startedAt": "2026-08-22T07:27:14.885935Z",
-      "completedAt": "2026-08-22T07:31:42.203347Z",
-      "seconds": 267.317
+      "startedAt": "2026-08-22T07:56:36.276221Z",
+      "completedAt": "2026-08-22T08:02:39.716846Z",
+      "seconds": 363.441
     },
     {
       "phase": "cluster-provision",
-      "startedAt": "2026-08-22T07:31:42.204565Z",
-      "completedAt": "2026-08-22T07:34:45.430377Z",
-      "seconds": 183.226
+      "startedAt": "2026-08-22T08:02:39.725794Z",
+      "completedAt": "2026-08-22T08:06:16.697307Z",
+      "seconds": 216.972
+    },
+    {
+      "phase": "home-worker-join",
+      "startedAt": "2026-08-22T08:16:28.116914Z",
+      "completedAt": "2026-08-22T08:20:41.908195Z",
+      "seconds": 253.791
     }
   ]
 }

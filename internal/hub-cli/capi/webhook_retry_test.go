@@ -11,6 +11,9 @@ func TestTransientWebhookErrorClassification(t *testing.T) {
 		`failed to call webhook: Post "https://...": dial tcp 10.96.0.1:443: connect: connection refused`,
 		`Internal error occurred: failed calling webhook "x": no endpoints available for service "y"`,
 		`Post "https://...": context deadline exceeded`,
+		// Observed at pivot-move: cert-manager's webhook on the home-lab worker,
+		// still starting behind a ~200ms link.
+		`Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": net/http: TLS handshake timeout`,
 	}
 	for _, msg := range retryable {
 		if !transientWebhookError(msg) {
