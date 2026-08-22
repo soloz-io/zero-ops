@@ -767,18 +767,12 @@ step1c_configure_tailscale() {
     "$HUB_BINARY" configure-tailscale \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-tailscale failed"
 
-    # Authkey for the hub control plane's own tailscaled DaemonSet
-    # (manifests/hub-core-services/tailscale). Created here rather than committed,
-    # because secrets never live in git; the DaemonSet that consumes it does.
-    # Without it the API server cannot reach home-worker kubelets and
-    # kubectl logs/exec/port-forward fail against every pod on a home node.
-    log "  Creating kube-system/tailscale-node-authkey for the hub CP agent..."
-    kubectl --kubeconfig="$KUBECONFIG_PATH" -n kube-system \
-        create secret generic tailscale-node-authkey \
-        --from-file=authkey="$ZERO_OPS_DIR/k8-secrets/tailscale/authkey" \
-        --dry-run=client -o yaml \
-        | kubectl --kubeconfig="$KUBECONFIG_PATH" apply -f - >/dev/null \
-        || log "  ⚠️  could not create tailscale-node-authkey — kubectl logs against home workers will time out"
+    # No tailscale-node-authkey Secret is created here any more. It fed a
+    # tailscale-node DaemonSet that has been removed: the hub control plane runs
+    # tailscaled NATIVELY from the ClusterClass (ADR-046 §21), and a second daemon
+    # sharing the host netns stripped the tailnet addresses off tailscale0 — see
+    # ADR-046 §22. The authkey the ClusterClass needs travels in
+    # platform-capi/tailscale-hybrid-psk, created by configure-tailscale above.
 
     mark_step_completed "configure_tailscale"
     log "Tailscale credentials configuration completed"
@@ -1005,6 +999,92 @@ step6_wait_infisical() {
 
     mark_step_completed "wait_infisical"
     log "Infisical pods are running"
+}
+
+# Step 6b: Seed externally-issued credentials into Infisical
+#
+# Some credentials are issued by systems OUTSIDE this platform — object storage
+# keys, a Grafana Cloud account — so nothing in the cluster can generate them.
+# They used to be seeded by hand into the Infisical console, which meant a rebuilt
+# Infisical silently came up without them: the ExternalSecret said only "could not
+# get secret data from provider", the consuming pod said only
+# CreateContainerConfigError, and neither named the missing key or its owner.
+#
+# This step turns that folklore into a declared, repeatable phase. Each entry below
+# maps a directory under k8-secrets/ (gitignored) to one Kubernetes Secret; the
+# hub-operator's CLISecretMappings then uploads it to Infisical and ESO syncs it
+# back out — the same Secret Zero path already used for hetzner, github and
+# tailscale. Nothing new writes to Infisical directly.
+#
+# Placeholder files are created for anything missing so the required set is
+# discoverable from the filesystem rather than from documentation. A key that is
+# still empty is NOT turned into a Secret: the uploader rejects empty values, and a
+# half-populated Secret is worse than an absent one.
+#
+# Format: <k8-secrets subdir>|<target namespace>/<secret name>|<file>=<secret key>,...
+SEED_SPECS=(
+    "s3|platform-ops/s3-object-storage|access-key-id=access-key-id,secret-access-key=secret-access-key"
+    "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key,prometheus-url=prometheus-url,prometheus-user=prometheus-user,loki-url=loki-url,loki-user=loki-user"
+)
+
+step6b_seed_external_credentials() {
+    log "Step 6b: Seeding externally-issued credentials from k8-secrets/..."
+
+    local spec subdir target files_spec ns name
+    local seeded=0 skipped=0
+
+    for spec in "${SEED_SPECS[@]}"; do
+        IFS='|' read -r subdir target files_spec <<< "$spec"
+        ns="${target%%/*}"
+        name="${target##*/}"
+
+        local dir="$ZERO_OPS_DIR/k8-secrets/$subdir"
+        mkdir -p "$dir"
+
+        # Build the kubectl args, creating placeholders for anything absent.
+        local -a args=()
+        local pair file key missing=0
+        local IFS_SAVE="$IFS"
+        IFS=','
+        for pair in $files_spec; do
+            IFS="$IFS_SAVE"
+            file="${pair%%=*}"
+            key="${pair##*=}"
+            if [[ ! -f "$dir/$file" ]]; then
+                : > "$dir/$file"
+                log "  created placeholder k8-secrets/$subdir/$file — paste the value in"
+                missing=1
+            elif [[ ! -s "$dir/$file" ]]; then
+                log "  k8-secrets/$subdir/$file is empty — paste the value in"
+                missing=1
+            else
+                args+=("--from-file=$key=$dir/$file")
+            fi
+            IFS=','
+        done
+        IFS="$IFS_SAVE"
+
+        if [[ "$missing" -eq 1 ]]; then
+            log "  ⏭️  $target not seeded — fill the files above and re-run (idempotent)"
+            ((skipped++))
+            continue
+        fi
+
+        kubectl --kubeconfig="$KUBECONFIG_PATH" -n "$ns" \
+            create secret generic "$name" "${args[@]}" \
+            --dry-run=client -o yaml \
+            | kubectl --kubeconfig="$KUBECONFIG_PATH" apply -f - >/dev/null \
+            || error_exit "failed to create $target from k8-secrets/$subdir"
+
+        log "  ✓ $target seeded from k8-secrets/$subdir"
+        ((seeded++))
+    done
+
+    log "Step 6b: $seeded seeded, $skipped awaiting values"
+    if [[ "$skipped" -gt 0 ]]; then
+        log "  Note: hub-operator uploads these to Infisical on its next reconcile,"
+        log "        so re-running this step after filling the files is enough."
+    fi
 }
 
 # Step 7-8: Create Machine Identity and configure ESO (automated in hub-operator)
@@ -1453,6 +1533,8 @@ main() {
     step5_verify_secrets
 
     step6_wait_infisical
+
+    step6b_seed_external_credentials
 
     step7_8_configure_eso
 

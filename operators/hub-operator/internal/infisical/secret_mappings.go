@@ -143,6 +143,68 @@ var CLISecretMappings = []SecretMapping{
 	},
 
 	// ========================================================================
+	// 5b. EXTERNALLY-ISSUED CREDENTIALS (seeded from k8-secrets/)
+	// ========================================================================
+	// Purpose: credentials issued by systems OUTSIDE the cluster, which nothing
+	// here can generate. They previously had no producer at all: a rebuilt
+	// Infisical came up without them, their ExternalSecrets reported only
+	// "could not get secret data from provider", and the consuming pods sat in
+	// CreateContainerConfigError. Seeding was folklore — an operator had to know
+	// which keys to paste into the console.
+	// Source: created by scripts/hub-bootstrap.sh (step 6b) from k8-secrets/,
+	// which is gitignored. A key whose file is absent or empty is never turned
+	// into a Secret, so it is skipped here rather than uploaded blank.
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "s3-object-storage",
+		SourceKey:       "access-key-id",
+		InfisicalKey:    "S3_ACCESS_KEY_ID",
+		Description:     "Hetzner Object Storage access key (CNPG Barman backups)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "s3-object-storage",
+		SourceKey:       "secret-access-key",
+		InfisicalKey:    "S3_SECRET_ACCESS_KEY",
+		Description:     "Hetzner Object Storage secret key (CNPG Barman backups)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "api-key",
+		InfisicalKey:    "GRAFANA_CLOUD_API_KEY",
+		Description:     "Grafana Cloud API key (alloy remote write)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "prometheus-url",
+		InfisicalKey:    "GRAFANA_CLOUD_PROMETHEUS_URL",
+		Description:     "Grafana Cloud Prometheus remote-write endpoint",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "prometheus-user",
+		InfisicalKey:    "GRAFANA_CLOUD_PROMETHEUS_USER",
+		Description:     "Grafana Cloud Prometheus user id",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "loki-url",
+		InfisicalKey:    "GRAFANA_CLOUD_LOKI_URL",
+		Description:     "Grafana Cloud Loki push endpoint",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "loki-user",
+		InfisicalKey:    "GRAFANA_CLOUD_LOKI_USER",
+		Description:     "Grafana Cloud Loki user id",
+	},
+
+	// ========================================================================
 	// 6. GITHUB CONTAINER REGISTRY PULL SECRET
 	// ========================================================================
 	// Purpose: Pull private images from ghcr.io
@@ -365,5 +427,21 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		PasswordKey: "hub-kratos-ui-csrf-cookie-secret",
 		Username:    "",
 		Description: "Kratos UI CSRF cookie secret (32-byte random)",
+	},
+	// AgentGateway's OIDC session cookie encryption key. It belongs here for the
+	// same reason as the two Kratos UI entries above and hub-hydra-system-secret:
+	// it is a random value with no external source, so leaving it out of this
+	// registry made it the one cookie secret an operator had to seed by hand into
+	// a freshly rebuilt Infisical — and nothing said so. The symptom was
+	// agentgateway stuck in CreateContainerConfigError while its ExternalSecret
+	// reported only "could not get secret data from provider".
+	// Consumed as OIDC_COOKIE_SECRET via ExternalSecret
+	// manifests/hub-core-services/api-gateway/oidc-cookie-secret-es.yaml
+	// (creationPolicy: Owner), which needs no change.
+	{
+		UsernameKey: "",
+		PasswordKey: "agentgateway-oidc-cookie-secret",
+		Username:    "",
+		Description: "AgentGateway OIDC session cookie encryption secret",
 	},
 }
