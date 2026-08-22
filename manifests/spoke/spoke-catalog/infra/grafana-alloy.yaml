@@ -69,6 +69,11 @@ kind: DaemonSet
 metadata:
   name: grafana-alloy
   namespace: platform-observability
+  annotations:
+    # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
+    # rewrites this Secret in place and the process would otherwise keep the
+    # value it read at startup until something unrelated restarted it.
+    secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
 spec:
   selector:
     matchLabels:
