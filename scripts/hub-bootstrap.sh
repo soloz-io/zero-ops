@@ -27,6 +27,7 @@ REGION="${REGION:-hel1}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
+SEED_ONLY="${SEED_ONLY:-false}"
 
 # SpokePool Configuration (provider-agnostic)
 SPOKEPOOL_NAME=""
@@ -1396,6 +1397,10 @@ main() {
                 TEARDOWN="true"
                 shift
                 ;;
+            --seed-only)
+                SEED_ONLY="true"
+                shift
+                ;;
             --region=*)
                 REGION="${1#*=}"
                 shift
@@ -1470,6 +1475,20 @@ main() {
     if [[ "$TEARDOWN" == "true" ]]; then
         run_full_teardown
         exit $?
+    fi
+
+    # --seed-only runs step 6b alone, for the normal case: the placeholders under
+    # k8-secrets/ were empty on the first run, they have since been filled, and the
+    # values need to reach Infisical without rebuilding anything. The operator
+    # uploads them on its next reconcile.
+    if [[ "$SEED_ONLY" == "true" ]]; then
+        if [[ -z "${KUBECONFIG_PATH:-}" || ! -f "$KUBECONFIG_PATH" ]]; then
+            KUBECONFIG_PATH="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+        fi
+        [[ -f "$KUBECONFIG_PATH" ]] || error_exit "kubeconfig not found at $KUBECONFIG_PATH — pass --name for the cluster to seed"
+        log "Seeding externally-issued credentials only (--seed-only)"
+        step6b_seed_external_credentials
+        exit 0
     fi
 
     log "Starting Zero-Ops Hub Bootstrap Process"
