@@ -17,3 +17,10 @@ scripts/hybrid/home-lab.env
 reference-projects
 .zero-ops/*.log
 .zero-ops/*.out
+
+# Bootstrap runtime state — machine-local, never source of truth.
+#
+# infisical-bootstrap.json holds a LIVE machine-identity clientSecret. It is not a
+# generated GitOps artifact (those live under manifests/**/generated/ and are
+# committed on purpose); publishing it would leak a working credential.
+.zero-ops/infisical-bootstrap.json

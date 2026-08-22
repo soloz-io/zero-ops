@@ -3,9 +3,11 @@ package infisical
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,13 +17,13 @@ import (
 // to reach the Infisical API without depending on the shell script's
 // background port-forward (which dies when the Infisical pod restarts).
 type PortForwardManager struct {
-	namespace string
-	svcName   string
-	localPort string
+	namespace  string
+	svcName    string
+	localPort  string
 	remotePort string
 	kubeconfig string
-	cmd       *exec.Cmd
-	stopFn    context.CancelFunc
+	cmd        *exec.Cmd
+	stopFn     context.CancelFunc
 }
 
 func NewPortForwardManager(namespace, svcName, localPort, remotePort, kubeconfig string) *PortForwardManager {
@@ -38,7 +40,54 @@ func (pf *PortForwardManager) LocalURL() string {
 	return "http://localhost:" + pf.localPort
 }
 
+// portInUse reports whether something is already listening locally.
+func portInUse(port string) bool {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// findFreePort returns the preferred port, or the next free one above it.
+//
+// The local port is an implementation detail of reaching the service — nothing
+// outside this process depends on which number is used, so an occupied port is no
+// reason to fail, and certainly no reason to disturb whatever owns it. Developer
+// machines routinely have dev servers on 8081.
+//
+// This matters because kubectl port-forward does not fail fast when it cannot
+// bind: it can outlive the caller's wait, leaving IsRunning() true while the OTHER
+// process answers. A run hit exactly that — a local dev server returned
+// 200 text/html for every path, and the bootstrap failed much later with
+// "failed to decode login response: invalid character '<'".
+func findFreePort(preferred string) (string, error) {
+	start, err := strconv.Atoi(preferred)
+	if err != nil {
+		return "", fmt.Errorf("invalid local port %q: %w", preferred, err)
+	}
+	const scan = 50
+	for candidate := start; candidate < start+scan; candidate++ {
+		if !portInUse(strconv.Itoa(candidate)) {
+			return strconv.Itoa(candidate), nil
+		}
+	}
+	return "", fmt.Errorf("no free local port in range %d-%d", start, start+scan-1)
+}
+
 func (pf *PortForwardManager) Start() error {
+	// Re-select every start: a port that was free last time may not be now, and a
+	// restarted port-forward must not silently reuse a number someone else took.
+	port, err := findFreePort(pf.localPort)
+	if err != nil {
+		return err
+	}
+	if port != pf.localPort {
+		fmt.Printf("[port-forward] local port %s is in use; using %s instead\n", pf.localPort, port)
+		pf.localPort = port
+	}
+
 	args := []string{"port-forward", "-n", pf.namespace, "svc/" + pf.svcName, pf.localPort + ":" + pf.remotePort}
 	if pf.kubeconfig != "" {
 		args = append([]string{"--kubeconfig", pf.kubeconfig}, args...)
@@ -86,9 +135,25 @@ func (pf *PortForwardManager) WaitForAPI(ctx context.Context, timeout time.Durat
 
 		resp, err := http.Get(checkURL)
 		if err == nil {
+			ct := resp.Header.Get("Content-Type")
 			resp.Body.Close()
-			// Any response (200, 401, etc.) means the API is reachable
-			return nil
+
+			// Status is deliberately not checked — 401 from checkAuth is a healthy
+			// unauthenticated response. What must be checked is WHO answered.
+			//
+			// "Any response means the API is reachable" was wrong: if another
+			// process already holds the local port, kubectl port-forward cannot bind
+			// and that process answers instead. A local dev server returning
+			// 200 text/html for every path satisfied this probe, and the bootstrap
+			// then spoke to it, failing later with the genuinely baffling
+			// "failed to decode login response: invalid character '<'".
+			if strings.Contains(ct, "application/json") {
+				return nil
+			}
+			return fmt.Errorf("port %s is answering but is not Infisical (Content-Type %q).\n"+
+				"Another process is bound to that port — kubectl port-forward could not take it.\n"+
+				"Free it (lsof -nP -iTCP:%s -sTCP:LISTEN) and re-run",
+				pf.localPort, ct, pf.localPort)
 		}
 
 		select {

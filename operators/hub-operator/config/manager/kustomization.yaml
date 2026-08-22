@@ -1,6 +1,7 @@
 resources:
 - manager.yaml
 - provider-registry.yaml
+- ghcr-pull-secret-es.yaml
 
 images:
 - digest: sha256:bb64e1b5792bbe84a99cbc0bdebbc86e1c6233a857a3b10a5f6ceebcc4c8e97c

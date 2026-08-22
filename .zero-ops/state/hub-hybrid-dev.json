@@ -16,11 +16,14 @@
     "cleanup",
     "clusterclass-deploy",
     "platform-pre-reqs",
+    "cleanup",
+    "cleanup",
     "boundary-01",
     "generate-local-secrets",
     "boundary-02",
     "inject-ca-cert",
     "boundary-03",
+    "cleanup",
     "cleanup"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
@@ -28,7 +31,7 @@
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-08-22T09:45:43.374323Z",
+  "timestamp": "2026-08-22T11:09:57.394565Z",
   "metadata": null,
   "startedAt": "2026-08-22T07:48:14.460868Z",
   "phaseTimings": [
@@ -88,33 +91,33 @@
     },
     {
       "phase": "boundary-01",
-      "startedAt": "2026-08-22T08:46:47.206366Z",
-      "completedAt": "2026-08-22T08:56:42.072731Z",
-      "seconds": 594.866
+      "startedAt": "2026-08-22T10:20:58.04474Z",
+      "completedAt": "2026-08-22T10:21:13.51929Z",
+      "seconds": 15.475
     },
     {
       "phase": "generate-local-secrets",
-      "startedAt": "2026-08-22T08:56:42.073851Z",
-      "completedAt": "2026-08-22T08:56:44.57693Z",
-      "seconds": 2.503
+      "startedAt": "2026-08-22T10:21:13.520757Z",
+      "completedAt": "2026-08-22T10:21:15.084919Z",
+      "seconds": 1.564
     },
     {
       "phase": "boundary-02",
-      "startedAt": "2026-08-22T08:56:44.578429Z",
-      "completedAt": "2026-08-22T08:56:49.53805Z",
-      "seconds": 4.96
+      "startedAt": "2026-08-22T10:21:15.085838Z",
+      "completedAt": "2026-08-22T10:21:18.325488Z",
+      "seconds": 3.24
     },
     {
       "phase": "inject-ca-cert",
-      "startedAt": "2026-08-22T08:56:49.539459Z",
-      "completedAt": "2026-08-22T09:14:21.01906Z",
-      "seconds": 1051.48
+      "startedAt": "2026-08-22T10:21:18.326905Z",
+      "completedAt": "2026-08-22T10:21:20.326888Z",
+      "seconds": 2
     },
     {
       "phase": "boundary-03",
-      "startedAt": "2026-08-22T09:14:21.035464Z",
-      "completedAt": "2026-08-22T09:14:25.182613Z",
-      "seconds": 4.147
+      "startedAt": "2026-08-22T10:21:20.329591Z",
+      "completedAt": "2026-08-22T10:21:23.822956Z",
+      "seconds": 3.493
     }
   ]
 }
