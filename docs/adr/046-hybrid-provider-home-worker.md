@@ -34,12 +34,12 @@ Hetzner CAPI remains the infrastructure provider.
 
 | Layer | Placement |
 |-------|-----------|
-| Hub (management) cluster | Hetzner |
+| Hub (management) cluster | Hetzner control plane; workers are home-lab Flatcar nodes (§19). The Hetzner worker `MachineDeployment` runs at `replicas: 0` under `--provider=hybrid` |
 | Spoke control plane | Hetzner (1 replica dev, 3 stg/prod) |
 | Spoke burst worker pool | Hetzner CAPI `MachineDeployment` at `replicas: 0` (escape hatch) |
 | Spoke default workers | Home-lab Flatcar nodes, unmanaged kubeadm join over Tailscale |
 | Spoke API access | Public Hetzner Load Balancer (CAPH-managed, `controlPlaneLoadBalancer.enabled=true`) |
-| Tailscale | Home-lab workers only, run via native tailscaled (Ignition/DVD boot, §13). The spoke control plane also joins the tailnet via native tailscaled bootstrapped by the ClusterClass `preKubeadmCommands` (invariant 6 requires the CP's routable Tailscale IP for cross-node routing); the hub does not run Tailscale |
+| Tailscale | Home-lab workers, run via native tailscaled (Ignition/DVD boot, §13). **Both** control planes also join the tailnet via native tailscaled bootstrapped by their ClusterClass `preKubeadmCommands` — invariant 6 requires a routable Tailscale IP on every node that carries pod traffic, and that now includes the hub CP (§21) |
 
 ### Provider Cell Layout
 
@@ -1052,6 +1052,96 @@ already installs the Hetzner DNS-01 webhook (v1.4.2) and is **installed and unus
 no `dns01` solver exists anywhere. Once 20.4 lands a real DNS token, switching to a
 per-env wildcard (`*.dev.nutgraf.in`) via DNS-01 becomes cheap and removes the
 per-tenant Gateway coupling of 20.1 and the prerequisite of 20.2 entirely.
+
+### 21. Hub control plane joins the tailnet; hub bootstrap ordering (2026-08-22)
+
+**Correction.** The Topology table previously read *"the hub does not run
+Tailscale"*. That was true only while the hub had exclusively Hetzner nodes. §19
+moved hub workloads onto home-lab Flatcar nodes, and from that point the statement
+was wrong: **invariant 6 applies to the hub control plane exactly as it does to the
+spoke control plane.** The table has been corrected.
+
+**Why.** Cilium derives its VXLAN tunnel endpoint from a node's `InternalIP`. A
+home-lab worker's only `InternalIP` is its tailnet address, and a home node cannot
+route the hub CP's Hetzner private address — from a home worker,
+`ip route get 10.0.0.3` leaves via the house gateway. Cross-node pod traffic is
+then dead in one direction while both nodes report `Ready`. Observed as CNPG
+`Instance Status Extraction Error: HTTP communication issue`, with 100% packet loss
+between a CP pod and a home-worker pod.
+
+**Codified** in `internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml`,
+mirroring `spokepool-clusterclass-v1.yaml`:
+
+1. `/etc/tailscale-{authkey,hostname}` via `contentFrom.secret`, tailscaled brought
+   up in `preKubeadmCommands` **before** kubeadm registers the node.
+2. `dynamic-node-ip.sh` re-asserts `--node-ip=<tailnet IP>`, wired as kubelet
+   `ExecStartPre` and re-run in `postKubeadmCommands`.
+3. Every tailscale step is guarded on a non-empty `/etc/tailscale-hostname`. A
+   pure-Hetzner hub is written an **empty** Secret and installs nothing — the same
+   guard pattern the spoke uses. The Secret is always created, because an
+   unresolvable `contentFrom.secret` blocks KubeadmConfig rendering entirely.
+4. The Secret is staged into the **bootstrap (kind) cluster** at `capi-init`, since
+   the ClusterClass reads it while the hub Cluster is being created.
+
+**Consequence — the CCM can no longer initialise the node, and that is expected.**
+Kubernetes' cloud-node-controller validates `alpha.kubernetes.io/provided-node-ip`
+against the addresses the cloud reports. Hetzner reports only its own public and
+private IPs, so a tailnet `--node-ip` fails validation:
+
+```
+provided node ip for node "…" is not valid:
+failed to get node address from cloud provider that matches ip: 100.x.x.x
+```
+
+The CCM therefore never writes `.spec.providerID`. CAPI matches Machines to Nodes
+**by providerID**, so the Machine keeps an empty `NODENAME` and `pivot-move` times
+out on *"all machines joined"*. Two consequences follow, both codified:
+
+- `dynamic-node-ip.sh` **self-assigns** `--provider-id=hcloud://<instance-id>` from
+  the Hetzner metadata service. The instance id is authoritative on the node itself,
+  which takes the CCM off the critical path for nodeRef.
+- `postKubeadmCommands` clears `node.cloudprovider.kubernetes.io/uninitialized`,
+  which the CCM would otherwise leave in place forever. This is what the spoke
+  ClusterClass already does.
+
+**Bootstrap ordering — home workers join before `boundary-01`.** With the hub at
+`WorkerReplicas: 0` (§19), a hub whose home worker has not joined has no node that
+satisfies the §11 worker-only placement rule, so ArgoCD, the operators and CNPG all
+sit `Pending` and the bootstrap hangs at `inject-ca-cert`. CAPI cannot provision
+these nodes, so the orchestrator gained a `home-worker-join` phase between
+`platform-pre-reqs` and `boundary-01` that invokes
+`scripts/hybrid/provision-flatcar-worker.sh --cluster hub` and waits for a Ready
+node labelled `hub-role=worker`. It is idempotent: an already-Ready node is skipped.
+
+The control plane keeps its `control-plane:NoSchedule` taint whenever home workers
+are enabled — untainting it would re-create precisely the placement-by-accident
+failure §11 bans. Only a hybrid hub with **no** home workers registers the control
+plane as schedulable, because then no other node exists.
+
+**`local-path` delivery to the hub.** §11 defines the home storage class, but
+`manifests/hub-core-services/storage/` was referenced by no ApplicationSet, so the
+class never existed on the hub and `platform-db`'s PVC stayed `Pending` forever. It
+is now delivered at sync-wave 1 under `{{ if eq .Values.provider "hybrid" }}`, and
+three defects in it were fixed: it declared itself `is-default-class` (§11 reserves
+that for `hcloud-volumes`), its DaemonSet had no `workload-location: home` affinity
+despite `tolerations: [operator: Exists]`, and its ServiceAccount name did not match
+the one the provisioner gives its helper pods
+(`local-path-provisioner-service-account`), nor did its ClusterRole allow
+`pods: create/delete` for them.
+
+**Two ordering traps in the shared addons**, both of which deadlock a single-node
+cluster and are only visible in PVC/pod events:
+
+- The Hetzner CCM must tolerate `node.cilium.io/agent-not-ready` and must carry
+  **no** `instance.hetzner.cloud/provided-by` nodeSelector — that label is applied
+  *by* the CCM, so the selector can never be satisfied on a fresh cluster. Without
+  both, HCCM stays `Pending` → the node never gets addresses → cilium-agent aborts
+  with *"unable to determine direct routing device"* → the agent-not-ready taint is
+  never cleared → HCCM stays `Pending`.
+- The Hetzner CSI must **not** be installed on the ephemeral kind bootstrap cluster.
+  Its controller requires the Hetzner metadata service and CrashLoops on kind; the
+  bootstrap cluster has no PVCs and needs no CSI. Gated on node `providerID` rather
+  than on the provider name, so a Hetzner-hosted bootstrap cluster still gets it.
 
 ## References
 
