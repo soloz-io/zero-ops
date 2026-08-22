@@ -124,11 +124,16 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 				"ops.nutgraf.in/db-credentials": "true",
 			},
 		},
-		// basic-auth, not Opaque: CNPG's spec.managed.roles[].passwordSecret requires
-		// it, and with an Opaque Secret the role is created WITHOUT the password
-		// Infisical authenticates with — which surfaces later as "no such user".
-		// The key names are fixed by the type (corev1.BasicAuthUsernameKey /
-		// BasicAuthPasswordKey) and happen to match what was used before.
+		// basic-auth rather than Opaque. CNPG 1.29 accepts an Opaque Secret here —
+		// verified on a live cluster, where managed.roles reconciled the role and
+		// applied the password from one — so this is about being semantically correct
+		// and surviving a future CNPG that enforces the documented type, not about
+		// fixing a present-day failure.
+		//
+		// Deliberately NOT accompanied by a migration for existing clusters: a
+		// Secret's type is immutable, so converting one means delete-and-recreate,
+		// which rotates a live database credential for no benefit while Opaque works.
+		// New clusters get the right type; existing ones are left alone.
 		Type: corev1.SecretTypeBasicAuth,
 		StringData: map[string]string{
 			corev1.BasicAuthUsernameKey: "infisical",
