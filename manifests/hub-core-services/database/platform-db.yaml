@@ -7,21 +7,15 @@ spec:
   instances: 1
   storage:
     size: 10Gi
-    # local-path: this is a home-class workload (ADR-046 §11). It runs on the
-    # home-lab worker, and the storage class follows the declared placement.
-    storageClass: local-path
+    # storageClass comes from the provider overlay (providers/<provider>).
 
   enableSuperuserAccess: true
 
-  # ADR-046 §11 placement class "home": BOTH selectors are required. The worker
-  # selector is the platform-wide ADR-014 rule; workload-location pins this
-  # database to home-lab hardware, which is the only place its local-path storage
-  # can bind. Declaring placement explicitly is the point — the banned alternative
-  # is letting storage binding decide where the database lands.
+  # ADR-014: stateful workloads run on worker nodes, always. The location half of
+  # the ADR-046 §11 placement class is supplied by the provider overlay.
   affinity:
     nodeSelector:
       node-role.kubernetes.io/worker: ""
-      workload-location: home
 
   backup:
     barmanObjectStore:

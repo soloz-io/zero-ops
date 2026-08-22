@@ -34,6 +34,11 @@ spec:
       labels:
         app: platform-redis
     spec:
+      # ADR-014: stateful workloads run on worker nodes, always. The location
+      # half of the ADR-046 §11 placement class (workload-location + the matching
+      # storage class) is supplied by the provider overlay under providers/.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
       containers:
       - name: redis
         image: docker.io/library/redis:8.6-alpine

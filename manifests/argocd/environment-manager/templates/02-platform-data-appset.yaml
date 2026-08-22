@@ -29,31 +29,53 @@ spec:
             isPlatformOwned: 'true'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/hub-core-services/database'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-          - appName: 'platform-nats'
-            destinationNamespace: 'platform-messaging'
-            isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/nats'
+            # ADR-046 §11: the provider overlay supplies the placement class
+            # (workload-location + matching storage class). The base under
+            # hub-core-services/database is provider-neutral and must not be
+            # deployed directly. Same convention as
+            # spoke-catalog/environments/<env>/<provider>.
+            path: 'manifests/hub-core-services/providers/{{ .Values.provider }}/database'
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''
+          {{- if ne .Values.provider "hybrid" }}
+          # NATS is not deployed on a hybrid hub. It has no consumer inside
+          # hub-core-services — it is the messaging layer spoke leaf-nodes connect
+          # to — and a hybrid hub runs its workloads on a single home-lab node
+          # where the 10Gi JetStream volume is not worth the disk.
+          # The hetzner overlay is retained for hubs that do run it.
+          - appName: 'platform-nats'
+            destinationNamespace: 'platform-messaging'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            # ADR-046 §11: the provider overlay supplies the placement class
+            # (workload-location + matching storage class). The base under
+            # hub-core-services/nats is provider-neutral and must not be
+            # deployed directly. Same convention as
+            # spoke-catalog/environments/<env>/<provider>.
+            path: 'manifests/hub-core-services/providers/{{ .Values.provider }}/nats'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+          {{- end }}
           - appName: 'platform-redis'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'
             repoURL: 'https://github.com/soloz-io/zero-ops'
             targetRevision: ''
-            path: 'manifests/hub-core-services/redis'
+            # ADR-046 §11: the provider overlay supplies the placement class
+            # (workload-location + matching storage class). The base under
+            # hub-core-services/redis is provider-neutral and must not be
+            # deployed directly. Same convention as
+            # spoke-catalog/environments/<env>/<provider>.
+            path: 'manifests/hub-core-services/providers/{{ .Values.provider }}/redis'
             chart: ''
-            directoryRecurse: 'true'
+            directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
             helmReleaseName: ''

@@ -11,6 +11,7 @@ verification are handled by **one script**:
 # builds the Flatcar base VHDX + Ignition ISO, creates the Gen2 VM, and
 # joins the spoke via kubeadm.
 ./scripts/hybrid/provision-flatcar-worker.sh --node 1
+./scripts/hybrid/provision-flatcar-worker.sh --cluster hub 
 
 # Provision all registered nodes (home-lab.env)
 ./scripts/hybrid/provision-flatcar-worker.sh

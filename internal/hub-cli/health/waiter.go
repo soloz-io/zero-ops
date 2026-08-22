@@ -23,6 +23,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -98,39 +99,66 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 
 	deadline := time.Now().Add(w.Timeout)
 	startedAt := time.Now()
+	total := len(w.Checkers)
+
+	// Announce the whole plan up front. On a hybrid hub these checks routinely
+	// take 15+ minutes (images pull to a home-lab worker over a ~200ms link), and
+	// without knowing how many stages there are — and which one is current — a
+	// long wait is indistinguishable from a hang.
+	if total > 1 {
+		fmt.Printf("   %d checks to pass (budget %v):\n", total, w.Timeout)
+		for i, c := range w.Checkers {
+			fmt.Printf("     %d/%d %s\n", i+1, total, c.Name())
+		}
+	}
 
 	for i, checker := range w.Checkers {
 		if w.OnCheckStart != nil {
 			w.OnCheckStart(checker)
 		} else {
-			// Default progress banner — every HealthWaiter call gets
-			// "→ checking X" without callers having to wire up a
-			// callback. Callers wanting a custom format (e.g. a
-			// [platform-deploy] prefix) still set OnCheckStart.
-			fmt.Printf("   → checking %s\n", checker.Name())
+			fmt.Printf("   → [%d/%d] %s\n", i+1, total, checker.Name())
 		}
 
 		// Per-check deadline to keep error messages precise when Timeout
 		// is large. This is the remaining budget for THIS check onward.
 		checkStart := time.Now()
+		lastReason := ""
+		nextHeartbeat := checkStart.Add(heartbeatEvery)
+
 		for {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 
-			if err := checker.Check(ctx, kubeconfig); err == nil {
+			err := checker.Check(ctx, kubeconfig)
+			if err == nil {
+				elapsed := time.Since(checkStart).Round(time.Second)
 				if w.OnCheckPass != nil {
 					w.OnCheckPass(checker)
 				} else {
-					fmt.Printf("   ✓ %s healthy\n", checker.Name())
+					fmt.Printf("   ✓ [%d/%d] %s (%v)\n", i+1, total, checker.Name(), elapsed)
+					if rem := total - (i + 1); rem > 0 {
+						fmt.Printf("     %d check(s) remaining: %s\n", rem, remainingNames(w.Checkers[i+1:]))
+					}
 				}
 				break
 			}
 
+			// Surface WHY it is still waiting. The checker's error is the only
+			// thing that distinguishes "pulling an image" from "CrashLoopBackOff",
+			// and it used to be discarded on every poll.
+			reason := condense(err.Error())
+			if now := time.Now(); reason != lastReason || now.After(nextHeartbeat) {
+				fmt.Printf("     … [%d/%d] %v elapsed — %s\n",
+					i+1, total, time.Since(checkStart).Round(time.Second), reason)
+				lastReason = reason
+				nextHeartbeat = now.Add(heartbeatEvery)
+			}
+
 			if time.Now().After(deadline) {
-				return fmt.Errorf("health check %q failed after %v (was check %d/%d, total waited %v): see logs above for last error",
+				return fmt.Errorf("health check %q failed after %v (was check %d/%d, total waited %v); last reason: %s",
 					checker.Name(), time.Since(checkStart).Round(time.Second),
-					i+1, len(w.Checkers), time.Since(startedAt).Round(time.Second))
+					i+1, total, time.Since(startedAt).Round(time.Second), reason)
 			}
 
 			select {
@@ -141,5 +169,33 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 		}
 	}
 
+	if total > 1 {
+		fmt.Printf("   ✓ all %d checks passed in %v\n", total, time.Since(startedAt).Round(time.Second))
+	}
 	return nil
+}
+
+// heartbeatEvery bounds how often an unchanged reason is repeated. Short enough
+// that the operator sees the run is alive, long enough not to flood the log.
+const heartbeatEvery = 30 * time.Second
+
+func remainingNames(rest []HealthChecker) string {
+	names := make([]string, 0, len(rest))
+	for _, c := range rest {
+		names = append(names, c.Name())
+	}
+	return strings.Join(names, ", ")
+}
+
+// condense reduces a checker error to one readable line. Kubernetes errors often
+// carry embedded newlines and long resource dumps that would otherwise turn a
+// progress line into a page.
+func condense(msg string) string {
+	msg = strings.TrimSpace(strings.ReplaceAll(msg, "\n", " "))
+	msg = strings.Join(strings.Fields(msg), " ")
+	const max = 160
+	if len(msg) > max {
+		return msg[:max] + "…"
+	}
+	return msg
 }

@@ -4,7 +4,7 @@
   "provider": "hybrid",
   "region": "",
   "bootstrapId": "",
-  "currentPhase": "boundary-03",
+  "currentPhase": "cleanup",
   "completedPhases": [
     "bootstrap-create",
     "day0-infra",
@@ -20,14 +20,15 @@
     "generate-local-secrets",
     "boundary-02",
     "inject-ca-cert",
-    "boundary-03"
+    "boundary-03",
+    "cleanup"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
   "mgmtKubeconfig": "k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-08-22T09:14:25.182647Z",
+  "timestamp": "2026-08-22T09:45:43.374323Z",
   "metadata": null,
   "startedAt": "2026-08-22T07:48:14.460868Z",
   "phaseTimings": [

@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ADR-046 §11 placement class "home" for the redis component.
+#
+# §11 defines exactly two classes, and each pairs a location with the only storage
+# its nodes can attach:
+#   home     workload-location: home     -> local-path      (home-lab Flatcar nodes)
+#   hetzner  workload-location: hetzner  -> hcloud-volumes  (Hetzner nodes)
+#
+# Mixing them is BANNED: hcloud-volumes cannot be attached by a home VM, and
+# local-path exists only where its provisioner runs. Keeping the pair in one file
+# means the class cannot drift apart the way it did when platform-db declared its
+# placement while redis and nats silently did not — each failed in turn, days apart.
+#
+# Layout mirrors spoke-catalog/environments/<env>/<provider>, which likewise sits
+# in a sibling tree and pulls its base in by relative path.
+resources:
+  - ../../../redis
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: platform-redis
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector/workload-location
+        value: home
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: local-path

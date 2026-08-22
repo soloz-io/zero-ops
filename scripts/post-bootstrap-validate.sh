@@ -464,6 +464,17 @@ check_ory() {
 # ─── 10. NATS MESSAGING ───────────────────────────────────────────────────────
 check_nats() {
     log_section "10. NATS MESSAGING"
+
+    # NATS is not deployed on every hub: the hybrid provider omits it (no consumer
+    # in hub-core-services, and a single home-lab node should not carry a 10Gi
+    # JetStream volume). Detect that from the cluster rather than duplicating the
+    # provider logic here — if the ApplicationSet never generated the app, NATS was
+    # deliberately not selected for this hub.
+    if ! kc get application platform-nats -n platform-ops >/dev/null 2>&1; then
+        log_pass "NATS not deployed on this hub (no platform-nats Application) — skipping"
+        return 0
+    fi
+
     check_argocd_app "platform-nats" "FAIL"
 
     local nats_ready

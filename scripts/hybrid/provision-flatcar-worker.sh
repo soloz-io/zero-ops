@@ -41,7 +41,20 @@ MEMORY_BYTES="0"         # 0 = auto-detect (14GB or TotalHostRAM - 2GB)
 MIN_MEMORY_BYTES="0"     # 0 = auto-detect (2GB)
 MAX_MEMORY_BYTES="0"     # 0 = auto-detect (TotalHostRAM - 2GB)
 CPU_COUNT="0"            # 0 = auto-detect (all host logical cores)
-DISK_SIZE_BYTES="21474836480" # 20GB
+# Disk ceilings are chosen per target cluster; no flag should be needed for a
+# normal provision. The VHDX is dynamically expanding and Resize-VHD only raises
+# the ceiling, so a generous number costs nothing on the host until written.
+#
+# The old flat 20GB default was far too small once the hub moved its workloads to
+# home-lab nodes (ADR-046 §19): a 20GB VHDX yields ~13GB usable after the Flatcar
+# OS, and a hub node carries ArgoCD, cert-manager, Kyverno, Crossplane, ESO, NATS,
+# Redis and Infisical AND platform-db's 10Gi local-path PVC. It hit
+# DiskPressure=True, the kubelet tainted the node, and with the control plane
+# tainted as well nothing could be scheduled anywhere.
+HUB_DISK_GB_DEFAULT=100    # whole platform + platform-db PVC
+SPOKE_DISK_GB_DEFAULT=60   # tenant workloads + shared-cnpg PVC
+DISK_SIZE_BYTES=""         # set only by --disk-gb; empty means "use the target default"
+CLI_DISK_SET=0
 K8S_VERSION="v1.31.6"
 TAILSCALE_VERSION="1.102.2"
 FLATCAR_RELEASE_CHANNEL="stable"
@@ -66,7 +79,7 @@ Options:
   --max-memory-gb N    OVERRIDE maximum memory ceiling in GB (default: per-node from registry).
   --min-memory-gb N    OVERRIDE minimum dynamic memory floor in GB (default: per-node from registry).
   --cpus N             OVERRIDE virtual CPU count (default: per-node from registry).
-  --disk-gb N          Virtual disk size in GB (default: 20).
+  --disk-gb N          OVERRIDE virtual disk ceiling in GB (default: 100 hub / 60 spoke).
   --verify             Only check Ready status of registered nodes; no changes.
   -h, --help           Show this help message
 
@@ -97,7 +110,7 @@ while [[ $# -gt 0 ]]; do
     --max-memory-gb) MAX_MEMORY_BYTES="$(($2 * 1024 * 1024 * 1024))"; shift 2 ;;
     --min-memory-gb) MIN_MEMORY_BYTES="$(($2 * 1024 * 1024 * 1024))"; shift 2 ;;
     --cpus)          CPU_COUNT="$2"; shift 2 ;;
-    --disk-gb)       DISK_SIZE_BYTES="$(($2 * 1024 * 1024 * 1024))"; shift 2 ;;
+    --disk-gb)       DISK_SIZE_BYTES="$(($2 * 1024 * 1024 * 1024))"; CLI_DISK_SET=1; shift 2 ;;
     --verify)        MODE="verify"; shift ;;
     -h|--help)       usage 0 ;;
     *) echo "ERROR: unknown option $1" >&2; usage 1 ;;
@@ -928,7 +941,7 @@ Get-ChildItem \$solozDir -Filter '${VM_NAME}*.avhdx' | Remove-Item -Force -Error
 
 Write-Output '    → Creating fresh VM disk from pristine base Flatcar VHDX...'
 Copy-Item -Path \$baseVhdx -Destination \$vhdPath -Force
-Resize-VHD -Path \$vhdPath -SizeBytes $DISK_SIZE_BYTES
+Resize-VHD -Path \$vhdPath -SizeBytes $NODE_DISK_BYTES
 
 Write-Output '    → Creating Generation 2 VM (\$vmName)...'
 \$cs = Get-CimInstance Win32_ComputerSystem
@@ -1169,7 +1182,7 @@ echo ""
 
 phase_prep_binaries
 
-while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS; do
+while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS DISK_GB; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
@@ -1186,6 +1199,10 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   [[ "$CLI_MIN_MEMORY_BYTES" -gt 0 ]] && MIN_MEMORY_BYTES="$CLI_MIN_MEMORY_BYTES"
   [[ "$CLI_MAX_MEMORY_BYTES" -gt 0 ]] && MAX_MEMORY_BYTES="$CLI_MAX_MEMORY_BYTES"
   [[ "$CLI_CPU_COUNT" -gt 0 ]] && CPU_COUNT="$CLI_CPU_COUNT"
+
+  # Disk ceiling, in precedence order: --disk-gb > registry field 11 > per-target
+  # default. Resolved after CURR_TARGET is known (just below), so a hub node gets
+  # the hub default without anyone passing a flag.
 
   # Where this node belongs. The registry's target field (column 6) is
   # authoritative; the index heuristic is only a fallback for older registries
@@ -1207,6 +1224,12 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
       continue
     fi
   fi
+
+  DEFAULT_DISK_GB="$SPOKE_DISK_GB_DEFAULT"
+  [[ "$CURR_TARGET" == "hub" ]] && DEFAULT_DISK_GB="$HUB_DISK_GB_DEFAULT"
+  NODE_DISK_BYTES="$((DEFAULT_DISK_GB * 1024 * 1024 * 1024))"
+  [[ "${DISK_GB:-}" =~ ^[0-9]+$ ]] && NODE_DISK_BYTES="$((DISK_GB * 1024 * 1024 * 1024))"
+  [[ "$CLI_DISK_SET" == "1" ]] && NODE_DISK_BYTES="$DISK_SIZE_BYTES"
 
   HOSTNAME="${_HOST}"
   if [[ -z "$HOSTNAME" ]]; then

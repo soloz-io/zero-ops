@@ -82,6 +82,10 @@ spec:
       labels:
         app: nats
     spec:
+      # ADR-014: stateful workloads run on worker nodes, always. The location
+      # half of the placement class comes from the provider overlay (providers/).
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
       containers:
       - name: nats
         image: nats:2.10

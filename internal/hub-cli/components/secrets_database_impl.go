@@ -480,12 +480,8 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 		),
 		Interval: 5 * time.Second,
 		Timeout:  15 * time.Minute,
-		OnCheckStart: func(c health.HealthChecker) {
-			fmt.Printf("   → checking %s\n", c.Name())
-		},
-		OnCheckPass: func(c health.HealthChecker) {
-			fmt.Printf("   ✓ %s healthy\n", c.Name())
-		},
+		// No OnCheckStart/OnCheckPass: the waiter's own output carries the
+		// step numbering, elapsed time and the reason it is still waiting.
 	}
 	if err := waiter.Wait(ctx, i.Kubeconfig); err != nil {
 		return fmt.Errorf("infisical health check failed: %w", err)
