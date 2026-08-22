@@ -16,4 +16,3 @@ resources:
   - platform-db.yaml
   - s3-credentials-es.yaml
   - scheduled-backup.yaml
-  - setup-infisical-role-job.yaml

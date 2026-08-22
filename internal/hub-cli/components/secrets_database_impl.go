@@ -202,7 +202,7 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 	securityNamespace := constants.NamespaceSecurity // platform-security: Infisical pods
 
 	// Step 1: Generate and inject infisical-db-credentials (Infisical Secret Zero)
-	// MUST be in dataNamespace - consumed by DB Init Job that creates infisical role
+	// MUST be in dataNamespace - consumed by CNPG spec.managed.roles on platform-db
 	infDbSecret, err := clientset.CoreV1().Secrets(dataNamespace).Get(ctx, "infisical-db-credentials", metav1.GetOptions{})
 	var infPassword string
 	if err != nil {
@@ -225,10 +225,14 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 					"app.kubernetes.io/component":  "secret-zero",
 				},
 			},
-			Type: corev1.SecretTypeOpaque,
+			// basic-auth, not Opaque: CNPG's spec.managed.roles[].passwordSecret
+			// requires kubernetes.io/basic-auth and ignores anything else, which
+			// would leave the role without the password Infisical authenticates with.
+			// The key names (username/password) are the same either way.
+			Type: corev1.SecretTypeBasicAuth,
 			StringData: map[string]string{
-				"username": "infisical",
-				"password": infPassword,
+				corev1.BasicAuthUsernameKey: "infisical",
+				corev1.BasicAuthPasswordKey: infPassword,
 			},
 		}
 
@@ -239,7 +243,39 @@ func (i *Installer) InstallPostgresConnectionSecret(ctx context.Context) (bool, 
 		fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials created")
 	} else {
 		infPassword = string(infDbSecret.Data["password"])
-		fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials already exists")
+
+		// A Secret's type is immutable, so a pre-existing Opaque copy cannot be
+		// converted in place — it has to be replaced, preserving the password so the
+		// role keeps the credential Infisical already authenticates with. Without
+		// this, clusters created before the move to CNPG managed.roles keep an
+		// Opaque Secret that passwordSecret does not accept, and the role silently
+		// never receives a password.
+		if infDbSecret.Type != corev1.SecretTypeBasicAuth {
+			fmt.Printf("[bootstrap-secrets] infisical-db-credentials is %q; recreating as %q for CNPG managed.roles\n",
+				infDbSecret.Type, corev1.SecretTypeBasicAuth)
+
+			replacement := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "infisical-db-credentials",
+					Namespace: dataNamespace,
+					Labels:    infDbSecret.Labels,
+				},
+				Type: corev1.SecretTypeBasicAuth,
+				StringData: map[string]string{
+					corev1.BasicAuthUsernameKey: "infisical",
+					corev1.BasicAuthPasswordKey: infPassword,
+				},
+			}
+			if err := clientset.CoreV1().Secrets(dataNamespace).Delete(ctx, "infisical-db-credentials", metav1.DeleteOptions{}); err != nil {
+				return false, fmt.Errorf("failed to delete Opaque infisical-db-credentials for retyping: %w", err)
+			}
+			if _, err := clientset.CoreV1().Secrets(dataNamespace).Create(ctx, replacement, metav1.CreateOptions{}); err != nil {
+				return false, fmt.Errorf("failed to recreate infisical-db-credentials as basic-auth: %w", err)
+			}
+			fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials retyped (password preserved)")
+		} else {
+			fmt.Println("[bootstrap-secrets] ✓ infisical-db-credentials already exists")
+		}
 	}
 
 	// Step 2: Create the connection string secret for Infisical to use

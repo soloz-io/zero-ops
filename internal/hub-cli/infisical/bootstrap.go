@@ -27,8 +27,7 @@ func envOrDefault(key, fallback string) string {
 }
 
 const (
-
-	identityName  = "hub-platform-eso"
+	identityName = "hub-platform-eso"
 
 	infisicalNamespace = "platform-security"
 	infisicalPort      = "8080"
@@ -74,8 +73,8 @@ type BootstrapResult struct {
 //	  }
 //	}
 type bootstrapOutput struct {
-	Message      string `json:"message"`
-	Identity     struct {
+	Message  string `json:"message"`
+	Identity struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Credentials struct {
@@ -278,6 +277,81 @@ func hostKubectl(ctx context.Context, args ...string) (string, error) {
 // ConfigMap that was populated during the first successful bootstrap.
 // On re-run the ConfigMap persists, so we can skip the API project
 // listing (which the user JWT cannot do — see grantOrgAdminRole docs).
+// invalidateStaleBootstrapCache clears hub-bootstrap-config when it describes a
+// different Infisical instance than the one now running.
+//
+// The cached project IDs exist so a RESUMED bootstrap does not recreate projects
+// that are already there, which is correct and must be preserved — clearing them
+// unconditionally would recreate the org's projects on every run. What is not safe
+// is trusting them across instances.
+//
+// When platform-db is rebuilt, restored, or re-bootstrapped, Infisical comes up
+// with a new organization and no projects, while the ConfigMap (applied from the
+// git-tracked ADR-045 artifact) still advertises the old ones. The bootstrap then
+// believes hub-platform and hub-secrets exist, skips creating them, and fails
+// several steps later with "create identity returned empty ID" — an error that
+// names the symptom and points at the wrong component entirely.
+//
+// Comparing the organization ID catches that with data already in hand: no extra
+// API call, and one comparison covers every ID the cache holds.
+func invalidateStaleBootstrapCache(ctx context.Context, liveOrgID string) {
+	cachedOrgID := getCachedConfigValue(ctx, "INFISICAL_ORGANIZATION_ID")
+	cachedProject := getCachedConfigValue(ctx, "INFISICAL_PROJECT_ID")
+	cachedSecrets := getCachedConfigValue(ctx, "INFISICAL_SECRETS_PROJECT_ID")
+	orphanedProjects := cachedOrgID == "" && (cachedProject != "" || cachedSecrets != "")
+
+	switch {
+	case cachedOrgID == liveOrgID:
+		return // cache belongs to this instance — keep it
+	case cachedOrgID == "" && !orphanedProjects:
+		return // nothing cached at all
+	case orphanedProjects:
+		// Project IDs with no organization to anchor them. Written by an older CLI,
+		// or a partially-cleared ConfigMap. They cannot be validated against
+		// anything, so they cannot be trusted.
+		fmt.Println("[infisical-bootstrap] ⚠️  Cached project IDs have no organization ID to validate against.")
+	}
+
+	if cachedOrgID != "" {
+		fmt.Printf("[infisical-bootstrap] ⚠️  Cached bootstrap state belongs to organization %s, but this instance is %s.\n",
+			cachedOrgID, liveOrgID)
+		fmt.Println("[infisical-bootstrap]     The database was rebuilt or restored; the cached project IDs no longer exist.")
+	}
+	fmt.Println("[infisical-bootstrap]     Clearing hub-bootstrap-config so projects and identities are recreated.")
+
+	// Blank the IDs rather than deleting the ConfigMap: other keys (CLUSTER_ID,
+	// the environment slug) are unrelated to Infisical and are still valid. The
+	// generated artifact on disk is rewritten wholesale later in this phase, and
+	// the adr045 commit step publishes it.
+	patch := `{"data":{"INFISICAL_ORGANIZATION_ID":"","INFISICAL_PROJECT_ID":"","INFISICAL_PROJECT_SLUG":"","INFISICAL_SECRETS_PROJECT_ID":"","INFISICAL_SECRETS_PROJECT_SLUG":""}}`
+	if _, err := hostKubectl(ctx,
+		"patch", "configmap", "-n", constants.NamespaceOps, "hub-bootstrap-config",
+		"--type", "merge", "-p", patch,
+	); err != nil {
+		// Not fatal: a failure here means the cache stays, and the project
+		// creation below will surface the real problem instead.
+		fmt.Printf("[infisical-bootstrap] ⚠️  could not clear hub-bootstrap-config: %v\n", err)
+		return
+	}
+	fmt.Println("[infisical-bootstrap] ✓ Stale bootstrap cache cleared")
+}
+
+// getCachedConfigValue reads one key from hub-bootstrap-config, returning "" when
+// the ConfigMap or key is absent.
+func getCachedConfigValue(ctx context.Context, key string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	out, err := hostKubectl(ctx,
+		"get", "configmap", "-n", constants.NamespaceOps, "hub-bootstrap-config",
+		"-o", "jsonpath={.data."+key+"}",
+	)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 func getCachedProjectID(slug string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -365,7 +439,7 @@ func GetInfisicalPodName(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get infisical pod name: %w\noutput: %s", err, string(output))
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) == 0 || lines[0] == "" {
 		return "", fmt.Errorf("no running infisical pod found in namespace %s", infisicalNamespace)
@@ -973,6 +1047,12 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 	orgID := boot.Organization.ID
 	fmt.Printf("[infisical-bootstrap] Organization ID: %s\n", orgID)
 
+	// Every cached ID below (projects, identities) names a row inside THIS
+	// organization's database. The organization ID is therefore the instance
+	// fingerprint: if it has changed, the whole cache describes an Infisical that
+	// no longer exists and must not be trusted.
+	invalidateStaleBootstrapCache(ctx, orgID)
+
 	certProjectID, certProjectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token, ProjectSlug, "cert-manager")
 	if err != nil {
 		return nil, err
@@ -1063,5 +1143,3 @@ func BootstrapInfisicalDayZeroWithRetry(ctx context.Context, timeout time.Durati
 
 	return nil, fmt.Errorf("infisical bootstrap failed after %v: %w", timeout, lastErr)
 }
-
-

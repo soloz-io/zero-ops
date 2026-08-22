@@ -50,6 +50,23 @@ spec:
       - platform-db-pooler.platform-data.svc
       - platform-db-pooler.platform-data.svc.cluster.local
 
+  # ADR-014/§11 aside: this is the fix for a real outage class. Postgres-level
+  # objects used to be created by a one-shot Job (setup-infisical-role), whose
+  # "Complete" status recorded what happened in KUBERNETES, not what exists in
+  # POSTGRES. Once the two diverged — rebuild, restore, failover, PVC loss — the
+  # Job stayed Complete while the role did not exist, and Infisical failed with
+  # "DatabaseError: no such user", pointing at the wrong component entirely.
+  #
+  # managed.roles is reconciled by the operator on every loop, so desired and
+  # actual converge on their own. It also makes password rotation declarative:
+  # update the Secret and CNPG issues ALTER ROLE ... PASSWORD.
+  managed:
+    roles:
+      - name: infisical
+        ensure: present
+        login: true
+        passwordSecret:
+          name: infisical-db-credentials
   bootstrap:
     initdb:
       database: postgres
@@ -59,7 +76,12 @@ spec:
       postInitSQL:
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
-        - CREATE DATABASE infisical;
+        # Role first, then a database it OWNS. Ownership implies full privileges on
+        # the database, so the long GRANT list the old setup-infisical-role Job ran
+        # is unnecessary. No password here — spec.managed.roles below owns that, and
+        # rotating it there does not require touching bootstrap SQL.
+        - CREATE ROLE infisical WITH LOGIN;
+        - CREATE DATABASE infisical OWNER infisical;
         - CREATE DATABASE openmeter;
         - CREATE DATABASE hydra;
         - CREATE DATABASE kratos;
