@@ -131,6 +131,16 @@ spec:
                 operator: NotIn
                 values:
                 - robot
+              # ADR-046 §11: NEVER run the Hetzner CSI node driver on a home
+              # worker (no block devices; Flatcar home VMs cannot attach hcloud
+              # volumes). Without this the plugin schedules there and exits 1 in a
+              # permanent CrashLoopBackOff. No-op on a pure-Hetzner hub, where no
+              # node carries workload-location. Mirrors the spoke addon in
+              # manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml.
+              - key: workload-location
+                operator: NotIn
+                values:
+                - home
       tolerations:
         - effect: NoExecute
           operator: Exists
@@ -231,6 +241,16 @@ spec:
       serviceAccountName: hcloud-csi-controller
       affinity:
         nodeAffinity:
+          # The preference below is soft, so on a hybrid hub it does not stop the
+          # controller landing on a home worker, where it crashloops the same way.
+          # Same §11 rule as the node plugin, likewise a no-op on pure Hetzner.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: workload-location
+                operator: NotIn
+                values:
+                - home
           preferredDuringSchedulingIgnoredDuringExecution:
           - preference:
               matchExpressions:
@@ -239,6 +259,15 @@ spec:
                 values:
                 - cloud
             weight: 1
+      # On a hybrid hub the ONLY Hetzner node is the control plane, so without this
+      # the controller has nowhere to run and sits Pending forever once the §11
+      # guard above excludes home workers. The node plugin in this same file already
+      # tolerates every taint; this is cluster infrastructure, not a workload, so
+      # ADR-014 (stateful workloads on workers) does not apply to it.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+          operator: Exists
       securityContext:
         fsGroup: 1001
       containers:
