@@ -7,12 +7,12 @@ const (
 	ProjectSlug        = "hub-platform"
 	SecretsProjectSlug = "hub-secrets"
 
-	PathProjects                = "/api/v1/projects"
-	PathIdentities              = "/api/v1/identities"
-	PathAuthUniversalAuthLogin  = "/api/v1/auth/universal-auth/login"
+	PathProjects               = "/api/v1/projects"
+	PathIdentities             = "/api/v1/identities"
+	PathAuthUniversalAuthLogin = "/api/v1/auth/universal-auth/login"
 	PathAuthLoginV3            = "/api/v3/auth/login"
 	PathAuthSelectOrgV3        = "/api/v3/auth/select-organization"
-	PathWorkspace               = "/api/v1/workspace"
+	PathWorkspace              = "/api/v1/workspace"
 
 	PathAuthUniversalAuthIdentities    = "/api/v1/auth/universal-auth/identities/%s"
 	PathAuthUniversalAuthClientSecrets = "/api/v1/auth/universal-auth/identities/%s/client-secrets"

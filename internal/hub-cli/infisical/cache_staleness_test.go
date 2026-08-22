@@ -2,6 +2,7 @@ package infisical
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +130,45 @@ func TestSuppressionKeepsSlugsReadable(t *testing.T) {
 		case "INFISICAL_ORGANIZATION_ID", "INFISICAL_PROJECT_ID", "INFISICAL_SECRETS_PROJECT_ID":
 			t.Errorf("%s must not be in the suppressed set", key)
 		}
+	}
+}
+
+// curlAPI exists because "curl -s" throws the HTTP status away: an API error body
+// unmarshals into the success struct leaving every field zero, and the failure is
+// then reported as "returned empty ID" — which describes the parse, not the cause.
+// These pin the split so a regression cannot quietly reintroduce that.
+func TestCurlAPISplitsBodyFromStatus(t *testing.T) {
+	cases := []struct {
+		name, raw, wantBody string
+		wantStatus          int
+	}{
+		{"json body then status", "{\"project\":{\"id\":\"p1\"}}\n200", "{\"project\":{\"id\":\"p1\"}}", 200},
+		{"error body then status", "{\"statusCode\":401,\"error\":\"Unauthorized\"}\n401", "{\"statusCode\":401,\"error\":\"Unauthorized\"}", 401},
+		{"multiline body", "line1\nline2\n500", "line1\nline2", 500},
+		{"trailing newline after status", "{\"a\":1}\n403\n", "{\"a\":1}", 403},
+	}
+	for _, c := range cases {
+		body, status := splitBodyStatus(c.raw)
+		if body != c.wantBody || status != c.wantStatus {
+			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.name, body, status, c.wantBody, c.wantStatus)
+		}
+	}
+}
+
+// A 401 must not be describable as an empty ID.
+func TestAPIErrorNamesStatusAndBody(t *testing.T) {
+	err := apiError("create project \"hub-platform\"", 401, "  {\"error\":\"Unauthorized\"}  ")
+	msg := err.Error()
+	for _, want := range []string{"HTTP 401", "Unauthorized", "hub-platform"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestAPIErrorTruncatesLongBodies(t *testing.T) {
+	err := apiError("op", 500, strings.Repeat("x", 900))
+	if len(err.Error()) > 500 {
+		t.Errorf("error not truncated: %d chars", len(err.Error()))
 	}
 }

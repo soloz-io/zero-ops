@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -416,6 +417,57 @@ func getCachedProjectID(slug string) string {
 // secret change triggers a Reloader-style rolling restart — the old pod
 // is terminating and the new pod is in its startup window. We retry up
 // to 30 times with a 2s back-off (60s total) before surfacing the error.
+
+// curlAPI runs a curl inside the Infisical pod and returns the response body along
+// with its HTTP status.
+//
+// The plain kubectlExec + "curl -s" pattern throws the status away. An API error
+// then arrives as a perfectly valid JSON error object, unmarshals into the success
+// struct leaving every field zero, and is reported as "returned empty ID" — an
+// error that describes the parse result and hides the cause. Every diagnosis of
+// such a failure has had to start by guessing whether it was 400, 401 or 500.
+//
+// The status is appended by curl on its own line and split off here, so callers can
+// report both. Body and status are returned even on non-2xx: that is precisely when
+// they are worth printing.
+func curlAPI(ctx context.Context, podName string, args ...string) (body string, status int, err error) {
+	full := append([]string{"curl", "-s", "-w", "\n%{http_code}"}, args...)
+	out, err := kubectlExec(ctx, podName, full...)
+	if err != nil {
+		return "", 0, err
+	}
+	body, status = splitBodyStatus(out)
+	return body, status, nil
+}
+
+// splitBodyStatus separates the response body from the trailing status line that
+// curl -w appends. Kept separate from the exec so it can be tested directly.
+func splitBodyStatus(out string) (string, int) {
+	trimmed := strings.TrimRight(out, "\n")
+	idx := strings.LastIndex(trimmed, "\n")
+	if idx < 0 {
+		if code, err := strconv.Atoi(strings.TrimSpace(trimmed)); err == nil {
+			return "", code
+		}
+		return trimmed, 0
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(trimmed[idx+1:]))
+	if err != nil {
+		return trimmed, 0
+	}
+	return trimmed[:idx], code
+}
+
+// apiError renders an API failure with the detail needed to act on it, truncating a
+// long body so a stack of retries stays readable.
+func apiError(op string, status int, body string) error {
+	b := strings.TrimSpace(body)
+	if len(b) > 400 {
+		b = b[:400] + "…"
+	}
+	return fmt.Errorf("%s: HTTP %d, response: %s", op, status, b)
+}
+
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
 	cmdArgs := append([]string{
 		"exec", "-n", infisicalNamespace, "pod/" + podName,
@@ -569,8 +621,8 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 		return "", "", fmt.Errorf("failed to marshal create project request: %w", err)
 	}
 	body := string(bodyBytes)
-	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+	output, status, err := curlAPI(ctx, podName,
+		"-X", "POST",
 		"http://localhost:"+infisicalPort+PathProjects,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -578,6 +630,11 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 	)
 	if err != nil {
 		return "", "", fmt.Errorf("create project failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		// Report the real failure rather than letting the error body unmarshal into
+		// an empty struct and resurface as "returned empty ID".
+		return "", "", apiError(fmt.Sprintf("create project %q", projectSlug), status, output)
 	}
 
 	// 409 Conflict means project already exists — reconcile by fetching its ID
@@ -629,8 +686,8 @@ func createProject(ctx context.Context, podName, adminJWT, projectSlug, projectT
 func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projectID string) (string, string, string, error) {
 	// 1. Create the Machine Identity
 	body := fmt.Sprintf(`{"name":"%s","organizationId":"%s"}`, identityName, orgID)
-	output, err := kubectlExec(ctx, podName,
-		"curl", "-s", "-X", "POST",
+	output, status, err := curlAPI(ctx, podName,
+		"-X", "POST",
 		"http://localhost:"+infisicalPort+PathIdentities,
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminJWT,
@@ -638,6 +695,9 @@ func createMachineIdentity(ctx context.Context, podName, adminJWT, orgID, projec
 	)
 	if err != nil {
 		return "", "", "", fmt.Errorf("create identity failed: %w", err)
+	}
+	if status < 200 || status >= 300 {
+		return "", "", "", apiError("create machine identity", status, output)
 	}
 
 	var identityResp createIdentityResponse
@@ -1051,23 +1111,6 @@ func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, projectID
 }
 
 func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
-	// On re-run (local development), load the cached state from a previous
-	// successful bootstrap. This avoids all API calls — no duplicate Machine
-	// Identities, no failed grants, no stale ESO credentials.
-	if state, err := loadBootstrapState(); err == nil {
-		fmt.Printf("[infisical-bootstrap] Using cached state from %s (re-run)\n", stateFilePath())
-		return &BootstrapResult{
-			OrgID:              state.OrgID,
-			ProjectID:          state.ProjectID,
-			ProjectSlug:        state.ProjectSlug,
-			SecretsProjectID:   state.SecretsProjectID,
-			SecretsProjectSlug: state.SecretsProjectSlug,
-			ClientID:           state.ClientID,
-			ClientSecret:       state.ClientSecret,
-			IdentityID:         state.IdentityID,
-		}, nil
-	}
-
 	fmt.Println("[infisical-bootstrap] Starting Infisical Day-0 bootstrap...")
 
 	podName, err := GetInfisicalPodName(ctx)
@@ -1089,6 +1132,37 @@ func BootstrapInfisicalDayZero(ctx context.Context) (*BootstrapResult, error) {
 	// fingerprint: if it has changed, the whole cache describes an Infisical that
 	// no longer exists and must not be trusted.
 	invalidateStaleBootstrapCache(ctx, orgID)
+
+	// The local state file is the THIRD cache (alongside hub-bootstrap-config and
+	// the in-process one) and it is gitignored, so it survives a teardown on the
+	// operator's machine. It used to short-circuit this whole function before the
+	// live organization was known, which meant the fingerprint check above could
+	// not run at all and every stale ID was returned wholesale.
+	//
+	// It is therefore consulted HERE, after runBootstrap has told us which
+	// Infisical we are actually talking to, and only when it describes that same
+	// instance. runBootstrap is safe to reach: on an already-bootstrapped server it
+	// recovers the existing org and identity rather than creating anything.
+	if state, err := loadBootstrapState(); err == nil {
+		if state.OrgID == orgID {
+			fmt.Printf("[infisical-bootstrap] Using cached state from %s (re-run)\n", stateFilePath())
+			return &BootstrapResult{
+				OrgID:              state.OrgID,
+				ProjectID:          state.ProjectID,
+				ProjectSlug:        state.ProjectSlug,
+				SecretsProjectID:   state.SecretsProjectID,
+				SecretsProjectSlug: state.SecretsProjectSlug,
+				ClientID:           state.ClientID,
+				ClientSecret:       state.ClientSecret,
+				IdentityID:         state.IdentityID,
+			}, nil
+		}
+		fmt.Printf("[infisical-bootstrap] ⚠️  Local state at %s belongs to organization %s, not %s — discarding.\n",
+			stateFilePath(), state.OrgID, orgID)
+		if rmErr := os.Remove(stateFilePath()); rmErr != nil && !os.IsNotExist(rmErr) {
+			fmt.Printf("[infisical-bootstrap] ⚠️  Could not remove stale state file: %v\n", rmErr)
+		}
+	}
 
 	certProjectID, certProjectSlug, err := createProject(ctx, podName, boot.Identity.Credentials.Token, ProjectSlug, "cert-manager")
 	if err != nil {

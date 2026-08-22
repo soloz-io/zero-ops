@@ -41,8 +41,8 @@ type Client struct {
 
 // Config holds Infisical connection configuration
 type Config struct {
-	BaseURL        string
-	ProjectSlug    string
+	BaseURL         string
+	ProjectSlug     string
 	EnvironmentSlug string
 }
 
@@ -55,7 +55,7 @@ func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, e
 	if baseURL == "" {
 		baseURL = "https://infisical.dev.nutgraf.in"
 	}
-	
+
 	// Get Universal Auth credentials from the same secret ESO uses
 	esoNamespace := constants.NamespaceOps
 	secret, err := clientset.CoreV1().Secrets(esoNamespace).Get(ctx, "infisical-auth", metav1.GetOptions{})
