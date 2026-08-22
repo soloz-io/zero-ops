@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/cluster"
@@ -39,17 +41,20 @@ type HybridDriver struct {
 	// HomeWorkerTTL is the bootstrap-token TTL for home worker join
 	// credentials (e.g. "24h"). Used by hub-operator token minting.
 	HomeWorkerTTL string
+
+	// ClusterName names the control plane on the tailnet (<name>-cp).
+	ClusterName string
 }
 
 // ── CloudDriver interface ──────────────────────────────────────────────────
 
-func (d *HybridDriver) Name() string   { return "hybrid" }
+func (d *HybridDriver) Name() string { return "hybrid" }
 
 // HomeWorkersRequested reports whether this cell expects home-lab worker nodes.
 // The orchestrator's home-worker-join phase keys off this: only a hybrid cell that
 // asked for home workers has one to wait for. Hetzner cells do not implement it.
 func (d *HybridDriver) HomeWorkersRequested() bool { return d.HomeWorkerEnabled }
-func (d *HybridDriver) OSType() string { return d.Driver.OSType() }
+func (d *HybridDriver) OSType() string             { return d.Driver.OSType() }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
 // Reuse Hetzner preflight (token, region, SSH key). Tailscale connectivity
@@ -75,7 +80,66 @@ func (d *HybridDriver) CAPIProviders() []capi.CAPIProvider {
 }
 
 func (d *HybridDriver) OnCAPIInit(ctx context.Context, kubeconfig, kubeContext, namespace string) error {
-	return d.Driver.OnCAPIInit(ctx, kubeconfig, kubeContext, namespace)
+	if err := d.Driver.OnCAPIInit(ctx, kubeconfig, kubeContext, namespace); err != nil {
+		return err
+	}
+
+	// ADR-046 invariant 6. Cilium derives its VXLAN tunnel endpoint from the node's
+	// InternalIP, and a home-lab worker's only InternalIP is its tailnet address.
+	// A home node cannot route the hub CP's Hetzner private IP, so unless the CP
+	// also advertises a tailnet address, cross-node pod traffic dies in one
+	// direction and everything that talks pod-to-pod across the boundary fails.
+	//
+	// The ClusterClass brings tailscaled up in preKubeadmCommands and re-asserts
+	// kubelet --node-ip from it, but it reads the credentials from this Secret —
+	// which must therefore exist in the BOOTSTRAP cluster before the hub Cluster is
+	// created. That is why this runs at capi-init rather than post-bootstrap.
+	if !d.HomeWorkerEnabled {
+		fmt.Println("[capi-init] Home workers disabled — leaving tailscale credentials empty")
+		return nil
+	}
+
+	authkey, err := readTailscaleAuthkey()
+	if err != nil {
+		// Not fatal: the cluster still builds, but home workers will not be able to
+		// exchange pod traffic with it. Say so loudly rather than failing later with
+		// an unexplained timeout.
+		fmt.Printf("[capi-init] ⚠️  %v\n", err)
+		fmt.Println("[capi-init] ⚠️  Control plane will NOT join the tailnet; cross-node pod traffic to")
+		fmt.Println("[capi-init]     home workers will fail (ADR-046 invariant 6).")
+		return nil
+	}
+
+	hostname := d.hubTailnetHostname()
+	if err := writeTailscaleSecret(ctx, kubeconfig, namespace, authkey, hostname); err != nil {
+		return fmt.Errorf("failed to write tailscale credentials: %w", err)
+	}
+	fmt.Printf("[capi-init] ✓ Tailscale credentials staged for control plane (%s)\n", hostname)
+	return nil
+}
+
+// hubTailnetHostname is the name the control plane registers on the tailnet.
+func (d *HybridDriver) hubTailnetHostname() string {
+	if d.ClusterName != "" {
+		return d.ClusterName + "-cp"
+	}
+	return "hub-cp"
+}
+
+// readTailscaleAuthkey loads the tailnet auth key from the same on-disk location
+// the home-worker provisioning script uses, so both sides of the tailnet are
+// enrolled from one credential.
+func readTailscaleAuthkey() (string, error) {
+	const path = "k8-secrets/tailscale/authkey"
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("tailscale authkey not readable at %s: %w", path, err)
+	}
+	key := strings.TrimSpace(string(raw))
+	if key == "" {
+		return "", fmt.Errorf("tailscale authkey at %s is empty", path)
+	}
+	return key, nil
 }
 
 func (d *HybridDriver) OnPlatformPreReqs(ctx context.Context, kubeconfig string) error {

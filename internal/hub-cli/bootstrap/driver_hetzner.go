@@ -133,6 +133,32 @@ func (d *HetznerDriver) ProvisionDayZero(ctx context.Context, kubeconfig string)
 	return nil
 }
 
+// writeTailscaleSecret creates or updates tailscale-hybrid-psk in the target
+// namespace. Empty values are meaningful, not a bug: they render the ClusterClass's
+// tailscale steps inert on clusters that have no tailnet, while still satisfying
+// the contentFrom.secret reference that would otherwise block bootstrap rendering.
+func writeTailscaleSecret(ctx context.Context, kubeconfig, namespace, authkey, hostname string) error {
+	gen := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", kubeconfig,
+		"create", "secret", "generic", "tailscale-hybrid-psk",
+		"-n", namespace,
+		"--from-literal=authkey="+authkey,
+		"--from-literal=hostname="+hostname,
+		"--dry-run=client", "-o", "yaml",
+	)
+	manifest, err := gen.Output()
+	if err != nil {
+		return fmt.Errorf("render tailscale secret: %w", err)
+	}
+
+	apply := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
+	apply.Stdin = bytes.NewReader(manifest)
+	if out, err := apply.CombinedOutput(); err != nil {
+		return fmt.Errorf("apply tailscale secret: %w\n%s", err, out)
+	}
+	return nil
+}
+
 // nodesAreHetznerServers reports whether every node in the target cluster is a
 // Hetzner Cloud server, judged by providerID (hcloud://...). A kind node reports
 // kind://docker/..., and a node that has not yet been assigned a providerID
@@ -204,6 +230,16 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 		return fmt.Errorf("failed to create Hetzner secret: %w", err)
 	}
 	fmt.Println("[capi-init] ✓ Hetzner credentials secret created")
+
+	// The shared hub ClusterClass reads /etc/tailscale-{authkey,hostname} via
+	// contentFrom.secret, so the Secret must exist before the Cluster is created or
+	// the KubeadmConfig never renders. A pure-Hetzner hub has no tailnet, so it gets
+	// EMPTY values: every tailscale command in the ClusterClass is guarded on
+	// `[ -s /etc/tailscale-hostname ]` and becomes a no-op. HybridDriver overwrites
+	// this with real credentials.
+	if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
+		return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)
+	}
 	return nil
 }
 

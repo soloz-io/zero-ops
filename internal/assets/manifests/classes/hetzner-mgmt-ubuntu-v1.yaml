@@ -267,6 +267,80 @@ spec:
               max-pods: "120"
               resolv-conf: /etc/kubernetes/resolv.conf
         files:
+          # ADR-046 invariant 6. Cilium builds its VXLAN tunnel endpoint from the
+          # node's InternalIP. A home-lab worker's only InternalIP is its tailnet
+          # address, and it cannot route the hub CP's Hetzner private IP — from a
+          # home node, `ip route get 10.0.0.3` leaves via the house gateway. Pod
+          # traffic is then dead in one direction and anything cross-node fails
+          # (CNPG reports it as "Instance Status Extraction Error").
+          #
+          # So the control plane must advertise its TAILNET address as node-ip,
+          # exactly as the spoke CP already does (spokepool-clusterclass-v1.yaml).
+          #
+          # These files are inert on a pure-Hetzner hub: the secret is created with
+          # empty values there, and every command below is guarded on
+          # `[ -s /etc/tailscale-hostname ]`.
+          - path: /etc/tailscale-authkey
+            owner: root
+            permissions: "0600"
+            contentFrom:
+              secret:
+                name: tailscale-hybrid-psk
+                key: authkey
+          - path: /etc/tailscale-hostname
+            owner: root
+            permissions: "0600"
+            contentFrom:
+              secret:
+                name: tailscale-hybrid-psk
+                key: hostname
+          - path: /usr/local/bin/dynamic-node-ip.sh
+            owner: root
+            permissions: "0755"
+            content: |
+              #!/bin/sh
+              # Re-assert kubelet --node-ip = tailnet IPv4.
+              # Idempotent, and survives kubeadm upgrades, which rewrite kubeadm-flags.env.
+              TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+              FLAGS=/var/lib/kubelet/kubeadm-flags.env
+              [ -f "$FLAGS" ] || exit 0
+              [ -x "$TS_BIN" ] || exit 0
+              TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+              [ -n "$TS_IP" ] || exit 0
+              sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+              # Self-assign providerID from Hetzner metadata.
+              #
+              # Once --node-ip is a tailnet address the Hetzner CCM refuses to
+              # initialise the node: the cloud-node-controller validates
+              # alpha.kubernetes.io/provided-node-ip against the addresses the cloud
+              # reports (ExternalIP 37.x, InternalIP 10.0.x) and fails with
+              #   provided node ip ... is not valid: failed to get node address from
+              #   cloud provider that matches ip: 100.x.x.x
+              # so it never writes .spec.providerID. CAPI matches Machines to Nodes
+              # BY providerID, so the Machine keeps an empty NODENAME and pivot-move
+              # times out on "all machines joined".
+              #
+              # The instance id is authoritative and available from the metadata
+              # service on the node itself, so kubelet can set providerID directly and
+              # the CCM is no longer on the critical path for it.
+              if ! grep -q '\-\-provider-id=' "$FLAGS"; then
+                ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
+                if [ -n "$ID" ]; then
+                  sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--provider-id=hcloud:\/\/${ID} /g" "$FLAGS"
+                fi
+              fi
+              exit 0
+          - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
+            owner: root
+            permissions: "0644"
+            content: |
+              [Unit]
+              After=tailscaled.service
+              Wants=tailscaled.service
+
+              [Service]
+              ExecStartPre=/usr/local/bin/dynamic-node-ip.sh
           - path: /etc/sysctl.d/99-cilium.conf
             owner: "root:root"
             permissions: "0744"
@@ -362,6 +436,32 @@ spec:
           - echo 'source <(kubectl completion bash)' >>/root/.bashrc
           - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
           - apt-get -y autoremove && apt-get -y clean all
+          # Tailscale must be up BEFORE kubeadm registers the node, so the kubelet's
+          # first registration already carries the tailnet node-ip.
+          #
+          # EVERY step is guarded on a non-empty hostname file, including the install
+          # itself. A pure-Hetzner hub gets the empty Secret, so it downloads nothing
+          # and runs no daemon — the files above are present but inert. (The shared
+          # spoke ClusterClass still installs unconditionally; not changed here
+          # because that is a separately tested path.)
+          - 'if [ -s /etc/tailscale-hostname ]; then curl -fsSL https://tailscale.com/install.sh | sh || true; fi'
+          - 'if [ -s /etc/tailscale-hostname ]; then systemctl enable --now tailscaled || true; fi'
+          - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+          - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+          # ADR-046 §WS0.1: Tailscale is a NODE-LEVEL UNDERLAY ONLY. No
+          # --advertise-routes and no --accept-routes: tailscaled would install pod
+          # CIDRs into table 52 and collide with Cilium's datapath (addendum 17.1).
+          - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+        postKubeadmCommands:
+          # kubeadm wrote kubeadm-flags.env during init, before tailscale existed on
+          # the very first boot. Re-assert node-ip + provider-id and restart so the
+          # Node advertises the tailnet address home workers can actually reach.
+          - 'if [ -s /etc/tailscale-hostname ]; then systemctl daemon-reload && /usr/local/bin/dynamic-node-ip.sh && systemctl restart kubelet; fi'
+          # With a tailnet node-ip the CCM cannot validate the address and leaves
+          # node.cloudprovider.kubernetes.io/uninitialized in place forever, so
+          # nothing can schedule. Clearing it is idempotent and is exactly what the
+          # spoke ClusterClass already does (spokepool-clusterclass-v1.yaml).
+          - 'if [ -s /etc/tailscale-hostname ]; then kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node.cloudprovider.kubernetes.io/uninitialized- || true; fi'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate

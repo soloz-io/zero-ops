@@ -188,6 +188,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			TailnetName:       tailnetName,
 			HomeWorkerEnabled: homeWorkerEnabled,
 			HomeWorkerTTL:     homeWorkerTTL,
+			ClusterName:       clusterName,
 		}
 		bp = bootstrap.NewCloudProvider(hybridDriver, clusterName, debug)
 	default:
