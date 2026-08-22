@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -134,6 +135,30 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 5b: Home-lab worker join (hybrid) ───────────────────────
+	// The hybrid hub runs no Hetzner workers (ADR-046 §19/§21), so its only worker
+	// capacity is a home-lab Flatcar node — and it must exist BEFORE anything is
+	// installed on the hub.
+	//
+	// This sits between cluster-provision and pivot-move on purpose. The hub API is
+	// already up (the control plane is Ready), but nothing has been deployed to it
+	// yet. pivot-move immediately installs cert-manager and the CAPI operators, and
+	// the control plane keeps its ADR-014 taint, so with no worker present those
+	// pods sit Pending and pivot-move fails on
+	// "timed out waiting for the condition on deployments/cert-manager".
+	//
+	// CAPI cannot provision these nodes (they are Hyper-V VMs on a workstation),
+	// which is why this shells out to the provisioning script rather than creating a
+	// Machine. For --cluster hub the script mints its own bootstrap token from the
+	// hub kubeconfig, so it depends on nothing that pivot installs.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
+		"Joining home-lab worker(s) to the hub...",
+		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		nil,
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 6: Pivot move ───────────────────────────────────────────
 	pivotCfg := &PivotConfig{
 		ClusterName:         o.ClusterName,
@@ -216,26 +241,6 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		"Applying platform pre-requisites...",
 		func() error { return o.Provider.OnPlatformPreReqs(ctx, mgmtKubeconfig) },
 		func() { fmt.Println("[platform-pre-reqs] ✓ Platform pre-requisites applied") },
-	); err != nil {
-		return err
-	}
-
-	// ── Phase 10b: Home-lab worker join (hybrid) ──────────────────────
-	// The hybrid hub runs no Hetzner workers (ADR-046), so its worker capacity is
-	// a home-lab Flatcar node. It has to be in the cluster BEFORE boundary-01, not
-	// after the bootstrap: ADR-014/ADR-046 §11 place every platform workload on
-	// worker nodes, so with no worker present ArgoCD, the operators and CNPG have
-	// nowhere legal to run and the bootstrap hangs at inject-ca-cert.
-	//
-	// CAPI cannot provision these nodes (they are Hyper-V VMs on a workstation),
-	// which is why this shells out to the provisioning script rather than creating
-	// a Machine. For --cluster hub the script mints its own bootstrap token
-	// straight from the hub kubeconfig, so this phase depends on nothing that
-	// boundary-01 installs.
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
-		"Joining home-lab worker(s) to the hub...",
-		func() error { return o.joinHomeWorkers(ctx, mgmtKubeconfig) },
-		nil,
 	); err != nil {
 		return err
 	}
@@ -487,6 +492,41 @@ func (o *Orchestrator) runPhase(
 	return stateMgr.Save(bs)
 }
 
+// hubKubeconfigFromBootstrap writes the hub's admin kubeconfig to a temp file by
+// reading the CAPI-generated Secret out of the bootstrap cluster.
+//
+// Needed because home-worker-join runs BEFORE pivot-move, and pivot-move is what
+// normally persists k8-secrets/kubeconfig/<cluster>.kubeconfig. The control plane
+// is up by this point, so the Secret already exists. Returns "" if it cannot be
+// read; joinHomeWorkers treats that as "cannot verify" and fails with guidance
+// rather than silently skipping the join.
+func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrapKubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", bootstrapKubeconfig,
+		"-n", constants.NamespaceCAPI,
+		"get", "secret", o.ClusterName+"-kubeconfig",
+		"-o", "jsonpath={.data.value}",
+	).Output()
+	if err != nil || len(out) == 0 {
+		return ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(out))
+	if err != nil {
+		return ""
+	}
+
+	f, err := os.CreateTemp("", "hub-kubeconfig-*.yaml")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if _, err := f.Write(decoded); err != nil {
+		return ""
+	}
+	return f.Name()
+}
+
 // hubWorkerSelector identifies a joined home-lab hub worker. provision-flatcar-worker.sh
 // applies hub-role=worker for its "hub" target, both via kubelet --node-labels and
 // again cluster-side after the join.
@@ -499,6 +539,11 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	if !ok || !hw.HomeWorkersRequested() {
 		fmt.Println("[home-worker-join] Not a home-worker cell — skipping")
 		return nil
+	}
+
+	if kubeconfig == "" {
+		return fmt.Errorf("could not read the hub kubeconfig from the bootstrap cluster;\n" +
+			"the home worker cannot join, and pivot would then fail to schedule cert-manager")
 	}
 
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed

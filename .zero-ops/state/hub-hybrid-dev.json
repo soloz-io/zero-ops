@@ -16,33 +16,33 @@
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-08-21T12:54:34.053189Z",
+  "timestamp": "2026-08-22T07:34:45.430399Z",
   "metadata": null,
-  "startedAt": "2026-08-21T12:46:42.89289Z",
+  "startedAt": "2026-08-22T07:27:14.612111Z",
   "phaseTimings": [
     {
       "phase": "bootstrap-create",
-      "startedAt": "2026-08-21T12:45:21.307702Z",
-      "completedAt": "2026-08-21T12:46:42.892873Z",
-      "seconds": 81.585
+      "startedAt": "2026-08-22T07:26:05.035142Z",
+      "completedAt": "2026-08-22T07:27:14.612061Z",
+      "seconds": 69.577
     },
     {
       "phase": "day0-infra",
-      "startedAt": "2026-08-21T12:46:42.893839Z",
-      "completedAt": "2026-08-21T12:46:43.169293Z",
-      "seconds": 0.275
+      "startedAt": "2026-08-22T07:27:14.613581Z",
+      "completedAt": "2026-08-22T07:27:14.885497Z",
+      "seconds": 0.272
     },
     {
       "phase": "capi-init",
-      "startedAt": "2026-08-21T12:46:43.169697Z",
-      "completedAt": "2026-08-21T12:50:28.012292Z",
-      "seconds": 224.843
+      "startedAt": "2026-08-22T07:27:14.885935Z",
+      "completedAt": "2026-08-22T07:31:42.203347Z",
+      "seconds": 267.317
     },
     {
       "phase": "cluster-provision",
-      "startedAt": "2026-08-21T12:50:28.013186Z",
-      "completedAt": "2026-08-21T12:54:34.053176Z",
-      "seconds": 246.04
+      "startedAt": "2026-08-22T07:31:42.204565Z",
+      "completedAt": "2026-08-22T07:34:45.430377Z",
+      "seconds": 183.226
     }
   ]
 }

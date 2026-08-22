@@ -1104,14 +1104,24 @@ out on *"all machines joined"*. Two consequences follow, both codified:
   which the CCM would otherwise leave in place forever. This is what the spoke
   ClusterClass already does.
 
-**Bootstrap ordering — home workers join before `boundary-01`.** With the hub at
-`WorkerReplicas: 0` (§19), a hub whose home worker has not joined has no node that
-satisfies the §11 worker-only placement rule, so ArgoCD, the operators and CNPG all
-sit `Pending` and the bootstrap hangs at `inject-ca-cert`. CAPI cannot provision
-these nodes, so the orchestrator gained a `home-worker-join` phase between
-`platform-pre-reqs` and `boundary-01` that invokes
-`scripts/hybrid/provision-flatcar-worker.sh --cluster hub` and waits for a Ready
-node labelled `hub-role=worker`. It is idempotent: an already-Ready node is skipped.
+**Bootstrap ordering — home workers join before anything is installed on the hub.**
+With the hub at `WorkerReplicas: 0` (§19) and the control plane keeping its taint,
+a hub whose home worker has not joined has no node that satisfies the §11
+worker-only placement rule, so every platform workload sits `Pending`.
+
+CAPI cannot provision these nodes, so the orchestrator gained a `home-worker-join`
+phase that invokes `scripts/hybrid/provision-flatcar-worker.sh --cluster hub` and
+waits for a Ready node labelled `hub-role=worker`. It is idempotent: an
+already-Ready node is skipped, so a resumed bootstrap does not repeat ~10 minutes of
+Hyper-V work.
+
+It runs between **`cluster-provision` and `pivot-move`**, which is earlier than the
+workload boundaries would suggest. `pivot-move` installs cert-manager and the CAPI
+operators onto the hub immediately, so a worker that only appears at boundary time
+is too late — the phase fails first with *"timed out waiting for the condition on
+deployments/cert-manager"*. At this point the hub API is up but nothing has been
+deployed to it, and the admin kubeconfig is read from the CAPI-generated Secret in
+the bootstrap cluster, because `pivot-move` is what normally persists it to disk.
 
 The control plane keeps its `control-plane:NoSchedule` taint whenever home workers
 are enabled — untainting it would re-create precisely the placement-by-accident
