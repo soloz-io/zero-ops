@@ -68,6 +68,13 @@ kind: StatefulSet
 metadata:
   name: nats
   namespace: platform-messaging
+  annotations:
+    # nats-leafnode-server-cert now rotates every 5 days (ADR-035 addendum §5).
+    # nats-server reads its TLS material at startup and has no reload path wired
+    # here, so without this the pod keeps serving the previous certificate until it
+    # expires — the same failure class as argocd-agent-principal, described in
+    # ADR-035 addendum §4.
+    secret.reloader.stakater.com/reload: "nats-leafnode-server-cert"
 spec:
   serviceName: nats
   replicas: 1

@@ -6,8 +6,12 @@ metadata:
   namespace: platform-ops
 spec:
   secretName: argocd-agent-principal-tls
-  duration: 2160h # 90 days
-  renewBefore: 168h # 7 days (renew at 83 days)
+  # 7 days, the infrastructure-services ceiling (ADR-035 addendum §5). Was 90 days,
+  # which with no CRL/OCSP meant a stolen key stayed trusted by the whole fleet for
+  # a quarter. renewBefore 48h leaves ~5 days of slack for an Infisical outage,
+  # since renewal fails while Infisical is down and only the TTL keeps mTLS alive.
+  duration: 168h # 7 days
+  renewBefore: 48h # renew at 5 days
   commonName: argocd-principal.dev.nutgraf.in
   dnsNames:
   - argocd-principal.dev.nutgraf.in
@@ -35,8 +39,8 @@ metadata:
   namespace: platform-ops
 spec:
   secretName: argocd-agent-resource-proxy-tls
-  duration: 2160h # 90 days
-  renewBefore: 168h # 7 days
+  duration: 168h # 7 days (infrastructure-services ceiling, ADR-035 addendum §5)
+  renewBefore: 48h # renew at 5 days
   commonName: argocd-agent-resource-proxy
   dnsNames:
   - argocd-agent-resource-proxy
@@ -90,8 +94,8 @@ metadata:
   namespace: platform-ops
 spec:
   secretName: argocd-principal-internal-tls
-  duration: 2160h # 90 days
-  renewBefore: 168h # 7 days
+  duration: 168h # 7 days (infrastructure-services ceiling, ADR-035 addendum §5)
+  renewBefore: 48h # renew at 5 days
   commonName: argocd-principal-internal.dev.nutgraf.in
   dnsNames:
   - argocd-principal-internal.dev.nutgraf.in

@@ -49,19 +49,41 @@ type Profile struct {
 // The remainder are mandated by ADR-035's profile table and are provisioned ahead
 // of the issuers that will use them.
 //
-// NOTE — TTL conflict with ADR-035, deliberately unresolved here:
-// ADR-035 caps Infrastructure Services at 24h, but the three argocd-principal
-// certificates request `duration: 2160h` (90 days) through that profile and are
-// live on the hub today with a full 90-day validity window. 90 is therefore the
-// value that keeps the platform working, and lowering it to 1 would break renewal
-// of certificates that are currently healthy. Reconciling the ADR's intent
-// (short-lived certificates) with the manifests' 90-day requests is a security
-// posture decision, not a refactor — see the ADR-035 note.
+// TTL POLICY (ADR-035 addendum §5 — resolves the 24h/90d conflict).
+//
+// The TTL here is a CEILING, not a mandate: each Certificate requests the duration
+// it needs and the profile refuses anything longer. That is what lets one profile
+// serve both classes of consumer without weakening either.
+//
+//	24h   default for workload / client identities (spoke agent, alloy, nats client)
+//	7d    ceiling, for SERVING identities that cannot hot-reload their certificate
+//
+// Three constraints fix the ceiling at 7 days, and they pull in opposite directions:
+//
+//  1. There is no revocation. ADR-035 implements no CRL and no OCSP — "compromised
+//     certificates expire naturally" — so the TTL IS the containment mechanism. The
+//     previous 90-day cap meant a stolen principal key, which the whole fleet
+//     trusts, stayed valid for up to 90 days with no way to withdraw it.
+//  2. Neither the principal nor the agent hot-reloads its certificate (verified in
+//     upstream source; see ADR-035 addendum §4), so every rotation costs a process
+//     restart. A 24h ceiling would restart a control-plane component ~1.5x/day.
+//  3. Infisical is a single point of failure and the TTL doubles as the outage
+//     tolerance window: ADR-035's failure analysis notes that when Infisical is
+//     down, renewal fails and existing certificates keep working until expiry. Too
+//     short a ceiling converts a brief Infisical outage into a fleet mTLS outage.
+//
+// 7 days cuts the unrevocable compromise window by ~13x versus 90, still tolerates a
+// multi-day Infisical outage (renewBefore 48h leaves ~5 days of slack), and restarts
+// the affected components weekly rather than daily.
+//
+// Lowering this value below a Certificate's requested duration does NOT fail at
+// apply time — it breaks renewal silently, one full lifetime later. Reduce the
+// Certificates first, then the ceiling.
 var RequiredProfiles = []Profile{
-	{Slug: "argocd-bootstrap", TTLDays: 3},         // 72h bootstrap exception (ADR-035)
-	{Slug: "infrastructure-services", TTLDays: 90}, // see TTL conflict note above
-	{Slug: "database-clients", TTLDays: 1},         // 4h cap, rounded up (ADR-035)
-	{Slug: "service-mesh", TTLDays: 1},             // 1h cap, rounded up (ADR-035)
-	{Slug: "human-access", TTLDays: 1},             // 15m cap, rounded up (ADR-035)
-	{Slug: "signing-keys", TTLDays: 3650},          // long-lived asymmetric JWT signing key
+	{Slug: "argocd-bootstrap", TTLDays: 3},        // 72h bootstrap exception (ADR-035)
+	{Slug: "infrastructure-services", TTLDays: 7}, // ceiling; see TTL POLICY above
+	{Slug: "database-clients", TTLDays: 1},        // 4h cap, rounded up (ADR-035)
+	{Slug: "service-mesh", TTLDays: 1},            // 1h cap, rounded up (ADR-035)
+	{Slug: "human-access", TTLDays: 1},            // 15m cap, rounded up (ADR-035)
+	{Slug: "signing-keys", TTLDays: 3650},         // long-lived asymmetric JWT signing key
 }

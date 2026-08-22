@@ -140,6 +140,13 @@ Profiles are identified by UUID internally and resolved by `slug` operationally.
 
 TTLs are enforced server-side by the certificate profile configuration in Infisical.
 
+These are the **default durations for workload and client identities**, and they
+remain the target. They are not the profile ceiling: the `infrastructure-services`
+profile also serves control-plane *serving* identities that cannot hot-reload a
+rotated certificate, and its ceiling is **7 days** for the reasons set out in
+addendum §5. A certificate requests the duration it needs; the profile refuses
+anything above the ceiling.
+
 ### Bootstrap Certificate (Declarative Certificate CR Pattern)
 
 The ArgoCD Agent must establish an mTLS connection before GitOps becomes available on a new Spoke. A bootstrap certificate is issued declaratively via `cert-manager` — no custom operator code performs PKI operations.
@@ -412,7 +419,7 @@ Both now derive from a single definition, `internal/pki.RequiredProfiles`. They 
 their own Infisical clients; only the data is shared, which is the seam that was
 missing.
 
-### 3. Open conflict — the Infrastructure Services TTL
+### 3. Conflict — the Infrastructure Services TTL (resolved in §5)
 
 The table above caps Infrastructure Services at **24h**. The three argocd-principal
 certificates request `duration: 2160h` (**90 days**) through that profile, and are
@@ -424,13 +431,10 @@ working: the TTL is a server-side cap, and lowering it to 24h would not fail at
 apply time — it would break renewal of three healthy certificates, silently, up to
 90 days later.
 
-**This is left deliberately unresolved.** Reconciling the ADR's intent (short-lived
-infrastructure certificates) with manifests that request 90-day validity is a
-security-posture decision, not a refactor. Either the table's 24h is the standard
-and the certificates must shorten their `duration` and rely on cert-manager
-renewal, or 90 days is accepted for this class and the table is wrong. Until that
-is decided the registry preserves the working value and this note is the record of
-the discrepancy.
+**Resolved in §5.** Neither branch was correct as posed: 24h is right for the
+workload identities it was written for, 90 days was never justified for anything,
+and the profile TTL turned out to be a ceiling rather than a mandate — so both
+classes can be served by one profile without weakening either.
 
 ### 4. Renewal is cert-manager's; reload is the consumer's problem
 
@@ -479,6 +483,72 @@ its own certificate material. Native reload is preferable — restarting a
 security-sensitive control-plane component because a certificate changed is
 operationally heavier. Only when the consumer cannot reload does the declared
 restart apply.
+
+### 5. Resolution — `infrastructure-services` ceiling is 7 days
+
+**Decision.** The `infrastructure-services` profile TTL is **7 days**. The table
+above stands unchanged as the default duration for workload and client identities;
+7 days is the *ceiling* the profile enforces, not a duration anything is obliged to
+use.
+
+**Why the original question had no good answer.** It was posed as 24h *or* 90d, and
+both are wrong platform-wide, because one profile serves two classes of consumer:
+
+| Class | Example | Reloads? | Duration |
+|---|---|---|---|
+| Workload / client identity | spoke `argocd-agent-client-cert`, `alloy-client-cert`, `nats-leafnode-client-cert` | restarted cheaply | **24h** (unchanged) |
+| Control-plane serving identity | `argocd-agent-principal-tls`, `argocd-principal-internal-tls`, `argocd-agent-resource-proxy-tls`, `nats-leafnode-server-cert` | **no** (§4) | **7d** |
+
+The profile TTL is a **server-side maximum**. Once that is recognised the conflict
+dissolves: the spoke certificates keep requesting 24h and are unaffected, and the
+ceiling only has to be as high as the longest legitimate need.
+
+**Why 7 days, specifically.** Three constraints pull in opposite directions and 7
+days is where they balance:
+
+1. **There is no revocation.** This ADR implements no CRL and no OCSP —
+   *"compromised certificates expire naturally."* The TTL **is** the containment
+   mechanism. At 90 days a stolen principal key, which every agent in the fleet
+   trusts, stayed valid for a quarter with no way to withdraw it. That was the
+   strongest argument against the status quo and nothing justified it.
+2. **The consumers cannot hot-reload** (§4), so every rotation costs a process
+   restart. A 24h ceiling would restart a control-plane component roughly 1.5×
+   per day, which trades a small compromise window for continuous availability
+   churn — worse, not better.
+3. **Infisical is a single point of failure and the TTL is also the outage
+   tolerance window.** This ADR's own failure analysis: when Infisical is
+   unavailable, *"certificate issuance and renewal fail; existing certificates
+   continue operating until TTL expiry."* On this platform Infisical runs on one
+   home-lab node. Too short a ceiling converts a brief Infisical outage into a
+   fleet-wide mTLS outage.
+
+7 days with `renewBefore: 48h` cuts the unrevocable compromise window by roughly
+**13×** versus 90 days, still tolerates about **5 days** of Infisical unavailability
+before anything expires, and restarts the affected components weekly rather than
+daily.
+
+**Consequences.**
+
+- `argocd-agent-principal-tls`, `argocd-principal-internal-tls` and
+  `argocd-agent-resource-proxy-tls`: `2160h → 168h`, `renewBefore 168h → 48h`.
+- `nats-leafnode-server-cert`: `720h → 168h`, `renewBefore 24h → 48h`. It exceeded
+  the new ceiling and would otherwise have failed to renew.
+- NATS gains the same declared restart as the principal (§4); it mounts its
+  certificate and has no reload path wired.
+- Spoke client certificates are unchanged.
+
+**Ordering, which is load-bearing.** A ceiling below a certificate's requested
+duration does **not** fail when applied. The issuer refuses or truncates at signing
+time, so the breakage appears at the *first renewal* — one full lifetime later.
+Always reduce the Certificates first, then the ceiling.
+`scripts/validate/preflight/96-certificate-ttl-ceiling.sh` enforces the invariant
+before a cluster is built, reading ceilings from `internal/pki` and the
+issuer→profile mapping from the ClusterIssuer manifests so it follows both.
+
+**Revisit if** revocation becomes available (CRL/OCSP, or SPIFFE/SPIRE short-lived
+identities), or Infisical stops being a single point of failure. Either would remove
+one of the two forces holding the ceiling above 24h, and the workload default of
+24h should then extend to serving identities as well.
 
 ## References
 

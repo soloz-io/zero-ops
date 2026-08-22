@@ -5,8 +5,11 @@ metadata:
   namespace: platform-messaging
 spec:
   secretName: nats-leafnode-server-cert
-  duration: 720h
-  renewBefore: 24h
+  # 7 days, the infrastructure-services ceiling (ADR-035 addendum §5). Was 720h
+  # (30 days), which exceeded the ceiling and would have failed to renew once the
+  # profile enforced it — silently, a full lifetime later.
+  duration: 168h # 7 days
+  renewBefore: 48h # renew at 5 days
   commonName: nats.platform-messaging.svc
   dnsNames:
     - nats
