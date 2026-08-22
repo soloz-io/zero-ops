@@ -492,14 +492,22 @@ func (o *Orchestrator) runPhase(
 	return stateMgr.Save(bs)
 }
 
-// hubKubeconfigFromBootstrap writes the hub's admin kubeconfig to a temp file by
-// reading the CAPI-generated Secret out of the bootstrap cluster.
+// hubKubeconfigFromBootstrap persists the hub's admin kubeconfig by reading the
+// CAPI-generated Secret out of the bootstrap cluster.
 //
 // Needed because home-worker-join runs BEFORE pivot-move, and pivot-move is what
-// normally persists k8-secrets/kubeconfig/<cluster>.kubeconfig. The control plane
-// is up by this point, so the Secret already exists. Returns "" if it cannot be
-// read; joinHomeWorkers treats that as "cannot verify" and fails with guidance
-// rather than silently skipping the join.
+// normally writes this file. The control plane is up by this point, so the Secret
+// already exists.
+//
+// It writes to the CANONICAL path, not a temp file. provision-flatcar-worker.sh
+// sources scripts/hybrid/home-lab.env, which sets HUB_KUBECONFIG to exactly this
+// location unconditionally — so passing a temp path through the environment is
+// silently overridden and the script aborts with "HUB_KUBECONFIG not found".
+// home-lab.env is gitignored (it holds real values), so the fix cannot live there.
+// pivot-move later rewrites the same file with the same content.
+//
+// Returns "" if it cannot be read; joinHomeWorkers treats that as fatal rather
+// than silently skipping the join.
 func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrapKubeconfig string) string {
 	out, err := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", bootstrapKubeconfig,
@@ -516,15 +524,19 @@ func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrap
 		return ""
 	}
 
-	f, err := os.CreateTemp("", "hub-kubeconfig-*.yaml")
+	path := filepath.Join("k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return ""
+	}
+	if err := os.WriteFile(path, decoded, 0o600); err != nil {
+		return ""
+	}
+
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return ""
+		return path
 	}
-	defer f.Close()
-	if _, err := f.Write(decoded); err != nil {
-		return ""
-	}
-	return f.Name()
+	return abs
 }
 
 // hubWorkerSelector identifies a joined home-lab hub worker. provision-flatcar-worker.sh
