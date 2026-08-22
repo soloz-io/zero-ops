@@ -24,13 +24,12 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    - name: infisical
-      database: infisical
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
+    # NOTE: `infisical` is deliberately ABSENT from this list. It is a BOOTSTRAP
+    # role owned by CNPG (platform-db spec.managed.roles), not an application role.
+    # RoleManager reads each role's credential from an ESO-synced Secret sourced
+    # from Infisical, so it cannot be the thing that lets Infisical start — that is
+    # a circular dependency, and listing it here would also give the role two
+    # controllers. See manifests/hub-core-services/database/platform-db.yaml.
     - name: hub_centralized
       database: hub
       permissions:

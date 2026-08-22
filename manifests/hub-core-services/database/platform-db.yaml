@@ -11,6 +11,30 @@ spec:
 
   enableSuperuserAccess: true
 
+  # The `infisical` role is a BOOTSTRAP role and is owned here, by CNPG, not by
+  # hub-operator's RoleManager like the six application roles.
+  #
+  # It cannot be an application role, because of a circular dependency: RoleManager
+  # runs in Phase 2 and reads each role's credential from an ESO-synced Secret —
+  # which comes from Infisical — but Infisical cannot start until this very role
+  # exists. Phase 0 then blocks forever waiting for Infisical, so Phase 2 never runs.
+  # Observed as Infisical CrashLoopBackOff with "DatabaseError: no such user" while
+  # the database itself is perfectly healthy.
+  #
+  # This is also why it is not a one-shot Job any more. A Job's "Complete" status
+  # records what happened in KUBERNETES, not what exists in POSTGRES; after a
+  # rebuild, restore, failover or PVC loss the Job stays Complete while the role is
+  # gone. managed.roles is reconciled every loop, so desired and actual converge on
+  # their own, and rotation becomes declarative: update the Secret and CNPG issues
+  # ALTER ROLE ... PASSWORD.
+  managed:
+    roles:
+      - name: infisical
+        ensure: present
+        login: true
+        passwordSecret:
+          name: infisical-db-credentials
+
   # ADR-014: stateful workloads run on worker nodes, always. The location half of
   # the ADR-046 §11 placement class is supplied by the provider overlay.
   affinity:
@@ -56,10 +80,12 @@ spec:
       owner: app
       secret:
         name: platform-db-app
+      # NOTE: postInitSQL runs ONCE, at initdb. It can never repair an existing
+      # cluster, which is why the infisical database is declared as a Database CR
+      # instead — see infisical-database.yaml.
       postInitSQL:
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
-        - CREATE DATABASE infisical;
         - CREATE DATABASE openmeter;
         - CREATE DATABASE hydra;
         - CREATE DATABASE kratos;

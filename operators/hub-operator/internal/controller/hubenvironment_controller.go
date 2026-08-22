@@ -166,6 +166,19 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Read existing secrets for idempotency
 		existingSecrets := make(map[string]*corev1.Secret)
 
+		// A Secret's type is IMMUTABLE, so a cluster created before infisical-db-credentials
+		// became basic-auth keeps an Opaque one forever. CNPG's managed.roles
+		// passwordSecret does not accept that, so the infisical role would be created
+		// without the password Infisical authenticates with — and the only symptom is
+		// Infisical crash-looping on "no such user" against a healthy database.
+		// Delete it here so it is regenerated with the correct type below. A fresh
+		// password is safe: CNPG reconciles the role to whatever the Secret says, and
+		// Infisical reads that same Secret, so the two cannot diverge.
+		if err := r.retypeInfisicalDBCredentials(ctx, dataNamespace); err != nil {
+			logger.Error(err, "Failed to retype infisical-db-credentials")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+
 		// Read secrets from data namespace using UncachedClient (need secret data, not just metadata)
 		for _, name := range secretNamesInData {
 			secret := &corev1.Secret{}
@@ -1140,5 +1153,36 @@ func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEn
 	}
 
 	logger.Info("PKI templates ensured successfully")
+	return nil
+}
+
+// retypeInfisicalDBCredentials converts a pre-existing Opaque infisical-db-credentials
+// Secret to kubernetes.io/basic-auth, which CNPG requires for
+// spec.managed.roles[].passwordSecret. A Secret's type cannot be patched, so the only
+// route is delete-and-recreate. Recreation happens immediately afterwards via
+// GenerateBootstrapSecrets, which sees the Secret as absent and generates a fresh
+// password — safe here because CNPG reconciles the role to whatever the Secret
+// contains and Infisical authenticates from that same Secret.
+func (r *HubEnvironmentReconciler) retypeInfisicalDBCredentials(ctx context.Context, namespace string) error {
+	logger := log.FromContext(ctx)
+
+	existing := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: "infisical-db-credentials", Namespace: namespace}, existing); err != nil {
+		if errors.IsNotFound(err) {
+			return nil // nothing to migrate; it will be generated with the correct type
+		}
+		return err
+	}
+
+	if existing.Type == corev1.SecretTypeBasicAuth {
+		return nil
+	}
+
+	logger.Info("Migrating infisical-db-credentials to basic-auth for CNPG managed.roles",
+		"currentType", existing.Type)
+
+	if err := r.UncachedClient.Delete(ctx, existing); err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete Opaque infisical-db-credentials for retyping: %w", err)
+	}
 	return nil
 }

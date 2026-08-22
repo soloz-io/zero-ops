@@ -124,10 +124,15 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 				"ops.nutgraf.in/db-credentials": "true",
 			},
 		},
-		Type: corev1.SecretTypeOpaque,
+		// basic-auth, not Opaque: CNPG's spec.managed.roles[].passwordSecret requires
+		// it, and with an Opaque Secret the role is created WITHOUT the password
+		// Infisical authenticates with — which surfaces later as "no such user".
+		// The key names are fixed by the type (corev1.BasicAuthUsernameKey /
+		// BasicAuthPasswordKey) and happen to match what was used before.
+		Type: corev1.SecretTypeBasicAuth,
 		StringData: map[string]string{
-			"username": "infisical",
-			"password": password,
+			corev1.BasicAuthUsernameKey: "infisical",
+			corev1.BasicAuthPasswordKey: password,
 		},
 	}
 

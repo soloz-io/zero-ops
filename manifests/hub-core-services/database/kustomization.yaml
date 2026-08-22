@@ -8,6 +8,7 @@ kind: Kustomization
 resources:
   - control-plane-db-credentials-es.yaml
   - hub-db-credentials-es.yaml
+  - infisical-database.yaml
   - network-policy.yaml
   - openmeter-db-credentials-es.yaml
   - password-rotation-job.yaml
