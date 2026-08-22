@@ -3,6 +3,26 @@ kind: Deployment
 metadata:
   name: argocd-agent-principal
   namespace: platform-ops
+  annotations:
+    # The principal reads its TLS material EXACTLY ONCE, at process start:
+    # WithTLSKeyPairFromSecret (principal/options.go) fetches the Secret during
+    # option assembly and stores the parsed cert in memory, ensureTLSConfig()
+    # (principal/server.go) memoises the resulting tls.Config and nothing ever
+    # invalidates it, and loadTLSConfig() builds a static Certificates list with no
+    # GetCertificate callback. The only informers watch Applications and
+    # AppProjects — no Secret is watched. Upstream documents the consequence:
+    # "Restart the component to load new certificates".
+    #
+    # cert-manager rotates argocd-agent-principal-tls every ~83 days (90d duration,
+    # 7d renewBefore). Without a restart the process keeps serving the PREVIOUS
+    # certificate, which stays valid for another 7 days — so the mTLS failure lands
+    # a week after the rotation that caused it, looking unrelated.
+    #
+    # NOT reloader.stakater.com/auto: only argocd-agent-jwt is mounted as a volume.
+    # The TLS secrets are referenced BY NAME through principal-params-cm and never
+    # mounted, so "auto" would watch the one secret that matters least and silently
+    # ignore the three that rotate. The explicit list is required here.
+    secret.reloader.stakater.com/reload: "argocd-agent-principal-tls,argocd-agent-resource-proxy-tls,argocd-agent-ca-secret-source,argocd-agent-jwt"
   labels:
     app.kubernetes.io/name: argocd-agent-principal
     app.kubernetes.io/part-of: argocd-agent
