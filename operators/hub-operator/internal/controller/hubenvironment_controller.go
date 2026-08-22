@@ -25,6 +25,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
+	"github.com/soloz-io/zero-ops/internal/pki"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
@@ -1125,18 +1126,14 @@ func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEn
 		projectSlug = hubEnv.Spec.Secrets.Infisical.ProjectSlug
 	}
 
-	// Required profiles matching CLI logic
-	type certProfile struct {
-		Slug    string
-		TTLDays int
-	}
-	requiredProfiles := []certProfile{
-		{Slug: "infrastructure-services", TTLDays: 90},
-		{Slug: "argocd-principals", TTLDays: 90},
-		{Slug: "argocd-agents", TTLDays: 90},
-	}
-
-	for _, p := range requiredProfiles {
+	// Single authoritative definition, shared with the CLI's PKI_READY phase
+	// (ADR-042 makes that phase CLI-owned; this reconcile is the self-healing half).
+	// This list used to be a second hardcoded copy under a comment claiming it
+	// matched the CLI's. It did not: it omitted signing-keys, so a rebuilt Infisical
+	// could not issue argocd-agent-jwt and argocd-agent-principal never started,
+	// while it created argocd-principals and argocd-agents, which no issuer,
+	// Certificate or ADR references. See internal/pki.
+	for _, p := range pki.RequiredProfiles {
 		if err := infisicalClient.EnsurePKITemplate(ctx, projectSlug, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
 			return fmt.Errorf("ensure PKI template %q failed: %w", p.Slug, err)
 		}

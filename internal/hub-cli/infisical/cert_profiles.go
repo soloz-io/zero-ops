@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/pki"
 	"strings"
 )
 
@@ -19,25 +20,10 @@ type policyEntry struct {
 	Name string `json:"name"`
 }
 
-// profileDefinition defines a certificate profile to create during Day-0 bootstrap.
-// Per ADR-042 (PKI_READY state), profiles for all standard TTL tiers must exist.
-// TTLs are server-side caps; cert-manager Certificate duration controls actual rotation.
-type profileDefinition struct {
-	Slug    string
-	TTLDays int
-}
-
-// requiredProfiles lists ALL certificate profiles mandated by ADR-042:70 plus
-// the signing-keys profile required for the argocd-agent-jwt Certificate CR
-// (Correction 1 from ADR-035 PKI review).
-var requiredProfiles = []profileDefinition{
-	{Slug: "argocd-bootstrap", TTLDays: 3},      // 72h bootstrap exception (ADR-035)
-	{Slug: "infrastructure-services", TTLDays: 1}, // 24h cap (ADR-042)
-	{Slug: "database-clients", TTLDays: 1},         // 4h cap, rounded up (ADR-042)
-	{Slug: "service-mesh", TTLDays: 1},             // 1h cap, rounded up (ADR-042)
-	{Slug: "human-access", TTLDays: 1},             // 15m cap, rounded up (ADR-042)
-	{Slug: "signing-keys", TTLDays: 3650},          // 10yr JWT signing keys
-}
+// requiredProfiles is derived from the single authoritative definition in
+// internal/pki, which the hub-operator's self-healing reconcile reads too. It was
+// previously a second hardcoded copy, and the two drifted — see that package.
+var requiredProfiles = pki.RequiredProfiles
 
 // ensureCertificateProfiles creates all required certificate profiles if they do not exist.
 // It looks up the Fleet Intermediate CA, finds or creates a certificate policy, then creates

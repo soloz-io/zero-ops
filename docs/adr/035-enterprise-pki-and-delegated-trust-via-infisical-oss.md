@@ -364,6 +364,74 @@ This trade-off is accepted because it aligns with ADR-034's distinction between 
 
 This rewrite supersedes the original ADR-035. The broadened PKI ban, PKI Decision Hierarchy, and explicit component prohibition list replace the original component-specific scope. All component-level PKI prohibitions in other ADRs must reference this ADR as the single authority for PKI boundaries.
 
+## Addendum (2026-08-22): profile registry corrections
+
+Bootstrapping a hub against a rebuilt Infisical exposed three things this ADR did
+not state. Recorded here because the profile table above is the authority the
+implementation is meant to derive from, and it had silently stopped being that.
+
+### 1. `signing-keys` is a required profile and was undocumented
+
+The table above lists five profiles. A sixth exists and is load-bearing:
+`signing-keys`, named by the `infisical-signing-issuer` ClusterIssuer and used by
+the `argocd-agent-jwt` Certificate — a long-lived **asymmetric JWT signing key**,
+not an mTLS transport certificate, which is why no existing profile fits it. It was
+referenced only by a comment in `manifests/argocd-principal/certificates.yaml`
+citing an "ADR-035 PKI review" whose conclusion never reached this document.
+
+The rule this implies, now enforced by test: **every profile named by an
+infisical-issuer ClusterIssuer must exist in the registry**, or certificates using
+that issuer cannot be issued at all. Today that is `infrastructure-services`
+(fleet issuer, hub and spoke) and `signing-keys`.
+
+### 2. The profile list had two divergent implementations
+
+ADR-042 makes PKI_READY CLI-owned, and the hub-operator added a self-healing
+reconcile of the same profiles. Both hardcoded their own list, under an operator
+comment claiming they matched. They shared exactly one entry:
+
+| CLI | hub-operator |
+|---|---|
+| argocd-bootstrap | infrastructure-services |
+| infrastructure-services | argocd-principals |
+| database-clients | argocd-agents |
+| service-mesh | |
+| human-access | |
+| signing-keys | |
+
+`argocd-principals` and `argocd-agents` are referenced by no issuer, no Certificate
+and no ADR — the operator was provisioning profiles nothing consumes. More
+seriously the operator omitted `signing-keys`, so on any cluster where the CLI's
+PKI phase did not complete, nothing ever created it and nothing self-healed it. The
+observable failure named neither PKI nor the operator: `argocd-agent-principal`
+sat in `ContainerCreating` on a missing Secret, and only the cert-manager
+CertificateRequest carried the cause — *"Certificate template with name
+signing-keys not found"*.
+
+Both now derive from a single definition, `internal/pki.RequiredProfiles`. They keep
+their own Infisical clients; only the data is shared, which is the seam that was
+missing.
+
+### 3. Open conflict — the Infrastructure Services TTL
+
+The table above caps Infrastructure Services at **24h**. The three argocd-principal
+certificates request `duration: 2160h` (**90 days**) through that profile, and are
+live on the hub today holding a full 90-day validity window — so the profile as
+actually provisioned carries the operator's 90-day cap, not this ADR's 24h.
+
+`internal/pki` therefore records **90**, because that is what keeps the platform
+working: the TTL is a server-side cap, and lowering it to 24h would not fail at
+apply time — it would break renewal of three healthy certificates, silently, up to
+90 days later.
+
+**This is left deliberately unresolved.** Reconciling the ADR's intent (short-lived
+infrastructure certificates) with manifests that request 90-day validity is a
+security-posture decision, not a refactor. Either the table's 24h is the standard
+and the certificates must shorten their `duration` and rely on cert-manager
+renewal, or 90 days is accepted for this class and the table is wrong. Until that
+is decided the registry preserves the working value and this note is the record of
+the discrepancy.
+
 ## References
 
 - ADR-015: Namespace Alignment
