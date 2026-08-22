@@ -541,6 +541,11 @@ in a new hybrid-cell addon `manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml
 3. `local-path` StorageClass (`WaitForFirstConsumer`, `reclaimPolicy: Delete`,
    **not** default).
 
+**Scope correction (see §22).** This boundary was written while only *spokes* had
+home workers, so it was codified in the spoke addon alone. §19 gave the **hub**
+home workers too, at which point the hub's day-0 CSI asset needed the identical
+guard and did not have it. The boundary has two enforcement points, not one.
+
 #### CNPG pattern for hybrid spokes
 
 The CNPG Cluster manifest for the home class (`shared-cnpg`, per-environment
@@ -1152,6 +1157,93 @@ cluster and are only visible in PVC/pod events:
   Its controller requires the Hetzner metadata service and CrashLoops on kind; the
   bootstrap cluster has no PVCs and needs no CSI. Gated on node `providerID` rather
   than on the provider name, so a Hetzner-hosted bootstrap cluster still gets it.
+
+### 22. One tailscaled per node; CSI boundary reaches the hub; hybrid hub component set (2026-08-22)
+
+Three corrections found while bootstrapping a hybrid hub end-to-end for the first
+time. Each was invisible in the component that failed.
+
+**Exactly one tailscaled per node, owned by the ClusterClass.** §21 established that
+the hub control plane runs tailscaled natively from `preKubeadmCommands`. It did not
+say what happens if something else also runs one, and something did: a
+`tailscale-node` DaemonSet, added before §21 and never removed once the ClusterClass
+superseded it. A DaemonSet with `hostNetwork: true` shares the host network namespace
+and therefore the **same `tailscale0` interface** as the native daemon, so its
+tailscaled stripped the tailnet addresses off the interface the native one was using,
+leaving only the link-local address:
+
+```
+diff: ips tailscale0: [100.87.212.49/32 fd7a:…/128 fe80::…/64] -> [fe80::…/64]
+rebind-reason=[ips-changed]
+```
+
+The node then **advertises an `InternalIP` that is configured nowhere**. Because
+invariant 6 makes that address load-bearing twice over, the consequences land far
+from the cause and name nothing that would lead an operator back to it:
+
+- the API server cannot reach *any* kubelet on `:10250`, including the one on its own
+  node — `kubectl logs/exec/port-forward` fail with `i/o timeout`;
+- Cilium's VXLAN tunnel endpoint is derived from that same `InternalIP`, so cross-node
+  pod traffic stops;
+- a pod therefore loses CoreDNS whenever the DNS replicas sit on the other node,
+  surfacing inside the container as `EAI_AGAIN`.
+
+What was actually visible was Infisical in `CrashLoopBackOff` on *"Boot up migration
+failed"*, with `platform-db` reporting *"Cluster in healthy state"* and its pooler
+`1/1 Running`. ArgoCD self-heal re-created the DaemonSet after each manual repair,
+so the fault also appeared to recur spontaneously.
+
+**Node `Ready` does not cover this.** `Ready` is asserted over kubelet's *outbound*
+connection to the API server, which keeps working throughout. The inbound path is now
+gated explicitly by `scripts/validate/cluster/60-kubelet-reachability.sh`, which probes
+`/api/v1/nodes/<node>/proxy/healthz` for every node and runs during the bootstrap
+immediately after the workers join.
+
+**The §11 CSI daemonset boundary applies to the hub, not only the spoke.** §11
+diagnosed this precisely — *"a label-less home worker matches and gets a driver that
+cannot reach block devices"* — but was written on 2026-08-18, before §19 (2026-08-20)
+put home workers on the hub, so it codified the guard only in the spoke addon. The
+hub's day-0 asset `internal/assets/catalog/cloud-providers/hetzner/csi/install.yaml`
+kept the upstream affinity, which excludes Hetzner robot and root servers but matches
+a home worker. Both `hcloud-csi-node` and `hcloud-csi-controller` scheduled onto the
+Flatcar node, where there is no Hetzner metadata service, and crash-looped
+indefinitely (151 restarts observed). The controller reached it by a second route:
+its Hetzner `nodeAffinity` was only `preferred`, which does not exclude anything.
+
+Both now carry the same `workload-location NotIn home` requirement as the spoke addon.
+A consequence appears here that cannot arise on a spoke: **the controller must
+tolerate `control-plane:NoSchedule`**, because on a hybrid hub the only Hetzner node
+*is* the control plane, and without the toleration the guard merely converts a crash
+loop into `Pending` forever. A spoke has Hetzner workers and never meets this. The CSI
+controller is cluster infrastructure, not a workload, so ADR-014 does not apply to it.
+Both changes are no-ops on a pure-Hetzner hub, where no node carries
+`workload-location` at all.
+
+**A hybrid hub does not run NATS.** This was decided and implemented but recorded only
+in an ApplicationSet comment, which is not where an architectural boundary belongs.
+NATS has no consumer inside `hub-core-services` — it is the messaging layer that spoke
+leaf-nodes connect to — and a hybrid hub runs its workloads on a single home-lab node
+where a 10Gi JetStream volume is not worth the disk. It is therefore gated out of
+`02-platform-data` for `provider: hybrid`; the `hetzner` overlay is retained for hubs
+that do run it. Left ungated it does not fail cleanly: the StatefulSet requests
+`hcloud-volumes`, which by §11 can never bind on a home worker, so the pod sits
+`Pending` and its ArgoCD Application cannot finalize — one was found stuck deleting for
+over two hours behind an unbindable PVC.
+
+Per-provider component selection is expressed as overlays under
+`manifests/hub-core-services/providers/<provider>/`, matching the established
+`spoke-catalog/environments/<env>/<provider>/` convention: the base stays
+provider-neutral and declares only the ADR-014 worker selector, and the overlay
+supplies the §11 placement class. `scripts/validate/preflight/85-placement-class.sh`
+asserts every overlay renders a consistent class.
+
+**No change to the default StorageClass.** A hybrid hub cannot use `hcloud-volumes`
+for anything — home workers cannot attach them and the control plane is tainted — which
+invites the conclusion that the class should be removed or `local-path` made default on
+hybrid. §11 already rejects this: a PVC that omits `storageClassName` getting
+`hcloud-volumes` and staying `Pending` **is the intended failure mode**, and it is what
+makes a missing placement declaration loud instead of silently landing data on
+node-local ephemeral disk. The position stands unchanged.
 
 ## References
 
