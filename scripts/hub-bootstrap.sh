@@ -1423,6 +1423,13 @@ main() {
 
     step1b_reconcile_appsets
 
+    # Workers have joined, so every node's InternalIP is now claimed. On hybrid
+    # that address is a tailnet IP, and it underpins both kubelet access and
+    # Cilium's VXLAN endpoint — if it is advertised but not actually configured,
+    # cross-node pod traffic (including CoreDNS) fails while every node still
+    # reports Ready. Checked here because everything below this line depends on it.
+    run_gate "kubelet-reachability" "API server → kubelet reachability"
+
     # The HubEnvironment and ClusterSecretStore now exist, so the Infisical slug is
     # decidable. A wrong slug is invisible afterwards: every ExternalSecret
     # resolves against another environment and reports Healthy doing it.

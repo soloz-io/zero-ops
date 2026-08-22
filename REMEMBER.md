@@ -30,6 +30,24 @@ happened and reported success while broken.
 - A **Pending PVC means the home worker has not joined** — it is the correct
   failure mode. Do not "fix" it by changing the storage class.
 
+## Node networking (hybrid)
+
+- On hybrid, a node's **InternalIP is its tailnet IP**. Two things read it:
+  kubelet access from the API server, and Cilium's VXLAN tunnel endpoint.
+- tailscaled runs on the hub CP **natively**, from the ClusterClass
+  `preKubeadmCommands` (ADR-046 §21), same as the spoke CP. **Never add a
+  tailscale DaemonSet.** It shares the host netns and the same `tailscale0`, so
+  its daemon strips the tailnet addresses off the interface the native one is
+  using. The node keeps advertising an InternalIP that is configured nowhere.
+- That failure names nothing it touches. Observed symptoms: `kubectl logs/exec`
+  time out (even against the CP's own kubelet), then cross-node pod traffic dies,
+  then pods lose CoreDNS when the DNS replicas sit on the other node — surfacing
+  as `EAI_AGAIN` and, downstream, Infisical CrashLoopBackOff on "Boot up
+  migration failed" with a perfectly healthy database and pooler.
+- **Node `Ready` proves nothing here** — that is kubelet's outbound path, which
+  keeps working throughout. Check `ip -4 addr show tailscale0` on the node, or
+  run `validate/run.sh cluster --only=kubelet-reachability`.
+
 ## Bootstrap ordering
 
 - Hybrid hub runs **0 Hetzner workers**; capacity is the home-lab Flatcar node.
