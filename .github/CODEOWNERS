@@ -1,2 +1,10 @@
 # Enforce Platform Admin approval for ANY production infrastructure or configuration changes
-/manifests/environments/prod/* @soloz-io/platform-admins
+# ADR-037 #6: every prod overlay directory requires explicit Platform Engineering
+# review. Only the first of these three was listed, leaving 8 files under the two
+# spoke prod overlays modifiable without the mandated approval.
+#
+# Patterns are recursive (trailing /) rather than /*, which in CODEOWNERS matches
+# only files directly in the directory and silently skips any subdirectory added later.
+/manifests/environments/prod/ @soloz-io/platform-admins
+/manifests/spoke/spoke-pools/prod/ @soloz-io/platform-admins
+/manifests/spoke/spoke-catalog/environments/prod/ @soloz-io/platform-admins
