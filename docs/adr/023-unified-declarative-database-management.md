@@ -36,3 +36,78 @@ See ADR-039 for the complete ownership matrix.
 * **Positive:** Symmetrical architecture across Hub and Spokes, reducing cognitive load for platform engineers.
 * **Positive:** The `hub-operator` codebase becomes significantly lighter, safer, and focused purely on SaaS business logic.
 * **Positive:** Eliminates race conditions between custom operators and standardized declarative tools.
+
+## Addendum (2026-08-22): the Day-0 bootstrap role
+
+The Tri-State Ownership Contract above covers Day-1+, which the Ownership table
+states explicitly in its Phase column. It does not model a role that must exist
+**before** any of the three owners can function. One does, and omitting it has now
+caused the same outage twice.
+
+### The gap
+
+`infisical` is not an application role. Every other role's credential reaches its
+provisioner through ESO from Infisical, so any Day-1 owner — Crossplane
+`provider-sql` as mandated here, or hub-operator's RoleManager as currently
+implemented — depends on Infisical already running. Infisical cannot run until the
+`infisical` Postgres role exists. The dependency is circular:
+
+```
+role provisioner  ──needs──▶  credential Secret
+                                    │ from ESO
+                                    ▼
+                               Infisical
+                                    │ needs
+                                    ▼
+                            `infisical` role
+```
+
+Concretely, in hub-operator: Phase 2 provisions roles but requires
+ApplicationSecretsReady; Phase 0 blocks on Infisical readiness; so Phase 2 never
+runs and Phase 0 never completes. The visible symptom names neither — Infisical
+sits in CrashLoopBackOff on `DatabaseError: no such user` while the CNPG cluster
+reports `Cluster in healthy state`.
+
+Swapping the provisioner does not help. Crossplane `provider-sql` would hit the
+identical circularity, because the problem is the *credential path*, not the
+provisioner.
+
+### Decision
+
+**The `infisical` role and database are Day-0 and are owned by CNPG**, declared on
+the `platform-db` Cluster (`spec.managed.roles`) and as a `Database` CR
+(`owner: infisical`). This extends CNPG's remit beyond "physical cluster +
+superuser" for this one bootstrap case, and only this case.
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Phase |
+|---|---|---|---|---|
+| Bootstrap role + database (`infisical`) | PostgreSQL | CNPG | CNPG | **Day-0** |
+
+It is removed from `HubEnvironment.spec.database.roles` so exactly one controller
+owns it — the split-brain this ADR's Context warns about applies just as much to
+hub-operator vs CNPG as it does to hub-operator vs Crossplane.
+
+The classification mirrors the platform's existing bootstrap-vs-application split
+for *secrets*; this is the same principle applied to roles.
+
+### Why not a Job
+
+A one-shot Job (`setup-infisical-role`) was the original mechanism. Its `Complete`
+status records what happened in **Kubernetes**, not what exists in **PostgreSQL**:
+after a rebuild, restore, failover or PVC loss it stays Complete while the role is
+gone. `spec.managed.roles` is reconciled every loop, so desired and actual converge
+on their own, and rotation becomes declarative.
+
+`postInitSQL` is likewise insufficient on its own — it runs once, at initdb, so it
+can neither repair nor re-own an existing database. The `Database` CR maps to
+`CREATE DATABASE ... OWNER` on a new cluster and `ALTER DATABASE ... OWNER TO` on an
+existing one.
+
+### Still outstanding
+
+The mandate to strip DCL from `hub-operator` is **not implemented**: RoleManager
+still provisions the six application roles, which `internal/database/roles.go`
+acknowledges with `TODO(ADR-023)`. That migration to Crossplane `provider-sql` is
+unaffected by this addendum — when it happens, the six move to Crossplane and the
+Day-0 role stays with CNPG.
+

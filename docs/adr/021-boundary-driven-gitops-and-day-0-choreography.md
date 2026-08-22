@@ -41,3 +41,33 @@ See ADR-039 for the complete ownership matrix.
 * **Positive:** Secret Zero injection is deterministic and race-condition-free.
 * **Positive:** Clear architectural boundary between Secret Providers (`03`) and Secret Consumers (`04`), eliminating circular dependencies during bootstrap.
 * **Negative:** Applications in `04-tenant-services` will attempt to start before their databases in `02-platform-data` are fully provisioned, requiring robust internal retry logic (See ADR-022).
+
+## Addendum (2026-08-22): health coupling inside a boundary
+
+This ADR states as a positive consequence that *"an application failure will no
+longer block infrastructure reconciliation."* Between boundaries that holds. It does
+not hold **within** one, and the difference produced an undeliverable sync.
+
+`platform-database` carries both:
+
+- infrastructure — the CNPG `Cluster`, its `Pooler`, and the `Database` CR;
+- credentials — ExternalSecrets that resolve out of Infisical.
+
+ArgoCD treats an Application's sync as one unit, so the operation reported
+*"waiting for healthy state of ExternalSecret/control-plane-db-credentials and 4
+more"* and applied nothing. Those ExternalSecrets cannot go healthy until Infisical
+runs; Infisical could not run until the `infisical` role existed; and the resource
+that creates that role was in the same, blocked sync. GitOps could not deliver its
+own fix, and the manifests had to be applied out of band to break the cycle.
+
+The failure is not sync-waves — this ADR already bans those for workloads — it is
+**health coupling between resource classes inside a single Application**. Anything
+whose readiness depends on a running platform service must not share an Application
+with the resource that brings that service up.
+
+Recorded rather than fixed: separating credential delivery from database
+infrastructure changes boundary composition, which is this ADR's subject and
+deserves a deliberate decision rather than an incidental split. Until then, a
+bootstrap that needs a database-layer change while Infisical is down requires the
+manifests to be applied directly.
+
