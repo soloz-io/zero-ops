@@ -321,6 +321,76 @@ func (i *OperatorInstaller) waitForOperator(ctx context.Context, timeout time.Du
 	return nil
 }
 
+// transientWebhookError reports whether a kubectl failure is the CAPI operator's
+// startup race rather than a real problem with the manifest.
+//
+// The operator serves its own validating webhooks with a cert-manager certificate.
+// waitForCRDs only proves the CRDs are Established and their CA bundle injected —
+// it says nothing about whether the webhook POD has loaded a serving cert matching
+// that bundle yet. Applying a provider inside that window fails with:
+//
+//	failed calling webhook "vcoreprovider.kb.io": ... tls: failed to verify
+//	certificate: x509: certificate signed by unknown authority
+//
+// which resolves itself within seconds. Retrying a genuinely bad manifest would
+// only delay the real error, so only these signatures are retried.
+func transientWebhookError(output string) bool {
+	for _, sig := range []string{
+		"failed calling webhook",
+		"certificate signed by unknown authority",
+		"connection refused",
+		"no endpoints available",
+		"context deadline exceeded",
+		"i/o timeout",
+		"EOF",
+	} {
+		if strings.Contains(output, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyWithWebhookRetry applies a provider manifest, retrying while the operator's
+// webhook is still coming up.
+func (i *OperatorInstaller) applyWithWebhookRetry(ctx context.Context, name string, manifest []byte) error {
+	const attempts = 12 // ~2 minutes at 10s spacing
+
+	var lastOutput string
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "-f", "-")...)
+		cmd.Stdin = bytes.NewReader(manifest)
+
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			if attempt > 1 {
+				fmt.Printf("[capi-init] ✓ %s applied on attempt %d\n", name, attempt)
+			}
+			return nil
+		}
+
+		lastOutput = string(output)
+		if !transientWebhookError(lastOutput) {
+			return fmt.Errorf("failed to apply %s: %w\n%s", name, err, lastOutput)
+		}
+
+		if attempt == attempts {
+			break
+		}
+		if attempt == 1 {
+			fmt.Printf("[capi-init] %s: operator webhook not serving yet, retrying...\n", name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Second):
+		}
+	}
+
+	return fmt.Errorf("failed to apply %s after %d attempts; the capi-operator webhook "+
+		"never became serviceable:\n%s", name, attempts, lastOutput)
+}
+
 func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
 	if err := i.waitForCRDs(ctx, 2*time.Minute); err != nil {
 		return err
@@ -332,10 +402,8 @@ func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
 			return fmt.Errorf("failed to read %s: %w", provider.Manifest, err)
 		}
 
-		cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("apply", "-f", "-")...)
-		cmd.Stdin = bytes.NewReader(manifest)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to apply %s: %w\n%s", provider.Manifest, err, output)
+		if err := i.applyWithWebhookRetry(ctx, provider.Manifest, manifest); err != nil {
+			return err
 		}
 
 		if i.Debug {
