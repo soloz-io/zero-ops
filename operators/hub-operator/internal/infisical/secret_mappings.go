@@ -340,6 +340,12 @@ type ApplicationSecretDefinition struct {
 	PasswordKey string // Infisical key for password/secret (e.g., "control-plane-db-password")
 	Username    string // Username value (e.g., "mcp_server") - empty for non-DB secrets
 	Description string // Human-readable description
+
+	// HexBytes, when > 0, generates this many random bytes hex-encoded instead of a
+	// password from the URL-safe charset. Required by consumers that hex-decode the
+	// value and demand an exact key length; for them the default charset produces a
+	// string of the right length that still fails to parse.
+	HexBytes int
 }
 
 // ApplicationSecretMappings defines all application secrets to create in Infisical
@@ -442,6 +448,8 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		UsernameKey: "",
 		PasswordKey: "agentgateway-oidc-cookie-secret",
 		Username:    "",
-		Description: "AgentGateway OIDC session cookie encryption secret",
+		// AES-256-GCM: agentgateway hex-decodes this and requires exactly 32 bytes.
+		HexBytes:    32,
+		Description: "AgentGateway OIDC session cookie encryption secret (32-byte AES-256-GCM key, hex)",
 	},
 }

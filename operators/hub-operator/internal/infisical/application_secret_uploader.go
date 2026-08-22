@@ -116,14 +116,20 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			continue
 		}
 
-		// Password doesn't exist, generate and upload
-		// Use 64 chars for system secrets (no username), 32 chars for database passwords
-		length := 32
-		if secretDef.UsernameKey == "" {
-			length = 64
+		// Password doesn't exist, generate and upload.
+		// Use 64 chars for system secrets (no username), 32 chars for database passwords.
+		// HexBytes overrides the alphabet entirely for consumers that hex-decode the
+		// value and require an exact key length.
+		var password string
+		if secretDef.HexBytes > 0 {
+			password, err = secrets.GenerateHexKey(secretDef.HexBytes)
+		} else {
+			length := 32
+			if secretDef.UsernameKey == "" {
+				length = 64
+			}
+			password, err = secrets.GenerateSecurePasswordWithCharset(length, charset)
 		}
-
-		password, err := secrets.GenerateSecurePasswordWithCharset(length, charset)
 		if err != nil {
 			logger.Error(err, "Failed to generate password", "key", secretDef.PasswordKey)
 			failedKeys = append(failedKeys, secretDef.PasswordKey)

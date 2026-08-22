@@ -26,6 +26,25 @@ func GenerateSecurePassword() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// GenerateHexKey returns nbytes of cryptographic randomness, hex-encoded, giving a
+// string of exactly 2*nbytes characters.
+//
+// Some consumers do not accept an arbitrary secret string: they hex-decode it and
+// require an exact key length. agentgateway's OIDC cookie encoder is one — it calls
+// hex::decode and demands 32 bytes for AES-256-GCM, so a 64-character URL-safe
+// random string is the right LENGTH but the wrong alphabet, and it fails at startup
+// with "Invalid character 'G' at position 0" rather than anything about encoding.
+func GenerateHexKey(nbytes int) (string, error) {
+	if nbytes <= 0 {
+		return "", fmt.Errorf("key length must be positive")
+	}
+	b := make([]byte, nbytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // GenerateSecurePasswordWithCharset generates a cryptographically secure password
 // using a custom character set. Avoids modulo bias by rejecting values that
 // would cause non-uniform distribution.
