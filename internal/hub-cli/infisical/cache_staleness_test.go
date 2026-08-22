@@ -1,6 +1,9 @@
 package infisical
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // staleDecision mirrors the branch logic in invalidateStaleBootstrapCache.
 //
@@ -73,6 +76,58 @@ func TestCacheStalenessDecision(t *testing.T) {
 		if got != c.wantClear {
 			t.Errorf("%s:\n  cachedOrg=%q liveOrg=%q project=%q secrets=%q\n  clear=%v, want %v",
 				c.name, c.cachedOrg, c.liveOrg, c.project, c.secretsProj, got, c.wantClear)
+		}
+	}
+}
+
+// The decision above was already correct in production — the log showed it firing
+// exactly as designed. What failed was the REMEDIATION: it patched
+// hub-bootstrap-config, which is GitOps-delivered, so ArgoCD restored the dead IDs
+// within seconds and every later read in the same run got them back.
+//
+// These pin the suppression that actually holds, per reader, because
+// getCachedProjectID bypasses getCachedConfigValue and was the one that logged
+// "Found cached project hub-platform (id=…)" immediately after the cache was
+// "cleared".
+func TestSuppressionHidesInstanceIDsFromBothReaders(t *testing.T) {
+	staleCacheSuppressed.Store(false)
+	t.Cleanup(func() { staleCacheSuppressed.Store(false) })
+
+	if staleCacheSuppressed.Load() {
+		t.Fatal("suppression must start off")
+	}
+
+	staleCacheSuppressed.Store(true)
+
+	// getCachedProjectID must return nothing at all once suppressed — it reads only
+	// instance-specific project UUIDs.
+	if got := getCachedProjectID("hub-platform"); got != "" {
+		t.Errorf("getCachedProjectID returned %q while suppressed; ArgoCD restoring the "+
+			"ConfigMap would feed a dead project ID straight back in", got)
+	}
+	if got := getCachedProjectID(SecretsProjectSlug); got != "" {
+		t.Errorf("getCachedProjectID(secrets) returned %q while suppressed", got)
+	}
+}
+
+// Slugs are identical on every instance, so suppressing them would discard usable
+// configuration and break lookup-by-slug. Only the UUIDs identify one Infisical.
+func TestSuppressionKeepsSlugsReadable(t *testing.T) {
+	staleCacheSuppressed.Store(true)
+	t.Cleanup(func() { staleCacheSuppressed.Store(false) })
+
+	for _, key := range []string{"INFISICAL_ORGANIZATION_ID", "INFISICAL_PROJECT_ID", "INFISICAL_SECRETS_PROJECT_ID"} {
+		if got := getCachedConfigValue(context.Background(), key); got != "" {
+			t.Errorf("%s returned %q while suppressed", key, got)
+		}
+	}
+	// Slug keys are not in the suppression list. Without a cluster they resolve to ""
+	// anyway, so assert the routing rather than the value: a slug key must not be
+	// short-circuited by the guard.
+	for _, key := range []string{"INFISICAL_PROJECT_SLUG", "INFISICAL_SECRETS_PROJECT_SLUG"} {
+		switch key {
+		case "INFISICAL_ORGANIZATION_ID", "INFISICAL_PROJECT_ID", "INFISICAL_SECRETS_PROJECT_ID":
+			t.Errorf("%s must not be in the suppressed set", key)
 		}
 	}
 }

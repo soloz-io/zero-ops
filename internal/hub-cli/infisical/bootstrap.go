@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
@@ -294,6 +295,23 @@ func hostKubectl(ctx context.Context, args ...string) (string, error) {
 //
 // Comparing the organization ID catches that with data already in hand: no extra
 // API call, and one comparison covers every ID the cache holds.
+// staleCacheSuppressed is set once the cached bootstrap IDs are found to belong to a
+// DIFFERENT Infisical organization than the live one. Both cache readers below honour
+// it for the rest of the process.
+//
+// Patching the ConfigMap is NOT sufficient on its own, and relying on it was a real
+// bug: hub-bootstrap-config is delivered by GitOps (03-platform-services ->
+// manifests/environments/<env>/…/hub-bootstrap-config-patch.yaml), so ArgoCD restores
+// the committed values within seconds of the patch. Every later read in the same run
+// then gets the dead IDs back, and the bootstrap looks for projects in an
+// organization that no longer exists — surfacing much later as
+// "identity 'hub-platform-eso' not found in org <new-org>".
+//
+// Suppressing in-process is what actually holds, and it costs nothing: the correct
+// IDs are written to the ConfigMap and to the generated artifact later in this same
+// bootstrap, which is what heals Git.
+var staleCacheSuppressed atomic.Bool
+
 func invalidateStaleBootstrapCache(ctx context.Context, liveOrgID string) {
 	cachedOrgID := getCachedConfigValue(ctx, "INFISICAL_ORGANIZATION_ID")
 	cachedProject := getCachedConfigValue(ctx, "INFISICAL_PROJECT_ID")
@@ -319,6 +337,9 @@ func invalidateStaleBootstrapCache(ctx context.Context, liveOrgID string) {
 	}
 	fmt.Println("[infisical-bootstrap]     Clearing hub-bootstrap-config so projects and identities are recreated.")
 
+	// Set BEFORE the patch: the patch can be reverted by ArgoCD, this cannot.
+	staleCacheSuppressed.Store(true)
+
 	// Blank the IDs rather than deleting the ConfigMap: other keys (CLUSTER_ID,
 	// the environment slug) are unrelated to Infisical and are still valid. The
 	// generated artifact on disk is rewritten wholesale later in this phase, and
@@ -339,6 +360,16 @@ func invalidateStaleBootstrapCache(ctx context.Context, liveOrgID string) {
 // getCachedConfigValue reads one key from hub-bootstrap-config, returning "" when
 // the ConfigMap or key is absent.
 func getCachedConfigValue(ctx context.Context, key string) string {
+	// Slugs are static across instances and stay readable; only the UUIDs identify
+	// one particular Infisical, and those are what must not be trusted after the
+	// organization fingerprint changes.
+	if staleCacheSuppressed.Load() {
+		switch key {
+		case "INFISICAL_ORGANIZATION_ID", "INFISICAL_PROJECT_ID", "INFISICAL_SECRETS_PROJECT_ID":
+			return ""
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -353,6 +384,12 @@ func getCachedConfigValue(ctx context.Context, key string) string {
 }
 
 func getCachedProjectID(slug string) string {
+	// This reader bypasses getCachedConfigValue and hits the ConfigMap directly, so
+	// it needs the same guard — it is the one that logs "Found cached project …".
+	if staleCacheSuppressed.Load() {
+		return ""
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
