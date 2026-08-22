@@ -201,34 +201,20 @@ spec:
           # dead repoURL (atlasgo/atlas-operator is a 404; real upstream is
           # ariga/atlas-operator) and was never reconciling. Removed.
           {{- if eq .Values.provider "hybrid" }}
-          # HYBRID ONLY — both entries below exist because the hub has home-lab
-          # workers. A pure-Hetzner hub has neither, and shipping them there is
-          # actively harmful:
-          #   platform-tailscale: its authkey secret is created only for hybrid
-          #     (hub-bootstrap.sh step 1c returns early otherwise), so the pod
-          #     would sit in CreateContainerConfigError forever.
-          #   platform-storage:  the provisioner requires workload-location=home,
-          #     so on Hetzner the DaemonSet schedules zero pods and leaves a
-          #     local-path StorageClass with nothing behind it — any PVC naming
-          #     it would hang for ever with no obvious cause.
+          # HYBRID ONLY — the entry below exists because the hub has home-lab
+          # workers. A pure-Hetzner hub has none, and shipping it there is
+          # actively harmful: the provisioner requires workload-location=home,
+          # so on Hetzner the DaemonSet schedules zero pods and leaves a
+          # local-path StorageClass with nothing behind it — any PVC naming it
+          # would hang for ever with no obvious cause.
           #
-          # ADR-046 amendment: tailscaled on the hub control plane. Home workers'
-          # only InternalIP is their tailnet address, so without this the API
-          # server cannot reach their kubelets and kubectl logs/exec/port-forward
-          # time out. Wave 0 — it is underlay plumbing and everything else
-          # benefits from it being up first.
-          - appName: 'platform-tailscale'
-            destinationNamespace: 'kube-system'
-            isPlatformOwned: 'true'
-            syncWave: '0'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
-            targetRevision: ''
-            path: 'manifests/hub-core-services/tailscale'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
+          # There is deliberately NO platform-tailscale entry. tailscaled runs on
+          # the hub control plane NATIVELY, from the ClusterClass preKubeadmCommands
+          # (ADR-046 §21), the same way the spoke CP does it. A DaemonSet that also
+          # ran tailscaled here fought the native instance over /dev/net/tun and the
+          # tailnet identity: it CrashLoopBackOff'd and intermittently broke
+          # apiserver -> kubelet reachability, which surfaces as `kubectl logs`
+          # failing against home workers. Do not reintroduce it.
           # ADR-046 §11: the local-path StorageClass + provisioner for home-class
           # stateful workloads (platform-db). Previously present in the repo but
           # referenced by NO ApplicationSet, so the class never existed on the hub
