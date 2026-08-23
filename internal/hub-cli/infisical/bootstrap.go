@@ -633,8 +633,34 @@ func runBootstrap(ctx context.Context, podName string) (*bootstrapOutput, error)
 		return nil, fmt.Errorf("infisical bootstrap returned no organization ID: %s", jsonOutput)
 	}
 
-	cachedBootstrap = &result
 	fmt.Printf("[infisical-bootstrap] Bootstrap complete: org=%s (%s)\n", result.Organization.Name, result.Organization.ID)
+
+	// The token `infisical bootstrap` hands back is the Instance Admin Identity's
+	// access token, and it is created with accessTokenTTL/accessTokenMaxTTL = 0 —
+	// i.e. with NO `exp` claim. Current Infisical treats a machine-identity token
+	// without `exp` as a legacy token and rejects it once the enforcement window
+	// has passed:
+	//
+	//	HTTP 401 {"message":"Identity access token exceeded max age, please re-authenticate"}
+	//
+	// It is therefore unusable for the API calls that follow, and the failure is not
+	// obvious: it looks like a permissions problem on a brand-new organization.
+	//
+	// Exchange it for the same org-scoped USER JWT the already-bootstrapped path
+	// obtains via getExistingOrgData (admin login -> select organization). That path
+	// has always worked, which is why a re-run against an existing instance
+	// succeeded while a first run on a fresh database failed at the first
+	// createProject.
+	existing, err := getExistingOrgData(ctx, podName)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap succeeded but could not obtain a usable org-scoped token: %w", err)
+	}
+	if existing.Organization.ID != result.Organization.ID {
+		return nil, fmt.Errorf("post-bootstrap login resolved organization %s, expected %s",
+			existing.Organization.ID, result.Organization.ID)
+	}
+
+	cachedBootstrap = existing
 	return cachedBootstrap, nil
 }
 
