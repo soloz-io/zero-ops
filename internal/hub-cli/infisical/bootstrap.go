@@ -266,8 +266,36 @@ func stripCLIBanner(output string) string {
 // hostKubectl runs kubectl on the host machine (not inside a pod).
 // Used for reading cluster resources like ConfigMaps that are not
 // accessible from within the Infisical pod.
+
+// kubeconfigPath is the explicit kubeconfig every kubectl invocation in this package
+// uses.
+//
+// These call sites shell out to kubectl rather than using client-go, and they used
+// to run it bare — relying on an ambient KUBECONFIG or ~/.kube/config. The Go-client
+// health checks in the same phase take an explicit path, so the two disagreed
+// whenever the caller had not exported KUBECONFIG: readiness passed against the hub
+// while kubectl fell back to localhost:8080 and the phase died with
+//
+//	cannot find Infisical pod: ... dial tcp [::1]:8080: connect: connection refused
+//
+// which reads like Infisical is unreachable rather than like a missing flag.
+var kubeconfigPath string
+
+// SetKubeconfig makes this package's kubectl calls target the same cluster the
+// caller's client-go is using. Safe to leave unset: the calls then behave as before
+// and fall back to the ambient configuration.
+func SetKubeconfig(path string) { kubeconfigPath = path }
+
+// withKubeconfig prefixes --kubeconfig when one has been set.
+func withKubeconfig(args ...string) []string {
+	if kubeconfigPath == "" {
+		return args
+	}
+	return append([]string{"--kubeconfig", kubeconfigPath}, args...)
+}
+
 func hostKubectl(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd := exec.CommandContext(ctx, "kubectl", withKubeconfig(args...)...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("kubectl failed: %w\noutput: %s", err, string(output))
@@ -492,7 +520,7 @@ func kubectlExec(ctx context.Context, podName string, args ...string) (string, e
 		default:
 		}
 
-		cmd := exec.CommandContext(ctx, "kubectl", cmdArgs...)
+		cmd := exec.CommandContext(ctx, "kubectl", withKubeconfig(cmdArgs...)...)
 		output, err = cmd.CombinedOutput()
 		if err == nil {
 			return strings.TrimSpace(string(output)), nil
@@ -520,10 +548,10 @@ func kubectlExec(ctx context.Context, podName string, args ...string) (string, e
 }
 
 func GetInfisicalPodName(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "pods", "-n", infisicalNamespace,
+	cmd := exec.CommandContext(ctx, "kubectl", withKubeconfig("get", "pods", "-n", infisicalNamespace,
 		"-l", "app=infisical-standalone,component=infisical",
 		"--field-selector", "status.phase=Running",
-		"-o", "go-template={{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{\"\\n\"}}{{end}}{{end}}")
+		"-o", "go-template={{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{\"\\n\"}}{{end}}{{end}}")...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get infisical pod name: %w\noutput: %s", err, string(output))

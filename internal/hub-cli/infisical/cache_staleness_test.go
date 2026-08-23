@@ -172,3 +172,28 @@ func TestAPIErrorTruncatesLongBodies(t *testing.T) {
 		t.Errorf("error not truncated: %d chars", len(err.Error()))
 	}
 }
+
+// Every kubectl in this package shells out. Running it bare made it obey an ambient
+// KUBECONFIG while the Go-client health checks in the same phase used an explicit
+// path — so readiness passed against the hub while kubectl fell back to
+// localhost:8080, and the phase failed with "cannot find Infisical pod".
+func TestWithKubeconfigPrefixesTheFlag(t *testing.T) {
+	t.Cleanup(func() { SetKubeconfig("") })
+
+	SetKubeconfig("")
+	if got := withKubeconfig("get", "pods"); len(got) != 2 || got[0] != "get" {
+		t.Errorf("unset: got %v, want args unchanged", got)
+	}
+
+	SetKubeconfig("/tmp/hub.kubeconfig")
+	got := withKubeconfig("get", "pods")
+	want := []string{"--kubeconfig", "/tmp/hub.kubeconfig", "get", "pods"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}

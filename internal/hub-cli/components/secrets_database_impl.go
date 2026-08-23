@@ -36,6 +36,11 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		return false, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
+	// The Day-0 bootstrap shells out to kubectl. Point it at the same kubeconfig
+	// this Installer is using, so those calls cannot silently target a different
+	// cluster (or localhost:8080) when KUBECONFIG is not exported.
+	infisical.SetKubeconfig(i.Kubeconfig)
+
 	result, err := infisical.BootstrapInfisicalDayZeroWithRetry(ctx, 10*time.Minute)
 	if err != nil {
 		return false, fmt.Errorf("infisical bootstrap failed: %w", err)

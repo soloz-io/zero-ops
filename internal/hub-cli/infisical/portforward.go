@@ -97,7 +97,7 @@ func (pf *PortForwardManager) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	pf.stopFn = cancel
 
-	pf.cmd = exec.CommandContext(ctx, "kubectl", args...)
+	pf.cmd = exec.CommandContext(ctx, "kubectl", withKubeconfig(args...)...)
 	if err := pf.cmd.Start(); err != nil {
 		cancel()
 		pf.stopFn = nil
