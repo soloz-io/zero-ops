@@ -110,6 +110,38 @@ PY
         fi
     done
 
+    # 1c. cilium-operator must fit on one node (ADR-046 §24.3).
+    #
+    #     It declares hostPort 9963 with hostNetwork, so two replicas can never share
+    #     a node — and a hybrid spoke is single-node AT BOOT by construction: burst
+    #     workers are replicas:0 and home workers join only after the control plane
+    #     is Ready. Two replicas deadlock the cold boot in every environment:
+    #     operator Unschedulable -> CRDs never registered -> agent never Ready ->
+    #     Node never Ready -> the home-worker join never runs -> still one node.
+    #
+    #     Checked here rather than trusted to a comment: the manifest previously
+    #     carried one asserting this was handled by a spoke-catalog overlay that did
+    #     not exist and could not have worked (cilium is CRS-delivered; an ArgoCD
+    #     overlay would be a second owner, which ADR-048 forbids).
+    if (cd "$VALIDATE_ROOT" && python3 - "manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for d in yaml.safe_load_all((doc.get("stringData") or {}).get("cilium.yaml", "")):
+    if d and d.get("kind") == "Deployment" and d["metadata"]["name"] == "cilium-operator":
+        ports = [p.get("hostPort") for c in d["spec"]["template"]["spec"]["containers"]
+                 for p in c.get("ports", []) if p.get("hostPort")]
+        replicas = d["spec"].get("replicas", 1)
+        # Only a hostPort-bound operator is constrained; if upstream ever drops the
+        # hostPort, more replicas become legitimate and this check should not block.
+        sys.exit(0 if (not ports or replicas == 1) else 1)
+sys.exit(1)
+PY
+    ); then
+        pass "hybrid cilium-operator fits a single-node spoke at boot"
+    else
+        hard_fail "hybrid cilium-operator has >1 replica with a hostPort — a hybrid spoke is single-node at boot, so the operator will be Unschedulable and the CNI will never register its CRDs"
+    fi
+
     # 2. The renderer exists. If it is deleted while the split stays, no spoke gets a
     #    cilium-config at all — a worse failure than the one this replaced.
     local ctrl="$VALIDATE_ROOT/operators/hub-operator/internal/controller/spokepool_controller.go"

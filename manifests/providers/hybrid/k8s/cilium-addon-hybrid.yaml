@@ -1263,14 +1263,29 @@ stringData:
       # See docs on ServerCapabilities.LeasesResourceLock in file pkg/k8s/version/version.go
       # for more details.
       #
-      # Two replicas for HA. stg/prod hybrid spokes run 3 control-plane nodes plus
-      # home workers (ADR-046), so both schedule.
+      # ONE replica, deliberately (ADR-046 §24.3).
       #
-      # The operator declares hostPorts, so two replicas can never share a node.
-      # A single-node dev spoke (ADR-047) therefore leaves the second replica
-      # Pending. That is scoped per environment in the spoke-catalog overlay rather
-      # than by reducing HA for stg/prod here.
-      replicas: 2
+      # The operator declares hostPort 9963 with hostNetwork, so two replicas can
+      # never share a node. A hybrid spoke is single-node AT BOOT by construction:
+      # burst workers are replicas:0 and home workers only join after the control
+      # plane is Ready. Two replicas therefore deadlock every hybrid cold boot,
+      # in every environment — not just dev:
+      #
+      #   operator Unschedulable -> Cilium CRDs never registered
+      #     -> cilium-agent waits forever -> Node never Ready
+      #     -> the home-worker join never runs -> still one node
+      #
+      # The previous comment here claimed this was "scoped per environment in the
+      # spoke-catalog overlay". No such overlay exists, and one could not work:
+      # cilium is CRS-delivered, so an ArgoCD overlay patching it would be a second
+      # owner of a CRS-delivered object, which the ADR-048 ownership boundary
+      # forbids. The claim went unnoticed because it reads like a decision.
+      #
+      # Cost of 1: the operator is not in the datapath — agents keep forwarding
+      # while it restarts — so this trades operator-restart latency, not
+      # connectivity. The hetzner spoke addon keeps 2 and is unaffected; it boots
+      # with a worker MachineDeployment at replicas:1, so it has two nodes.
+      replicas: 1
       selector:
         matchLabels:
           io.cilium/app: operator

@@ -1437,6 +1437,54 @@ kube-proxy, so it needs no injection. Its Day-0 CNI install rejoins the two halv
 path (`provider_cloud.go`) rather than keeping a second copy of 160 settings that
 would drift.
 
+#### 24.3 cilium-operator cannot fit on a single-node spoke
+
+Found while watching 24.1 converge: with the endpoint fix in place the agent got
+past its init containers and then stalled on
+
+```
+Still waiting for Cilium Operator to register the following CRDs: [ciliumnodes.cilium.io ...]
+```
+
+`cilium-operator` declares `hostPort: 9963` with `hostNetwork: true` and ran
+`replicas: 2`. The spoke has one node, so:
+
+```
+Unschedulable: 0/1 nodes are available: 1 node(s) didn't have free ports
+```
+
+A hybrid spoke is single-node **at boot by construction** — burst workers are
+`replicas: 0` and home workers join only after the control plane is Ready — so this
+closes a circle that cannot open on its own:
+
+```
+operator Unschedulable -> Cilium CRDs never registered
+  -> cilium-agent never Ready -> Node never Ready
+  -> the home-worker join never runs -> still one node
+```
+
+It is the same shape as 24.1 and as §21 and §22: `CiliumOperatorReplicas = 1` exists
+and is applied in `driver_hybrid.go`, but only on the **hub** provisioning path — its
+own comment says "on a single-node *hub*". The spoke takes cilium from the CRS addon
+Secret, which carried `replicas: 2` verbatim.
+
+The manifest additionally carried a comment asserting the single-node case was
+"scoped per environment in the spoke-catalog overlay". No such overlay existed, and
+one could not have worked: cilium is CRS-delivered, so an ArgoCD overlay patching it
+would be a second owner of a CRS-delivered object, which the ADR-048 ownership
+boundary forbids. The claim survived review because it reads like a decision.
+
+**Decision.** The hybrid addon sets `replicas: 1`. This applies to every hybrid
+environment, not only dev, because every hybrid spoke is single-node during early
+boot. The operator is not in the datapath — agents keep forwarding while it restarts
+— so the cost is operator-restart latency, not connectivity. The hetzner spoke addon
+keeps 2 and is unaffected: it boots with a worker MachineDeployment at `replicas: 1`,
+so it has two nodes.
+
+`preflight/25` asserts it, and only when a hostPort is actually declared — if
+upstream drops the hostPort, more replicas become legitimate and the check must not
+block that.
+
 #### 24.2 The spoke's home worker was never provisioned
 
 The hub joins its home-lab worker in the orchestrator's `home-worker-join` phase
@@ -1489,9 +1537,9 @@ readiness lie and as the 34-minute poll of a terminal error.
   comment table in the hybrid composition was stale for indices 14–17 and is
   corrected — an off-by-one there mis-delivers a payload silently.)
 - `internal/hub-cli/bootstrap/provider_cloud.go` — hub Day-0 recomposition.
-- `scripts/validate/preflight/25-cilium-apiserver-endpoint.sh` — eleven invariants,
+- `scripts/validate/preflight/25-cilium-apiserver-endpoint.sh` — twelve invariants,
   including single ownership, the configMapKeyRef env wiring on both addons,
-  renderer presence, and the load-balancer source.
+  the single-node operator replica bound, renderer presence, and the LB source.
 - `scripts/hub-bootstrap.sh` — Step 10e rewritten; `dump_cluster_diagnostics`.
 - `operators/hub-operator/internal/controller/cilium_config_wrapper_test.go` —
   12 regression tests.
