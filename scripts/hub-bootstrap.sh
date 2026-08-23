@@ -1398,9 +1398,9 @@ step10_wait_spokepool() {
         fi
     done
 
-    # Step 10e: Converge the spoke's home-lab worker (ADR-046 §24)
-    step10e_spoke_home_worker "$cluster_name" || return 1
-
+    # Step 10e is NOT called here: it is invoked from main(), outside this
+    # function's completed-step skip, because worker convergence is live state and
+    # must be re-evaluated on every run (ADR-046 §24.2).
     mark_step_completed "wait_spokepool"
     log "✅ Spoke provisioning gates passed"
 }
@@ -1760,15 +1760,33 @@ main() {
     fi
     step10_wait_spokepool
 
+    # Deliberately OUTSIDE the wait_spokepool checkpoint (ADR-046 §24.2).
+    #
+    # Worker convergence is live state, not a one-shot fact. "We once waited for the
+    # SpokePool" says nothing about whether a node is serving now — a home worker is
+    # an unmanaged Hyper-V VM that can stop, and its host can sleep. Checkpointing it
+    # produced exactly that: a resumed run logged "SpokePool already ready, skipping",
+    # never provisioned the spoke's worker, and still declared success.
+    #
+    # This mirrors the hub's home-worker-join phase, which re-checks readyHubWorker
+    # on every run rather than trusting a completed-phase marker. The SpokePool wait
+    # above stays checkpointed; the worker gate must not be.
+    step10e_spoke_home_worker "$SPOKEPOOL_NAME" || return 1
+
     # The spoke is Ready, so its ingress path is decidable — and under ADR-051 it
     # is the path that actually serves tenant traffic.
     run_gate "tenant-ingress" "spoke tenant ingress"
 
-    log "Zero-Ops Hub Bootstrap Process completed successfully!"
-    log "🎯 Hub cluster: Ready and operational"
-    log "🌐 SpokePool: Provisioned and ready for tenant workloads"
-    log "🔐 Certificate distribution: Complete"
-    log "🏗️  Spoke cluster: Ready for tenant database provisioning"
+    # Assert, do not announce. The previous banner claimed "SpokePool: Provisioned
+    # and ready for tenant workloads", "Certificate distribution: Complete" and
+    # "Spoke cluster: Ready for tenant database provisioning" unconditionally — and
+    # printed all three while the spoke had no worker and the hub was shedding 53
+    # pods. The run is only allowed to say what the gates above actually observed.
+    log "Zero-Ops Hub Bootstrap Process completed"
+    log "  Gates passed: secret resolution, OAuth clients, spoke readiness,"
+    log "                spoke home worker, tenant ingress"
+    log "  Post-bootstrap validation runs next and is fatal — the platform is not"
+    log "  proven until it passes."
     log "You can now access your hub cluster using: kubectl --kubeconfig=$KUBECONFIG_PATH"
 
     # Run post-bootstrap core services validation

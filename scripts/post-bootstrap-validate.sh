@@ -340,7 +340,7 @@ check_databases() {
 
     # Redis
     local redis_total redis_running
-    redis_total=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c '' || echo "0")
+    redis_total=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c '' || true)
     redis_running=$(kc get pods -n platform-data -l app=platform-redis --no-headers 2>/dev/null | grep -c "Running" || echo "0")
     if [[ "$redis_total" -gt 0 && "$redis_running" -eq "$redis_total" ]]; then
         log_pass "Redis (platform-data): $redis_running/$redis_total Running"
@@ -374,7 +374,7 @@ check_clickhouse() {
     # ClickHouse service reachable
     local ch_svc
     ch_svc=$(kc get svc -n platform-data -l "clickhouse.altinity.com/chi=platform-clickhouse" \
-        --no-headers 2>/dev/null | grep -c '' || echo "0")
+        --no-headers 2>/dev/null | grep -c '' || true)
     if [[ "${ch_svc:-0}" -gt 0 ]]; then
         log_pass "ClickHouse services present ($ch_svc found)"
     else
@@ -800,7 +800,7 @@ check_spoke_datapath() {
 
     # Check for multi-node / home-worker presence
     local nodes_count
-    nodes_count=$(kc_spoke get nodes --no-headers 2>/dev/null | grep -c '' || echo "0")
+    nodes_count=$(kc_spoke get nodes --no-headers 2>/dev/null | grep -c '' || true)
     if [[ "$nodes_count" -ge 2 ]]; then
         local worker_node
         worker_node=$(kc_spoke get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
@@ -819,7 +819,7 @@ check_spoke_datapath() {
             fi
 
             local worker_crashloops
-            worker_crashloops=$(kc_spoke get pods -A --field-selector spec.nodeName="$worker_node" --no-headers 2>/dev/null | grep "CrashLoopBackOff" | grep -c '' || echo "0")
+            worker_crashloops=$(kc_spoke get pods -A --field-selector spec.nodeName="$worker_node" --no-headers 2>/dev/null | grep "CrashLoopBackOff" | grep -c '' || true)
             if [[ "$worker_crashloops" -eq 0 ]]; then
                 log_pass "Worker $worker_node Workloads: 0 CrashLoopBackOff pods"
             else

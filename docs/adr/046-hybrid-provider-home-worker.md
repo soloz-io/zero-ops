@@ -1534,6 +1534,41 @@ All four lines were hardcoded and printed while none of it was true. A bootstrap
 never assert a condition it did not observe; this is the same class as the §23
 readiness lie and as the 34-minute poll of a terminal error.
 
+#### 24.4 Worker convergence is live state, not a checkpoint (2026-08-23)
+
+The first implementation of 24.2 placed the Step 10e gate *inside*
+`step10_wait_spokepool()`, which begins:
+
+```bash
+if is_step_completed "wait_spokepool"; then
+    log "Step 10: SpokePool already ready, skipping"
+    return
+fi
+```
+
+On the resumed run that skip fired, so the worker gate never executed, the spoke's
+home worker was never provisioned, and the bootstrap declared success anyway. The
+fix reintroduced the failure mode it was written to remove.
+
+The error is treating worker convergence as a fact that can be *completed*. "We once
+waited for the SpokePool" says nothing about whether a node is serving now. A home
+worker is an unmanaged Hyper-V VM on a workstation: it can stop, and its host can
+sleep. The hub's own `home-worker-join` phase already models this correctly — it
+re-checks `readyHubWorker` on every run rather than trusting a phase marker.
+
+**Rule.** A checkpoint may record that an *irreversible* step was performed. It must
+not stand in for a *condition that can regress*. The SpokePool wait stays
+checkpointed; the worker gate is invoked from `main()`, outside the skip, and
+evaluates live Node state on every run.
+
+The same run also demonstrated why: the **hub's** home worker stopped posting node
+status 34 seconds before the bootstrap started. 53 pods went Terminating and 48
+Pending across argocd, crossplane, kyverno, cnpg, ory, cert-manager and hub-operator
+— and the run still printed "Hub cluster: Ready and operational", because the
+terminal banner asserted four conditions it never measured. The banner now reports
+only which gates ran, and `cluster/65-hub-placement-capacity.sh` asserts the hub has
+a Ready, schedulable node to place its platform on.
+
 #### Codified
 
 - `operators/hub-operator/internal/controller/spokepool_controller.go` —
