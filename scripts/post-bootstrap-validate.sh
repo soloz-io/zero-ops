@@ -155,7 +155,22 @@ check_argocd_app() {
     fi
 }
 
-# Check ExternalSecret is synced
+# Check ExternalSecret is synced.
+#
+# A SecretSyncedError is NOT automatically a defect (ADR-046 §12, corrected). When a
+# provider or store has just recovered, every dependent ExternalSecret carries the
+# condition from its last failed attempt until the next retry. ESO retries on the
+# rate limiter, not refreshInterval — baseDelay 1s, maxDelay 7m
+# (external-secrets/pkg/controllers/common/common.go) — so the stale window is
+# bounded at ~7 minutes and closes without intervention.
+#
+# Reporting that window as a critical failure is how a healthy platform reads as
+# broken: on 2026-08-23 Infisical returned at 10:53, validation ran mid-backoff and
+# flagged 21 ExternalSecrets, and all of them were SecretSynced by 11:04 untouched.
+# So the age of the failing condition is the discriminator — a condition younger than
+# the backoff cap is a wait, an older one is a real failure.
+ESO_BACKOFF_CAP_SECONDS="${ESO_BACKOFF_CAP_SECONDS:-420}"   # ESO failureMaxDelay = 7m
+
 check_external_secret() {
     local ns="$1"
     local name="$2"
@@ -163,10 +178,32 @@ check_external_secret() {
     ready=$(kc get externalsecret "$name" -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
     if [[ "$ready" == "True" ]]; then
         log_pass "ExternalSecret $ns/$name: Ready"
+        return
+    fi
+
+    local msg since age
+    msg=$(kc get externalsecret "$name" -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "unknown error")
+    since=$(kc get externalsecret "$name" -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].lastTransitionTime}' 2>/dev/null || echo "")
+
+    age=""
+    if [[ -n "$since" ]]; then
+        # macOS date has no -d; -j -f is the portable-here equivalent (REMEMBER.md).
+        local since_epoch
+        since_epoch=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$since" '+%s' 2>/dev/null \
+                   || date -u -d "$since" '+%s' 2>/dev/null || echo "")
+        [[ -n "$since_epoch" ]] && age=$(( $(date -u '+%s') - since_epoch ))
+    fi
+
+    # NB: no apostrophes and no ${var:+...} in these strings — inside a double-quoted
+    # ${age:+...} a single quote opens a quote context and breaks parsing far away
+    # from the actual line (it reported a syntax error 150 lines later).
+    local detail=""
+    [[ -n "$age" ]] && detail=" for ${age}s"
+
+    if [[ -n "$age" && "$age" -lt "$ESO_BACKOFF_CAP_SECONDS" ]]; then
+        log_warn "ExternalSecret $ns/$name: not ready${detail} ($msg) — within the ${ESO_BACKOFF_CAP_SECONDS}s ESO retry backoff, expected to clear without intervention"
     else
-        local msg
-        msg=$(kc get externalsecret "$name" -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "unknown error")
-        log_fail "ExternalSecret $ns/$name: Not ready ($msg)"
+        log_fail "ExternalSecret $ns/$name: Not ready${detail} ($msg) — beyond the ${ESO_BACKOFF_CAP_SECONDS}s ESO backoff, this will not self-heal"
     fi
 }
 

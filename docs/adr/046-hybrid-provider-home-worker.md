@@ -695,13 +695,42 @@ bumps the binding hash, and re-applies — re-delivering both
 binding generation/hash/applied) and the exact trigger command are in the
 runbook. A plain status patch that omits the subresource is a no-op.
 
-**ESO revalidation gap.** The store/externalsecret controllers do not
-watch the source Secrets backing store credentials, so a recreated
-`infisical-auth` leaves the store and ExternalSecrets stuck in their last
-conditions indefinitely. The workaround is a benign annotation trigger on
-each object; annotations are transient triggers — stripped once conditions
-are healthy, never added to manifests. A durable fix (a periodic reconcile
-of store references by a controller) is future work.
+**ESO revalidation lag** *(corrected 2026-08-23 — this paragraph previously
+said "stuck … indefinitely" and called for a controller; both were wrong,
+and acting on them cost time twice)*. The ExternalSecret controller does not
+watch `SecretStore`/`ClusterSecretStore` — verified against vendored
+upstream, `pkg/controllers/externalsecret/externalsecret_controller.go`
+`SetupWithManager`, which watches only ExternalSecret, Secret metadata and
+optional generic targets. It does not need to:
+
+- A failed fetch takes the error path at
+  `externalsecret_controller.go:419` (`msgErrorGetSecretData`, our exact
+  message) and returns `ctrl.Result{}, err`. A non-nil error requeues via
+  the rate limiter, **not** `refreshInterval` — which governs only the
+  success path (`getRequeueResult`).
+- ESO's own limiter (`pkg/controllers/common/common.go:113`) is
+  `baseDelay 1s, maxDelay 7m`. So a failing ExternalSecret retries within
+  **7 minutes at worst**, regardless of a `refreshInterval` of `1h`.
+- The store controller is `For(&ClusterSecretStore{})` with
+  `--store-requeue-interval` defaulting to **5 minutes**, so it revalidates
+  on its own too.
+
+Measured on 2026-08-23: Infisical returned at ~10:53 and all 21
+ExternalSecrets went `SecretSynced` by 11:04 with no intervention.
+
+The annotation nudge in the runbook is therefore a **time-saver, not a
+repair** — use it to skip a backoff window, never as recovery. No controller
+should be built for this; the earlier "future work" note is withdrawn.
+
+What remains true is that a recovering store produces a window in which
+every dependent ExternalSecret reports `SecretSyncedError` while being
+perfectly healthy. That is a *validation* concern, not a platform defect —
+see `post-bootstrap-validate.sh`, which treats the window as critical.
+
+If a future incident genuinely does require manual intervention here, record
+what was actually observed: the reasoning above says the 2026-08-18 recovery
+should not have needed the nudge, so either something else was broken or the
+nudge merely shortened the wait.
 
 **CNPG barman env cache.** The instance manager resolves
 `barmanObjectStore.s3Credentials` once at instance boot; changes to the
