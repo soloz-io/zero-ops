@@ -121,6 +121,16 @@ spec:
     name: agentgateway-oidc-cookie-secret
     creationPolicy: Owner
   data:
+    # ADR-031: the cell Machine Identity is authorised for /spoke-pool/<cell-id>/
+    # only. A root-path key is not a seeding gap — it is unreadable BY DESIGN, and
+    # this one could never resolve on any spoke. The cell id is injected by the
+    # spoke-catalog ApplicationSet; PLACEHOLDER is the unreachable default, matching
+    # s3-credentials-es.yaml.
+    #
+    # Per-spoke by design, not merely by path (ADR-050 P1-4): this is a session
+    # signing key, so sharing it across cells would couple session validity between
+    # otherwise isolated clusters and make one spoke's rotation invalidate every
+    # spoke's sessions.
     - secretKey: oidc-cookie-secret
       remoteRef:
-        key: agentgateway-oidc-cookie-secret
+        key: /spoke-pool/PLACEHOLDER/shared/AGENTGATEWAY_OIDC_COOKIE_SECRET

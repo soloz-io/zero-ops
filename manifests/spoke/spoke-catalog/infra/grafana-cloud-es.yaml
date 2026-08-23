@@ -15,18 +15,24 @@ spec:
     name: grafana-cloud-credentials
     creationPolicy: Owner
   data:
+    # ADR-031: the cell Machine Identity is authorised for /spoke-pool/<cell-id>/
+    # only, so these fleet-constant Grafana Cloud values are materialised into each
+    # cell's own /shared/ path rather than read from a shared fleet root. The
+    # duplication is deliberate: a privileged cross-cell read path would weaken the
+    # isolation invariant that a spoke identity sees only its own prefix.
+    # Cell id injected by the spoke-catalog ApplicationSet (see s3-credentials-es.yaml).
     - secretKey: PROMETHEUS_URL
       remoteRef:
-        key: GRAFANA_CLOUD_PROMETHEUS_URL
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_PROMETHEUS_URL
     - secretKey: PROMETHEUS_USER
       remoteRef:
-        key: GRAFANA_CLOUD_PROMETHEUS_USER
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_PROMETHEUS_USER
     - secretKey: LOKI_URL
       remoteRef:
-        key: GRAFANA_CLOUD_LOKI_URL
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_LOKI_URL
     - secretKey: LOKI_USER
       remoteRef:
-        key: GRAFANA_CLOUD_LOKI_USER
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_LOKI_USER
     - secretKey: API_KEY
       remoteRef:
-        key: GRAFANA_CLOUD_API_KEY
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_API_KEY
