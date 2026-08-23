@@ -1139,7 +1139,15 @@ demonstrates the trap: its `commonName` reaches the live cluster as the literal
 `argocd-agent:{{ .Values.spokeName }}`. Index patching via the ApplicationSet is
 therefore the only injection mechanism available in that tree.
 
-**20.4 — `hetzner-dns-credentials` pointed at the wrong credential.** It mapped
+**20.4 — `hetzner-dns-credentials` pointed at the wrong credential.**
+
+> **SUPERSEDED IN FULL by §26.1 (2026-08-23). The claim below is false.** Hetzner
+> merged DNS into the Cloud API; `hcloud-token` authenticates against
+> `api.hetzner.cloud/v1/zones` (verified, HTTP 200) and the standalone
+> `dns.hetzner.com` API now 301s to the console. `hcloud-token` was correct;
+> `hetzner-dns-token` does not exist and cannot be created. Do not apply this edit.
+
+It mapped
 `remoteRef.key: hcloud-token`. A Hetzner **Cloud** API token (console.hetzner.cloud —
 CAPH/CCM/CSI) is **not** a Hetzner **DNS** API token (dns.hetzner.com): different
 product, different console, different credential. This is the same failure class
@@ -1147,7 +1155,9 @@ addendum 12 recorded for `hcloud-token` being mistaken for an S3 access key.
 Repointed to a distinct `hetzner-dns-token` key, which must be created in the
 hub-secrets Infisical project before external-dns can authenticate.
 
-**20.5 — Wildcard follow-up.** `manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml`
+**20.5 — Wildcard follow-up.** *(AMENDED by §26.1: the "real DNS token" this
+awaits does not exist. The blocker is webhook API compatibility, not a credential —
+see §26.2.)* `manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml`
 already installs the Hetzner DNS-01 webhook (v1.4.2) and is **installed and unused** —
 no `dns01` solver exists anywhere. Once 20.4 lands a real DNS token, switching to a
 per-env wildcard (`*.dev.nutgraf.in`) via DNS-01 becomes cheap and removes the
@@ -1847,6 +1857,79 @@ CAPH LB can target is listening on 80/443.
 **Supersedes:** §23 item 1 (unsatisfiable as written) and §23 item 2 (narrowed).
 **Amends:** §"Spoke API Endpoint" (endpoint port 443 -> 6443), §17.4 (443 was never
 created), §20.4.
+
+### 26. Hetzner retired the standalone DNS API; §20.4's credential correction was wrong (2026-08-23)
+
+#### 26.1 The premise is false
+
+§20.4 asserted that a Hetzner **Cloud** API token "is **not** a Hetzner **DNS** API
+token (dns.hetzner.com): different product, different console, different
+credential", and repointed `hetzner-dns-credentials` from `hcloud-token` to a
+to-be-created `hetzner-dns-token`.
+
+Hetzner has since folded DNS into the Cloud console and API. Verified with the
+project's existing `hcloud-token`:
+
+```
+dns.hetzner.com/api/v1/zones            -> 301  Location: https://console.hetzner.com/
+api.hetzner.cloud/v1/zones              -> 200  (zone nutgraf.in id=1476064 mode=primary)
+api.hetzner.cloud/v1/zones/1476064/rrsets -> 200
+```
+
+One token serves both products. Consequences:
+
+- **`hetzner-dns-credentials -> hcloud-token` is correct** and must stay. It was
+  never the defect §20.4 described.
+- **`hetzner-dns-token` cannot be created.** There is no separate DNS token to
+  issue, so §20.4's remediation is unexecutable, and §20.5's precondition — "once
+  20.4 lands a real DNS token" — is void. §20.5's blocker was never a missing
+  credential.
+- The analogy to addendum 12 (`hcloud-token` mistaken for an S3 access key) does not
+  hold: Object Storage keys really are a separate credential; DNS is not.
+
+#### 26.2 The risk this exposes — stated as unverified
+
+`manifests/spoke/spoke-catalog/infra/external-dns.yaml` runs
+`ghcr.io/mconfalonieri/external-dns-hetzner-webhook:v0.7.0` with `HETZNER_API_KEY`
+as its only credential input and **no API-URL override**, so its endpoint is
+compiled in. If that endpoint is `dns.hetzner.com`, no credential will make it work
+and §20.3's DNS automation cannot function as specified.
+
+**This is not established.** The webhook has never executed a single API call. The
+live chain on `spoke-pool-hybrid-dev-01`:
+
+```
+ClusterSecretStore  Ready=False InvalidProviderConfig
+  -> ExternalSecret hetzner-dns-credentials  SecretSyncedError
+    -> Secret hetzner-dns                    not found
+      -> container hetzner-webhook           CreateContainerConfigError
+        -> external-dns                      CrashLoopBackOff (no webhook on :8888)
+```
+
+So the API-retirement hypothesis is untested, and the crashloop is fully explained by
+the missing Secret alone. It is recorded here because it must be **checked before**
+anyone concludes that fixing the credential will fix external-dns — the same
+mistake §20.4 made in the other direction.
+
+The Hetzner DNS-01 webhook at
+`manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml` (v1.4.2, installed
+and unused per §20.5) carries the identical question.
+
+#### 26.3 Decision
+
+1. **Keep `hcloud-token`.** Do not create `hetzner-dns-token`; do not repeat the
+   §20.4 edit. `hetzner-dns-credentials` is correct as committed.
+2. **Before relying on external-dns**, confirm which API its webhook build targets.
+   If it is `dns.hetzner.com`, a build speaking `api.hetzner.cloud/v1/zones/{id}/rrsets`
+   is required, or record management moves off this webhook.
+3. **ADR-051's ownership table** names external-dns (spoke, zone-scoped) as the
+   reconciler for public tenant hostname records. That row is contingent on item 2.
+   Until it resolves, records in the zone are operator-managed, and no automated
+   publisher exists for hub hostnames at all (§20.3 already notes the hub copy has
+   never run).
+
+**Supersedes:** §20.4 in full. **Amends:** §20.5 (its stated precondition does not
+exist), §20.3 (webhook viability is an open question, not an assumption).
 
 ## References
 

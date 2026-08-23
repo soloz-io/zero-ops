@@ -185,6 +185,37 @@ intent; staging did not, and claimed the production domain. The same class of de
 applied to the environment slug used for secret resolution, where every environment resolved
 to the development value.
 
+### Addendum — the DNS reconciler's provider API is an open question (2026-08-23)
+
+The Ownership table above assigns *Public tenant hostname records* to **external-dns
+(spoke, zone-scoped)**, and *DNS provider API credential* to ESO. Both rows have a
+dependency this ADR did not record.
+
+Hetzner has retired the standalone DNS API. `dns.hetzner.com/api/v1/zones` now 301s
+to `console.hetzner.com`; zone and record management moved to the Cloud API
+(`api.hetzner.cloud/v1/zones`, `.../zones/{id}/rrsets`), reachable with the same
+`hcloud-token` the platform already holds. ADR-046 §26.1 records the verification.
+
+The spoke runs `external-dns-hetzner-webhook:v0.7.0`, whose only credential input is
+`HETZNER_API_KEY` and which exposes no API-URL override — so its endpoint is compiled
+in. **Whether that endpoint is the retired API is unverified**: the webhook has never
+executed, because the spoke `ClusterSecretStore` is `Ready=False`, so the
+`hetzner-dns` Secret never materialised and the container sits in
+`CreateContainerConfigError` (ADR-046 §26.2).
+
+Consequences for this ADR:
+
+- The "Public tenant hostname records / external-dns" row is **contingent** on the
+  webhook speaking the current API. Confirm that before treating DNS reconciliation
+  as automated.
+- The "DNS provider API credential" row is satisfied by `hcloud-token`. There is no
+  separate DNS credential to provision; ADR-046 §20.4, which claimed otherwise, is
+  superseded.
+- Until the webhook question resolves, zone records are **operator-managed**, and no
+  automated publisher exists for hub hostnames at all — ADR-046 §20.3 notes the hub
+  external-dns copy has never been referenced by any ApplicationSet.
+
+
 ## References
 
 - ADR-003: Secret Management Architecture
