@@ -101,6 +101,26 @@ error_exit() {
     exit 1
 }
 
+# Dump CAPI/infrastructure state before failing out of a cluster wait.
+#
+# Without this a failed run leaves a log full of identical "Infrastructure=False"
+# lines and nothing else, so diagnosing it requires a live cluster — which by then
+# may have been torn down. The infrastructure object carries the provider's actual
+# error (e.g. LoadBalancerCreateFailed with the hcloud API message); the CAPI Cluster
+# only reflects it. Best-effort throughout: this runs on a path that is already
+# failing and must never itself abort.
+dump_cluster_diagnostics() {
+    local cluster_name="$1"
+    log "── diagnostics: cluster/$cluster_name ─────────────────────────────"
+    kubectl get cluster "$cluster_name" -n platform-capi \
+        --kubeconfig="$KUBECONFIG_PATH" \
+        -o jsonpath='{range .status.conditions[*]}{.type}={.status}  {.reason}  {.message}{"\n"}{end}' 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
+    log "── diagnostics: infrastructure objects ────────────────────────────"
+    kubectl get hetznercluster,kubeadmcontrolplane,machine -n platform-capi \
+        --kubeconfig="$KUBECONFIG_PATH" 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
+    log "───────────────────────────────────────────────────────────────────"
+}
+
 # Generic function to check if a step is completed based on bootstrap state file
 is_step_completed() {
     local step="$1"
@@ -1230,6 +1250,15 @@ step10_wait_spokepool() {
     local cluster_attempt=1
     local cluster_max_attempts=$((CLUSTER_TIMEOUT / 10))
 
+    # Infrastructure reasons that will never converge. CAPH reports a refused cloud
+    # API call as a condition reason and then stops trying to make progress; polling
+    # it to timeout burns CLUSTER_TIMEOUT and throws away the only useful fact.
+    #
+    # This is not theoretical: on 2026-08-23 a leaked-load-balancer quota exhaustion
+    # (ADR-046 §23) surfaced here as LoadBalancerCreateFailed and was polled for the
+    # full 15 minutes while the log printed nothing but "Infrastructure=False".
+    local terminal_infra_reasons='LoadBalancerCreateFailed|LoadBalancerAttachFailed|NetworkCreateFailed|PlacementGroupCreateFailed|SSHKeyNotFound|CredentialsNotFound|FatalError'
+
     while [[ $cluster_attempt -le $cluster_max_attempts ]]; do
         # Get cluster phase and conditions
         local cluster_phase
@@ -1237,10 +1266,18 @@ step10_wait_spokepool() {
             --kubeconfig="$KUBECONFIG_PATH" \
             -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
 
-        local infra_ready
-        infra_ready=$(kubectl get cluster "$cluster_name" -n platform-capi \
+        # Read status, reason and message together. Reading only the status is what
+        # made this loop undiagnosable from its own log: every terminal CAPH failure
+        # and every genuinely-slow provision print the identical line.
+        local infra_line infra_ready infra_rest infra_reason infra_msg
+        infra_line=$(kubectl get cluster "$cluster_name" -n platform-capi \
             --kubeconfig="$KUBECONFIG_PATH" \
-            -o jsonpath='{.status.conditions[?(@.type=="InfrastructureReady")].status}' 2>/dev/null || echo "False")
+            -o jsonpath='{range .status.conditions[?(@.type=="InfrastructureReady")]}{.status}|{.reason}|{.message}{end}' 2>/dev/null || echo "")
+        [[ -z "$infra_line" ]] && infra_line="False||"
+        infra_ready="${infra_line%%|*}"
+        infra_rest="${infra_line#*|}"
+        infra_reason="${infra_rest%%|*}"
+        infra_msg="${infra_rest#*|}"
 
         local cp_ready
         cp_ready=$(kubectl get cluster "$cluster_name" -n platform-capi \
@@ -1257,13 +1294,21 @@ step10_wait_spokepool() {
             break
         fi
 
-        log "Waiting for CAPI Cluster (attempt $cluster_attempt/$cluster_max_attempts): Phase=$cluster_phase, Infrastructure=$infra_ready, ControlPlane=$cp_ready, Workers=$workers_ready"
+        if [[ -n "$infra_reason" && "$infra_reason" =~ $terminal_infra_reasons ]]; then
+            log "❌ CAPI Cluster infrastructure failed terminally: $infra_reason"
+            log "   $infra_msg"
+            dump_cluster_diagnostics "$cluster_name"
+            error_exit "CAPI Cluster infrastructure error ($infra_reason) — terminal, not waiting for timeout"
+        fi
+
+        log "Waiting for CAPI Cluster (attempt $cluster_attempt/$cluster_max_attempts): Phase=$cluster_phase, Infrastructure=$infra_ready${infra_reason:+ ($infra_reason)}, ControlPlane=$cp_ready, Workers=$workers_ready"
         sleep 10
         ((cluster_attempt++))
     done
 
     if [[ $cluster_attempt -gt $cluster_max_attempts ]]; then
         log "❌ CAPI Cluster did not become ready within expected time"
+        dump_cluster_diagnostics "$cluster_name"
         error_exit "CAPI Cluster readiness timeout"
     fi
 

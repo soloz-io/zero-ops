@@ -45,6 +45,19 @@ spec:
               spec:
                 managementPolicies:
                   - "*"
+                # provider-kubernetes defaults to readiness.policy: SuccessfulCreate,
+                # under which "Ready" means the manifest was accepted by the API
+                # server — not that the Cluster it describes came up. The SpokePool XR
+                # aggregates from here, so it reported Ready=True/Available for five
+                # hours while this Cluster sat at InfrastructureReady=False with
+                # LoadBalancerCreateFailed (ADR-046 §23). Any gate reading XR
+                # readiness was being told the spoke existed.
+                #
+                # DeriveFromObject reads the Cluster's own Ready condition instead.
+                # ADR-005 lists this as a known negative of the Object pattern and
+                # ADR-008 §6 requires the composition to close it.
+                readiness:
+                  policy: DeriveFromObject
                 forProvider:
                   manifest:
                     apiVersion: cluster.x-k8s.io/v1beta1

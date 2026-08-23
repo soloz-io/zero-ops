@@ -30,11 +30,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	fmt.Printf("\n[teardown] Starting forceful teardown of cluster '%s'...\n", o.ClusterName)
 
-	// Step 1: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
+	// Step 1: Let the CCM deprovision its own load balancers while it is still
+	// alive. Must run before anything else is destroyed — see the function comment.
+	ccmLoadBalancerIPs := o.drainLoadBalancerServices(ctx)
+
+	// Step 2: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
 	o.stripKubernetesFinalizers(ctx)
 
-	// Step 2: Delete Hetzner cloud infrastructure directly via Hetzner API
-	if err := o.deleteHetznerResources(ctx); err != nil {
+	// Step 3: Delete Hetzner cloud infrastructure directly via Hetzner API
+	if err := o.deleteHetznerResources(ctx, ccmLoadBalancerIPs); err != nil {
 		fmt.Printf("[teardown] ⚠️  Hetzner cloud resource cleanup encountered warnings: %v\n", err)
 	}
 
@@ -47,8 +51,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	return nil
 }
 
-// stripKubernetesFinalizers attempts fast non-blocking removal of finalizers on CAPI CRs
-func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
+// resolveKubectlBaseArgs locates the kubeconfig (or kind context) for the cluster
+// being torn down and returns the kubectl flags that select it, or ok=false when
+// no usable target exists.
+//
+// Shared by every step that talks to the doomed cluster so they cannot drift onto
+// different clusters — a teardown that drains load balancers from one cluster and
+// strips finalizers on another would be worse than doing neither.
+func (o *Orchestrator) resolveKubectlBaseArgs() (baseArgs []string, ok bool) {
 	stateMgr := state.NewStateManager(o.ClusterName)
 	bootstrapState, _ := stateMgr.Load()
 
@@ -71,16 +81,126 @@ func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
 		}
 	}
 
-	useContext := strings.HasPrefix(kubeconfig, "--context=")
-	var baseArgs []string
-	if useContext {
-		baseArgs = []string{"--context", strings.TrimPrefix(kubeconfig, "--context=")}
-	} else if kubeconfig != "" {
-		if _, err := os.Stat(kubeconfig); err != nil {
-			return
+	if strings.HasPrefix(kubeconfig, "--context=") {
+		return []string{"--context", strings.TrimPrefix(kubeconfig, "--context=")}, true
+	}
+	if kubeconfig == "" {
+		return nil, false
+	}
+	if _, err := os.Stat(kubeconfig); err != nil {
+		return nil, false
+	}
+	return []string{"--kubeconfig", kubeconfig}, true
+}
+
+// drainLoadBalancerServices deletes every type=LoadBalancer Service on the cluster
+// and gives the Hetzner CCM the chance to deprovision the load balancers it owns,
+// while it is still running. It returns the public IPs those services held, so a
+// later sweep can reap by IP whatever the CCM did not remove.
+//
+// This must run before anything else is destroyed. A CCM-created load balancer is
+// invisible to the name/label matcher in deleteHetznerResources: the CCM names it
+// a<service-uid> and labels it only hcloud-ccm/service-uid, so it carries neither
+// the cluster name nor a caph-cluster-* label. The CCM is the only component that
+// can deprovision it, and it dies with the cluster — so the load balancer survives
+// as a billed orphan that nothing will ever collect.
+//
+// That is not hypothetical. Four rebuilds on 2026-08-22 leaked four load balancers
+// into a five-load-balancer project quota. The fifth request — the spoke's own
+// control-plane LB — was refused with resource_limit_exceeded, leaving
+// spoke-pool-hybrid-dev-01 at InfrastructureReady=False for five hours while the
+// bootstrap polled a terminal error to timeout. See ADR-046 §23.
+//
+// Order matters in the other direction too: the Service must go first. Deleting the
+// cloud load balancer while its Service still exists just makes the CCM recreate it.
+func (o *Orchestrator) drainLoadBalancerServices(ctx context.Context) []string {
+	baseArgs, ok := o.resolveKubectlBaseArgs()
+	if !ok {
+		fmt.Println("\n[teardown] ⚠️  No usable kubeconfig; skipping load balancer drain")
+		fmt.Println("[teardown]    CCM-owned load balancers will be reaped by name only — see ADR-046 §23")
+		return nil
+	}
+
+	fmt.Println("\n[teardown] Draining LoadBalancer Services so the CCM deprovisions its load balancers...")
+
+	listCtx, cancelList := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelList()
+
+	listArgs := append(append([]string{}, baseArgs...),
+		"get", "svc", "--all-namespaces",
+		"-o", `jsonpath={range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.status.loadBalancer.ingress[*].ip}{"\n"}{end}`)
+	out, err := exec.CommandContext(listCtx, "kubectl", listArgs...).Output()
+	if err != nil {
+		fmt.Printf("[teardown] ⚠️  Could not list LoadBalancer Services (%v); continuing\n", err)
+		return nil
+	}
+
+	type lbService struct{ namespace, name string }
+	var services []lbService
+	var ips []string
+
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
 		}
-		baseArgs = []string{"--kubeconfig", kubeconfig}
-	} else {
+		services = append(services, lbService{namespace: fields[0], name: fields[1]})
+		// Remaining fields are the assigned VIPs. A Hetzner LB publishes IPv4, IPv6
+		// and (when attached) a private address; only the IPv4 identifies the load
+		// balancer in the API, but collecting all of them costs nothing and the
+		// sweep matches exactly.
+		ips = append(ips, fields[2:]...)
+	}
+
+	if len(services) == 0 {
+		fmt.Println("[teardown] ✓ No LoadBalancer Services present")
+		return nil
+	}
+
+	for _, svc := range services {
+		fmt.Printf("[teardown] Deleting LoadBalancer Service: %s/%s\n", svc.namespace, svc.name)
+		delCtx, cancelDel := context.WithTimeout(ctx, 15*time.Second)
+		delArgs := append(append([]string{}, baseArgs...),
+			"delete", "svc", svc.name, "-n", svc.namespace, "--wait=false", "--ignore-not-found")
+		if err := exec.CommandContext(delCtx, "kubectl", delArgs...).Run(); err != nil {
+			fmt.Printf("[teardown] ⚠️  Failed to delete Service %s/%s: %v\n", svc.namespace, svc.name, err)
+		}
+		cancelDel()
+	}
+
+	// The service controller holds a load-balancer-cleanup finalizer until the CCM
+	// confirms the cloud resource is gone, so the Service disappearing IS the
+	// deprovision completing. Bounded, because a broken or already-dead CCM never
+	// clears it and teardown must not hang on that — the IP sweep is the fallback.
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		remaining := 0
+		for _, svc := range services {
+			checkCtx, cancelCheck := context.WithTimeout(ctx, 10*time.Second)
+			getArgs := append(append([]string{}, baseArgs...),
+				"get", "svc", svc.name, "-n", svc.namespace, "--ignore-not-found",
+				"-o", "jsonpath={.metadata.name}")
+			gotOut, gotErr := exec.CommandContext(checkCtx, "kubectl", getArgs...).Output()
+			cancelCheck()
+			if gotErr == nil && len(strings.TrimSpace(string(gotOut))) > 0 {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			fmt.Println("[teardown] ✓ CCM deprovisioned all load balancers")
+			return ips
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	fmt.Printf("[teardown] ⚠️  CCM did not finish within 90s; %d load balancer IP(s) will be reaped directly\n", len(ips))
+	return ips
+}
+
+// stripKubernetesFinalizers attempts fast non-blocking removal of finalizers on CAPI CRs
+func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
+	baseArgs, ok := o.resolveKubectlBaseArgs()
+	if !ok {
 		return
 	}
 
@@ -115,8 +235,16 @@ func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
 	}
 }
 
-// deleteHetznerResources deletes all matching Hetzner cloud resources directly via the Hetzner API
-func (o *Orchestrator) deleteHetznerResources(ctx context.Context) error {
+// deleteHetznerResources deletes all matching Hetzner cloud resources directly via
+// the Hetzner API.
+//
+// ccmLoadBalancerIPs comes from drainLoadBalancerServices and lists the public
+// addresses of load balancers the CCM owned. Matching on those addresses is what
+// catches a CCM load balancer at all: its name and labels carry nothing that ties
+// it to this cluster, so the name/label matcher below cannot see it. The IP match
+// needs no cooperation from naming conventions, which also means it covers
+// LoadBalancer Services authored by a fleet, not just platform ones.
+func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalancerIPs []string) error {
 	fmt.Println("\n[teardown] Forcefully deleting Hetzner Cloud infrastructure resources...")
 
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
@@ -170,10 +298,31 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context) error {
 	}
 
 	// 2. Delete load balancers
+	//
+	// Two matchers, because they cover disjoint sets. CAPH's control-plane LB is
+	// named after the cluster and matches by name. A CCM-created LB is named
+	// a<service-uid> with a single hcloud-ccm/service-uid label and matches
+	// neither name nor label — it is only reachable by the IP recorded during the
+	// drain. Missing that second matcher is what leaked four load balancers and
+	// exhausted the project quota (ADR-046 §23).
+	orphanIPs := make(map[string]bool, len(ccmLoadBalancerIPs))
+	for _, ip := range ccmLoadBalancerIPs {
+		if ip = strings.TrimSpace(ip); ip != "" {
+			orphanIPs[ip] = true
+		}
+	}
+
+	matchesDrainedIP := func(lb *hcloud.LoadBalancer) bool {
+		if len(orphanIPs) == 0 || lb.PublicNet.IPv4.IP == nil {
+			return false
+		}
+		return orphanIPs[lb.PublicNet.IPv4.IP.String()]
+	}
+
 	allLBs, err := client.LoadBalancer.All(ctx)
 	if err == nil {
 		for _, lb := range allLBs {
-			if matchesCluster(lb.Name, lb.Labels) {
+			if matchesCluster(lb.Name, lb.Labels) || matchesDrainedIP(lb) {
 				fmt.Printf("[teardown] Deleting load balancer: %s (ID: %d)\n", lb.Name, lb.ID)
 				if _, err := client.LoadBalancer.Delete(ctx, lb); err != nil {
 					fmt.Printf("[teardown] ⚠️  Failed to delete load balancer %s: %v\n", lb.Name, err)

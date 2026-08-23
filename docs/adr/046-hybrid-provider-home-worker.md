@@ -1245,6 +1245,91 @@ hybrid. §11 already rejects this: a PVC that omits `storageClassName` getting
 makes a missing placement declaration loud instead of silently landing data on
 node-local ephemeral disk. The position stands unchanged.
 
+### 23. Cloud load balancers are cluster-lifecycle resources, not Service side effects (2026-08-23)
+
+§17.4 moved spoke ingress onto `HetznerCluster.spec.controlPlaneLoadBalancer.extraServices`
+so CAPH owns the public entry point and retargets it when the CP machine rolls. §19
+extended the home-lab pattern to the hub but left hub ingress on a CCM-managed
+`type: LoadBalancer` Service. Two consequences followed, both realised.
+
+**The leak.** The Hetzner CCM names a load balancer `a<service-uid>` and gives it one
+label, `hcloud-ccm/service-uid`. Neither carries the cluster name nor a
+`caph-cluster-*` label, so `hub teardown`'s name/label matcher could not see it — and
+the CCM, the only component that can deprovision it, dies with the cluster. Each
+rebuild therefore stranded one billed load balancer that nothing would ever collect.
+
+Four rebuilds on 2026-08-22 filled a five-load-balancer project quota. The fifth
+request was the spoke's own control-plane LB:
+
+```
+HetznerCluster spoke-pool-hybrid-dev-01-ps847
+  READY=false  LoadBalancerCreateFailed
+  failed to create load balancer: load balancer limit exceeded (resource_limit_exceeded)
+```
+
+`spoke-pool-hybrid-dev-01` sat at `InfrastructureReady=False` for five hours. The
+bootstrap polled it for the full `CLUSTER_TIMEOUT` and logged only
+`Infrastructure=False`, never the reason — a terminal condition presented as a slow
+provision. `Workers=True` throughout, because the burst pool is `replicas: 0` and is
+trivially satisfied.
+
+**The load balancer never worked anyway.** It carried zero targets. kubeadm sets
+`node.kubernetes.io/exclude-from-external-load-balancers` on control-plane nodes and
+the CCM honours it by registering no backends — addendum 2 exactly, codified in
+`spokepool-clusterclass-v1.yaml` and never mirrored into
+`internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml`. On a hybrid hub the
+control plane is the *only* Hetzner node, because home workers carry
+`unmanaged://` providerIDs the CCM cannot target at all and logs as
+`failed to convert provider id to server id`. So the CCM path cannot serve a hybrid
+cluster even when the quota is free.
+
+This is the third instance of one shape: a fix codified for the spoke, then the hub
+grows the same property and does not inherit it (§21 tailscale, §22 CSI, now this).
+
+**Decision.** A cloud load balancer is owned by the cluster lifecycle, not created as
+a side effect of a Service.
+
+1. Public ingress on the hub joins the CAPH-managed control-plane LB via
+   `extraServices`, as spokes already do; ingress-nginx becomes a hostNetwork
+   DaemonSet on the control plane with a `ClusterIP` Service. One LB per cluster,
+   deleted by CAPH with the cluster.
+2. The hub ClusterClass clears
+   `node.kubernetes.io/exclude-from-external-load-balancers`, matching the spoke.
+3. Any remaining `type: LoadBalancer` Service **must** set
+   `load-balancer.hetzner.cloud/name` containing the cluster name, or teardown
+   cannot reap it by name.
+4. Teardown deletes LoadBalancer Services through the cluster API **first** and
+   waits for the CCM to deprovision — the Service's `load-balancer-cleanup`
+   finalizer makes the Service disappearing the signal that the cloud resource is
+   gone. Deleting the cloud resource while its Service still exists only makes the
+   CCM recreate it.
+5. Whatever the CCM does not remove within the bounded wait is reaped by the public
+   IP recorded during the drain. That match relies on no naming convention, so it
+   also covers a `type: LoadBalancer` Service authored by a fleet, which ADR-047
+   Tier 3 permits and which would otherwise leak identically.
+
+**Codified (2026-08-23):** items 4 and 5 in
+`internal/hub-cli/teardown/orchestrator.go` — `drainLoadBalancerServices` runs before
+finalizer stripping and feeds drained IPs to the sweep in `deleteHetznerResources`;
+kubeconfig resolution is shared via `resolveKubectlBaseArgs` so the two steps cannot
+target different clusters.
+
+**Pending:** items 1–3, plus `preflight/15-hetzner-capacity.sh` (fails on leaked
+zero-target CCM load balancers and on insufficient quota headroom before a run
+starts) and the ADR-005 readiness gap below. Items 1 and 2 edit
+`KubeadmControlPlaneTemplate.spec.template.spec`, which CAPI treats as immutable once
+referenced, so per §17.3 they land with a hub reprovision rather than a version
+rotation.
+
+**Related — the XR reported Ready throughout.** `SpokePool` held
+`Ready=True / Available` for the whole five hours. The `capi-cluster` `Object` in both
+SpokePool compositions declares no `spec.readiness`, so provider-kubernetes applies
+its `SuccessfulCreate` default: ready means *the manifest applied*. ADR-005 lists this
+as a known negative and ADR-008 §6 requires the composition to close it.
+`readiness.policy: DeriveFromObject` makes the XR reflect the Cluster's own `Ready`
+condition. Until that lands, no gate may treat SpokePool readiness as evidence that a
+spoke exists.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

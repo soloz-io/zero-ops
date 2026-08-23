@@ -71,6 +71,12 @@ else
     ENV_ZONE="${ENVIRONMENT}.nutgraf.in"
 fi
 
+# Hetzner exposes no quota endpoint, so the project's load balancer ceiling is a
+# declared constant rather than something that can be read. Raise it here if the
+# account limit is raised — the check that consumes it (preflight/15) can only be
+# as right as this number.
+HETZNER_LB_QUOTA="${HETZNER_LB_QUOTA:-5}"
+
 # ─── Cluster access (cluster/ modules only) ──────────────────────────────────
 HUB_KUBECONFIG="${HUB_KUBECONFIG:-${KUBECONFIG_PATH:-${KUBECONFIG:-}}}"
 SPOKE_KUBECONFIG="${SPOKE_KUBECONFIG:-}"
