@@ -8,10 +8,10 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
-	"k8s.io/apimachinery/pkg/util/wait"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
