@@ -1569,6 +1569,62 @@ terminal banner asserted four conditions it never measured. The banner now repor
 only which gates ran, and `cluster/65-hub-placement-capacity.sh` asserts the hub has
 a Ready, schedulable node to place its platform on.
 
+#### 24.5 Home-lab hosts are thermally limited, and that is a platform concern (2026-08-23)
+
+Four host shutdowns in one hour took the hub's only worker down mid-bootstrap and,
+separately, killed a spoke provisioning run 23 seconds after it started. Every
+Kubernetes-side symptom — 53 pods Terminating, 48 Pending, every hub Deployment at
+`0/N` — was downstream of the host powering off.
+
+**The cause was misread twice before it was found.** The event log showed `1074`
+("initiated by NT AUTHORITY\LOCAL SERVICE"), which reads as a clean administrative
+shutdown, and the box is a laptop whose battery reports 0 mWh while on AC — so the
+first conclusion was Windows enacting its critical-battery action, and
+`BATACTIONCRIT` was set to None. The shutdowns continued. The actual cause was one
+layer down, in a correlated event at the same second:
+
+```
+Kernel-Power 86 (Error): "The system was shut down due to a critical thermal event."
+  ACPI Thermal Zone = Intel(R) Dynamic Platform Thermal Framework
+  _CRT = 373K                                    (99.85 °C)
+```
+
+`esifsvc` — Intel's thermal framework — enacts the trip *via* `shutdown.exe`, which
+is why it appears as an administrative shutdown by a service account. The battery was
+a real fault but an unrelated one.
+
+**Why it overheats.** A Dell Latitude E7470 (15 W i5-6300U, 2 cores / 4 threads) was
+running two Kubernetes node VMs, and the provisioner sized each VM's vCPUs as
+`NumberOfLogicalProcessors` with no awareness that another VM would claim the same
+threads — 8 vCPUs on 4 threads, uncapped. The trips cluster exactly around bootstrap
+and provisioning activity.
+
+**Decision — host thermal state is provisioner-owned, not operator-owned.** Anything
+applied by hand to a home-lab host is lost on the next rebuild, so the settings live
+in `phase_prep_hyperv`, beside the lid/sleep settings that were already there:
+
+- `PROCTHROTTLEMAX` = `HOST_CPU_MAX_PCT` (default 70, `--host-cpu-max` to override).
+  Slower bootstraps are strictly better than a shutdown mid-provision.
+- turbo (`PERFBOOSTMODE`) disabled — the spikes come from there and it buys little
+  under container load. Hidden by default on OEM images, so it is un-hidden first.
+- `SYSCOOLPOL` = Active: ramp the fan *before* throttling. Passive throttles first
+  and lets heat accumulate, which is how the critical trip is reached.
+- `BATACTIONCRIT` = None, carried forward. It was not the cause, but a dead battery
+  on a laptop-as-server is a real hazard and the setting is correct regardless.
+- The phase reports any prior Kernel-Power 86 events on the host, so a thermally
+  marginal box announces itself at provision time instead of during a bootstrap.
+
+**vCPU allocation now divides the host rather than replicating it:** threads are
+split across the VMs that will share the box (existing VMs + this one, floor of 2).
+Two nodes on a 4-thread part get 2 vCPUs each — 1:1 instead of 2:1.
+
+**Limits of the software fix, stated plainly.** Capping CPU reduces the trip rate; it
+does not repair cooling. A nine-year-old ultrabook running two Kubernetes nodes is
+thermally marginal by construction, and the durable remedies are physical — clean the
+fan, repaste, improve airflow — or a host with real thermal headroom. The provisioner
+now surfaces the evidence rather than leaving it to be rediscovered from a cluster
+that merely looks broken.
+
 #### Codified
 
 - `operators/hub-operator/internal/controller/spokepool_controller.go` —

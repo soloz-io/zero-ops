@@ -36,6 +36,12 @@ ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
 VSWITCH_NAME="Hybrid-Switch"
+
+# Sustained CPU ceiling applied to the Windows host (ADR-046 §24.5). These hosts are
+# thin laptops running Kubernetes node VMs; at 100% they reach the ACPI critical
+# thermal trip and the firmware shuts them down mid-provision. Override per host with
+# --host-cpu-max if a box has healthier cooling.
+HOST_CPU_MAX_PCT="${HOST_CPU_MAX_PCT:-70}"
 TARGET_CLUSTER="all"    # Default: 'all' (auto-routes nodes to Hub/Spoke per home-lab.env)
 MEMORY_BYTES="0"         # 0 = auto-detect (14GB or TotalHostRAM - 2GB)
 MIN_MEMORY_BYTES="0"     # 0 = auto-detect (2GB)
@@ -105,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --env)              ENV_FILE="$2"; shift 2 ;;
     --ts-authkey)       TS_AUTHKEY="$2"; shift 2 ;;
     --vswitch)          VSWITCH_NAME="$2"; shift 2 ;;
+    --host-cpu-max)     HOST_CPU_MAX_PCT="$2"; shift 2 ;;
     --upgrade-flatcar)  UPGRADE_FLATCAR="true"; shift ;;
     --memory-gb)        MEMORY_BYTES="$(($2 * 1024 * 1024 * 1024))"; shift 2 ;;
     --max-memory-gb) MAX_MEMORY_BYTES="$(($2 * 1024 * 1024 * 1024))"; shift 2 ;;
@@ -246,18 +253,63 @@ phase_prep_hyperv() {
   local SSH_TARGET="$1" HOSTNAME="$2"
   echo "    [2/6] Preparing Windows host & Hyper-V..."
   local PS_PREP="
-Write-Output '=== [2a/2c] Power & Lid Settings ==='
+Write-Output '=== [2a/2d] Power & Lid Settings ==='
 try {
   powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0
   powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0
   powercfg /change standby-timeout-ac 0
   powercfg /change hibernate-timeout-ac 0
   powercfg /change monitor-timeout-ac 5
+  # Critical-battery action -> Do nothing. These boxes are laptops-as-servers with
+  # exhausted batteries reporting 0 mWh while on AC; Windows otherwise enacts the
+  # critical action ON AC and hibernates a running node out from under the cluster.
+  powercfg /setacvalueindex SCHEME_CURRENT SUB_BATTERY BATACTIONCRIT 0
+  powercfg /setdcvalueindex SCHEME_CURRENT SUB_BATTERY BATACTIONCRIT 0
   powercfg /setactive SCHEME_CURRENT
-  Write-Output '    ✓ Lid Close -> Do Nothing; Sleep/Hibernate -> Never'
+  Write-Output '    ✓ Lid Close -> Do Nothing; Sleep/Hibernate -> Never; Critical battery -> None'
 } catch { Write-Output ('    ⚠ Power: ' + \$_.Exception.Message) }
 
-Write-Output '=== [2b/2c] Hyper-V Feature Check ==='
+Write-Output '=== [2b/2d] Thermal Protection ==='
+# Why this exists (ADR-046 §24.5): on 2026-08-23 a Dell Latitude E7470 (15W
+# i5-6300U, 2 cores / 4 threads) hosting two Kubernetes node VMs shut itself down
+# four times in one hour:
+#     Kernel-Power 86: 'The system was shut down due to a critical thermal event.'
+#     ACPI Thermal Zone = Intel(R) Dynamic Platform Thermal Framework, _CRT = 373K
+# esifsvc enacts that trip via shutdown.exe as NT AUTHORITY\LOCAL SERVICE, which
+# surfaces as event 1074 and looks like a clean administrative shutdown. It is not:
+# it is the hardware protecting itself, and no amount of Kubernetes-side work
+# survives it. Capping sustained CPU is the only software lever that helps.
+try {
+  \$g = ((powercfg /getactivescheme) -join ' ') -replace '.*GUID:\s*([0-9a-f-]{36}).*','\$1'
+  \$SUBPROC = '54533251-82be-4824-96c1-47b60b740d00'
+  \$BOOST   = 'be337238-0d82-4146-a960-4f3749d470c7'
+  # Sustained ceiling. 70% keeps a 15W part under its trip point under container
+  # load; slower bootstraps are strictly better than a shutdown mid-provision.
+  powercfg /setacvalueindex \$g SUB_PROCESSOR PROCTHROTTLEMAX $HOST_CPU_MAX_PCT
+  powercfg /setdcvalueindex \$g SUB_PROCESSOR PROCTHROTTLEMAX $HOST_CPU_MAX_PCT
+  # Turbo is where the thermal spikes come from and buys little here. The setting
+  # is hidden by default on most OEM images, hence the un-hide first.
+  powercfg /attributes \$SUBPROC \$BOOST -ATTRIB_HIDE | Out-Null
+  powercfg /setacvalueindex \$g \$SUBPROC \$BOOST 0
+  powercfg /setdcvalueindex \$g \$SUBPROC \$BOOST 0
+  # Active cooling ramps the fan BEFORE throttling. Passive throttles first and
+  # lets heat accumulate, which is how the critical trip is reached.
+  powercfg /setacvalueindex \$g SUB_PROCESSOR SYSCOOLPOL 1
+  powercfg /setdcvalueindex \$g SUB_PROCESSOR SYSCOOLPOL 1
+  powercfg /setactive \$g
+  Write-Output ('    ✓ CPU max ' + $HOST_CPU_MAX_PCT + '%, turbo off, active cooling')
+  \$therm = Get-WinEvent -FilterHashtable @{LogName='System'; Id=86; ProviderName='Microsoft-Windows-Kernel-Power'} -MaxEvents 3 -ErrorAction SilentlyContinue
+  if (\$therm) {
+    Write-Output '    ⚠ This host HAS shut down on thermal trips before:'
+    # The '→' prefix is load-bearing: win_ps_stream filters host output through
+    # grep -E '✓|→|===|⚠|Error|Failed|Exception', so an unprefixed line is silently
+    # discarded and the warning would print with no evidence under it.
+    \$therm | ForEach-Object { Write-Output ('      → ' + \$_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')) }
+    Write-Output '      → If these continue, the fix is physical: clean the fan, repaste, improve airflow.'
+  }
+} catch { Write-Output ('    ⚠ Thermal: ' + \$_.Exception.Message) }
+
+Write-Output '=== [2c/2d] Hyper-V Feature Check ==='
 try {
   \$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
   \$feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -ErrorAction SilentlyContinue
@@ -271,7 +323,7 @@ try {
   }
 } catch { Write-Output ('    ⚠ Hyper-V feature: ' + \$_.Exception.Message) }
 
-Write-Output '=== [2c/2c] Flatcar Directories & Virtual Switch ==='
+Write-Output '=== [2d/2d] Flatcar Directories & Virtual Switch ==='
 try {
   \$solozDir = 'C:\ProgramData\soloz\flatcar'
   if (!(Test-Path \$solozDir)) { New-Item -ItemType Directory -Path \$solozDir -Force | Out-Null }
@@ -961,7 +1013,16 @@ if ('$CLUSTER_TARGET' -eq 'spoke') {
 }
 
 \$proc = Get-CimInstance Win32_Processor
-\$autoCpus = [math]::Max(2, [int]\$proc.NumberOfLogicalProcessors)
+# Divide the host's threads between the VMs that will share it, rather than handing
+# every VM the full count. The old behaviour gave each VM NumberOfLogicalProcessors,
+# so two nodes on a 4-thread part ran 8 vCPUs — 2:1 oversubscription, and the direct
+# cause of the thermal trips in ADR-046 §24.5. Counts VMs already defined plus this
+# one, so it self-adjusts as a box gains or loses nodes. Floor of 2: kubelet plus a
+# CNI on a single vCPU is not viable.
+\$logical = [int]\$proc.NumberOfLogicalProcessors
+\$peerVms = @(Get-VM -ErrorAction SilentlyContinue | Where-Object { \$_.Name -ne \$vmName }).Count
+\$share   = [math]::Max(1, \$peerVms + 1)
+\$autoCpus = [math]::Max(2, [math]::Floor(\$logical / \$share))
 
 \$finalMaxRam = \$autoMaxRam
 if ($MAX_MEMORY_BYTES -gt 0) { \$finalMaxRam = [int64]$MAX_MEMORY_BYTES }
