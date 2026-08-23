@@ -65,6 +65,39 @@ The distinction this ADR draws is **placement, not membership**: a workload move
 from a home-lab node to a cloud node within one cluster, distinguished only by
 the `workload-location` label (ADR-046 §11 placement classes).
 
+```
+            ONE spoke cluster — one control plane, one CNI, one DNS, one quota
+ ┌────────────────────────────────────────────────────────────────────────────────┐
+ │                                                                                │
+ │   workload-location: home                     workload-location: hetzner       │
+ │   ┌──────────────────────────────┐            ┌──────────────────────────────┐ │
+ │   │  home-lab nodes — FIXED      │            │  burst nodes — ELASTIC       │ │
+ │   │  (capacity you already own)  │            │  MachineDeployment 0 ──► N   │ │
+ │   │                              │            │  (ADR-046 burst pool)        │ │
+ │   │  · platform infrastructure   │            │                              │ │
+ │   │  · platform controllers      │            │  · Sandbox pods              │ │
+ │   │  · fleet control plane:      │            │  · EphemeralJob pods         │ │
+ │   │      API, BFF, frontend,     │            │  · renders, inference,       │ │
+ │   │      coordinating workers    │            │    fine-tuning, batch        │ │
+ │   │                              │            │                              │ │
+ │   │  envelope set by PLATFORM    │            │  envelope set by TENANT      │ │
+ │   └──────────────────────────────┘            └──────────────────────────────┘ │
+ │                  ▲                                           ▲                 │
+ │                  │                                           │                 │
+ │                  └───────────────── same cluster ────────────┘                 │
+ │                    ClusterIP resolves · cluster DNS answers                    │
+ │                    CiliumClusterwideNetworkPolicy enforces                     │
+ │                    kubectl logs streams · events, CSI, quota apply             │
+ └────────────────────────────────────────────────────────────────────────────────┘
+
+   NOT a second cluster · NOT a second control plane · NOT an external executor.
+   A burst node is an ordinary node of this spoke that happens to be disposable.
+```
+
+```
+EphemeralJob → Job → unschedulable Pod → autoscaler → CAPI/CAPH → Hetzner → scheduler → Pod
+```
+
 Everything else in this decision depends on that invariant. Constraint 2 is
 satisfied — `ClusterIP` Services resolve, cluster DNS answers, the platform
 `CiliumClusterwideNetworkPolicy` enforces, `kubectl logs` streams — because the
@@ -196,6 +229,34 @@ spec:
 This bounds a fleet's burst footprint without bounding its in-cluster
 footprint, is enforced by the API server, and requires no custom webhook. It
 composes with `maxNodes` (§2): the XR caps the cell, the quota caps the fleet.
+
+Two bounds, two authors, two enforcement points — neither raisable by a fleet:
+
+```
+   PLATFORM Git                                FLEET REGISTRY (ADR-047 Tier 2)
+   BurstCapacity.maxNodes: 8                   fleet declares a burst request,
+        │                                      platform AUTHORS the object
+        │                                           │
+        │  caps the CELL's spend                    │  caps the FLEET's share
+        ▼                                           ▼
+ ┌───────────────────────────────┐       ┌────────────────────────────────────┐
+ │ node-group-max-size           │       │ ResourceQuota                      │
+ │   annotation on the burst     │       │   scopeSelector: PriorityClass     │
+ │   MachineDeployment           │       │     In [burst-tenant]              │
+ │                               │       │   hard: cpu / memory / pods        │
+ │ enforced by the autoscaler    │       │ enforced by the API server         │
+ └───────────────────────────────┘       └────────────────────────────────────┘
+        │                                           │
+        └──────────────────┬────────────────────────┘
+                           ▼
+              a fleet cannot exceed EITHER bound:
+              quota rejects the pod before it is ever pending,
+              maxNodes refuses the node even if the pod is pending
+```
+
+The `burst-tenant` PriorityClass sits below every platform workload, so burst
+work can never preempt infrastructure — the quota scope and the preemption order
+come from the same object.
 The quota is platform-rendered from `fleet-registry` values at ADR-047 Tier 2 —
 a fleet declares its request, the platform authors the object.
 

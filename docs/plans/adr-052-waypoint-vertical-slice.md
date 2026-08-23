@@ -55,7 +55,9 @@ the pod, its Service access and its callback target are all in the same spoke
 Ordered by dependency. Each has an exit criterion provable without the layer
 above it.
 
-**P0 — prove Machine↔Node correlation on a burst node.**
+**P0 — prove Machine↔Node correlation on a burst node.** *(blocked: see
+Finding 1b — do not scale `md-0` until the replicas/annotations change lands as
+one commit.)*
 Scale `md-0` to `1` by hand and confirm the joining node receives a
 `providerID` from CCM, that CAPI populates `Machine.status.nodeRef`, and that
 `NodeHealthy` becomes `True`. Without this, the autoscaler can scale **up** from
@@ -202,6 +204,44 @@ kubectl get machinedeployment <md> -n platform-capi --show-managed-fields -o jso
 ```
 
 P1 is done when `capi-topology` no longer owns `f:replicas`.
+
+**Finding 1b — omitting `replicas` from the composition base is not enough, and
+CAPI enforces the rule itself.** Verified 2026-08-23 by landing the change and
+watching it fail. Two things the first attempt got wrong:
+
+1. A `FromCompositeFieldPath` patch re-injects the field:
+   `spec.nodePool.count → ...machineDeployments[0].replicas`. Removing it from
+   the base leaves the patch, so the rendered `Object` still carried
+   `replicas: 0`. **Both** must go together.
+2. `provider-kubernetes` applies the `Cluster` with a full **Update** (field
+   manager `crossplane-kubernetes-provider`, `op=Update` — not server-side
+   apply), so a rejected manifest fails the *entire* object update, not just the
+   offending field.
+
+The rejection is authoritative and is worth quoting, because it is CAPI
+independently asserting this ADR's §2:
+
+```
+admission webhook "validation.cluster.cluster.x-k8s.io" denied the request:
+machineDeployments[md-0].replicas: Invalid value: 0: cannot be set
+  ... if the same MachineDeploymentTopology has autoscaler annotations
+```
+
+Consequences to carry into P1:
+
+- `replicas` and the autoscaler bounds are **mutually exclusive by CAPI's own
+  validation**. There is no partial migration: the base field, the patch, and
+  the annotations move in one commit or not at all.
+- A half-landed change **wedges the Cluster**. While rejected, the `Object` sits
+  `Synced=False (ReconcileError)` and *no* Crossplane update to that Cluster
+  lands — including unrelated ones. The spoke keeps running (`Ready=True`), so
+  the failure is quiet unless the `Object` condition is checked.
+- `spec.nodePool.count` stops driving the burst pool. Whatever consumes that
+  field must be retired in the same change.
+
+**Status: deferred.** The annotations were reverted (`d4955289`) because
+`spec.nodePool.count → replicas` is under separate test. P1 resumes when that
+work lands, and then changes base, patch and annotations together.
 
 **Finding 2 — there is one burst size class, not many.** The ClusterClass
 defines a single `default-worker` class, and machine type comes from the
