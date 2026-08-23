@@ -775,6 +775,18 @@ stringData:
               failureThreshold: 3
               timeoutSeconds: 5
             env:
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-host
+                  optional: true
+            - name: KUBERNETES_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-port
+                  optional: true
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -890,6 +902,18 @@ stringData:
             - cilium-dbg
             - build-config
             env:
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-host
+                  optional: true
+            - name: KUBERNETES_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-port
+                  optional: true
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -1249,6 +1273,18 @@ stringData:
             - --config-dir=/tmp/cilium/config-map
             - --debug=$(CILIUM_DEBUG)
             env:
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-host
+                  optional: true
+            - name: KUBERNETES_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-port
+                  optional: true
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:

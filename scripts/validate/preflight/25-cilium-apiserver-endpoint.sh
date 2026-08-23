@@ -53,6 +53,63 @@ PY
         fi
     done
 
+    # 1b. The ConfigMap value alone is NOT sufficient, and this arm exists because
+    #     shipping it that way did not work.
+    #
+    #     The `config` init container's job is to READ cilium-config from the API.
+    #     It cannot use a value inside that ConfigMap to find the API — circular —
+    #     so it uses KUBERNETES_SERVICE_HOST, which kubelet defaults to the
+    #     ClusterIP. Upstream's chart injects that env var on the containers when
+    #     k8sServiceHost is set; a split that populates only the ConfigMap leaves
+    #     the agent still dialling 10.96.0.1 and still deadlocked.
+    #
+    #     configMapKeyRef keeps one owner: the DaemonSet names a KEY, the rendered
+    #     ConfigMap supplies the VALUE, and kubelet resolves it at pod creation over
+    #     its own kubeconfig. optional:true is required — the hub's base has no such
+    #     key and must keep using the ClusterIP, which is correct there because the
+    #     hub retains kube-proxy.
+    for addon in "manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml" \
+                 "manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml"; do
+        [[ -f "$VALIDATE_ROOT/$addon" ]] || continue
+        if (cd "$VALIDATE_ROOT" && python3 - "$addon" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+need = {("DaemonSet", "cilium"): {"config", "cilium-agent"},
+        ("Deployment", "cilium-operator"): {"cilium-operator"}}
+seen = set()
+for d in yaml.safe_load_all((doc.get("stringData") or {}).get("cilium.yaml", "")):
+    if not d:
+        continue
+    key = (d.get("kind"), d.get("metadata", {}).get("name"))
+    if key not in need:
+        continue
+    spec = d["spec"]["template"]["spec"]
+    for grp in ("initContainers", "containers"):
+        for c in spec.get(grp, []):
+            if c["name"] not in need[key]:
+                continue
+            envs = {e["name"]: e for e in c.get("env", [])}
+            for var, k in (("KUBERNETES_SERVICE_HOST", "k8s-service-host"),
+                           ("KUBERNETES_SERVICE_PORT", "k8s-service-port")):
+                ref = (envs.get(var) or {}).get("valueFrom", {}).get("configMapKeyRef")
+                if not ref or ref.get("name") != "cilium-config" \
+                   or ref.get("key") != k or ref.get("optional") is not True:
+                    print(f"{key[1]}/{c['name']} missing optional configMapKeyRef for {var}")
+                    sys.exit(1)
+            seen.add((key[1], c["name"]))
+missing = {(k[1], c) for k, cs in need.items() for c in cs} - seen
+if missing:
+    print("containers not found: " + ", ".join(f"{a}/{b}" for a, b in sorted(missing)))
+    sys.exit(1)
+sys.exit(0)
+PY
+        ); then
+            pass "$(basename "$addon") wires KUBERNETES_SERVICE_HOST/PORT from cilium-config"
+        else
+            hard_fail "$addon does not wire KUBERNETES_SERVICE_HOST/PORT via optional configMapKeyRef — the config init container will keep dialling the ClusterIP and deadlock, even with a correct ConfigMap"
+        fi
+    done
+
     # 2. The renderer exists. If it is deleted while the split stays, no spoke gets a
     #    cilium-config at all — a worse failure than the one this replaced.
     local ctrl="$VALIDATE_ROOT/operators/hub-operator/internal/controller/spokepool_controller.go"

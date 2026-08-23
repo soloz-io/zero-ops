@@ -1408,6 +1408,30 @@ requires a booted node. This is not merely documented: it is asserted by
 `preflight/25-cilium-apiserver-endpoint.sh` fails if the load balancer — the
 endpoint's only source — is ever defaulted off.
 
+**The ConfigMap alone is not sufficient — the env var is the other half.** The first
+implementation of this decision populated only `cilium-config`, and the deadlock did
+not lift: with the correct endpoint delivered to the spoke, the agent was still
+dialling `10.96.0.1`. The reason is circular by construction — the `config` init
+container's *job* is to read `cilium-config` from the API, so it cannot use a value
+inside that ConfigMap to find the API. It uses `KUBERNETES_SERVICE_HOST`, which
+kubelet defaults to the ClusterIP. Upstream's chart injects that env var onto the
+containers when `k8sServiceHost` is set; populating only the ConfigMap reproduces the
+original failure with a correct-looking config in place, which is strictly harder to
+diagnose.
+
+The endpoint therefore reaches the API-facing containers — `config`, `cilium-agent`,
+`cilium-operator` — as `KUBERNETES_SERVICE_HOST`/`_PORT` sourced by
+`configMapKeyRef` from `cilium-config`. That preserves single ownership rather than
+weakening it: the static DaemonSet names a **key**, the rendered ConfigMap supplies
+the **value**, and kubelet resolves the reference at pod creation over its own
+kubeconfig — no circularity, because kubelet already knows the real endpoint.
+
+`optional: true` is load-bearing. The hub's base carries no such key, so the
+reference resolves to nothing and the hub keeps using the ClusterIP — correct there,
+because the hub retains kube-proxy. The other init containers (`mount-cgroup`,
+`mount-bpf-fs`, `clean-cilium-state`, `install-cni-binaries`) only touch the host and
+are deliberately left alone.
+
 **The hub is not a spoke.** It has no SpokePool and no renderer, and it keeps
 kube-proxy, so it needs no injection. Its Day-0 CNI install rejoins the two halves by
 path (`provider_cloud.go`) rather than keeping a second copy of 160 settings that
@@ -1465,8 +1489,9 @@ readiness lie and as the 34-minute poll of a terminal error.
   comment table in the hybrid composition was stale for indices 14–17 and is
   corrected — an off-by-one there mis-delivers a payload silently.)
 - `internal/hub-cli/bootstrap/provider_cloud.go` — hub Day-0 recomposition.
-- `scripts/validate/preflight/25-cilium-apiserver-endpoint.sh` — nine invariants,
-  including single ownership, renderer presence, and the load-balancer source.
+- `scripts/validate/preflight/25-cilium-apiserver-endpoint.sh` — eleven invariants,
+  including single ownership, the configMapKeyRef env wiring on both addons,
+  renderer presence, and the load-balancer source.
 - `scripts/hub-bootstrap.sh` — Step 10e rewritten; `dump_cluster_diagnostics`.
 - `operators/hub-operator/internal/controller/cilium_config_wrapper_test.go` —
   12 regression tests.
