@@ -49,6 +49,12 @@ spec:
       labels:
         app: nats
     spec:
+      # ADR-014: stateful workloads run on worker nodes only. Key-only label —
+      # "true" never matches and silently schedules onto the control plane.
+      # The §11 location + storage class are supplied by the env overlay.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+
       containers:
         - name: nats
           image: nats:2.10.11-alpine

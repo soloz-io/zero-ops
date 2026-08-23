@@ -577,6 +577,12 @@ spec:
 
 #### Migration of existing spokes (codified procedure)
 
+> **Superseded for the hybrid overlays (2026-08-23).** The A→B→C cutover below
+> exists to carry *data* through a storage-class change, via barman restore. It does
+> not apply to a spoke that never initialised, and it is no longer what the manifests
+> describe. See "Home class applied directly" immediately after this procedure.
+
+
 Storage class cannot change in place and the recovery source requires an
 isolated, proven prefix. The cutover is therefore a destructive-first GitOps
 state machine (per-environment overlay state; dev and stg progress
@@ -605,6 +611,57 @@ independently because their authoritative state is directory-scoped):
    workers with their existing PVCs (placement-only rotation).
 5. barman `retentionPolicy: "30d"` remains the safety net; WALs under the old
    shared prefix become orphaned garbage once the per-spoke prefix is live.
+
+#### Home class applied directly (2026-08-23)
+
+The three `environments/*/hybrid/cnpg-cluster.yaml` overlays carried a header saying
+storage and placement were *"deliberately UNCHANGED … the live cluster's PVC is
+hcloud-volumes (CP-attached); a worker/home selector would strand it until the A→B→C
+cutover"*. That premise expired when the spoke was reprovisioned, and the manifests
+were left describing a cluster that no longer existed:
+
+```
+phase                     Setting up primary   (never completed)
+readyInstances            (none)
+PVC shared-cnpg-1         Pending, 85m         (never bound)
+PersistentVolumes         0
+firstRecoverabilityPoint  []
+lastSuccessfulBackup      []
+```
+
+With no bound PVC, no PV and no backup, Waves A and B are no-ops — there is nothing
+to prune and nothing to restore — so the end state is reachable directly. The hybrid
+overlays now declare the home class outright: `local-path`, both selectors, barman to
+Hetzner Object Storage unchanged. Durability for the home class is S3 only;
+local-path has no snapshot support.
+
+The A→B→C procedure remains correct and remains the required path for any spoke that
+*does* hold data.
+
+Three defects surfaced while applying this, each invisible in the way §11 warns
+about:
+
+1. **A duplicate `affinity:` key.** Each hybrid overlay already ended with an
+   `affinity` block carrying `enablePodAntiAffinity` and `topologyKey` but no
+   `nodeSelector`. YAML is silently last-wins (REMEMBER.md), so that trailing block
+   defeated the placement — and would have defeated any nodeSelector added earlier in
+   the file. Deduplicated.
+
+2. **`prod/hetzner` had no nodeSelector at all**, while dev and stg hetzner both did.
+   A plain ADR-014 violation, unrelated to the hybrid work and unnoticed because
+   nothing checked that tree.
+
+3. **The NATS leaf node had no placement in any of the six overlays**, and inherited
+   `hcloud-volumes` from the provider-neutral base — so on a hybrid spoke its PVC
+   could bind nowhere and `nats-0` sat Pending (observed: 105 minutes). Fixed per the
+   §22 convention: the base declares only the ADR-014 worker selector, and each
+   overlay supplies the location and storage class as a strategic-merge patch.
+
+**Why none of this was caught.** `preflight/85-placement-class.sh` globbed only
+`manifests/hub-core-services/providers/*/*`. It never looked at
+`manifests/spoke/spoke-catalog/environments/*/*` — the tree holding every one of
+these files. The check passed throughout. It now scans both, and immediately failed
+on all six NATS overlays before they were fixed.
 
 #### Enforcement / verification (hybrid-specific)
 

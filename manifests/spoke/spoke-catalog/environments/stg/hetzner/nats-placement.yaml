@@ -1,0 +1,34 @@
+---
+# ADR-046 §11 placement class for the NATS leaf node (hetzner -> hetzner).
+#
+# The base (spoke-catalog/infra/nats-leaf-node.yaml) is provider-neutral and
+# declares only the ADR-014 worker selector; the location and the storage class its
+# nodes can actually attach belong here, per the §22 base/overlay convention.
+#
+# Without this the StatefulSet inherited hcloud-volumes with no location, so on a
+# hybrid spoke the PVC could bind nowhere and nats-0 sat Pending indefinitely —
+# observed live for 105 minutes.
+#
+# NOTE: volumeClaimTemplates are immutable on an existing StatefulSet. Changing the
+# class here takes effect on a fresh provision or after the STS is recreated; it
+# will not migrate a bound PVC.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: platform-messaging
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        workload-location: hetzner
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: hcloud-volumes
+        resources:
+          requests:
+            storage: 10Gi

@@ -4,3 +4,7 @@ resources:
   - ../../../infra
   - cnpg-cluster.yaml
   - scheduled-backup.yaml
+patches:
+  # ADR-046 §11: the base is provider-neutral; the location and storage class
+  # its nodes can attach are supplied here.
+  - path: nats-placement.yaml

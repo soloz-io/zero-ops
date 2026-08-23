@@ -22,13 +22,22 @@ import glob, os, subprocess, sys, yaml
 # The location a provider's workers live in, and the only class they can bind.
 EXPECTED = {"hybrid": ("home", "local-path"), "hetzner": ("hetzner", "hcloud-volumes")}
 
-roots = sorted(glob.glob("manifests/hub-core-services/providers/*/*"))
+# Hub provider overlays AND spoke-catalog environment overlays. The spoke tree was
+# missing here, and that is the whole reason this check passed while every hybrid
+# spoke CNPG asked for hcloud-volumes with no nodeSelector at all — the exact
+# condition §11 was written to ban, in the exact file it was written about.
+#   manifests/hub-core-services/providers/<provider>/<component>
+#   manifests/spoke/spoke-catalog/environments/<env>/<provider>
+roots = sorted(glob.glob("manifests/hub-core-services/providers/*/*")) \
+      + sorted(glob.glob("manifests/spoke/spoke-catalog/environments/*/*"))
 if not roots:
     print("NONE")
     raise SystemExit
 
 for root in roots:
-    provider = root.split(os.sep)[-2]
+    # provider is the parent dir for hub overlays and the LEAF for spoke overlays.
+    parts = root.split(os.sep)
+    provider = parts[-1] if "spoke-catalog" in root else parts[-2]
     want = EXPECTED.get(provider)
     if want is None:
         print(f"BAD\t{root}\tunknown provider directory {provider!r}")

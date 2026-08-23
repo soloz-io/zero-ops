@@ -140,9 +140,17 @@ validate_spoke_cilium_chain() {
     # The placement rule is only satisfiable if a schedulable node matches BOTH
     # selectors. A Pending CNPG PVC is the correct failure mode for a missing home
     # worker (REMEMBER.md), so the eligibility is asserted rather than the PVC.
-    local eligible
-    eligible=$(kc_spoke get nodes -l 'workload-location=home,node-role.kubernetes.io/worker' \
-        -o jsonpath='{range .items[?(@.spec.unschedulable!=true)]}{.metadata.name}{"\n"}{end}' | grep -c . || true)
+    # Filter in the shell, not in jsonpath. `?(@.spec.unschedulable!=true)` does NOT
+    # match objects where the field is absent — and it is absent on every schedulable
+    # node — so that filter reports zero eligible nodes while a healthy one is sitting
+    # right there. This check produced exactly that false alarm on 2026-08-23.
+    local eligible=0 line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        [[ "${line#*=}" == "true" ]] && continue    # cordoned
+        eligible=$((eligible + 1))
+    done < <(kc_spoke get nodes -l 'workload-location=home,node-role.kubernetes.io/worker' \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.spec.unschedulable}{"\n"}{end}')
     if [[ "${eligible:-0}" -ge 1 ]]; then
         pass "CNPG placement satisfiable ($eligible schedulable home worker(s))"
     else

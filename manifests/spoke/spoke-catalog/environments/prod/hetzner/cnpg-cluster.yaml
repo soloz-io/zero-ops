@@ -93,6 +93,12 @@ spec:
       memory: "2Gi"
       cpu: "2000m"
 
+  # ADR-014 + ADR-046 §11: both selectors are mandatory. dev/hetzner and stg/hetzner
+  # already declare them; prod did not, so placement here was left to whatever node
+  # could attach the volume — the accident ADR-014 exists to ban.
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+      workload-location: hetzner

@@ -1,9 +1,14 @@
 ---
-# ADR-014/ADR-046 §11: hybrid-cell CNPG overlay — Wave-1 state.
-# Storage + placement deliberately UNCHANGED here: the live cluster's PVC is
-# hcloud-volumes (CP-attached); a worker/home selector would strand it until
-# the A→B→C cutover (Wave B) recreates it on local-path with home placement.
-# This overlay delivers the ADR-014 backup contract only.
+# ADR-014 / ADR-046 §11: hybrid-cell CNPG — the HOME placement class.
+#
+# A hybrid spoke runs its stateful workloads on home-lab Flatcar workers, so this
+# cluster declares the full home class: local-path storage plus BOTH selectors.
+# hcloud-volumes cannot be attached by a home VM — the PVC binds nowhere and the
+# pod sits Pending, which §11 calls "the correct failure mode" and is exactly what
+# this overlay produced while it still asked for hcloud-volumes.
+#
+# Durability is barman to Hetzner Object Storage (below), not volume snapshots:
+# local-path has no snapshot support, so S3 is the only restore path (§11).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -57,7 +62,20 @@ spec:
 
   storage:
     size: 100Gi
-    storageClass: hcloud-volumes
+    # local-path is node-pinned: the data lives on the exact home worker that bound
+    # the claim. That pinning is a CONSEQUENCE of the declared placement below,
+    # never the placement mechanism itself (ADR-014).
+    storageClass: local-path
+
+  # ADR-014 + §11: both selectors are mandatory. workload-location alone is not
+  # sufficient, and the key-only worker label must be "" — "true" never matches and
+  # silently schedules onto the control plane instead.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+      workload-location: home
 
   backup:
     barmanObjectStore:
@@ -94,7 +112,3 @@ spec:
     limits:
       memory: "2Gi"
       cpu: "2000m"
-
-  affinity:
-    enablePodAntiAffinity: true
-    topologyKey: kubernetes.io/hostname
