@@ -9,15 +9,40 @@
 # hybrid spoke the PVC could bind nowhere and nats-0 sat Pending indefinitely —
 # observed live for 105 minutes.
 #
-# NOTE: volumeClaimTemplates are immutable on an existing StatefulSet. Changing the
-# class here takes effect on a fresh provision or after the STS is recreated; it
-# will not migrate a bound PVC.
+# ── Why Replace=true,Force=true ──────────────────────────────────────────────
+# `volumeClaimTemplates` is immutable on an existing StatefulSet. A plain apply
+# does not silently skip it — the API server REJECTS the whole object:
+#
+#   StatefulSet.apps "nats" is invalid: spec: Forbidden: updates to statefulset
+#   spec for fields other than 'replicas', 'ordinals', 'template',
+#   'updateStrategy', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds'
+#   are forbidden
+#
+# ArgoCD retries five times and then wedges the ENTIRE spoke-catalog Application in
+# SyncError/Degraded, blocking every other resource in it — observed live. The
+# nodeSelector above never landed either, because the patch fails atomically.
+#
+# Replace=true,Force=true makes ArgoCD delete and recreate the StatefulSet, which is
+# the only way this declaration is enforceable. It is deliberately PERMANENT, not a
+# one-off migration flag: the storage class is a property of the provider cell, so
+# any future cell change would re-wedge the Application without it. NATS here is a
+# leaf node holding no durable state, so recreation is cheap.
+#
+# persistentVolumeClaimRetentionPolicy.whenDeleted: Delete makes the recreation
+# self-completing. Without it the StatefulSet is replaced but the OLD PVC survives
+# (PVC spec is immutable too), the controller binds it again, and nats-0 stays
+# Pending against the wrong class — the failure this patch exists to fix.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nats
   namespace: platform-messaging
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true,Force=true
 spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
   template:
     spec:
       nodeSelector:
