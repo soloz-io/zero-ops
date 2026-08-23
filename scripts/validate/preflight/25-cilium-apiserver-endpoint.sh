@@ -133,13 +133,26 @@ for d in yaml.safe_load_all((doc.get("stringData") or {}).get("cilium.yaml", "")
         replicas = d["spec"].get("replicas", 1)
         # Only a hostPort-bound operator is constrained; if upstream ever drops the
         # hostPort, more replicas become legitimate and this check should not block.
-        sys.exit(0 if (not ports or replicas == 1) else 1)
+        if ports and replicas != 1:
+            print("replicas>1 with a hostPort"); sys.exit(1)
+        # Scaling to 1 is not enough on its own: a surge-based rollout keeps the old
+        # pod (which holds the hostPort) until the new one is Ready, so the new one
+        # can never schedule. With replicas:1 the percentage defaults resolve to
+        # maxSurge=1 / maxUnavailable=0 — the deadlock. Recreate, or an explicit
+        # zero surge, is required. Observed live before it was fixed.
+        strat = d["spec"].get("strategy", {})
+        if ports and strat.get("type") != "Recreate":
+            surge = str(strat.get("rollingUpdate", {}).get("maxSurge", "25%"))
+            if surge not in ("0", "0%"):
+                print(f"hostPort workload uses surge rollout (type={strat.get('type')}, maxSurge={surge})")
+                sys.exit(1)
+        sys.exit(0)
 sys.exit(1)
 PY
     ); then
-        pass "hybrid cilium-operator fits a single-node spoke at boot"
+        pass "hybrid cilium-operator fits a single-node spoke and can roll without deadlocking"
     else
-        hard_fail "hybrid cilium-operator has >1 replica with a hostPort — a hybrid spoke is single-node at boot, so the operator will be Unschedulable and the CNI will never register its CRDs"
+        hard_fail "hybrid cilium-operator cannot converge on a single-node spoke — either >1 replica with a hostPort, or a surge-based rollout whose old pod holds the port until the new one is Ready (which it never can be)"
     fi
 
     # 2. The renderer exists. If it is deleted while the split stays, no spoke gets a

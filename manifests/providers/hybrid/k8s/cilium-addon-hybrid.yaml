@@ -1294,11 +1294,21 @@ stringData:
       # of one replica and no user configured Recreate strategy.
       # otherwise an update might get stuck due to the default maxUnavailable=50% in combination with the
       # podAntiAffinity which prevents deployments of multiple operator replicas on the same node.
+      # Recreate, not RollingUpdate (ADR-046 §24.3).
+      #
+      # With replicas:1 the percentage defaults resolve to maxSurge=1 (25% of 1
+      # rounds UP) and maxUnavailable=0 (50% of 1 rounds DOWN), so Kubernetes keeps
+      # the old pod until the new one is Ready. The old pod holds hostPort 9963, so
+      # the new one can never schedule, and the rollout deadlocks with the operator
+      # permanently Pending — observed live on spoke-pool-hybrid-dev-01 after
+      # scaling to 1 replica.
+      #
+      # This is addendum 10's finding on a Deployment instead of a DaemonSet: two
+      # generations competing for the same host socket. There it was resolved by
+      # forbidding surge; the Deployment equivalent is Recreate. Operator downtime
+      # during the swap is acceptable — it is not in the datapath.
       strategy:
-        rollingUpdate:
-          maxSurge: 25%
-          maxUnavailable: 50%
-        type: RollingUpdate
+        type: Recreate
       template:
         metadata:
           annotations:

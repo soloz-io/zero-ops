@@ -1481,9 +1481,21 @@ boot. The operator is not in the datapath — agents keep forwarding while it re
 keeps 2 and is unaffected: it boots with a worker MachineDeployment at `replicas: 1`,
 so it has two nodes.
 
-`preflight/25` asserts it, and only when a hostPort is actually declared — if
-upstream drops the hostPort, more replicas become legitimate and the check must not
-block that.
+**Scaling to 1 is not sufficient on its own.** Applying it live left the operator
+still Pending: the Deployment's percentage rollout defaults resolve, at `replicas: 1`,
+to `maxSurge=1` (25% of 1 rounds UP) and `maxUnavailable=0` (50% of 1 rounds DOWN),
+so Kubernetes keeps the old pod until the new one is Ready — and the old pod holds
+hostPort 9963, so the new one can never schedule. The rollout deadlocks.
+
+That is addendum 10's finding on a Deployment rather than a DaemonSet: two
+generations competing for one host socket. There it was resolved by forbidding surge
+(`maxSurge` would "deadlock the release gate — the old pod holds the sockets until
+the new pod is ready"); the Deployment equivalent is `strategy.type: Recreate`.
+Operator downtime during the swap is acceptable — it is not in the datapath.
+
+`preflight/25` asserts both the replica bound and the rollout strategy, and only when
+a hostPort is actually declared — if upstream drops the hostPort, more replicas
+become legitimate and the check must not block that.
 
 #### 24.2 The spoke's home worker was never provisioned
 
