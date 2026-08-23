@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
@@ -38,6 +40,8 @@ type SpokePoolReconciler struct {
 //+kubebuilder:rbac:groups=nutgraf.in,resources=spokepools,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups=nutgraf.in,resources=spokepools/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 
 // Reconcile generates crossplane-admin password for each SpokePool
 // Implements Infisical-only idempotency: queries Infisical API directly (no Hub K8s secret)
@@ -106,6 +110,14 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.ensureBootstrapCACRSWrapper(ctx, spokePool); err != nil {
 		logger.Error(err, "Failed to ensure agent-ca CRS wrapper", "spoke", spokeName)
 		// Non-fatal: retried on next reconcile.
+	}
+
+	// render the spoke's cilium-config with its control-plane endpoint (ADR-046 §24,
+	// ADR-048). Must precede anything that expects the spoke to have a working CNI.
+	if err := r.ensureCiliumConfigCRSWrapper(ctx, spokePool); err != nil {
+		logger.Error(err, "Failed to ensure cilium-config CRS wrapper", "spoke", spokeName)
+		// Non-fatal: retried on next reconcile. Fail-closed means a deferral is not
+		// an error, so anything reaching here is a real fault worth surfacing.
 	}
 
 	// create SpokeMachineIdentity CR for identity lifecycle (spoke-identity-operator reconciles)
@@ -629,6 +641,163 @@ stringData:
 	}
 
 	logger.Info("Created Agent-CA CRS wrapper Secret", "wrapper", wrapperName, "spoke", spokeName)
+	return nil
+}
+
+// ciliumConfigBaseName is the provider-owned static half of the spoke's Cilium
+// configuration, delivered to the hub by ArgoCD from manifests/providers/<p>/k8s/.
+func ciliumConfigBaseName(provider string) string {
+	return fmt.Sprintf("cilium-config-base-%s", provider)
+}
+
+// ensureCiliumConfigCRSWrapper renders the spoke's `cilium-config` ConfigMap into a
+// ClusterResourceSet wrapper Secret, injecting the control-plane endpoint that only
+// exists at runtime. This is the ADR-048 two-stage lifecycle applied to the CNI:
+// cluster lifecycle owns injection of cluster-specific platform configuration.
+//
+// Why it exists (ADR-046 §24). The shared ClusterClass deletes kube-proxy right after
+// `kubeadm init`, because its REJECT chains for endpoint-less services break Gateway
+// API under Cilium's full kube-proxy-replacement. Cilium is the intended replacement,
+// but with no `k8s-service-host` it discovers the API server through the in-cluster
+// ClusterIP (10.96.0.1) — the very address kube-proxy used to route and that Cilium
+// itself has not yet programmed. On a fresh spoke that is a hard deadlock: Cilium's
+// `config` init container times out, the CNI never initialises, the node stays
+// NotReady, and every platform workload sits Pending behind it.
+//
+// ONE OWNER. The delivered ConfigMap is rendered only here. The addon Secrets
+// deliberately no longer carry a `cilium-config` document, so nothing else can write
+// the object on a spoke. The settings themselves stay in Git (the base ConfigMap);
+// this function contributes exactly the two keys that Git cannot know.
+//
+// FAIL CLOSED. While `controlPlaneEndpoint` is unset, or the base ConfigMap is
+// absent, NO payload is published. A wrapper carrying an empty host would be applied
+// by CRS and reproduce the deadlock it exists to prevent — silently, and on a cluster
+// that reports nothing wrong until its first pod fails to schedule.
+//
+// Unlike the bootstrap certificate wrapper this one is NOT immutable: if CAPH ever
+// rebuilds the load balancer the endpoint changes, and the spoke CRS (strategy
+// Reconcile) re-applies on payload change. An immutable wrapper would pin a spoke to
+// a dead address.
+func (r *SpokePoolReconciler) ensureCiliumConfigCRSWrapper(ctx context.Context, spokePool *unstructured.Unstructured) error {
+	logger := log.FromContext(ctx)
+	spokeName := spokePool.GetName()
+	wrapperName := fmt.Sprintf("%s-cilium-config", spokeName)
+
+	provider, _, _ := unstructured.NestedString(spokePool.Object, "spec", "provider")
+	if provider == "" {
+		logger.Info("SpokePool has no spec.provider; deferring cilium-config wrapper", "spoke", spokeName)
+		return nil
+	}
+
+	// The control-plane endpoint is the SOLE source for the API address. CAPH
+	// populates it when it creates the load balancer, which happens before any
+	// machine is provisioned — so it is always available before a node could need
+	// it. That ordering is the whole basis of the cold-boot fix and is asserted by
+	// TestCiliumConfigWrapper_EndpointPrecedesNodeBoot.
+	capiCluster := &unstructured.Unstructured{}
+	capiCluster.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "cluster.x-k8s.io",
+		Version: "v1beta1",
+		Kind:    "Cluster",
+	})
+	if err := r.Get(ctx, client.ObjectKey{Name: spokeName, Namespace: "platform-capi"}, capiCluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("CAPI Cluster not created yet; deferring cilium-config wrapper", "spoke", spokeName)
+			return nil
+		}
+		return fmt.Errorf("read CAPI Cluster %s: %w", spokeName, err)
+	}
+
+	host, _, _ := unstructured.NestedString(capiCluster.Object, "spec", "controlPlaneEndpoint", "host")
+	port, portFound, _ := unstructured.NestedInt64(capiCluster.Object, "spec", "controlPlaneEndpoint", "port")
+	if host == "" || !portFound || port == 0 {
+		logger.Info("controlPlaneEndpoint not populated yet; deferring cilium-config wrapper (fail-closed)",
+			"spoke", spokeName, "host", host, "port", port)
+		return nil
+	}
+
+	baseName := ciliumConfigBaseName(provider)
+	base := &corev1.ConfigMap{}
+	if err := r.Get(ctx, client.ObjectKey{Name: baseName, Namespace: "platform-capi"}, base); err != nil {
+		return fmt.Errorf("read cilium-config base %s (ADR-046 §24 — delivered by "+
+			"manifests/providers/%s/k8s/cilium-config-base.yaml): %w", baseName, provider, err)
+	}
+	if len(base.Data) == 0 {
+		return fmt.Errorf("cilium-config base %s is empty; refusing to render a spoke CNI config from it", baseName)
+	}
+
+	// Copy so the cached base object is never mutated, then contribute exactly the
+	// two runtime keys. Everything else is whatever Git says.
+	data := make(map[string]string, len(base.Data)+2)
+	for k, v := range base.Data {
+		data[k] = v
+	}
+	data["k8s-service-host"] = host
+	data["k8s-service-port"] = strconv.FormatInt(port, 10)
+
+	cm := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cilium-config",
+			Namespace: "kube-system",
+			Labels: map[string]string{
+				"platform.nutgraf.in/rendered-by": "hub-operator",
+			},
+		},
+		Data: data,
+	}
+	rendered, err := yaml.Marshal(cm)
+	if err != nil {
+		return fmt.Errorf("marshal cilium-config for %s: %w", spokeName, err)
+	}
+
+	desired := map[string]string{"cilium-config.yaml": string(rendered)}
+
+	existing := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{Name: wrapperName, Namespace: "platform-capi"}, existing); err == nil {
+		if existing.Type == "addons.cluster.x-k8s.io/resource-set" {
+			if string(existing.Data["cilium-config.yaml"]) == string(rendered) {
+				return nil
+			}
+			existing.StringData = desired
+			existing.Data = nil
+			if err := r.Update(ctx, existing); err != nil {
+				return fmt.Errorf("update cilium-config CRS wrapper: %w", err)
+			}
+			logger.Info("Updated cilium-config CRS wrapper", "wrapper", wrapperName, "endpoint", fmt.Sprintf("%s:%d", host, port))
+			return nil
+		}
+	}
+
+	wrapper := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wrapperName,
+			Namespace: "platform-capi",
+			Labels:    map[string]string{"addons.cluster.x-k8s.io/resource-set": "true"},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "nutgraf.in/v1alpha1",
+					Kind:               "SpokePool",
+					Name:               spokePool.GetName(),
+					UID:                spokePool.GetUID(),
+					Controller:         ptr.To(true),
+					BlockOwnerDeletion: ptr.To(true),
+				},
+			},
+		},
+		Type:       "addons.cluster.x-k8s.io/resource-set",
+		StringData: desired,
+	}
+
+	if err := r.Create(ctx, wrapper); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("create cilium-config CRS wrapper: %w", err)
+	}
+
+	logger.Info("Created cilium-config CRS wrapper", "wrapper", wrapperName,
+		"spoke", spokeName, "endpoint", fmt.Sprintf("%s:%d", host, port), "keys", len(data))
 	return nil
 }
 

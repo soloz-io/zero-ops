@@ -93,13 +93,28 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	clusterCfg.ClusterName = p.clusterName
 	clusterCfg.Namespace = constants.NamespaceCAPI
 
-	// Read shared cilium addon manifest
+	// Read the shared cilium addon manifest and recompose it with the config half.
+	//
+	// ADR-046 §24 split the cilium-config ConfigMap out of the addon Secret so that
+	// exactly one component renders the copy a SPOKE receives (hub-operator, which
+	// injects the spoke's control-plane endpoint). The HUB is not a spoke: it has no
+	// SpokePool and no renderer, and it keeps kube-proxy, so the in-cluster ClusterIP
+	// resolves and no endpoint injection is needed. It therefore installs the static
+	// base verbatim, joined back onto the addon here.
+	//
+	// Reading the same base file both halves use is deliberate: a second copy of 160
+	// cilium settings would drift, and drift in this file is a cluster that boots
+	// with a datapath nobody intended.
 	ciliumRaw, err := readTemplateManifest(
 		"manifests/spoke/spoke-bootstrap/", "cilium-addon-template.yaml", "cilium.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to read cilium manifest: %w", err)
 	}
-	clusterCfg.CiliumManifest = string(ciliumRaw)
+	ciliumConfig, err := os.ReadFile("manifests/providers/hetzner/k8s/cilium-config-base.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read cilium-config base (ADR-046 §24): %w", err)
+	}
+	clusterCfg.CiliumManifest = string(ciliumRaw) + "\n---\n" + string(ciliumConfig)
 
 	provisioner := &cluster.Provisioner{
 		Kubeconfig: cfg.BootstrapKubeconfig,

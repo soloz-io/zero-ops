@@ -1398,45 +1398,125 @@ step10_wait_spokepool() {
         fi
     done
 
-    # Step 10e: Verify worker nodes are Ready
-    log "Step 10e: Verifying worker nodes are Ready..."
-
-    local machine_lines=()
-    while IFS= read -r line; do
-        if [[ -n "$line" ]]; then
-            machine_lines+=("$line")
-        fi
-    done < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
-        --kubeconfig="$KUBECONFIG_PATH" \
-        -n platform-capi --no-headers 2>/dev/null || true)
-    local worker_nodes=${#machine_lines[@]}
-
-    if [[ "$worker_nodes" -gt 0 ]]; then
-        local ready_names=()
-        while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                ready_names+=("$line")
-            fi
-        done < <(kubectl get machines -l cluster.x-k8s.io/cluster-name="$cluster_name" \
-            --kubeconfig="$KUBECONFIG_PATH" \
-            -n platform-capi \
-            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-        local ready_workers=${#ready_names[@]}
-
-        log "Worker nodes: $ready_workers/$worker_nodes Ready"
-
-        if [[ "$ready_workers" -lt "$worker_nodes" ]]; then
-            log "⚠️ Not all worker nodes are Ready yet, but continuing (nodes will be available after cluster is provisioned)"
-        fi
-    else
-        log "⚠️ No worker nodes found yet (normal during cluster bootstrap)"
-    fi
+    # Step 10e: Converge the spoke's home-lab worker (ADR-046 §24)
+    step10e_spoke_home_worker "$cluster_name" || return 1
 
     mark_step_completed "wait_spokepool"
-    log "✅ SpokePool readiness validation completed successfully"
-    log "📊 SpokePool Status: Ready=True, Synced=True"
-    log "🔐 Certificate Distribution: All 3 certificates ready and synced"
-    log "🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True"
+    log "✅ Spoke provisioning gates passed"
+}
+
+# Bring the spoke's home-lab worker into service, mirroring the hub's
+# home-worker-join phase (ADR-046 §21).
+#
+# Why the bootstrap script and not an operator: CAPI cannot provision these nodes —
+# they are Hyper-V VMs on a workstation, reached over SSH — so the join is a script
+# the operator's machine runs. hub-operator's part (minting the bootstrap token into
+# {spoke}-home-worker-join) is already done by the time we get here; nothing consumed
+# it until now, which is why a spoke came up with zero workers and every workload
+# stayed Pending behind ADR-014 placement.
+#
+# What this replaces: the previous Step 10e counted CAPI Machine objects, never
+# looked at a Node, warned either way, and then printed four hardcoded success lines
+# — "Ready=True", "WorkersReady=True", "All 3 certificates ready" — regardless of
+# state. On 2026-08-23 it printed all four while the spoke had no CNI, no worker, no
+# CRDs and zero certificates. A bootstrap must never claim a condition it did not
+# observe, so every assertion below is measured.
+step10e_spoke_home_worker() {
+    local cluster_name="$1"
+    log "Step 10e: Converging the spoke's home-lab worker..."
+
+    # Home workers are a hybrid-cell concept (ADR-046). Other providers use CAPI
+    # MachineDeployments and have nothing to do here.
+    if [[ "$PROVIDER" != "hybrid" ]]; then
+        log "Step 10e: provider=$PROVIDER has no home workers — skipping"
+        return 0
+    fi
+
+    local spoke_kc
+    spoke_kc="$(mktemp)"
+    # shellcheck disable=SC2064
+    trap "rm -f '$spoke_kc'" RETURN
+
+    if ! kubectl get secret "${cluster_name}-kubeconfig" -n platform-capi \
+        --kubeconfig="$KUBECONFIG_PATH" -o jsonpath='{.data.value}' 2>/dev/null \
+        | base64 -d > "$spoke_kc" 2>/dev/null || [[ ! -s "$spoke_kc" ]]; then
+        error_exit "Step 10e: cannot read ${cluster_name}-kubeconfig — the spoke's worker cannot be joined or verified"
+    fi
+
+    # The join needs a functioning control plane: kubeadm join talks to the API, and
+    # the new node cannot leave NotReady without a CNI. Cilium's config now carries
+    # the control-plane endpoint (ADR-046 §24), so this should already hold.
+    local cp_ready=""
+    local waited=0
+    while (( waited < CLUSTER_TIMEOUT )); do
+        cp_ready=$(kubectl --kubeconfig="$spoke_kc" get nodes \
+            -l node-role.kubernetes.io/control-plane \
+            -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+        [[ "$cp_ready" == *"True"* ]] && break
+        log "Step 10e: waiting for the spoke control plane to be Ready (CNI must be up first) [${waited}s/${CLUSTER_TIMEOUT}s]"
+        sleep 15
+        waited=$((waited + 15))
+    done
+    if [[ "$cp_ready" != *"True"* ]]; then
+        log "❌ Spoke control plane never became Ready"
+        kubectl --kubeconfig="$spoke_kc" get nodes -o wide 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
+        kubectl --kubeconfig="$spoke_kc" get pods -n kube-system 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
+        error_exit "Step 10e: spoke control plane not Ready — check the Cilium agent (ADR-046 §24)"
+    fi
+    log "Step 10e: ✓ spoke control plane Ready"
+
+    # Idempotent: provisioning a Flatcar VM is ~10 minutes of Hyper-V work, and a
+    # resumed bootstrap must not pay it again for a node that is already serving.
+    if spoke_home_worker_ready "$spoke_kc"; then
+        log "Step 10e: ✓ home worker already Ready — skipping provisioning"
+        return 0
+    fi
+
+    local script="$ZERO_OPS_DIR/scripts/hybrid/provision-flatcar-worker.sh"
+    if [[ ! -x "$script" && ! -f "$script" ]]; then
+        error_exit "Step 10e: $script is missing; the spoke has no worker and platform workloads cannot schedule (ADR-014)"
+    fi
+
+    log "Step 10e: Running provision-flatcar-worker.sh --cluster spoke"
+    log "Step 10e: (Hyper-V VM creation over SSH — this takes several minutes)"
+    if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" HYBRID_SPOKE_NAME="$cluster_name" \
+         bash "$script" --cluster spoke 2>&1 | tee -a "$LOG_DIR/bootstrap.log"; then
+        error_exit "Step 10e: home-worker provisioning failed. Fix the cause and re-run — this step is idempotent and skips an already-Ready node."
+    fi
+
+    # The script has its own gate, but the cluster's view is what the next steps
+    # depend on, so it is measured here too.
+    local join_waited=0
+    while (( join_waited < CLUSTER_TIMEOUT )); do
+        if spoke_home_worker_ready "$spoke_kc"; then
+            log "Step 10e: ✅ home worker Ready and correctly labelled"
+            return 0
+        fi
+        log "Step 10e: waiting for the home worker to become Ready [${join_waited}s/${CLUSTER_TIMEOUT}s]"
+        sleep 15
+        join_waited=$((join_waited + 15))
+    done
+
+    log "❌ No Ready node carries workload-location=home on $cluster_name"
+    kubectl --kubeconfig="$spoke_kc" get nodes --show-labels 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
+    error_exit "Step 10e: spoke has no Ready home worker — every stateful workload would sit Pending against the ADR-014 placement rule"
+}
+
+# True only when a real Kubernetes Node is Ready AND carries the ADR-046 §11
+# placement contract. Node conditions, never CAPI Machine objects: a Machine is a
+# provisioning record, and a home worker has no Machine at all because CAPI did not
+# create it. Counting Machines is what made the old gate pass on an empty cluster.
+spoke_home_worker_ready() {
+    local spoke_kc="$1"
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        # name=<ready>
+        [[ "${line#*=}" == "True" ]] && return 0
+    done < <(kubectl --kubeconfig="$spoke_kc" get nodes \
+        -l 'workload-location=home,node-role.kubernetes.io/worker' \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null || true)
+    return 1
 }
 
 # Main execution

@@ -1330,6 +1330,147 @@ as a known negative and ADR-008 §6 requires the composition to close it.
 condition. Until that lands, no gate may treat SpokePool readiness as evidence that a
 spoke exists.
 
+### 24. Cilium's API endpoint is lifecycle-injected; the spoke's home worker is a bootstrap gate (2026-08-23)
+
+Two defects, found together on the first cold boot of a spoke since §17.3, and
+sharing one consequence: `spoke-pool-hybrid-dev-01` reached `Provisioned` with no
+CNI, no worker, no CRDs and no workloads.
+
+#### 24.1 The kube-proxy-free deadlock
+
+Addendum 1 added, to the shared ClusterClass `postKubeadmCommands`, deletion of the
+kube-proxy DaemonSet and ConfigMap immediately after `kubeadm init` — correctly, since
+kube-proxy's REJECT chains for endpoint-less services break Gateway API under
+Cilium's full kube-proxy-replacement. It shipped without its required companion.
+
+Cilium was configured `kube-proxy-replacement: "true"` with **no `k8s-service-host`**,
+so it discovered the API server through the in-cluster ClusterIP — the address
+kube-proxy used to route and that Cilium itself had not yet programmed:
+
+```
+cilium-<pod>  Init:CrashLoopBackOff  (init container "config")
+  Unable to contact k8s api-server
+  Get "https://10.96.0.1:443/api/v1/namespaces/kube-system": dial tcp 10.96.0.1:443: i/o timeout
+```
+
+Deadlock: Cilium cannot start until it reaches the API, and the API's ClusterIP is
+not routable until Cilium starts. The node stayed `NotReady` with
+`cni plugin not initialized`, so argocd-agent and every other workload sat Pending,
+the spoke-catalog never synced, and all seven "CRD MISSING" and every `0/0 available`
+finding in post-bootstrap validation were downstream of this one cause. The Hetzner
+CCM crash-looped on the same address.
+
+**Why it stayed latent.** `k8sServiceHost` has never existed in the live `hybrid`,
+`hetzner`, `_shared` or `spoke-bootstrap` cilium configs (`git log -S` over all
+history); it existed only in the abandoned `hybrid-flatcar` scaffold deleted in
+`67df5a2b`, which had it set correctly. The hub never hit the deadlock because its
+ClusterClass does not delete kube-proxy — it still runs kube-proxy today with the
+same empty `k8s-service-host`, and works *because* of it. And the spoke's kube-proxy
+deletion was introduced by rotating the control-plane template on a **running** spoke,
+where Cilium was already up and deleting kube-proxy is harmless. §17.3 then collapsed
+the version chain and made spokes reprovision-only. The first cold boot after that is
+where it fired. The fix was validated in the one state in which it could not fail.
+
+**Decision — the endpoint is cluster-lifecycle-injected configuration (ADR-048).**
+This is the same shape as ADR-048's ClusterIssuer: a value that must be *inline* in a
+config object, is per-spoke, and is unknown at composition time. ADR-048's rejected
+candidate 2 — "imperative live patches … a controller mutating GitOps-owned
+resources" — also rejects the obvious workaround of patching `cilium-config` in place
+with a systemd unit, and it is rejected here for the same reason.
+
+**Exactly one owner of the delivered object**, achieved as ADR-048 achieved it: by
+deletion, not coordination.
+
+| Half | Owner | Where |
+|---|---|---|
+| Settings (164 keys) | Git / ArgoCD | `manifests/providers/<provider>/k8s/cilium-config-base.yaml` |
+| `k8s-service-host` / `k8s-service-port` | hub-operator | rendered from `Cluster.spec.controlPlaneEndpoint` |
+| The `cilium-config` a spoke receives | **hub-operator, alone** | `{spoke}-cilium-config` CRS wrapper |
+
+The addon Secrets no longer carry a `cilium-config` document at all, so nothing else
+can write the object on a spoke. hub-operator is the renderer because ADR-043 assigns
+**Spoke Lifecycle → Hub Operator**, and it already implements this exact wrapper
+pattern twice (`ensureBootstrapCertCRSWrapper`, `ensureBootstrapCACRSWrapper`).
+ADR-048 rejected extending the identity operator into a general configuration
+controller, and the control-plane endpoint is not identity material.
+
+**Fail closed.** While `controlPlaneEndpoint` is unset, or the base is missing, no
+payload is published. A wrapper carrying an empty host would be applied by CRS and
+reproduce the deadlock it exists to prevent.
+
+**The ordering invariant the whole cold-boot fix rests on.** CAPH populates
+`controlPlaneEndpoint` when it creates the load balancer, which happens **before any
+machine is provisioned** — observed directly during the §23 incident, where the
+HetznerCluster sat at `LoadBalancerCreateFailed` with an empty endpoint and no Machine
+existed until the LB was created. The renderer therefore depends on nothing that
+requires a booted node. This is not merely documented: it is asserted by
+`TestCiliumConfigWrapper_EndpointPrecedesNodeBoot`, and
+`preflight/25-cilium-apiserver-endpoint.sh` fails if the load balancer — the
+endpoint's only source — is ever defaulted off.
+
+**The hub is not a spoke.** It has no SpokePool and no renderer, and it keeps
+kube-proxy, so it needs no injection. Its Day-0 CNI install rejoins the two halves by
+path (`provider_cloud.go`) rather than keeping a second copy of 160 settings that
+would drift.
+
+#### 24.2 The spoke's home worker was never provisioned
+
+The hub joins its home-lab worker in the orchestrator's `home-worker-join` phase
+(§21). The spoke had no equivalent: hub-operator minted the join token into
+`{spoke}-home-worker-join` and nothing ever consumed it. The spoke therefore ran one
+node — the tainted control plane — and could not satisfy ADR-014 placement for any
+stateful workload even once the CNI worked.
+
+It cannot live in the Go orchestrator: that owns hub creation and exits before the
+spoke exists. The spoke is provisioned by Crossplane after boundary sync, so the only
+stage that observes a provisioned spoke is Step 10 of `hub-bootstrap.sh`.
+
+**Decision.** Step 10e becomes the spoke's mirror of the hub's phase: wait for the
+spoke control plane to be Ready (which now requires 24.1), skip if a Ready node
+already carries the placement contract, otherwise run
+`provision-flatcar-worker.sh --cluster spoke`, then gate on the Node actually
+becoming Ready.
+
+**Readiness is measured on Nodes, never on CAPI Machines.** A home worker has no
+Machine — CAPI did not create it — so a Machine count is structurally blind to the
+thing being gated. The predicate requires a Node that is `Ready` **and** carries both
+`node-role.kubernetes.io/worker` and `workload-location=home`, which is the ADR-014 +
+§11 contract the workloads are scheduled against.
+
+**Fabricated success removed.** The previous Step 10e counted Machines, warned either
+way, and then printed unconditionally:
+
+```
+📊 SpokePool Status: Ready=True, Synced=True
+🔐 Certificate Distribution: All 3 certificates ready and synced
+🏗️  Spoke Cluster: InfrastructureReady=True, ControlPlaneReady=True, WorkersReady=True
+```
+
+All four lines were hardcoded and printed while none of it was true. A bootstrap must
+never assert a condition it did not observe; this is the same class as the §23
+readiness lie and as the 34-minute poll of a terminal error.
+
+#### Codified
+
+- `operators/hub-operator/internal/controller/spokepool_controller.go` —
+  `ensureCiliumConfigCRSWrapper`, called from `Reconcile`; RBAC for
+  `configmaps` and `cluster.x-k8s.io/clusters`.
+- `manifests/providers/{hybrid,hetzner}/k8s/cilium-config-base.yaml` — the static
+  half, wired into each provider kustomization.
+- `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`,
+  `manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml` — `cilium-config`
+  document removed; header records why.
+- Both SpokePool compositions register `{spoke}-cilium-config` as CRS resource
+  index 18; `validate-spokepool-compositions.sh` asserts the slot. (The index
+  comment table in the hybrid composition was stale for indices 14–17 and is
+  corrected — an off-by-one there mis-delivers a payload silently.)
+- `internal/hub-cli/bootstrap/provider_cloud.go` — hub Day-0 recomposition.
+- `scripts/validate/preflight/25-cilium-apiserver-endpoint.sh` — nine invariants,
+  including single ownership, renderer presence, and the load-balancer source.
+- `scripts/hub-bootstrap.sh` — Step 10e rewritten; `dump_cluster_diagnostics`.
+- `operators/hub-operator/internal/controller/cilium_config_wrapper_test.go` —
+  12 regression tests.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

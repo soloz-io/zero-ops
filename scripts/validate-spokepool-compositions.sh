@@ -47,6 +47,10 @@ dynamic_suffixes=(
   "bootstrap-cert"
   "agent-ca"
   "cluster-issuer"
+  # ADR-046 §24: rendered by hub-operator with the spoke's control-plane endpoint.
+  # It is the ONLY owner of the spoke's cilium-config, so a missing or duplicated
+  # slot here means either no CNI config reaches the spoke or two do.
+  "cilium-config"
 )
 
 failures=0

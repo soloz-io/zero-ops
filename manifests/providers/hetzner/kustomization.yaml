@@ -14,3 +14,8 @@ resources:
   - k8s/hetzner-credentials-es.yaml
   - k8s/spokepool-hetzner-composition.yaml
   - k8s/crossplane-provider-hetzner.yaml
+  # Static half of the spoke cilium-config (ADR-046 §24): the addon Secret in
+  # spoke-bootstrap/ carries the DaemonSet/RBAC/Services, this carries the
+  # settings. hub-operator reads it to render each spoke's cilium-config, and
+  # the hub's own Day-0 CNI install concatenates the two by path.
+  - k8s/cilium-config-base.yaml

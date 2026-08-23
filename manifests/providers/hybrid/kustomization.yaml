@@ -11,8 +11,11 @@ resources:
   - k8s/spokepool-hybrid-composition.yaml
   - k8s/home-worker-integration.yaml
   - k8s/tailscale-psk-es.yaml
-  # Flatcar-native Cilium (native routing over tailnet, no VXLAN overlay)
+  # Cilium: the addon Secret carries the DaemonSet/RBAC/Services only. The
+  # delivered cilium-config ConfigMap is rendered per-spoke by hub-operator
+  # from this base plus the spoke's control-plane endpoint (ADR-046 §24).
   - k8s/cilium-addon-hybrid.yaml
+  - k8s/cilium-config-base.yaml
   # ADR-046 §11: hcloud-csi excludes home workers; local-path provisioner +
   # StorageClass for the home placement class
   - k8s/csi-addon-hybrid.yaml

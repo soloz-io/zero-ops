@@ -182,10 +182,11 @@ spec:
                       #   [11]    no    argocd-agent-deployment      (ConfigMap)
                       #   [12]   yes    <spoke>-argocd-agent-params  (ConfigMap)
                       #   [13]    no    argocd-agent-rbac            (ConfigMap)
-                      #   [14]   yes    <spoke>-bootstrap            (Secret)
-                      #   [15]   yes    <spoke>-cluster-issuer       (Secret)
-                      #   [16]   yes    <spoke>-argocd-agent-certs   (Secret)
-                      #   [17]   yes    <spoke>-home-worker-join     (Secret)
+                      #   [14]   yes    <spoke>-machine-identity     (Secret)
+                      #   [15]   yes    <spoke>-bootstrap-cert       (Secret)
+                      #   [16]   yes    <spoke>-agent-ca             (Secret)
+                      #   [17]   yes    <spoke>-cluster-issuer       (Secret)
+                      #   [18]   yes    <spoke>-cilium-config        (Secret)
                       resources:
                         # Hetzner credentials (CP + burst worker cloud provider)
                         - name: ""
@@ -237,6 +238,13 @@ spec:
                         # ADR-048 second-stage: completed ClusterIssuer rendered by
                         # spoke-identity-operator into the {spoke}-cluster-issuer CRS
                         # wrapper Secret.
+                        - name: ""
+                          kind: Secret
+                        # ADR-046 §24 / ADR-048 second-stage: the spoke's cilium-config,
+                        # rendered by hub-operator with the control-plane endpoint that
+                        # only exists once CAPH has created the load balancer. The addon
+                        # Secret above deliberately carries no cilium-config document, so
+                        # this is the object's only owner.
                         - name: ""
                           kind: Secret
                       # Reconcile: re-applies CRS resources to EXISTING spokes when
@@ -341,6 +349,14 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-cluster-issuer"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cilium-config"
 
           # ────────────────────────────────────────────────────────────────────
           # Home-worker join config ConfigMap

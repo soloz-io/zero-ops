@@ -189,6 +189,13 @@ spec:
                         # wrapper Secret.
                         - name: ""
                           kind: Secret
+                        # ADR-046 §24 / ADR-048 second-stage: the spoke's cilium-config,
+                        # rendered by hub-operator with the control-plane endpoint that
+                        # only exists once CAPH has created the load balancer. The addon
+                        # Secret above deliberately carries no cilium-config document, so
+                        # this is the object's only owner.
+                        - name: ""
+                          kind: Secret
                       strategy: ApplyOnce
                 providerConfigRef:
                   name: kubernetes-provider
@@ -284,6 +291,14 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-cluster-issuer"
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cilium-config"
 
           # Per-cluster ArgoCD Agent ConfigMap
           # Wrapped in provider-kubernetes Object

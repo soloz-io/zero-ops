@@ -126,9 +126,53 @@ performs live-state drift repair. Concretely:
   from a binding status. Tracked as future work: expose a
   CRS-delivery-complete condition via spoke-identity-operator.
 
+### Amendment (2026-08-23): second consumer — Cilium's API server endpoint
+
+This ADR was written around one value (the Infisical issuer's `clientId`) but its
+decision is general: *cluster lifecycle owns injection of cluster-specific platform
+configuration*. A second consumer has now been registered, and it validates the
+generality — the mechanism was reused unchanged, with a different renderer.
+
+**The value.** Cilium's `k8s-service-host` / `k8s-service-port`. Same three
+properties as `clientId`: required **inline** in the config object (Cilium reads one
+ConfigMap), **per-spoke** (it is the CAPH load balancer's address), and **unknown at
+composition time**. See ADR-046 §24 for the deadlock its absence caused.
+
+**Renderer: hub-operator, not spoke-identity-operator.** This ADR's rejected
+candidate 3 — "identity operators expose identity, they do not own its consumers" —
+applies directly: the control-plane endpoint is not identity material. ADR-043
+assigns Spoke Lifecycle to the Hub Operator, which already implements this wrapper
+pattern for the bootstrap certificate and the agent CA. The ADR-048 pattern is
+therefore **renderer-agnostic**: the owner is whichever controller owns the domain
+the value comes from, not a single privileged controller.
+
+**Single ownership is achieved by deletion, as it was here.** This ADR removed the
+placeholder ClusterIssuer from the spoke catalog so the CRS lifecycle became the only
+deliverer. §24 does the same for `cilium-config`: the addon Secrets no longer carry
+the document. That is now the stated rule for any new consumer — *split the object
+out of the static source; do not add a second writer.* A systemd unit or controller
+patching the delivered object in place is candidate 2 and stays rejected.
+
+**One property Cilium adds that the ClusterIssuer did not have: a timing
+requirement.** The ClusterIssuer may arrive late — certificates simply wait. Cilium's
+config must exist before the first node boots, or there is no CNI and nothing
+schedules. The pattern satisfies this because CAPH populates `controlPlaneEndpoint`
+when it creates the load balancer, before any machine is provisioned. **Any future
+consumer with a boot-time requirement must state which runtime input it depends on
+and demonstrate that input precedes node boot** — for Cilium this is asserted by
+`TestCiliumConfigWrapper_EndpointPrecedesNodeBoot` and by
+`preflight/25-cilium-apiserver-endpoint.sh`, which fails if the load balancer that
+produces the endpoint is ever defaulted off.
+
+**Constraint 4 (fail-closed) is reaffirmed and is load-bearing here.** A wrapper
+carrying an empty `k8s-service-host` would be applied by CRS and reproduce the exact
+deadlock the renderer exists to prevent — on a cluster that reports nothing wrong
+until its first pod fails to schedule.
+
 ## Impact
 
 - ADR-039 (Platform Ownership Model): register spoke platform configuration / ClusterIssuer delivery ownership rows.
+- ADR-046 §24: registers `cilium-config` as the second consumer of this pattern.
 - ADR-035 (Enterprise PKI) and ADR-045 (Bootstrap-Generated GitOps Artifacts): unchanged; this ADR complements rather than supersedes them.
 - Manifest remediation: the shared `cluster-issuer.yaml` placeholder comments referencing "cert-operator CRS" injection (`manifests/spoke/spoke-catalog/infra/cluster-issuer.yaml`) must be updated to reference this ADR and the two-stage lifecycle, together with the delivery mechanism chosen in the configuration stage. **Done 2026-08-16:** placeholder removed from the catalog kustomization; header updated to document the CRS lifecycle delivery and the ArgoCD ownership boundary.
 
