@@ -20,7 +20,7 @@ func main() {
 	}
 
 	hydraClient := authproxy.NewHydraClient(cfg.HydraAdminURL)
-	if err := hydraClient.RegisterClient(cfg.WaypointBFFClientSecret); err != nil {
+	if err := hydraClient.RegisterClient(); err != nil {
 		log.Fatalf("failed to register OAuth client: %v", err)
 	}
 

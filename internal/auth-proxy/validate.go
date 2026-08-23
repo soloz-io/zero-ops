@@ -31,8 +31,8 @@ func (h *Handler) ValidateHandler(w http.ResponseWriter, r *http.Request) {
 	validator := NewJWTValidator(
 		h.jwksURL,
 		h.expectedAudience,
-		time.Hour,      // 1-hour TTL
-		5*time.Second,  // fetch timeout
+		time.Hour,     // 1-hour TTL
+		5*time.Second, // fetch timeout
 	)
 
 	claims, err := validator.Validate(token)

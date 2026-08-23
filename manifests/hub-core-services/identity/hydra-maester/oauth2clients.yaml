@@ -1,3 +1,10 @@
+# PLATFORM OAuth2 clients only.
+#
+# Tenant clients (a fleet's browser client and its BFF) are NOT declared here. They
+# are tenant runtime state: rendered per fleet at onboarding from fleet-registry,
+# per ADR-004 and the ADR-047 addendum. Naming one here put a specific tenant in a
+# platform manifest and created a dependency the platform could not satisfy on a
+# fresh hub, where no tenant has onboarded yet.
 # ADR-050 (2026-08-21 amendment): OAuth client registration is reconciled from these
 # resources by hydra-maester, replacing imperative registration at auth-proxy startup
 # (internal/auth-proxy/hydra.go). Registration was previously a silent side effect —
@@ -27,39 +34,3 @@ spec:
     - http://localhost:54321/callback
     - http://127.0.0.1:18999/callback
     - http://localhost:18999/callback
----
-# Browser session for the waypoint tenant. The redirect URI is keyed to the TENANT
-# hostname, not to a cluster — which is why moving the tenant between spokes
-# (ADR-051) needs no change here.
-apiVersion: hydra.ory.sh/v1alpha1
-kind: OAuth2Client
-metadata:
-  name: waypoint-public-client
-  namespace: platform-identity
-spec:
-  clientName: "Waypoint (browser)"
-  grantTypes: ["authorization_code", "refresh_token"]
-  responseTypes: ["code"]
-  scope: "openid tenant:read tenant:write offline_access"
-  tokenEndpointAuthMethod: none
-  secretName: waypoint-public-client-credentials
-  redirectUris:
-    - https://waypoint.dev.nutgraf.in/oauth/callback
----
-# Confidential client for the BFF's delegated-token lifecycle (ADR-050 P0-4). Distinct
-# from the browser client above: that one establishes who the user is, this one lets
-# the BFF act on their behalf downstream.
-apiVersion: hydra.ory.sh/v1alpha1
-kind: OAuth2Client
-metadata:
-  name: waypoint-bff-client
-  namespace: platform-identity
-spec:
-  clientName: "Waypoint BFF (delegated)"
-  grantTypes: ["authorization_code", "refresh_token"]
-  responseTypes: ["code"]
-  scope: "openid tenant:read tenant:write offline_access"
-  tokenEndpointAuthMethod: client_secret_basic
-  secretName: waypoint-bff-client-secret
-  redirectUris:
-    - https://waypoint.dev.nutgraf.in/api/v1/auth/oauth/callback

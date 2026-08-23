@@ -32,11 +32,27 @@ type OAuth2Client struct {
 	Scope                   string   `json:"scope"`
 }
 
-func (h *HydraClient) RegisterClient(waypointBFFClientSecret string) error {
+// RegisterClient registers the OAuth2 clients the PLATFORM owns.
+//
+// Tenant clients are deliberately absent. This function used to also register a
+// named tenant's browser and BFF clients, with their redirect URIs and that
+// tenant's client secret compiled in — which put a specific fleet inside a platform
+// binary and inverted ADR-004/ADR-047: tenant runtime state lives in fleet-registry
+// and is rendered per fleet at onboarding, never named here.
+//
+// It also created a dependency the platform could not satisfy. auth-proxy waited on
+// an ExternalSecret whose key only exists once that tenant's client is registered,
+// so on a fresh hub — where no tenant has onboarded — it could never resolve.
+// Onboarding a second tenant would have required a second env var and a code change.
+//
+// Tenant OAuth2 clients are now declared as OAuth2Client resources reconciled by
+// hydra-maester, rendered per fleet by the tenant provisioning path. auth-proxy
+// remains Hydra's login/consent provider for them; it just does not author them.
+func (h *HydraClient) RegisterClient() error {
 	clientSpec := OAuth2Client{
-		ClientID:   "mcp-public-client",
-		ClientName: "Zero-Ops MCP Client",
-		GrantTypes: []string{"authorization_code", "refresh_token"},
+		ClientID:      "mcp-public-client",
+		ClientName:    "Zero-Ops MCP Client",
+		GrantTypes:    []string{"authorization_code", "refresh_token"},
 		ResponseTypes: []string{"code"},
 		RedirectURIs: []string{
 			"http://127.0.0.1:54321/callback",
@@ -48,56 +64,9 @@ func (h *HydraClient) RegisterClient(waypointBFFClientSecret string) error {
 			"cursor://anysphere.cursor-mcp/oauth/callback",
 		},
 		TokenEndpointAuthMethod: "none",
-		Scope: "tenant:read tenant:write cluster:read cluster:write offline_access openid",
+		Scope:                   "tenant:read tenant:write cluster:read cluster:write offline_access openid",
 	}
-	if err := h.upsertClient(clientSpec); err != nil {
-		return err
-	}
-
-	// Waypoint browser client: PKCE-only public client consumed by the
-	// AgentGateway oidc policy. The callback is handled by the gateway itself
-	// (never reaches auth-proxy); auth-proxy only registers the client because
-	// it is Hydra's login/consent provider.
-	waypointSpec := OAuth2Client{
-		ClientID:   "waypoint-public-client",
-		ClientName: "Waypoint Browser Client",
-		GrantTypes: []string{"authorization_code", "refresh_token"},
-		ResponseTypes: []string{"code"},
-		RedirectURIs: []string{
-			"https://waypoint.dev.nutgraf.in/oauth/callback",
-			"http://localhost:3000/oauth/callback",
-			"http://127.0.0.1:3000/oauth/callback",
-		},
-		TokenEndpointAuthMethod: "none",
-		Scope: "openid tenant:read tenant:write offline_access",
-	}
-	if err := h.upsertClient(waypointSpec); err != nil {
-		return err
-	}
-
-	// Waypoint BFF client: confidential client owned by the Waypoint BFF for its
-	// server-side delegated token lifecycle (Case 2). The client secret is
-	// delivered via Infisical/ESO and injected into auth-proxy as
-	// WAYPOINT_BFF_CLIENT_SECRET so registration matches what the BFF holds.
-	if waypointBFFClientSecret == "" {
-		log.Println("WAYPOINT_BFF_CLIENT_SECRET is empty; skipping waypoint-bff-client registration")
-		return nil
-	}
-	bffSpec := OAuth2Client{
-		ClientID:   "waypoint-bff-client",
-		ClientName: "Waypoint BFF Client",
-		GrantTypes: []string{"authorization_code", "refresh_token"},
-		ResponseTypes: []string{"code"},
-		RedirectURIs: []string{
-			"https://waypoint.dev.nutgraf.in/api/v1/auth/oauth/callback",
-			"http://localhost:3001/api/v1/auth/oauth/callback",
-			"http://127.0.0.1:3001/api/v1/auth/oauth/callback",
-		},
-		TokenEndpointAuthMethod: "client_secret_basic",
-		ClientSecret:            waypointBFFClientSecret,
-		Scope: "openid tenant:read tenant:write offline_access",
-	}
-	return h.upsertClient(bffSpec)
+	return h.upsertClient(clientSpec)
 }
 
 func (h *HydraClient) upsertClient(clientSpec OAuth2Client) error {

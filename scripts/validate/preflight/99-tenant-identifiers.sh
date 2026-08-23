@@ -34,13 +34,11 @@ TENANTS = ["waypoint", "oranger"]
 
 # Files that already violate the rule, recorded so the debt is visible and any NEW
 # leak still fails. Shrinks as the ADR-047 remediation lands.
+#
+# The auth-proxy coupling is CLOSED: the platform binary no longer registers a
+# tenant's OAuth clients, and its Deployment no longer mounts a tenant secret.
+# What remains is hostname-level.
 BASELINE = {
-    "internal/auth-proxy/hydra.go",
-    "internal/auth-proxy/config.go",
-    "manifests/hub-core-services/identity/auth-proxy/deployment.yaml",
-    "manifests/hub-core-services/identity/auth-proxy/kustomization.yaml",
-    "manifests/hub-core-services/identity/auth-proxy/waypoint-bff-client-secret-es.yaml",
-    "manifests/hub-core-services/identity/hydra-maester/oauth2clients.yaml",
     "manifests/hub-core-services/api-gateway/agentgateway-config.yaml",
     "manifests/hub-core-services/identity/ory-kratos/values.yaml",
     "manifests/argocd/environment-manager/templates/05-tenant-fleet-appset.yaml",

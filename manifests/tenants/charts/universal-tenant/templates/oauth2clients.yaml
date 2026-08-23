@@ -1,0 +1,52 @@
+{{- if .Values.oauth.enabled }}
+{{- $host := required "oauth.publicHost is required when oauth.enabled" .Values.oauth.publicHost }}
+# Tenant OAuth2 clients, rendered per fleet at onboarding.
+#
+# These used to live in manifests/hub-core-services/identity/hydra-maester/ with a
+# tenant name written into them, and the tenant's BFF client secret was compiled
+# into the auth-proxy binary. That inverted ADR-004/ADR-047 — tenant runtime state
+# belongs to the fleet, not the platform — and produced a dependency the platform
+# could not satisfy: auth-proxy waited on an ExternalSecret whose key only exists
+# once the tenant's client is registered, so on a fresh hub it never resolved.
+#
+# hydra-maester reconciles these into Hydra. auth-proxy remains the login/consent
+# provider; it no longer authors them.
+apiVersion: hydra.ory.sh/v1alpha1
+kind: OAuth2Client
+metadata:
+  name: {{ .Values.tenantId }}-public-client
+  namespace: {{ .Values.oauth.identityNamespace }}
+spec:
+  clientName: "{{ .Values.tenantId }} (browser)"
+  grantTypes: ["authorization_code", "refresh_token"]
+  responseTypes: ["code"]
+  scope: "openid tenant:read tenant:write offline_access"
+  # Public client: PKCE only, no secret to distribute.
+  tokenEndpointAuthMethod: none
+  redirectUris:
+    - https://{{ $host }}/oauth/callback
+{{- range .Values.oauth.extraBrowserRedirectUris }}
+    - {{ . }}
+{{- end }}
+---
+# Confidential client for the tenant's BFF: server-side delegated token lifecycle.
+# secretName is created BY hydra-maester when it registers the client, so nothing
+# has to pre-seed it — which is what previously could not be satisfied.
+apiVersion: hydra.ory.sh/v1alpha1
+kind: OAuth2Client
+metadata:
+  name: {{ .Values.tenantId }}-bff-client
+  namespace: {{ .Values.oauth.identityNamespace }}
+spec:
+  clientName: "{{ .Values.tenantId }} BFF (delegated)"
+  grantTypes: ["authorization_code", "refresh_token"]
+  responseTypes: ["code"]
+  scope: "openid tenant:read tenant:write offline_access"
+  tokenEndpointAuthMethod: client_secret_basic
+  secretName: {{ .Values.tenantId }}-bff-client-secret
+  redirectUris:
+    - https://{{ $host }}/api/v1/auth/oauth/callback
+{{- range .Values.oauth.extraBFFRedirectUris }}
+    - {{ . }}
+{{- end }}
+{{- end }}

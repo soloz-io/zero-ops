@@ -8,20 +8,19 @@ import (
 // required mirrors every variable LoadConfig demands. Kept explicit so that adding a
 // setting without a manifest entry fails a test rather than a production pod.
 var required = map[string]string{
-	"LISTEN_ADDR":                ":8080",
-	"HYDRA_PUBLIC_URL":           "http://hydra:4444",
-	"HYDRA_ADMIN_URL":            "http://hydra:4445",
-	"HYDRA_INTERNAL_JWKS_URL":    "http://hydra:4444/.well-known/jwks.json",
-	"KRATOS_PUBLIC_URL":          "http://kratos:80",
-	"KRATOS_ADMIN_URL":           "http://kratos-admin:80",
-	"JWKS_CACHE_TTL":             "1h",
-	"JWKS_FETCH_TIMEOUT":         "5s",
-	"JWKS_REFRESH_MIN_INTERVAL":  "10s",
-	"EXPECTED_JWT_AUDIENCE":      "https://api.dev.nutgraf.in",
-	"TRUSTED_CLIENT_IDS":         "mcp-public-client",
-	"AUTH_PUBLIC_BASE_URL":       "https://auth.dev.nutgraf.in",
-	"MCP_GATEWAY_BASE_URL":       "https://api.dev.nutgraf.in",
-	"WAYPOINT_BFF_CLIENT_SECRET": "s3cret",
+	"LISTEN_ADDR":               ":8080",
+	"HYDRA_PUBLIC_URL":          "http://hydra:4444",
+	"HYDRA_ADMIN_URL":           "http://hydra:4445",
+	"HYDRA_INTERNAL_JWKS_URL":   "http://hydra:4444/.well-known/jwks.json",
+	"KRATOS_PUBLIC_URL":         "http://kratos:80",
+	"KRATOS_ADMIN_URL":          "http://kratos-admin:80",
+	"JWKS_CACHE_TTL":            "1h",
+	"JWKS_FETCH_TIMEOUT":        "5s",
+	"JWKS_REFRESH_MIN_INTERVAL": "10s",
+	"EXPECTED_JWT_AUDIENCE":     "https://api.dev.nutgraf.in",
+	"TRUSTED_CLIENT_IDS":        "mcp-public-client",
+	"AUTH_PUBLIC_BASE_URL":      "https://auth.dev.nutgraf.in",
+	"MCP_GATEWAY_BASE_URL":      "https://api.dev.nutgraf.in",
 }
 
 func setAll(t *testing.T) {

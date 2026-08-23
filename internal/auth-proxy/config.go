@@ -28,9 +28,6 @@ type Config struct {
 	// MCPGatewayBaseURL is the public base URL of the MCP gateway, used as the
 	// issuer in gateway-served metadata. Environment-zoned, as above.
 	MCPGatewayBaseURL string
-	// WaypointBFFClientSecret is the confidential client secret for
-	// waypoint-bff-client, delivered via Infisical/ESO (ADR-003).
-	WaypointBFFClientSecret string
 }
 
 // Note on the in-cluster URLs above (Hydra, Kratos): these are Kubernetes Service
@@ -87,10 +84,6 @@ func LoadConfig() (*Config, error) {
 		TrustedClientIDs:       m.get("TRUSTED_CLIENT_IDS"),
 		AuthPublicBaseURL:      m.get("AUTH_PUBLIC_BASE_URL"),
 		MCPGatewayBaseURL:      m.get("MCP_GATEWAY_BASE_URL"),
-		// Required: without it the waypoint-bff-client registration is skipped,
-		// which previously happened silently and left ADR-050's delegated-token
-		// client absent from Hydra.
-		WaypointBFFClientSecret: m.get("WAYPOINT_BFF_CLIENT_SECRET"),
 	}
 
 	if len(m.names) > 0 {

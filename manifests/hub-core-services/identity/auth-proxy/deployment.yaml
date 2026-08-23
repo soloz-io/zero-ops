@@ -9,7 +9,6 @@ metadata:
     # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
     # rewrites this Secret in place and the process would otherwise keep the
     # value it read at startup until something unrelated restarted it.
-    secret.reloader.stakater.com/reload: "waypoint-bff-client-secret"
 spec:
   replicas: 1
   selector:
@@ -73,11 +72,6 @@ spec:
           value: "https://auth.dev.nutgraf.in"
         - name: MCP_GATEWAY_BASE_URL
           value: "https://api.dev.nutgraf.in"
-        - name: WAYPOINT_BFF_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: waypoint-bff-client-secret
-              key: client-secret
         livenessProbe:
           httpGet:
             path: /health/ready

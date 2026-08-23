@@ -8,6 +8,19 @@ tenantId: ""
 # and support resources are installed directly into the tenant namespace.
 deployXR: false
 
+# OAuth2 clients for this fleet, reconciled into Hydra by hydra-maester.
+# The platform does not declare tenant clients (ADR-047 addendum); they are rendered
+# here, per fleet, at onboarding.
+oauth:
+  enabled: false
+  # Public hostname this fleet serves, e.g. waypoint.dev.nutgraf.in
+  publicHost: ""
+  # Namespace hydra-maester watches for OAuth2Client resources.
+  identityNamespace: platform-identity
+  # Local/dev callbacks, if the fleet needs them.
+  extraBrowserRedirectUris: []
+  extraBFFRedirectUris: []
+
 # Tenant tier (required)
 # Valid values: starter, enterprise
 tier: starter

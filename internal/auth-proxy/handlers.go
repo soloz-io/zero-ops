@@ -339,7 +339,6 @@ func (h *Handler) acceptOrReject(w http.ResponseWriter, r *http.Request, challen
 	http.Redirect(w, r, redirectTo, http.StatusFound)
 }
 
-
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
