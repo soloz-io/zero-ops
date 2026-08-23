@@ -1,0 +1,49 @@
+# Partial server-side-apply patch — owns ONLY the fields named below.
+# The Deployment itself is created at pivot from the vendored upstream asset.
+#
+# Prune=false: ArgoCD must never delete the cert-manager webhook if this file is
+# removed — dropping the admission webhook takes down all TLS issuance on the hub.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager-webhook
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-webhook
+          # Upstream ships no requests -> BestEffort -> lowest CPU shares, so the
+          # webhook is starved first on a saturated node and misses its probes.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          # Upstream uses timeoutSeconds: 1 here. Under CPU contention that
+          # deadline is missed, the kubelet SIGTERMs the webhook (exit 0 /
+          # "Completed"), the Service loses its only endpoint, and every
+          # admission call then fails with EPERM via Cilium socket-LB --
+          # which blocks ingress-shim from creating any Certificate.
+          # Upstream already allows the controller 15s; these are still tighter.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: healthcheck
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 8
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthcheck
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6

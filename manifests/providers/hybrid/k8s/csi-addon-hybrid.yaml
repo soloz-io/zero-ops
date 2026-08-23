@@ -373,7 +373,7 @@ stringData:
     apiVersion: v1
     kind: ServiceAccount
     metadata:
-      name: local-path-provisioner
+      name: local-path-provisioner-service-account
       namespace: kube-system
     ---
     kind: ClusterRole
@@ -383,7 +383,7 @@ stringData:
     rules:
       - apiGroups: [""]
         resources: [nodes, pods, pods/status]
-        verbs: [get, list, watch]
+        verbs: [get, list, watch, create, delete]
       - apiGroups: [""]
         resources: [configmaps]
         verbs: [get, list, watch]
@@ -410,7 +410,7 @@ stringData:
       name: local-path-provisioner-role
     subjects:
       - kind: ServiceAccount
-        name: local-path-provisioner
+        name: local-path-provisioner-service-account
         namespace: kube-system
     ---
     apiVersion: v1

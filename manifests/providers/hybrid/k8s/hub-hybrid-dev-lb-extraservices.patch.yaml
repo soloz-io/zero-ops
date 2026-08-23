@@ -1,0 +1,55 @@
+# Hub LB :80 remediation — hub-hybrid-dev (dev only)
+#
+# WHAT
+#   Adds `extraServices: 80->80` to the CAPH-managed control-plane LoadBalancer
+#   of the live HetznerCluster `hub-hybrid-dev-ckp5c`, so the public LB forwards
+#   :80 to the control-plane node where ingress-nginx binds hostNetwork. Without
+#   it, :80 on 65.109.41.23 is closed and ACME HTTP-01 can never complete.
+#
+# WHY THIS IS A PATCH FILE AND NOT A NORMAL MANIFEST
+#   The desired shape is ALREADY declared in the hub ClusterClass template at
+#   `internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml`:
+#
+#       controlPlaneEndpoint.port: 6443        # frees :443 for ingress
+#       controlPlaneLoadBalancer.extraServices: [80, 443]
+#
+#   but the live hub was provisioned from the PRE-ADR-046-§25 revision of that
+#   template, and `HetznerClusterTemplate.spec` is immutable once referenced —
+#   the CAPH webhook denies edits outright, and ArgoCD (automated+selfHeal) then
+#   retries forever and wedges the infrastructure-provider Application. That is
+#   the failure mode reverted in commits e4c86c8d and 0557c269. Converging the
+#   live cluster properly requires template rotation + a topology rebase
+#   (ADR-046 §25.5), NOT an in-place edit.
+#
+#   This file records the interim live patch so it is reproducible and is not
+#   lost as a one-off shell command.
+#
+# SAFETY / DURABILITY
+#   The live HetznerCluster carries `topology.cluster.x-k8s.io/owned`, so manual
+#   edits are normally reverted by the CAPI topology controller. This one
+#   survives because `capi-topology` uses Server-Side Apply and does NOT own the
+#   `extraServices` field (it is absent from the old template), so SSA leaves the
+#   `kubectl-patch` field manager's value alone. Verified via managedFields.
+#   If the hub template is ever rotated to a revision that DOES declare
+#   extraServices, ownership moves to capi-topology and this patch becomes
+#   redundant — delete this file at that point.
+#
+# NOT INCLUDED HERE: listenPort 443. A Hetzner LB cannot carry two services on
+#   one listen_port, and :443 is currently the kube-apiserver
+#   (controlPlaneEndpoint.port is still 443 on this cluster). Public HTTPS
+#   therefore does NOT ride the LB today — DNS points at the control-plane node's
+#   public IP instead (see manifests/hub-core-services/external-dns/external-dns.yaml).
+#
+# APPLY
+#   kubectl --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
+#     patch hetznercluster hub-hybrid-dev-ckp5c -n platform-capi --type=merge \
+#     --patch-file manifests/providers/hybrid/k8s/hub-hybrid-dev-lb-extraservices.patch.yaml
+#
+# VERIFY
+#   nc -z 65.109.41.23 80   # must succeed
+spec:
+  controlPlaneLoadBalancer:
+    extraServices:
+      - protocol: tcp
+        listenPort: 80
+        destinationPort: 80
