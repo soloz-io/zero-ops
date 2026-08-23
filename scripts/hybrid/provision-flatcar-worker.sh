@@ -1033,6 +1033,19 @@ if ($MIN_MEMORY_BYTES -gt 0) { \$finalMin = [int64]$MIN_MEMORY_BYTES }
 \$finalCpus = \$autoCpus
 if ($CPU_COUNT -gt 0) { \$finalCpus = [int]$CPU_COUNT }
 
+# Oversubscription guard (ADR-046 §24.5). home-lab.env is gitignored, so a stale
+# cpus column survives every repo change and silently reinstates the condition that
+# powered this class of host off mid-provision. An explicit value still wins — the
+# operator may know better — but it does not get to be silent about it.
+\$otherCpus = 0
+Get-VM -ErrorAction SilentlyContinue | Where-Object { \$_.Name -ne \$vmName } | ForEach-Object { \$otherCpus += \$_.ProcessorCount }
+\$totalCpus = \$otherCpus + \$finalCpus
+if (\$totalCpus -gt \$logical) {
+  Write-Output ('    ⚠ vCPU oversubscription: ' + \$totalCpus + ' vCPUs across ' + (\$peerVms + 1) + ' VM(s) on ' + \$logical + ' host threads')
+  Write-Output ('    → this ratio drove ACPI critical-thermal shutdowns on a 15W host; see ADR-046 §24.5')
+  Write-Output ('    → lower the cpus column in home-lab.env for the VMs on this box')
+}
+
 Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, 5 GB Host OS Reserve)')
 
 New-VM -Name \$vmName -Generation 2 -MemoryStartupBytes \$finalStartup -VHDPath \$vhdPath -SwitchName '$VSWITCH_NAME' | Out-Null
