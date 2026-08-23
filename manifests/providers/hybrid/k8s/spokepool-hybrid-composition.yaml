@@ -88,7 +88,16 @@ spec:
                           machineDeployments:
                           - class: default-worker
                             name: md-0
-                            replicas: 0  # Burst pool: 0 by default; home workers join unmanaged
+                            # ADR-052 §2: burst pool. `replicas` is deliberately OMITTED so the
+                            # capi-topology controller relinquishes server-side-apply ownership of
+                            # MachineDeployment.spec.replicas to cluster-autoscaler. With `replicas`
+                            # set here, capi-topology re-applies it on every reconcile and silently
+                            # reverts every scale-up (verified 2026-08-23: manager=capi-topology
+                            # op=Apply owns f:replicas). The bounds below are the scaling envelope.
+                            metadata:
+                              annotations:
+                                cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "0"
+                                cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "3"
                         variables:
                           - name: region
                             value: "hel1"  # Patched from spec.region
