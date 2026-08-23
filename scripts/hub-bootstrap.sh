@@ -1088,6 +1088,67 @@ step6b_seed_external_credentials() {
     fi
 }
 
+# Step 8b: Re-trigger ESO after Day-0 has populated Infisical
+#
+# Ordering makes this necessary, and without it a first bootstrap looks broken for
+# a full hour:
+#
+#   ESO reconciles first  -> Infisical is empty, Day-0 has not run yet
+#                         -> every ExternalSecret records SecretSyncedError
+#   refreshInterval: 1h   -> ESO caches that failure and will not look again
+#   Day-0 completes       -> hub-operator uploads the secrets
+#                         -> nothing tells ESO they have arrived
+#
+# The data is present and the store is valid, yet every ExternalSecret stays red
+# until an hour has passed — long after the gates below have judged them. Observed
+# as 2/22 ready with 39 successful uploads logged by hub-operator.
+#
+# ESO reconciles an ExternalSecret whenever its metadata changes, so stamping an
+# annotation is the supported nudge. It is idempotent and harmless when the secrets
+# already resolve.
+step8b_refresh_external_secrets() {
+    log "Step 8b: Re-syncing ExternalSecrets now that Infisical is populated..."
+
+    local stamp total=0 ready=0
+    stamp="$(date +%s)"
+
+    local pairs
+    pairs=$(kubectl --kubeconfig="$KUBECONFIG_PATH" get externalsecrets -A \
+        --no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null || true)
+
+    if [[ -z "$pairs" ]]; then
+        log "  No ExternalSecrets found — nothing to re-sync"
+        return
+    fi
+
+    while read -r ns name; do
+        [[ -z "$ns" || -z "$name" ]] && continue
+        ((total++))
+        kubectl --kubeconfig="$KUBECONFIG_PATH" -n "$ns" annotate externalsecret "$name" \
+            force-sync="$stamp" --overwrite >/dev/null 2>&1 || true
+    done <<< "$pairs"
+
+    log "  Triggered re-sync on $total ExternalSecret(s); waiting for convergence..."
+
+    # Bounded wait: this is a nudge, not a gate. The secrets-resolve gate that runs
+    # next is what decides whether anything is genuinely unseeded.
+    local attempt
+    for attempt in $(seq 1 12); do
+        ready=$(kubectl --kubeconfig="$KUBECONFIG_PATH" get externalsecrets -A \
+            -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+            | grep -c "^True$" || true)
+        if [[ "${ready:-0}" -ge "$total" ]]; then
+            break
+        fi
+        sleep 10
+    done
+
+    log "  ExternalSecrets ready: ${ready:-0}/$total"
+    if [[ "${ready:-0}" -lt "$total" ]]; then
+        log "  Remaining ones are reported individually by the secret resolution gate below."
+    fi
+}
+
 # Step 7-8: Create Machine Identity and configure ESO (automated in hub-operator)
 step7_8_configure_eso() {
     if is_step_completed "configure_eso"; then
@@ -1556,6 +1617,8 @@ main() {
     step6b_seed_external_credentials
 
     step7_8_configure_eso
+
+    step8b_refresh_external_secrets
 
     # Infisical is up and ESO has had a reconcile window, so an ExternalSecret that
     # still cannot resolve is a seeding fault rather than a race.
