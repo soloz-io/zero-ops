@@ -269,14 +269,13 @@ stringData:
           serviceAccountName: hcloud-csi-controller
           affinity:
             nodeAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-              - preference:
-                  matchExpressions:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
                   - key: instance.hetzner.cloud/provided-by
                     operator: In
                     values:
                     - cloud
-                weight: 1
           securityContext:
             fsGroup: 1001
           containers:
