@@ -216,11 +216,35 @@ spec:
     spec:
       controlPlaneEndpoint:
         host: ""
-        port: 443
+        # ADR-046 §25.1: 6443, NOT 443. controlPlaneEndpoint.port becomes the LB's
+        # listen port for the apiserver, and a Hetzner LB cannot carry two services
+        # on one listen_port. Leaving this at 443 silently discards the
+        # extraServices 443 entry below — the defect that left the spoke without
+        # HTTPS ingress from §17.4 until §25.
+        port: 6443
       controlPlaneLoadBalancer:
         enabled: true
         type: lb11
         region: hel1
+        port: 6443
+        # ADR-046 §25.3: public ingress rides the CAPH-managed LB so it is owned by
+        # the cluster lifecycle and deleted with the cluster (§23), instead of a
+        # CCM `type: LoadBalancer` Service whose address can be recycled onto an
+        # unrelated cluster's apiserver while DNS still points at it.
+        #
+        # destinationPort == listenPort: ingress-nginx is a hostNetwork DaemonSet
+        # pinned to the control-plane node (§25.2 — the only server CAPH can target
+        # on a hybrid hub; home workers carry unmanaged:// providerIDs).
+        #
+        # NOTE: extraServices exposes only {protocol,listenPort,destinationPort} —
+        # there is no proxyProtocol field, so PROXY protocol is OFF (§17.4).
+        extraServices:
+        - protocol: tcp
+          listenPort: 80
+          destinationPort: 80
+        - protocol: tcp
+          listenPort: 443
+          destinationPort: 443
       controlPlaneRegions: []
       hcloudNetwork:
         enabled: true
@@ -462,6 +486,13 @@ spec:
           # nothing can schedule. Clearing it is idempotent and is exactly what the
           # spoke ClusterClass already does (spokepool-clusterclass-v1.yaml).
           - 'if [ -s /etc/tailscale-hostname ]; then kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node.cloudprovider.kubernetes.io/uninitialized- || true; fi'
+          # ADR-046 §23 item 2 / §25.4: kubeadm sets this on control-plane nodes and
+          # the CCM honours it by registering no backends. It does NOT affect the
+          # CAPH-managed LB (CAPH registers server targets regardless), so it is not
+          # on the §25 ingress path — mirrored from the spoke ClusterClass so any
+          # future CCM `type: LoadBalancer` Service on the hub can reach the only
+          # Hetzner node.
+          - 'kubectl --kubeconfig=/etc/kubernetes/admin.conf label nodes --all node.kubernetes.io/exclude-from-external-load-balancers- || true'
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate

@@ -124,7 +124,7 @@ func decodeWrapper(t *testing.T, sec *corev1.Secret) *corev1.ConfigMap {
 func TestCiliumConfigWrapper_RendersEndpointFromControlPlaneEndpoint(t *testing.T) {
 	sp := newSpokePool("hybrid")
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hybrid", map[string]string{
 			"kube-proxy-replacement": "true",
 			"routing-mode":           "tunnel",
@@ -148,8 +148,8 @@ func TestCiliumConfigWrapper_RendersEndpointFromControlPlaneEndpoint(t *testing.
 	if got := cm.Data["k8s-service-host"]; got != "65.109.41.89" {
 		t.Errorf("k8s-service-host = %q, want 65.109.41.89", got)
 	}
-	if got := cm.Data["k8s-service-port"]; got != "443" {
-		t.Errorf("k8s-service-port = %q, want 443", got)
+	if got := cm.Data["k8s-service-port"]; got != "6443" {
+		t.Errorf("k8s-service-port = %q, want 6443", got)
 	}
 	// The static half must survive untouched — the renderer contributes two keys
 	// and owns nothing else.
@@ -214,7 +214,7 @@ func TestCiliumConfigWrapper_ErrorsOnUnusableBase(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sp := newSpokePool("hybrid")
-			objs := append([]client.Object{sp, newCAPICluster("65.109.41.89", 443)}, tc.objs...)
+			objs := append([]client.Object{sp, newCAPICluster("65.109.41.89", 6443)}, tc.objs...)
 			r := newReconciler(t, objs...)
 
 			err := r.ensureCiliumConfigCRSWrapper(context.Background(), sp)
@@ -232,7 +232,7 @@ func TestCiliumConfigWrapper_ErrorsOnUnusableBase(t *testing.T) {
 func TestCiliumConfigWrapper_OwnedBySpokePool(t *testing.T) {
 	sp := newSpokePool("hybrid")
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hybrid", map[string]string{"kube-proxy-replacement": "true"}),
 	)
 	if err := r.ensureCiliumConfigCRSWrapper(context.Background(), sp); err != nil {
@@ -253,7 +253,7 @@ func TestCiliumConfigWrapper_OwnedBySpokePool(t *testing.T) {
 // dead address.
 func TestCiliumConfigWrapper_UpdatesWhenEndpointChanges(t *testing.T) {
 	sp := newSpokePool("hybrid")
-	cluster := newCAPICluster("65.109.41.89", 443)
+	cluster := newCAPICluster("65.109.41.89", 6443)
 	r := newReconciler(t, sp, cluster, newCiliumBase("hybrid", map[string]string{"kube-proxy-replacement": "true"}))
 
 	ctx := context.Background()
@@ -282,7 +282,7 @@ func TestCiliumConfigWrapper_UpdatesWhenEndpointChanges(t *testing.T) {
 func TestCiliumConfigWrapper_SelectsBaseByProvider(t *testing.T) {
 	sp := newSpokePool("hetzner")
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hetzner", map[string]string{"routing-mode": "native"}),
 		newCiliumBase("hybrid", map[string]string{"routing-mode": "tunnel"}),
 	)
@@ -312,7 +312,7 @@ func TestCiliumConfigWrapper_EndpointPrecedesNodeBoot(t *testing.T) {
 	// A cluster with an endpoint and absolutely nothing else: no Machines, no
 	// Nodes, no kubeconfig Secret, no spoke API to talk to.
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hybrid", map[string]string{"kube-proxy-replacement": "true"}),
 	)
 
@@ -335,7 +335,7 @@ func TestCiliumConfigWrapper_BaseMustNotCarryEndpointKeys(t *testing.T) {
 	// A base that wrongly pins the endpoint. The renderer must win, because the
 	// base cannot know a per-spoke address and a stale one is worse than none.
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hybrid", map[string]string{
 			"k8s-service-host": "10.96.0.1",
 			"k8s-service-port": "443",
@@ -355,7 +355,7 @@ func TestCiliumConfigWrapper_BaseMustNotCarryEndpointKeys(t *testing.T) {
 func TestCiliumConfigWrapper_PayloadIsASingleApplyableManifest(t *testing.T) {
 	sp := newSpokePool("hybrid")
 	r := newReconciler(t, sp,
-		newCAPICluster("65.109.41.89", 443),
+		newCAPICluster("65.109.41.89", 6443),
 		newCiliumBase("hybrid", map[string]string{"kube-proxy-replacement": "true"}),
 	)
 	if err := r.ensureCiliumConfigCRSWrapper(context.Background(), sp); err != nil {

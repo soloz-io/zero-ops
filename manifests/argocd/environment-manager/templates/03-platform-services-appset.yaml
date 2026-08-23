@@ -304,12 +304,33 @@ spec:
                 # issuance. cert-manager relies on this for Let's Encrypt.
                 admissionWebhooks:
                   enabled: false
+                # ADR-046 §25.2/§25.3: the CAPH-managed control-plane LB forwards
+                # 80/443 to its SERVER targets, and on a hybrid hub the only server
+                # CAPH can target is the control-plane node — home workers carry
+                # unmanaged:// providerIDs. ingress-nginx must therefore bind
+                # :80/:443 on the control-plane host itself.
+                #
+                # This replaces a `type: LoadBalancer` Service whose CCM load
+                # balancer carried ZERO targets for its entire life (kubeadm's
+                # exclude-from-external-load-balancers on the CP node + an
+                # untargetable home worker), so the hub's public path never worked.
+                kind: DaemonSet
+                hostNetwork: true
+                dnsPolicy: ClusterFirstWithHostNet
+                # Explicit ADR-014 exception (§25.3 item 4): node-bound
+                # infrastructure tied to the LB target set, in the same class as the
+                # CNI agent, the CSI node plugin, and tailscaled (§22). Scoped to
+                # ingress-nginx; it does not generalise.
+                nodeSelector:
+                  node-role.kubernetes.io/control-plane: ""
+                tolerations:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+                    effect: NoSchedule
                 service:
+                  # No cloud load balancer. The public entry point is the CAPH LB.
                   enabled: true
-                  type: LoadBalancer
-                  annotations:
-                    load-balancer.hetzner.cloud/network-zone: eu-central
-                    load-balancer.hetzner.cloud/type: lb11
+                  type: ClusterIP
               defaultBackend:
                 enabled: false
             helmReleaseName: 'ingress-nginx'

@@ -91,10 +91,12 @@ Home workers never appear in the ClusterClass topology.
 ### Spoke API Endpoint
 
 - CAPH creates a Hetzner Load Balancer per spoke (`controlPlaneLoadBalancer`
-  `port: 6443`, `type: lb11`) and publishes the kube-apiserver on the LB IPv4,
-  TCP 443 (LB `ListenPort` = `controlPlaneEndpoint.port`, forwarding to CP
-  nodes on 6443). The endpoint is derived automatically; no tailnet name is
-  involved.
+  `port: 6443`, `type: lb11`) and publishes the kube-apiserver on the LB IPv4.
+  **AMENDED by §25.1 (2026-08-23): the listen port is 6443, not 443.** The LB
+  `ListenPort` is `controlPlaneEndpoint.port`; while that was 443 it consumed the
+  one port tenant HTTPS ingress needs, and CAPH silently dropped the conflicting
+  `extraServices` entry. 443 is now reserved for ingress. The endpoint is derived
+  automatically; no tailnet name is involved.
 - The segment is identical to the pure-hetzner provider; hybrid adds nothing
   for the API path. The endpoint is stable across control-plane node rotation
   because the LB IP does not change.
@@ -978,6 +980,13 @@ tradeoff that replaces the version chain.
 
 **17.4 — Ingress LB moved into GitOps; `ensure-waypoint-lb.sh` deleted.**
 Supersedes addendum 8's "EXTERNAL resource — out of scope for in-cluster GitOps".
+
+> **AMENDED by §25.1 (2026-08-23).** The 443 entry declared below was never
+> created. `controlPlaneEndpoint.port` was also 443, and a Hetzner LB cannot
+> carry two services on one listen port, so CAPH kept the apiserver there and
+> discarded the ingress entry without error. Spoke tenant HTTPS was therefore
+> dead from this change until §25 moved the apiserver to 6443. Only the 80
+> entry ever worked.
 Ports 80/443 are now declared as
 `HetznerCluster.spec.controlPlaneLoadBalancer.extraServices` on
 `spokepool-cluster-v1`, so CAPH owns the public entry point and **retargets it
@@ -1400,6 +1409,12 @@ finalizer stripping and feeds drained IPs to the sweep in `deleteHetznerResource
 kubeconfig resolution is shared via `resolveKubectlBaseArgs` so the two steps cannot
 target different clusters.
 
+> **§25 (2026-08-23) supersedes item 1 and narrows item 2.** Item 1 is
+> unsatisfiable as written: `controlPlaneEndpoint.port: 443` already occupies the
+> LB listen port that ingress needs, and on a hybrid hub nothing the CAPH LB can
+> target is listening on 80/443. Item 2 only affects CCM-managed load balancers.
+> See §25.3 for the replacement decision.
+
 **Pending:** items 1–3, plus `preflight/15-hetzner-capacity.sh` (fails on leaked
 zero-target CCM load balancers and on insufficient quota headroom before a run
 starts) and the ADR-005 readiness gap below. Items 1 and 2 edit
@@ -1732,6 +1747,106 @@ that merely looks broken.
 - `scripts/hub-bootstrap.sh` — Step 10e rewritten; `dump_cluster_diagnostics`.
 - `operators/hub-operator/internal/controller/cilium_config_wrapper_test.go` —
   12 regression tests.
+
+### 25. The control-plane LB's 443 belongs to the apiserver; hub ingress needs a targetable node (2026-08-23)
+
+§23 item 1 — "public ingress on the hub joins the CAPH-managed control-plane LB via
+`extraServices`, as spokes already do" — is unsatisfiable as written, and the spoke it
+cites as the working precedent does not work either. Two independent blockers, both
+silent.
+
+#### 25.1 The listen-port collision
+
+`controlPlaneEndpoint.port: 443` makes CAPH publish the kube-apiserver on the load
+balancer's **443** listener (forwarding to 6443 on the CP nodes). A Hetzner load
+balancer cannot carry two services on one `listen_port`, so a declared
+`extraServices` entry with `listenPort: 443` can never materialise.
+
+The spoke declares both ports and received only one:
+
+```
+spokepool-clusterclass-v1.yaml  extraServices: 80->80, 443->443
+LB spoke-...-ps847              listen 80  -> dest 80    (tcp)
+                                listen 443 -> dest 6443  (tcp)   <- apiserver, not ingress
+```
+
+```
+$ openssl s_client -connect 65.109.41.23:443 -servername infisical.dev.nutgraf.in
+subject= /CN=kube-apiserver
+issuer=  /CN=kubernetes
+```
+
+Nothing reports this. `HetznerCluster` holds `Ready=True`, `LoadBalancerReady=True`,
+and CAPH logs no conflict — the declaration is simply dropped. **Spoke HTTPS ingress
+has therefore been dead since §17.4 deleted `ensure-waypoint-lb.sh`**; the flat
+`waypoint`/`api.waypoint` A records still pointing at the removed `waypoint-gateway-lb`
+IP are the fossil of the last working HTTPS path.
+
+#### 25.2 Nothing targetable is listening
+
+`extraServices` forwards to a port on the LB's **server targets**, and CAPH targets
+only Hetzner servers. On the hybrid hub the control-plane node is the only such
+server: home workers carry `unmanaged://` providerIDs (§23). But ingress-nginx runs on
+the home worker, and the control-plane node is tainted
+`node-role.kubernetes.io/control-plane:NoSchedule`:
+
+```
+ingress-nginx-controller-...  Running   flatcar-hub-node-1   (unmanaged://)
+hub-hybrid-dev-gtzxd-7n7zm    taints: node-role.kubernetes.io/control-plane:NoSchedule
+```
+
+So the CCM-managed LB that §23 set out to remove carried **zero targets for its whole
+life**. `95.217.168.74` was never serving anything; its accidental deletion removed a
+load balancer that had never worked. The pending cert-manager HTTP-01 solvers on all
+five hub hostnames are the visible symptom.
+
+This is §23's own observation — "the CCM path cannot serve a hybrid cluster even when
+the quota is free" — extended one step: neither can the CAPH path, until something the
+CAPH LB can target is listening on 80/443.
+
+#### 25.3 Decision
+
+1. **The apiserver moves off 443.** `controlPlaneEndpoint.port` and
+   `controlPlaneLoadBalancer.port` are both `6443` on the hub and spoke ClusterClasses.
+   443 is reserved for ingress. This is the only arrangement in which one CAPH-owned
+   LB serves both the API and public HTTPS, which is what §23 requires.
+2. **`extraServices` declares 80->80 and 443->443** on both classes. On the spoke this
+   makes the already-declared 443 entry real for the first time.
+3. **ingress-nginx becomes a hostNetwork DaemonSet pinned to the control-plane node**,
+   with a `ClusterIP` Service and a toleration for the control-plane taint. It is the
+   LB's only reachable target, so it must run where the target is.
+4. **This is an explicit ADR-014 exception.** ADR-014 confines workloads to worker
+   nodes; ingress-nginx is node-bound infrastructure tied to the LB target set, in the
+   same class as the CNI agent, the CSI node plugin, and `tailscaled` (§22). The
+   exception is scoped to ingress-nginx and does not generalise.
+5. **No `type: LoadBalancer` Service remains on the hub.** §23 items 3-5 continue to
+   govern any that a fleet later authors.
+
+#### 25.4 Consequences
+
+- **The API endpoint port changes**, so every kubeconfig, every `kubeadm join`, and the
+  home-worker join flow (§"Spoke API Endpoint", which routes home workers through the
+  public endpoint) move to `:6443`. Outbound 6443 must be permitted from the home LAN;
+  ADR-046's original choice of 443 is described in §"Spoke API Endpoint" but was never
+  justified as firewall traversal, and Tailscale already covers the constrained-egress
+  case.
+- **Both clusters reprovision.** These edit
+  `HetznerClusterTemplate.spec.template.spec` and `KubeadmControlPlaneTemplate`, which
+  CAPI treats as immutable once referenced. Per §17.3 they land with a reprovision, not
+  a version rotation — the same gate §23 items 1-2 already carried.
+- **The public entry point becomes the control-plane LB IP.** DNS for the environment
+  therefore points at a CAPH-reconciled address that is deleted with the cluster,
+  instead of a CCM address that can be recycled onto an unrelated cluster's apiserver
+  while records still point at it (§20.4).
+- **§23 item 2 is narrowed.** Clearing
+  `node.kubernetes.io/exclude-from-external-load-balancers` only affects CCM-managed
+  load balancers; CAPH registers server targets regardless of the label. It remains
+  worth mirroring to the hub for any future CCM Service, but it is not part of this
+  path.
+
+**Supersedes:** §23 item 1 (unsatisfiable as written) and §23 item 2 (narrowed).
+**Amends:** §"Spoke API Endpoint" (endpoint port 443 -> 6443), §17.4 (443 was never
+created), §20.4.
 
 ## References
 
