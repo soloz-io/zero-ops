@@ -26,8 +26,27 @@ SOURCES = [
     "internal/assets/manifests/classes/*.yaml",
 ]
 
+# Templates whose collision is REAL and KNOWN, recorded so the rule is enforceable
+# for everything else while the debt stays visible — the same idiom
+# 96-spoke-secret-authz.py and 99-tenant-identifiers.sh use.
+#
+#   spokepool-cluster-v1
+#       controlPlaneEndpoint.port 443 collides with extraServices 443, so spoke
+#       tenant HTTPS does not exist (ADR-046 §25.1). It is NOT fixed in place
+#       because HetznerClusterTemplate.spec is immutable once referenced — the CAPH
+#       webhook denies the edit and ArgoCD (automated, selfHeal) then retries
+#       forever, wedging the infrastructure-provider Application. Observed live.
+#       Landing the fix needs a new template NAME, not an edit (ADR-046 §25.5).
+#
+# Remove an entry the moment its template is versioned and the collision is gone.
+# The list only shrinks; a NEW template with a collision still fails hard.
+BASELINE = {
+    "spokepool-cluster-v1",
+}
+
 found = 0
 clean = True
+baselined = []
 
 # `manifests/providers/_shared/` is matched by two of the patterns above, so
 # resolve and de-duplicate before scanning — otherwise one defect reports twice
@@ -59,12 +78,15 @@ for path in paths:
         # The apiserver's listen port is controlPlaneEndpoint.port.
         collisions = [e for e in extras if e.get("listenPort") == endpoint_port]
         if collisions:
-            clean = False
             ports = ", ".join(str(e.get("listenPort")) for e in collisions)
-            print(f"BAD\t{name}\tcontrolPlaneEndpoint.port={endpoint_port} collides "
-                  f"with extraServices listenPort {ports} — CAPH will silently drop "
-                  f"the extraService and the apiserver will answer on that port "
-                  f"(ADR-046 §25.1)")
+            msg = (f"controlPlaneEndpoint.port={endpoint_port} collides with "
+                   f"extraServices listenPort {ports} — CAPH silently drops the "
+                   f"extraService and the apiserver answers on that port")
+            if name in BASELINE:
+                baselined.append(f"{name}: {msg} (ADR-046 §25.1, pending §25.5 versioning)")
+                continue
+            clean = False
+            print(f"BAD\t{name}\t{msg} (ADR-046 §25.1)")
             continue
 
         # Duplicate listenPorts among the extras themselves fail the same way.
@@ -83,5 +105,8 @@ if found == 0:
     sys.exit(0)
 
 if clean:
-    print(f"OK\t{found} HetznerClusterTemplate(s): apiserver listen port does not "
-          f"collide with any extraServices listenPort")
+    n = found - len(baselined)
+    print(f"OK\t{n} HetznerClusterTemplate(s) collision-free; no NEW listen-port "
+          f"collision introduced")
+for b in baselined:
+    print(f"NOTE\t  known collision (ADR-046 §25.1 debt): {b}")

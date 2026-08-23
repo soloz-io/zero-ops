@@ -1854,6 +1854,53 @@ CAPH LB can target is listening on 80/443.
   worth mirroring to the hub for any future CCM Service, but it is not part of this
   path.
 
+
+#### 25.5 The spoke half cannot be edited in place — §17.3's tradeoff does not survive GitOps
+
+§25.3 was applied to both ClusterClasses and pushed. The hub class
+(`internal/assets/manifests/classes/`) is embedded in the hub-cli binary and applied
+at bootstrap, so it lands with the reprovision as intended. **The spoke class does
+not**: `manifests/providers/hybrid/kustomization.yaml` declares `resources: [../_shared]`,
+so ArgoCD's `infrastructure-provider` Application delivers it continuously with
+`automated`, `selfHeal`, and `prune`.
+
+`HetznerClusterTemplate.spec` is immutable once referenced. The CAPH webhook denies
+the edit outright — confirmed by server-side dry-run before the sync, and then live:
+
+```
+infrastructure-provider   OutOfSync / Progressing
+  admission webhook "validation.hetznerclustertemplate.infrastructure.cluster.x-k8s.io"
+  denied the request: HetznerClusterTemplate.Spec is immutable. Retrying attempt #2
+```
+
+The live template stayed at `port: 443`; the Application wedged and retried forever.
+This is the second Application wedged by the same class of mistake in one session
+(the first: the NATS `volumeClaimTemplates` patch), and the shape is identical —
+**an immutable field edited in place under a continuously-reconciling controller
+does not "apply later", it fails permanently and blocks every other resource in its
+Application.**
+
+§17.3 chose "editing this template requires reprovisioning the spoke instead of
+rotating a version suffix — the accepted dev-environment tradeoff that replaces the
+version chain." That reasoning holds only if nothing reconciles the file between the
+edit and the reprovision. ArgoCD does, so the tradeoff is not available for any
+template ArgoCD owns. The choice is not *edit-now-reprovision-later* versus
+*version*; it is *version* versus *wedge*.
+
+**Interim state (2026-08-23).** `spokepool-clusterclass-v1.yaml` is reverted to its
+pre-§25 spec so `infrastructure-provider` converges. The parsed object is identical
+to the previously-applied one; only comments differ, now recording why 443 stays.
+`preflight/26-lb-listen-port-collision` carries `spokepool-cluster-v1` as an explicit
+baseline so the invariant is enforced for every other template while this debt stays
+visible. Spoke tenant HTTPS remains unavailable.
+
+**Open decision — not taken here.** Landing §25 on the spoke requires a new template
+NAME (`spokepool-cluster-v2` or similar) that ArgoCD can *create* rather than mutate,
+with the ClusterClass repointed at it. That directly contradicts §17.3 and
+reintroduces the version chain §17.3 removed, so it is a deliberate architecture
+decision, not a mechanical fix. The hub half is unaffected and still lands with its
+reprovision.
+
 **Supersedes:** §23 item 1 (unsatisfiable as written) and §23 item 2 (narrowed).
 **Amends:** §"Spoke API Endpoint" (endpoint port 443 -> 6443), §17.4 (443 was never
 created), §20.4.

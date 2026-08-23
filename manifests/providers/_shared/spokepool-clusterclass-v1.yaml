@@ -139,13 +139,23 @@ spec:
     spec:
       controlPlaneEndpoint:
         host: ""
-        # ADR-046 §25.1: 6443, NOT 443. This value becomes the LB's listen port for
-        # the apiserver. While it was 443 the extraServices 443 entry below was
-        # silently dropped — a Hetzner LB cannot carry two services on one
-        # listen_port — so the spoke served HTTP ingress only and :443 answered with
-        # the kube-apiserver's own certificate. Verified on the live LB before the
-        # change: `listen 80 -> 80` present, `listen 443 -> 6443` (apiserver).
-        port: 6443
+        # ⚠ ADR-046 §25.1 records that this MUST become 6443 and that 443 must be
+        # freed for ingress: this value is the LB's apiserver listen port, and a
+        # Hetzner LB cannot carry two services on one listen_port, so the
+        # extraServices 443 entry below is silently discarded and :443 answers with
+        # the kube-apiserver's certificate.
+        #
+        # It stays 443 HERE because HetznerClusterTemplate.spec is immutable once
+        # referenced — the CAPH webhook denies the edit outright:
+        #
+        #   admission webhook "validation.hetznerclustertemplate..." denied the
+        #   request: HetznerClusterTemplate.Spec is immutable
+        #
+        # and ArgoCD (automated, selfHeal) then retries forever, wedging the
+        # infrastructure-provider Application. §17.3's "edit in place, reprovision
+        # later" tradeoff does not survive continuous reconciliation. Landing §25 on
+        # the spoke requires a NEW template name, not an edit — see §25.5.
+        port: 443
       controlPlaneRegions:
       - hel1
       controlPlaneLoadBalancer:
@@ -153,7 +163,6 @@ spec:
         type: lb11
         algorithm: round_robin
         region: hel1
-        port: 6443
         # WS2 (ADR-046): tenant ingress rides the CAPH-managed LB instead of the
         # out-of-band waypoint-gateway-lb that scripts/hybrid/ensure-waypoint-lb.sh
         # created. CAPH retargets automatically when the CP machine rolls, removing
