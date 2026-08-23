@@ -107,3 +107,72 @@ This ADR defines architectural constraints and does not own platform resources. 
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-041: Controller Responsibility Matrix
 - ADR-043: Control Plane Authority Model
+
+## Addendum (2026-08-23): no tenant identifiers in platform code
+
+This ADR and ADR-004 place tenant runtime state in fleet-registry and have the
+platform render tenant resources parameterised by fleet — `{fleetId}-spoke`, never a
+literal name. That direction was never stated as a rule the platform itself must
+obey, and the platform has drifted across it.
+
+### The rule
+
+**A platform manifest or binary SHALL NOT contain a tenant or fleet identifier.**
+Tenant-specific OAuth clients, hostnames, secrets and ExternalSecrets are created
+during onboarding, from fleet-registry, keyed by `fleetId`. The platform provides
+the capability; it does not know who consumes it.
+
+"Platform" here means `manifests/hub-core-services/`, `manifests/argocd/`,
+`internal/`, `cmd/` and `operators/`. Tenant material belongs under
+`manifests/tenants/` and the fleet provisioning ApplicationSets.
+
+### What drift looks like
+
+`waypoint` is currently named in nine platform files, including two Go sources:
+
+```
+internal/auth-proxy/hydra.go        ClientID "waypoint-public-client",
+                                    "waypoint-bff-client", and their redirect URIs
+internal/auth-proxy/config.go       WaypointBFFClientSecret / WAYPOINT_BFF_CLIENT_SECRET
+hub-core-services/identity/auth-proxy/{deployment,kustomization}.yaml
+hub-core-services/identity/auth-proxy/waypoint-bff-client-secret-es.yaml
+hub-core-services/identity/hydra-maester/oauth2clients.yaml
+hub-core-services/api-gateway/agentgateway-config.yaml
+hub-core-services/identity/ory-kratos/values.yaml
+```
+
+Onboarding a second tenant would require a second env var and a code change. That
+is the clearest evidence this is drift rather than design.
+
+### Why it is not merely untidy
+
+It produces a dependency the platform cannot satisfy. `waypoint-bff-client-secret`
+is an ExternalSecret in `platform-edge` that resolves against a key only produced
+once that tenant's OAuth client is registered. On a fresh hub no tenant has
+onboarded, so it can never resolve: it was the single ExternalSecret still failing
+at 21/22 after every other secret converged, and it fails on every rebuild.
+
+It had been diagnosed repeatedly as a seeding gap — should the key be pre-seeded,
+or should hydra-maester mint it? Both answers are wrong. The dependency should not
+exist at platform bootstrap, because the tenant does not exist yet.
+
+### Enforcement
+
+`scripts/validate/preflight/99-tenant-identifiers.sh` fails when a tenant
+identifier appears in a platform path outside the recorded baseline. The nine files
+above are the baseline: they warn rather than fail, so the rule is enforceable
+today and the debt stays visible, while any NEW leak — a tenth file, or a second
+tenant hardcoded the same way — fails before a cluster is built.
+
+### Remediation (not yet done)
+
+1. `RegisterClient` takes a client spec rather than compiled-in IDs and redirect URIs.
+2. `oauth2clients.yaml` moves to the tenant provisioning path, templated by `fleetId`.
+3. `waypoint-bff-client-secret-es.yaml` becomes a per-fleet ExternalSecret rendered
+   at onboarding against the tenant secret store — the shape this ADR already
+   specifies.
+4. `agentgateway-config.yaml` and `ory-kratos/values.yaml` lose hardcoded hostnames.
+
+The baseline shrinks as these land; when it is empty the entries are removed and
+the check becomes unconditional.
+
