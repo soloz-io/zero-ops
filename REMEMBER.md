@@ -11,7 +11,7 @@ happened and reported success while broken.
 - Before editing any manifest, check who consumes it. These are **shared**:
   - `internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml` — hub
     ClusterClass, selected by **OS**, used by hetzner *and* hybrid.
-  - `manifests/providers/_shared/spoke-addons/ccm-addon-template.yaml` — hub + spoke.
+  - `manifests/providers/hetzner/base/spoke-addons/ccm-addon-template.yaml` — hub + spoke.
   - `manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml` — the **hub**
     cilium addon (name says spoke; it is not).
 - Provider-specific behaviour goes in the driver or a ClusterClass variable with

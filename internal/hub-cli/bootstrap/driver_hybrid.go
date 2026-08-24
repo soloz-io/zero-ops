@@ -25,7 +25,7 @@ import (
 //   - ClusterClassPaths returns nothing — hybrid hub bootstrap doesn't
 //     install a separate hub ClusterClass; the spoke ClusterClass lives in
 //     the Crossplane composition (manifests/providers/hybrid/).
-//   - CCM addon is read from _shared/spoke-addons/ (same shared base).
+//   - CCM addon is read from hetzner/base/spoke-addons/ (same shared base).
 type HybridDriver struct {
 	// Driver provides Hetzner CAPI infra (CP + burst pool).
 	Driver *HetznerDriver
@@ -148,7 +148,7 @@ func (d *HybridDriver) OnPlatformPreReqs(ctx context.Context, kubeconfig string)
 
 // ── Phase 5: Cluster Provisioning Config ────────────────────────────────────
 // Hybrid differs from Hetzner in two ways:
-//  1. CCM addon is read from _shared/ (same path as hetzner after WS1).
+//  1. CCM addon is read from hetzner/base/ (same path as hetzner after WS1).
 //  2. Hub mgmt cluster mirrors hetzner (2 workers) — the burst-pool replicas:0
 //     for SPOKES lives in the hybrid Crossplane composition, not here.
 
@@ -197,10 +197,10 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	// manifest, which the multi-node Hetzner hub also consumes.
 	cfg.CiliumOperatorReplicas = 1
 
-	// Re-read CCM from _shared/ — driver_hetzner already reads from _shared/
+	// Re-read CCM from hetzner/base/ — driver_hetzner already reads from hetzner/base/
 	// after WS1 fix, so this is a no-op path correction guard. Explicit for clarity.
 	ccmRaw, err := readTemplateManifest(
-		"manifests/providers/_shared/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
+		"manifests/providers/hetzner/base/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
 	if err != nil {
 		fmt.Printf("[cluster-provision] Warning: failed to read CCM manifest (hybrid): %v\n", err)
 	} else {
@@ -217,7 +217,7 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 
 // ── Phase 9: ClusterClass paths ────────────────────────────────────────────
 // For the hybrid hub bootstrap, no extra hub ClusterClass is needed.
-// The spoke ClusterClass (spokepool-v1) lives in _shared/ and is deployed
+// The spoke ClusterClass (spokepool-v1) lives in hetzner/base/ and is deployed
 // by the Crossplane composition (manifests/providers/hybrid/). Return empty
 // so the orchestrator skips the ClusterClass apply step for hybrid.
 

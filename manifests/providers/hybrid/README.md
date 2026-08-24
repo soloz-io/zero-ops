@@ -11,7 +11,7 @@ the full topology, invariants and codified workarounds.
   is ClusterIP.
 - Public entry point is the **CAPH-managed** control-plane LB. Ports 80/443 are
   declared as `HetznerCluster.spec.controlPlaneLoadBalancer.extraServices` in
-  `manifests/providers/_shared/spokepool-clusterclass-v1.yaml`, so the entry
+  `manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml`, so the entry
   point is fully in GitOps and CAPH retargets it automatically when the CP
   machine rolls. (Was: an out-of-band `waypoint-gateway-lb` created by
   `scripts/hybrid/ensure-waypoint-lb.sh`, now deleted — it targeted a fixed

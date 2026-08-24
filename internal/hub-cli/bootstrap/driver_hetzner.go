@@ -273,9 +273,9 @@ func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 		cfg.SSHKeyName = "mac-mini-ssh"
 	}
 
-	// Read CCM addon manifest from shared base (ADR-046 §WS1: spoke-addons moved to _shared/).
+	// Read CCM addon manifest from shared base (ADR-046 §WS1: spoke-addons moved to hetzner/base/).
 	ccmRaw, err := readTemplateManifest(
-		"manifests/providers/_shared/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
+		"manifests/providers/hetzner/base/spoke-addons/", "ccm-addon-template.yaml", "ccm.yaml")
 	if err != nil {
 		// Log but don't fail — CCM can be installed later
 		fmt.Printf("[cluster-provision] Warning: failed to read CCM manifest: %v\n", err)

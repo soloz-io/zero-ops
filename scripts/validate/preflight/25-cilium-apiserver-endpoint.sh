@@ -20,7 +20,7 @@
 validate_cilium_apiserver_endpoint() {
     section "Cilium reaches the API server on a cold boot (ADR-046 §24)"
 
-    local cc="$VALIDATE_ROOT/manifests/providers/_shared/spokepool-clusterclass-v1.yaml"
+    local cc="$VALIDATE_ROOT/manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml"
     local kube_proxy_deleted=0
     if grep -q 'delete daemonset -n kube-system kube-proxy' "$cc" 2>/dev/null; then
         kube_proxy_deleted=1
@@ -210,7 +210,7 @@ PY
     # Parsed, not grepped: the default sits under a nested openAPIV3Schema, so a
     # line-window grep reports a false failure (it did, on the first run of this
     # check — the manifest was correct).
-    if (cd "$VALIDATE_ROOT" && python3 - "manifests/providers/_shared/spokepool-clusterclass-v1.yaml" <<'PY'
+    if (cd "$VALIDATE_ROOT" && python3 - "manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml" <<'PY'
 import sys, yaml
 for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not doc or doc.get("kind") != "ClusterClass":

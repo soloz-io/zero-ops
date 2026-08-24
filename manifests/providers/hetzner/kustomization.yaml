@@ -1,14 +1,25 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# ClusterClass and spoke-addons live in _shared/ (ADR-046 §WS1).
-# kustomize allows ../ for sibling directories within the same repository.
+# base/ holds the Hetzner INFRASTRUCTURE layer: the spoke ClusterClass and the
+# CCM/CSI addon templates. Every document in it is Hetzner-bound — the ClusterClass
+# references HetznerClusterTemplate and HCloudMachineTemplate, which are provider
+# CRDs — so it cannot be provider-neutral and no longer pretends to be. It was
+# previously `providers/_shared/`, a name that promised neutrality it never had.
+#
+# The hybrid cell consumes base/ too: a hybrid spoke is a Hetzner control plane
+# with home-lab workers, so it needs the same infrastructure layer. That
+# dependency is now stated rather than hidden behind a "shared" directory.
+#
+# A non-Hetzner cell does NOT extend this. A CAPI ClusterClass is bound to its
+# infrastructure provider, so an AWS cell needs its own ClusterClass over
+# AWSClusterTemplate/AWSMachineTemplate — a sibling layer, not a patch on this one.
 # No remote crossplane provider fetch: the hetzner composition wraps all
 # resources in provider-kubernetes; Hetzner infra is handled by CAPI's
 # infrastructure-provider-hetzner via capi-operator. (Removed a broken
 # raw.githubusercontent URL that 404'd and broke `kubectl kustomize`.)
 resources:
-  - ../_shared
+  - base
   - k8s/hcloud-ccm.yaml
   - k8s/cert-manager-webhook-hetzner.yaml
   - k8s/hetzner-credentials-es.yaml

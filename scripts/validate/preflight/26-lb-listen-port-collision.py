@@ -21,7 +21,7 @@ import yaml
 
 # Every file that can declare a HetznerClusterTemplate.
 SOURCES = [
-    "manifests/providers/_shared/*.yaml",
+    "manifests/providers/hetzner/base/*.yaml",
     "manifests/providers/*/*.yaml",
     "internal/assets/manifests/classes/*.yaml",
 ]
@@ -48,9 +48,11 @@ found = 0
 clean = True
 baselined = []
 
-# `manifests/providers/_shared/` is matched by two of the patterns above, so
-# resolve and de-duplicate before scanning — otherwise one defect reports twice
-# and the "N templates" count is inflated.
+# De-duplicate by real path before scanning. The Hetzner infrastructure layer used
+# to sit at `manifests/providers/_shared/`, where `providers/*/*.yaml` matched it a
+# second time and one defect reported twice. At `hetzner/base/` it is one level
+# deeper and only the explicit pattern matches, but the de-duplication stays: the
+# patterns are meant to overlap, and a future layer could collide again.
 paths = sorted({os.path.realpath(p)
                 for pattern in SOURCES for p in glob.glob(pattern)})
 

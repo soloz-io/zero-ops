@@ -1978,6 +1978,35 @@ and unused per §20.5) carries the identical question.
 **Supersedes:** §20.4 in full. **Amends:** §20.5 (its stated precondition does not
 exist), §20.3 (webhook viability is an open question, not an assumption).
 
+
+### Addendum — the shared provider layer is Hetzner infrastructure, and is named so (2026-08-24)
+
+§WS1 placed the spoke ClusterClass and the CCM/CSI addon templates in a provider directory
+named for being shared. Every document in it is bound to one infrastructure provider: the
+ClusterClass references a HetznerClusterTemplate and two HCloudMachineTemplates, and the
+addon templates carry the Hetzner CCM and CSI. Nothing provider-neutral was ever in it.
+
+A CAPI ClusterClass cannot be provider-neutral. It names its infrastructure templates
+directly, so a cell on a different infrastructure provider requires its own ClusterClass
+over that provider's templates rather than a patch on this one. A directory positioned as
+the common layer therefore could not have served a second provider, and its name invited
+two mistakes: extending it for a non-Hetzner cell, and depositing provider-specific values
+in it because it appeared to be the neutral place.
+
+The layer is now located within the Hetzner provider cell and consumed from there by the
+hybrid cell. That dependency is not new — a hybrid spoke is a Hetzner control plane with
+home-lab workers (§13), so it has always required Hetzner infrastructure. Naming it as
+shared concealed a real dependency behind a generic one; it is now explicit.
+
+Duplicating the layer into each cell was rejected for the reason §24 gives for refusing a
+second copy of the cilium settings: two copies drift, and drift in cluster-shaping
+manifests is a cluster that boots in a shape nobody intended.
+
+This changes location and naming only. No ClusterClass, template, or addon content is
+altered, no resource changes owner, and the ownership rows above are unaffected. Where
+this ADR's earlier sections and the runbooks name the previous path, they record where
+the file was at the time and are left as written.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

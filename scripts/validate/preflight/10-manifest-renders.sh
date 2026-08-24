@@ -11,7 +11,7 @@ validate_manifest_renders() {
         "manifests/environments/prod"
         "manifests/providers/hybrid"
         "manifests/providers/hetzner"
-        "manifests/providers/_shared"
+        "manifests/providers/hetzner/base"
         "manifests/spoke/spoke-catalog/infra"
         "manifests/hub-core-services/identity/hydra-maester"
         "manifests/hub-core-services/cluster-secret-store"
