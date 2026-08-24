@@ -36,10 +36,11 @@
 #
 # ⚠ CROSS-NAMESPACE ATTACH: these are ClusterIssuers and cert-manager runs with
 # --cluster-resource-namespace=cert-manager, so challenge HTTPRoutes are created
-# in the `cert-manager` namespace while parentRefs targets the tenant namespace.
+# in the `cert-manager` namespace while parentRefs targets the platform namespace.
 # The tenant Gateway's :80 listener MUST allow routes from that namespace
 # (allowedRoutes.namespaces.from: All, or a selector matching cert-manager) or
-# every challenge will fail to attach. That Gateway spec lives in fleet-registry.
+# every challenge will fail to attach. This is enforced in tenant-gateway.yaml
+# by allowing the cert-manager namespace alongside Same.
 #
 # ⚠ START ON STAGING. Let's Encrypt production allows 5 duplicate certs per week;
 # iterating on a Gateway solver will exhaust that. Point a Certificate's
@@ -57,6 +58,10 @@ spec:
       name: letsencrypt-staging-account-key
     solvers:
     # ── tenant: waypoint ────────────────────────────────────────────────────
+    # ADR-051: the platform-owned Gateway (tenant-gateway in platform-ops) is the
+    # single entry point for all tenant browser traffic. ACME HTTP-01 challenges
+    # create solver HTTPRoutes in the cert-manager namespace; the Gateway's :80
+    # listener must allow routes from that namespace (see tenant-gateway.yaml).
     - selector:
         dnsZones:
         - waypoint.dev.nutgraf.in
@@ -65,8 +70,8 @@ spec:
       http01:
         gatewayHTTPRoute:
           parentRefs:
-          - name: waypoint-gateway
-            namespace: tenant-waypoint
+          - name: tenant-gateway
+            namespace: platform-ops
             kind: Gateway
             group: gateway.networking.k8s.io
     # ── tenant: oranger ─────────────────────────────────────────────────────
@@ -105,8 +110,8 @@ spec:
       http01:
         gatewayHTTPRoute:
           parentRefs:
-          - name: waypoint-gateway
-            namespace: tenant-waypoint
+          - name: tenant-gateway
+            namespace: platform-ops
             kind: Gateway
             group: gateway.networking.k8s.io
     # ── tenant: oranger ─────────────────────────────────────────────────────

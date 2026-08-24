@@ -740,13 +740,29 @@ step1b_reconcile_appsets() {
         topo_value=""
     fi
 
-    log "  environmentRevision=$env_rev environmentSlug=$env_slug provider=$PROVIDER topology='$topo_value'"
+    # hubIngressAddress -> ingress-nginx --publish-status-address, so every
+    # Ingress .status.loadBalancer carries a routable address. The controller
+    # Service is deliberately ClusterIP (no cloud LB), and the chart would
+    # otherwise publish that private 10.x address into every Ingress, which
+    # external-dns then puts in DNS and Let's Encrypt rejects ("no valid A
+    # records found"). Sourced from the CAPH control-plane LB, which is the
+    # public entry point (ADR-046 §25.3) and is stable across a CP machine roll.
+    local hub_ingress_addr
+    hub_ingress_addr=$(kubectl --kubeconfig="$kc_path" get hetznercluster -n platform-capi \
+        -o jsonpath='{.items[0].spec.controlPlaneEndpoint.host}' 2>/dev/null || echo "")
+    if [[ -z "$hub_ingress_addr" ]]; then
+        log "  ⚠️  Could not resolve hub ingress address — ingress-nginx will fall back to"
+        log "      publishing the ClusterIP, which breaks public DNS and ACME."
+    fi
+
+    log "  environmentRevision=$env_rev environmentSlug=$env_slug provider=$PROVIDER topology='$topo_value' hubIngressAddress='$hub_ingress_addr'"
     (cd "$ZERO_OPS_DIR" && helm template environment-manager \
         manifests/argocd/environment-manager \
         --set "environmentRevision=$env_rev" \
         --set "environmentSlug=$env_slug" \
         --set "provider=$PROVIDER" \
         --set "topology=$topo_value" \
+        --set "hubIngressAddress=$hub_ingress_addr" \
         --set "deploy.boundary01=true" \
         --set "deploy.boundary02=true" \
         --set "deploy.boundary03=true" \

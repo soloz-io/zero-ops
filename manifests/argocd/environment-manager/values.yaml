@@ -1,6 +1,25 @@
 environmentRevision: "main"
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Public ingress address (ADR-046 §25.3)
+# ──────────────────────────────────────────────────────────────────────────────
+# The public IPv4 that actually fronts :80/:443 for this hub. It is fed to
+# ingress-nginx as --publish-status-address, so every Ingress .status.loadBalancer
+# carries a routable address instead of the ClusterIP of the (deliberately
+# cloud-LB-less) controller Service.
+#
+# This is what makes external-dns correct BY DEFAULT: it reads Ingress status, so
+# with this set it needs no --default-targets and no Ingress needs an
+# external-dns.alpha.kubernetes.io/target annotation. Leaving it empty restores the
+# chart default (publish the Service address) — which on this topology publishes a
+# private 10.x address and breaks ACME, so set it for any hub with public ingress.
+#
+# Target the CAPH control-plane LB IP once controlPlaneEndpoint.port is 6443 and
+# :443 is free for ingress; until then it must be the control-plane node's own
+# public IP, because the LB's :443 is still the kube-apiserver.
+hubIngressAddress: ""
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Matrix dimensions (ADR 037 §3 & ADR 036 §2)
 # These MUST be set via `helm template --set` by the hub CLI bootstrap. No
 # default is provided — every bootstrap run explicitly passes the combination.

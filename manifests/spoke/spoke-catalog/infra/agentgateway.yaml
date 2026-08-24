@@ -14,6 +14,14 @@
 #
 # Identity remains on the hub: this gateway redirects the browser to Hydra at
 # auth.<env>.nutgraf.in over public HTTPS. There is no cluster-to-cluster call.
+#
+# NOTE: no nodeSelector — AgentGateway is a stateless OIDC proxy with no
+# persistent data. It tolerates the control-plane taint (applied by the
+# spoke-catalog kustomization blanket patch) so it can schedule on single-node
+# hybrid spokes where the only node is the control plane. ADR-014's
+# "worker nodes only" rule applies to stateful workloads (CNPG, Redis, NATS)
+# whose data pinning creates a durability contract; AgentGateway holds no
+# durable state and its placement is irrelevant to data locality.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -44,9 +52,6 @@ spec:
         app: agentgateway
     spec:
       serviceAccountName: agentgateway
-      # ADR-014: platform workloads run on worker nodes only.
-      nodeSelector:
-        node-role.kubernetes.io/worker: ""
       containers:
       - name: agentgateway
         # Pinned to tag + digest. `:latest` is non-reproducible — a rebuild of the

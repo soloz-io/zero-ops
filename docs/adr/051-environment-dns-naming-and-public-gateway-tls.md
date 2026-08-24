@@ -140,6 +140,9 @@ with no independent system of record and must not be authored or tracked by GitO
 - Tenant relocation is a consequence of moving the workload; no OAuth client changes,
   because client redirect URIs are keyed to the tenant hostname rather than to a cluster.
 - A single wildcard per environment becomes available without restructuring hostnames again.
+  (Corrected 2026-08-24 — see *base-domain authority and the derivation boundary*: a wildcard
+  name is admitted by the zone structure, but issuing one is not possible under the solver
+  model decided above.)
 
 ### Negative
 
@@ -185,7 +188,7 @@ intent; staging did not, and claimed the production domain. The same class of de
 applied to the environment slug used for secret resolution, where every environment resolved
 to the development value.
 
-### Addendum — the DNS reconciler's provider API is an open question (2026-08-23)
+### Addendum — the DNS reconciler's provider API is an open question (2026-08-23; resolved 2026-08-24, see below)
 
 The Ownership table above assigns *Public tenant hostname records* to **external-dns
 (spoke, zone-scoped)**, and *DNS provider API credential* to ESO. Both rows have a
@@ -214,6 +217,84 @@ Consequences for this ADR:
 - Until the webhook question resolves, zone records are **operator-managed**, and no
   automated publisher exists for hub hostnames at all — ADR-046 §20.3 notes the hub
   external-dns copy has never been referenced by any ApplicationSet.
+
+
+### Addendum — base-domain authority and the derivation boundary (2026-08-24)
+
+The Decision states that the environment overlay is the system of record for the base domain, but
+the Context names two candidates with no consumer — the `DOMAIN` bootstrap key and
+`HubEnvironment.spec.domain` — and does not choose between them. That ambiguity is closed here.
+
+**`HubEnvironment.spec.domain` is the sole authoritative base-domain value for hub public
+endpoints.** It is declared once per environment overlay. The `DOMAIN` bootstrap key is retired as
+an authority and is not a permitted fallback; a second consulted input would reintroduce the
+condition this ADR exists to remove.
+
+**Hub public endpoints are derived, not authored.** The endpoint set for a hub — its ingress
+hostnames, browser-facing certificate names, identity issuer and base URLs, gateway token issuer and
+audience, secret-store endpoint, and the endpoint value passed into tenant compositions — is derived
+from the authoritative value into generated GitOps artifacts, which are the applied form. No
+individual hostname is independently declared, and no consumer derives the domain for itself.
+
+Derivation is bound to environment creation rather than continuous reconciliation, because the base
+domain is fixed for the life of an environment. It therefore belongs to the Day-0 boundary and its
+output is an immutable input to Day-1 reconciliation. This also keeps write access to the Git system
+of record out of any continuously running controller, which the Day-0/Day-1 boundary already
+forbids.
+
+The derived artifacts are produced by the environment bootstrap tooling that already owns Day-0
+generated GitOps artifacts, into the generated boundary of the repository, and are committed there.
+Git remains their system of record and ArgoCD their sole reconciler. A generated artifact that has
+drifted from the authoritative value is corrected by regeneration at that boundary, never by editing
+the artifact and never by a controller writing it.
+
+**The reconciler is unchanged.** Derivation produces artifacts; it does not reconcile live
+resources. The Ownership rows above are extended, not reassigned, and no controller responsibility
+changes.
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Hub base-domain declaration | Git (environment overlay) | Platform Engineering | ArgoCD | Hub endpoint derivation | Day-1+ |
+| Derived hub public endpoint set | Git (generated artifact) | Platform Engineering | ArgoCD | Hub ingress, identity, gateway, secret-store issuer, composition input | Day-0 input, Day-1+ applied |
+
+**Wildcard issuance is not available under the decided solver model.** The zone-per-environment
+structure admits a single wildcard *name* covering an environment, and that property is part of the
+rationale for labelling the zone rather than the tenant. It does not follow that such a certificate
+can be issued. Challenge solving is decided above as bound to the tenant whose hostname is being
+validated and targeted at that tenant's own gateway, which is an HTTP challenge; the ACME protocol
+admits wildcard identifiers only under a DNS challenge. Issuing an environment-wide wildcard would
+therefore require introducing a DNS-based challenge and a solver not bound to a single tenant's
+gateway, which this ADR does not decide. Until then the wildcard is a latent property of the naming
+scheme, not an available capability, and a wildcard hostname on a gateway listener is a routing
+match rather than evidence that a wildcard certificate exists.
+
+**Scope is the hub.** Public tenant hostname records remain derived from spoke gateway state under
+the rows already defined. Hub derivation must not emit tenant hostnames, and the disjointness of the
+two record sets remains a property of where each is derived rather than of coordination between
+them.
+
+The distributed literals remain authoritative in practice until retired against this authority.
+
+Retirement is judged against authorship, not against the presence of a hostname. A generated
+artifact is the applied form and necessarily carries the resolved hostname; that is derived output,
+not an independent declaration. The debt is discharged when no authored shared hub manifest and no
+compiled binary independently defines an environment-specific public hostname, every such hostname
+appearing in a generated artifact is mechanically derived from the authoritative value, and an
+environment created for staging resolves no development hostname.
+
+### Addendum — the DNS reconciler's provider API question is resolved (2026-08-24)
+
+The 2026-08-23 addendum recorded the spoke DNS webhook's provider endpoint as unverified and treated
+the automated-publisher rows as contingent on it. That contingency is discharged.
+
+The spoke webhook no longer depends on the retired standalone DNS API, and its credential input is
+the token the platform already holds. Hub hostname records are now published by a reconciled
+publisher rather than out of band, and the hub publisher is referenced by an ApplicationSet — both
+the statement here that no automated publisher exists for hub hostnames, and the corresponding
+statement in ADR-046 §20.3, are superseded.
+
+The "Public tenant hostname records" and "DNS provider API credential" rows stand as written, no
+longer contingent.
 
 
 ## References

@@ -46,3 +46,31 @@ spec:
     name: infisical-fleet-issuer
     kind: ClusterIssuer
     group: infisical-issuer.infisical.com
+---
+# ADR-051: TLS certificate for the tenant-facing Gateway.
+#
+# The Gateway annotation (cert-manager.io/cluster-issuer: letsencrypt-staging)
+# relies on cert-manager's Gateway API integration, which is fragile if the
+# feature gate isn't enabled or the annotation is stripped by kustomize.
+# This explicit Certificate is the belt-and-suspenders approach: cert-manager
+# creates it regardless of the Gateway annotation, and the ACME HTTP-01 solver
+# creates solver HTTPRoutes in the cert-manager namespace targeting the Gateway's
+# :80 listener (which must allow cross-namespace routes — see tenant-gateway.yaml).
+#
+# The wildcard covers all tenant hostnames on this spoke (*.dev.nutgraf.in).
+# Onboarding a new tenant requires no certificate changes — only a new hostname
+# in the Gateway listener and agentgateway-config.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tenant-gateway-tls
+  namespace: platform-ops
+spec:
+  secretName: tenant-gateway-tls
+  duration: 2160h    # 90 days
+  renewBefore: 720h  # 30 days
+  issuerRef:
+    name: letsencrypt-staging
+    kind: ClusterIssuer
+  dnsNames:
+  - "*.dev.nutgraf.in"

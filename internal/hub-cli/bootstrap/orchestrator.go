@@ -856,12 +856,26 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 
 	providerForHelm := o.Provider.Name()
 
+	// hubIngressAddress -> ingress-nginx --publish-status-address, so every Ingress
+	// .status.loadBalancer carries a routable address. The ingress-nginx Service is
+	// deliberately ClusterIP (no cloud LB); without this the chart publishes that
+	// private 10.x address into every Ingress, external-dns puts it in DNS, and
+	// Let's Encrypt rejects it ("no valid A records found"), failing all ACME.
+	// Sourced from the CAPH control-plane LB — the public entry point per
+	// ADR-046 §25.3, and stable across a control-plane machine roll.
+	hubIngressAddress := o.hubIngressAddress(ctx, kubeconfig)
+	if hubIngressAddress == "" {
+		fmt.Println("[boundary] ⚠️  could not resolve hub ingress address; ingress-nginx will " +
+			"publish the ClusterIP, which breaks public DNS and ACME issuance")
+	}
+
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",
 		"--set", "environmentRevision="+envRevision,
 		"--set", "environmentSlug="+o.EnvironmentSlug,
 		"--set", "provider="+providerForHelm,
 		"--set", "topology="+o.Topology,
+		"--set", "hubIngressAddress="+hubIngressAddress,
 		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
 		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
 		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
@@ -878,6 +892,21 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 		return fmt.Errorf("failed to apply boundary ApplicationSets: %w\n%s", err, out)
 	}
 	return nil
+}
+
+// hubIngressAddress returns the public IPv4 that fronts :80/:443 for this hub —
+// the CAPH-managed control-plane LoadBalancer. Returns "" when it cannot be
+// resolved, in which case the chart falls back to its default (publishing the
+// controller Service address) and public ingress DNS will be wrong.
+func (o *Orchestrator) hubIngressAddress(ctx context.Context, kubeconfig string) string {
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hetznercluster", "-n", "platform-capi",
+		"-o", "jsonpath={.items[0].spec.controlPlaneEndpoint.host}")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ──────────────────────────────────────────────────────────────────────────
