@@ -165,9 +165,10 @@ contract atomically — not by file.
 | File | Line | Host |
 |---|---|---|
 | `environments/base/hubenvironment.yaml` | 85 | `mcp.<domain>/callback` |
-| `hub-core-services/hub-environment/hubenvironment.yaml` | 85 | `mcp.<domain>/callback` |
 
 > A `dev` literal inside the object that is supposed to be the authority, in the **base** layer.
+> (The second copy of this row, in the unreferenced `hub-core-services/hub-environment/` duplicate,
+> was deleted rather than migrated.)
 > Self-referential: `spec.oauth` must derive from `spec.domain` of the same object.
 > `mcp.<domain>` appears in no other contract.
 
@@ -241,10 +242,34 @@ Ordering is a correctness requirement. DNS ⇄ TLS ⇄ issuer ⇄ OIDC discovery
 consistency contract; a partial migration produces misleading failures — a host that resolves and
 serves a valid certificate while its identity layer still points at dev.
 
-**WS4-0 — Contract + validation.** Make `spec.domain` formally authoritative. Add env↔zone validation
-(`dev→dev.<apex>`, `stg→stg.<apex>`, `prod→<apex>`); fail reconciliation on absent/invalid domain.
-Resolve C7's self-reference (derive `spec.oauth` redirect URIs from `spec.domain`). Retire the
-`DOMAIN` bootstrap key as an authority. *No rendering yet.* **Reversible.**
+**WS4-0 — Contract + validation. ✅ COMPLETE (2026-08-24).**
+
+- `DOMAIN` retired as an authority. Removed from `environments/base/hub-bootstrap-config.yaml`, the
+  dev/stg/prod `patch-config.yaml` overlays, and the operator env wiring in
+  `hub-operator/config/manager/manager.yaml`. It was a dangling wire: mapped into the operator
+  container but read by no Go code, exactly as ADR-051 recorded. All three overlays still build and
+  no longer render the key.
+- **C7 cross-environment OAuth callback fixed.** `environments/base/hubenvironment.yaml` declared
+  `domain: nutgraf.in` while hardcoding `https://mcp.dev.nutgraf.in/callback`. dev overrides oauth to
+  localhost and stg had no oauth patch, so the dev callback was inherited **only by stg and prod** —
+  a production authorization code would have redirected to a dev-controlled host. Base now uses the
+  apex; stg gained its own patch. Rendered result: dev `localhost:8080`, stg `mcp.stg.nutgraf.in`,
+  prod `mcp.nutgraf.in`.
+- **Env-as-zone enforced structurally.** Two CEL rules on `HubEnvironmentSpec` require a non-prod
+  `environmentSlug` to own a leftmost-labelled zone, and prod to use the apex unlabelled. Deliberately
+  apex-agnostic — encoding the apex in the API type would relocate the literal rather than remove it.
+  Verified against the live API: `nutgraf.in`+stg REJECTED, `dev.nutgraf.in`+prod REJECTED,
+  and dev/stg/prod valid combinations accepted.
+- Partial G3 holds already: the stg and prod overlays render **zero** dev hostnames.
+
+Dead code removed in the same step: `manifests/hub-core-services/hub-environment/` was an
+unreferenced byte-identical duplicate of the authority object — the `hub-environment` Application
+points at `manifests/environments/<slug>`, and no kustomization referenced the directory. Deleted
+rather than maintained, so the authority object exists in exactly one place. Also deleted an
+abandoned `external-dns/kustomization.yaml` that patched a `generated/external-dns-patch.yaml` which
+was never created; it failed `kustomize build` outright and would have broken `platform-external-dns`
+on sync. It is superseded by the `publish-status-address` fix, which removes the need for a
+generated external-dns patch at all.
 
 **WS4-1 — Derivation, dry-run.** Teach the hub-CLI the derivation and emit artifacts to a scratch
 path. Diff against current literals. **Expected: byte-identical for dev.** Any diff is either a bug

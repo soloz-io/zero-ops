@@ -423,7 +423,7 @@ stringData:
         {
           "nodePathMap": [
             {
-              "node": "DEFAULT_PATH_FOR_ALL_NODES",
+              "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",
               "paths": ["/opt/local-path-provisioner"]
             }
           ]
@@ -467,7 +467,7 @@ stringData:
           labels:
             app: local-path-provisioner
         spec:
-          serviceAccountName: local-path-provisioner
+          serviceAccountName: local-path-provisioner-service-account
           # ADR-046 §11: node-local storage is home-worker only.
           affinity:
             nodeAffinity:
