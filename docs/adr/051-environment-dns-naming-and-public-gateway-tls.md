@@ -230,6 +230,14 @@ endpoints.** It is declared once per environment overlay. The `DOMAIN` bootstrap
 an authority and is not a permitted fallback; a second consulted input would reintroduce the
 condition this ADR exists to remove.
 
+**Environment identity has a single authority, and services consume it.** The environment a Hub
+belongs to is declared once on the environment object and is not restated by the components that
+happen to need it. It had previously existed only as an attribute of the secret store's
+configuration, alongside a bootstrap key and an overlay directory name; deriving the public DNS
+contract from any of those would couple it to one component, leave it undefined wherever that
+component's optional configuration is absent, and break if that component were replaced. The
+environment is a property of the Hub, not of a service running on it.
+
 **Hub public endpoints are derived, not authored.** The endpoint set for a hub — its ingress
 hostnames, browser-facing certificate names, identity issuer and base URLs, gateway token issuer and
 audience, secret-store endpoint, and the endpoint value passed into tenant compositions — is derived

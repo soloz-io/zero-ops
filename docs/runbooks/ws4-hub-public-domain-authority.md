@@ -255,11 +255,20 @@ serves a valid certificate while its identity layer still points at dev.
   a production authorization code would have redirected to a dev-controlled host. Base now uses the
   apex; stg gained its own patch. Rendered result: dev `localhost:8080`, stg `mcp.stg.nutgraf.in`,
   prod `mcp.nutgraf.in`.
+- **Environment identity given a single authority.** Added `spec.environment` (enum
+  dev|stg|prod|ephemeral, required) as a first-class field. The first version of the env-as-zone
+  rules keyed off `spec.secrets.infisical.environmentSlug` — a service's own field. That was wrong:
+  `spec.secrets` is optional so the rules silently no-opped when it was absent, and the public DNS
+  contract would have broken if the secret store were replaced. Rules now key off `spec.environment`,
+  and a third rule requires the Infisical slug to equal it, so the two cannot diverge.
 - **Env-as-zone enforced structurally.** Two CEL rules on `HubEnvironmentSpec` require a non-prod
   `environmentSlug` to own a leftmost-labelled zone, and prod to use the apex unlabelled. Deliberately
   apex-agnostic — encoding the apex in the API type would relocate the literal rather than remove it.
-  Verified against the live API: `nutgraf.in`+stg REJECTED, `dev.nutgraf.in`+prod REJECTED,
-  and dev/stg/prod valid combinations accepted.
+  The non-production label list is the single place the environment set is enumerated. Verified
+  against the live API, 9/9 cases: stg claiming the apex, prod carrying a labelled zone, an Infisical
+  slug diverging from `spec.environment`, a missing environment and an out-of-enum environment are
+  all rejected; dev/stg/prod consistent combinations and an object with no secrets block are
+  accepted.
 - Partial G3 holds already: the stg and prod overlays render **zero** dev hostnames.
 
 Dead code removed in the same step: `manifests/hub-core-services/hub-environment/` was an

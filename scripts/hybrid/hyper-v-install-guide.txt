@@ -1,0 +1,22 @@
+https://www.youtube.com/watch?v=FaytvySV04s&t=171s
+
+[Music] hey what's up guys welcome to how to do computers i'm mike and i hope you're having a great day so far so today i thought i'd go over a simple installation of hyper-v that's microsoft's virtualization platform on windows 10 home edition now if you go here to microsoft's support page for installing hyper-v it'll tell you the hyper-v role cannot be installed on windows 10 home this is false and i will show you how so right now we're running a fresh install of windows 10 home edition as you can see here this is in fact windows 10 home edition but if you search for hyper-v it's not installed and in fact if you try to find the feature to enable it's not there the first thing we need to do is check and see if our computer is ready for virtualization how we do that is we run a command prompt and we'll type in system info wait for it to load and then if you scroll down to the bottom you see here there are four options all of these options need to have yes next to them if you see that one or more of them have no you may need to go into the bios and change some settings to enable virtualization what we need to do to actually enable hyper-v is to create a batch file i have the script here that we're going to use i'll go ahead and paste that down in the description of the video what we need to do is copy this open up notepad paste it a notepad and then we will save it as a batch file so we'll call this hyper v and we need to change that extension to dot b a t go to our desktop and we'll save it here closed out of all of this you'll right click on the file and hit run as administrator it will then begin installing the packages so you'll just need to wait for that to finish so now that it's done installing all of the packages it'll ask us for a restart we'll just enter y right here and i'll get back to you once the restart is complete okay so we're back after the restart and the hyper-v should now be installed and ready to be used let's go ahead and check and there it is you should now be able to use hyper-v just as you would if you had windows 10 pro or enterprise edition alright that's all for now as always thanks for watching if you have any questions go ahead and drop them in the comments below and i'll see you in the next video [Music] you
+
+Hyper-V Requirements:
+
+* VM Monitor Mode Extensions: Yes
+* Virtualization Enabled In Firmware: Yes
+* Second Level Address Translation: Yes
+* Data Execution Prevention Available: Yes
+
+
+
+#For use with Tutorial: https://www.youtube.com/watch?v=FaytvySV04s
+#Copy and paste this code in a .bat file to enable Hyper-V
+
+pushd "%~dp0"
+dir /b %SystemRoot%\servicing\Packages\*Hyper-V*.mum >hyper-v.txt
+for /f %%i in ('findstr /i . hyper-v.txt 2^>nul') do dism /online /norestart /add-package:"%SystemRoot%\servicing\Packages\%%i"
+del hyper-v.txt
+Dism /online /enable-feature /featurename:Microsoft-Hyper-V -All /LimitAccess /ALL
+pause
