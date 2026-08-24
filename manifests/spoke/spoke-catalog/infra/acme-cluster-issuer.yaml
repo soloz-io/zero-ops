@@ -66,8 +66,10 @@ spec:
         webhook:
           groupName: acme.nutgraf.in
           solverName: hetzner
-          config: |
-            {"tokenSecretKeyRef": {"name": "hetzner-dns", "key": "api-key"}}
+          config:
+            tokenSecretKeyRef:
+              name: hetzner-dns
+              key: api-key
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -90,5 +92,7 @@ spec:
         webhook:
           groupName: acme.nutgraf.in
           solverName: hetzner
-          config: |
-            {"tokenSecretKeyRef": {"name": "hetzner-dns", "key": "api-key"}}
+          config:
+            tokenSecretKeyRef:
+              name: hetzner-dns
+              key: api-key
