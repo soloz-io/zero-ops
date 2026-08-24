@@ -58,8 +58,13 @@ spec:
   # not imply a wildcard certificate exists (ADR-051 addendum); per-tenant TLS
   # terminates on tenant-tls-gateway.
 ---
-# Every tenant hostname on this spoke resolves to AgentGateway. Adding a tenant means
-# adding its hostname here and a route block in agentgateway-config.
+# Every tenant hostname on this spoke resolves to AgentGateway. Adding a tenant
+# means adding a route block to agentgateway-config — NOT adding a hostname here.
+# Hostnames are intentionally omitted: the route matches all hostnames accepted by
+# the parent listeners (*.dev.nutgraf.in on tenant-gateway; the per-tenant
+# listeners declared on tenant-tls-gateway by the tenant-public-tls AppSet).
+# Listing hostnames here would embed tenant identity in a platform manifest,
+# violating ADR-047.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -67,11 +72,14 @@ metadata:
   namespace: platform-ops
 spec:
   parentRefs:
+  # :80 plaintext — ACME solver HTTPRoutes also attach same-namespace here.
   - name: tenant-gateway
     namespace: platform-ops
-  hostnames:
-  - waypoint.dev.nutgraf.in
-  - api.waypoint.dev.nutgraf.in
+  # :443 TLS-terminated — tenant-tls-gateway terminates TLS then forwards
+  # plaintext to AgentGateway. Without this parentRef the TLS listener has
+  # attached=0 routes and returns 404 on all HTTPS requests.
+  - name: tenant-tls-gateway
+    namespace: platform-ops
   rules:
   - backendRefs:
     - name: agentgateway
