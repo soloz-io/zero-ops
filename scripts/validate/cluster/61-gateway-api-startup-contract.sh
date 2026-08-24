@@ -19,6 +19,11 @@
 validate_gateway_api_startup_contract() {
     section "Gateway API startup dependency contract"
 
+    if ! ensure_spoke_kubeconfig; then
+        soft_fail "spoke unreachable — Gateway API startup contract not verified"
+        return 0
+    fi
+
     local required=(
         gatewayclasses gateways httproutes grpcroutes referencegrants
     )
@@ -27,7 +32,7 @@ validate_gateway_api_startup_contract() {
     local missing=0
     for crd in "${required[@]}"; do
         local est
-        est=$($KUBECTL get crd "${crd}.gateway.networking.k8s.io" \
+        est=$(kc_spoke get crd "${crd}.gateway.networking.k8s.io" \
                 -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)
         if [[ "$est" != "True" ]]; then
             hard_fail "Gateway API CRD ${crd}.gateway.networking.k8s.io is not Established (got '${est:-absent}') — cilium-operator disables Gateway API when these are missing at start"
@@ -41,8 +46,8 @@ validate_gateway_api_startup_contract() {
     #    demonstrate the ordering, but it can demonstrate that the dependency is
     #    still encoded and would hold on the next cold boot.
     local gate
-    gate=$($KUBECTL get deployment cilium-operator -n kube-system \
-             -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="wait-for-gateway-api-crds")].name}' 2>/dev/null)
+    gate=$(kc_spoke get deployment cilium-operator -n kube-system \
+              -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="wait-for-gateway-api-crds")].name}' 2>/dev/null)
     if [[ "$gate" == "wait-for-gateway-api-crds" ]]; then
         pass "cilium-operator carries the Gateway API dependency gate"
     else
@@ -54,9 +59,9 @@ validate_gateway_api_startup_contract() {
     #     timestamps predate everything and this is vacuous, so it is reported as a
     #     note rather than a pass to avoid manufacturing false confidence.
     local crd_est op_start
-    crd_est=$($KUBECTL get crd gatewayclasses.gateway.networking.k8s.io \
+    crd_est=$(kc_spoke get crd gatewayclasses.gateway.networking.k8s.io \
                 -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null)
-    op_start=$($KUBECTL get pods -n kube-system -l io.cilium/app=operator \
+    op_start=$(kc_spoke get pods -n kube-system -l io.cilium/app=operator \
                 -o jsonpath='{.items[0].status.startTime}' 2>/dev/null)
     if [[ -n "$crd_est" && -n "$op_start" ]]; then
         if [[ "$op_start" < "$crd_est" ]]; then
@@ -70,10 +75,10 @@ validate_gateway_api_startup_contract() {
     #        Accepted=Unknown is the signature of the disabled-at-startup state and
     #        is treated as failure, not as "still settling".
     local gc_accepted gc_controller
-    gc_accepted=$($KUBECTL get gatewayclass cilium \
-                    -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)
-    gc_controller=$($KUBECTL get gatewayclass cilium \
-                    -o jsonpath='{.spec.controllerName}' 2>/dev/null)
+    gc_accepted=$(kc_spoke get gatewayclass cilium \
+                     -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)
+    gc_controller=$(kc_spoke get gatewayclass cilium \
+                     -o jsonpath='{.spec.controllerName}' 2>/dev/null)
     if [[ -z "$gc_controller" ]]; then
         hard_fail "GatewayClass/cilium does not exist — no Gateway API implementation is registered"
     elif [[ "$gc_controller" != "io.cilium/gateway-controller" ]]; then
@@ -87,7 +92,7 @@ validate_gateway_api_startup_contract() {
     # 5. A representative route actually attaches. The preceding checks can all pass
     #    while nothing routes, so this closes the loop on the user-visible outcome.
     local routes
-    routes=$($KUBECTL get httproute -A -o json 2>/dev/null)
+    routes=$(kc_spoke get httproute -A -o json 2>/dev/null)
     if [[ -z "$routes" ]] || [[ "$(echo "$routes" | jq -r '.items | length' 2>/dev/null)" == "0" ]]; then
         note "no HTTPRoute present to verify attachment; skipping the route half of the contract"
         return
