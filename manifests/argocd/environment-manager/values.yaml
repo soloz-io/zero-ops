@@ -37,8 +37,9 @@ hubIngressAddress: ""
 #   PhaseBoundary03 → all boundary01-03 true  (services)
 #   PhaseBoundary04 → boundary01-04 true       (tenant services)
 #   PhaseBoundary05 → boundary01-05 true       (fleet provisioning, ADR-047)
+#   PhaseBoundary06 → boundary01-06 true       (public tenant TLS, ADR-051)
 #
-# On steady-state Day-1, all five are always true. Only the bootstrap
+# On steady-state Day-1, all six are always true. Only the bootstrap
 # orchestrator ever toggles them to achieve sequential boundary gating.
 # ──────────────────────────────────────────────────────────────────────────────
 deploy:
@@ -47,3 +48,23 @@ deploy:
   boundary03: true
   boundary04: true
   boundary05: true
+  boundary06: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public TLS issuer policy (ADR-051) — REQUIRED, NO DEFAULT.
+# ──────────────────────────────────────────────────────────────────────────────
+# The ACME ClusterIssuer the tenant-public-tls ApplicationSet passes into every
+# per-tenant Certificate it renders. The mapping is environment POLICY declared
+# at the bootstrap boundary, never inferred by a chart or ApplicationSet:
+#
+#   dev  → letsencrypt-staging
+#   stg  → letsencrypt-prod
+#   prod → letsencrypt-prod
+#
+# An empty value FAILS AppSet rendering by design ("staging is an explicit
+# development policy, never an accidental default"), and preflight validation
+# additionally rejects letsencrypt-staging on stg/prod environments.
+# The hub CLI passes this via --set publicTlsIssuer=<name> alongside
+# deploy.boundary06.
+# ──────────────────────────────────────────────────────────────────────────────
+publicTlsIssuer: ""

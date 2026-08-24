@@ -355,6 +355,19 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// ── Phase 11i: Boundary 06 — public tenant TLS (ADR-051) ─────────────
+	// Deploys the tenant-public-tls ApplicationSet: per-tenant public ACME
+	// Certificates + the :443 tenant-tls-gateway in platform-ops on each spoke,
+	// rendered from fleet-registry public.hosts declarations. Requires
+	// boundary05 (fleet provisioning) so fleet values are already reconciling.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary06, "boundary06",
+		"Deploying public tenant TLS (boundary 06)...",
+		func() error { return o.deployBoundary06(ctx, mgmtKubeconfig) },
+		func() { fmt.Println("[boundary06] ✓ Public tenant TLS deployed") },
+	); err != nil {
+		return err
+	}
+
 	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
 	// Auto-commits generated artifacts, then polls ArgoCD until the
 	// affected apps reconcile (Synced+Healthy). This ensures the
@@ -768,7 +781,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	}
 	fmt.Println("[boundary01] ✓ ArgoCD installed")
 
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
@@ -807,7 +820,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
@@ -819,7 +832,7 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
@@ -827,7 +840,7 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 }
 
 func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, false); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, false, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary04] ✓ 04-tenant-services ApplicationSet applied")
@@ -835,18 +848,46 @@ func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) 
 }
 
 func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true); err != nil {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true, false); err != nil {
 		return err
 	}
 	fmt.Println("[boundary05] ✓ 05-tenant-fleet ApplicationSets applied")
 	return nil
 }
 
+func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) error {
+	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true, true); err != nil {
+		return err
+	}
+	fmt.Println("[boundary06] ✓ 06-tenant-public-tls ApplicationSet applied")
+	return nil
+}
+
+// publicTlsIssuerFor returns the ACME ClusterIssuer for this environment — the
+// issuer half of ADR-051's public-TLS policy. The mapping lives HERE because
+// the bootstrap is the environment boundary: it already owns environmentSlug,
+// and no chart or ApplicationSet may re-derive policy (ADR-047). There is no
+// default: an unknown or empty slug fails the bootstrap rather than silently
+// inheriting a development value — staging is an explicit dev policy, never an
+// accidental default.
+func (o *Orchestrator) publicTlsIssuerFor() (string, error) {
+	switch o.EnvironmentSlug {
+	case "dev", "ephemeral":
+		return "letsencrypt-staging", nil
+	case "stg", "prod":
+		return "letsencrypt-prod", nil
+	default:
+		return "", fmt.Errorf(
+			"publicTlsIssuer: no issuer mapping for environment slug %q (expected dev|ephemeral|stg|prod) — refusing to guess TLS policy",
+			o.EnvironmentSlug)
+	}
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04, deployB05 bool) error {
+func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04, deployB05, deployB06 bool) error {
 	gitBranch := currentGitBranch()
 	envRevision := "main"
 	if gitBranch != "" && gitBranch != "main" {
@@ -869,6 +910,14 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 			"publish the ClusterIP, which breaks public DNS and ACME issuance")
 	}
 
+	publicTlsIssuer := ""
+	if deployB06 {
+		var err error
+		if publicTlsIssuer, err = o.publicTlsIssuerFor(); err != nil {
+			return err
+		}
+	}
+
 	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
 		"manifests/argocd/environment-manager",
 		"--set", "environmentRevision="+envRevision,
@@ -881,6 +930,8 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
 		"--set", fmt.Sprintf("deploy.boundary04=%t", deployB04),
 		"--set", fmt.Sprintf("deploy.boundary05=%t", deployB05),
+		"--set", fmt.Sprintf("deploy.boundary06=%t", deployB06),
+		"--set", "publicTlsIssuer="+publicTlsIssuer,
 	)
 	rendered, err := helmCmd.Output()
 	if err != nil {

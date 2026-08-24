@@ -31,6 +31,7 @@ const (
 	PhaseBootstrapInfisicalAPI BootstrapPhase = "bootstrap-infisical-api"
 	PhaseBoundary04            BootstrapPhase = "boundary-04"
 	PhaseBoundary05            BootstrapPhase = "boundary-05"
+	PhaseBoundary06            BootstrapPhase = "boundary-06"
 	PhaseInitSecrets           BootstrapPhase = "init-secrets"    // DEPRECATED: replaced by GenerateLocalSecrets + InjectCACert + BootstrapInfisicalAPI
 	PhasePlatformDeploy        BootstrapPhase = "platform-deploy" // DEPRECATED: replaced by B01/B02/B03
 	PhaseFinalize              BootstrapPhase = "finalize"

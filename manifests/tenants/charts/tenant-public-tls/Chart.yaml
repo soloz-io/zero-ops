@@ -1,0 +1,10 @@
+apiVersion: v2
+name: tenant-public-tls
+description: >-
+  Platform-owned public TLS for tenant fleets (ADR-051). Renders one Certificate
+  in platform-ops plus a dedicated :443 TLS-termination Gateway whose listeners
+  are derived strictly from fleet-registry public.hosts declarations. Consumed
+  by the tenant-public-tls ApplicationSet; never deployed by hand.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

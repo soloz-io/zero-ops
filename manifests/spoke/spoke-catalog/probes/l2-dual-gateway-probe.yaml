@@ -1,0 +1,93 @@
+# L2 dual-gateway coexistence probe (ADR-051 amendment verification).
+#
+# Empirically proves, on THIS spoke's exact Cilium configuration
+# (v1.17.x, gateway-api-hostnetwork-enabled=true, control-plane node label
+# selector), what the tenant-public-tls design assumes:
+#
+#   probe-a  HTTP :8443  → expect Programmed=True
+#   probe-b  HTTP :8444  → expect Programmed=True simultaneously with probe-a
+#                          (two Gateway objects coexisting under one embedded
+#                          Envoy per node)
+#   probe-c  HTTP :80    → expect NOT programmed / collision condition, because
+#                          tenant-gateway already binds :80. Documents the
+#                          failure mode of a port clash rather than leaving it
+#                          assumed.
+#
+# This file is intentionally NOT referenced by any kustomization.yaml — ArgoCD
+# never applies it. It is applied by hand for the duration of the check and
+# removed with `kubectl delete -f` on the same file:
+#
+#   kubectl --kubeconfig <spoke-kc> apply -f manifests/spoke/spoke-catalog/probes/l2-dual-gateway-probe.yaml
+#   kubectl --kubeconfig <spoke-kc> -n platform-ops get gateways -o wide   # observe
+#   kubectl --kubeconfig <spoke-kc> delete -f manifests/spoke/spoke-catalog/probes/l2-dual-gateway-probe.yaml
+#
+# Hostnames use the reserved `probe` label under the dev zone; they are never
+# published to DNS and collide with no tenant declaration.
+#
+# ── VERIFICATION LOG ─────────────────────────────────────────────────────────
+# 2026-08-24, spoke spoke-pool-hybrid-dev-01, Cilium v1.17.18, hostNetwork mode:
+#   * All three probes + tenant-gateway reported Accepted=True / Programmed=True.
+#     Status alone does NOT prove service — functional checks are mandatory.
+#   * probe-a (:8443) / probe-b (:8444): connections TIMEOUT (dropped). Non-
+#     standard ports receive no traffic on this topology (Hetzner firewall or
+#     hostNetwork binding scope). Irrelevant to the L2 design, which uses only
+#     :80/:443.
+#   * probe-c (:80, clashing with tenant-gateway): marked Programmed but INERT —
+#     tenant-gateway kept serving (503 from Envoy). Port claims are FIRST-WINS;
+#     a later Gateway silently never serves a port an earlier one holds.
+#   * Functional baseline: :80 → HTTP 503 (Envoy answering; agentgateway pod in
+#     CreateContainerConfigError, separate issue). :443 → connection RESET
+#     (listener bound, but Secret tenant-gateway-tls does not exist — the
+#     wildcard cert is unissuable under HTTP-01).
+#   * CONSEQUENCE FOR ROLLOUT: tenant-tls-gateway (:443) must be created only
+#     once tenant-gateway's :443 listener removal has been applied — same commit,
+#     and verify serving afterwards. Never rely on Programmed=True alone.
+# ────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: l2-probe-a-8443
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 8443
+    hostname: "probe-a.dev.nutgraf.in"
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: l2-probe-b-8444
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 8444
+    hostname: "probe-b.dev.nutgraf.in"
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: l2-probe-c-80-clash
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    hostname: "probe-c.dev.nutgraf.in"
+    allowedRoutes:
+      namespaces:
+        from: Same

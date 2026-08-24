@@ -41,6 +41,7 @@ rules:
 ignore: |
   # Helm chart templates (Go text/template) are validated by helm lint/kubeconform, not yamllint.
   manifests/tenants/charts/universal-tenant/templates/
+  manifests/tenants/charts/tenant-public-tls/templates/
   manifests/argocd/environment-manager/templates/
   internal/opensbt/providers/gitops/helm-chart/templates/
   # Go text/template assets are not valid plain YAML until rendered.

@@ -1,0 +1,34 @@
+{{- include "tenant-public-tls.requirements" . }}
+{{- if .Values.public.hosts }}
+---
+# Public TLS for one tenant fleet (ADR-051). Lives in platform-ops — the same
+# namespace as the shared tenant-gateway (:80) and the tenant-tls-gateway
+# (:443) below — so the HTTP-01 solver HTTPRoute cert-manager creates here
+# attaches same-namespace under allowedRoutes.from: Same, and the Gateway's
+# certificateRef needs no ReferenceGrant.
+#
+# dnsNames are EXACTLY the fleet-registry public.hosts declaration. The chart
+# derives nothing: no api. prefixes, no zone expansion, no wildcards (the
+# requirements guard fails rendering on wildcard entries).
+#
+# Namespace comes from the Application destination (platform-ops); it is
+# deliberately not set in the template.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "tenant-public-tls.certificateName" . }}
+  labels:
+    app.kubernetes.io/managed-by: tenant-public-tls
+    zero-ops.io/tenant-id: {{ .Values.tenantId }}
+spec:
+  secretName: {{ include "tenant-public-tls.secretName" . }}
+  duration: {{ .Values.certificateDuration }}
+  renewBefore: {{ .Values.certificateRenewBefore }}
+  issuerRef:
+    name: {{ .Values.issuer }}
+    kind: ClusterIssuer
+  dnsNames:
+    {{- range .Values.public.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+{{- end }}

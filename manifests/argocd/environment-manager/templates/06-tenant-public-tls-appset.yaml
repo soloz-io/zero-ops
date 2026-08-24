@@ -1,0 +1,103 @@
+{{ if .Values.deploy.boundary06 }}
+---
+# ADR-051 / ADR-047: tenant-public-tls ApplicationSet.
+#
+# Renders platform-owned public TLS for every fleet that declares public
+# hostnames: one Certificate plus a dedicated :443 TLS-termination Gateway in
+# platform-ops on the fleet's owning spoke, via the tenant-public-tls chart.
+#
+# Ownership chain (each link exactly once):
+#   fleet-registry tenants/<t>/<e>/values.yaml public.hosts = hostname intent
+#   environment bootstrap publicTlsIssuer                  = issuer policy
+#   this ApplicationSet                                    = fan-out + rendering
+#   cert-manager                                           = certificate lifecycle
+#   tenant-tls-gateway                                     = TLS termination
+#
+# The chart derives nothing on its own: no api. prefixes, no zone expansion, no
+# wildcards, no issuer defaults (render fails without an explicit issuer —
+# staging is a development policy, never an accidental default). spoke-catalog's
+# tenant-gateway (:80) remains the ACME solver attachment point and stays
+# untouched by this ApplicationSet; the two Gateways partition ports :80/:443.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-public-tls
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  generators:
+    # Matrix Generator: only create applications when BOTH conditions are met:
+    # 1. Fleet values exist in Git (fleet-registry) — public.hosts key present
+    #    (empty list renders zero resources; absent key breaks rendering loudly,
+    #    which is the schema-enforcement mechanism).
+    # 2. Target spoke cluster is registered in ArgoCD (by capi2argo) with the
+    #    cell-id label — no certificate is materialised for a fleet whose cell
+    #    does not exist yet.
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/soloz-io/fleet-registry
+              revision: main
+              files:
+                - path: 'tenants/*/*/values.yaml'
+
+          - clusters:
+              selector:
+                matchLabels:
+                  cell-id: '{{"{{"}} .cellId {{"}}"}}'
+
+  template:
+    metadata:
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-public-tls'
+      labels:
+        tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        provisioning-type: gitops
+        resource-type: public-tls
+
+    spec:
+      project: default
+
+      sources:
+        # Source 1: Platform TLS chart. The issuer comes from THIS environment's
+        # bootstrap policy (publicTlsIssuer) — never from the fleet values, never
+        # defaulted. An empty value fails chart rendering by design.
+        - repoURL: https://github.com/soloz-io/zero-ops
+          targetRevision: '{{ .Values.environmentRevision }}'
+          path: manifests/tenants/charts/tenant-public-tls
+          helm:
+            valueFiles:
+              - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml
+            parameters:
+              - name: issuer
+                value: '{{ .Values.publicTlsIssuer }}'
+
+        # Source 2: Fleet registry values file ($values ref above).
+        - repoURL: https://github.com/soloz-io/fleet-registry
+          targetRevision: main
+          ref: values
+
+      destination:
+        name: '{{"{{"}} .name {{"}}"}}'
+        namespace: platform-ops
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+---
+{{ end }}

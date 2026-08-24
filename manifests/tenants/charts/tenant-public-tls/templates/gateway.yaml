@@ -1,0 +1,45 @@
+{{- include "tenant-public-tls.requirements" . }}
+{{- if .Values.public.hosts }}
+---
+# Per-spoke shared TLS-termination Gateway (ADR-051, L2 split). This chart is
+# its SOLE owner — spoke-catalog owns tenant-gateway (:80, ACME solver
+# attachment + agentgateway plaintext hop) and never edits this object; this
+# chart never touches tenant-gateway. One HTTPS listener per DECLARED hostname:
+# Gateway API selects the listener by SNI, so per-tenant certificates terminate
+# on one Gateway without wildcards.
+#
+# Port partitioning (:80 vs :443) was verified empirically on Cilium v1.17.18
+# hostNetwork mode (see spoke-catalog/probes/l2-dual-gateway-probe.yaml): two
+# Gateways coexist cleanly on different ports. Same-port claims are first-wins,
+# so this :443 Gateway must never coexist with another claimant of :443.
+#
+# DNS publication intentionally NOT wired here: external-dns runs with the
+# gateway-httproute source and follows HTTPRoutes, which arrive with the later
+# routing migration.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.tlsGatewayName }}
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/managed-by: tenant-public-tls
+    zero-ops.io/tenant-id: {{ .Values.tenantId }}
+spec:
+  gatewayClassName: cilium
+  listeners:
+    {{- range .Values.public.hosts }}
+    - name: {{ include "tenant-public-tls.listenerName" . }}
+      protocol: HTTPS
+      port: 443
+      hostname: {{ . | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+        - group: ""
+          kind: Secret
+          name: {{ include "tenant-public-tls.secretName" $ }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+{{- end }}

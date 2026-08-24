@@ -47,30 +47,15 @@ spec:
     kind: ClusterIssuer
     group: infisical-issuer.infisical.com
 ---
-# ADR-051: TLS certificate for the tenant-facing Gateway.
+# Public tenant TLS is NOT defined here anymore.
 #
-# The Gateway annotation (cert-manager.io/cluster-issuer: letsencrypt-staging)
-# relies on cert-manager's Gateway API integration, which is fragile if the
-# feature gate isn't enabled or the annotation is stripped by kustomize.
-# This explicit Certificate is the belt-and-suspenders approach: cert-manager
-# creates it regardless of the Gateway annotation, and the ACME HTTP-01 solver
-# creates solver HTTPRoutes in the cert-manager namespace targeting the Gateway's
-# :80 listener (which must allow cross-namespace routes — see tenant-gateway.yaml).
+# The former tenant-gateway-tls Certificate requested a wildcard (*.dev.nutgraf.in)
+# from letsencrypt-staging over HTTP-01 — structurally impossible: Let's Encrypt
+# issues wildcard identifiers only via DNS-01 (ADR-051 addendum). The request sat
+# unissuable while the :443 listener referenced its absent Secret and reset every
+# connection.
 #
-# The wildcard covers all tenant hostnames on this spoke (*.dev.nutgraf.in).
-# Onboarding a new tenant requires no certificate changes — only a new hostname
-# in the Gateway listener and agentgateway-config.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: tenant-gateway-tls
-  namespace: platform-ops
-spec:
-  secretName: tenant-gateway-tls
-  duration: 2160h    # 90 days
-  renewBefore: 720h  # 30 days
-  issuerRef:
-    name: letsencrypt-staging
-    kind: ClusterIssuer
-  dnsNames:
-  - "*.dev.nutgraf.in"
+# Replacement: per-tenant public Certificates in platform-ops, rendered by the
+# tenant-public-tls ApplicationSet from fleet-registry public.hosts declarations
+# (manifests/tenants/charts/tenant-public-tls). Internal fleet / mTLS certificates
+# remain above on infisical-fleet-issuer (ADR-035 audience split, ADR-051).

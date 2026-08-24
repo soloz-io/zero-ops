@@ -11,16 +11,22 @@
 #      hostname and backends as data (fleet-registry values) rendered into
 #      agentgateway-config; they do not author routing.
 #
-# TLS terminates here (Cilium Gateway, hostNetwork Envoy on the CP node, published
-# through the CAPH LB's extraServices 80/443). AgentGateway receives plaintext on the
-# internal hop; its callback URL is config-driven and its cookie Secure flag derives
-# from that https scheme, so the session is unaffected.
+# Plaintext entry (:80) for every tenant hostname on this spoke. TLS
+# termination is NOT here: public certificates are per-tenant (HTTP-01 cannot
+# issue wildcards), so a dedicated :443 Gateway (tenant-tls-gateway) is rendered
+# per declared hostname by the tenant-public-tls ApplicationSet from
+# fleet-registry values — see manifests/tenants/charts/tenant-public-tls. This
+# object and that one never edit each other; port claims on the shared Envoy are
+# first-wins (probes/l2-dual-gateway-probe.yaml), which the :80/:443 partition
+# respects. Traffic path: :443 terminates TLS here → plaintext hop to
+# AgentGateway → backends. AgentGateway's callback URL is config-driven and its
+# cookie Secure flag derives from that https scheme, so the session is unaffected.
 #
 # ACME HTTP-01 challenges: cert-manager creates its solver resources in the
-# CERTIFICATE's namespace, not in the cert-manager namespace. This Gateway's
-# certificate is issued in platform-ops (gateway-shim, from the cluster-issuer
-# annotation below), so the solver HTTPRoute is created in platform-ops and attaches
-# same-namespace. from: Same on both listeners therefore does not block issuance.
+# CERTIFICATE's namespace, not in the cert-manager namespace. Public tenant
+# Certificates live in platform-ops (rendered by tenant-public-tls), so the
+# solver HTTPRoute is created in platform-ops and attaches same-namespace to
+# this listener. from: Same on this listener therefore does not block issuance.
 #
 # An earlier revision set from: All on :80 for this reason and argued it was safe
 # because "the backendRef is hardcoded to agentgateway:3000". That argument does not
@@ -35,8 +41,6 @@ kind: Gateway
 metadata:
   name: tenant-gateway
   namespace: platform-ops
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-staging
 spec:
   gatewayClassName: cilium
   listeners:
@@ -45,22 +49,14 @@ spec:
     port: 80
     hostname: "*.dev.nutgraf.in"
     # from: Same — ADR-050 no-bypass. Solver HTTPRoutes are created in the
-    # Certificate's namespace (platform-ops here), so ACME still works.
+    # Certificate's namespace (platform-ops for tenant-public-tls certificates),
+    # so ACME still works.
     allowedRoutes:
       namespaces:
         from: Same
-  - name: https
-    protocol: HTTPS
-    port: 443
-    hostname: "*.dev.nutgraf.in"
-    tls:
-      mode: Terminate
-      certificateRefs:
-      - kind: Secret
-        name: tenant-gateway-tls
-    allowedRoutes:
-      namespaces:
-        from: Same
+  # NOTE: hostname is a ROUTING MATCH only. A wildcard listener hostname does
+  # not imply a wildcard certificate exists (ADR-051 addendum); per-tenant TLS
+  # terminates on tenant-tls-gateway.
 ---
 # Every tenant hostname on this spoke resolves to AgentGateway. Adding a tenant means
 # adding its hostname here and a route block in agentgateway-config.

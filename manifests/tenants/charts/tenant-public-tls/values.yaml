@@ -1,0 +1,30 @@
+# tenant-public-tls chart values.
+#
+# Every value except the tunables at the bottom is supplied by the
+# tenant-public-tls ApplicationSet from fleet-registry tenants/<t>/<e>/values.yaml
+# (public.hosts, tenantId) and the environment bootstrap (publicTlsIssuer).
+# The chart NEVER invents hostnames, wildcards, or issuer policy (ADR-051,
+# ADR-047).
+
+# Tenant identifier from fleet-registry. Required.
+tenantId: ""
+
+# Declared public hostnames. This schema matches fleet-registry
+# tenants/<t>/<e>/values.yaml VERBATIM — that file is passed directly as Helm
+# values, so there is exactly one declaration and zero reformatting.
+# An EMPTY list renders zero resources (fleet has no public ingress); an ABSENT
+# key fails rendering loudly (that is the schema-enforcement mechanism).
+public:
+  hosts: []
+
+# ACME ClusterIssuer for this environment. Required with NO default:
+#   dev -> letsencrypt-staging, stg/prod -> letsencrypt-prod.
+# Staging on stg/prod is forbidden and rejected by preflight validation —
+# staging is an explicit development policy, never an accidental default.
+issuer: ""
+
+# Per-spoke shared TLS-termination Gateway created by this chart.
+tlsGatewayName: tenant-tls-gateway
+
+certificateDuration: 2160h    # 90 days
+certificateRenewBefore: 720h  # 30 days
