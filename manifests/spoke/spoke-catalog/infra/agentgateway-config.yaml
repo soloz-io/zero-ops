@@ -63,6 +63,7 @@ data:
             oidc:
               issuer: https://auth.dev.nutgraf.in
               clientId: waypoint-public-client
+              clientSecret: ""
               tokenEndpointAuth: null
               redirectURI: https://waypoint.dev.nutgraf.in/oauth/callback
               scopes:
