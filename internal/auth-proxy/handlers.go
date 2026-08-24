@@ -67,8 +67,16 @@ func (h *Handler) ProxyMetadata(w http.ResponseWriter, r *http.Request) {
 	h.proxy(w, r, "/.well-known/oauth-authorization-server")
 }
 
+func (h *Handler) ProxyOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+	h.proxy(w, r, "/.well-known/openid-configuration")
+}
+
 func (h *Handler) ProxyJWKS(w http.ResponseWriter, r *http.Request) {
 	h.proxy(w, r, "/.well-known/jwks.json")
+}
+
+func (h *Handler) ProxyUserinfo(w http.ResponseWriter, r *http.Request) {
+	h.proxy(w, r, "/userinfo")
 }
 
 func (h *Handler) ProxyOAuth2(w http.ResponseWriter, r *http.Request) {

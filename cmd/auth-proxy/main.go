@@ -55,9 +55,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", handler.ProxyOpenIDConfiguration)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/jwks.json", handler.ProxyJWKS)
+	mux.HandleFunc("/userinfo", handler.ProxyUserinfo)
 	mux.HandleFunc("/health/ready", handler.HealthReady)
 	mux.HandleFunc("/login", handler.LoginHandler)
 	mux.HandleFunc("/consent", handler.ConsentHandler)
