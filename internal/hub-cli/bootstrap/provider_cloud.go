@@ -110,11 +110,48 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	if err != nil {
 		return fmt.Errorf("failed to read cilium manifest: %w", err)
 	}
-	ciliumConfig, err := os.ReadFile("manifests/providers/hetzner/k8s/cilium-config-base.yaml")
+	//
+	// Two things the base is NOT, and both were wrong here:
+	//
+	//   1. It is not provider-neutral. The path was hardcoded to hetzner, so a hybrid
+	//      hub was built from the hetzner datapath: mtu 1230 instead of 1200, no
+	//      `tailscale0` in `devices`, and gateway-api-hostnetwork-enabled false. A
+	//      hybrid hub reaches its home workers over the tailnet and binds its Gateway
+	//      on the control-plane host, so none of those are cosmetic.
+	//
+	//   2. It is not the delivered artifact. It is the RENDERER's input —
+	//      ConfigMap/cilium-config-base-<provider> in platform-capi, read by
+	//      hub-operator to render a spoke's copy. Cilium consumes
+	//      ConfigMap/cilium-config in kube-system. Appending the file verbatim shipped
+	//      a document targeting platform-capi, a namespace that does not exist on a
+	//      workload cluster, so it never applied: cilium-operator hung in
+	//      ContainerCreating on `configmap "cilium-config" not found`, the agent
+	//      CrashLoopBackOff'd, and every node stayed NotReady with no CNI.
+	//
+	// Read the provider's own base and retarget it to what Cilium actually consumes.
+	ciliumConfigPath := filepath.Join(
+		"manifests", "providers", p.driver.Name(), "k8s", "cilium-config-base.yaml")
+	ciliumConfig, err := os.ReadFile(ciliumConfigPath)
 	if err != nil {
-		return fmt.Errorf("failed to read cilium-config base (ADR-046 §24): %w", err)
+		return fmt.Errorf("failed to read cilium-config base (ADR-046 §24) at %s: %w", ciliumConfigPath, err)
 	}
-	clusterCfg.CiliumManifest = string(ciliumRaw) + "\n---\n" + string(ciliumConfig)
+	var ciliumCM map[string]interface{}
+	if err := yaml.Unmarshal(ciliumConfig, &ciliumCM); err != nil {
+		return fmt.Errorf("failed to parse cilium-config base at %s: %w", ciliumConfigPath, err)
+	}
+	ciliumMeta, ok := ciliumCM["metadata"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("cilium-config base at %s has no metadata block", ciliumConfigPath)
+	}
+	ciliumMeta["name"] = "cilium-config"
+	ciliumMeta["namespace"] = constants.NamespaceKubeSystem
+	// Renderer-selection label; it selects a base on the hub and means nothing here.
+	delete(ciliumMeta, "labels")
+	ciliumConfigOut, err := yaml.Marshal(ciliumCM)
+	if err != nil {
+		return fmt.Errorf("failed to render cilium-config for delivery: %w", err)
+	}
+	clusterCfg.CiliumManifest = string(ciliumRaw) + "\n---\n" + string(ciliumConfigOut)
 
 	provisioner := &cluster.Provisioner{
 		Kubeconfig: cfg.BootstrapKubeconfig,

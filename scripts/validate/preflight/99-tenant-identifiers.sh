@@ -25,7 +25,8 @@ import os, re, subprocess
 
 # Paths that constitute "the platform". Tenant material belongs under
 # manifests/tenants/ and the fleet provisioning ApplicationSets.
-PLATFORM = ["manifests/hub-core-services", "manifests/argocd", "internal", "cmd", "operators"]
+PLATFORM = ["manifests/hub-core-services", "manifests/argocd", "manifests/spoke",
+            "internal", "cmd", "operators"]
 
 # Tenant identifiers observed in this repo. There is no canonical local list —
 # tenants live in fleet-registry — so this enumerates the names that have actually
@@ -42,6 +43,14 @@ BASELINE = {
     "manifests/hub-core-services/api-gateway/agentgateway-config.yaml",
     "manifests/hub-core-services/identity/ory-kratos/values.yaml",
     "manifests/argocd/environment-manager/templates/05-tenant-fleet-appset.yaml",
+    # manifests/spoke was previously OUT of PLATFORM, so the spoke catalog — which is
+    # platform infrastructure delivered to every spoke — accumulated tenant identifiers
+    # unchecked. Scope now covers it. These two carry tenant ROUTING, which ADR-051
+    # assigns to the fleet registry ("Tenant hostname and backend declaration | Git
+    # (fleet registry) | Tenant | ArgoCD (rendered into gateway config)"); retiring them
+    # means rendering routes per tenant, not editing these files.
+    "manifests/spoke/spoke-catalog/infra/tenant-gateway.yaml",
+    "manifests/spoke/spoke-catalog/infra/agentgateway-config.yaml",
 }
 
 pattern = r"\b(" + "|".join(re.escape(t) for t in TENANTS) + r")\b"

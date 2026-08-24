@@ -1,7 +1,7 @@
 ---
 # Cilium CNI Addon Template for ClusterResourceSet
 # This Secret contains the complete Cilium CNI manifest that will be applied to spoke pool clusters during bootstrap.
-# Cilium v1.17.18 — Gateway-API secrets sync (enable-gateway-api-secrets-sync) delivers the waypoint TLS secret
+# Cilium v1.17.18 — Gateway-API secrets sync (enable-gateway-api-secrets-sync) delivers the tenant Gateway TLS secret
 # to Envoy SDS (fixes empty /certs on 1.15.6). See ADR-049.
 #
 # NOTE: cilium-ca / hubble-server-certs are the original bootstrap-issued certs. Do NOT re-render through helm
@@ -857,6 +857,16 @@ stringData:
                   - ALL
             terminationMessagePolicy: FallbackToLogsOnError
             volumeMounts:
+            # cilium-agent runs with --config-dir=/tmp/cilium/config-map; without this
+            # mount it reads an empty config dir and silently falls back to defaults.
+            # That is not benign: `procfs` never arrives, so the sysctl reconciler
+            # targets the container's own read-only /proc/sys instead of the host mount
+            # below, and the agent dies with "failed to setup base devices: ...
+            # read-only file system". cilium-operator already mounts this; the agent
+            # was omitted.
+            - name: cilium-config-path
+              mountPath: /tmp/cilium/config-map
+              readOnly: true
             # Unprivileged containers need to mount /proc/sys/net from the host
             # to have write access
             - mountPath: /host/proc/sys/net
@@ -1107,6 +1117,10 @@ stringData:
           tolerations:
             - operator: Exists
           volumes:
+            # To read the configuration from the config map
+          - name: cilium-config-path
+            configMap:
+              name: cilium-config
             # For sharing configuration between the "config" initContainer and the agent
           - name: tmp
             emptyDir: {}

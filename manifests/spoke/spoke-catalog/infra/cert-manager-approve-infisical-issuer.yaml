@@ -14,7 +14,7 @@
 # against the wildcard signerName "clusterissuers.infisical-issuer.infisical.com/*".
 #
 # Without this, every spoke Certificate (argocd-agent, nats-leafnode, alloy,
-# waypoint-tls) referencing the infisical-fleet-issuer ClusterIssuer is denied
+# a tenant Gateway's TLS secret) referencing the infisical-fleet-issuer ClusterIssuer is denied
 # approval at the cert-manager webhook, blocking certificate issuance and
 # wedging the platform-spoke-catalog ArgoCD application health.
 ---

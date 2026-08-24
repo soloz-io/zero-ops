@@ -1,10 +1,10 @@
 # WS3 (ADR-046 addendum 18) — external-dns on the SPOKE, Hetzner DNS provider.
 #
 # Why the spoke and not the hub: external-dns must watch the Gateway/HTTPRoute
-# objects it publishes records for, and those live on the spoke (tenant-waypoint,
-# tenant-oranger). The hub copy at manifests/hub-core-services/external-dns/ was
+# objects it publishes records for, and those live on the spoke in the per-tenant
+# namespaces. The hub copy at manifests/hub-core-services/external-dns/ was
 # never wired into any ApplicationSet and has never run — the
-# `external-dns.alpha.kubernetes.io/hostname` annotation on the waypoint Gateway
+# `external-dns.alpha.kubernetes.io/hostname` annotation on a tenant Gateway
 # has therefore been inert.
 #
 # Provider: Hetzner is a WEBHOOK provider for external-dns (not in-tree), so the
