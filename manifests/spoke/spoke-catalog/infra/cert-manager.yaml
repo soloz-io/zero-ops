@@ -1001,7 +1001,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cert-manager-cainjector
-          image: "quay.io/jetstack/cert-manager-cainjector:v1.20.2"
+          image: "quay.io/jetstack/cert-manager-cainjector:v1.21.1"
           imagePullPolicy: IfNotPresent
           args:
           - --v=2
@@ -1068,13 +1068,19 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cert-manager-controller
-          image: "quay.io/jetstack/cert-manager-controller:v1.20.2"
+          image: "quay.io/jetstack/cert-manager-controller:v1.21.1"
           imagePullPolicy: IfNotPresent
           args:
           - --v=2
           - --cluster-resource-namespace=$(POD_NAMESPACE)
           - --leader-election-namespace=kube-system
-          - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.20.2
+          - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.21.1
+          # Required alongside the feature gate: cert-manager's Gateway API
+          # HTTP-01 presenter checks BOTH the ExperimentalGatewayAPISupport
+          # feature gate AND this controller flag (cmd/controller/app/options:
+          # "gateway api is not enabled" otherwise). Without it, challenges for
+          # gatewayHTTPRoute solvers never present (observed on v1.20.2).
+          - --enable-gateway-api=true
           - --max-concurrent-challenges=60
           # WS0.3 (ADR-046 addendum 18): required for the ACME HTTP-01
           # `gatewayHTTPRoute` solver. The spoke has no Ingress controller —
@@ -1160,7 +1166,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cert-manager-webhook
-          image: "quay.io/jetstack/cert-manager-webhook:v1.20.2"
+          image: "quay.io/jetstack/cert-manager-webhook:v1.21.1"
           imagePullPolicy: IfNotPresent
           args:
           - --v=2
@@ -1414,7 +1420,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cert-manager-startupapicheck
-          image: "quay.io/jetstack/cert-manager-startupapicheck:v1.20.2"
+          image: "quay.io/jetstack/cert-manager-startupapicheck:v1.21.1"
           imagePullPolicy: IfNotPresent
           args:
           - check
