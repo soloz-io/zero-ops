@@ -102,32 +102,27 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Cell-scoped credentials (ADR-031). A spoke's SecretStore is authorised for
-	// /spoke-pool/<cellId>/ only, so anything its ExternalSecrets consume must be
-	// produced INTO that prefix. Two classes were consumed there with no producer:
-	// the per-spoke OIDC session key, and the fleet credentials that live at the
-	// root. The symptom is not a broken SecretStore — it reports Valid/Ready — but
-	// individual ExternalSecrets stuck at SecretSyncedError, which surfaces late as
-	// agentgateway in CreateContainerConfigError and CNPG archiving no WAL at all.
+	// Fleet credentials (S3/Barman, Grafana Cloud) are issued outside the platform
+	// and seeded once at the Infisical root. A cell SecretStore is authorised for
+	// /spoke-pool/<cellId>/ ONLY (ADR-031), so they must be copied into the cell
+	// path — never generated, since a fabricated key authenticates to nothing and
+	// fails at the first WAL archive instead of at the cause.
 	//
-	// Both are non-fatal to the reconcile. A spoke whose gateway or telemetry
-	// credentials are absent is degraded, not unprovisionable, and failing here
-	// would block the cluster lifecycle on a credential the operator may not be
-	// able to obtain (see MissingAtRoot below).
-	if _, err := r.InfisicalClient.EnsureAgentGatewayOIDCCookieSecret(ctx, spokeName); err != nil {
-		logger.Error(err, "Failed to ensure per-cell OIDC cookie secret; agentgateway will not start on this spoke",
-			"spoke", spokeName)
-	}
-
+	// Non-fatal: a spoke missing telemetry credentials is degraded, not
+	// unprovisionable, and failing here would block the cluster lifecycle on a
+	// credential this operator may not be able to obtain.
 	if fleet, err := r.InfisicalClient.EnsureFleetCredentialsMaterialised(ctx, spokeName); err != nil {
 		logger.Error(err, "Failed to materialise fleet credentials into the cell path", "spoke", spokeName)
 	} else if len(fleet.MissingAtRoot) > 0 {
-		// Absent at the root means never seeded from k8-secrets/. Nothing here can
-		// invent them: a generated S3 key authenticates to nothing and fails at the
-		// first WAL archive instead of at the cause.
 		logger.Error(nil, "Fleet credentials absent at the Infisical root; seed them from k8-secrets/ or the consuming feature stays down",
 			"spoke", spokeName, "missing", fleet.MissingAtRoot)
 	}
+
+	// The per-cell OIDC session signing key is produced by the hub-operator's
+	// application-secret uploader (internal/infisical), which writes CellScoped
+	// mappings into /spoke-pool/<cellId>/shared. It is deliberately NOT produced
+	// here: this reconciler creates the cell's Infisical folder, and a producer
+	// that runs in the same pass races its own prerequisite.
 
 	// create bootstrap certificate for ArgoCD Agent mTLS via cert-manager (ADR-035)
 	if err := r.ensureBootstrapCertificate(ctx, spokePool); err != nil {

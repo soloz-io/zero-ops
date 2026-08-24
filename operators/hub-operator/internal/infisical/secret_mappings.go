@@ -346,6 +346,25 @@ type ApplicationSecretDefinition struct {
 	// value and demand an exact key length; for them the default charset produces a
 	// string of the right length that still fails to parse.
 	HexBytes int
+
+	// CellScopedKey, when non-empty, ALSO produces this secret once per SpokePool at
+	// /spoke-pool/<cellId>/shared under this key name, with an independently
+	// generated value. The root entry is still uploaded — it is not diverted.
+	//
+	// Both halves are load-bearing and they are not the same secret. A spoke's
+	// SecretStore is authorised for its own prefix ONLY (ADR-031), so a value at the
+	// root is unreadable from a spoke however correct it is: that is why the
+	// agentgateway cookie secret existed at the root and the spoke ExternalSecret
+	// still reported "could not get secret data from provider". Meanwhile the HUB
+	// agentgateway reads the root key, so removing it takes the hub gateway down.
+	//
+	// The values MUST NOT be shared across cells (ADR-050 P1-4): this signs OIDC
+	// session cookies, and one key across the fleet would make a session minted on
+	// one spoke valid on every other.
+	//
+	// Note the two spellings are deliberate, matching each consumer's ExternalSecret:
+	// kebab-case at the root, SCREAMING_SNAKE in the cell path.
+	CellScopedKey string
 }
 
 // ApplicationSecretMappings defines all application secrets to create in Infisical
@@ -449,7 +468,14 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		PasswordKey: "agentgateway-oidc-cookie-secret",
 		Username:    "",
 		// AES-256-GCM: agentgateway hex-decodes this and requires exactly 32 bytes.
-		HexBytes:    32,
-		Description: "AgentGateway OIDC session cookie encryption secret (32-byte AES-256-GCM key, hex)",
+		// A 44-character base64 value of the same 32 bytes is the wrong ENCODING and
+		// fails at startup with `Invalid character 'Z' at position 1`, which reads as
+		// a corrupt secret rather than a format mismatch. HexBytes is what keeps the
+		// generated form and the consumer's parser in agreement.
+		HexBytes: 32,
+		// agentgateway runs on the hub AND on every spoke. The hub reads the root key
+		// above; each spoke reads its own cell copy under the name below.
+		CellScopedKey: "AGENTGATEWAY_OIDC_COOKIE_SECRET",
+		Description:   "AgentGateway OIDC session cookie encryption secret (32-byte AES-256-GCM key, hex)",
 	},
 }

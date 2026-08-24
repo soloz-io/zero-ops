@@ -140,10 +140,15 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		dataNamespace := hubEnv.Spec.Database.Namespace
 		dbHost := fmt.Sprintf("platform-db-rw.%s.svc", dataNamespace)
 
-		// Create owner reference
+		// Create owner reference.
+		//
+		// GVK comes from the scheme, not from hubEnv.TypeMeta: a typed client clears
+		// TypeMeta on Get, so APIVersion/Kind read back empty and the API server
+		// rejects the reference with "version must not be empty". The object's own
+		// GroupVersion is the authority here and is always populated.
 		owner := metav1.OwnerReference{
-			APIVersion: hubEnv.APIVersion,
-			Kind:       hubEnv.Kind,
+			APIVersion: opsv1alpha1.GroupVersion.String(),
+			Kind:       "HubEnvironment",
 			Name:       hubEnv.Name,
 			UID:        hubEnv.UID,
 			Controller: func() *bool { b := true; return &b }(),

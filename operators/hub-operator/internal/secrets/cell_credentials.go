@@ -15,28 +15,21 @@ import (
 // the material exists at the root path and the hub reads it fine — but a missing
 // producer for the cell path:
 //
-//   - AGENTGATEWAY_OIDC_COOKIE_SECRET is per-spoke by design (ADR-050): a shared
-//     session-signing key couples session validity across isolated cells. Nothing
-//     generated it anywhere, so agentgateway on every spoke stayed in
-//     CreateContainerConfigError and no OIDC enforcement existed in front of
-//     tenant workloads.
 //   - S3_* and GRAFANA_CLOUD_* are single fleet credentials that must be
 //     materialised into each cell's own path. The alternative — granting each
 //     cell a cross-cell read path to the root — would weaken the ADR-031
 //     invariant that a cell can read only its own prefix. Duplication is the
 //     deliberate trade, so it needs a producer that performs it.
 //
-// Without these, platform-db archived zero WAL since creation (Barman had no
-// credentials) and the spoke had no authenticating gateway.
-
-// AgentGatewayOIDCCookieSecretKey is the per-cell session signing key consumed by
-// the spoke agentgateway Deployment via its ExternalSecret.
-const AgentGatewayOIDCCookieSecretKey = "AGENTGATEWAY_OIDC_COOKIE_SECRET"
-
-// oidcCookieSecretBytes is the entropy of the session signing key. 32 bytes is the
-// conventional floor for an HMAC signing key; GenerateHexKey renders it as 64 hex
-// characters.
-const oidcCookieSecretBytes = 32
+// Without these, platform-db archived zero WAL since creation: Barman had no
+// credentials at all.
+//
+// The other cell-scoped credential, AGENTGATEWAY_OIDC_COOKIE_SECRET, is NOT
+// produced here. It is generated, not copied, so it belongs with the other
+// generated application secrets: see CellScopedKey in
+// internal/infisical/secret_mappings.go. Producing it from this reconciler raced
+// the folder this same reconciler creates, which is why it never appeared in the
+// cell path.
 
 // FleetCredentialKeys are credentials issued OUTSIDE the platform, seeded once at
 // the Infisical root, and copied verbatim into each cell. They are never generated
@@ -52,44 +45,6 @@ var FleetCredentialKeys = []string{
 	"GRAFANA_CLOUD_LOKI_USER",
 	"GRAFANA_CLOUD_PROMETHEUS_URL",
 	"GRAFANA_CLOUD_PROMETHEUS_USER",
-}
-
-// EnsureAgentGatewayOIDCCookieSecret generates the per-cell OIDC session signing
-// key and stores it in the cell's shared path.
-//
-// Idempotency contract (ADR-003):
-//   - Present → AlreadyExists. It is NEVER regenerated on a reconcile; rotating a
-//     session signing key invalidates every live browser session on that spoke,
-//     so rotation is a deliberate operation, not a reconcile side effect.
-//   - Absent → generate and upload, returning Created.
-func (c *InfisicalClient) EnsureAgentGatewayOIDCCookieSecret(ctx context.Context, cellId string) (EnsureResult, error) {
-	logger := log.FromContext(ctx).WithValues("cell", cellId, "key", AgentGatewayOIDCCookieSecretKey)
-	sharedPath := fmt.Sprintf(InfisicalSharedPathFormat, cellId)
-
-	if err := c.EnsureFolder(ctx, sharedPath); err != nil {
-		return EnsureMissing, fmt.Errorf("failed to ensure shared folder %s: %w", sharedPath, err)
-	}
-
-	exists, err := c.SecretExists(ctx, sharedPath, AgentGatewayOIDCCookieSecretKey)
-	if err != nil {
-		return EnsureMissing, fmt.Errorf("failed to check %s at %s: %w", AgentGatewayOIDCCookieSecretKey, sharedPath, err)
-	}
-	if exists {
-		logger.Info("OIDC cookie secret already present; not rotating on reconcile")
-		return EnsureAlreadyExists, nil
-	}
-
-	value, err := GenerateHexKey(oidcCookieSecretBytes)
-	if err != nil {
-		return EnsureMissing, fmt.Errorf("failed to generate OIDC cookie secret: %w", err)
-	}
-
-	if err := c.CreateSecret(ctx, sharedPath, AgentGatewayOIDCCookieSecretKey, value); err != nil {
-		return EnsureMissing, fmt.Errorf("failed to upload OIDC cookie secret to %s: %w", sharedPath, err)
-	}
-
-	logger.Info("Generated per-cell OIDC cookie secret", "path", sharedPath)
-	return EnsureCreated, nil
 }
 
 // MaterialiseFleetCredentialsResult reports per-key outcomes so a partially seeded

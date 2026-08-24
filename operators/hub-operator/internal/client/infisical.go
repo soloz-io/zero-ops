@@ -291,6 +291,55 @@ func (c *InfisicalClient) SecretExists(ctx context.Context, projectSlug, environ
 	return c.secretExists(ctx, workspaceId, environmentSlug, secretPath, key)
 }
 
+// GetSecretValue returns the stored value for a key, and whether it exists.
+//
+// The existence probe already fetches the secret and throws the body away; a
+// caller that must inspect what is stored — to tell a correct value from a
+// present-but-malformed one — needs the value itself, not just a bool.
+func (c *InfisicalClient) GetSecretValue(ctx context.Context, projectSlug, environmentSlug, secretPath, key string) (string, bool, error) {
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return "", false, fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	url := fmt.Sprintf("%s%s/%s?workspaceId=%s&environment=%s&secretPath=%s",
+		c.baseURL, constant.APIEndpointSecretsRaw, key, workspaceId, environmentSlug, secretPath)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", false, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var out struct {
+		Secret struct {
+			SecretValue string `json:"secretValue"`
+		} `json:"secret"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", false, fmt.Errorf("failed to decode secret response: %w", err)
+	}
+	return out.Secret.SecretValue, true, nil
+}
+
 // createSecret creates a new secret in Infisical using v3 API
 func (c *InfisicalClient) createSecret(ctx context.Context, workspaceId, environmentSlug, secretPath, key, value string) error {
 	logger := log.FromContext(ctx)

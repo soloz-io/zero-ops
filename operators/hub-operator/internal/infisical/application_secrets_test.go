@@ -67,3 +67,46 @@ func TestGeneratedHexKeysDecodeToRequestedLength(t *testing.T) {
 		}
 	}
 }
+
+// The value that was actually live on spoke-pool-hybrid-dev-01: base64 of 32
+// random bytes. It carries the correct entropy, so nothing about it looks wrong
+// until agentgateway hex-decodes it and dies. An existence check accepts it
+// forever; only a format check repairs it.
+func TestMalformedHexValuesAreDetectedNotPreserved(t *testing.T) {
+	const hexBytes = 32
+
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"correct hex", "3b1f" + hex.EncodeToString(make([]byte, hexBytes-2)), true},
+		{"base64 of the same 32 bytes", "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmE=", false},
+		{"right length, non-hex alphabet", "G" + hex.EncodeToString(make([]byte, hexBytes))[1:], false},
+		{"empty", "", false},
+		{"half length", hex.EncodeToString(make([]byte, hexBytes/2)), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hexValueIsWellFormed(tc.value, hexBytes); got != tc.want {
+				t.Fatalf("hexValueIsWellFormed(%q, %d) = %v, want %v (len=%d)",
+					tc.value, hexBytes, got, tc.want, len(tc.value))
+			}
+		})
+	}
+}
+
+// Every CellScopedKey must also declare HexBytes if its consumer hex-decodes it;
+// without HexBytes the repair path above cannot run, since there is nothing to
+// validate the stored form against.
+func TestCellScopedKeysAreRepairable(t *testing.T) {
+	for _, def := range ApplicationSecretMappings {
+		if def.CellScopedKey == "" {
+			continue
+		}
+		if def.HexBytes == 0 {
+			t.Errorf("%s is cell-scoped but declares no HexBytes: a malformed value there can never be detected", def.CellScopedKey)
+		}
+	}
+}

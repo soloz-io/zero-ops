@@ -8,10 +8,13 @@ package infisical
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -75,6 +78,9 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	var failedKeys []string
 
 	for _, secretDef := range ApplicationSecretMappings {
+		// Cell-scoped secrets belong to a spoke's own prefix, not the root. Writing
+		// them here too would leave a fleet-wide copy that no spoke can read and that
+		// silently diverges from the per-cell value.
 		logger.Info("Processing application secret", "description", secretDef.Description)
 
 		// Upload username if this is a database credential (UsernameKey is not empty)
@@ -106,6 +112,18 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			logger.Error(err, "Failed to check if password exists in Infisical", "key", secretDef.PasswordKey)
 			failedKeys = append(failedKeys, secretDef.PasswordKey)
 			continue
+		}
+
+		if passwordExists && secretDef.HexBytes > 0 {
+			// Present is not the same as usable. Re-check the stored form so a value
+			// written before HexBytes existed is repaired rather than preserved.
+			if current, found, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, secretDef.PasswordKey); err != nil {
+				logger.Error(err, "Failed to read existing secret for validation; leaving it untouched", "key", secretDef.PasswordKey)
+			} else if found && !hexValueIsWellFormed(current, secretDef.HexBytes) {
+				logger.Info("Existing secret is malformed for its consumer; regenerating",
+					"key", secretDef.PasswordKey, "expectedChars", secretDef.HexBytes*2, "actualChars", len(current))
+				passwordExists = false
+			}
 		}
 
 		if passwordExists {
@@ -163,6 +181,16 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 		successCount++
 	}
 
+	// Entries carrying CellScopedKey are ALSO produced once per spoke, into
+	// /spoke-pool/<cellId>/shared. This is in addition to the root upload above, not
+	// instead of it: the hub agentgateway reads the root key while each spoke can
+	// only read its own prefix (ADR-031). The cell folder is created by the SpokePool
+	// reconciler (EnsureInfisicalCredentials); if it does not exist yet the write
+	// fails and the next HubEnvironment reconcile retries, so ordering self-resolves.
+	if err := u.uploadCellScopedSecrets(ctx, infisicalClient, projectSlug, environmentSlug); err != nil {
+		logger.Error(err, "Cell-scoped application secrets could not be uploaded")
+	}
+
 	logger.Info("Application secrets upload complete", "uploaded", successCount, "skipped", skippedCount, "total", len(ApplicationSecretMappings), "failed", len(failedKeys))
 
 	if successCount == 0 && len(ApplicationSecretMappings) > 0 {
@@ -185,4 +213,103 @@ func generateSvixJWT(signingSecret string) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(signingSecret))
+}
+
+// uploadCellScopedSecrets writes every CellScoped mapping into each SpokePool's
+// shared path, generating values exactly as the root path does so a cell-scoped
+// secret and a fleet-wide one of the same kind can never differ in form. The
+// agentgateway cookie key carries HexBytes: 32 because agentgateway hex-decodes it
+// and demands exactly 32 bytes; a base64 value of the same 32 bytes is the right
+// entropy in the wrong encoding and fails at startup with
+// `Invalid character 'Z' at position 1`.
+//
+// Existing values are left alone: this key signs live browser sessions, so
+// regenerating it on a reconcile would invalidate every session on that spoke.
+func (u *ApplicationSecretUploader) uploadCellScopedSecrets(
+	ctx context.Context, infisicalClient *infisicalclient.InfisicalClient,
+	projectSlug, environmentSlug string,
+) error {
+	logger := log.FromContext(ctx)
+
+	var cellScoped []ApplicationSecretDefinition
+	for _, def := range ApplicationSecretMappings {
+		if def.CellScopedKey != "" {
+			cellScoped = append(cellScoped, def)
+		}
+	}
+	if len(cellScoped) == 0 {
+		return nil
+	}
+
+	spokes := &unstructured.UnstructuredList{}
+	spokes.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "nutgraf.in", Version: "v1alpha1", Kind: "SpokePoolList",
+	})
+	if err := u.uncachedK8sClient.List(ctx, spokes); err != nil {
+		return fmt.Errorf("failed to list SpokePools for cell-scoped secrets: %w", err)
+	}
+
+	for _, sp := range spokes.Items {
+		cellID := sp.GetName()
+		sharedPath := fmt.Sprintf(secrets.InfisicalSharedPathFormat, cellID)
+		for _, def := range cellScoped {
+			exists, err := infisicalClient.SecretExists(ctx, projectSlug, environmentSlug, sharedPath, def.CellScopedKey)
+			if err != nil {
+				logger.Error(err, "Failed to check cell-scoped secret", "cell", cellID, "key", def.CellScopedKey)
+				continue
+			}
+			if exists && def.HexBytes > 0 {
+				if current, found, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, sharedPath, def.CellScopedKey); err != nil {
+					logger.Error(err, "Failed to read existing cell secret for validation; leaving it untouched",
+						"cell", cellID, "key", def.CellScopedKey)
+				} else if found && !hexValueIsWellFormed(current, def.HexBytes) {
+					// Rotating this invalidates live sessions on the spoke, which is the
+					// lesser harm: while it is malformed agentgateway will not start at
+					// all, so there are no sessions to preserve.
+					logger.Info("Existing cell secret is malformed for its consumer; regenerating",
+						"cell", cellID, "key", def.CellScopedKey,
+						"expectedChars", def.HexBytes*2, "actualChars", len(current))
+					exists = false
+				}
+			}
+			if exists {
+				continue
+			}
+
+			var value string
+			if def.HexBytes > 0 {
+				value, err = secrets.GenerateHexKey(def.HexBytes)
+			} else {
+				value, err = secrets.GenerateSecurePassword()
+			}
+			if err != nil {
+				logger.Error(err, "Failed to generate cell-scoped secret", "cell", cellID, "key", def.CellScopedKey)
+				continue
+			}
+
+			if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, sharedPath, def.CellScopedKey, value); err != nil {
+				logger.Error(err, "Failed to upload cell-scoped secret", "cell", cellID, "key", def.CellScopedKey, "path", sharedPath)
+				continue
+			}
+			logger.Info("Uploaded cell-scoped secret", "cell", cellID, "key", def.CellScopedKey, "path", sharedPath)
+		}
+	}
+	return nil
+}
+
+// hexValueIsWellFormed reports whether a stored value matches what HexBytes
+// promised: exactly hexBytes bytes, hex-encoded.
+//
+// Existence is not correctness. These keys are consumed by code that hex-decodes
+// them and demands an exact length, so a value carrying the right entropy in the
+// wrong encoding — base64(32 bytes), 44 chars — is present, plausible, and fatal:
+// agentgateway rejects it at startup with `Invalid character 'Z' at position 1`.
+// Values predating HexBytes are exactly that shape, and a plain existence check
+// preserves them forever.
+func hexValueIsWellFormed(value string, hexBytes int) bool {
+	if len(value) != hexBytes*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }

@@ -67,10 +67,18 @@ CELL_SRC = "operators/hub-operator/internal/secrets/cell_credentials.go"
 cell_produced = {"infisical-credentials"}  # EnsureInfisicalCredentials, shared path
 if os.path.exists(CELL_SRC):
     csrc = open(CELL_SRC).read()
-    cell_produced |= set(re.findall(r'AgentGatewayOIDCCookieSecretKey\s*=\s*"([^"]+)"', csrc))
+    # Copied from the root into each cell by EnsureFleetCredentialsMaterialised.
     block = re.search(r'FleetCredentialKeys\s*=\s*\[\]string\{(.*?)\}', csrc, re.S)
     if block:
         cell_produced |= set(re.findall(r'"([^"]+)"', block.group(1)))
+
+# GENERATED into each cell by the application-secret uploader. These are produced,
+# not copied, so they are declared alongside the other generated secrets: any
+# mapping carrying CellScopedKey is written once per SpokePool into that cell's
+# shared path. Derived from the source so deleting the field breaks this check.
+MAP_SRC = "operators/hub-operator/internal/infisical/secret_mappings.go"
+if os.path.exists(MAP_SRC):
+    cell_produced |= set(re.findall(r'CellScopedKey:\s*"([^"]+)"', open(MAP_SRC).read()))
 if not SRC:
     print("SKIP\thub-operator source not found")
     raise SystemExit

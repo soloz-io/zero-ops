@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
@@ -43,6 +44,19 @@ var _ = Describe("HubEnvironment Controller", func() {
 		hubenvironment := &opsv1alpha1.HubEnvironment{}
 
 		BeforeEach(func() {
+			// Namespaces the reconcile addresses. They exist in a real cluster from the
+			// platform install; envtest starts with none, so the first Create into one
+			// fails with "namespaces ... not found" long before any assertion.
+			By("ensuring the platform namespaces the reconcile writes into")
+			for _, ns := range []string{"platform-security", "platform-core", "infisical"} {
+				err := k8sClient.Create(ctx, &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: ns},
+				})
+				if err != nil && !errors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			}
+
 			By("creating the custom resource for the Kind HubEnvironment")
 			err := k8sClient.Get(ctx, typeNamespacedName, hubenvironment)
 			if err != nil && errors.IsNotFound(err) {
@@ -51,7 +65,21 @@ var _ = Describe("HubEnvironment Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					// domain and environment are required and validated: domain by
+					// pattern, environment by enum, and three CEL rules key off
+					// environment. An empty spec is rejected by the API server, so the
+					// fixture has to carry a valid one for the reconcile to be reached.
+					Spec: opsv1alpha1.HubEnvironmentSpec{
+						Domain:      "dev.example.com",
+						Environment: "dev",
+						// database is a required struct; omitting it leaves the reconciler
+						// addressing objects with an empty namespace, which the API server
+						// rejects on create.
+						Database: opsv1alpha1.DatabaseConfig{
+							ClusterRef: "platform-db",
+							Namespace:  "default",
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
@@ -70,7 +98,11 @@ var _ = Describe("HubEnvironment Controller", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &HubEnvironmentReconciler{
 				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				// Reconcile reads operational secrets through UncachedClient; left nil
+				// by the scaffold it nil-derefs before reaching any logic. envtest has
+				// no cache to bypass, so the same client serves both roles.
+				UncachedClient: k8sClient,
+				Scheme:         k8sClient.Scheme(),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
