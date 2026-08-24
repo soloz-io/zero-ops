@@ -104,6 +104,11 @@ gateway's `:80` listener, which satisfies `allowedRoutes.namespaces.from: Same`.
 that matches no declared DNS zone fails validation. The zone-scoped solvers in
 `acme-cluster-issuer.yaml` implement this binding.
 
+(Superseded in part 2026-08-25 — see *DNS-01 solver for hybrid home-worker spokes*:
+on hybrid spokes the challenge mechanism is DNS-01, so no solver HTTPRoute is created
+and the `:80` listener is not involved in validation at all. The tenant-binding rule
+and the zone-scoped selector are unchanged; only the mechanism differs.)
+
 **The environment overlay is the system of record for the base domain.** The
 zone-to-environment mapping is declared once per overlay. Hostname literals distributed
 across manifests and compiled into binaries are debt to be retired against this authority;
@@ -343,17 +348,26 @@ pure-Hetzner spokes**, where every worker carries a Hetzner-assignable public IP
 Gateway service can be exposed as a `LoadBalancer`.
 
 Solver selection is provider-scoped, declared in `infra/acme-cluster-issuer.yaml` (the
-shared base). On a hybrid spoke the base is included as-is; on a Hetzner spoke an overlay
-patch (`environments/{dev,stg,prod}/hetzner/acme-issuer-patch.yaml`) reverts to HTTP-01.
+shared base). On a hybrid spoke the base is included as-is. On a pure-Hetzner spoke the
+HTTP-01 revert is to be applied by an environment overlay
+(`environments/{dev,stg,prod}/hetzner/acme-issuer-patch.yaml`) — **not yet written**;
+until it exists, every deployed spoke runs DNS-01, which is correct for hybrid and
+harmless on Hetzner spokes (DNS-01 works wherever the zone credential exists).
 
-**Implementation.** The Hetzner DNS webhook (`vadimkim/cert-manager-webhook-hetzner`,
-`groupName: acme.nutgraf.in`) is deployed into `cert-manager` namespace, wired into the
-spoke-catalog infra kustomization at
-`manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml`. It reads its API key
-from a `hetzner-dns` Secret mirrored into `cert-manager` by an ExternalSecret pulling the
-same `hcloud-token` key used by external-dns (ADR-003; same credential, no new secret).
-The `certManager.serviceAccountName` is `cm-cert-manager` to match the Helm-prefix
-convention of this cluster's cert-manager deployment.
+**Implementation** (corrected 2026-08-25 after first deployment attempt). The webhook is
+the OFFICIAL `github.com/hetzner/cert-manager-webhook-hetzner` **v0.9.0**, vendored from
+its Helm chart as static manifests at
+`manifests/spoke/spoke-catalog/infra/cert-manager-webhook-hetzner.yaml` — an ArgoCD
+Application resource delivered through spoke-catalog would land on the SPOKE, where no
+ArgoCD controller exists to act on it. The official build is load-bearing: its hcloud-go
+v2 client speaks the Hetzner **Cloud API** (`api.hetzner.cloud`, Bearer token), which is
+the only API the platform `hcloud-token` still authenticates against since the standalone
+`dns.hetzner.com` API was retired; third-party forks pinned to that retired endpoint
+(the earlier vadimkim 1.4.x draft) can never issue. Solver config uses the upstream
+`tokenSecretKeyRef{name,key}` schema referencing `hetzner-dns`/`api-key`; no `zoneName`
+is set because the webhook discovers zones from the API. The Secret is mirrored into the
+`cert-manager` namespace by an ExternalSecret pulling the same `hcloud-token` key used by
+external-dns (ADR-003; same credential, no new secret).
 
 **Updated solver ownership rows:**
 
