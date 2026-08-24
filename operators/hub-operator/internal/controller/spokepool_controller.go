@@ -102,6 +102,33 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// Cell-scoped credentials (ADR-031). A spoke's SecretStore is authorised for
+	// /spoke-pool/<cellId>/ only, so anything its ExternalSecrets consume must be
+	// produced INTO that prefix. Two classes were consumed there with no producer:
+	// the per-spoke OIDC session key, and the fleet credentials that live at the
+	// root. The symptom is not a broken SecretStore — it reports Valid/Ready — but
+	// individual ExternalSecrets stuck at SecretSyncedError, which surfaces late as
+	// agentgateway in CreateContainerConfigError and CNPG archiving no WAL at all.
+	//
+	// Both are non-fatal to the reconcile. A spoke whose gateway or telemetry
+	// credentials are absent is degraded, not unprovisionable, and failing here
+	// would block the cluster lifecycle on a credential the operator may not be
+	// able to obtain (see MissingAtRoot below).
+	if _, err := r.InfisicalClient.EnsureAgentGatewayOIDCCookieSecret(ctx, spokeName); err != nil {
+		logger.Error(err, "Failed to ensure per-cell OIDC cookie secret; agentgateway will not start on this spoke",
+			"spoke", spokeName)
+	}
+
+	if fleet, err := r.InfisicalClient.EnsureFleetCredentialsMaterialised(ctx, spokeName); err != nil {
+		logger.Error(err, "Failed to materialise fleet credentials into the cell path", "spoke", spokeName)
+	} else if len(fleet.MissingAtRoot) > 0 {
+		// Absent at the root means never seeded from k8-secrets/. Nothing here can
+		// invent them: a generated S3 key authenticates to nothing and fails at the
+		// first WAL archive instead of at the cause.
+		logger.Error(nil, "Fleet credentials absent at the Infisical root; seed them from k8-secrets/ or the consuming feature stays down",
+			"spoke", spokeName, "missing", fleet.MissingAtRoot)
+	}
+
 	// create bootstrap certificate for ArgoCD Agent mTLS via cert-manager (ADR-035)
 	if err := r.ensureBootstrapCertificate(ctx, spokePool); err != nil {
 		logger.Error(err, "Failed to ensure bootstrap certificate", "spoke", spokeName)

@@ -242,7 +242,7 @@ spec:
                 environment identity has a single authority and services consume it
                 (ADR-043 single authority per domain)'
               rule: '!has(self.secrets) || !has(self.secrets.infisical) || !has(self.secrets.infisical.environmentSlug)
-                || self.secrets.infisical.environmentSlug == '''' || self.secrets.infisical.environmentSlug
+                || self.secrets.infisical.environmentSlug == ” || self.secrets.infisical.environmentSlug
                 == self.environment'
           status:
             description: status defines the observed state of HubEnvironment

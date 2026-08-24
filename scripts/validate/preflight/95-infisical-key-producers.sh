@@ -53,6 +53,24 @@ PENDING = {
 
 SRC = glob.glob("operators/hub-operator/internal/infisical/*.go") + \
       glob.glob("operators/hub-operator/internal/database/*.go")
+
+# Keys produced INTO a cell path (/spoke-pool/<cellId>/...), as opposed to the
+# Infisical root. This distinction is the whole point of the check: a spoke's
+# SecretStore is authorised for its own prefix ONLY (ADR-031), so a producer that
+# writes S3_ACCESS_KEY_ID to the root does NOT satisfy a spoke consumer reading
+# /spoke-pool/<cell>/shared/S3_ACCESS_KEY_ID. Matching on key NAME alone treated
+# those as satisfied and reported OK while every spoke ExternalSecret failed.
+#
+# Derived from the operator source rather than restated here, so deleting a
+# producer breaks this check instead of silently narrowing it.
+CELL_SRC = "operators/hub-operator/internal/secrets/cell_credentials.go"
+cell_produced = {"infisical-credentials"}  # EnsureInfisicalCredentials, shared path
+if os.path.exists(CELL_SRC):
+    csrc = open(CELL_SRC).read()
+    cell_produced |= set(re.findall(r'AgentGatewayOIDCCookieSecretKey\s*=\s*"([^"]+)"', csrc))
+    block = re.search(r'FleetCredentialKeys\s*=\s*\[\]string\{(.*?)\}', csrc, re.S)
+    if block:
+        cell_produced |= set(re.findall(r'"([^"]+)"', block.group(1)))
 if not SRC:
     print("SKIP\thub-operator source not found")
     raise SystemExit
@@ -69,6 +87,7 @@ for f in SRC:
     produced |= set(re.findall(r'CreateOrUpdateSecretRaw\([^)]*?"([A-Za-z0-9_.\-]+)"', src, re.S))
 
 wanted = {}
+wanted_cell = {}
 for f in glob.glob("manifests/**/*.yaml", recursive=True):
     try:
         docs = [d for d in yaml.safe_load_all(open(f)) if d]
@@ -82,8 +101,16 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
             continue
         for item in d["spec"].get("data") or []:
             k = (item.get("remoteRef") or {}).get("key")
-            # PLACEHOLDER is substituted per spoke/tenant at render time.
-            if k and "PLACEHOLDER" not in k:
+            if not k:
+                continue
+            # A cell-scoped key names its path; PLACEHOLDER is substituted per
+            # spoke at render time. Previously any key containing PLACEHOLDER was
+            # skipped outright, which excluded EVERY spoke ExternalSecret from the
+            # check — the exact set most likely to reference an unproduced path.
+            # Evaluate the leaf against the cell producers instead of skipping.
+            if k.startswith("/spoke-pool/"):
+                wanted_cell.setdefault(k.rsplit("/", 1)[-1], (k, f))
+            elif "PLACEHOLDER" not in k:
                 wanted.setdefault(k, f)
 
 for k in sorted(wanted):
@@ -94,8 +121,17 @@ for k in sorted(wanted):
         continue
     print("\t".join(["BAD", k, os.path.relpath(wanted[k])]))
 
+for leaf in sorted(wanted_cell):
+    full, f = wanted_cell[leaf]
+    if leaf in cell_produced:
+        continue
+    where = "produced at the ROOT only" if (leaf in produced or leaf in EXTERNAL) else "not produced anywhere"
+    print("\t".join(["BAD", full,
+                     "%s — consumed from a cell path but %s; a cell SecretStore cannot read the root (ADR-031)"
+                     % (os.path.relpath(f), where)]))
+
 for k in sorted(EXTERNAL):
-    if k in wanted:
+    if k in wanted or k in wanted_cell:
         print("\t".join(["SEED", k, EXTERNAL[k]]))
 PY
 )
