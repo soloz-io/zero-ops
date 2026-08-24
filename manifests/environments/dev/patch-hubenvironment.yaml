@@ -6,6 +6,7 @@ spec:
   # WS1: env-as-zone scheme (dev.nutgraf.in / stg.nutgraf.in / bare for prod).
   # NOTE: spec.domain and spec.tls have NO Go consumers today — these values are
   # declarative only. Making them load-bearing is WS4.
+  environment: dev
   domain: dev.nutgraf.in
   tls:
     issuer: letsencrypt-staging

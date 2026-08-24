@@ -9,10 +9,25 @@ kind: HubEnvironment
 metadata:
   name: hub-environment
 spec:
+  environment: stg
   domain: stg.nutgraf.in
   tls:
     issuer: letsencrypt-prod
     email: platform@nutgraf.in
+  # WS4 / ADR-051: stg had no oauth patch, so it inherited base's redirect URI.
+  # That is a cross-environment callback and must be environment-local. Interim
+  # value; C7 derives it from spec.domain into a generated artifact.
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: "MCP Server"
+      redirectUris:
+      - "https://mcp.stg.nutgraf.in/callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code
   secrets:
     infisical:
       # Environment isolation (ADR-037). base/hubenvironment.yaml hardcodes

@@ -113,11 +113,6 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: INFISICAL_ENVIRONMENT_SLUG
-        - name: DOMAIN
-          valueFrom:
-            configMapKeyRef:
-              name: hub-bootstrap-config
-              key: DOMAIN
         # AWS Credentials for Infisical backup/restore (REQ-11)
         - name: AWS_ACCESS_KEY_ID
           valueFrom:

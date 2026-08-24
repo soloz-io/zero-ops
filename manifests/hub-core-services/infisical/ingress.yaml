@@ -10,6 +10,12 @@ metadata:
     # Note: the legacy Hetzner DNS API (dns.hetzner.com/api/v1) is retired; the
     # existing hcloud-token works and has DNS scope.
     external-dns.alpha.kubernetes.io/hostname: infisical.dev.nutgraf.in
+    # --default-targets on the external-dns Deployment supplies the target IP
+    # (discovered at bootstrap time via ADR-045). Per-Ingress target annotation
+    # is redundant and removed to keep one source of truth.
+    # Short TTL: the original records were published with the 3h provider
+    # default, so a wrong value stayed cached in public resolvers for hours.
+    external-dns.alpha.kubernetes.io/ttl: "60"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
 spec:

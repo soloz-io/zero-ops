@@ -81,6 +81,18 @@ spec:
                   nutgraf.in)
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              environment:
+                description: |-
+                  Environment is the platform environment identity for this Hub and the single
+                  authority for it. Every environment-scoped value — the public DNS zone, the
+                  secret store's project environment, and anything added later — derives from
+                  this field rather than declaring its own copy.
+                enum:
+                - dev
+                - stg
+                - prod
+                - ephemeral
+                type: string
               nats:
                 description: NATS configuration for JetStream streams
                 properties:
@@ -214,7 +226,24 @@ spec:
             required:
             - database
             - domain
+            - environment
             type: object
+            x-kubernetes-validations:
+            - message: 'domain must be the environment''s own zone: for a non-production
+                environment, domain must begin with that environment as its leftmost
+                label (ADR-051 env-as-zone)'
+              rule: self.environment == 'prod' || self.domain.startsWith(self.environment
+                + '.')
+            - message: 'production must use the apex domain unlabelled: domain must
+                not begin with a non-production environment label (ADR-051 env-as-zone)'
+              rule: self.environment != 'prod' || !(['dev.','stg.','ephemeral.'].exists(p,
+                self.domain.startsWith(p)))
+            - message: 'secrets.infisical.environmentSlug must equal spec.environment:
+                environment identity has a single authority and services consume it
+                (ADR-043 single authority per domain)'
+              rule: '!has(self.secrets) || !has(self.secrets.infisical) || !has(self.secrets.infisical.environmentSlug)
+                || self.secrets.infisical.environmentSlug == ” || self.secrets.infisical.environmentSlug
+                == self.environment'
           status:
             description: status defines the observed state of HubEnvironment
             properties:

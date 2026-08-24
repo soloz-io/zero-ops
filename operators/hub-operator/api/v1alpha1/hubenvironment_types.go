@@ -24,7 +24,33 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // HubEnvironmentSpec defines the desired state of HubEnvironment
+//
+// ADR-051 (2026-08-24 addendum): spec.domain is the sole authoritative base-domain
+// value for hub public endpoints, and spec.environment is the sole authoritative
+// environment identity. The env-as-zone scheme requires a non-production
+// environment to own a labelled zone and production to use the apex unlabelled.
+//
+// These rules key off spec.environment, never off a service's own environment
+// field. Environment identity is a platform concept: deriving it from, say, the
+// secret store's project environment would couple the public DNS contract to one
+// vendor, break if that vendor were replaced, and silently no-op wherever that
+// optional block is absent. Services consume spec.environment; they do not define it.
+//
+// The list of non-production labels below is the single place the environment set is
+// enumerated. Adding an environment touches that one line.
+//
+// +kubebuilder:validation:XValidation:rule="self.environment == 'prod' || self.domain.startsWith(self.environment + '.')",message="domain must be the environment's own zone: for a non-production environment, domain must begin with that environment as its leftmost label (ADR-051 env-as-zone)"
+// +kubebuilder:validation:XValidation:rule="self.environment != 'prod' || !(['dev.','stg.','ephemeral.'].exists(p, self.domain.startsWith(p)))",message="production must use the apex domain unlabelled: domain must not begin with a non-production environment label (ADR-051 env-as-zone)"
+// +kubebuilder:validation:XValidation:rule="!has(self.secrets) || !has(self.secrets.infisical) || !has(self.secrets.infisical.environmentSlug) || self.secrets.infisical.environmentSlug == ” || self.secrets.infisical.environmentSlug == self.environment",message="secrets.infisical.environmentSlug must equal spec.environment: environment identity has a single authority and services consume it (ADR-043 single authority per domain)"
 type HubEnvironmentSpec struct {
+	// Environment is the platform environment identity for this Hub and the single
+	// authority for it. Every environment-scoped value — the public DNS zone, the
+	// secret store's project environment, and anything added later — derives from
+	// this field rather than declaring its own copy.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=dev;stg;prod;ephemeral
+	Environment string `json:"environment"`
+
 	// Domain is the base domain for the Hub cluster (e.g., nutgraf.in)
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`

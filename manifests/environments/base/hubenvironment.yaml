@@ -3,6 +3,12 @@ kind: HubEnvironment
 metadata:
   name: hub-environment
 spec:
+  # Platform environment identity — the single authority for every
+  # environment-scoped value (ADR-051 addendum, ADR-043). Base carries the
+  # production value, mirroring spec.domain: non-production overlays patch both,
+  # prod deliberately patches neither. A forgotten patch is now rejected by the
+  # env-as-zone rules rather than silently claiming the production zone.
+  environment: prod
   # Domain is sourced from hub-bootstrap-config ConfigMap
   domain: nutgraf.in
   tls:
@@ -81,8 +87,15 @@ spec:
     clients:
     - clientId: mcp-server
       clientName: "MCP Server"
+      # WS4 / ADR-051: base declares spec.domain: nutgraf.in (the production apex),
+      # so this redirect URI must be the apex too. It previously read
+      # mcp.dev.nutgraf.in — a DEV callback. dev overrides oauth with localhost and
+      # stg had no oauth patch, so the dev literal was inherited only by stg and
+      # prod: a production authorization code would redirect to a dev-controlled
+      # host. Interim value; C7 derives this from spec.domain into a generated
+      # artifact, after which no environment declares it directly.
       redirectUris:
-      - "https://mcp.dev.nutgraf.in/callback"
+      - "https://mcp.nutgraf.in/callback"
       grantTypes:
       - authorization_code
       - refresh_token

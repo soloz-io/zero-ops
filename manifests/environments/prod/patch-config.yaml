@@ -4,6 +4,5 @@ metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
 data:
-  DOMAIN: "nutgraf.in"
   CLUSTER_ID: "hub-production"
   INFISICAL_ENVIRONMENT_SLUG: "prod"

@@ -4,6 +4,5 @@ metadata:
   name: hub-bootstrap-config
   namespace: platform-ops
 data:
-  DOMAIN: "stg.nutgraf.in"
   CLUSTER_ID: "hub-staging"
   INFISICAL_ENVIRONMENT_SLUG: "stg"

@@ -1,0 +1,29 @@
+# Partial server-side-apply patch — owns ONLY the fields named below.
+# The Deployment itself is created at pivot from the vendored upstream asset.
+#
+# Prune=false: ArgoCD must never delete the cert-manager controller if this file
+# is removed — it is the reconciler for every Certificate on the hub.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-controller
+          # Upstream ships no requests -> BestEffort. On the saturated hub node
+          # that starved the controller into repeated liveness-probe kills
+          # (13 restarts in 8h, exit 1), and each kill dropped an in-flight ACME
+          # order, so issuance never converged.
+          #
+          # Probe timings are left at upstream (timeoutSeconds: 15,
+          # failureThreshold: 8) — those are already generous; the requests are
+          # what this Deployment was missing.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi

@@ -327,6 +327,34 @@ spec:
                   - key: node-role.kubernetes.io/control-plane
                     operator: Exists
                     effect: NoSchedule
+                # ROOT CAUSE FIX — replaces external-dns --default-targets and the
+                # per-Ingress external-dns.alpha.kubernetes.io/target annotations.
+                #
+                # The chart defaults controller.publishService.enabled=true, which
+                # writes THE SERVICE'S address into every Ingress
+                # .status.loadBalancer. That Service is ClusterIP here (no cloud LB,
+                # see below), so every Ingress advertised 10.110.4.20 — an RFC1918
+                # address. external-dns faithfully published it, and Let's Encrypt
+                # rejected it as "no valid A records found", failing every ACME
+                # challenge on the hub.
+                #
+                # Publishing the real public address fixes it at the source: Ingress
+                # status becomes correct, so external-dns needs no flags at all (it
+                # just reads status, its normal source of truth) and no Ingress needs
+                # a target annotation.
+                #
+                # hubIngressAddress is the public IP that actually fronts :80/:443.
+                # Once ADR-046 §25.1 lands (controlPlaneEndpoint.port 6443, freeing
+                # :443 on the CAPH LB for ingress) this MUST be the LB IP, which is
+                # stable across a control-plane machine roll. Until then it is the
+                # control-plane node's own public IP, because the LB's :443 is still
+                # the kube-apiserver.
+                {{ if .Values.hubIngressAddress }}
+                publishService:
+                  enabled: false
+                extraArgs:
+                  publish-status-address: {{ .Values.hubIngressAddress }}
+                {{ end }}
                 service:
                   # No cloud load balancer. The public entry point is the CAPH LB.
                   enabled: true
@@ -347,6 +375,37 @@ spec:
             # Kustomization CR (not installed) → SyncFailed. Without it,
             # ArgoCD auto-detects kustomize from kustomization.yaml which
             # already lists exactly {cluster-issuer.yaml,ingress.yaml}.
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+          - appName: 'platform-external-dns'
+            destinationNamespace: 'platform-edge'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/external-dns'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+          # cert-manager itself is installed at pivot from the vendored upstream
+          # asset (internal/assets/manifests/core/cert-manager/install.yaml), which
+          # is kept pristine for re-vendoring. This app carries only the hub's
+          # deviations from upstream defaults as partial ServerSideApply patches
+          # (resource requests + webhook probe deadlines). See the path's README:
+          # upstream's BestEffort QoS + timeoutSeconds:1 made the webhook
+          # probe-kill in a loop, which blocked ALL Certificate creation.
+          - appName: 'platform-cert-manager'
+            destinationNamespace: 'cert-manager'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/cert-manager'
+            chart: ''
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
