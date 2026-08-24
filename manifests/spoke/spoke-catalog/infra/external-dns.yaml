@@ -10,7 +10,7 @@
 # Provider: Hetzner is a WEBHOOK provider for external-dns (not in-tree), so the
 # controller runs with --provider=webhook and the Hetzner webhook as a sidecar on
 # 127.0.0.1:8888. Same credential shape as the cert-manager Hetzner webhook
-# already vendored at manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml.
+# vendored beside this file at cert-manager-webhook-hetzner.yaml.
 #
 # Credential: the hcloud token doubles as the DNS credential — there is no separate
 # Hetzner DNS key. Read from Infisical via ESO per ADR-003.

@@ -46,6 +46,15 @@ resources:
   # Gateway hostnames. Complements infisical-fleet-issuer, which stays the
   # issuer for internal fleet/mTLS certs (ADR-046 addendum 18).
   - acme-cluster-issuer.yaml
+  # ADR-051 addendum 2026-08-25: Hetzner DNS-01 webhook for hybrid spokes.
+  # OFFICIAL hetzner/cert-manager-webhook-hetzner v0.9.0, vendored from its Helm
+  # chart (render command in the file header) + the ExternalSecret mirroring
+  # hcloud-token into cert-manager/hetzner-dns. Vendored as static manifests —
+  # an ArgoCD Application resource here would land on the SPOKE, where no
+  # ArgoCD controller exists to act on it. Must be listed after
+  # acme-cluster-issuer.yaml; the ClusterIssuer references the webhook groupName
+  # acme.nutgraf.in which the webhook registers on startup.
+  - cert-manager-webhook-hetzner.yaml
   # WS3: external-dns (Hetzner webhook provider) publishes Gateway/HTTPRoute
   # hostnames into Hetzner DNS. --domain-filter and --txt-owner-id are
   # PLACEHOLDER here and injected per-spoke by the spoke-catalog ApplicationSet.

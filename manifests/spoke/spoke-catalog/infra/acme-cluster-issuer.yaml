@@ -10,24 +10,21 @@
 #                             A private CA is CORRECT there.
 #   letsencrypt-*           → public browser-facing Gateway listeners ONLY.
 #
-# ── Solver model (WS2.1) ────────────────────────────────────────────────────
-# HTTP-01 via Gateway API. The spoke runs no Ingress controller, so the
-# gatewayHTTPRoute solver is required; it needs
-# --feature-gates=ExperimentalGatewayAPISupport=true on the cert-manager
-# controller (set in cert-manager.yaml).
+# ── Solver model (ADR-051 addendum 2026-08-25) ──────────────────────────────
+# DNS-01 via Hetzner DNS webhook. The hybrid spoke (ADR-046) runs Cilium in
+# hostNetwork mode (§8): embedded Envoy binds :80/:443 directly on the Hetzner
+# CP node; the Gateway service is ClusterIP. Home-worker nodes carry Tailscale
+# IPs (100.x.x.x) with no public internet ingress — Let's Encrypt cannot reach
+# HTTP-01 solver pods, producing a permanent 503. DNS-01 bypasses this entirely.
+#
+# This base declares dns01 for all spokes that include it unchanged (hybrid).
+# Pure-Hetzner spokes patch back to http01 via their environment overlay at
+# environments/{dev,stg,prod}/hetzner/acme-issuer-patch.yaml.
 #
 # SOLVERS ARE SCOPED TO THE ENVIRONMENT ZONE, NOT TO TENANTS. Every tenant hostname
 # on a spoke resolves to the platform-owned tenant-gateway in platform-ops
-# (ADR-051: "the public entry point is PLATFORM-OWNED"; tenant-gateway.yaml: "Every
-# tenant hostname on this spoke resolves to AgentGateway"). One solver covering the
+# (ADR-051: "the public entry point is PLATFORM-OWNED"). One solver covering the
 # environment zones therefore serves every tenant, and this file names no tenant.
-#
-# An earlier revision carried ONE SOLVER PER TENANT and stated "onboarding a tenant
-# means adding its solver block here" — tenant identity written into platform
-# infrastructure, which ADR-047 forbids and which ADR-051 assigns to the fleet
-# registry ("Tenant hostname and backend declaration | Git (fleet registry) |
-# Tenant | ArgoCD (rendered into gateway config)"). It went undetected because
-# scripts/validate/preflight/99-tenant-identifiers.sh did not scan manifests/spoke.
 #
 # cert-manager matches a dnsName against dnsZones by suffix and picks the MOST
 # SPECIFIC zone, so `dev.nutgraf.in` covers `<tenant>.dev.nutgraf.in` and
@@ -38,23 +35,10 @@
 #   stg   <tenant>.stg.nutgraf.in
 #   prod  <tenant>.nutgraf.in
 # All three are listed because infra/ is a shared base included by every environment
-# overlay; a spoke is only ever asked for its own zone and the rest are inert. The
-# previous revision listed the dev zone twice and omitted the apex entirely, so no
-# production tenant certificate could ever have been issued.
-#
-# A tenant that operates its OWN Gateway is the exception and does not belong here:
-# its solver is a namespaced Issuer rendered per tenant by the universal-tenant
-# chart from fleet-registry values, alongside its OAuth clients and ExternalSecrets.
-#
-# Solver HTTPRoutes are created in the CERTIFICATE's namespace, not in the
-# cert-manager namespace — --cluster-resource-namespace governs where a ClusterIssuer
-# reads its own account Secret, not where solver resources are placed. Observed here:
-# a ClusterIssuer-issued Certificate in platform-identity produced its
-# `cm-acme-http-solver-…` in platform-identity. The tenant Gateway's :80 listener
-# therefore stays allowedRoutes.namespaces.from: Same (ADR-050 no-bypass).
+# overlay; a spoke is only ever asked for its own zone and the rest are inert.
 #
 # ⚠ START ON STAGING. Let's Encrypt production allows 5 duplicate certs per week;
-# iterating on a Gateway solver will exhaust that. Point a Certificate's
+# iterating on a DNS solver will exhaust that. Point a Certificate's
 # issuerRef at letsencrypt-prod only after staging issues successfully.
 ---
 apiVersion: cert-manager.io/v1
@@ -68,20 +52,22 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
-    # Tenant-agnostic: the environment zones, all attaching to the platform-owned
-    # Gateway that every tenant hostname on this spoke resolves to.
+    # DNS-01 via the OFFICIAL Hetzner webhook (see cert-manager-webhook-hetzner.yaml
+    # for why official-vendored, not a fork). Config schema is the upstream
+    # tokenSecretKeyRef{name,key} — the token is the platform hcloud-token, which
+    # speaks the Cloud API the webhook's hcloud-go client uses. zoneName is not
+    # set: the webhook discovers zones from the API.
     - selector:
         dnsZones:
         - dev.nutgraf.in
         - stg.nutgraf.in
         - nutgraf.in
-      http01:
-        gatewayHTTPRoute:
-          parentRefs:
-          - name: tenant-gateway
-            namespace: platform-ops
-            kind: Gateway
-            group: gateway.networking.k8s.io
+      dns01:
+        webhook:
+          groupName: acme.nutgraf.in
+          solverName: hetzner
+          config: |
+            {"tokenSecretKeyRef": {"name": "hetzner-dns", "key": "api-key"}}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -94,17 +80,15 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
-    # Tenant-agnostic: the environment zones, all attaching to the platform-owned
-    # Gateway that every tenant hostname on this spoke resolves to.
+    # DNS-01 via the OFFICIAL Hetzner webhook.
     - selector:
         dnsZones:
         - dev.nutgraf.in
         - stg.nutgraf.in
         - nutgraf.in
-      http01:
-        gatewayHTTPRoute:
-          parentRefs:
-          - name: tenant-gateway
-            namespace: platform-ops
-            kind: Gateway
-            group: gateway.networking.k8s.io
+      dns01:
+        webhook:
+          groupName: acme.nutgraf.in
+          solverName: hetzner
+          config: |
+            {"tokenSecretKeyRef": {"name": "hetzner-dns", "key": "api-key"}}

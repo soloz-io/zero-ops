@@ -321,6 +321,52 @@ The "Public tenant hostname records" and "DNS provider API credential" rows stan
 longer contingent.
 
 
+### Addendum — DNS-01 solver for hybrid home-worker spokes (2026-08-25)
+
+The Decision selected HTTP-01 (`gatewayHTTPRoute`) as the challenge solver and deferred
+the question of DNS-01 (see *base-domain authority and the derivation boundary*, lines
+287–293: "Issuing an environment-wide wildcard would therefore require introducing a
+DNS-based challenge and a solver not bound to a single tenant's gateway, which this ADR
+does not decide").
+
+That deferral assumed the spoke's `:80` listener was publicly reachable. ADR-046 §8
+(hostNetwork + Hetzner LB) changed that assumption for hybrid spokes: the embedded Cilium
+Envoy binds `:80`/`:443` directly on the Hetzner control-plane node, which is the sole
+bearer of the public LB IP. Home-worker nodes (`workload-location: home`) carry Tailscale
+IPs (`100.x.x.x`) with no public internet ingress; the Cilium Gateway service in
+hostNetwork mode is `ClusterIP`, not `LoadBalancer`, so no NodePort or LB VIP exists on
+those nodes. Let's Encrypt's ACME servers cannot reach the HTTP-01 solver pods via the
+public internet, producing a permanent `503` on every challenge.
+
+**DNS-01 is the solver for hybrid provider spokes. HTTP-01 remains the solver for
+pure-Hetzner spokes**, where every worker carries a Hetzner-assignable public IP and the
+Gateway service can be exposed as a `LoadBalancer`.
+
+Solver selection is provider-scoped, declared in `infra/acme-cluster-issuer.yaml` (the
+shared base). On a hybrid spoke the base is included as-is; on a Hetzner spoke an overlay
+patch (`environments/{dev,stg,prod}/hetzner/acme-issuer-patch.yaml`) reverts to HTTP-01.
+
+**Implementation.** The Hetzner DNS webhook (`vadimkim/cert-manager-webhook-hetzner`,
+`groupName: acme.nutgraf.in`) is deployed into `cert-manager` namespace, wired into the
+spoke-catalog infra kustomization at
+`manifests/providers/hetzner/k8s/cert-manager-webhook-hetzner.yaml`. It reads its API key
+from a `hetzner-dns` Secret mirrored into `cert-manager` by an ExternalSecret pulling the
+same `hcloud-token` key used by external-dns (ADR-003; same credential, no new secret).
+The `certManager.serviceAccountName` is `cm-cert-manager` to match the Helm-prefix
+convention of this cluster's cert-manager deployment.
+
+**Updated solver ownership rows:**
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Tenant ACME solver — hybrid spokes | Git (spoke catalog infra base) | Platform Engineering | ArgoCD | cert-manager + Hetzner DNS-01 webhook | Day-1+ |
+| Tenant ACME solver — Hetzner spokes | Git (spoke catalog env overlay) | Platform Engineering | ArgoCD | cert-manager HTTP-01 via Gateway | Day-1+ |
+
+**Wildcard issuance remains not decided.** The structural prerequisite — a DNS challenge
+solver not bound to a single tenant's gateway — is now satisfied for hybrid spokes, making
+a `*.dev.nutgraf.in` wildcard technically issuable. Deciding to issue one is a separate
+scope change; this addendum installs the solver infrastructure only.
+
 ## References
 
 - ADR-003: Secret Management Architecture
