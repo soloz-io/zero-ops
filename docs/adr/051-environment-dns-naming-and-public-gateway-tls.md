@@ -97,6 +97,13 @@ tenant's solver targets that tenant's own gateway, selected by DNS zone. No defa
 exists: a hostname matching no tenant fails validation rather than attaching a challenge to
 an unrelated tenant's gateway.
 
+On a multi-tenant spoke, "the tenant's own gateway" is the spoke's shared authenticating
+gateway (`tenant-gateway`); DNS-zone selection is the tenant-binding mechanism. The solver
+attaches a temporary HTTPRoute in `platform-ops` (the Certificate's namespace) to the
+gateway's `:80` listener, which satisfies `allowedRoutes.namespaces.from: Same`. A hostname
+that matches no declared DNS zone fails validation. The zone-scoped solvers in
+`acme-cluster-issuer.yaml` implement this binding.
+
 **The environment overlay is the system of record for the base domain.** The
 zone-to-environment mapping is declared once per overlay. Hostname literals distributed
 across manifests and compiled into binaries are debt to be retired against this authority;
@@ -111,15 +118,20 @@ practice. This ADR does not treat that as an acceptable end state.
 | Public tenant hostname records | Provider DNS zone | Platform Networking | external-dns (spoke, zone-scoped) | Public clients | Day-1+ |
 | Public browser-facing certificates | ACME certificate authority | Platform Security | cert-manager | Spoke gateway listener | Day-1+ |
 | Internal fleet / mTLS certificates | Infisical PKI (ADR-035) | Platform Security | cert-manager | Fleet components | Day-1+ |
-| Gateway listener TLS material | Tenant-namespace Secret | cert-manager | CNI operator secret sync | Gateway data plane | Day-1+ |
+| Gateway listener TLS material | platform-ops Secret (rendered from fleet-registry `public.hosts` via dedicated ApplicationSet) | cert-manager | ArgoCD (tenant-public-tls) | Spoke gateway listener | Day-1+ |
 | DNS provider API credential | Infisical (ADR-003) | Platform Security | ESO | external-dns | Day-1+ |
 | Tenant ACME solver binding | Git (spoke catalog) | Platform Engineering | ArgoCD | cert-manager | Day-1+ |
 | Spoke authenticating gateway + its hostname route | Git (spoke catalog) | Platform Engineering | ArgoCD | Public clients | Day-1+ |
+| Per-spoke TLS termination gateway + per-tenant listeners | Git (fleet-registry `public.hosts` × environment-overlay issuer) | Platform Engineering | ArgoCD (tenant-public-tls) | Gateway data plane | Day-1+ |
 | Tenant hostname and backend declaration | Git (fleet registry) | Tenant | ArgoCD (rendered into gateway config) | Spoke gateway | Day-1+ |
 
-Gateway listener TLS material is written by cert-manager into the gateway's own namespace
-and copied into the CNI secret namespace by its operator. That copy is machine-managed state
-with no independent system of record and must not be authored or tracked by GitOps.
+Gateway listener TLS material is written by cert-manager into `platform-ops`, the same
+namespace as the shared per-spoke tenant gateway, under the `allowedRoutes.namespaces.from:
+Same` invariant. The Certificate is rendered by a dedicated ApplicationSet (`tenant-public-tls`)
+that derives `dnsNames` from fleet-registry `public.hosts` declarations. That rendering is
+the applied form; the fleet-registry values file remains the system of record. The material
+is machine-managed state and must not be authored or tracked by GitOps beyond the rendered
+Certificate manifest.
 
 ## Consequences
 
@@ -156,7 +168,11 @@ with no independent system of record and must not be authored or tracked by GitO
 - Tenant onboarding now includes a DNS and certificate step; adding a tenant without it
   produces a hostname that cannot be validated.
 - Tenants can no longer self-serve routing changes. Adding or changing a hostname is a
-  platform-side change, which is slower than tenant-authored routes.
+  platform-side change, which is slower than tenant-authored routes. (Softened 2026-08-24 —
+  the `tenant-public-tls` ApplicationSet auto-renders listeners and certificates from
+  fleet-registry `public.hosts` declarations, so the certificate and listener binding
+  steps are automated. Remaining platform-side work is DNS reconciliation and HTTPRoute
+  placement, which are governed by the spoke catalog.)
 - A tenant spanning multiple spokes has no answer here. Round-robin records carry no health
   awareness, so that topology would require global load balancing.
 - Production retaining the unlabelled apex means production is the one environment whose
