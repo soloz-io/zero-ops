@@ -1296,20 +1296,29 @@ stringData:
             # disabled. IfNotPresent keeps it offline-safe.
             image: registry.k8s.io/kubectl:v1.31.6@sha256:0340f50e46e77889398f41becf071e8d0f6be7672652a30e209112002147c06f
             imagePullPolicy: IfNotPresent
-            command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-                until kubectl wait --for=condition=Established --timeout=30s \
-                      "crd/${crd}.gateway.networking.k8s.io" >/dev/null 2>&1; do
-                  echo "waiting for ${crd}.gateway.networking.k8s.io (Established)"
-                  sleep 5
-                done
-                echo "ok: ${crd}.gateway.networking.k8s.io Established"
-              done
-              echo "all five required Gateway API CRDs Established; releasing cilium-operator"
+            # This image is DISTROLESS: its entrypoint is /bin/kubectl and there is
+            # no shell. An earlier revision used `command: [/bin/sh, -c, ...]`; every
+            # pod died with
+            #   exec: "/bin/sh": stat /bin/sh: no such file or directory
+            # and because this is an initContainer it blocked cilium-operator
+            # outright — the gate failed CLOSED and took down the CNI operator it
+            # exists to protect. Do not reintroduce a shell here.
+            #
+            # No loop is needed. One `kubectl wait` covers all five CRDs, and the
+            # retry loop is the kubelet's: while a CRD is still absent kubectl exits
+            # non-zero with NotFound (verified against a live cluster), the
+            # initContainer restarts under normal backoff, and it converges as soon
+            # as the CRDs land. Established is the condition Cilium actually depends
+            # on — a CRD can exist without yet serving.
+            args:
+            - wait
+            - --for=condition=Established
+            - --timeout=120s
+            - crd/gatewayclasses.gateway.networking.k8s.io
+            - crd/gateways.gateway.networking.k8s.io
+            - crd/httproutes.gateway.networking.k8s.io
+            - crd/grpcroutes.gateway.networking.k8s.io
+            - crd/referencegrants.gateway.networking.k8s.io
             env:
             - name: KUBERNETES_SERVICE_HOST
               valueFrom:
