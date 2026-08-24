@@ -63,6 +63,15 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	spokeName := spokePool.GetName()
 	logger.Info("Reconciling SpokePool", "spoke", spokeName)
 
+	// hybrid provider cell: mint home-worker join tokens and expose the join payload
+	// (ADR-046 §WS4). Gated on spec.provider == hybrid + home-worker-enabled annotation.
+	// Runs BEFORE the Infisical gate because home-worker join is independent of Infisical
+	// and must not be blocked by Infisical connectivity failures (ADR-046 §WS4).
+	if err := r.reconcileHomeWorkerJoin(ctx, spokePool); err != nil {
+		logger.Error(err, "Failed to reconcile home-worker join", "spoke", spokeName)
+		// Non-fatal: retried on next reconcile; token rotation is time-driven.
+	}
+
 	// ADR-031: Delegate to InfisicalClient for Machine Identity lifecycle.
 	// isFirstTime is always true because EnsureInfisicalCredentials performs its own
 	// idempotency check by querying Infisical directly. Passing false would prevent
@@ -124,13 +133,6 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.ensureSpokeMachineIdentity(ctx, spokePool); err != nil {
 		logger.Error(err, "Failed to ensure SpokeMachineIdentity", "spoke", spokeName)
 		// Non-fatal: spoke-identity-operator will reconcile once CR exists.
-	}
-
-	// hybrid provider cell: mint home-worker join tokens and expose the join payload
-	// (ADR-046 §WS4). Gated on spec.provider == hybrid + home-worker-enabled annotation.
-	if err := r.reconcileHomeWorkerJoin(ctx, spokePool); err != nil {
-		logger.Error(err, "Failed to reconcile home-worker join", "spoke", spokeName)
-		// Non-fatal: retried on next reconcile; token rotation is time-driven.
 	}
 
 	return ctrl.Result{}, r.updateStatusCondition(ctx, spokePool, spokeName, true, result.Result == secrets.EnsureAlreadyExists, crossplaneResult)
