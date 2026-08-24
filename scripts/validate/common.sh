@@ -44,7 +44,7 @@ warn() {
 
 soft_fail() {
     if [[ "$VALIDATE_MODE" == "gate" ]]; then
-        warn "$1 (not yet converged — enforced after bootstrap)"
+        warn "$1 (not yet converged — expected to self-heal; enforced after bootstrap)"
     else
         hard_fail "$1"
     fi

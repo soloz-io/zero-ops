@@ -36,6 +36,13 @@ ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
 VSWITCH_NAME="Hybrid-Switch"
+# Host side of the guest network. Guests boot static ${HOST_SUBNET_PREFIX}.1<node-idx>
+# addresses with $HOST_GATEWAY_IP as gateway (see the Ignition network unit), so these
+# values and the Ignition template have to agree.
+HOST_SUBNET_PREFIX="172.30.0"
+HOST_GATEWAY_IP="172.30.0.1"
+HOST_SUBNET_CIDR="172.30.0.0/24"
+HOST_NAT_NAME="Hybrid-NAT"
 
 # Sustained CPU ceiling applied to the Windows host (ADR-046 §24.5). These hosts are
 # thin laptops running Kubernetes node VMs; at 100% they reach the ACPI critical
@@ -189,7 +196,7 @@ win_ps() { # Execute PowerShell on the Windows host via SSH (buffered)
 }
 
 win_ps_stream() { # Stream PowerShell output live from Windows host via SSH
-  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|→|===|⚠|Error|Failed|Exception}"
+  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|✗|→|===|⚠|Error|Failed|Exception}"
   printf '%s\n' "$PS_SCRIPT" | ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
     "$SSH_TARGET" "powershell -NoProfile -ExecutionPolicy Bypass -Command -" 2>&1 | \
     grep --line-buffered -E "$FILTER" | sed 's/^/      /' || true
@@ -328,17 +335,51 @@ try {
   \$solozDir = 'C:\ProgramData\soloz\flatcar'
   if (!(Test-Path \$solozDir)) { New-Item -ItemType Directory -Path \$solozDir -Force | Out-Null }
   
+  # Host networking is host prep, not a manual per-box chore. A box that arrived
+  # without the switch used to get a warning here and then fail five phases later
+  # inside New-VM, with the real cause long scrolled off the screen. Guests boot
+  # static ${HOST_SUBNET_PREFIX}.1<idx>/24 with $HOST_GATEWAY_IP as gateway, so the host side of
+  # the switch must own .1 and NAT that subnet outbound.
   \$switch = Get-VMSwitch -Name '$VSWITCH_NAME' -ErrorAction SilentlyContinue
+  if (!\$switch) {
+    Write-Output '    → Switch $VSWITCH_NAME missing - creating Internal switch'
+    New-VMSwitch -Name '$VSWITCH_NAME' -SwitchType Internal | Out-Null
+    \$switch = Get-VMSwitch -Name '$VSWITCH_NAME' -ErrorAction SilentlyContinue
+  }
   if (\$switch) {
+    \$ifIdx = (Get-NetAdapter -Name ('vEthernet (' + '$VSWITCH_NAME' + ')') -ErrorAction SilentlyContinue).ifIndex
+    if (\$ifIdx -and !(Get-NetIPAddress -InterfaceIndex \$ifIdx -IPAddress '$HOST_GATEWAY_IP' -ErrorAction SilentlyContinue)) {
+      New-NetIPAddress -IPAddress '$HOST_GATEWAY_IP' -PrefixLength 24 -InterfaceIndex \$ifIdx -ErrorAction SilentlyContinue | Out-Null
+      Write-Output '    ✓ Host IP $HOST_GATEWAY_IP/24 on vEthernet ($VSWITCH_NAME)'
+    }
+    if (!(Get-NetNat -Name '$HOST_NAT_NAME' -ErrorAction SilentlyContinue)) {
+      New-NetNat -Name '$HOST_NAT_NAME' -InternalIPInterfaceAddressPrefix '$HOST_SUBNET_CIDR' -ErrorAction SilentlyContinue | Out-Null
+      Write-Output '    ✓ NAT $HOST_NAT_NAME for $HOST_SUBNET_CIDR'
+    }
     Write-Output '    ✓ Virtual switch ($VSWITCH_NAME) present'
+    Write-Output 'SWITCH-READY=OK'
   } else {
-    Write-Output '    ⚠ Switch $VSWITCH_NAME not found, listing available switches:'
+    Write-Output '    ✗ Could not create switch $VSWITCH_NAME. Available switches:'
     Get-VMSwitch | ForEach-Object { Write-Output ('      - ' + \$_.Name) }
   }
   Write-Output 'HYPERV-PREP=OK'
 } catch { Write-Output ('HYPERV-PREP=ERR: ' + \$_.Exception.Message) }
 "
   win_ps_stream "$SSH_TARGET" "$PS_PREP"
+
+  # Ask the host, do not trust the log line above. Without the switch, New-VM fails
+  # five phases later and the run still ends in a five-minute Ready wait.
+  local SWITCH_STATE
+  SWITCH_STATE=$(win_ps "$SSH_TARGET" "if (Get-VMSwitch -Name '$VSWITCH_NAME' -ErrorAction SilentlyContinue) { 'OK' } else { 'MISSING' }" \
+    | tr -d '\r' | grep -Ex 'OK|MISSING' | tail -1 || true)
+  if [[ "$SWITCH_STATE" != "OK" ]]; then
+    echo "    ✗ Hyper-V switch '${VSWITCH_NAME}' is absent on ${SSH_TARGET} and could not be created." >&2
+    echo "      The SSH user must be a local administrator. To create it by hand:" >&2
+    echo "      New-VMSwitch -Name '${VSWITCH_NAME}' -SwitchType Internal" >&2
+    echo "      New-NetIPAddress -IPAddress ${HOST_GATEWAY_IP} -PrefixLength 24 -InterfaceIndex (Get-NetAdapter -Name 'vEthernet (${VSWITCH_NAME})').ifIndex" >&2
+    echo "      New-NetNat -Name ${HOST_NAT_NAME} -InternalIPInterfaceAddressPrefix ${HOST_SUBNET_CIDR}" >&2
+    return 1
+  fi
 }
 
 # ── Phase 3: Flatcar base VHDX & Ignition ISO bundle preparation ─────────────
@@ -351,7 +392,7 @@ phase_prep_flatcar_and_ignition() {
 \$solozDir = 'C:\ProgramData\soloz\flatcar';
 \$baseVhdx = Join-Path \$solozDir 'flatcar-base.vhdx';
 \$rawVhdx = Join-Path \$solozDir 'flatcar_production_hyperv_vhdx_image.vhdx';
-\$zipPath = Join-Path \$solozDir 'flatcar-base.vhdx.bz2';
+\$zipPath = Join-Path \$solozDir 'flatcar-base.vhdx.zip';
 
 if ('$UPGRADE_FLATCAR' -eq 'true') {
   Remove-Item \$baseVhdx -Force -ErrorAction SilentlyContinue
@@ -366,23 +407,43 @@ if (!(Test-Path \$baseVhdx) -and (Test-Path \$rawVhdx)) {
 if (!(Test-Path \$baseVhdx)) {
   Write-Output '    → Downloading Flatcar ${FLATCAR_RELEASE_CHANNEL} Hyper-V base image...'
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  \$url = 'https://${FLATCAR_RELEASE_CHANNEL}.release.flatcar-linux.net/amd64-usr/current/flatcar_production_hyperv_vhdx_image.vhdx.bz2'
-  Invoke-WebRequest -Uri \$url -OutFile \$zipPath -UseBasicParsing
-  
-  Write-Output '    → Decompressing bz2 archive...'
-  Push-Location \$solozDir
-  & bzip2 -d -k -f \$zipPath
+  # Flatcar publishes the Hyper-V images as .zip. The old .bz2 URL 404s, and the
+  # bzip2 it piped into is on neither box anyway - which is how this phase came to
+  # print a check mark over a base image it had never produced.
+  \$url = 'https://${FLATCAR_RELEASE_CHANNEL}.release.flatcar-linux.net/amd64-usr/current/flatcar_production_hyperv_vhdx_image.vhdx.zip'
+  # WebClient streams to disk; Invoke-WebRequest buffers the whole ~470 MB in RAM.
+  (New-Object Net.WebClient).DownloadFile(\$url, \$zipPath)
+
+  Write-Output '    → Expanding archive (Expand-Archive, no external tools needed)...'
+  Expand-Archive -Path \$zipPath -DestinationPath \$solozDir -Force
   if (Test-Path \$rawVhdx) {
     Move-Item -Path \$rawVhdx -Destination \$baseVhdx -Force
   }
-  Pop-Location
   Remove-Item \$zipPath -Force -ErrorAction SilentlyContinue
-  Write-Output '    ✓ Base Flatcar VHDX initialized'
+  if (Test-Path \$baseVhdx) {
+    Write-Output ('    ✓ Base Flatcar VHDX initialized (' + [math]::Round((Get-Item \$baseVhdx).Length/1MB) + ' MB)')
+    Write-Output 'BASE-VHDX=OK'
+  } else {
+    Write-Output '    ✗ Base Flatcar VHDX was NOT produced - download or expand failed'
+  }
 } else {
   Write-Output '    ✓ Base Flatcar VHDX already cached'
+  Write-Output 'BASE-VHDX=OK'
 }
 "
   win_ps_stream "$SSH_TARGET" "$PS_VHDX"
+
+  # Same rule as the switch: verify, do not trust. Every later phase copies from
+  # this file, and a missing one turns into a cascade of PathNotFound/ObjectNotFound
+  # noise that buries its own cause.
+  local BASE_STATE
+  BASE_STATE=$(win_ps "$SSH_TARGET" "if (Test-Path 'C:\\ProgramData\\soloz\\flatcar\\flatcar-base.vhdx') { 'OK' } else { 'MISSING' }" \
+    | tr -d '\r' | grep -Ex 'OK|MISSING' | tail -1 || true)
+  if [[ "$BASE_STATE" != "OK" ]]; then
+    echo "    ✗ Base Flatcar VHDX is missing on ${SSH_TARGET} — the download or the expand failed." >&2
+    echo "      Check the host can reach ${FLATCAR_RELEASE_CHANNEL}.release.flatcar-linux.net and has ~2 GB free." >&2
+    return 1
+  fi
 
   # 2. Stop and remove existing VM to release file locks (checks legacy, hub, and spoke names)
   local PS_STOP="
@@ -958,9 +1019,26 @@ EOF
   echo "    → Uploading Ignition config and binary ISO bundle to host..."
   local REMOTE_IGN="C:/ProgramData/soloz/flatcar/${VM_NAME}-config.ign"
   local REMOTE_ISO="C:/ProgramData/soloz/flatcar/${VM_NAME}-ignition.iso"
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null
+  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null </dev/null
+  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null </dev/null
   echo "    ✓ Ignition config & ISO bundle uploaded"
+
+  # kvpctl.exe injects the Ignition config over Hyper-V KVP. It ships with neither
+  # Windows nor Flatcar, so a host that never had it hand-placed silently skips the
+  # injection and falls back to the config-2 DVD alone.
+  local KVP_STATE
+  KVP_STATE=$(win_ps "$SSH_TARGET" "if (Test-Path 'C:\\ProgramData\\soloz\\flatcar\\kvpctl.exe') { 'OK' } else { 'MISSING' }" \
+    | tr -d '\r' | grep -Ex 'OK|MISSING' | tail -1 || true)
+  if [[ "$KVP_STATE" != "OK" ]]; then
+    if [[ -f "${CACHE_DIR}/kvpctl.exe" ]]; then
+      echo "    → Uploading kvpctl.exe (host is missing it)..."
+      scp -o BatchMode=yes -o StrictHostKeyChecking=no "${CACHE_DIR}/kvpctl.exe" \
+        "${SSH_TARGET}:C:/ProgramData/soloz/flatcar/kvpctl.exe" >/dev/null </dev/null
+      echo "    ✓ kvpctl.exe uploaded"
+    else
+      echo "    ⚠ kvpctl.exe is on neither this host nor ${CACHE_DIR} — Ignition will rely on the config-2 DVD only" >&2
+    fi
+  fi
 }
 
 # ── Phase 4: Provision Generation 2 Hyper-V VM ───────────────────────────────
@@ -1079,10 +1157,30 @@ if (!\$vmIp) { \$vmIp = '172.30.0.$((10 + NODE_IDX))' }
 \$listenPort = $((2220 + NODE_IDX))
 netsh interface portproxy delete v4tov4 listenport=\$listenPort listenaddress=0.0.0.0 | Out-Null
 netsh interface portproxy add v4tov4 listenport=\$listenPort listenaddress=0.0.0.0 connectaddress=\$vmIp connectport=22 | Out-Null
+# The portproxy only listens; Windows Firewall still has to let the Mac in, or
+# the guest-side monitor sits on 'SSH: Booting' for the whole run while the node
+# joins fine over Tailscale. box-a had this rule hand-made, box-b did not.
+\$fwName = 'Flatcar SSH Portproxy ' + \$listenPort
+if (!(Get-NetFirewallRule -DisplayName \$fwName -ErrorAction SilentlyContinue)) {
+  New-NetFirewallRule -DisplayName \$fwName -Direction Inbound -Action Allow -Protocol TCP -LocalPort \$listenPort -Profile Any -ErrorAction SilentlyContinue | Out-Null
+  Write-Output ('    ✓ Firewall: inbound TCP ' + \$listenPort + ' allowed')
+}
 Write-Output ('    ✓ Portproxy: host:' + \$listenPort + ' -> ' + \$vmIp + ':22')
 Write-Output 'VM-READY=OK'
 "
   win_ps_stream "$SSH_TARGET" "$PS_VM"
+
+  # "✓ Started VM" is printed unconditionally by the block above; Hyper-V is the
+  # authority. Without this check a failed New-VM still costs a five-minute Ready
+  # wait and reports the failure as a join problem.
+  local VM_STATE
+  VM_STATE=$(win_ps "$SSH_TARGET" "(Get-VM -Name '$VM_NAME' -ErrorAction SilentlyContinue).State" \
+    | tr -d '\r' | grep -Ex 'Running|Off|Saved|Paused|Starting|Stopping|Reset|Resuming|Other' | tail -1 || true)
+  if [[ "$VM_STATE" != "Running" ]]; then
+    echo "    ✗ ${VM_NAME}: Hyper-V reports state '${VM_STATE:-absent}' after provisioning — the VM was not created or not started." >&2
+    echo "      Scroll up for the first PowerShell error; the ones after it are consequences." >&2
+    return 1
+  fi
 }
 
 # ── Phase 6: Verify node Ready ───────────────────────────────────────────────
@@ -1137,17 +1235,20 @@ phase_monitor_and_verify() {
     local ELAPSED=$((attempt * 10))
     local VM_STATUS SSH_STATUS INST_STATUS TS_STATUS CRI_STATUS JOIN_STATUS KUBE_STATUS LAST_LOG
 
-    # Query VM status from Hyper-V
-    VM_STATUS=$(ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$SSH_TARGET" \
-      "powershell -Command '(Get-VM -Name ${HOSTNAME} -ErrorAction SilentlyContinue).State'" 2>/dev/null | tr -d '\r\n' || echo "Unknown")
+    # Query VM status from Hyper-V. The script must be piped in, not passed as an
+    # argument: with OpenSSH DefaultShell=cmd.exe the single quotes survive into
+    # powershell, which then echoes the command back as a literal string, and the
+    # monitor reports that text as the VM state for the whole five minutes.
+    VM_STATUS=$(win_ps "$SSH_TARGET" "(Get-VM -Name '${HOSTNAME}' -ErrorAction SilentlyContinue).State" \
+      | tr -d '\r' | grep -Ex 'Running|Off|Saved|Paused|Starting|Stopping|Reset|Resuming|Other' | tail -1 || true)
     [[ -z "$VM_STATUS" ]] && VM_STATUS="Unknown"
 
     # Query Guest SSH & service status
     local GUEST_SSH_OPT=(-o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p "$GUEST_PORT")
-    if ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" "echo ok" &>/dev/null; then
+    if ssh -n "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" "echo ok" &>/dev/null; then
       SSH_STATUS="Connected"
       local RAW_STATUS
-      RAW_STATUS=$(ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
+      RAW_STATUS=$(ssh -n "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
         'for u in k8s-install tailscaled containerd kubeadm-join kubelet; do printf "%s " "$(systemctl is-active $u.service 2>/dev/null || echo unknown)"; done' 2>/dev/null || echo "unknown unknown unknown unknown unknown")
 
       read -r INST_STATUS TS_STATUS CRI_STATUS JOIN_STATUS KUBE_STATUS <<< "$RAW_STATUS"
@@ -1157,10 +1258,10 @@ phase_monitor_and_verify() {
       [[ -z "$JOIN_STATUS" ]] && JOIN_STATUS="unknown"
       [[ -z "$KUBE_STATUS" ]] && KUBE_STATUS="unknown"
 
-      CRI_PODS=$(ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
+      CRI_PODS=$(ssh -n "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
         "sudo crictl pods -o json 2>/dev/null | jq -r '[.items[]? | \"\(.metadata.name) (\(.state))\"] | join(\", \")' 2>/dev/null" || true)
 
-      LAST_LOG=$(ssh "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
+      LAST_LOG=$(ssh -n "${GUEST_SSH_OPT[@]}" core@"${HOST_IP}" \
         "journalctl -u k8s-install.service -u tailscaled.service -u containerd.service -u kubeadm-join.service -u kubelet.service -n 1 --no-pager -q 2>/dev/null | tr -d '\r\n'" 2>/dev/null || true)
     else
       SSH_STATUS="Booting"
@@ -1208,7 +1309,7 @@ phase_monitor_and_verify() {
 
   echo "    ✗ ${HOSTNAME} did not become Ready within 5 min." >&2
   echo "    → Diagnostic: Dumping guest journal logs (port ${GUEST_PORT})..." >&2
-  ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p "$GUEST_PORT" core@"${HOST_IP}" \
+  ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p "$GUEST_PORT" core@"${HOST_IP}" \
     "journalctl -u containerd.service -u k8s-install.service -u tailscaled.service -u kubeadm-join.service -u kubelet.service --no-pager -n 120" 2>&1 | sed 's/^/        /' || true
   return 1
 }
@@ -1219,7 +1320,7 @@ if [[ "$MODE" == "verify" ]]; then
   echo "=== Verify mode — checking Flatcar node Ready status ==="
   local_ok=1
   idx=0
-  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS; do
+  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS <&3; do
     [[ -z "$_HOST" && -z "$_SSH" ]] && continue
     idx=$((idx + 1))
     CURR_TARGET="hub"
@@ -1235,13 +1336,23 @@ if [[ "$MODE" == "verify" ]]; then
       fi
     fi
     if node_ready "$VM_NAME" "$CURR_TARGET"; then :; else local_ok=0; fi
-  done <<< "$HOME_WORKER_NODES"
+  done 3<<< "$HOME_WORKER_NODES"
   [[ "$local_ok" == "1" ]] && echo "=== ALL REGISTERED NODES READY ===" || echo "=== SOME NODES NOT READY ==="
   exit $((1 - local_ok))
 fi
 
 NODE_IDX=0
 FAILED_NODES=()
+
+# Registry size, counted before any node work. The loop below must walk exactly
+# this many entries; anything less means entries were silently never read (see
+# the post-loop assertion). Counting rule matches the loop's own: an entry needs
+# an ssh target to count.
+REGISTRY_TOTAL=0
+while IFS='|' read -r _RC_HOST _RC_SSH _RC_REST <&3; do
+  [[ -z "$_RC_SSH" ]] && continue
+  REGISTRY_TOTAL=$((REGISTRY_TOTAL + 1))
+done 3<<< "$HOME_WORKER_NODES"
 
 echo "=== Hybrid Hyper-V + Flatcar Container Linux worker provisioner ==="
 echo "    Target Mode:    ${TARGET_CLUSTER} (Hub + Spoke auto-routing)"
@@ -1256,7 +1367,7 @@ echo ""
 
 phase_prep_binaries
 
-while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS DISK_GB; do
+while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS DISK_GB <&3; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
@@ -1324,7 +1435,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
 
   # [1/6] SSH reachability gate
   echo "    [1/6] SSH reachability gate..."
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no \
+  if ! ssh -n -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no \
         "${SSH_TARGET}" "echo ok" 2>/dev/null; then
     echo "    ✗ SSH to ${SSH_TARGET} failed — Windows host unreachable. Skipping." >&2
     FAILED_NODES+=("${HOSTNAME}")
@@ -1332,17 +1443,46 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   fi
   echo "    ✓ SSH connected"
 
-  phase_prep_hyperv "$SSH_TARGET" "$HOSTNAME"
-  phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"
-  phase_provision_flatcar_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"
+  # Each phase is a precondition for the next, so a failure stops this node here
+  # rather than cascading into unrelated-looking errors further down.
+  if ! phase_prep_hyperv "$SSH_TARGET" "$HOSTNAME"; then
+    FAILED_NODES+=("${HOSTNAME}")
+    echo ""
+    continue
+  fi
+  if ! phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+    FAILED_NODES+=("${HOSTNAME}")
+    echo ""
+    continue
+  fi
+  if ! phase_provision_flatcar_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+    FAILED_NODES+=("${HOSTNAME}")
+    echo ""
+    continue
+  fi
 
   if ! phase_monitor_and_verify "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
     FAILED_NODES+=("${HOSTNAME}")
   fi
   echo ""
-done <<< "$HOME_WORKER_NODES"
+done 3<<< "$HOME_WORKER_NODES"
 
 echo ""
+
+# Every registry entry must have been read. This catches the class of bug where a
+# child process inside the loop consumes the registry stream and the loop ends
+# early on what looks like a clean EOF — a successful `ssh` without -n did exactly
+# that, and box-b's flatcar-spoke-node-2 was silently never provisioned while the
+# run still reported success. Reading on fd 3 plus `ssh -n` makes this
+# unreachable; the assertion is here so a regression fails loudly instead.
+if [[ "$NODE_IDX" -ne "$REGISTRY_TOTAL" ]]; then
+  echo "=== PROVISION INCOMPLETE — registry truncated ===" >&2
+  echo "    home-lab.env has ${REGISTRY_TOTAL} node entries but the loop only walked ${NODE_IDX}." >&2
+  echo "    Entries after #${NODE_IDX} were never evaluated. A child process in the loop" >&2
+  echo "    body is consuming the registry stream (an ssh/scp missing -n or </dev/null)." >&2
+  exit 1
+fi
+
 if [[ ${#FAILED_NODES[@]} -gt 0 ]]; then
   echo "=== PROVISION INCOMPLETE — failed nodes: ${FAILED_NODES[*]} ==="
   exit 1

@@ -111,6 +111,13 @@ PY
             soft_fail "ExternalSecret $name not ready — $reason"
             note "expects: $loc"
         done <<< "$report"
+
+        if [[ "$VALIDATE_MODE" == "gate" ]]; then
+            note ""
+            note "These failures are transient during bootstrap. The hub-operator uploads"
+            note "secrets to Infisical, and ESO re-reconciles within its retry backoff"
+            note "window (~7 min). No manual intervention is needed."
+        fi
     fi
 
     _validate_s3_backup_credentials "$report"

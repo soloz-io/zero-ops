@@ -1480,11 +1480,12 @@ step10e_spoke_home_worker() {
         error_exit "Step 10e: spoke control plane not Ready — check the Cilium agent (ADR-046 §24)"
     fi
     log "Step 10e: ✓ spoke control plane Ready"
+    SPOKE_HOME_WORKERS_PENDING=""
 
     # Idempotent: provisioning a Flatcar VM is ~10 minutes of Hyper-V work, and a
     # resumed bootstrap must not pay it again for a node that is already serving.
     if spoke_home_worker_ready "$spoke_kc"; then
-        log "Step 10e: ✓ home worker already Ready — skipping provisioning"
+        log "Step 10e: ✓ all registry home workers already Ready — skipping provisioning"
         return 0
     fi
 
@@ -1493,11 +1494,41 @@ step10e_spoke_home_worker() {
         error_exit "Step 10e: $script is missing; the spoke has no worker and platform workloads cannot schedule (ADR-014)"
     fi
 
-    log "Step 10e: Running provision-flatcar-worker.sh --cluster spoke"
-    log "Step 10e: (Hyper-V VM creation over SSH — this takes several minutes)"
-    if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" HYBRID_SPOKE_NAME="$cluster_name" \
-         bash "$script" --cluster spoke 2>&1 | tee -a "$LOG_DIR/bootstrap.log"; then
-        error_exit "Step 10e: home-worker provisioning failed. Fix the cause and re-run — this step is idempotent and skips an already-Ready node."
+    # Provision only the workers that are actually missing. Re-running the whole
+    # --cluster spoke set would destroy and rebuild VMs that are already serving,
+    # which is ~10 minutes of Hyper-V work per node and a needless outage.
+    local registry pending_idx="" entry idx name node_state
+    registry="$(spoke_home_worker_registry)"
+
+    if [[ -z "$registry" ]]; then
+        log "Step 10e: no home-lab.env registry readable — provisioning the whole spoke set"
+        log "Step 10e: Running provision-flatcar-worker.sh --cluster spoke"
+        log "Step 10e: (Hyper-V VM creation over SSH — this takes several minutes)"
+        if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" HYBRID_SPOKE_NAME="$cluster_name" \
+             bash "$script" --cluster spoke 2>&1 | tee -a "$LOG_DIR/bootstrap.log"; then
+            error_exit "Step 10e: home-worker provisioning failed. Fix the cause and re-run — this step is idempotent and skips an already-Ready node."
+        fi
+    else
+        while IFS='|' read -r idx name <&3; do
+            [[ -z "$idx" ]] && continue
+            node_state=$(kubectl --kubeconfig="$spoke_kc" get node "$name" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+            if [[ "$node_state" == "True" ]]; then
+                log "Step 10e: ✓ ${name} already Ready — not rebuilding it"
+                continue
+            fi
+            pending_idx="${pending_idx}${idx} "
+        done 3<<< "$registry"
+
+        log "Step 10e: home workers to provision (registry index): ${pending_idx:-none}"
+        for idx in $pending_idx; do
+            log "Step 10e: Running provision-flatcar-worker.sh --cluster spoke --node ${idx}"
+            log "Step 10e: (Hyper-V VM creation over SSH — this takes several minutes)"
+            if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" HYBRID_SPOKE_NAME="$cluster_name" \
+                 bash "$script" --cluster spoke --node "$idx" 2>&1 | tee -a "$LOG_DIR/bootstrap.log"; then
+                error_exit "Step 10e: home-worker provisioning failed for registry node ${idx}. Fix the cause and re-run — this step is idempotent and skips an already-Ready node."
+            fi
+        done
     fi
 
     # The script has its own gate, but the cluster's view is what the next steps
@@ -1505,34 +1536,99 @@ step10e_spoke_home_worker() {
     local join_waited=0
     while (( join_waited < CLUSTER_TIMEOUT )); do
         if spoke_home_worker_ready "$spoke_kc"; then
-            log "Step 10e: ✅ home worker Ready and correctly labelled"
+            log "Step 10e: ✅ every registry home worker Ready and correctly labelled"
             return 0
         fi
-        log "Step 10e: waiting for the home worker to become Ready [${join_waited}s/${CLUSTER_TIMEOUT}s]"
+        log "Step 10e: waiting for home workers to become Ready [${join_waited}s/${CLUSTER_TIMEOUT}s]: ${SPOKE_HOME_WORKERS_PENDING:-?}"
         sleep 15
         join_waited=$((join_waited + 15))
     done
 
-    log "❌ No Ready node carries workload-location=home on $cluster_name"
+    log "❌ Home workers still outstanding on $cluster_name: ${SPOKE_HOME_WORKERS_PENDING:-?}"
     kubectl --kubeconfig="$spoke_kc" get nodes --show-labels 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
-    error_exit "Step 10e: spoke has no Ready home worker — every stateful workload would sit Pending against the ADR-014 placement rule"
+    error_exit "Step 10e: not every registry home worker is Ready on the spoke — workloads pinned to the missing box would sit Pending against the ADR-014 placement rule"
 }
 
-# True only when a real Kubernetes Node is Ready AND carries the ADR-046 §11
-# placement contract. Node conditions, never CAPI Machine objects: a Machine is a
-# provisioning record, and a home worker has no Machine at all because CAPI did not
-# create it. Counting Machines is what made the old gate pass on an empty cluster.
+# The home-worker registry (scripts/hybrid/home-lab.env) is the source of truth for
+# which nodes belong to the spoke — the same file provision-flatcar-worker.sh walks.
+# Emits one "<index>|<hostname>" line per spoke entry, where <index> is the 1-based
+# registry position the provisioner's --node flag takes. Emits nothing when the file
+# is absent: it is gitignored, so a checkout without it must not hard-fail here.
+#
+# The file is sourced in a subshell on purpose. It sets HUB_KUBECONFIG,
+# HYBRID_SPOKE_NAME and TAILNET_NAME, and none of those may leak into the
+# bootstrap's own environment.
+spoke_home_worker_registry() {
+    local env_file="$ZERO_OPS_DIR/scripts/hybrid/home-lab.env"
+    [[ -f "$env_file" ]] || return 0
+
+    local nodes
+    nodes="$( . "$env_file" >/dev/null 2>&1; printf '%s' "${HOME_WORKER_NODES:-}" )"
+    [[ -n "$nodes" ]] || return 0
+
+    local host ssh_target node_target curr idx=0
+    while IFS='|' read -r host ssh_target _wsl _tailnet _tag node_target _rest <&3; do
+        [[ -z "${ssh_target:-}" ]] && continue
+        idx=$((idx + 1))
+        # Same routing rule as the provisioner: column 6 is authoritative, the
+        # index heuristic is only a fallback for registries predating it.
+        curr="spoke"
+        [[ "$idx" -eq 1 ]] && curr="hub"
+        [[ -n "${node_target:-}" ]] && curr="$node_target"
+        [[ "$curr" == "spoke" ]] || continue
+        [[ -z "${host:-}" ]] && host="flatcar-spoke-node-${idx}"
+        printf '%s|%s\n' "$idx" "$host"
+    done 3<<< "$nodes"
+}
+
+# Ready only when EVERY home worker the registry assigns to the spoke is a real
+# Kubernetes Node that is Ready AND carries the ADR-046 §11 placement contract.
+# Node conditions, never CAPI Machine objects: a Machine is a provisioning record,
+# and a home worker has no Machine at all because CAPI did not create it. Counting
+# Machines is what made the old gate pass on an empty cluster.
+#
+# It used to return on the FIRST Ready node, so a two-box spoke reported ✅ with
+# box-b's worker missing entirely. Sets SPOKE_HOME_WORKERS_PENDING to the nodes
+# still outstanding ("name (state)"), for the caller to log.
 spoke_home_worker_ready() {
     local spoke_kc="$1"
-    local line
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        # name=<ready>
-        [[ "${line#*=}" == "True" ]] && return 0
-    done < <(kubectl --kubeconfig="$spoke_kc" get nodes \
+    local expected status_lines entry name state line all_ready=1
+    SPOKE_HOME_WORKERS_PENDING=""
+
+    status_lines=$(kubectl --kubeconfig="$spoke_kc" get nodes \
         -l 'workload-location=home,node-role.kubernetes.io/worker' \
         -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null || true)
-    return 1
+
+    expected="$(spoke_home_worker_registry)"
+    if [[ -z "$expected" ]]; then
+        # No readable registry: fall back to the weaker "at least one" contract
+        # rather than blocking a bootstrap that has no home-lab.env to check.
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ "${line#*=}" == "True" ]] && return 0
+        done <<< "$status_lines"
+        SPOKE_HOME_WORKERS_PENDING="(no home-lab.env registry; no Ready home worker found)"
+        return 1
+    fi
+
+    while IFS= read -r entry <&3; do
+        [[ -z "$entry" ]] && continue
+        name="${entry#*|}"
+        state=""
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            if [[ "${line%%=*}" == "$name" ]]; then
+                state="${line#*=}"
+                break
+            fi
+        done <<< "$status_lines"
+        if [[ "$state" != "True" ]]; then
+            all_ready=0
+            SPOKE_HOME_WORKERS_PENDING="${SPOKE_HOME_WORKERS_PENDING}${name} (${state:-absent}) "
+        fi
+    done 3<<< "$expected"
+
+    [[ "$all_ready" == "1" ]]
 }
 
 # Main execution
