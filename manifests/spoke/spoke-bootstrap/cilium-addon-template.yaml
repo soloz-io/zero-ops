@@ -1263,6 +1263,75 @@ stringData:
             app.kubernetes.io/part-of: cilium
             app.kubernetes.io/name: cilium-operator
         spec:
+          # ── Gateway API startup dependency gate (ADR-046 §24 class) ──────────
+          # cilium-operator checks for the Gateway API CRDs EXACTLY ONCE, at start,
+          # and disables Gateway API for the lifetime of the process if they are
+          # absent. Observed on a cold boot: the operator came up at 11:08:01, the
+          # CRDs landed at 11:20:53 via ArgoCD, and GatewayClass/cilium sat at
+          # Accepted=Unknown for hours — no listener served traffic, HTTPRoutes
+          # could not attach, and AgentGateway never became ready. Nothing recovers
+          # on its own because the operator never re-checks.
+          #
+          # The CRDs are delivered by ArgoCD while the operator is delivered by
+          # ClusterResourceSet at bootstrap, so ArgoCD cannot win that race by
+          # ordering. Encoding the order in the CRS resource list was rejected: that
+          # list is index-addressed by Crossplane patches (spec.resources[N].name),
+          # so inserting ahead of Cilium silently retargets five per-cluster patches.
+          #
+          # This gate makes the dependency a property of the workload instead of a
+          # property of delivery order, so it survives any future recomposition.
+          # It waits for Established=True, not mere existence: a CRD can be present
+          # and not yet serving, which is the window the race actually lives in.
+          #
+          # KUBERNETES_SERVICE_HOST/PORT are injected here for the same reason §24
+          # injects them into the operator itself — on a kube-proxy-free spoke the
+          # in-cluster ClusterIP is not routable until Cilium programs it, so a gate
+          # dialling 10.96.0.1 would deadlock the very operator it gates.
+          initContainers:
+          - name: wait-for-gateway-api-crds
+            # Digest-pinned and served from the node's local containerd cache
+            # (imported by scripts/hybrid/provision-flatcar-worker.sh). A gate that
+            # must reach an external registry during cold boot would fail HARDER
+            # than the race it removes: no operator at all, rather than Gateway API
+            # disabled. IfNotPresent keeps it offline-safe.
+            image: registry.k8s.io/kubectl:v1.31.6@sha256:0340f50e46e77889398f41becf071e8d0f6be7672652a30e209112002147c06f
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
+                until kubectl wait --for=condition=Established --timeout=30s \
+                      "crd/${crd}.gateway.networking.k8s.io" >/dev/null 2>&1; do
+                  echo "waiting for ${crd}.gateway.networking.k8s.io (Established)"
+                  sleep 5
+                done
+                echo "ok: ${crd}.gateway.networking.k8s.io Established"
+              done
+              echo "all five required Gateway API CRDs Established; releasing cilium-operator"
+            env:
+            - name: KUBERNETES_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-host
+                  optional: true
+            - name: KUBERNETES_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: cilium-config
+                  key: k8s-service-port
+                  optional: true
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
           containers:
           - name: cilium-operator
             image: "quay.io/cilium/operator-generic:v1.17.18@sha256:ec68d574d2288f2d8cb0ae50778c1a0b08a6165cfcb6ba5bc5595d99ed3f7bda"
