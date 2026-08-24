@@ -23,6 +23,13 @@ data:
     - port: 3000
       listeners:
       - routes:
+        - matches:
+          - path:
+              exact: /health
+          policies:
+            directResponse:
+              status: 200
+              body: "OK"
         # ── tenant: waypoint ──────────────────────────────────────────────────
         # BFF first: the more specific /api prefix must precede the catch-all.
         # The frontend and BFF share one host so the host-only session cookie
