@@ -751,8 +751,8 @@ step1b_reconcile_appsets() {
     hub_ingress_addr=$(kubectl --kubeconfig="$kc_path" get hetznercluster -n platform-capi \
         -o jsonpath='{.items[0].spec.controlPlaneEndpoint.host}' 2>/dev/null || echo "")
     if [[ -z "$hub_ingress_addr" ]]; then
-        log "  ⚠️  Could not resolve hub ingress address — ingress-nginx will fall back to"
-        log "      publishing the ClusterIP, which breaks public DNS and ACME."
+        log "  ⚠️  Could not resolve hub ingress address — the hub Gateway's hostnames"
+        log "      will not be published, which breaks public DNS and ACME."
     fi
 
     log "  environmentRevision=$env_rev environmentSlug=$env_slug provider=$PROVIDER topology='$topo_value' hubIngressAddress='$hub_ingress_addr'"

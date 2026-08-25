@@ -89,29 +89,11 @@ spec:
       protocol: TCP
       name: http
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: agentgateway
-  namespace: platform-edge
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - api.dev.nutgraf.in
-    secretName: agentgateway-tls
-  rules:
-  - host: api.dev.nutgraf.in
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: agentgateway
-            port:
-              number: 3000
+# The Ingress that served api.dev.nutgraf.in is gone. The hub serves its hostnames
+# from the Gateway API; the route lives beside this Service at
+# manifests/hub-core-services/gateway/httproutes.yaml, and the TLS listener that
+# terminates for this host is on the hub Gateway in platform-ops.
+#
+# Its cert-manager.io/cluster-issuer annotation is not carried over either: with no
+# ingress controller the shim has no class to solve through, and public TLS for
+# this hostname is issued against the Gateway.

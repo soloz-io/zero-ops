@@ -3,10 +3,13 @@ environmentRevision: "main"
 # ──────────────────────────────────────────────────────────────────────────────
 # Public ingress address (ADR-046 §25.3)
 # ──────────────────────────────────────────────────────────────────────────────
-# The public IPv4 that actually fronts :80/:443 for this hub. It is fed to
-# ingress-nginx as --publish-status-address, so every Ingress .status.loadBalancer
-# carries a routable address instead of the ClusterIP of the (deliberately
-# cloud-LB-less) controller Service.
+# The public IPv4 that actually fronts :80/:443 for this hub — the control-plane
+# Hetzner LB, whose extraServices forward those ports to the node the proxy binds.
+#
+# It fed ingress-nginx as --publish-status-address until the hub moved to the
+# Gateway API. The need did not go away with the controller: in hostNetwork mode
+# the Gateway's generated Service is ClusterIP, so nothing in the cluster carries a
+# routable address and external-dns has nothing to publish unless it is told.
 #
 # This is what makes external-dns correct BY DEFAULT: it reads Ingress status, so
 # with this set it needs no --default-targets and no Ingress needs an

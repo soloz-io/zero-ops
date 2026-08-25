@@ -582,7 +582,9 @@ check_kube_sbt_api() {
 # ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
     log_section "13. INGRESS & CERT-MANAGER"
-    check_argocd_app "ingress-nginx-controller" "FAIL"
+    # The hub serves its hostnames from the Gateway API; ingress-nginx was
+    # retired, so checking for its Application fails every bootstrap.
+    check_argocd_app "hub-gateway" "FAIL"
     check_namespace_pods "cert-manager"
     check_deployment "cert-manager" "cert-manager"
     check_deployment "cert-manager" "cert-manager-webhook"

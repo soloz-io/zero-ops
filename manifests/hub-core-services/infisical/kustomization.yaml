@@ -27,7 +27,9 @@ helmCharts:
     valuesFile: values.yaml
 
 resources:
-  - ingress.yaml
+  # ingress.yaml is gone: infisical.dev.nutgraf.in is served from the Gateway API
+  # (manifests/hub-core-services/gateway), whose HTTPRoute and TLS listener replace
+  # both the routing rule and the cert-manager ingress-shim annotation.
 
 # The migration-unlock PreSync ArgoCD hook has been removed.
 # The knex lock is now cleared by the `migration-unlock` extraInitContainer

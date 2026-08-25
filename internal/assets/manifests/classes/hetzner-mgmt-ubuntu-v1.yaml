@@ -232,7 +232,7 @@ spec:
         # CCM `type: LoadBalancer` Service whose address can be recycled onto an
         # unrelated cluster's apiserver while DNS still points at it.
         #
-        # destinationPort == listenPort: ingress-nginx is a hostNetwork DaemonSet
+        # destinationPort == listenPort: the hub proxy binds these ports on the host
         # pinned to the control-plane node (§25.2 — the only server CAPH can target
         # on a hybrid hub; home workers carry unmanaged:// providerIDs).
         #

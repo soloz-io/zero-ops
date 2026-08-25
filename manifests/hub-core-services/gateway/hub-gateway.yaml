@@ -27,6 +27,17 @@ metadata:
     #
     # Without this external-dns reports "All records are already up to date" while
     # publishing nothing, and hostnames simply stop resolving.
+    #
+    # The literal is a known limitation, not a preference. The platform already
+    # resolves this address per environment as hubIngressAddress, from the CAPH
+    # control-plane LB, and passes it into the environment-manager chart; this
+    # directory is plain kustomize and cannot read a Helm value. The listener
+    # hostnames below carry the same problem — they name dev explicitly — and both
+    # belong to the same fix: hub hostnames and this target derive from the
+    # environment, per ADR-051. Other hub manifests hardcode the same way today
+    # (01-platform-infra-appset.yaml names argocd.dev.nutgraf.in), so this is one
+    # instance of a platform-wide gap rather than a new one, and de-hardcoding it
+    # is a change to make deliberately across all of them rather than here alone.
     external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   gatewayClassName: cilium

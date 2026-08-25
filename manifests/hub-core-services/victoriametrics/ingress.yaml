@@ -1,3 +1,17 @@
+# NOT DEPLOYABLE AS WRITTEN — the hub has no ingress controller.
+#
+# ingress-nginx was retired; hub hostnames are served from the Gateway API
+# (manifests/hub-core-services/gateway). This file is dormant — the victoriametrics
+# entries in the platform-services ApplicationSet are commented out and nothing
+# runs — so it was left rather than half-converted.
+#
+# Re-enabling it needs a real decision, not a mechanical rewrite. The routing rules
+# map onto an HTTPRoute directly, but the mTLS below does not: the
+# auth-tls-verify-client annotations are ingress-nginx features that verify Alloy
+# spoke client certificates, and Gateway API expresses client-certificate
+# verification differently. Rewriting the paths while dropping those annotations
+# would silently publish an endpoint that currently requires a client certificate.
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

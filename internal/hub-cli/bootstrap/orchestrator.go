@@ -41,7 +41,7 @@ import (
 //	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
 //	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
-//	Phase 11e: boundary-03            Services (Infisical, ingress-nginx, apps)
+//	Phase 11e: boundary-03            Services (Infisical, hub Gateway, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 type Orchestrator struct {
@@ -304,11 +304,11 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 11e: Boundary 03 — platform services ───────────────────
-	// Deploys ingress-nginx, API gateway, Infisical, and spoke
+	// Deploys the hub Gateway, API gateway, Infisical, and spoke
 	// cluster configs. Infisical Helm chart starts with ALL secrets
 	// already present (infisical-secrets includes DB_ROOT_CERT from the
 	// previous phase), preventing CreateContainerConfigError deadlocks.
-	// Ingress resources are applied after the ingress-nginx controller
+	// Routes are applied after the Gateway exists, so they have a parent to attach to
 	// webhook is guaranteed up.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
 		"Deploying platform services (boundary 03)...",
@@ -828,7 +828,7 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 03: Platform services (ingress-nginx, platform services)
+// Boundary 03: Platform services (hub Gateway, platform services)
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
@@ -897,17 +897,18 @@ func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig 
 
 	providerForHelm := o.Provider.Name()
 
-	// hubIngressAddress -> ingress-nginx --publish-status-address, so every Ingress
-	// .status.loadBalancer carries a routable address. The ingress-nginx Service is
-	// deliberately ClusterIP (no cloud LB); without this the chart publishes that
-	// private 10.x address into every Ingress, external-dns puts it in DNS, and
-	// Let's Encrypt rejects it ("no valid A records found"), failing all ACME.
+	// hubIngressAddress is the public IPv4 that fronts :80/:443 for this hub. It fed
+	// ingress-nginx's --publish-status-address until the hub moved to the Gateway
+	// API, and the need survived the controller: in hostNetwork mode the Gateway's
+	// generated Service is ClusterIP, so nothing in the cluster carries a routable
+	// address. Without it external-dns has nothing to publish, hostnames stop
+	// resolving, and ACME cannot validate a name that does not resolve.
 	// Sourced from the CAPH control-plane LB — the public entry point per
 	// ADR-046 §25.3, and stable across a control-plane machine roll.
 	hubIngressAddress := o.hubIngressAddress(ctx, kubeconfig)
 	if hubIngressAddress == "" {
-		fmt.Println("[boundary] ⚠️  could not resolve hub ingress address; ingress-nginx will " +
-			"publish the ClusterIP, which breaks public DNS and ACME issuance")
+		fmt.Println("[boundary] ⚠️  could not resolve hub ingress address; the hub Gateway's " +
+			"hostnames will not be published, which breaks public DNS and ACME issuance")
 	}
 
 	publicTlsIssuer := ""
