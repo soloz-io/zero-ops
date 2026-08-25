@@ -72,6 +72,11 @@ spec:
           value: "https://auth.dev.nutgraf.in"
         - name: MCP_GATEWAY_BASE_URL
           value: "https://api.dev.nutgraf.in"
+        # The console SPA serves the login and registration pages. auth-proxy sends
+        # the login_challenge here; the host was compiled into the binary until now,
+        # which made the image environment-specific and unfixable from a manifest.
+        - name: CONSOLE_BASE_URL
+          value: "https://console.dev.nutgraf.in"
         livenessProbe:
           httpGet:
             path: /health/ready

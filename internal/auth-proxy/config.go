@@ -28,6 +28,9 @@ type Config struct {
 	// MCPGatewayBaseURL is the public base URL of the MCP gateway, used as the
 	// issuer in gateway-served metadata. Environment-zoned, as above.
 	MCPGatewayBaseURL string
+	// ConsoleBaseURL is the public base URL of the console SPA, which serves the
+	// login and registration pages. Environment-zoned, as above.
+	ConsoleBaseURL string
 }
 
 // Note on the in-cluster URLs above (Hydra, Kratos): these are Kubernetes Service
@@ -84,6 +87,7 @@ func LoadConfig() (*Config, error) {
 		TrustedClientIDs:       m.get("TRUSTED_CLIENT_IDS"),
 		AuthPublicBaseURL:      m.get("AUTH_PUBLIC_BASE_URL"),
 		MCPGatewayBaseURL:      m.get("MCP_GATEWAY_BASE_URL"),
+		ConsoleBaseURL:         m.get("CONSOLE_BASE_URL"),
 	}
 
 	if len(m.names) > 0 {

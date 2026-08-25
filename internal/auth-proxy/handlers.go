@@ -23,10 +23,11 @@ type Handler struct {
 	expectedAudience  string
 	authPublicBaseURL string
 	mcpGatewayBaseURL string
+	consoleBaseURL    string
 	ready             bool
 }
 
-func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL string) *Handler {
+func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL, consoleBaseURL string) *Handler {
 	return &Handler{
 		hydraPublicURL: hydraPublicURL,
 		hydraAdminURL:  hydraAdminURL,
@@ -39,6 +40,7 @@ func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL s
 		expectedAudience:  expectedAudience,
 		authPublicBaseURL: authPublicBaseURL,
 		mcpGatewayBaseURL: mcpGatewayBaseURL,
+		consoleBaseURL:    consoleBaseURL,
 	}
 }
 
@@ -192,9 +194,20 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No session exists, redirect to Kratos UI with login_challenge
-	kratosURL := fmt.Sprintf("https://console.dev.nutgraf.in/login?login_challenge=%s", challenge)
-	http.Redirect(w, r, kratosURL, http.StatusFound)
+	// No session exists: hand the challenge to the console's login route.
+	//
+	// The path is /auth/login, which is where the console SPA declares its pages.
+	// Sending it to /login instead reached the SPA's catch-all, which redirects to
+	// /auth/login WITHOUT the query string — so the login_challenge was dropped and
+	// the flow could not continue. The page still rendered, which made it look like
+	// a broken UI rather than a lost parameter.
+	//
+	// The host comes from configuration rather than a literal. It was compiled in
+	// here, which made this binary environment-specific and put a hub hostname in a
+	// place no manifest could correct (ADR-051 calls out compiled-in literals
+	// alongside the ones in manifests).
+	loginURL := fmt.Sprintf("%s/auth/login?login_challenge=%s", h.consoleBaseURL, challenge)
+	http.Redirect(w, r, loginURL, http.StatusFound)
 }
 
 func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {

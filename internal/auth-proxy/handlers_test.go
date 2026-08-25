@@ -31,6 +31,7 @@ func TestHandler_ProxyOpenIDConfiguration(t *testing.T) {
 		"https://api.dev.nutgraf.in",
 		"https://auth.dev.nutgraf.in",
 		"https://api.dev.nutgraf.in",
+		"https://console.dev.nutgraf.in",
 	)
 
 	req := httptest.NewRequest("GET", "/.well-known/openid-configuration", nil)
@@ -75,6 +76,7 @@ func TestHandler_ProxyUserinfo(t *testing.T) {
 		"https://api.dev.nutgraf.in",
 		"https://auth.dev.nutgraf.in",
 		"https://api.dev.nutgraf.in",
+		"https://console.dev.nutgraf.in",
 	)
 
 	req := httptest.NewRequest("GET", "/userinfo", nil)
@@ -107,6 +109,7 @@ func TestHandler_ServeAuthServerMetadata(t *testing.T) {
 		"https://api.dev.nutgraf.in",
 		"https://auth.dev.nutgraf.in",
 		"https://api.dev.nutgraf.in",
+		"https://console.dev.nutgraf.in",
 	)
 
 	req := httptest.NewRequest("GET", "/.well-known/oauth-authorization-server", nil)

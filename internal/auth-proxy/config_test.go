@@ -21,6 +21,7 @@ var required = map[string]string{
 	"TRUSTED_CLIENT_IDS":        "mcp-public-client",
 	"AUTH_PUBLIC_BASE_URL":      "https://auth.dev.nutgraf.in",
 	"MCP_GATEWAY_BASE_URL":      "https://api.dev.nutgraf.in",
+	"CONSOLE_BASE_URL":          "https://console.dev.nutgraf.in",
 }
 
 func setAll(t *testing.T) {

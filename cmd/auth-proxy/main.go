@@ -34,6 +34,7 @@ func main() {
 		cfg.ExpectedJWTAudience,
 		cfg.AuthPublicBaseURL,
 		cfg.MCPGatewayBaseURL,
+		cfg.ConsoleBaseURL,
 	)
 
 	// Perform initial JWKS fetch to verify connectivity
