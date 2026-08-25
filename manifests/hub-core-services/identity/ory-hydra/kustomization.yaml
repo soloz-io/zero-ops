@@ -7,4 +7,12 @@ resources:
   # Platform OAuth2 clients (mcp-public-client). Reconciled into Hydra by
   # hydra-maester (enabled in values.yaml). Tenant clients are rendered per
   # fleet from fleet-registry via the universal-tenant chart (ADR-047).
-  - ../hydra-maester/oauth2clients.yaml
+  #
+  # Referenced as a DIRECTORY, not as ../hydra-maester/oauth2clients.yaml.
+  # Kustomize refuses to load a file outside its own root ("security; file ... is
+  # not in or below ..."), so the file form failed to build. ArgoCD could then not
+  # render this source at all: the Application sat at sync status Unknown with a
+  # ComparisonError, silently applying nothing — every other change in this
+  # directory, including the NetworkPolicy, was inert. A sibling directory that
+  # carries its own kustomization.yaml is a legal base and loads cleanly.
+  - ../hydra-maester
