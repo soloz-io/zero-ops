@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: platform-identity
+
+resources:
+- deployment.yaml
+- network-policy.yaml
+- kratos-ui-secrets-es.yaml
+
+# Pinned by digest, not by tag. The kratos-ui workflow rewrites this line with
+# `kustomize edit set image` after each build and commits it, so the running
+# image is always an immutable reference to a specific build rather than whatever
+# `latest` happened to point at when a pod last restarted.
+images:
+- digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  name: ghcr.io/soloz-io/kratos-ui

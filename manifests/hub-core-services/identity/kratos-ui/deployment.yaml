@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kratos-selfservice-ui-node
+  name: kratos-selfservice-ui
   namespace: platform-identity
   annotations:
     # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
@@ -12,35 +12,23 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kratos-selfservice-ui-node
+      app: kratos-selfservice-ui
   template:
     metadata:
       labels:
-        app: kratos-selfservice-ui-node
+        app: kratos-selfservice-ui
     spec:
       containers:
       - name: ui
-        image: oryd/kratos-selfservice-ui-node:v1.3.0
+        image: ghcr.io/soloz-io/kratos-ui:latest
         ports:
         - containerPort: 3000
           name: http
         env:
-        - name: KRATOS_PUBLIC_URL
-          value: "http://ory-kratos-public.platform-identity.svc.cluster.local:80"
-        - name: KRATOS_BROWSER_URL
-          value: "https://console.dev.nutgraf.in"
-        - name: COOKIE_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: kratos-ui-secrets
-              key: cookie-secret
-        - name: CSRF_COOKIE_NAME
-          value: "__HOST-csrf"
-        - name: CSRF_COOKIE_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: kratos-ui-secrets
-              key: csrf-cookie-secret
+        - name: VITE_KRATOS_URL
+          value: "https://auth.dev.nutgraf.in"
+        - name: VITE_APP_NAME
+          value: "nutgraf"
         resources:
           requests:
             cpu: 50m
@@ -52,11 +40,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: kratos-selfservice-ui-node
+  name: kratos-selfservice-ui
   namespace: platform-identity
 spec:
   selector:
-    app: kratos-selfservice-ui-node
+    app: kratos-selfservice-ui
   ports:
   - port: 3000
     targetPort: 3000

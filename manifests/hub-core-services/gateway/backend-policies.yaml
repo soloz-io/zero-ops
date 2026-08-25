@@ -21,7 +21,7 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      app: kratos-selfservice-ui-node
+      app: kratos-selfservice-ui
   ingress:
     - fromEntities:
         - ingress
