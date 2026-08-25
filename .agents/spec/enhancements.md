@@ -1,0 +1,1 @@
+No baseDomain value exists, and hub hostnames are already hardcoded elsewhere (01-platform-infra-appset.yaml:54 hardcodes argocd.dev.nutgraf.in). Templating them is a platform-wide ADR-051 change, not part of this retirement — so let me record the constraint accurately rather than half-solve it:
