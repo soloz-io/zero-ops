@@ -32,11 +32,10 @@ jobs:
           file: packages/kratos-ui/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          no-cache: true
           tags: |
             ghcr.io/soloz-io/kratos-ui:${{ github.sha }}
             ghcr.io/soloz-io/kratos-ui:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Pin the manifest to the digest just built
         run: |
