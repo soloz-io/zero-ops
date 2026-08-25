@@ -1,7 +1,6 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down run build-all build-auth-proxy build-mcp-server build-kube-sbt-api build-hub
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt-api build-hub
 
 # Build variables
-API_BINARY_NAME=zero-ops-api
 AUTH_PROXY_BINARY=auth-proxy
 MCP_SERVER_BINARY=mcp-server
 KUBE_SBT_API_BINARY=kube-sbt-api
@@ -14,7 +13,6 @@ DATABASE_URL?=postgres://localhost:5432/zeroops?sslmode=disable
 build-all:
 	@echo "Building all binaries..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) ./cmd/zero-ops-api
 	$(GO) build -o $(BUILD_DIR)/$(AUTH_PROXY_BINARY) ./cmd/auth-proxy
 	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
 	$(GO) build -o $(BUILD_DIR)/$(KUBE_SBT_API_BINARY) ./cmd/kube-sbt-api
@@ -94,6 +92,11 @@ lint:
 	golangci-lint run
 	@echo "✓ Lint complete"
 
+# NOTE: the three targets below address internal/db, which does not exist in this
+# repository. They were inert before zero-ops-api was removed; the only migrations
+# in the tree lived under internal/zero-ops-api/db/migrations and went with it.
+# Left rather than deleted silently: repoint them at a real directory, or remove
+# them deliberately.
 # Generate sqlc code
 sqlc-generate:
 	@echo "Generating sqlc code..."
@@ -111,15 +114,3 @@ migrate-down:
 	@echo "Rolling back database migrations..."
 	@atlas migrate down --dir file://internal/db/migrations --url "$(DATABASE_URL)"
 	@echo "✓ Migrations rolled back"
-
-# Build the API binary
-build-api:
-	@echo "Building $(API_BINARY_NAME)..."
-	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(API_BINARY_NAME) ./cmd/zero-ops-api
-	@echo "✓ Build complete: $(BUILD_DIR)/$(API_BINARY_NAME)"
-
-# Run the API server
-run: build-api
-	@echo "Starting $(API_BINARY_NAME)..."
-	@./$(BUILD_DIR)/$(API_BINARY_NAME)

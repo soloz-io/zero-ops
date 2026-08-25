@@ -338,7 +338,11 @@ subjects:
 The Hub API never touches Kubernetes:
 
 ```go
-// cmd/zero-ops-api/handlers/environment.go
+// Illustrative only. cmd/zero-ops-api was removed on 2026-08-25: it was never
+// deployed, had no CI workflow, and tenant registration moved to the GitOps path
+// (AINativeSaaS XR reconciled by hub-operator). This path never existed even while
+// that service did — its handlers lived under internal/zero-ops-api/api/handlers/.
+// The pattern below stands; the file reference does not.
 
 func (h *EnvironmentHandler) GetEnvironmentStatus(c *gin.Context) {
     tenantID := c.GetString("tenant_id")
