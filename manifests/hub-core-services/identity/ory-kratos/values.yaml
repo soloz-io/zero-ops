@@ -42,9 +42,9 @@ kratos:
           enabled: true
       flows:
         login:
-          ui_url: https://console.dev.nutgraf.in/login
+          ui_url: https://console.dev.nutgraf.in/auth/login
         registration:
-          ui_url: https://console.dev.nutgraf.in/registration
+          ui_url: https://console.dev.nutgraf.in/auth/registration
     dsn: env://DSN
 
   automigration:
