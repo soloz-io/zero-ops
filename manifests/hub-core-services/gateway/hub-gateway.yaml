@@ -1,8 +1,8 @@
 # Hub public gateway — replaces ingress-nginx for every hub hostname.
 #
-# Path is unchanged end to end: DNS still resolves each hub hostname to
-# 65.109.41.23, which is the control-plane Hetzner LB whose extraServices forward
-# 80/443 to the control-plane node. Only what binds those ports on that node
+# Path is unchanged end to end: DNS still resolves each hub hostname to the
+# control-plane Hetzner LB, whose extraServices forward 80/443 to the
+# control-plane node. Only what binds those ports on that node
 # changes, from the ingress-nginx DaemonSet to Cilium's Envoy. With
 # gateway-api-hostnetwork-enabled and the control-plane node selector already set
 # in cilium-config, Envoy binds 0.0.0.0:80/443 directly and the generated Service
@@ -17,28 +17,10 @@ kind: Gateway
 metadata:
   name: hub-gateway
   namespace: platform-ops
-  annotations:
-    # external-dns publishes the hostnames it finds on this Gateway's HTTPRoutes,
-    # but it has nothing to point them at on its own: in hostNetwork mode the
-    # generated Service is ClusterIP, so the Gateway carries no address worth
-    # publishing. The records must resolve to the control-plane Hetzner LB, which
-    # forwards 80/443 to the node Envoy binds — the same address the retired
-    # Ingress objects resolved to.
-    #
-    # Without this external-dns reports "All records are already up to date" while
-    # publishing nothing, and hostnames simply stop resolving.
-    #
-    # The literal is a known limitation, not a preference. The platform already
-    # resolves this address per environment as hubIngressAddress, from the CAPH
-    # control-plane LB, and passes it into the environment-manager chart; this
-    # directory is plain kustomize and cannot read a Helm value. The listener
-    # hostnames below carry the same problem — they name dev explicitly — and both
-    # belong to the same fix: hub hostnames and this target derive from the
-    # environment, per ADR-051. Other hub manifests hardcode the same way today
-    # (01-platform-infra-appset.yaml names argocd.dev.nutgraf.in), so this is one
-    # instance of a platform-wide gap rather than a new one, and de-hardcoding it
-    # is a change to make deliberately across all of them rather than here alone.
-    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
+  # The external-dns target is not written here. It is only known once the
+  # control-plane load balancer exists, so the CLI generates it at bootstrap into
+  # generated/external-dns-target-patch.yaml (ADR-045) and kustomize applies it to
+  # this Gateway and to every route.
 spec:
   gatewayClassName: cilium
   listeners:

@@ -22,3 +22,8 @@ artifacts:
       - data.INFISICAL_SECRETS_PROJECT_ID
       - data.INFISICAL_SECRETS_PROJECT_SLUG
       - data.INFISICAL_ENVIRONMENT_SLUG
+  # The hub Gateway's external-dns target. Only knowable once the control-plane
+  # load balancer exists, so it cannot be written in the base manifest.
+  - file: manifests/hub-core-services/gateway/generated/external-dns-target-patch.yaml
+    requiredFields:
+      - metadata.annotations

@@ -13,3 +13,17 @@ resources:
   - httproutes.yaml
   # Admits the Gateway's proxied traffic to backends whose policy is enforced.
   - backend-policies.yaml
+
+# ADR-045: the external-dns target is only known once the control-plane load
+# balancer exists, so the CLI generates it at bootstrap and it is reconciled from
+# Git like any other manifest. Applied to the Gateway and to every route because
+# external-dns's gateway-httproute source reads the annotation from the route and
+# falls back to the Gateway's address, which hostNetwork mode leaves as a ClusterIP.
+patches:
+  - path: generated/external-dns-target-patch.yaml
+    target:
+      kind: Gateway
+      name: hub-gateway
+  - path: generated/external-dns-target-patch.yaml
+    target:
+      kind: HTTPRoute
