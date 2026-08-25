@@ -24,7 +24,14 @@ docs/hub-operator
 docs/infisical
 docs/prds
 
-
-manifests/hub-core-services
 manifests/spoke/spoke-catalog/infra/agent-sandbox
 crd.yaml
+
+manifests/hub-core-services/victoriametrics
+manifests/hub-core-services/victoriametrics-alerts
+manifests/hub-core-services/openmeter
+manifests/hub-core-services/nats
+manifests/hub-core-services/grafana-alloy
+manifests/hub-core-services/database-migrations
+manifests/hub-core-services/clickhouse
+manifests/hub-core-services/eso
