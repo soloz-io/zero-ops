@@ -10,6 +10,12 @@ kind: HTTPRoute
 metadata:
   name: api
   namespace: platform-edge
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
@@ -30,6 +36,12 @@ kind: HTTPRoute
 metadata:
   name: auth
   namespace: platform-edge
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
@@ -53,6 +65,12 @@ kind: HTTPRoute
 metadata:
   name: console
   namespace: platform-identity
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
@@ -80,6 +98,12 @@ kind: HTTPRoute
 metadata:
   name: argocd
   namespace: platform-ops
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
@@ -100,6 +124,12 @@ kind: HTTPRoute
 metadata:
   name: infisical
   namespace: platform-security
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
@@ -126,6 +156,12 @@ kind: HTTPRoute
 metadata:
   name: http-to-https
   namespace: platform-ops
+  annotations:
+    # external-dns reads the target from the route, not from the Gateway: with it
+    # only on the Gateway it logs "All records are already up to date" and
+    # publishes nothing. In hostNetwork mode the Gateway's Service is ClusterIP, so
+    # there is no address for it to fall back to.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   parentRefs:
     - name: hub-gateway
