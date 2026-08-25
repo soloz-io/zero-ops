@@ -280,9 +280,34 @@ was never created; it failed `kustomize build` outright and would have broken `p
 on sync. It is superseded by the `publish-status-address` fix, which removes the need for a
 generated external-dns patch at all.
 
-**WS4-1 — Derivation, dry-run.** Teach the hub-CLI the derivation and emit artifacts to a scratch
-path. Diff against current literals. **Expected: byte-identical for dev.** Any diff is either a bug
-or an undocumented exception (expect `victoriametrics.hub.`, `waypoint.`, `mcp.`). **No live change.**
+**WS4-1 — Derivation, dry-run. ✅ COMPLETE (2026-08-25).** No live change; nothing emitted to a
+live path.
+
+`internal/hub-cli/bootstrap/hubdomain.go` carries the derivation: `DeriveHubEndpoints(zone)` returns
+the whole endpoint set from one value, and `ReadHubZone(root, env)` reads that value from the
+environment overlay rather than a constant — a constant would have become the fifty-first literal.
+The set is a struct, not a map, so a caller cannot ask for a hostname the derivation does not define;
+adding an endpoint is reviewed once here instead of invented per call site, which is how the literals
+accumulated in the first place.
+
+The expectation held: **every hub hostname literal in the manifests is reproduced by the derivation**,
+for dev, stg and prod. The three documented exceptions are carried explicitly — `victoriametrics.hub.`
+(the extra `hub.` label), `waypoint.` (a tenant host appearing only in Kratos' allowed origins) and
+`mcp.` (OAuth redirect only) — so re-deriving them cannot silently rename a host.
+
+The diff is a test rather than a one-off run (`hubdomain_test.go`), because its value is highest
+*during* the migration: it fails the moment a derived host stops matching what the manifests serve.
+Verified non-vacuous by breaking the derivation and confirming it reports the affected literal.
+
+Four matches were classified as **not** hostnames and excluded, each of which a naive rename would
+have corrupted: `apiVersion: ops.nutgraf.in/v1alpha1` (API group), `name: ainativesaases.nutgraf.in`
+and `spokepools.nutgraf.in` (CRD `<plural>.<group>` names), and
+`platform.nutgraf.in/cilium-config-base` (a domain-prefixed label key). `argocd-principal.*` is
+excluded as fleet/mTLS per §C2 — domain-shaped, different trust class.
+
+Not yet done, and deliberately: nothing emits artifacts and no manifest literal is replaced. That is
+WS4-2 onward, and WS4-2 (compiled Go defaults) must precede C3/C4 or a correctly rendered manifest is
+overridden by a binary default and the failure reads as a rendering bug.
 
 **WS4-2 — C8, compiled defaults.** Plumb config into `auth-proxy` and `hub-cli`; remove hardcoded
 URLs; update fixtures. Do this **before** C3/C4 — otherwise a correctly-rendered manifest is

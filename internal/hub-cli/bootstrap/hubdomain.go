@@ -1,0 +1,123 @@
+package bootstrap
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"sigs.k8s.io/yaml"
+)
+
+// WS4 — hub public domain authority (ADR-051).
+//
+// ADR-051 names the environment overlay the system of record for the base domain
+// and calls the hostname literals scattered through the hub manifests debt to be
+// retired against it. This is the derivation half of that retirement: one value in,
+// the complete endpoint set out, no per-hostname knobs.
+//
+// The hub-CLI derives rather than hub-operator because the artifacts land in a Git
+// working tree and the operator has no Git write path (WS4 §1.2). The CLI already
+// writes and commits ADR-045 artifacts, so this is the component already doing the
+// job, not a new capability.
+
+// HubEndpoints is the complete set of public hostnames for one hub environment.
+//
+// Every field derives from Zone. Exposing the set as a struct rather than a map is
+// deliberate: a caller cannot ask for a hostname that the derivation does not
+// define, so a new endpoint has to be added here and reviewed once rather than
+// invented at each call site — which is how the literals accumulated.
+type HubEndpoints struct {
+	// Zone is the base domain: dev.nutgraf.in, stg.nutgraf.in, or the apex for
+	// production. ADR-051's env-as-zone rule makes non-production zones carry the
+	// environment as their leftmost label; production uses the apex unlabelled, so
+	// the derivation below is identical for all of them.
+	Zone string
+
+	API       string // AgentGateway / MCP surface
+	Auth      string // Hydra issuer, login and consent
+	Console   string // Kratos self-service UI
+	ArgoCD    string // ArgoCD server
+	Infisical string // Infisical public endpoint
+	MCP       string // OAuth redirect target (C7)
+
+	// VictoriaMetrics carries an extra "hub." label no other host uses. WS4 §C1
+	// requires this to be normalised or recorded as intentional; it is recorded
+	// here so re-deriving it cannot silently change the hostname.
+	VictoriaMetrics string
+
+	// Waypoint is a tenant hostname that appears in the hub's Kratos allowed-origins
+	// list (C3) and nowhere else on the hub. Tenant hostnames are the spoke's to own
+	// under ADR-051, so this is derived only to reproduce the existing origin entry,
+	// not to make the hub authoritative for it.
+	Waypoint string
+}
+
+// DeriveHubEndpoints produces the endpoint set for a base domain.
+//
+// It is total and side-effect free so the migration can be diffed before anything
+// is written: WS4-1 emits from this and compares against the literals currently in
+// the manifests, and a difference is a bug or an undocumented exception rather than
+// a surprise discovered at sync time.
+func DeriveHubEndpoints(zone string) HubEndpoints {
+	zone = strings.TrimSpace(strings.TrimSuffix(zone, "."))
+	host := func(label string) string {
+		if label == "" {
+			return zone
+		}
+		return label + "." + zone
+	}
+	return HubEndpoints{
+		Zone:            zone,
+		API:             host("api"),
+		Auth:            host("auth"),
+		Console:         host("console"),
+		ArgoCD:          host("argocd"),
+		Infisical:       host("infisical"),
+		MCP:             host("mcp"),
+		VictoriaMetrics: host("victoriametrics.hub"),
+		Waypoint:        host("waypoint"),
+	}
+}
+
+// hubEnvironmentOverlay is the subset of the authority object this derivation reads.
+type hubEnvironmentOverlay struct {
+	Spec struct {
+		Domain      string `json:"domain"`
+		Environment string `json:"environment"`
+	} `json:"spec"`
+}
+
+// ReadHubZone returns the base domain declared by an environment overlay.
+//
+// The overlay is the system of record (ADR-051), so the zone is read from Git
+// rather than from a running cluster: the derivation must produce the same result
+// before the cluster exists as after, or bootstrap and steady state disagree.
+//
+// A production overlay deliberately does not patch spec.domain — prod uses the
+// apex, which the base layer already carries — so an absent domain in the overlay
+// falls back to the base object rather than being an error.
+func ReadHubZone(projectRoot, environmentSlug string) (string, error) {
+	candidates := []string{
+		filepath.Join(projectRoot, "manifests", "environments", environmentSlug, "patch-hubenvironment.yaml"),
+		filepath.Join(projectRoot, "manifests", "environments", "base", "hubenvironment.yaml"),
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("failed to read %s: %w", path, err)
+		}
+		var overlay hubEnvironmentOverlay
+		if err := yaml.Unmarshal(data, &overlay); err != nil {
+			return "", fmt.Errorf("failed to parse %s: %w", path, err)
+		}
+		if d := strings.TrimSpace(overlay.Spec.Domain); d != "" {
+			return d, nil
+		}
+	}
+	return "", fmt.Errorf("no spec.domain declared for environment %q in any overlay; "+
+		"the environment overlay is the system of record for the base domain (ADR-051)", environmentSlug)
+}
