@@ -46,6 +46,9 @@ hydra:
     enabled: true
     type: initContainer
 
+maester:
+  enabled: true
+
 secret:
   enabled: false
   nameOverride: "hydra-system-secret"

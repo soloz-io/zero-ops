@@ -1,4 +1,4 @@
-{{- if .Values.oauth.enabled }}
+{{- if and .Values.oauth.enabled .Values.deployXR }}
 {{- $host := required "oauth.publicHost is required when oauth.enabled" .Values.oauth.publicHost }}
 # Tenant OAuth2 clients, rendered per fleet at onboarding.
 #
@@ -11,6 +11,10 @@
 #
 # hydra-maester reconciles these into Hydra. auth-proxy remains the login/consent
 # provider; it no longer authors them.
+#
+# Guarded by deployXR: OAuth2Client CRs must only be applied to the Hub where
+# hydra-maester is installed. The Spoke AppSet passes deployXR=false; the CRD
+# is absent on spokes, so applying it there would SyncFail.
 apiVersion: hydra.ory.sh/v1alpha1
 kind: OAuth2Client
 metadata:
@@ -21,8 +25,17 @@ spec:
   grantTypes: ["authorization_code", "refresh_token"]
   responseTypes: ["code"]
   scope: "openid tenant:read tenant:write offline_access"
-  # Public client: PKCE only, no secret to distribute.
+  # Public client: PKCE only, no secret is used to authenticate it.
   tokenEndpointAuthMethod: none
+  # secretName is REQUIRED by the OAuth2Client CRD (spec.required = [grantTypes,
+  # secretName]) even for a public client that authenticates with no secret.
+  # Omitting it does not render an optional field absent — the API server rejects
+  # the object outright with "spec.secretName: Required value", so the resource
+  # never existed, hydra-maester never registered the client, and the browser
+  # reached the authorize endpoint to be told the client does not exist. The
+  # OutOfSync/Missing state was visible on the tenant Application while the BFF
+  # client beside it applied cleanly.
+  secretName: {{ .Values.tenantId }}-public-client-secret
   redirectUris:
     - https://{{ $host }}/oauth/callback
 {{- range .Values.oauth.extraBrowserRedirectUris }}

@@ -37,6 +37,26 @@ spec:
     ports:
     - protocol: TCP
       port: 4445
+  # Allow hydra-maester to reconcile OAuth2Client resources via the admin API.
+  #
+  # hydra-maester runs in THIS namespace, and a NetworkPolicy naming Ingress in
+  # policyTypes denies everything not explicitly admitted — there is no implicit
+  # allowance for the policy's own namespace. Every rule above selects a foreign
+  # namespace, so same-namespace callers were denied, and hydra-maester's every
+  # reconcile failed with an i/o timeout to ory-hydra-admin:4445 (a silent policy
+  # drop, which times out rather than refusing). No tenant OAuth2Client was ever
+  # registered in Hydra, so browsers reached the authorize endpoint and got
+  # "invalid_client: The requested OAuth 2.0 Client does not exist".
+  #
+  # A bare podSelector means "pods in this policy's namespace", which keeps this
+  # to hydra-maester rather than admitting the namespace as a whole.
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ory-hydra-hydra-maester
+    ports:
+    - protocol: TCP
+      port: 4445
   egress:
   # Allow to CNPG database (ports-only: Cilium evaluates NetworkPolicy BEFORE
   # service DNAT when bpf-lb-sock=false; ClusterIPs match no namespace/pod

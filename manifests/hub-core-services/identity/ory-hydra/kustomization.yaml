@@ -4,3 +4,7 @@ resources:
   - hydra-db-credentials-es.yaml
   - hydra-system-secret-es.yaml
   - network-policy.yaml
+  # Platform OAuth2 clients (mcp-public-client). Reconciled into Hydra by
+  # hydra-maester (enabled in values.yaml). Tenant clients are rendered per
+  # fleet from fleet-registry via the universal-tenant chart (ADR-047).
+  - ../hydra-maester/oauth2clients.yaml
