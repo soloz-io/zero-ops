@@ -5,8 +5,13 @@ import VerificationPage from './pages/VerificationPage';
 import RecoveryPage from './pages/RecoveryPage';
 import ErrorPage from './pages/ErrorPage';
 import SettingsPage from './pages/SettingsPage';
+import HomePage from './pages/HomePage';
 
 export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <HomePage />,
+  },
   {
     path: '/auth',
     children: [
@@ -21,9 +26,5 @@ export const router = createBrowserRouter([
   {
     path: '/settings',
     element: <SettingsPage />,
-  },
-  {
-    path: '*',
-    element: <Navigate to="/auth/login" replace />,
   },
 ]);
