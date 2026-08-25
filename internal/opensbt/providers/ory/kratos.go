@@ -47,15 +47,30 @@ func (k *kratosClient) do(ctx context.Context, method, path string, body interfa
 }
 
 func (k *kratosClient) createIdentity(ctx context.Context, u models.User) error {
+	// traits carry only what the user may assert about themselves, and the identity
+	// schema admits exactly one: email, which is also the identifier the password
+	// method authenticates against. tenant membership and role are assignments this
+	// service makes about a user, so they go to metadata_public, which self-service
+	// registration cannot write. ADR-010 specifies this ("creates identity in Ory
+	// Kratos with tenant_id in metadata"); writing them as traits contradicted it and
+	// is rejected outright by the schema, which sets additionalProperties: false.
+	metadata := map[string]interface{}{}
+	for k, v := range u.Metadata {
+		metadata[k] = v
+	}
+	metadata["tenant_id"] = u.TenantID
+	if len(u.Roles) > 0 {
+		// The token claim and the schema are singular; Roles is the caller-facing
+		// plural. Collapsing here keeps the wire shape one thing rather than two.
+		metadata["role"] = u.Roles[0]
+	}
+
 	payload := map[string]interface{}{
 		"schema_id": "default",
 		"traits": map[string]interface{}{
-			"email":     u.Email,
-			"name":      u.Name,
-			"tenant_id": u.TenantID,
-			"roles":     u.Roles,
+			"email": u.Email,
 		},
-		"metadata_public": u.Metadata,
+		"metadata_public": metadata,
 		"state":           "active",
 	}
 	resp, err := k.do(ctx, http.MethodPost, "/admin/identities", payload)
@@ -105,15 +120,23 @@ func (k *kratosClient) updateIdentity(ctx context.Context, userID string, u mode
 	if u.Metadata != nil {
 		existing.Metadata = *u.Metadata
 	}
+	// Same split as createIdentity: an update must not push the assignments back
+	// into traits, or it would undo the boundary on every edit and fail the schema.
+	metadata := map[string]interface{}{}
+	for k2, v := range existing.Metadata {
+		metadata[k2] = v
+	}
+	metadata["tenant_id"] = existing.TenantID
+	if len(existing.Roles) > 0 {
+		metadata["role"] = existing.Roles[0]
+	}
+
 	payload := map[string]interface{}{
 		"schema_id": "default",
 		"traits": map[string]interface{}{
-			"email":     existing.Email,
-			"name":      existing.Name,
-			"tenant_id": existing.TenantID,
-			"roles":     existing.Roles,
+			"email": existing.Email,
 		},
-		"metadata_public": existing.Metadata,
+		"metadata_public": metadata,
 	}
 	resp, err := k.do(ctx, http.MethodPut, "/admin/identities/"+userID, payload)
 	if err != nil {
@@ -192,12 +215,24 @@ func (k *kratosClient) listIdentities(ctx context.Context, f models.UserFilters)
 }
 
 func kratosToUser(id kratosIdentity) *models.User {
+	// The assignments are read back from metadata_public, where this service writes
+	// them, not from traits. Traits fall back only for identities created before the
+	// split; a self-declared trait can never override an assignment, because
+	// metadata is consulted first.
+	tenantID := id.Traits.TenantID
+	if v, ok := id.MetadataPublic["tenant_id"].(string); ok && v != "" {
+		tenantID = v
+	}
+	roles := id.Traits.Roles
+	if v, ok := id.MetadataPublic["role"].(string); ok && v != "" {
+		roles = []string{v}
+	}
 	return &models.User{
 		ID:       id.ID,
 		Email:    id.Traits.Email,
 		Name:     id.Traits.Name,
-		TenantID: id.Traits.TenantID,
-		Roles:    id.Traits.Roles,
+		TenantID: tenantID,
+		Roles:    roles,
 		Metadata: id.MetadataPublic,
 		Active:   id.State == "active",
 	}

@@ -21,10 +21,20 @@ kratos:
       override_return_to: true
     selfservice:
       default_browser_return_url: https://console.dev.nutgraf.in/
+      # Hub hostnames only. A tenant hostname was listed here and has been removed:
+      # it made a platform manifest carry a tenant literal that would grow with every
+      # tenant onboarded, and it was not load-bearing. OAuth logins never consult this
+      # list — oauth2_provider.override_return_to sends the browser back to Hydra,
+      # which redirects to the redirect_uri registered for that tenant's own client,
+      # so the per-tenant destination comes from the client registration. Nothing in
+      # the platform passes ?return_to= to a Kratos flow; the only occurrences are the
+      # login page's own links, which pass it empty.
+      #
+      # A tenant needing a non-OAuth return would have to be derived per tenant, not
+      # appended here.
       allowed_return_urls:
         - https://auth.dev.nutgraf.in/
         - https://console.dev.nutgraf.in/
-        - https://waypoint.dev.nutgraf.in/
         - http://127.0.0.1:6274/oauth/callback
         - http://localhost:6274/oauth/callback
       methods:
