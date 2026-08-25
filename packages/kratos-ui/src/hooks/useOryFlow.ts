@@ -37,9 +37,8 @@ export function useOryFlow(flowType: string) {
           setFlow(res);
         } catch (err: any) {
           if (err?.response?.status === 410 || err?.status === 410) {
-            const baseUrl = import.meta.env.VITE_KRATOS_URL || 'http://localhost:4433';
             window.location.replace(
-              `${baseUrl}/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
+              `/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
             );
           } else {
             setError(err);
@@ -48,9 +47,8 @@ export function useOryFlow(flowType: string) {
       };
       fetchFlow();
     } else {
-      const baseUrl = import.meta.env.VITE_KRATOS_URL || 'http://localhost:4433';
       window.location.replace(
-        `${baseUrl}/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
+        `/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
       );
     }
   }, [flowType, searchParams]);

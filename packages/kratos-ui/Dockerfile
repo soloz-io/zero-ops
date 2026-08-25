@@ -5,17 +5,15 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@11.1.3 --activate
 
-# Disable pnpm supply-chain minimum release age check
-# pnpm reads .npmrc from home dir, workdir, and parent dirs
-RUN echo 'minimum-release-age=0' > ~/.npmrc
-
-# Copy package manifest and lockfile first for better caching
-COPY packages/kratos-ui/package.json packages/kratos-ui/pnpm-lock.yaml ./
+# Copy only the package manifest (no lockfile — like the reference Next.js build).
+# pnpm 11.1.3 supply-chain policy blocks lockfile entries published within 24 h;
+# running without --frozen-lockfile avoids that and resolves fresh.
+COPY packages/kratos-ui/package.json ./package.json
 
 # pnpm 11 requires allowBuilds for native packages like esbuild
 RUN printf 'onlyBuiltDependencies:\n  - esbuild\nallowBuilds:\n  esbuild: true\n' > pnpm-workspace.yaml
 
-RUN HUSKY=0 pnpm install --frozen-lockfile
+RUN HUSKY=0 pnpm install --no-frozen-lockfile
 
 # Copy frontend source
 COPY packages/kratos-ui/ ./
