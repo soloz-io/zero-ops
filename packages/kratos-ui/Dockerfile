@@ -13,7 +13,7 @@ COPY packages/kratos-ui/package.json ./package.json
 # pnpm 11 requires allowBuilds for native packages like esbuild
 RUN printf 'onlyBuiltDependencies:\n  - esbuild\nallowBuilds:\n  esbuild: true\n' > pnpm-workspace.yaml
 
-RUN HUSKY=0 pnpm install --no-frozen-lockfile
+RUN HUSKY=0 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=""
 
 # Copy frontend source
 COPY packages/kratos-ui/ ./
