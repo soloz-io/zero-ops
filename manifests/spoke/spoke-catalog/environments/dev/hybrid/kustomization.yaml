@@ -2,6 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../../infra
+  # Hetzner DNS-01 ACME webhook. Listed after the base because the
+  # ClusterIssuer there names the groupName this webhook registers.
+  # A hybrid spoke is a Hetzner control plane (ADR-046 §13), so it
+  # resolves DNS-01 against Hetzner DNS just as a pure-Hetzner spoke does.
+  - ../../../provider/hetzner
   - cnpg-cluster.yaml
   - scheduled-backup.yaml
 patches:

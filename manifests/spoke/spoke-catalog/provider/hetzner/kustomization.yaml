@@ -1,0 +1,50 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Spoke-side capability that is bound to a specific INFRASTRUCTURE PROVIDER.
+#
+# ../../infra is provider-neutral by contract (its own header says so, and the
+# environment overlays supply the location/storage-class specifics). A Hetzner
+# DNS-01 webhook is not neutral, so it lives here instead of widening that base.
+#
+# This is NOT manifests/providers/hetzner/. That path is deployed by the
+# `infrastructure-provider` ArgoCD app to the HUB
+# (destination.server: https://kubernetes.default.svc) and holds the hub's
+# control-plane machinery: the spoke ClusterClass, CCM/CSI addon templates and
+# Crossplane compositions. A cert-manager DNS-01 webhook is an in-cluster
+# APIService that the LOCAL cert-manager calls while solving a challenge, so it
+# has to run on the SPOKE, beside the ClusterIssuer that names it.
+#
+# Consumed by BOTH provider overlays. A hybrid spoke is a Hetzner control plane
+# with home-lab workers (ADR-046 §13), so it resolves ACME DNS-01 against
+# Hetzner DNS exactly as a pure-Hetzner spoke does.
+resources:
+  # OFFICIAL hetzner/cert-manager-webhook-hetzner v0.9.0, vendored from its Helm
+  # chart (render command in the file header) + the ExternalSecret mirroring
+  # hcloud-token into cert-manager/hetzner-dns. Vendored as static manifests — an
+  # ArgoCD Application resource here would land on the SPOKE, where no ArgoCD
+  # controller exists to act on it.
+  #
+  # The ClusterIssuer in ../../infra/acme-cluster-issuer.yaml references the
+  # groupName acme.nutgraf.in that this webhook registers on startup, so the
+  # overlays list this directory AFTER ../../../infra.
+  - cert-manager-webhook-hetzner.yaml
+
+# ADR-047: single-node spokes run on the control-plane node, which carries the
+# control-plane taint, so all platform workloads must tolerate it.
+#
+# This repeats ../../infra's patch deliberately. A kustomize `patches` block only
+# applies to resources in ITS OWN kustomization, so splitting this file out of
+# that base also took it out of that patch's scope — the webhook Deployment came
+# out untolerated and would sit Pending on a single-node spoke, taking DNS-01
+# with it. Verified by diffing the rendered overlays against the pre-move output.
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule

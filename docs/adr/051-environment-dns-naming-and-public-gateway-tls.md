@@ -357,7 +357,7 @@ harmless on Hetzner spokes (DNS-01 works wherever the zone credential exists).
 **Implementation** (corrected 2026-08-25 after first deployment attempt). The webhook is
 the OFFICIAL `github.com/hetzner/cert-manager-webhook-hetzner` **v0.9.0**, vendored from
 its Helm chart as static manifests at
-`manifests/spoke/spoke-catalog/infra/cert-manager-webhook-hetzner.yaml` — an ArgoCD
+`manifests/spoke/spoke-catalog/provider/hetzner/cert-manager-webhook-hetzner.yaml` — an ArgoCD
 Application resource delivered through spoke-catalog would land on the SPOKE, where no
 ArgoCD controller exists to act on it. The official build is load-bearing: its hcloud-go
 v2 client speaks the Hetzner **Cloud API** (`api.hetzner.cloud`, Bearer token), which is
