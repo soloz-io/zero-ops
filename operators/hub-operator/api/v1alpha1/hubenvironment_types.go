@@ -23,6 +23,15 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// NOTE: the emptiness check below is size(x) == 0 on purpose, not a comparison
+// against an empty string literal. gofmt normalises doc comments and rewrites a
+// pair of ASCII apostrophes into a Unicode right double quote (a legacy godoc
+// quoting convention). CEL cannot compile that, and the CRD then fails to install
+// with a token recognition error. Because `make build` runs `go fmt`, the
+// empty-string-literal spelling is silently reverted on every single build, so it
+// can never hold. Keep this expression free of apostrophe pairs.
+//
+// (This comment is deliberately worded to avoid such a pair itself.)
 // HubEnvironmentSpec defines the desired state of HubEnvironment
 //
 // ADR-051 (2026-08-24 addendum): spec.domain is the sole authoritative base-domain
@@ -41,7 +50,7 @@ import (
 //
 // +kubebuilder:validation:XValidation:rule="self.environment == 'prod' || self.domain.startsWith(self.environment + '.')",message="domain must be the environment's own zone: for a non-production environment, domain must begin with that environment as its leftmost label (ADR-051 env-as-zone)"
 // +kubebuilder:validation:XValidation:rule="self.environment != 'prod' || !(['dev.','stg.','ephemeral.'].exists(p, self.domain.startsWith(p)))",message="production must use the apex domain unlabelled: domain must not begin with a non-production environment label (ADR-051 env-as-zone)"
-// +kubebuilder:validation:XValidation:rule="!has(self.secrets) || !has(self.secrets.infisical) || !has(self.secrets.infisical.environmentSlug) || self.secrets.infisical.environmentSlug == ” || self.secrets.infisical.environmentSlug == self.environment",message="secrets.infisical.environmentSlug must equal spec.environment: environment identity has a single authority and services consume it (ADR-043 single authority per domain)"
+// +kubebuilder:validation:XValidation:rule="!has(self.secrets) || !has(self.secrets.infisical) || !has(self.secrets.infisical.environmentSlug) || size(self.secrets.infisical.environmentSlug) == 0 || self.secrets.infisical.environmentSlug == self.environment",message="secrets.infisical.environmentSlug must equal spec.environment: environment identity has a single authority and services consume it (ADR-043 single authority per domain)"
 type HubEnvironmentSpec struct {
 	// Environment is the platform environment identity for this Hub and the single
 	// authority for it. Every environment-scoped value — the public DNS zone, the
