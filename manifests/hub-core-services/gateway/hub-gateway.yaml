@@ -17,6 +17,17 @@ kind: Gateway
 metadata:
   name: hub-gateway
   namespace: platform-ops
+  annotations:
+    # external-dns publishes the hostnames it finds on this Gateway's HTTPRoutes,
+    # but it has nothing to point them at on its own: in hostNetwork mode the
+    # generated Service is ClusterIP, so the Gateway carries no address worth
+    # publishing. The records must resolve to the control-plane Hetzner LB, which
+    # forwards 80/443 to the node Envoy binds — the same address the retired
+    # Ingress objects resolved to.
+    #
+    # Without this external-dns reports "All records are already up to date" while
+    # publishing nothing, and hostnames simply stop resolving.
+    external-dns.alpha.kubernetes.io/target: "65.109.41.23"
 spec:
   gatewayClassName: cilium
   listeners:
