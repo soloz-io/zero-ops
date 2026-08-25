@@ -5,13 +5,16 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@11.1.3 --activate
 
+# Disable pnpm supply-chain minimum release age check globally
+ENV npm_config_minimum_release_age=0
+
 # Copy package manifest and lockfile first for better caching
 COPY packages/kratos-ui/package.json packages/kratos-ui/pnpm-lock.yaml ./
 
 # pnpm 11 requires allowBuilds for native packages like esbuild
 RUN printf 'onlyBuiltDependencies:\n  - esbuild\nallowBuilds:\n  esbuild: true\n' > pnpm-workspace.yaml
 
-RUN HUSKY=0 pnpm install --frozen-lockfile --config.minimumReleaseAge=0
+RUN HUSKY=0 pnpm install --frozen-lockfile
 
 # Copy frontend source
 COPY packages/kratos-ui/ ./
