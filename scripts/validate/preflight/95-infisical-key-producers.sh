@@ -44,11 +44,16 @@ EXTERNAL = {
 PENDING = {
     "waypoint-bff-client-secret":
         "hydra-maester mints this when it registers waypoint-bff-client, but nothing "
-        "uploads it to Infisical, so auth-proxy's ExternalSecret cannot resolve it. "
-        "Closing it means pre-seeding the credentials instead (see ADR-050 review): "
-        "generate the key in ApplicationSecretMappings, have an ExternalSecret create "
-        "platform-identity/waypoint-bff-client-secret with CLIENT_ID + CLIENT_SECRET, "
-        "and maester registers the client WITH those credentials rather than its own.",
+        "uploads it to Infisical, so no consumer can resolve it. The consumer is the "
+        "tenant BFF workload on the spoke, which is declared in the fleet-registry but "
+        "not yet deployed in dev - so nothing is broken by its absence today, and "
+        "nothing proves the path works either. (This entry previously named "
+        "auth-proxy's ExternalSecret; auth-proxy consumes the client REGISTRATION, not "
+        "this credential, and has no ExternalSecret for it.) "
+        "Closing it is ADR-053: the hub-operator generates the credential once, writes "
+        "it to Infisical, registers the confidential client against Hydra directly, and "
+        "ESO delivers it to the spoke. Removing this entry is that ADR's acceptance "
+        "gate, and the check then enforces the producer.",
 }
 
 SRC = glob.glob("operators/hub-operator/internal/infisical/*.go") + \
