@@ -20,6 +20,10 @@ kind: OAuth2Client
 metadata:
   name: {{ .Values.tenantId }}-public-client
   namespace: {{ .Values.oauth.identityNamespace }}
+  annotations:
+    # After oauth-public-client-id.yaml (wave -10), so the stable CLIENT_ID exists
+    # before hydra-maester reconciles this client and would otherwise mint a UUID.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   clientName: "{{ .Values.tenantId }} (browser)"
   grantTypes: ["authorization_code", "refresh_token"]
