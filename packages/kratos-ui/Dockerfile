@@ -5,8 +5,9 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@11.1.3 --activate
 
-# Disable pnpm supply-chain minimum release age check globally
-ENV npm_config_minimum_release_age=0
+# Disable pnpm supply-chain minimum release age check
+# pnpm reads .npmrc from home dir, workdir, and parent dirs
+RUN echo 'minimumReleaseAge=0' > ~/.npmrc
 
 # Copy package manifest and lockfile first for better caching
 COPY packages/kratos-ui/package.json packages/kratos-ui/pnpm-lock.yaml ./
