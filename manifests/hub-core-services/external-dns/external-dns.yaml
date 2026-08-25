@@ -1,8 +1,13 @@
-# Hub external-dns — Ingress source for platform-services DNS records.
+# Hub external-dns — Gateway API source for platform-services DNS records.
 #
-# Why separate from spoke: the spoke external-dns (spoke-catalog) uses
-# --source=gateway-httproute for tenant Gateways. The hub only has
-# ingress-nginx Ingress resources, so this instance uses --source=ingress.
+# Reads HTTPRoute hostnames, the same source the spoke external-dns uses. It read
+# Ingress resources until the hub retired ingress-nginx; records are published from
+# whatever declares the hostname, so the source has to move with it.
+#
+# --policy=sync means external-dns owns these records and withdraws any it no
+# longer sees. Deleting the Ingress objects therefore deleted their DNS records —
+# auth and infisical stopped resolving at all, which presents as an instant
+# connection failure rather than anything that points at DNS.
 #
 # Provider: Hetzner WEBHOOK (same pattern as spoke external-dns).
 # Credential: hcloud-token from Infisical via ESO (ADR-003).
@@ -24,8 +29,11 @@ rules:
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "watch", "list"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
+  # Gateway API replaces Ingress as the source. Without these the source is
+  # configured but reads nothing, and external-dns withdraws every record it
+  # previously owned rather than failing visibly.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "grpcroutes", "tlsroutes", "tcproutes", "udproutes"]
     verbs: ["get", "watch", "list"]
   - apiGroups: [""]
     resources: ["namespaces"]
@@ -80,7 +88,7 @@ spec:
           args:
             - --domain-filter=nutgraf.in
             - --txt-owner-id=hub-hybrid-dev
-            - --source=ingress
+            - --source=gateway-httproute
             - --provider=webhook
             - --webhook-provider-url=http://127.0.0.1:8888
             - --registry=txt
