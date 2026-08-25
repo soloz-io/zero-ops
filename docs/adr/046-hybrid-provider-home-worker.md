@@ -238,18 +238,31 @@ and codified so re-provisioned spokes work out of the box:
    Cilium BPF datapath (`First logical datagram fragment not found`).
    **Codified**: `mtu: "1200"` in `manifests/providers/hybrid/cilium-values.yaml`
    and `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`.
-   Additionally, Cilium cross-node overlay routing between Hetzner CP and remote home
-   workers requires the CP's routable Tailscale IP (`100.71.186.51`) to be
-   recognized for VXLAN tunneling while preserving the Kubernetes Node `InternalIP`
-   (`10.0.0.4`) for Hetzner Load Balancer and K8s API traffic. When Envoy (running
-   on CP host) routes traffic to home frontend pods, the Linux kernel uses the CP.s
-   Cilium host router IP (`10.244.28.9`) as source; remote home workers look up
-   `10.244.28.9` in BPF ipcache and route return SYN-ACK packets back to the CP's
-   Tailscale tunnel endpoint.
-   **Codified**: `cilium-node-ip-reconciler` DaemonSet in
-   `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml` automatically maintains
-   the CP node's Tailscale IP in `CiliumNode.spec.addresses` and `CiliumEndpoint.status.networking.node`.
-   Tested and verified up to 1MB payloads across both directions with 0 packet drops or fragmentation.
+   **Correction (2026-08-25).** The MTU decision above stands and is codified
+   (`mtu: '1200'` in `manifests/providers/hybrid/k8s/cilium-config-base.yaml`,
+   confirmed live). The node-addressing half of this addendum did not survive contact
+   with the platform and is withdrawn.
+
+   It claimed a `cilium-node-ip-reconciler` DaemonSet was codified in
+   `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`, maintaining the CP
+   node's Tailscale IP in `CiliumNode.spec.addresses`. No such DaemonSet exists — not
+   in that file, not anywhere in the repository. An ADR reporting a component as
+   codified when it was never committed is worse than one that omits it: it sends the
+   next reader looking for a control that is not there, which is exactly what happened
+   while diagnosing addendum 28.
+
+   Its stated purpose is met without it. §21 has the hub control plane join the
+   tailnet, so the node's `InternalIP` IS its Tailscale address — on `hub-hybrid-dev`
+   the CP node registers `InternalIP=100.105.102.41` — and Cilium derives the VXLAN
+   tunnel endpoint from `InternalIP` directly. The reconciler addressed a shape that
+   §21 removed: `InternalIP` on a private Hetzner address with the tailnet address
+   held separately. Nothing needs to reconcile what the node already reports.
+
+   The cross-node Envoy failure this addendum reached for is real, but its cause is
+   not node addressing. Addendum 28 has it: the to-proxy mark escapes onto the VXLAN
+   outer packet and the encapsulated frame is routed to loopback. Node addresses,
+   ipcache entries and tunnel maps were each verified correct while that failure was
+   active.
 7. **Standalone `cilium-envoy` DaemonSet removed (embedded Envoy only).** The
    rendered addon had BOTH `external-envoy-proxy: "false"` (agent runs Envoy
    embedded, serving Gateway-API L7 on 127.0.0.1:10515) AND the standalone
