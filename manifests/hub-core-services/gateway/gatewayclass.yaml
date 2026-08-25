@@ -1,0 +1,9 @@
+# Cilium's Gateway API controller. The hub agent already runs with
+# enable-gateway-api=true and gateway-api-hostnetwork-enabled=true (cilium-config);
+# only the CRDs were absent, which is why no Gateway API type resolved on the hub.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: cilium
+spec:
+  controllerName: io.cilium/gateway-controller

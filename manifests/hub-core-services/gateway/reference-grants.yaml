@@ -1,0 +1,52 @@
+# A Gateway may only read a TLS Secret from another namespace when that namespace
+# grants it. The certificates stay where cert-manager already manages them, beside
+# the service they belong to, so each of those namespaces admits exactly this
+# Gateway and exactly the one Secret it needs — not the namespace, and not Secrets
+# in general. argocd-server-tls needs no grant: it is already in platform-ops.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: hub-gateway-tls
+  namespace: platform-edge
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      namespace: platform-ops
+  to:
+    - group: ""
+      kind: Secret
+      name: api-zero-ops-tls
+    - group: ""
+      kind: Secret
+      name: auth-zero-ops-tls
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: hub-gateway-tls
+  namespace: platform-identity
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      namespace: platform-ops
+  to:
+    - group: ""
+      kind: Secret
+      name: console-zero-ops-tls
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: hub-gateway-tls
+  namespace: platform-security
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      namespace: platform-ops
+  to:
+    - group: ""
+      kind: Secret
+      name: infisical-tls

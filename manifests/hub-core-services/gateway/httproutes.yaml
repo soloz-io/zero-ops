@@ -1,0 +1,145 @@
+# Routes replacing the six Ingress objects. Each route lives beside the Service it
+# forwards to, so its backendRef never crosses a namespace and needs no grant; the
+# Gateway admits these namespaces by selector.
+#
+# api.dev.nutgraf.in was served by two Ingress objects with identical rules and
+# different TLS secrets (agentgateway, zero-ops-ingress). One route replaces both.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+  namespace: platform-edge
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: api
+  hostnames: ["api.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: agentgateway
+          port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: auth
+  namespace: platform-edge
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: auth
+  hostnames: ["auth.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: auth-proxy
+          port: 8080
+---
+# console keeps its two-rule split. Gateway API matches the longer prefix first,
+# so /self-service reaches Kratos and everything else reaches the UI, which is the
+# ordering the Ingress relied on.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: console
+  namespace: platform-identity
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: console
+  hostnames: ["console.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /self-service
+      backendRefs:
+        - name: ory-kratos-public
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kratos-selfservice-ui-node
+          port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd
+  namespace: platform-ops
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: argocd
+  hostnames: ["argocd.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: argocd-server
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: infisical
+  namespace: platform-security
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: infisical
+  hostnames: ["infisical.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: infisical-standalone-infisical
+          port: 8080
+---
+# Plaintext redirect. The Ingress objects were inconsistent here — argocd,
+# infisical and agentgateway forced HTTPS while auth and console did not — and the
+# inconsistency was not deliberate. Every one of these hostnames is reached over
+# HTTPS in practice, the OIDC flow addresses them that way, so all five redirect.
+# A path-specific ACME challenge route will out-match this "/" prefix when the
+# solver moves to the Gateway, so this does not block issuance.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https
+  namespace: platform-ops
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: http
+  hostnames:
+    - api.dev.nutgraf.in
+    - auth.dev.nutgraf.in
+    - console.dev.nutgraf.in
+    - argocd.dev.nutgraf.in
+    - infisical.dev.nutgraf.in
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

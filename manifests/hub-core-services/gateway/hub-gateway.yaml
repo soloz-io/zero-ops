@@ -1,0 +1,127 @@
+# Hub public gateway — replaces ingress-nginx for every hub hostname.
+#
+# Path is unchanged end to end: DNS still resolves each hub hostname to
+# 65.109.41.23, which is the control-plane Hetzner LB whose extraServices forward
+# 80/443 to the control-plane node. Only what binds those ports on that node
+# changes, from the ingress-nginx DaemonSet to Cilium's Envoy. With
+# gateway-api-hostnetwork-enabled and the control-plane node selector already set
+# in cilium-config, Envoy binds 0.0.0.0:80/443 directly and the generated Service
+# is ClusterIP, so no cloud LoadBalancer is provisioned for this Gateway and none
+# is wanted (ADR-046 addendum 8; ADR-049 §3 is superseded by this migration).
+#
+# The two are mutually exclusive on the node: both want host ports 80 and 443, so
+# the Gateway cannot bind until the nginx DaemonSet is removed. That is the
+# cutover, and it is the only step with an interruption.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hub-gateway
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+    # Plaintext listener. Carries the HTTP-to-HTTPS redirect and, once the ACME
+    # solver moves off the nginx ingress class, the ACME HTTP-01 challenge routes.
+    # It has no hostname so it matches every hub host, and admits routes from any
+    # namespace because a challenge route is created beside the Certificate that
+    # provoked it, which may be in any platform namespace.
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+    # One HTTPS listener per hostname. certificateRefs point at the Secrets
+    # cert-manager already maintains in each service's own namespace rather than
+    # re-issuing into this one: those certificates are valid and the migration
+    # does not need to touch issuance to complete. Each cross-namespace reference
+    # is admitted by a ReferenceGrant in the Secret's namespace.
+    - name: api
+      hostname: api.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: api-zero-ops-tls
+            namespace: platform-edge
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]
+    - name: auth
+      hostname: auth.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: auth-zero-ops-tls
+            namespace: platform-edge
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]
+    - name: console
+      hostname: console.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: console-zero-ops-tls
+            namespace: platform-identity
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]
+    - name: argocd
+      hostname: argocd.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: argocd-server-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]
+    - name: infisical
+      hostname: infisical.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: infisical-tls
+            namespace: platform-security
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]

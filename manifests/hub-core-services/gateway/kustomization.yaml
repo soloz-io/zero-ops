@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Hub public ingress on Gateway API, replacing ingress-nginx (supersedes ADR-049 §3).
+resources:
+  # Gateway API CRDs. The hub Cilium agent was already built for Gateway API
+  # (enable-gateway-api=true, gateway-api-hostnetwork-enabled=true); the CRDs were
+  # simply never installed, so every Gateway API type failed to resolve.
+  - crds/gateway-api-crds.yaml
+  - gatewayclass.yaml
+  - hub-gateway.yaml
+  - reference-grants.yaml
+  - httproutes.yaml
