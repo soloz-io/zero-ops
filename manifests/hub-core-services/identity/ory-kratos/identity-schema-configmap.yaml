@@ -14,17 +14,38 @@ data:
           "properties": {
             "email": {
               "type": "string",
-              "format": "email"
+              "format": "email",
+              "title": "Email",
+              "ory.sh/kratos": {
+                "credentials": {
+                  "password": {
+                    "identifier": true
+                  }
+                },
+                "verification": {
+                  "via": "email"
+                },
+                "recovery": {
+                  "via": "email"
+                }
+              }
             },
             "tenant_id": {
-              "type": "string"
+              "type": "string",
+              "title": "Tenant ID"
             },
             "role": {
               "type": "string",
-              "enum": ["tenant_admin", "platform_admin"]
+              "enum": [
+                "tenant_admin",
+                "platform_admin"
+              ],
+              "title": "Role"
             }
           },
-          "required": ["email"],
+          "required": [
+            "email"
+          ],
           "additionalProperties": false
         }
       }
