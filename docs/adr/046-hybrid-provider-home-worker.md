@@ -2007,6 +2007,100 @@ altered, no resource changes owner, and the ownership rows above are unaffected.
 this ADR's earlier sections and the runbooks name the previous path, they record where
 the file was at the time and are left as written.
 
+### 27. The hostNetwork mangle guard was one-directional; backend replies were routed to `lo` (2026-08-25)
+
+**Symptom.** `https://waypoint.dev.nutgraf.in/` returned Envoy's
+`upstream connect error or disconnect/reset before headers. reset reason: connection timeout`
+while every component it depends on reported healthy: `agentgateway` `Running 1/1`
+serving `/health` 200s continuously, `Gateway` `PROGRAMMED=True`, `HTTPRoute`
+`Accepted=True` / `ResolvedRefs=True`, and Envoy's own cluster carrying the correct
+EDS endpoint marked `health_flags::healthy`. Both the `:80` and `:443` gateways
+failed identically.
+
+**Evidence.** Envoy never completed a single upstream connection:
+
+```
+tenant-tls-gateway/platform-ops:agentgateway:3000::10.244.0.98:3000::cx_total::13
+tenant-tls-gateway/platform-ops:agentgateway:3000::10.244.0.98:3000::cx_connect_fail::13
+```
+
+incrementing exactly once per request, with `connect_timeout: 5s` matching the
+observed 5.7s wall time. Two connections to the same pod, same port, same source
+IP, seconds apart, differ only in source security identity:
+
+```
+# Envoy — identity "ingress"
+03:40:43.346  10.244.0.6:34738 (ingress) -> agentgateway:3000  FORWARDED (SYN)
+03:40:49.483  10.244.0.6:34738 (host)    -> agentgateway:3000  FORWARDED (RST)   # 6.1s later, gives up
+# kubelet health probe — identity "host"
+03:40:47.491  10.244.0.6:36826 (host) -> agentgateway:3000  (SYN)
+03:40:47.491  10.244.0.6:36826 (host) -> agentgateway:3000  (ACK)                # ~3ms, completes
+```
+
+The SYN reaches the pod. No SYN-ACK ever returns. The kernel shows why:
+
+```
+ip route get 10.244.0.98 mark 0      -> dev cilium_host src 10.244.0.6
+ip route get 10.244.0.98 mark 0x200  -> local ... dev lo table 2004
+```
+
+**Root cause.** Addendum 8's guard exempts the stock `CILIUM_PRE_mangle`
+transparent-socket rule for `--dports 80,443` only — the INBOUND direction. The
+backend's SYN-ACK returns to Envoy's EPHEMERAL source port, so that exemption
+cannot match it. The stock rule marks it `0x200`, `ip rule 9`
+(`from all fwmark 0x200/0xf00 lookup 2004`) sends it to table 2004
+(`local default dev lo`), and the reply is delivered to loopback instead of
+Envoy. The handshake never completes and Envoy times out at 5s.
+
+Nothing is dropped, so no BPF drop is recorded and no `DROPPED` verdict appears
+in Hubble — the packet is *misrouted*, not denied. That is why the failure reads
+as a dead backend when the backend is fine.
+
+**Why it appeared now.** Addendum 10 moved Gateway L7 to the standalone
+`cilium-envoy` DaemonSet. Its upstream connections carry the `ingress` identity
+through the transparent-socket path; the previously embedded proxy did not. The
+guard was written for addendum 8's inbound-only failure and was never exercised
+against the decoupled Envoy's upstream direction.
+
+**Decision.** The guard asserts BOTH directions. Added, alongside the existing
+`--dports 80,443` rule:
+
+```
+iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -s 10.244.0.0/16 \
+  -m addrtype --dst-type LOCAL -j RETURN
+```
+
+Matched by source (pod CIDR) plus local destination rather than by port, because
+backend ports are arbitrary — pinning the exemption to 3000 would break again on
+the next backend. It is strictly narrower than the stock rule's stated intent:
+that rule exists to redirect traffic destined TO pods into the host proxy, and
+pod->host replies are not that traffic. `--dst-type LOCAL` confines it to traffic
+terminating on this node; pod-to-pod traffic is untouched, and the guard runs only
+on control-plane nodes (`nodeSelector`), so only gateway-serving nodes are affected.
+
+**Codified.** `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml` —
+the `cilium-hostnetwork-mangle-guard` DaemonSet re-asserts both rules every 3s,
+unchanged in mechanism from addendum 8 (Cilium wipes foreign rules on every chain
+re-sync, so continuous re-assertion is still required). `POD_CIDR` must track
+`clusterPoolIPv4PodCIDRList` in `spokepool-hybrid-composition.yaml`.
+
+**Verification gate.** On the control-plane node: the rule is present in
+`iptables -t mangle -S CILIUM_PRE_mangle` ahead of the `-m socket --transparent`
+rule; `cx_connect_fail` stops tracking `cx_total` on
+`platform-ops/cilium-gateway-tenant-tls-gateway/...`; a Hubble trace of the
+`ingress`-identity connection shows SYN followed by ACK rather than SYN followed
+by RST 5s later; and the public hostname returns a non-503 status.
+
+**Status.** Manifest change written and pending review; NOT yet applied to
+`spoke-pool-hybrid-dev-01`. The rule's syntax and the `addrtype` module were
+validated non-mutatingly on the live node (`iptables -C` returns
+"Bad rule (does a matching rule exist in that chain?)", i.e. parsed and loaded,
+rule simply absent). The causal chain above is established from the routing
+table, the mangle chain, and the flow traces; the final step — the SYN-ACK
+carrying mark `0x200` on this node — is inferred from those, not captured
+packet-level, and a `tcpdump` on the node during a request would settle it
+before or during rollout.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

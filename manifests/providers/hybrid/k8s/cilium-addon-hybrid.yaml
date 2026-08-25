@@ -1490,7 +1490,7 @@ stringData:
             configMap:
               name: cilium-config
     ---
-    # Source: zero-ops/hybrid (ADR-046 addendum 8): hostNetwork-gateway mangle guard.
+    # Source: zero-ops/hybrid (ADR-046 addenda 8 and 27): hostNetwork-gateway mangle guard.
     #
     # When Envoy serves Gateway API listeners directly on the host network
     # (gateway-api-hostnetwork-enabled=true), Cilium's stock CILIUM_PRE_mangle
@@ -1498,7 +1498,22 @@ stringData:
     # matches post-handshake packets destined to the transparent host-bound listener
     # sockets and sets the to-proxy mark (0x200), which reroutes them via table 2004 (lo).
     # This breaks the TCP 3-way handshake for EXTERNAL traffic.
-    # This guard DaemonSet continuously re-asserts an early RETURN rule for dports 80/443.
+    #
+    # TWO directions need exempting, and they fail differently:
+    #
+    #   1. INBOUND to the listeners (addendum 8) - dports 80/443. Without this the
+    #      external client's handshake never completes.
+    #   2. REPLIES from backend pods (addendum 27) - the backend's SYN-ACK returns to
+    #      Envoy's EPHEMERAL source port, so the dports 80/443 rule cannot match it.
+    #      It hits the stock rule instead, is marked 0x200, and is routed to lo, so
+    #      Envoy never sees the SYN-ACK and every upstream connection fails at its
+    #      5s connect_timeout. The gateway answers 503 "upstream connect error ...
+    #      reset reason: connection timeout" while the backend is perfectly healthy.
+    #
+    # Direction 2 is matched by source (pod CIDR) + local destination rather than by
+    # port, because backend ports are arbitrary. It is strictly narrower than the stock
+    # rule's intent: that rule exists to redirect traffic destined TO pods into the host
+    # proxy, and pod->host replies are not that traffic.
     apiVersion: v1
     kind: ServiceAccount
     metadata:
@@ -1542,11 +1557,22 @@ stringData:
                 - /bin/sh
                 - -c
                 - |
-                  echo "Starting hostNetwork gateway mangle guard (dports 80/443)..."
+                  # POD_CIDR must match clusterPoolIPv4PodCIDRList in
+                  # manifests/providers/hybrid/k8s/spokepool-hybrid-composition.yaml.
+                  POD_CIDR="10.244.0.0/16"
+                  echo "Starting hostNetwork gateway mangle guard (inbound 80/443 + replies from ${POD_CIDR})..."
                   while true; do
+                    # 1. Inbound to the host-bound Gateway listeners (ADR-046 addendum 8).
                     if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null; then
                       iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null || true
                       echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for dports 80/443"
+                    fi
+                    # 2. Replies from backend pods to Envoy's ephemeral upstream ports
+                    #    (ADR-046 addendum 27). --dst-type LOCAL keeps this to traffic
+                    #    terminating on this node; pod->pod traffic is untouched.
+                    if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -s "${POD_CIDR}" -m addrtype --dst-type LOCAL -j RETURN 2>/dev/null; then
+                      iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -s "${POD_CIDR}" -m addrtype --dst-type LOCAL -j RETURN 2>/dev/null || true
+                      echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for pod replies (${POD_CIDR} -> LOCAL)"
                     fi
                     sleep 3
                   done

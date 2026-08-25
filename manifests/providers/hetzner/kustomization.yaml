@@ -21,7 +21,14 @@ kind: Kustomization
 resources:
   - base
   - k8s/hcloud-ccm.yaml
-  - k8s/cert-manager-webhook-hetzner.yaml
+  # The Hetzner DNS01 ACME webhook moved to the spoke catalog in 22b060fd
+  # (manifests/spoke/spoke-catalog/provider/hetzner/, which both spoke overlays
+  # list,
+  # vendored in full and wired into that kustomization). The provider-level
+  # copy was deleted there but this reference was left behind, so every
+  # `kubectl kustomize manifests/providers/hetzner` since has failed on a file
+  # that does not exist — which also blocks the kustomize-build-providers
+  # pre-commit hook for ANY edit under providers/, hybrid included.
   - k8s/hetzner-credentials-es.yaml
   - k8s/spokepool-hetzner-composition.yaml
   - k8s/crossplane-provider-hetzner.yaml
