@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ory } from '@/lib/ory-client';
+import { selfServiceBrowserUrl } from '@/lib/kratos-url';
 
 export function useOryFlow(flowType: string) {
   const [searchParams] = useSearchParams();
@@ -9,7 +10,7 @@ export function useOryFlow(flowType: string) {
 
   useEffect(() => {
     const flowId = searchParams.get('flow');
-    const returnTo = searchParams.get('return_to');
+    const returnTo = searchParams.get('return_to') || undefined;
 
     if (flowId) {
       const fetchFlow = async () => {
@@ -37,9 +38,7 @@ export function useOryFlow(flowType: string) {
           setFlow(res);
         } catch (err: any) {
           if (err?.response?.status === 410 || err?.status === 410) {
-            window.location.replace(
-              `/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
-            );
+            window.location.replace(selfServiceBrowserUrl(flowType, returnTo));
           } else {
             setError(err);
           }
@@ -47,9 +46,7 @@ export function useOryFlow(flowType: string) {
       };
       fetchFlow();
     } else {
-      window.location.replace(
-        `/self-service/${flowType}/browser${returnTo ? `?return_to=${returnTo}` : ''}`
-      );
+      window.location.replace(selfServiceBrowserUrl(flowType, returnTo));
     }
   }, [flowType, searchParams]);
 
