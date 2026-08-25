@@ -29,18 +29,6 @@ data:
                   "via": "email"
                 }
               }
-            },
-            "tenant_id": {
-              "type": "string",
-              "title": "Tenant ID"
-            },
-            "role": {
-              "type": "string",
-              "enum": [
-                "tenant_admin",
-                "platform_admin"
-              ],
-              "title": "Role"
             }
           },
           "required": [

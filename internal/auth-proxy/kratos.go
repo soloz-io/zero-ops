@@ -71,12 +71,39 @@ func (k *KratosClient) GetIdentityTraits(identityID string) (map[string]interfac
 		return nil, fmt.Errorf("failed to fetch identity traits: %d - %s", resp.StatusCode, string(body))
 	}
 
+	// role and tenant_id are read from metadata_public, not traits.
+	//
+	// Traits are self-service: whatever the schema puts there, a user can set for
+	// themselves during registration. While role lived in traits — with an enum
+	// admitting platform_admin — anyone who could reach the signup page could
+	// request it, and the value flowed straight into the token claims below and out
+	// as X-Auth-Role. Tenant membership and role are assignments the platform makes
+	// about a user, not claims a user makes about themselves, so they belong in
+	// metadata_public, which self-service flows cannot write.
+	//
+	// email stays a trait: it IS the user's own claim, and it is the credential
+	// identifier the password method authenticates against.
 	var identity struct {
-		Traits map[string]interface{} `json:"traits"`
+		Traits         map[string]interface{} `json:"traits"`
+		MetadataPublic map[string]interface{} `json:"metadata_public"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&identity); err != nil {
 		return nil, err
 	}
 
-	return identity.Traits, nil
+	attrs := map[string]interface{}{}
+	for k, v := range identity.Traits {
+		attrs[k] = v
+	}
+	// Deliberately last: metadata_public wins over a trait of the same name, so an
+	// identity created before this split cannot re-assert a self-declared role.
+	for _, k := range []string{"role", "tenant_id"} {
+		if v, ok := identity.MetadataPublic[k]; ok {
+			attrs[k] = v
+		} else {
+			delete(attrs, k)
+		}
+	}
+
+	return attrs, nil
 }
