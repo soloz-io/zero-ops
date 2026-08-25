@@ -2122,6 +2122,43 @@ carrying mark `0x200` — is now corroborated behaviourally: exempting exactly
 that reply path, and changing nothing else, moved the cluster from 100%
 `cx_connect_fail` to zero.
 
+### 28. The to-proxy mark escapes onto the VXLAN outer packet and strands cross-node proxy traffic (2026-08-25)
+
+**Symptom.** Every hub hostname returned 503 after the hub moved to Gateway API. Envoy held its listeners, TLS terminated, routes were Accepted, and the correct backend endpoints were resolved and marked healthy — but `cx_connect_fail` tracked `cx_total` exactly, at 100%, on every cluster.
+
+**What made it hard to see.** Nothing was dropped. `cilium monitor` on the sending node reported the SYN handed to the overlay and recorded no drop:
+
+```
+-> overlay flow ... identity ingress->22996 ... ifindex cilium_vxlan: 10.244.0.241:33097 -> 10.244.1.140:8080 tcp SYN
+```
+
+and `cilium monitor` on the receiving node never saw the packet at all, dropped or forwarded. A misrouted packet produces silence at both ends, so every drop-based diagnostic — Hubble verdicts, BPF drop counters, `/proc/net/snmp` — reported healthy.
+
+**Ruling out the obvious.** Cross-node connectivity was intact throughout. A pod on the same sending node reached the same backend pod over the same tunnel and received a complete HTTP response, and the underlay was reachable from pod netns. Tunnel maps, ipcache entries, MTU (1200) and `table 52` routes were correct in both directions and `cilium status` reported all nodes reachable. Only traffic from the Gateway's `reserved:ingress` endpoint failed.
+
+**Root cause.** `ip rule` priority 9 sends anything marked `0x200` — Cilium's to-proxy mark — to table 2004, which is `local default dev lo`: a catch-all that makes *every* destination local. Envoy's upstream connection carries that mark and the encapsulating VXLAN packet inherits it, so the outer packet addressed to the peer's tailnet IP is delivered to loopback instead of `tailscale0`:
+
+```
+ip route get <peer-tailnet-ip> mark 0      -> dev tailscale0 table 52 src <local-tailnet-ip>
+ip route get <peer-tailnet-ip> mark 0x200  -> local <peer-tailnet-ip> dev lo table 2004
+```
+
+Ordinary pod traffic crosses the same tunnel unaffected because only the proxy path carries `0x200`.
+
+**Relationship to addenda 8 and 27.** The same `0x200`/table-2004 mechanism, now on the encapsulated outer packet rather than an inner one. The existing guard rules cannot cover it: they match TCP on ports 80/443 and TCP replies from the pod CIDR, while this is UDP 8472 between two tailnet addresses. That a third instance appeared in a different position is the useful signal — the mark is applied broadly and every path that must not be captured has to be exempted explicitly.
+
+**Decision.** Resolve tailnet destinations ahead of the mark rule, in the existing guard DaemonSet:
+
+```
+ip rule add priority 8 to 100.64.0.0/10 lookup 52
+```
+
+This fixes the outer packet's route without altering marks, so the proxy redirect is untouched — that redirect exists for traffic addressed to pods, and no pod carries a tailnet address. Asserted in the guard's loop for the reason the other rules are: Cilium rewrites its chains on every re-sync and a rule set once does not survive.
+
+**Codified.** `manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml`, in `cilium-hostnetwork-mangle-guard` alongside the addendum 8 and 27 rules.
+
+**Verified.** Applied on `hub-hybrid-dev`: the mark-0x200 route moved from `lo` back to `tailscale0`, and hub hostnames went from 503 to serving — argocd 307 and console 303, the latter being the login redirect that proves the backend on the far node is reached.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

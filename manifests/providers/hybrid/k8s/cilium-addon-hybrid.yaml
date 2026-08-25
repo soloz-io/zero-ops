@@ -1560,12 +1560,32 @@ stringData:
                   # POD_CIDR must match clusterPoolIPv4PodCIDRList in
                   # manifests/providers/hybrid/k8s/spokepool-hybrid-composition.yaml.
                   POD_CIDR="10.244.0.0/16"
+                  # Tailscale's CGNAT range; every tailnet peer carries an address in it.
+                  TAILNET_CIDR="100.64.0.0/10"
                   echo "Starting hostNetwork gateway mangle guard (inbound 80/443 + replies from ${POD_CIDR})..."
                   while true; do
                     # 1. Inbound to the host-bound Gateway listeners (ADR-046 addendum 8).
                     if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null; then
                       iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null || true
                       echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for dports 80/443"
+                    fi
+                    # 3. Overlay traffic to tailnet peers must not be captured by the to-proxy
+                    #    rule (ADR-046 addendum 28). ip rule 9 sends anything marked 0x200 to
+                    #    table 2004, which is `local default dev lo` - a catch-all that makes
+                    #    EVERY destination local. Envoy's upstream connection carries that mark
+                    #    and the encapsulated VXLAN packet inherits it, so the outer packet
+                    #    addressed to a peer's tailnet IP is delivered to loopback instead of
+                    #    tailscale0. It is never dropped, only misrouted, so neither node logs
+                    #    anything: the sender reports handing it to cilium_vxlan and the receiver
+                    #    never sees it. Cross-node Envoy upstreams fail while ordinary pod traffic
+                    #    over the same tunnel succeeds, because only the proxy path carries 0x200.
+                    #
+                    #    Resolving tailnet destinations ahead of the mark rule fixes the outer
+                    #    packet without touching marks. It cannot affect the proxy redirect, which
+                    #    exists for traffic addressed to pods, not to tailnet addresses.
+                    if ! ip rule list | grep -q "to ${TAILNET_CIDR} lookup 52"; then
+                      ip rule add priority 8 to "${TAILNET_CIDR}" lookup 52 2>/dev/null || true
+                      echo "[$(date -u +%T)] Re-inserted ip rule: tailnet ${TAILNET_CIDR} -> table 52"
                     fi
                     # 2. Replies from backend pods to Envoy's ephemeral upstream ports
                     #    (ADR-046 addendum 27). --dst-type LOCAL keeps this to traffic
