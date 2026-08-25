@@ -2091,15 +2091,36 @@ rule; `cx_connect_fail` stops tracking `cx_total` on
 `ingress`-identity connection shows SYN followed by ACK rather than SYN followed
 by RST 5s later; and the public hostname returns a non-503 status.
 
-**Status.** Manifest change written and pending review; NOT yet applied to
-`spoke-pool-hybrid-dev-01`. The rule's syntax and the `addrtype` module were
-validated non-mutatingly on the live node (`iptables -C` returns
-"Bad rule (does a matching rule exist in that chain?)", i.e. parsed and loaded,
-rule simply absent). The causal chain above is established from the routing
-table, the mangle chain, and the flow traces; the final step — the SYN-ACK
-carrying mark `0x200` on this node — is inferred from those, not captured
-packet-level, and a `tcpdump` on the node during a request would settle it
-before or during rollout.
+**Status.** Applied and verified on `spoke-pool-hybrid-dev-01` (2026-08-25).
+Delivered by GitOps: ArgoCD synced `cilium-addon-hybrid` to the hub Secret
+(~110s), the `Reconcile`-strategy ClusterResourceSet pushed it to the spoke, and
+the guard DaemonSet restarted with the new script. Observed afterwards:
+
+```
+# CILIUM_PRE_mangle, new rule ahead of the transparent-socket rule
+-A CILIUM_PRE_mangle -s 10.244.0.0/16 -p tcp -m addrtype --dst-type LOCAL -j RETURN
+-A CILIUM_PRE_mangle -p tcp -m multiport --dports 80,443 -j RETURN
+-A CILIUM_PRE_mangle ! -o lo -m socket --transparent ... -j MARK --set-xmark 0x200
+
+# Envoy upstream, same cluster that was failing 100%
+cx_total::3   cx_connect_fail::0   rq_success::4   rq_error::0
+```
+
+`https://waypoint.dev.nutgraf.in/` returns 302 in ~0.7s to
+`auth.dev.nutgraf.in/oauth2/auth` (PKCE authorization-code flow) — the correct
+response for an unauthenticated request, replacing the 503.
+
+One operational note for future rollouts: updating the addon Secret makes the
+CRS re-apply every resource in it, which rolls the `cilium-envoy` DaemonSet.
+`:80`/`:443` are briefly unbound and the endpoint returns connection-refused
+(not 503) for roughly 15-30s. Requests during that window are lost; sequence it
+accordingly, and do not read a refused connection in that window as the fix
+having failed.
+
+The one step that remained inferred rather than packet-captured — the SYN-ACK
+carrying mark `0x200` — is now corroborated behaviourally: exempting exactly
+that reply path, and changing nothing else, moved the cluster from 100%
+`cx_connect_fail` to zero.
 
 ## References
 
