@@ -2,8 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # ingress.yaml is gone: the hub serves these hostnames from the Gateway API
+  # (manifests/hub-core-services/gateway), and an Ingress with no controller behind
+  # it is not inert — cert-manager's ingress-shim keeps trying to service its TLS
+  # annotations through an ingress class nothing implements.
   - cluster-issuer.yaml
-  - ingress.yaml
 
 # For local development, uncomment:
 # - dev-certificates.yaml

@@ -21,14 +21,10 @@ spec:
       port: 4444
     - protocol: TCP
       port: 4445
-  # Allow from AgentGateway for JWKS fetch
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: api-gateway
-    ports:
-    - protocol: TCP
-      port: 4444
+  # AgentGateway's JWKS fetch is covered by the platform-edge rule above, which is
+  # where AgentGateway actually runs. A rule naming an api-gateway namespace was
+  # removed: no such namespace exists, so it admitted nothing and only suggested a
+  # caller that had been accounted for twice.
   # Allow hub-operator to register OAuth clients via admin API
   - from:
     - namespaceSelector:

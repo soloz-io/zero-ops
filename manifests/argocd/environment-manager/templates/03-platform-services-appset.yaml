@@ -282,87 +282,29 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-          - appName: 'ingress-nginx-controller'
+          # Hub public ingress on Gateway API (supersedes ADR-049 §3, which
+          # consolidated it on ingress-nginx). Cilium's Envoy binds host ports
+          # 80/443 on the control-plane node, behind the same control-plane Hetzner
+          # LB the nginx DaemonSet sat behind, so DNS and the LB are untouched.
+          #
+          # The two cannot coexist: whichever is present holds those host ports.
+          - appName: 'hub-gateway'
             destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'false'
-            repoURL: 'https://kubernetes.github.io/ingress-nginx'
-            targetRevision: '4.12.1'
-            path: ''
-            chart: 'ingress-nginx'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/gateway'
+            chart: ''
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: |
-              controller:
-                ingressClassResource:
-                  enabled: true
-                  default: false
-                # admission webhook disabled: (1) the chart's cert-gen/patch
-                # Helm hook jobs don't run under ArgoCD (empty caBundle broke
-                # every Ingress create with a TLS trust error), and (2) the
-                # webhook rejects cert-manager's HTTP-01 solver Ingress
-                # ('path cannot be used with pathType Exact'), blocking ACME
-                # issuance. cert-manager relies on this for Let's Encrypt.
-                admissionWebhooks:
-                  enabled: false
-                # ADR-046 §25.2/§25.3: the CAPH-managed control-plane LB forwards
-                # 80/443 to its SERVER targets, and on a hybrid hub the only server
-                # CAPH can target is the control-plane node — home workers carry
-                # unmanaged:// providerIDs. ingress-nginx must therefore bind
-                # :80/:443 on the control-plane host itself.
-                #
-                # This replaces a `type: LoadBalancer` Service whose CCM load
-                # balancer carried ZERO targets for its entire life (kubeadm's
-                # exclude-from-external-load-balancers on the CP node + an
-                # untargetable home worker), so the hub's public path never worked.
-                kind: DaemonSet
-                hostNetwork: true
-                dnsPolicy: ClusterFirstWithHostNet
-                # Explicit ADR-014 exception (§25.3 item 4): node-bound
-                # infrastructure tied to the LB target set, in the same class as the
-                # CNI agent, the CSI node plugin, and tailscaled (§22). Scoped to
-                # ingress-nginx; it does not generalise.
-                nodeSelector:
-                  node-role.kubernetes.io/control-plane: ""
-                tolerations:
-                  - key: node-role.kubernetes.io/control-plane
-                    operator: Exists
-                    effect: NoSchedule
-                # ROOT CAUSE FIX — replaces external-dns --default-targets and the
-                # per-Ingress external-dns.alpha.kubernetes.io/target annotations.
-                #
-                # The chart defaults controller.publishService.enabled=true, which
-                # writes THE SERVICE'S address into every Ingress
-                # .status.loadBalancer. That Service is ClusterIP here (no cloud LB,
-                # see below), so every Ingress advertised 10.110.4.20 — an RFC1918
-                # address. external-dns faithfully published it, and Let's Encrypt
-                # rejected it as "no valid A records found", failing every ACME
-                # challenge on the hub.
-                #
-                # Publishing the real public address fixes it at the source: Ingress
-                # status becomes correct, so external-dns needs no flags at all (it
-                # just reads status, its normal source of truth) and no Ingress needs
-                # a target annotation.
-                #
-                # hubIngressAddress is the public IP that actually fronts :80/:443.
-                # Once ADR-046 §25.1 lands (controlPlaneEndpoint.port 6443, freeing
-                # :443 on the CAPH LB for ingress) this MUST be the LB IP, which is
-                # stable across a control-plane machine roll. Until then it is the
-                # control-plane node's own public IP, because the LB's :443 is still
-                # the kube-apiserver.
-                {{ if .Values.hubIngressAddress }}
-                publishService:
-                  enabled: false
-                extraArgs:
-                  publish-status-address: {{ .Values.hubIngressAddress }}
-                {{ end }}
-                service:
-                  # No cloud load balancer. The public entry point is the CAPH LB.
-                  enabled: true
-                  type: ClusterIP
-              defaultBackend:
-                enabled: false
-            helmReleaseName: 'ingress-nginx'
+            helmValues: ''
+            helmReleaseName: ''
             ignoreDifferencesNamespace: ''
+          # ingress-nginx-controller is removed, not disabled. The hub serves its
+          # hostnames from the Gateway API (appName hub-gateway above); Cilium's Envoy
+          # binds host ports 80 and 443 on the control-plane node, and the two cannot
+          # coexist there — while the DaemonSet held those ports Envoy logged
+          # "cannot bind '0.0.0.0:80': Address already in use" on every listener push.
           - appName: 'ingress-config'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
@@ -536,15 +478,6 @@ spec:
           jsonPointers:
             - /metadata/annotations/updatedAt
             - /spec/template/metadata/annotations/updatedAt
-    {{"{{-"}} end {{"}}"}}
-    {{"{{-"}} if eq .appName "ingress-nginx-controller" {{"}}"}}
-    spec:
-      ignoreDifferences:
-        - group: admissionregistration.k8s.io
-          kind: ValidatingWebhookConfiguration
-          name: ingress-nginx-admission
-          jsonPointers:
-            - /webhooks/0/clientConfig/caBundle
     {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .appName "clickhouse-operator" {{"}}"}}
     spec:

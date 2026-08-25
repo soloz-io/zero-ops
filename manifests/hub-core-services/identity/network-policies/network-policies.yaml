@@ -1,3 +1,12 @@
+# WARNING before uncommenting anything below: the namespaceSelector values here
+# name namespaces that do not exist on this platform. ingress-nginx runs in
+# platform-ops, and AgentGateway runs in platform-edge, not in namespaces called
+# ingress-nginx or api-gateway. A selector naming a non-existent namespace matches
+# nothing, so the rule silently admits no traffic and the workload becomes
+# unreachable through the ingress — surfacing as a 504, not as a denial. That is
+# not hypothetical: it is how the login UI went down. Correct the namespaces as
+# part of enabling any of these.
+
 # apiVersion: networking.k8s.io/v1
 # kind: NetworkPolicy
 # metadata:

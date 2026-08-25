@@ -105,10 +105,27 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// Reading the same base file both halves use is deliberate: a second copy of 160
 	// cilium settings would drift, and drift in this file is a cluster that boots
 	// with a datapath nobody intended.
-	ciliumRaw, err := readTemplateManifest(
-		"manifests/spoke/spoke-bootstrap/", "cilium-addon-template.yaml", "cilium.yaml")
+	//
+	// That reasoning applies to the WORKLOAD half too, and it did not used to. The
+	// hub took its agent and operator from spoke-bootstrap/cilium-addon-template.yaml
+	// while its settings came from the provider base, and the two disagreed: the base
+	// declares external-envoy-proxy true (ADR-046 addendum 10 decoupled Envoy), but
+	// that template ships no cilium-envoy at all. The hub therefore ran with an agent
+	// that delegates L7 to an Envoy nobody deployed. Nothing surfaced until the hub
+	// served a Gateway, at which point the agent could not push the listener
+	// configuration anywhere ("failed to upsert envoy resources: context deadline
+	// exceeded") and the Gateway reported Programmed with no dataplane behind it.
+	//
+	// The provider's rendered addon is the one artifact that carries the workloads and
+	// the settings in agreement, including the pieces hostNetwork Gateway mode needs:
+	// the standalone cilium-envoy DaemonSet (addendum 10) and the mangle guard that
+	// keeps the host-bound listeners reachable (addendum 8, addendum 27). A hub that
+	// binds :80/:443 through Envoy needs both for the same reasons a spoke does.
+	ciliumAddonDir := filepath.Join("manifests", "providers", p.driver.Name(), "k8s") + string(filepath.Separator)
+	ciliumAddonFile := fmt.Sprintf("cilium-addon-%s.yaml", p.driver.Name())
+	ciliumRaw, err := readTemplateManifest(ciliumAddonDir, ciliumAddonFile, "cilium.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to read cilium manifest: %w", err)
+		return fmt.Errorf("failed to read cilium addon for provider %s: %w", p.driver.Name(), err)
 	}
 	//
 	// Two things the base is NOT, and both were wrong here:

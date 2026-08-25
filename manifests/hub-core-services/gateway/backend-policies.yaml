@@ -1,0 +1,48 @@
+# Admitting the hub Gateway to the backends it fronts.
+#
+# Cilium presents traffic it has proxied for a Gateway to the backend under the
+# reserved "ingress" identity, not under the identity of any namespace or pod. A
+# stock NetworkPolicy has no way to name that, so backends whose policy is
+# enforced must admit it here or the Gateway reaches them and is dropped — a
+# timeout at the client, never a visible denial.
+#
+# Only workloads with policy already enforced need an entry. A pod that no policy
+# selects is unrestricted and reachable without one, so argocd-server, infisical,
+# agentgateway and auth-proxy need nothing until they gain a policy.
+#
+# Cilium evaluates these together with the Kubernetes NetworkPolicies in each
+# service's own directory and admits the union, so those keep expressing the
+# in-cluster callers and this expresses only the Gateway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-gateway-to-kratos-ui
+  namespace: platform-identity
+spec:
+  endpointSelector:
+    matchLabels:
+      app: kratos-selfservice-ui-node
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-gateway-to-kratos
+  namespace: platform-identity
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kratos
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "4433"
+              protocol: TCP

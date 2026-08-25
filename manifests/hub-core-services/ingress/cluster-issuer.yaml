@@ -9,6 +9,19 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
+    # HTTP-01 solved through the hub Gateway, not an ingress class. cert-manager
+    # creates a temporary HTTPRoute for each challenge and attaches it to the
+    # Gateway's plaintext listener; the listener admits routes from every namespace
+    # for exactly this reason, since a challenge route is created beside the
+    # Certificate that provoked it.
+    #
+    # This must move with the ingress controller, not after it. An issuer solving
+    # over ingressClassName nginx cannot complete a challenge once nothing serves
+    # that class, and the failure appears only at the first renewal, up to ninety
+    # days after the change that caused it.
     - http01:
-        ingress:
-          ingressClassName: nginx
+        gatewayHTTPRoute:
+          parentRefs:
+            - name: hub-gateway
+              namespace: platform-ops
+              kind: Gateway

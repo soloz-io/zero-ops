@@ -11,14 +11,14 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Allow from Ingress controller
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 3000
+  # Traffic reaches this workload through Cilium's Gateway API proxy, which presents
+  # the reserved "ingress" identity rather than any namespace, so there is nothing a
+  # stock NetworkPolicy can name here. If this policy is ever enforced, admit the
+  # Gateway with a CiliumNetworkPolicy alongside the hub Gateway
+  # (manifests/hub-core-services/gateway/backend-policies.yaml).
+  #
+  # The rule removed here named a namespace called ingress-nginx which never existed
+  # on this platform, so it admitted nothing at all.
   egress:
   # Allow to auth-proxy for extAuthz (ports-only: Cilium evaluates NetworkPolicy
   # BEFORE service DNAT when bpf-lb-sock=false; ClusterIPs match no selector.

@@ -11,3 +11,5 @@ resources:
   - hub-gateway.yaml
   - reference-grants.yaml
   - httproutes.yaml
+  # Admits the Gateway's proxied traffic to backends whose policy is enforced.
+  - backend-policies.yaml
