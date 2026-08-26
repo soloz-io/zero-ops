@@ -223,6 +223,28 @@ body {
     overflow: hidden;
   }
 
+  /* ── Desktop width: 720px (>=640px) ────────────────────────────────── */
+  @media (min-width: 640px) {
+    .ory-elements .sm\:w-\[480px\] {
+      width: 720px;
+    }
+    .ory-elements .sm\:max-w-\[480px\] {
+      max-width: 720px;
+    }
+    .ory-elements .max-w-\(--breakpoint-sm\) {
+      max-width: 720px;
+    }
+    .ory-elements .md\:max-w-\[712px\] {
+      max-width: 720px;
+    }
+    .ory-elements .lg\:max-w-\[802px\] {
+      max-width: 720px;
+    }
+    .ory-elements .xl\:max-w-\[896px\] {
+      max-width: 720px;
+    }
+  }
+
   /* ── Spacing ───────────────────────────────────────────────────────── */
   .ory-elements .px-2 {
     padding-left: 0.5rem;
