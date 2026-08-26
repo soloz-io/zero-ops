@@ -141,7 +141,7 @@ spec:
           - appName: 'platform-stalwart-mail'
             destinationNamespace: 'platform-mail'
             isPlatformOwned: 'true'
-            repoURL: 'https://ghcr.io/antigenic-oss/charts'
+            repoURL: 'ghcr.io/antigenic-oss/charts'
             targetRevision: '1.0.5'
             path: ''
             chart: 'antigenic-stalwart-helm-chart'
