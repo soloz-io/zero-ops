@@ -13,5 +13,5 @@ resources:
 # image is always an immutable reference to a specific build rather than whatever
 # `latest` happened to point at when a pod last restarted.
 images:
-- digest: sha256:c38b956b7128cf4b9d7e2f49f1ca2d2bd7bdb562bd9ece33bbae39c6a94626cb
+- digest: sha256:12a4e7d44bded4bbb1e67806efd607db99de615cdd8f575a08daf8a2dcad9d0b
   name: ghcr.io/soloz-io/kratos-ui
