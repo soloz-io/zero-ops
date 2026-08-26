@@ -7,7 +7,7 @@ A Kubernetes Operator that manages Day-2 operations for the Zero-Ops Hub cluster
 The hub-operator reconciles two Custom Resources:
 
 ### HubEnvironment (3-phase Day-2 orchestration)
-
+ 
 | Phase | Responsibility |
 |---|---|
 | **Phase 1** | Secret Zero generation — bootstrap secrets required before ArgoCD syncs dependent services |
