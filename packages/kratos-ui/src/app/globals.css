@@ -10,6 +10,90 @@ body {
 }
 
 /*
+ * Override the DS preflight `button, input { background: transparent }`
+ * which is unlayered and beats the layered Ory utility classes.
+ * These unlayered overrides ensure Ory components pick up our tokens.
+ */
+.ory-elements .bg-button-primary-background-default,
+.ory-elements .loading\:bg-button-primary-background-default {
+  background-color: var(--color-button-primary-background-default) !important;
+}
+.ory-elements .bg-button-primary-background-hover,
+.ory-elements .hover\:bg-button-primary-background-hover:hover {
+  background-color: var(--color-button-primary-background-hover) !important;
+}
+.ory-elements .bg-button-primary-background-disabled,
+.ory-elements .disabled\:bg-button-primary-background-disabled:disabled {
+  background-color: var(--color-button-primary-background-disabled) !important;
+}
+.ory-elements .text-button-primary-foreground-default,
+.ory-elements .loading\:text-button-primary-foreground-default {
+  color: var(--color-button-primary-foreground-default) !important;
+}
+.ory-elements .text-button-primary-foreground-hover,
+.ory-elements .hover\:text-button-primary-foreground-hover:hover {
+  color: var(--color-button-primary-foreground-hover) !important;
+}
+.ory-elements .text-button-primary-foreground-disabled,
+.ory-elements .disabled\:text-button-primary-foreground-disabled:disabled {
+  color: var(--color-button-primary-foreground-disabled) !important;
+}
+.ory-elements .ring-button-primary-border-default,
+.ory-elements .loading\:ring-button-primary-border-default {
+  --tw-ring-color: var(--color-button-primary-border-default) !important;
+}
+.ory-elements .ring-button-primary-border-hover,
+.ory-elements .hover\:ring-button-primary-border-hover:hover {
+  --tw-ring-color: var(--color-button-primary-border-hover) !important;
+}
+.ory-elements .ring-button-primary-border-disabled,
+.ory-elements .disabled\:ring-button-primary-border-disabled:disabled {
+  --tw-ring-color: var(--color-button-primary-border-disabled) !important;
+}
+.ory-elements .bg-input-background-default {
+  background-color: var(--color-input-background-default) !important;
+}
+.ory-elements .bg-input-background-hover {
+  background-color: var(--color-input-background-hover) !important;
+}
+.ory-elements .bg-input-background-disabled {
+  background-color: var(--color-input-background-disabled) !important;
+}
+.ory-elements .text-input-foreground-primary {
+  color: var(--color-input-foreground-primary) !important;
+}
+.ory-elements .text-input-foreground-tertiary {
+  color: var(--color-input-foreground-tertiary) !important;
+}
+.ory-elements .border-input-border-default {
+  border-color: var(--color-input-border-default) !important;
+}
+.ory-elements .border-input-border-focus {
+  border-color: var(--color-input-border-focus) !important;
+}
+.ory-elements .focus-within\:border-input-border-focus:focus-within {
+  border-color: var(--color-input-border-focus) !important;
+}
+.ory-elements .focus-visible\:border-input-border-focus:focus-visible {
+  border-color: var(--color-input-border-focus) !important;
+}
+.ory-elements .text-interface-foreground-default-primary {
+  color: var(--color-interface-foreground-default-primary) !important;
+}
+.ory-elements .text-interface-foreground-default-secondary {
+  color: var(--color-interface-foreground-default-secondary) !important;
+}
+.ory-elements .text-button-link-brand-brand {
+  color: var(--color-button-link-brand-brand) !important;
+}
+.ory-elements .bg-form-background-default {
+  background-color: var(--color-form-background-default) !important;
+}
+.ory-elements .border-form-border-default {
+  border-color: var(--color-form-border-default) !important;
+}
+
+/*
  * Bridge DS tokens → Ory elements CSS variables.
  * Ory uses its own --interface-* → --button-* → --color-* chain.
  * We override the --interface-* semantic layer so Ory components
