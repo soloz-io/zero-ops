@@ -8,3 +8,67 @@ body,
 body {
   overflow: hidden;
 }
+
+/*
+ * Bridge DS tokens → Ory elements CSS variables.
+ * Ory uses its own --interface-* → --button-* → --color-* chain.
+ * We override the --interface-* semantic layer so Ory components
+ * pick up the ai-design-system dark-violet theme.
+ */
+.ory-elements {
+  /* Background */
+  --interface-background-default-primary: var(--background);
+  --interface-background-default-primary-hover: var(--background);
+  --interface-background-default-secondary: var(--secondary);
+  --interface-background-default-secondary-hover: var(--secondary);
+  --interface-background-default-tertiary: var(--accent);
+  --interface-background-brand-primary: var(--primary);
+  --interface-background-brand-primary-hover: var(--primary);
+  --interface-background-brand-secondary: var(--secondary);
+  --interface-background-brand-secondary-hover: var(--secondary);
+  --interface-background-default-inverted: var(--foreground);
+  --interface-background-disabled-disabled: var(--muted);
+
+  /* Foreground / text */
+  --interface-foreground-default-primary: var(--foreground);
+  --interface-foreground-default-secondary: var(--muted-foreground);
+  --interface-foreground-default-tertiary: var(--muted-foreground);
+  --interface-foreground-brand-on-primary: var(--primary-foreground);
+  --interface-foreground-brand-on-secondary: var(--secondary-foreground);
+  --interface-foreground-brand-primary: var(--primary);
+  --interface-foreground-disabled-disabled: var(--muted-foreground);
+  --interface-foreground-disabled-on-disabled: var(--muted-foreground);
+
+  /* Borders */
+  --interface-border-default-primary: var(--border);
+  --interface-border-brand-brand: var(--primary);
+  --interface-border-disabled-disabled: var(--border);
+
+  /* Validation */
+  --interface-background-validation-danger: var(--destructive);
+  --interface-foreground-validation-danger: var(--destructive);
+  --interface-border-validation-danger: var(--destructive);
+
+  /* Input */
+  --input-background-default: var(--background);
+  --input-background-hover: var(--background);
+  --input-border-default: var(--border);
+  --input-border-focus: var(--ring);
+  --input-foreground-primary: var(--foreground);
+  --input-foreground-tertiary: var(--muted-foreground);
+
+  /* Ory root aliases */
+  --ory-background-default: var(--background);
+  --ory-foreground-default: var(--foreground);
+  --ory-border-default: var(--border);
+
+  /* Button primary */
+  --button-primary-background-default: var(--primary);
+  --button-primary-background-hover: var(--primary);
+  --button-primary-foreground-default: var(--primary-foreground);
+  --button-primary-foreground-hover: var(--primary-foreground);
+
+  /* Button secondary */
+  --button-secondary-background-default: var(--secondary);
+  --button-secondary-foreground-default: var(--foreground);
+}
