@@ -1,0 +1,28 @@
+# Hetzner DNS API token — used by the PostSync Job to manage TXT records.
+# Single hcloud-token serves both Cloud and DNS APIs (ADR-046).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hetzner-dns-credentials
+  namespace: platform-mail
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: hetzner-dns
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+      engineVersion: v2
+      data:
+        api-key: "{{ .apikey }}"
+  data:
+    - secretKey: apikey
+      remoteRef:
+        key: hcloud-token
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None

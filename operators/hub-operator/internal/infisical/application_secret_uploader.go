@@ -83,6 +83,115 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 		// silently diverges from the per-cell value.
 		logger.Info("Processing application secret", "description", secretDef.Description)
 
+		// ====================================================================
+		// KEY PAIR GENERATION (ed25519, etc.)
+		// ====================================================================
+		// Key pair generation follows a different idempotency model than passwords:
+		//   both absent    → generate
+		//   both present   → validate consistency
+		//   private only   → derive public from private (repair)
+		//   public only    → ERROR (do not mutate — indicates corruption)
+		//   mismatch       → ERROR (do not mutate — indicates corruption)
+		if secretDef.KeyType == "ed25519" {
+			privExists, err := infisicalClient.SecretExists(ctx, projectSlug, environmentSlug, secretPath, secretDef.PrivateKeyKey)
+			if err != nil {
+				logger.Error(err, "Failed to check if private key exists in Infisical", "key", secretDef.PrivateKeyKey)
+				failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+				continue
+			}
+
+			pubExists, err := infisicalClient.SecretExists(ctx, projectSlug, environmentSlug, secretPath, secretDef.PublicKeyKey)
+			if err != nil {
+				logger.Error(err, "Failed to check if public key exists in Infisical", "key", secretDef.PublicKeyKey)
+				failedKeys = append(failedKeys, secretDef.PublicKeyKey)
+				continue
+			}
+
+			switch {
+			case privExists && pubExists:
+				// Both exist — validate consistency
+				privVal, _, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, secretDef.PrivateKeyKey)
+				if err != nil {
+					logger.Error(err, "Failed to read existing private key for validation", "key", secretDef.PrivateKeyKey)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+					continue
+				}
+				pubVal, _, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, secretDef.PublicKeyKey)
+				if err != nil {
+					logger.Error(err, "Failed to read existing public key for validation", "key", secretDef.PublicKeyKey)
+					failedKeys = append(failedKeys, secretDef.PublicKeyKey)
+					continue
+				}
+				if err := secrets.ValidateEd25519KeyPair(privVal, pubVal); err != nil {
+					logger.Error(err, "DKIM key pair validation failed — key pair is inconsistent, refusing to mutate",
+						"privateKey", secretDef.PrivateKeyKey, "publicKey", secretDef.PublicKeyKey)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey, secretDef.PublicKeyKey)
+					continue
+				}
+				logger.Info("DKIM key pair exists and is consistent, skipping", "selector", secretDef.Selector)
+				skippedCount++
+				successCount++
+				continue
+
+			case privExists && !pubExists:
+				// Private exists, public missing — derive public from private (repair)
+				privVal, _, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, secretDef.PrivateKeyKey)
+				if err != nil {
+					logger.Error(err, "Failed to read private key for public key derivation", "key", secretDef.PrivateKeyKey)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+					continue
+				}
+				pubB64, err := secrets.DeriveEd25519PublicKeyFromPEM(privVal)
+				if err != nil {
+					logger.Error(err, "Failed to derive public key from existing private key", "key", secretDef.PrivateKeyKey)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+					continue
+				}
+				if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.PublicKeyKey, pubB64); err != nil {
+					logger.Error(err, "Failed to upload derived public key to Infisical", "key", secretDef.PublicKeyKey)
+					failedKeys = append(failedKeys, secretDef.PublicKeyKey)
+					continue
+				}
+				logger.Info("Derived and uploaded public key from existing private key", "selector", secretDef.Selector)
+				successCount++
+
+			case !privExists && pubExists:
+				// Public exists but private missing — indicates corruption, do not mutate
+				logger.Error(fmt.Errorf("public key exists but private key is missing"),
+					"DKIM key pair is in an inconsistent state — public key without private key indicates corruption. "+
+						"Manual intervention required: delete the public key and let the operator regenerate both",
+					"privateKey", secretDef.PrivateKeyKey, "publicKey", secretDef.PublicKeyKey)
+				failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+				continue
+
+			default:
+				// Both missing — generate new key pair
+				privPEM, pubB64, err := secrets.GenerateEd25519KeyPair()
+				if err != nil {
+					logger.Error(err, "Failed to generate Ed25519 key pair", "selector", secretDef.Selector)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+					continue
+				}
+				if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.PrivateKeyKey, privPEM); err != nil {
+					logger.Error(err, "Failed to upload private key to Infisical", "key", secretDef.PrivateKeyKey)
+					failedKeys = append(failedKeys, secretDef.PrivateKeyKey)
+					continue
+				}
+				if err := infisicalClient.CreateOrUpdateSecretRaw(ctx, projectSlug, environmentSlug, secretPath, secretDef.PublicKeyKey, pubB64); err != nil {
+					logger.Error(err, "Failed to upload public key to Infisical", "key", secretDef.PublicKeyKey)
+					failedKeys = append(failedKeys, secretDef.PublicKeyKey)
+					continue
+				}
+				logger.Info("Generated and uploaded Ed25519 DKIM key pair", "selector", secretDef.Selector,
+					"privateKey", secretDef.PrivateKeyKey, "publicKey", secretDef.PublicKeyKey)
+				successCount++
+			}
+			continue
+		}
+		// ====================================================================
+		// END KEY PAIR GENERATION
+		// ====================================================================
+
 		// Upload username if this is a database credential (UsernameKey is not empty)
 		if secretDef.UsernameKey != "" {
 			// Check if username already exists in Infisical

@@ -190,6 +190,15 @@ spec:
               secret:
                 name: stalwart-secrets
                 create: false
+              extraVolumes:
+                - name: dkim-private
+                  secret:
+                    secretName: stalwart-dkim-private
+                    defaultMode: 0400
+              extraVolumeMounts:
+                - name: dkim-private
+                  mountPath: /opt/stalwart/dkim
+                  readOnly: true
               config:
                 server:
                   hostname: mail.nutgraf.in

@@ -2,9 +2,12 @@ package secrets
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -81,6 +84,77 @@ func GenerateSecurePasswordWithCharset(length int, charset string) (string, erro
 	}
 
 	return string(password), nil
+}
+
+// GenerateEd25519KeyPair generates an Ed25519 key pair for DKIM signing.
+// Returns:
+//   - privateKeyPEM: PKCS#8 PEM-encoded private key (for Stalwart's privateKey field)
+//   - publicKeyBase64: raw base64-encoded public key (for DKIM p= DNS record)
+//
+// The public key is NOT PEM-wrapped — it's the exact bytes needed for:
+//
+//	v=DKIM1; k=ed25519; p=<publicKeyBase64>
+func GenerateEd25519KeyPair() (privateKeyPEM string, publicKeyBase64 string, err error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate Ed25519 key pair: %w", err)
+	}
+
+	// Marshal private key to PKCS#8 PEM
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal Ed25519 private key: %w", err)
+	}
+
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privBytes,
+	})
+
+	// Extract raw 32-byte public key and base64-encode it (DKIM p= format)
+	pubB64 := base64.StdEncoding.EncodeToString([]byte(pub))
+
+	return string(privPEM), pubB64, nil
+}
+
+// DeriveEd25519PublicKeyFromPEM extracts the raw base64-encoded public key from a
+// PEM-encoded Ed25519 private key. Used for idempotency repair when the private key
+// exists in Infisical but the public key is missing.
+func DeriveEd25519PublicKeyFromPEM(privateKeyPEM string) (publicKeyBase64 string, err error) {
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	if block == nil {
+		return "", fmt.Errorf("failed to decode PEM block from private key")
+	}
+
+	privKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
+	}
+
+	edPrivKey, ok := privKey.(ed25519.PrivateKey)
+	if !ok {
+		return "", fmt.Errorf("private key is not Ed25519")
+	}
+
+	pub := edPrivKey.Public().(ed25519.PublicKey)
+	pubB64 := base64.StdEncoding.EncodeToString([]byte(pub))
+
+	return pubB64, nil
+}
+
+// ValidateEd25519KeyPair verifies that a PEM-encoded private key and a base64-encoded
+// public key form a consistent Ed25519 key pair. Returns nil if valid, error otherwise.
+func ValidateEd25519KeyPair(privatePEM string, publicBase64 string) error {
+	derived, err := DeriveEd25519PublicKeyFromPEM(privatePEM)
+	if err != nil {
+		return fmt.Errorf("cannot derive public key from private key: %w", err)
+	}
+
+	if derived != publicBase64 {
+		return fmt.Errorf("key pair mismatch: derived public key does not match stored public key")
+	}
+
+	return nil
 }
 
 // GeneratePlatformDBApp creates the platform-db-app BasicAuth secret

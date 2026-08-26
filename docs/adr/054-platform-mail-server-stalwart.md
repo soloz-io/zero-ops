@@ -80,23 +80,63 @@ Stakater Reloader annotations on the Stalwart Deployment trigger rolling restart
 | `mail.nutgraf.in` A | A | HTTPRoute → ExternalDNS | Yes |
 | `smtp.nutgraf.in` A | A | HTTPRoute → ExternalDNS | Yes |
 | `nutgraf.in` MX | MX | `DNSEndpoint` CRD + ExternalDNS `--source=crd` | Yes (requires CRD install) |
-| `nutgraf.in` SPF | TXT | Hetzner DNS API via `hcloud-go/v2` CronJob | Partial (new component) |
-| `stalwart._domainkey.nutgraf.in` DKIM | TXT | Pre-generated key or post-deploy retrieval | Constraint |
-| `_dmarc.nutgraf.in` DMARC | TXT | Same CronJob as SPF | Partial (same component) |
+| `nutgraf.in` SPF | TXT | PostSync Job (curl + Hetzner DNS API) | Partial (PostSync one-shot) |
+| `s1._domainkey.nutgraf.in` DKIM | TXT | Hub-operator generates key pair → Infisical → ESO → PostSync Job → Stalwart JMAP API + Hetzner DNS API | Partial (PostSync one-shot) |
+| `_dmarc.nutgraf.in` DMARC | TXT | Same PostSync Job as SPF | Partial (same component) |
 
-The `hcloud-go/v2` SDK pattern for TXT record management is established by the `cert-manager-webhook-hetzner` reference project (`Zone.AddRRSetRecords` / `Zone.RemoveRRSetRecords`). A small CronJob or controller following this pattern can manage SPF, DKIM, and DMARC TXT records.
+### DKIM key generation (automated)
 
-### Hetzner firewall remains a known gap
+The hub-operator generates the DKIM Ed25519 key pair as part of its `ApplicationSecretMappings` reconciliation, following the same ADR-003/ADR-039 pattern as all other application secrets:
 
-Opening ports 25, 465, and 587 for inbound SMTP requires Hetzner Cloud Firewall rules. CAPH's `HetznerCluster` v1beta1 CRD has no `firewall` field (ADR-046 addendum 4). The intended fix is extending `internal/hub-cli/` to manage firewall rules via the Hetzner SDK. This is not addressed by this ADR and remains a manual step until the CLI extension is implemented.
+**Ownership model:**
 
-### DKIM key generation
+```
+Hub Operator (Generation Authority)
+    │
+    GenerateEd25519KeyPair()
+    │
+    ├── Private PKCS#8 PEM → Infisical → ESO → stalwart-dkim-private Secret
+    │                                              └── mounted into Stalwart (0400, readOnly)
+    │
+    └── Public base64 → Infisical → ESO → stalwart-dkim-public Secret
+                                              └── read by DNS reconciler
+                                                    │
+                                                    ▼
+                                              Hetzner DNS API
+                                                    │
+                                                    ▼
+                                              s1._domainkey.nutgraf.in TXT
+```
 
-Stalwart generates the DKIM key pair on first boot. The public key must be published as a DNS TXT record. Two approaches are viable:
-1. **Pre-generate**: Create the key pair before deployment, store the private key in Infisical, configure Stalwart to use it
-2. **Post-deploy**: Retrieve the public key from Stalwart's management API after first boot, then publish the DNS record
+**Invariants:**
 
-The chosen approach will be determined during implementation based on Stalwart's configuration capabilities.
+1. **Private key is immutable per selector.** Rotation creates `s2` with a new key pair, never replaces `s1`'s key.
+2. **Hub-operator is the sole Generation Authority** (ADR-039). No human generates keys.
+3. **Idempotency**: operator checks both keys exist before generating. If private exists but public is missing, derives public from private (repair). If public exists but private is missing, fails with error (corruption — do not mutate).
+4. **Key pair validation**: operator verifies derived public key matches stored public key on every reconciliation.
+5. **Separate K8s Secrets**: `stalwart-dkim-private` (Stalwart reads) and `stalwart-dkim-public` (DNS reconciler reads). Nobody needs both.
+
+**DKIM selector:** `s1` — versioned for future rotation. The selector is configuration, not secret material, stored in the `ApplicationSecretMappings` definition.
+
+**PostSync deployment order:**
+
+1. ArgoCD syncs Stalwart deployment + ExternalSecrets
+2. PostSync: `stalwart-dkim-postsync` Job (alpine + curl) authenticates with Stalwart JMAP API, creates `DkimSignature` with the mounted private key, then creates `s1._domainkey.nutgraf.in` TXT record via Hetzner DNS API
+
+**DKIM key rotation:**
+
+```
+Initial:
+  s1 → key A (operator-generated, immutable)
+
+Rotation:
+  1. Add new mapping entry: Selector: "s2", new PrivateKeyKey/PublicKeyKey
+  2. Operator generates s2 key pair
+  3. PostSync configures Stalwart to sign with s2
+  4. DNS reconciler publishes s2._domainkey.nutgraf.in
+  5. After propagation: remove s1 signing from Stalwart
+  6. After retention period: remove s1 DNS record
+```
 
 ### Kratos SMTP migration
 
@@ -113,7 +153,7 @@ The Kratos configmap is updated to use `smtp.nutgraf.in` instead of `smtp.resend
 | Stalwart deployment | Helm chart | ArgoCD | Antigenic-OSS chart | Platform | Day-1+ |
 | TLS certificates | Let's Encrypt | cert-manager | cert-manager | Stalwart | Day-1+ |
 | DNS A records | Hetzner DNS | ExternalDNS | ExternalDNS | Mail clients | Day-1+ |
-| DNS MX/TXT records | Hetzner DNS | TBD (CronJob/controller) | hcloud-go/v2 | Mail clients | Day-1+ |
+| DNS MX/TXT records | Hetzner DNS | PostSync Job | curl + Stalwart JMAP API + Hetzner DNS API | Mail clients | Day-1 (one-shot) |
 
 ## Consequences
 
@@ -131,9 +171,9 @@ The Kratos configmap is updated to use `smtp.nutgraf.in` instead of `smtp.resend
 ### Negative
 
 - Stalwart adds a new platform service to operate and monitor.
-- DNS TXT records (SPF, DKIM, DMARC) require a new component (CronJob or controller) using the Hetzner DNS API, since ExternalDNS does not support TXT record types.
+- DNS TXT records (SPF, DKIM, DMARC) require direct Hetzner DNS API calls, since ExternalDNS does not support TXT record types. A PostSync Job handles this at deployment time.
 - DKIM key generation has a chicken-and-egg constraint: the key is generated on first boot, but the DNS record must exist before mail clients trust the server.
-- Hetzner firewall rules for inbound SMTP (ports 25, 465, 587) remain uncodified (ADR-046 gap). Opening these ports is a manual step until the hub CLI is extended.
+- Hetzner Cloud Firewall rules for inbound SMTP (ports 25, 465, 587) must be opened manually in the Hetzner Cloud Console (ADR-046 addendum 4). Ports remain uncodified until the hub CLI is extended.
 - The `platform-mail` namespace adds a new namespace to the platform's namespace topology.
 - Stalwart's AGPL-3.0 + SELv2 license has copyleft obligations for modifications.
 
@@ -143,7 +183,8 @@ The Kratos configmap is updated to use `smtp.nutgraf.in` instead of `smtp.resend
 - **Requires ExternalDNS extension.** MX records require installing the `DNSEndpoint` CRD and adding `--source=crd` to the ExternalDNS deployment. This is a backward-compatible addition.
 - **Requires hub-operator rebuild.** The `ApplicationSecretMappings` and `ApplicationSecretUploader` changes require a new hub-operator image.
 - **Requires Hetzner firewall (manual).** Ports 25, 465, 587 must be opened manually in the Hetzner Cloud Console until the hub CLI extension is implemented.
-- **Requires DNS records (manual or CronJob).** SPF, DKIM, and DMARC TXT records must be created after Stalwart is deployed and DKIM keys are generated.
+- **DNS TXT records (one-shot PostSync).** SPF, DKIM, and DMARC TXT records are created by a PostSync Job at deployment time. No continuous reconciliation — manual DNS repair is required if records are deleted after deployment.
+- **No custom Docker images.** The PostSync Job uses `alpine:3.20` with `curl` installed at runtime. No images to build or push.
 - **New namespace.** `platform-mail` is added to the platform's namespace topology.
 - **New ArgoCD Application.** `platform-stalwart-mail` in boundary 03 (`03-platform-services-appset.yaml`).
 

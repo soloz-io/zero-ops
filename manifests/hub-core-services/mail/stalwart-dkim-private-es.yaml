@@ -1,0 +1,24 @@
+# Stalwart DKIM private key — delivered from Infisical via ESO.
+# Mounted into the Stalwart container as a read-only volume (0400).
+# The operator generates this key pair via ApplicationSecretMappings.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: stalwart-dkim-private
+  namespace: platform-mail
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: stalwart-dkim-private
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: dkim-private.pem
+      remoteRef:
+        key: hub-stalwart-dkim-private-key
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
