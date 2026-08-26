@@ -264,7 +264,6 @@ spec:
                 secret.reloader.stakater.com/reload: "stalwart-secrets,stalwart-db-credentials"
             helmReleaseName: 'stalwart-mail'
             ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
             extraManifestsPath: 'manifests/hub-core-services/mail'
 
           - appName: 'hub-operator'
