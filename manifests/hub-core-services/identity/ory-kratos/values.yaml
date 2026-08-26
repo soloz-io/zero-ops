@@ -45,6 +45,12 @@ kratos:
           ui_url: https://console.dev.nutgraf.in/auth/login
         registration:
           ui_url: https://console.dev.nutgraf.in/auth/registration
+        recovery:
+          ui_url: https://console.dev.nutgraf.in/auth/recovery
+        error:
+          ui_url: https://console.dev.nutgraf.in/auth/error
+        settings:
+          ui_url: https://console.dev.nutgraf.in/settings
     dsn: env://DSN
 
   automigration:
