@@ -44,6 +44,17 @@ hubIngressAddress: ""
 #
 # On steady-state Day-1, all six are always true. Only the bootstrap
 # orchestrator ever toggles them to achieve sequential boundary gating.
+#
+# boundary06 is the one exception that defaults to FALSE, because it is the only
+# boundary with a REQUIRED companion value (publicTlsIssuer, below). Defaulting
+# it true meant any caller that rendered this chart without naming an issuer —
+# a bare `helm template` in a linter, or a bootstrap step that enumerated only
+# boundary01-04 — still emitted the tenant-public-tls ApplicationSet carrying
+# `issuer: ""`, and applied it. That AppSet cannot render: the chart's guard
+# rejects the empty issuer, so ArgoCD reports ComparisonError and reports the
+# Application Healthy while managing nothing, and whatever Certificate was last
+# issued stays frozen in the cluster indefinitely. Requiring boundary06 to be
+# asked for by name keeps the issuer requirement and the boundary together.
 # ──────────────────────────────────────────────────────────────────────────────
 deploy:
   boundary01: true
@@ -51,7 +62,7 @@ deploy:
   boundary03: true
   boundary04: true
   boundary05: true
-  boundary06: true
+  boundary06: false
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Public TLS issuer policy (ADR-051) — REQUIRED, NO DEFAULT.
@@ -60,13 +71,17 @@ deploy:
 # per-tenant Certificate it renders. The mapping is environment POLICY declared
 # at the bootstrap boundary, never inferred by a chart or ApplicationSet:
 #
-#   dev  → letsencrypt-staging
-#   stg  → letsencrypt-prod
-#   prod → letsencrypt-prod
+#   ephemeral → letsencrypt-staging
+#   dev       → letsencrypt-prod
+#   stg       → letsencrypt-prod
+#   prod      → letsencrypt-prod
 #
 # An empty value FAILS AppSet rendering by design ("staging is an explicit
-# development policy, never an accidental default"), and preflight validation
-# additionally rejects letsencrypt-staging on stg/prod environments.
+# throwaway-cluster policy, never an accidental default"), and preflight
+# validation additionally rejects letsencrypt-staging outside ephemeral.
+# dev issues from prod because dev is browser-facing: people sign in through it,
+# and a staging certificate makes the browser refuse the tenant hostname
+# mid-OAuth-redirect rather than merely warning about it.
 # The hub CLI passes this via --set publicTlsIssuer=<name> alongside
 # deploy.boundary06.
 # ──────────────────────────────────────────────────────────────────────────────

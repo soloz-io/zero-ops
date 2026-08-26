@@ -733,7 +733,15 @@ step1b_reconcile_appsets() {
         env_rev="$git_branch"
     fi
 
-    # Build the same flag set the Go orchestrator uses (renderAndApplyBoundaries).
+    # This step reconciles the PLATFORM boundaries only (01-04). The tenant
+    # boundaries are sequenced by the Go orchestrator, and boundary06 additionally
+    # requires the publicTlsIssuer policy value this script does not own. Both are
+    # now disabled explicitly: they used to be omitted, and because the chart
+    # defaulted them true this render emitted a tenant-public-tls ApplicationSet
+    # with `issuer: ""` and applied it over the orchestrator's correct one. The
+    # resulting Application could not render, so ArgoCD went ComparisonError —
+    # sync: Unknown, health: Healthy — and silently stopped managing the tenant
+    # certificates, stranding whatever had last been issued.
     local env_slug="${ENVIRONMENT:-prod}"
     local topo_value="${TOPOLOGY:-}"
     if [[ "$PROVIDER" == "hybrid" ]]; then
@@ -767,6 +775,8 @@ step1b_reconcile_appsets() {
         --set "deploy.boundary02=true" \
         --set "deploy.boundary03=true" \
         --set "deploy.boundary04=true" \
+        --set "deploy.boundary05=false" \
+        --set "deploy.boundary06=false" \
         | kubectl apply --kubeconfig="$kc_path" -f -) || {
         log "  ⚠️  AppSet reconciliation failed — continuing"
         return

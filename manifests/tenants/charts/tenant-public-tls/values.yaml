@@ -18,9 +18,11 @@ public:
   hosts: []
 
 # ACME ClusterIssuer for this environment. Required with NO default:
-#   dev -> letsencrypt-staging, stg/prod -> letsencrypt-prod.
-# Staging on stg/prod is forbidden and rejected by preflight validation —
-# staging is an explicit development policy, never an accidental default.
+#   ephemeral -> letsencrypt-staging, dev/stg/prod -> letsencrypt-prod.
+# Staging outside ephemeral is forbidden and rejected by preflight validation —
+# staging is an explicit throwaway-cluster policy, never an accidental default.
+# dev issues from prod because dev hostnames are browser-facing: a staging cert
+# makes the browser refuse the tenant host mid-OAuth-redirect.
 issuer: ""
 
 # Per-spoke shared TLS-termination Gateway created by this chart.

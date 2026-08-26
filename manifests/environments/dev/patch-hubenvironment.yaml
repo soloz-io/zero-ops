@@ -9,7 +9,7 @@ spec:
   environment: dev
   domain: dev.nutgraf.in
   tls:
-    issuer: letsencrypt-staging
+    issuer: letsencrypt-prod
     email: platform@nutgraf.in
   oauth:
     clients:

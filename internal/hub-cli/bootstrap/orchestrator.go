@@ -868,13 +868,25 @@ func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) 
 // the bootstrap is the environment boundary: it already owns environmentSlug,
 // and no chart or ApplicationSet may re-derive policy (ADR-047). There is no
 // default: an unknown or empty slug fails the bootstrap rather than silently
-// inheriting a development value — staging is an explicit dev policy, never an
-// accidental default.
+// inheriting a throwaway value — staging is an explicit ephemeral policy, never
+// an accidental default.
 func (o *Orchestrator) publicTlsIssuerFor() (string, error) {
 	switch o.EnvironmentSlug {
-	case "dev", "ephemeral":
+	case "ephemeral":
+		// Ephemeral clusters are created and destroyed continuously, so they are
+		// the only environment whose certificate churn can realistically exhaust
+		// Let's Encrypt's per-domain weekly quota. That risk is what staging is
+		// for, and it is confined to where the risk actually exists.
 		return "letsencrypt-staging", nil
-	case "stg", "prod":
+	case "dev", "stg", "prod":
+		// dev is browser-facing: people sign in through it, and the OAuth2 flow
+		// redirects between hub and tenant hostnames. A staging certificate makes
+		// the browser refuse the tenant host outright, so the redirect chain
+		// breaks rather than merely warning — the login looks broken for a reason
+		// that has nothing to do with identity. The hub's own dev hostnames
+		// already issue from letsencrypt-prod, so staging here bought no quota
+		// protection on a long-lived cluster and only left tenant hosts untrusted
+		// by the browser that had just trusted the hub they authenticate against.
 		return "letsencrypt-prod", nil
 	default:
 		return "", fmt.Errorf(

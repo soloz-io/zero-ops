@@ -13,9 +13,10 @@
 #     R2  tenant-gateway terminates NO TLS (:80 only; :443 belongs to
 #         tenant-tls-gateway rendered by the chart)
 #     R3  chart refuses missing issuer and wildcard hostnames at render time
-#     R4  chart has no default issuer (staging is a dev policy, never a default)
+#     R4  chart has no default issuer (staging is an ephemeral policy, never a
+#         default)
 #     R5  AppSet forwards publicTlsIssuer as the chart's issuer input
-#     R6  bootstrap issuer mapping: dev/ephemeral→staging, stg/prod→prod
+#     R6  bootstrap issuer mapping: ephemeral→staging, dev/stg/prod→prod
 #
 #   registry-side (when the fleet-registry checkout is present):
 #     G1  every tenants/*/*/values.yaml declares public.hosts
@@ -82,12 +83,12 @@ PY
 
     # ── R6: bootstrap issuer mapping is strict ───────────────────────────────
     local orch="$VALIDATE_ROOT/internal/hub-cli/bootstrap/orchestrator.go"
-    if grep -q 'case "dev", "ephemeral":' "$orch" \
-        && grep -A1 'case "stg", "prod":' "$orch" | grep -q 'letsencrypt-prod' \
+    if grep -q 'case "ephemeral":' "$orch" \
+        && grep -A12 'case "dev", "stg", "prod":' "$orch" | grep -q 'letsencrypt-prod' \
         && grep -q 'refusing to guess TLS policy' "$orch"; then
-        pass "bootstrap issuer mapping: dev/ephemeral→staging, stg/prod→prod, unknown→hard error"
+        pass "bootstrap issuer mapping: ephemeral→staging, dev/stg/prod→prod, unknown→hard error"
     else
-        hard_fail "publicTlsIssuerFor() mapping drifted from ADR-051 policy (dev=staging; stg/prod=prod; no default)"
+        hard_fail "publicTlsIssuerFor() mapping drifted from ADR-051 policy (ephemeral=staging; dev/stg/prod=prod; no default)"
     fi
 
     # ── registry-side checks ─────────────────────────────────────────────────
