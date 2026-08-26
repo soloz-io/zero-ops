@@ -60,10 +60,20 @@ spec:
       sectionName: console
   hostnames: ["console.dev.nutgraf.in"]
   rules:
+    # Kratos owns two path families on this host, not one. /self-service carries the
+    # flows; /sessions carries the session read that toSession() performs on page
+    # load. Routing only the first is silently wrong rather than broken: /sessions
+    # falls through to the catch-all below and the SPA answers its own session probe
+    # with 200 text/html, so the client sees a successful response that is not a
+    # session and renders "Not authenticated" for a browser holding a perfectly valid
+    # cookie. Nothing in the login flow looks like it failed, because nothing did.
     - matches:
         - path:
             type: PathPrefix
             value: /self-service
+        - path:
+            type: PathPrefix
+            value: /sessions
       backendRefs:
         - name: ory-kratos-public
           port: 80
