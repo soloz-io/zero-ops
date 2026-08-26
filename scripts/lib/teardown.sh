@@ -250,7 +250,7 @@ _sweep_leftovers() {
 # the Windows box, and rejoin nothing.
 #
 # Node registry: scripts/hybrid/home-lab.env (gitignored, real values only)
-#   <hostname>|<ssh-target>|<wsl-distro>|<tailnet-host>|<box>|<cluster>|<gb...>|<cpus>
+#   <hostname>|<ssh-target>|<os-info>|<tailnet-host>|<box>|<cluster>|<gb...>|<cpus>
 #
 # Deletion mirrors provisioning exactly — Stop-VM -Force -TurnOff, Remove-VM
 # -Force, then the VM's own disk and Ignition config. The shared base image

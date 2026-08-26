@@ -1567,7 +1567,7 @@ spoke_home_worker_registry() {
     [[ -n "$nodes" ]] || return 0
 
     local host ssh_target node_target curr idx=0
-    while IFS='|' read -r host ssh_target _wsl _tailnet _tag node_target _rest <&3; do
+    while IFS='|' read -r host ssh_target _os _tailnet _tag node_target _rest <&3; do
         [[ -z "${ssh_target:-}" ]] && continue
         idx=$((idx + 1))
         # Same routing rule as the provisioner: column 6 is authoritative, the

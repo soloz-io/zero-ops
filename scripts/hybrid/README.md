@@ -55,7 +55,7 @@ verification are handled by **one script**:
 
 Nodes are declared in `scripts/hybrid/home-lab.env` (gitignored; see
 `home-lab.env.example`). Each line is
-`<hostname>|<ssh-target>|<wsl-distro>|<tailnet-host>|<box-tag>` — the
+`<hostname>|<ssh-target>|<os-info>|<tailnet-host>|<box-tag>` — the
 hostname/tailnet-host fields are derived by the provisioner
 (`flatcar-node-<idx>`), so only the SSH target and box tag are authoritative.
 

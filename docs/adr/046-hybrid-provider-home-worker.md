@@ -132,7 +132,7 @@ from `spokepool-hybrid-composition.yaml`) for the deltas that remain:
    VXLAN overlay MTU caused IP fragmentation on `tailscale0` and BPF datapath
    drops.
 4. **`cilium-netns` volumeMount with `mountPropagation: HostToContainer`** —
-   *superseded; this item previously specified `None`, a WSL2-era workaround.*
+   *superseded; this item previously specified `None`, a legacy-era workaround.*
    Flatcar mounts `/run` as tmpfs with shared propagation (verified live), so
    `HostToContainer` is accepted and `cilium-dbg` pod-netns exec works.
 
@@ -864,13 +864,13 @@ is not reproducible from Git is debt that will recur as an incident.
 ### 13. Hyper-V Worker OS Evolution: Rejection of Talos and Adoption of Flatcar Container Linux (2026-08-19)
 
 **Context & Motivation.**
-The initial home worker design relied on WSL2 Ubuntu distributions hosted on Windows 11 hardware. While functional, WSL2 introduced severe operational friction:
+The initial home worker design relied on Ubuntu distributions hosted on Windows hardware. While functional, this introduced severe operational friction:
 - Modified Microsoft kernel lacking standard modules.
 - Broken cgroup v2 namespace propagation requiring fragile `fix-cgroup-mount` init containers and `cilium-host-prep.service` workarounds.
 - Inability to safely run `clean-cilium-state=true` on restart.
 - Windows host sleep/standby lifecycle coupling.
 
-To eliminate these constraints, the platform transitions home-lab workers from WSL2 to dedicated Generation 2 Hyper-V virtual machines running an immutable, container-optimized Linux OS orchestrated 100% remotely from macOS via SSH.
+To eliminate these constraints, the platform transitions home-lab workers to dedicated Generation 2 Hyper-V virtual machines running an immutable, container-optimized Linux OS orchestrated 100% remotely from macOS via SSH.
 
 **Evaluation & Rejection of Talos Linux.**
 Talos Linux was evaluated and live-tested on Hyper-V Gen2:
@@ -883,7 +883,7 @@ Talos Linux was evaluated and live-tested on Hyper-V Gen2:
 Flatcar Container Linux is adopted as the definitive OS for Hyper-V home-lab worker nodes:
 1. **100% Native Kubeadm & CAPI Compatibility**: Flatcar runs standard systemd, `containerd`, and standard `kubeadm join`, seamlessly consuming the `<spoke>-home-worker-join` tokens minted by `hub-operator`.
 2. **Immutable & Minimal**: Read-only `/usr` partition with atomic updates, zero package-manager drift, and purpose-built container isolation.
-3. **Clean cgroup v2 & eBPF**: Standard Linux kernel with native cgroups v2 and BPF filesystem support, completely eliminating the WSL2 `fix-cgroup-mount` init container and allowing standard Cilium CNI deployment.
+3. **Clean cgroup v2 & eBPF**: Standard Linux kernel with native cgroups v2 and BPF filesystem support, completely eliminating the legacy `fix-cgroup-mount` init container and allowing standard Cilium CNI deployment.
 4. **Declarative Ignition Provisioning**: Node configuration (hostname, Tailscale auth key, SSH keys, kubelet, and `kubeadm join` oneshot systemd unit) is declaratively defined via Ignition (`config.ign`) attached as a virtual CD-ROM (`ignition.iso`) on first boot.
 5. **Official Hyper-V Gen2 Artifacts**: Pre-built Generation 2 VHDX images (`flatcar_production_hyperv.vhdx.bz2`) downloaded and resized dynamically on the host.
 

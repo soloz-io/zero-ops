@@ -1370,7 +1370,7 @@ if [[ "$MODE" == "verify" ]]; then
   echo "=== Verify mode — checking Flatcar node Ready status ==="
   local_ok=1
   idx=0
-  while IFS='|' read -r _HOST _SSH _WSL _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS <&3; do
+  while IFS='|' read -r _HOST _SSH _OS _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS <&3; do
     [[ -z "$_HOST" && -z "$_SSH" ]] && continue
     idx=$((idx + 1))
     CURR_TARGET="hub"
