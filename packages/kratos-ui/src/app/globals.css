@@ -222,7 +222,13 @@ body {
   .ory-elements .w-\[480px\] {
     width: 720px;
   }
+  .ory-elements .sm\:w-\[480px\] {
+    width: 720px;
+  }
   .ory-elements .max-w-\[480px\] {
+    max-width: 720px;
+  }
+  .ory-elements .sm\:max-w-\[480px\] {
     max-width: 720px;
   }
   .ory-elements .max-w-\[488px\] {
