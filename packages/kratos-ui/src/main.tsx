@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './app/router';
 import { OryProvider } from './contexts/ory-context';
 import '@ory/elements-react/theme/styles.css';
+import 'ai-design-system/dist/index.css';
 import './app/globals.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
