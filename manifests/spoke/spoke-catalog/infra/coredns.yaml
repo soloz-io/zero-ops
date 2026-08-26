@@ -31,6 +31,7 @@ data:
         prometheus :9153
         forward . 8.8.8.8 1.1.1.1 {
            max_concurrent 1000
+           force_tcp
         }
         cache 30
         loop
