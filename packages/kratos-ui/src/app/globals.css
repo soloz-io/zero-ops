@@ -10,104 +10,364 @@ body {
 }
 
 /*
- * Override the DS preflight `button, input { background: transparent }`
- * which is unlayered and beats the layered Ory utility classes.
- * These unlayered overrides ensure Ory components pick up our tokens.
+ * The DS CSS declares @layer base AFTER the Ory CSS declares @layer ory-elements.
+ * In CSS cascade layers, later layers beat earlier layers, so the DS preflight
+ * (margin:0, padding:0, background:transparent, border-radius:0 on inputs)
+ * beats every Ory utility class inside @layer ory-elements.
+ *
+ * Rather than chase 50+ individual utility overrides, we apply styles directly
+ * on the Ory component elements. These unlayered rules beat all layered rules.
  */
+.ory-elements {
+  font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif);
+  line-height: 1.5;
+}
+
+/* ── Links ─────────────────────────────────────────────────────────── */
+.ory-elements a {
+  color: var(--color-button-link-brand-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ory-elements a:hover {
+  color: var(--color-button-link-brand-brand-hover, var(--color-button-link-brand-brand));
+}
+
+/* ── Headings ──────────────────────────────────────────────────────── */
+.ory-elements h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-interface-foreground-default-primary);
+}
+.ory-elements h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--color-interface-foreground-default-primary);
+}
+
+/* ── Paragraphs ────────────────────────────────────────────────────── */
+.ory-elements p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-interface-foreground-default-secondary);
+}
+
+/* ── Labels ────────────────────────────────────────────────────────── */
+.ory-elements label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--color-interface-foreground-default-primary);
+}
+
+/* ── Text utility ──────────────────────────────────────────────────── */
+.ory-elements .text-sm {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.ory-elements .text-lg {
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+.ory-elements .text-xl {
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+.ory-elements .font-medium {
+  font-weight: 500;
+}
+.ory-elements .font-normal {
+  font-weight: 400;
+}
+.ory-elements .font-semibold {
+  font-weight: 600;
+}
+.ory-elements .font-sans-default {
+  font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif);
+}
+.ory-elements .leading-none {
+  line-height: 1;
+}
+.ory-elements .leading-normal {
+  line-height: 1.5;
+}
+.ory-elements .leading-tight {
+  line-height: 1.25;
+}
+.ory-elements .antialiased {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Layout: flex, grid, gap ───────────────────────────────────────── */
+.ory-elements .flex {
+  display: flex;
+}
+.ory-elements .flex-col {
+  flex-direction: column;
+}
+.ory-elements .flex-1 {
+  flex: 1 1 0%;
+}
+.ory-elements .grid {
+  display: grid;
+}
+.ory-elements .grid-cols-1 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.ory-elements .items-start {
+  align-items: flex-start;
+}
+.ory-elements .justify-between {
+  justify-content: space-between;
+}
+.ory-elements .justify-center {
+  justify-content: center;
+}
+.ory-elements .justify-stretch {
+  justify-content: stretch;
+}
+.ory-elements .gap-1 {
+  gap: 0.25rem;
+}
+.ory-elements .gap-2 {
+  gap: 0.5rem;
+}
+.ory-elements .gap-3 {
+  gap: 0.75rem;
+}
+.ory-elements .gap-8 {
+  gap: 2rem;
+}
+
+/* ── Sizing ────────────────────────────────────────────────────────── */
+.ory-elements .w-full {
+  width: 100%;
+}
+.ory-elements .max-w-\[488px\] {
+  max-width: 488px;
+}
+.ory-elements .overflow-hidden {
+  overflow: hidden;
+}
+
+/* ── Spacing ───────────────────────────────────────────────────────── */
+.ory-elements .px-2 {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.ory-elements .px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.ory-elements .px-8 {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+.ory-elements .py-12 {
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+.ory-elements .py-\[13px\] {
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+.ory-elements .p-4 {
+  padding: 1rem;
+}
+
+/* ── Border radius ─────────────────────────────────────────────────── */
+.ory-elements .rounded-forms {
+  border-radius: var(--radius-forms);
+}
+.ory-elements .rounded-buttons {
+  border-radius: var(--radius-forms);
+}
+.ory-elements .rounded-l-forms {
+  border-top-left-radius: var(--radius-forms);
+  border-bottom-left-radius: var(--radius-forms);
+}
+.ory-elements .rounded-r-none {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* ── Border ────────────────────────────────────────────────────────── */
+.ory-elements .border {
+  border-width: 1px;
+  border-style: solid;
+}
+.ory-elements .border-b {
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+.ory-elements .ring-1 {
+  --tw-ring-offset-shadow: var(--tw-ring-inset, ) 0 0 0 var(--tw-ring-offset-width, 0px) var(--tw-ring-offset-color, #fff);
+  --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(1px + var(--tw-ring-offset-width, 0px)) var(--tw-ring-color, currentColor);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+.ory-elements .ring-inset {
+  --tw-ring-inset: inset;
+}
+
+/* ── Background colors ─────────────────────────────────────────────── */
+.ory-elements .bg-transparent {
+  background-color: transparent;
+}
 .ory-elements .bg-button-primary-background-default,
 .ory-elements .loading\:bg-button-primary-background-default {
-  background-color: var(--color-button-primary-background-default) !important;
+  background-color: var(--color-button-primary-background-default);
 }
 .ory-elements .bg-button-primary-background-hover,
 .ory-elements .hover\:bg-button-primary-background-hover:hover {
-  background-color: var(--color-button-primary-background-hover) !important;
+  background-color: var(--color-button-primary-background-hover);
 }
 .ory-elements .bg-button-primary-background-disabled,
 .ory-elements .disabled\:bg-button-primary-background-disabled:disabled {
-  background-color: var(--color-button-primary-background-disabled) !important;
+  background-color: var(--color-button-primary-background-disabled);
 }
+.ory-elements .bg-button-social-background-generic-provider {
+  background-color: var(--color-button-social-background-generic-provider);
+}
+.ory-elements .bg-input-background-default {
+  background-color: var(--color-input-background-default);
+}
+.ory-elements .bg-input-background-hover {
+  background-color: var(--color-input-background-hover);
+}
+.ory-elements .bg-input-background-disabled {
+  background-color: var(--color-input-background-disabled);
+}
+.ory-elements .bg-form-background-default {
+  background-color: var(--color-form-background-default);
+}
+
+/* ── Text colors ───────────────────────────────────────────────────── */
 .ory-elements .text-button-primary-foreground-default,
 .ory-elements .loading\:text-button-primary-foreground-default {
-  color: var(--color-button-primary-foreground-default) !important;
+  color: var(--color-button-primary-foreground-default);
 }
 .ory-elements .text-button-primary-foreground-hover,
 .ory-elements .hover\:text-button-primary-foreground-hover:hover {
-  color: var(--color-button-primary-foreground-hover) !important;
+  color: var(--color-button-primary-foreground-hover);
 }
 .ory-elements .text-button-primary-foreground-disabled,
 .ory-elements .disabled\:text-button-primary-foreground-disabled:disabled {
-  color: var(--color-button-primary-foreground-disabled) !important;
+  color: var(--color-button-primary-foreground-disabled);
 }
+.ory-elements .text-button-link-brand-brand {
+  color: var(--color-button-link-brand-brand);
+}
+.ory-elements .text-input-foreground-primary {
+  color: var(--color-input-foreground-primary);
+}
+.ory-elements .text-input-foreground-tertiary {
+  color: var(--color-input-foreground-tertiary);
+}
+.ory-elements .text-interface-foreground-default-primary {
+  color: var(--color-interface-foreground-default-primary);
+}
+.ory-elements .text-interface-foreground-default-secondary {
+  color: var(--color-interface-foreground-default-secondary);
+}
+
+/* ── Border colors ─────────────────────────────────────────────────── */
+.ory-elements .border-input-border-default {
+  border-color: var(--color-input-border-default);
+}
+.ory-elements .border-input-border-focus {
+  border-color: var(--color-input-border-focus);
+}
+.ory-elements .border-form-border-default {
+  border-color: var(--color-form-border-default);
+}
+
+/* ── Ring colors ───────────────────────────────────────────────────── */
 .ory-elements .ring-button-primary-border-default,
 .ory-elements .loading\:ring-button-primary-border-default {
-  --tw-ring-color: var(--color-button-primary-border-default) !important;
+  --tw-ring-color: var(--color-button-primary-border-default);
 }
 .ory-elements .ring-button-primary-border-hover,
 .ory-elements .hover\:ring-button-primary-border-hover:hover {
-  --tw-ring-color: var(--color-button-primary-border-hover) !important;
+  --tw-ring-color: var(--color-button-primary-border-hover);
 }
 .ory-elements .ring-button-primary-border-disabled,
 .ory-elements .disabled\:ring-button-primary-border-disabled:disabled {
-  --tw-ring-color: var(--color-button-primary-border-disabled) !important;
-}
-.ory-elements .bg-input-background-default {
-  background-color: var(--color-input-background-default) !important;
-}
-.ory-elements .bg-input-background-hover {
-  background-color: var(--color-input-background-hover) !important;
-}
-.ory-elements .bg-input-background-disabled {
-  background-color: var(--color-input-background-disabled) !important;
-}
-.ory-elements .text-input-foreground-primary {
-  color: var(--color-input-foreground-primary) !important;
-}
-.ory-elements .text-input-foreground-tertiary {
-  color: var(--color-input-foreground-tertiary) !important;
-}
-.ory-elements .border-input-border-default {
-  border-color: var(--color-input-border-default) !important;
-}
-.ory-elements .border-input-border-focus {
-  border-color: var(--color-input-border-focus) !important;
-}
-.ory-elements .focus-within\:border-input-border-focus:focus-within {
-  border-color: var(--color-input-border-focus) !important;
-}
-.ory-elements .focus-visible\:border-input-border-focus:focus-visible {
-  border-color: var(--color-input-border-focus) !important;
-}
-.ory-elements .text-interface-foreground-default-primary {
-  color: var(--color-interface-foreground-default-primary) !important;
-}
-.ory-elements .text-interface-foreground-default-secondary {
-  color: var(--color-interface-foreground-default-secondary) !important;
-}
-.ory-elements .text-button-link-brand-brand {
-  color: var(--color-button-link-brand-brand) !important;
-}
-.ory-elements .bg-form-background-default {
-  background-color: var(--color-form-background-default) !important;
-}
-.ory-elements .border-form-border-default {
-  border-color: var(--color-form-border-default) !important;
+  --tw-ring-color: var(--color-button-primary-border-disabled);
 }
 
-/*
- * Override the DS preflight `input { border-radius: 0 }`
- * which is unlayered and beats the layered Ory utility classes.
- */
-.ory-elements .rounded-forms,
-.ory-elements .rounded-buttons {
-  border-radius: var(--radius-forms) !important;
+/* ── Focus / outline ───────────────────────────────────────────────── */
+.ory-elements .focus-visible\:outline-none:focus-visible {
+  outline: none;
 }
-.ory-elements .rounded-l-forms {
-  border-top-left-radius: var(--radius-forms) !important;
-  border-bottom-left-radius: var(--radius-forms) !important;
+.ory-elements .focus\:ring-0:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset, ) 0 0 0 var(--tw-ring-offset-width, 0px) var(--tw-ring-offset-color, #fff);
+  --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(0px + var(--tw-ring-offset-width, 0px)) var(--tw-ring-color, transparent);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
 }
-.ory-elements .rounded-r-none {
-  border-top-right-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
+.ory-elements .focus-within\:border-input-border-focus:focus-within {
+  border-color: var(--color-input-border-focus);
+}
+.ory-elements .focus-visible\:border-input-border-focus:focus-visible {
+  border-color: var(--color-input-border-focus);
+}
+
+/* ── Hover border ──────────────────────────────────────────────────── */
+.ory-elements .hover\:border-input-border-hover:hover {
+  border-color: var(--color-input-border-hover);
+}
+
+/* ── Transition ────────────────────────────────────────────────────── */
+.ory-elements .transition-colors {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, --tw-ring-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+.ory-elements .duration-100 {
+  transition-duration: 100ms;
+}
+.ory-elements .ease-linear {
+  transition-timing-function: linear;
+}
+
+/* ── Cursor ────────────────────────────────────────────────────────── */
+.ory-elements .cursor-pointer {
+  cursor: pointer;
+}
+.ory-elements .group {
+  /* no-op, just marks the group container */
+}
+
+/* ── Placeholder ───────────────────────────────────────────────────── */
+.ory-elements .placeholder\:text-input-foreground-tertiary::placeholder {
+  color: var(--color-input-foreground-tertiary);
+}
+.ory-elements .placeholder\:h-\[20px\]::placeholder {
+  height: 20px;
+  display: block;
+}
+
+/* ── Disabled states ───────────────────────────────────────────────── */
+.ory-elements [data-disabled="true"],
+.ory-elements :disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Loading states ────────────────────────────────────────────────── */
+.ory-elements .loading\:pointer-events-none[data-loading="true"] {
+  pointer-events: none;
+}
+.ory-elements .loading\:cursor-wait[data-loading="true"] {
+  cursor: wait;
+}
+
+/* ── Show password toggle ──────────────────────────────────────────── */
+.ory-elements [data-testid*="show-password"] {
+  cursor: pointer;
+  color: var(--color-interface-foreground-default-secondary);
 }
 
 /*
