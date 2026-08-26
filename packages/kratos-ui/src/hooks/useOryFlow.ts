@@ -11,6 +11,9 @@ export function useOryFlow(flowType: string) {
   useEffect(() => {
     const flowId = searchParams.get('flow');
     const returnTo = searchParams.get('return_to') || undefined;
+    // Carried through flow creation so the flow stays bound to the pending OAuth2
+    // request; without it the login succeeds and never returns to the caller.
+    const loginChallenge = searchParams.get('login_challenge') || undefined;
 
     if (flowId) {
       const fetchFlow = async () => {
@@ -38,7 +41,7 @@ export function useOryFlow(flowType: string) {
           setFlow(res);
         } catch (err: any) {
           if (err?.response?.status === 410 || err?.status === 410) {
-            window.location.replace(selfServiceBrowserUrl(flowType, returnTo));
+            window.location.replace(selfServiceBrowserUrl(flowType, { returnTo, loginChallenge }));
           } else {
             setError(err);
           }
@@ -46,7 +49,7 @@ export function useOryFlow(flowType: string) {
       };
       fetchFlow();
     } else {
-      window.location.replace(selfServiceBrowserUrl(flowType, returnTo));
+      window.location.replace(selfServiceBrowserUrl(flowType, { returnTo, loginChallenge }));
     }
   }, [flowType, searchParams]);
 

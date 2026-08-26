@@ -28,7 +28,23 @@ export const kratosBaseUrl: string =
  * hardcoded host here sends an expired session to a machine that is not serving the
  * app, and expiry is common enough that it would look intermittent.
  */
-export function selfServiceBrowserUrl(flowType: string, returnTo?: string): string {
-  const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : '';
-  return `${kratosBaseUrl}/self-service/${flowType}/browser${query}`;
+export function selfServiceBrowserUrl(
+  flowType: string,
+  opts: { returnTo?: string; loginChallenge?: string } = {},
+): string {
+  const params = new URLSearchParams();
+  if (opts.returnTo) params.set('return_to', opts.returnTo);
+
+  // login_challenge is what binds this flow to a pending OAuth2 request.
+  //
+  // Dropping it does not fail: Kratos happily creates a plain login flow, the user
+  // authenticates, a session is issued — and nothing hands control back to Hydra,
+  // because as far as Kratos is concerned no authorization request was ever
+  // involved. The browser then sits on the console instead of returning to the app
+  // that started the login, which reads as "signed in but nothing happened" rather
+  // than as a lost parameter.
+  if (opts.loginChallenge) params.set('login_challenge', opts.loginChallenge);
+
+  const query = params.toString();
+  return `${kratosBaseUrl}/self-service/${flowType}/browser${query ? `?${query}` : ''}`;
 }
