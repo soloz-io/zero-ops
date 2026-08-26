@@ -17,3 +17,4 @@ resources:
   - platform-db.yaml
   - s3-credentials-es.yaml
   - scheduled-backup.yaml
+  - stalwart-database.yaml

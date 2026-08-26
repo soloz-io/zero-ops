@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Provider-neutral base. Stalwart mail server manifests.
+# The ADR-046 §11 location class (workload-location + its storage class)
+# is applied by providers/<provider> via ArgoCD or kustomize overlay.
+resources:
+  - network-policy.yaml
+  - stalwart-admin-credentials-es.yaml
+  - stalwart-db-credentials-es.yaml
+  - stalwart-kratos-smtp-credentials-es.yaml
+  - stalwart-secrets-es.yaml

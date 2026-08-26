@@ -1,5 +1,26 @@
 kratos:
   config:
+    courier:
+      smtp:
+        connection_uri: env://SMTP_CONNECTION_URI
+      from: no-reply@nutgraf.in
+      templates:
+        recovery:
+          valid:
+            subject: Recover access to your account
+            body: |-
+              Hi, please recover access to your account by clicking the following link:
+              <a href="{{ .RecoveryURL }}">{{ .RecoveryURL }}</a>
+            plainBody: |-
+              Hi, please recover access to your account by clicking the following link: {{ .RecoveryURL }}
+          invalid:
+            subject: Account access attempted
+            body: |-
+              Hi, you (or someone else) entered this email address when trying to recover access to an account.
+              However, this email address is not on our database of registered users and therefore the attempt has failed.
+            plainBody: |-
+              Hi, you (or someone else) entered this email address when trying to recover access to an account.
+              However, this email address is not on our database of registered users and therefore the attempt has failed.
     serve:
       public:
         base_url: https://console.dev.nutgraf.in
@@ -21,17 +42,6 @@ kratos:
       override_return_to: true
     selfservice:
       default_browser_return_url: https://console.dev.nutgraf.in/
-      # Hub hostnames only. A tenant hostname was listed here and has been removed:
-      # it made a platform manifest carry a tenant literal that would grow with every
-      # tenant onboarded, and it was not load-bearing. OAuth logins never consult this
-      # list — oauth2_provider.override_return_to sends the browser back to Hydra,
-      # which redirects to the redirect_uri registered for that tenant's own client,
-      # so the per-tenant destination comes from the client registration. Nothing in
-      # the platform passes ?return_to= to a Kratos flow; the only occurrences are the
-      # login page's own links, which pass it empty.
-      #
-      # A tenant needing a non-OAuth return would have to be derived per tenant, not
-      # appended here.
       allowed_return_urls:
         - https://auth.dev.nutgraf.in/
         - https://console.dev.nutgraf.in/
@@ -58,17 +68,7 @@ kratos:
     enabled: true
     type: initContainer
 
-deployment:
-  extraEnv:
-    - name: KRATOS_DB_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: kratos-db-credentials
-          key: password
-    - name: DSN
-      value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
-
-  automigration:
+  deployment:
     extraEnv:
       - name: KRATOS_DB_PASSWORD
         valueFrom:
@@ -77,8 +77,22 @@ deployment:
             key: password
       - name: DSN
         value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
+      - name: SMTP_CONNECTION_URI
+        valueFrom:
+          secretKeyRef:
+            name: kratos-smtp-credentials
+            key: connection-uri
 
-  # Startup probe gives 5 minutes grace period for database connection
+    automigration:
+      extraEnv:
+        - name: KRATOS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kratos-db-credentials
+              key: password
+        - name: DSN
+          value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
+
   startupProbe:
     httpGet:
       path: /health/ready

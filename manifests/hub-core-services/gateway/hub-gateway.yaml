@@ -129,3 +129,39 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
+    - name: mail
+      hostname: mail.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: stalwart-mail-tls
+            namespace: platform-mail
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-mail, platform-identity, platform-edge]
+    - name: smtp
+      hostname: smtp.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: stalwart-mail-tls
+            namespace: platform-mail
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-mail, platform-identity, platform-edge]

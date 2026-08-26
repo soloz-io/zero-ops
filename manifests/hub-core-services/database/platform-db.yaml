@@ -34,6 +34,11 @@ spec:
         login: true
         passwordSecret:
           name: infisical-db-credentials
+      - name: stalwart
+        ensure: present
+        login: true
+        passwordSecret:
+          name: stalwart-db-credentials
 
   # ADR-014: stateful workloads run on worker nodes, always. The location half of
   # the ADR-046 §11 placement class is supplied by the provider overlay.

@@ -89,6 +89,7 @@ spec:
             - --domain-filter=nutgraf.in
             - --txt-owner-id=hub-hybrid-dev
             - --source=gateway-httproute
+            - --source=crd
             - --provider=webhook
             - --webhook-provider-url=http://127.0.0.1:8888
             - --registry=txt

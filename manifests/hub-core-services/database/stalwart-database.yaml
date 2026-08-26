@@ -1,0 +1,21 @@
+# The stalwart database, declared rather than created by bootstrap SQL.
+#
+# postInitSQL runs exactly once, at initdb, so it cannot repair a cluster that
+# already exists. This CR maps to CREATE DATABASE ... OWNER on a new cluster and
+# ALTER DATABASE ... OWNER TO on an existing one, so the desired state converges
+# either way.
+#
+# The owning role itself is declared in platform-db.yaml under spec.managed.roles.
+# CNPG reconciles both, so if the role does not exist yet this CR simply retries
+# until it does.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: stalwart
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: stalwart
+  owner: stalwart
+  ensure: present

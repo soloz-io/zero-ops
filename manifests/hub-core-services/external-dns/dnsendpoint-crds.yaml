@@ -1,0 +1,114 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: dnsendpoints.externaldns.k8s.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.1
+  labels:
+    app.kubernetes.io/name: external-dns
+spec:
+  group: externaldns.k8s.io
+  names:
+    kind: DNSEndpoint
+    listKind: DNSEndpointList
+    plural: dnsendpoints
+    shortNames:
+      - ep
+      - dns
+    singular: dnsendpoint
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: RecordType
+          type: string
+          jsonPath: .spec.endpoints[*].recordType
+        - name: TTL
+          type: integer
+          jsonPath: .spec.endpoints[*].ttl
+        - name: Target
+          type: string
+          jsonPath: .spec.endpoints[*].targets[*]
+        - name: Status
+          type: string
+          jsonPath: .status.conditions[*].type
+        - name: Reason
+          type: string
+          jsonPath: .status.conditions[*].reason
+        - name: Since
+          type: date
+          jsonPath: .status.conditions[*].lastTransitionTime
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                endpoints:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      dnsName:
+                        type: string
+                      targets:
+                        type: array
+                        items:
+                          type: string
+                      recordType:
+                        type: string
+                        enum:
+                          - A
+                          - AAAA
+                          - CNAME
+                          - SRV
+                          - TXT
+                          - MX
+                          - NS
+                      ttl:
+                        type: integer
+                      setIdentifier:
+                        type: string
+                      providerSpecific:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

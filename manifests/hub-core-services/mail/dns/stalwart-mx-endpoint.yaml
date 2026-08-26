@@ -1,0 +1,17 @@
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: stalwart-mx
+  namespace: platform-mail
+  annotations:
+    external-dns.alpha.kubernetes.io/owner: hub-hybrid-dev
+spec:
+  endpoints:
+    - dnsName: nutgraf.in
+      recordType: MX
+      targets:
+        - "10 mail.nutgraf.in"
+      setIdentifier: stalwart-mx
+      providerSpecific:
+        - name: mxPriority
+          value: "10"

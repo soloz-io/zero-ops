@@ -1,0 +1,19 @@
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: stalwart-txt-records
+  namespace: platform-mail
+  annotations:
+    external-dns.alpha.kubernetes.io/owner: hub-hybrid-dev
+spec:
+  endpoints:
+    - dnsName: nutgraf.in
+      recordType: TXT
+      targets:
+        - "v=spf1 mx a:mail.nutgraf.in ~all"
+      setIdentifier: stalwart-spf
+    - dnsName: _dmarc.nutgraf.in
+      recordType: TXT
+      targets:
+        - "v=DMARC1; p=quarantine; rua=mailto:admin@nutgraf.in"
+      setIdentifier: stalwart-dmarc

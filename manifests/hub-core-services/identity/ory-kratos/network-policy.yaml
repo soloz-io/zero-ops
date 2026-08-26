@@ -52,6 +52,12 @@ spec:
   - ports:
     - protocol: TCP
       port: 4445
+  # Allow to Stalwart mail server for SMTP (ports-only: same Cilium pre-DNAT constraint)
+  - ports:
+    - protocol: TCP
+      port: 465
+    - protocol: TCP
+      port: 587
   # Allow DNS to kube-dns (no 'to' selector: Cilium socket-LB resolves the
   # kube-dns ClusterIP to a pod IP before NetworkPolicy evaluation; omitting
   # 'to' is the only portable pattern across CNIs for DNS egress)

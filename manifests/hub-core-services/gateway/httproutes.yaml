@@ -147,9 +147,51 @@ spec:
     - console.dev.nutgraf.in
     - argocd.dev.nutgraf.in
     - infisical.dev.nutgraf.in
+    - mail.nutgraf.in
+    - smtp.nutgraf.in
   rules:
     - filters:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
             statusCode: 301
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mail
+  namespace: platform-mail
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: mail
+  hostnames: ["mail.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: stalwart-mail-http
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: smtp
+  namespace: platform-mail
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: smtp
+  hostnames: ["smtp.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: stalwart-mail-http
+          port: 8080
