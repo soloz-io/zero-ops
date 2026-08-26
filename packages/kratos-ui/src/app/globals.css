@@ -219,8 +219,14 @@ body {
   .ory-elements .w-full {
     width: 100%;
   }
+  .ory-elements .w-\[480px\] {
+    width: 640px;
+  }
+  .ory-elements .max-w-\[480px\] {
+    max-width: 640px;
+  }
   .ory-elements .max-w-\[488px\] {
-    max-width: 488px;
+    max-width: 640px;
   }
   .ory-elements .overflow-hidden {
     overflow: hidden;
