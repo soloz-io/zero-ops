@@ -94,6 +94,23 @@ body {
 }
 
 /*
+ * Override the DS preflight `input { border-radius: 0 }`
+ * which is unlayered and beats the layered Ory utility classes.
+ */
+.ory-elements .rounded-forms,
+.ory-elements .rounded-buttons {
+  border-radius: var(--radius-forms) !important;
+}
+.ory-elements .rounded-l-forms {
+  border-top-left-radius: var(--radius-forms) !important;
+  border-bottom-left-radius: var(--radius-forms) !important;
+}
+.ory-elements .rounded-r-none {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+/*
  * Bridge DS tokens → Ory elements CSS variables.
  * Ory uses its own --interface-* → --button-* → --color-* chain.
  * We override the --interface-* semantic layer so Ory components
