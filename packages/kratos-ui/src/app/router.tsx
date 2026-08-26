@@ -6,14 +6,17 @@ import RecoveryPage from './pages/RecoveryPage';
 import ErrorPage from './pages/ErrorPage';
 import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
+import RouteErrorBoundary from './pages/RouteErrorBoundary';
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <HomePage />,
+    errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/auth',
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <Navigate to="/auth/login" replace /> },
       { path: 'login', element: <LoginPage /> },
@@ -26,5 +29,6 @@ export const router = createBrowserRouter([
   {
     path: '/settings',
     element: <SettingsPage />,
+    errorElement: <RouteErrorBoundary />,
   },
 ]);
