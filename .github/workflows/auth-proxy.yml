@@ -31,7 +31,19 @@ jobs:
         with:
           context: .
           file: cmd/auth-proxy/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # amd64 only. Every node in the fleet is x86: Hetzner control planes and
+          # the Flatcar home-lab workers alike, so an arm64 image is built and
+          # pushed for nothing.
+          #
+          # It is not merely wasted time. None of these Dockerfiles cross-compile —
+          # there is no --platform=$BUILDPLATFORM stage — so buildx runs the whole
+          # non-native leg under QEMU. That is slow for the Go images and fatal for
+          # the Node one, where pnpm install dies with "qemu: uncaught target
+          # signal 4 (Illegal instruction)" and the build hangs.
+          #
+          # Restore arm64 by adding a cross-compiling builder stage first, not by
+          # putting the platform back and emulating.
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/soloz-io/zero-ops/auth-proxy:${{ github.sha }}
