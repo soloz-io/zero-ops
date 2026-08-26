@@ -52,33 +52,48 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Pin the manifest to the digest just built
-        run: |
-          cd manifests/hub-core-services/identity/auth-proxy
-          kustomize edit set image ghcr.io/soloz-io/zero-ops/auth-proxy@${{ steps.build.outputs.digest }}
-
-      - name: Commit and push image update
+        env:
+          KUSTOMIZE_IMAGE_ARG: ghcr.io/soloz-io/zero-ops/auth-proxy@${{ steps.build.outputs.digest }}
+          MANIFEST_DIR: manifests/hub-core-services/identity/auth-proxy
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add manifests/hub-core-services/identity/auth-proxy/kustomization.yaml
-          if git diff --cached --quiet; then
-            echo "image digest unchanged — nothing to commit"
-            exit 0
-          fi
-          git commit -m "chore(auth-proxy): pin image to ${{ github.sha }}"
-          # The build takes minutes, so main has usually moved on by now and a
-          # plain push from this stale checkout is rejected with "fetch first"
-          # (that is exactly how the 2026-08-13 run failed, leaving the manifest
-          # pinned to a digest that was never committed). Rebase this one-line
-          # change onto whatever landed meanwhile, and retry.
+
+          # The edit is re-derived from the branch tip on every attempt, and never
+          # rebased. Two things made the old loop fail, and both are structural:
+          #
+          # A build takes minutes, so main has usually moved on and a plain push from
+          # the stale checkout is rejected. Rebasing looked like the fix, but two runs
+          # of THIS workflow rewrite the same digest line in the same file, so the
+          # rebase conflicts. The loop then retried `git pull` with the conflicted
+          # rebase still in progress, which fails with "Pulling is not possible because
+          # you have unmerged files" — identically, five times, then gives up having
+          # pushed an image that no manifest references.
+          #
+          # Resetting to the tip and re-applying cannot conflict: there is never a
+          # divergent commit to merge. It is also self-correcting — if a newer run
+          # already pinned a newer digest, this one finds nothing to change and exits
+          # rather than reverting it.
           for attempt in 1 2 3 4 5; do
-            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
-               && git push origin "HEAD:${GITHUB_REF_NAME}"; then
-              echo "pushed on attempt $attempt"
+            git fetch --quiet origin "${GITHUB_REF_NAME}"
+            git reset --quiet --hard "origin/${GITHUB_REF_NAME}"
+
+            ( cd "${MANIFEST_DIR}" && kustomize edit set image "${KUSTOMIZE_IMAGE_ARG}" )
+            git add "${MANIFEST_DIR}/kustomization.yaml"
+
+            if git diff --cached --quiet; then
+              echo "digest already pinned on ${GITHUB_REF_NAME} — nothing to do"
               exit 0
             fi
-            echo "push attempt $attempt failed; retrying"
+
+            git commit --quiet -m "chore(auth-proxy): pin image to ${GITHUB_SHA}"
+            if git push --quiet origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pinned on attempt ${attempt}"
+              exit 0
+            fi
+
+            echo "attempt ${attempt} lost a push race; re-deriving from the new tip"
             sleep $((attempt * 5))
           done
-          echo "::error::could not push the image pin after 5 attempts"
+          echo "::error::could not pin the image digest after 5 attempts"
           exit 1
