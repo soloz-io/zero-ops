@@ -1,5 +1,6 @@
 .agents
 .github
+.claude
 .kiro
 .vscode
 .zero-ops
@@ -35,3 +36,9 @@ manifests/hub-core-services/grafana-alloy
 manifests/hub-core-services/database-migrations
 manifests/hub-core-services/clickhouse
 manifests/hub-core-services/eso
+manifests/hub-core-services/mail
+manifests/hub-core-services/api-gateway
+manifests/hub-core-services/gateway
+
+packages/*
+manifests/tenants
