@@ -47,6 +47,7 @@ kratos:
           ui_url: https://console.dev.nutgraf.in/auth/registration
         recovery:
           ui_url: https://console.dev.nutgraf.in/auth/recovery
+          enabled: true
         error:
           ui_url: https://console.dev.nutgraf.in/auth/error
         settings:
