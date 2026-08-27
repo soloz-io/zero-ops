@@ -18,33 +18,36 @@ kratos:
       # rejects it outright ("additionalProperties 'from' not allowed"). The
       # sender belongs at courier.smtp.from_address, above.
       #
-      # Every template body must sit under an `email:` key. Without it the
-      # schema reports both 'missing properties: "email"' AND
-      # 'additionalProperties "subject", "body", "plainBody" not allowed' for the
-      # same node, which reads like two unrelated faults and is really one.
+      # Courier templates are URIs, not inline text. Per emailCourierTemplate in
+      # embedx/config.schema.json (reference-projects/ory/kratos): `subject` is
+      # format: uri, `body` is an OBJECT of {html, plaintext} each format: uri,
+      # and there is no `plainBody` key. Accepted schemes are file://, https://
+      # and base64://.
       #
-      # None of this was visible while the DSN defect kept Kratos from starting:
-      # config validation happens after the database is reachable, so these
-      # errors were queued behind it the whole time.
+      # These were previously written as inline prose with a `plainBody`
+      # sibling, which cannot validate under any nesting — the values are read
+      # as URIs, so "Recover access to your account" fails format: uri. base64://
+      # keeps the wording in this file instead of splitting it across mounted
+      # template files.
+      #
+      # None of this was reachable while the DSN defect kept Kratos from
+      # starting: config validation runs only after the database is reachable,
+      # so every one of these errors was queued behind that one and surfaced in
+      # sequence, one restart at a time.
       templates:
         recovery:
           valid:
             email:
-              subject: Recover access to your account
-              body: |-
-                Hi, please recover access to your account by clicking the following link:
-                <a href="{{ .RecoveryURL }}">{{ .RecoveryURL }}</a>
-              plainBody: |-
-                Hi, please recover access to your account by clicking the following link: {{ .RecoveryURL }}
+              subject: base64://UmVjb3ZlciBhY2Nlc3MgdG8geW91ciBhY2NvdW50
+              body:
+                html: base64://SGksIHBsZWFzZSByZWNvdmVyIGFjY2VzcyB0byB5b3VyIGFjY291bnQgYnkgY2xpY2tpbmcgdGhlIGZvbGxvd2luZyBsaW5rOgo8YSBocmVmPSJ7eyAuUmVjb3ZlcnlVUkwgfX0iPnt7IC5SZWNvdmVyeVVSTCB9fTwvYT4=
+                plaintext: base64://SGksIHBsZWFzZSByZWNvdmVyIGFjY2VzcyB0byB5b3VyIGFjY291bnQgYnkgY2xpY2tpbmcgdGhlIGZvbGxvd2luZyBsaW5rOiB7eyAuUmVjb3ZlcnlVUkwgfX0=
           invalid:
             email:
-              subject: Account access attempted
-              body: |-
-                Hi, you (or someone else) entered this email address when trying to recover access to an account.
-                However, this email address is not on our database of registered users and therefore the attempt has failed.
-              plainBody: |-
-                Hi, you (or someone else) entered this email address when trying to recover access to an account.
-                However, this email address is not on our database of registered users and therefore the attempt has failed.
+              subject: base64://QWNjb3VudCBhY2Nlc3MgYXR0ZW1wdGVk
+              body:
+                html: base64://SGksIHlvdSAob3Igc29tZW9uZSBlbHNlKSBlbnRlcmVkIHRoaXMgZW1haWwgYWRkcmVzcyB3aGVuIHRyeWluZyB0byByZWNvdmVyIGFjY2VzcyB0byBhbiBhY2NvdW50LgpIb3dldmVyLCB0aGlzIGVtYWlsIGFkZHJlc3MgaXMgbm90IG9uIG91ciBkYXRhYmFzZSBvZiByZWdpc3RlcmVkIHVzZXJzIGFuZCB0aGVyZWZvcmUgdGhlIGF0dGVtcHQgaGFzIGZhaWxlZC4=
+                plaintext: base64://SGksIHlvdSAob3Igc29tZW9uZSBlbHNlKSBlbnRlcmVkIHRoaXMgZW1haWwgYWRkcmVzcyB3aGVuIHRyeWluZyB0byByZWNvdmVyIGFjY2VzcyB0byBhbiBhY2NvdW50LgpIb3dldmVyLCB0aGlzIGVtYWlsIGFkZHJlc3MgaXMgbm90IG9uIG91ciBkYXRhYmFzZSBvZiByZWdpc3RlcmVkIHVzZXJzIGFuZCB0aGVyZWZvcmUgdGhlIGF0dGVtcHQgaGFzIGZhaWxlZC4=
     serve:
       public:
         base_url: https://console.dev.nutgraf.in
