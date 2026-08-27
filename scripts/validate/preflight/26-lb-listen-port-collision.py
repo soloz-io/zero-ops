@@ -30,17 +30,13 @@ SOURCES = [
 # for everything else while the debt stays visible — the same idiom
 # 96-spoke-secret-authz.py and 99-tenant-identifiers.sh use.
 #
-#   spokepool-cluster-v1
-#       controlPlaneEndpoint.port 443 collides with extraServices 443, so spoke
-#       tenant HTTPS does not exist (ADR-046 §25.1). It is NOT fixed in place
-#       because HetznerClusterTemplate.spec is immutable once referenced — the CAPH
-#       webhook denies the edit and ArgoCD (automated, selfHeal) then retries
-#       forever, wedging the infrastructure-provider Application. Observed live.
-#       Landing the fix needs a new template NAME, not an edit (ADR-046 §25.5).
-#
 # Remove an entry the moment its template is versioned and the collision is gone.
 # The list only shrinks; a NEW template with a collision still fails hard.
 BASELINE = {
+    # spokepool-cluster-v1 is superseded by v2 (ADR-046 §25.5) and will be
+    # pruned from the file after the spoke is re-provisioned on v2. Kept here
+    # while the live resource still exists so the preflight does not fail on
+    # stale state.
     "spokepool-cluster-v1",
 }
 

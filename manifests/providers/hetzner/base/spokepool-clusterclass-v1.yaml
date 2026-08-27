@@ -19,7 +19,7 @@ spec:
     ref:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: HetznerClusterTemplate
-      name: spokepool-cluster-v1
+      name: spokepool-cluster-v2
   workers:
     machineDeployments:
     - class: default-worker
@@ -172,6 +172,52 @@ spec:
         # NOTE: extraServices exposes only {protocol,listenPort,destinationPort} —
         # there is no proxyProtocol field, so PROXY protocol is OFF here and
         # enable-gateway-api-proxy-protocol MUST be "false" in cilium-addon-hybrid.yaml.
+        extraServices:
+        - protocol: tcp
+          listenPort: 80
+          destinationPort: 80
+        - protocol: tcp
+          listenPort: 443
+          destinationPort: 443
+      hcloudNetwork:
+        enabled: true
+        cidrBlock: 10.0.0.0/16
+        subnetCidrBlock: 10.0.0.0/24
+        networkZone: eu-central
+      sshKeys:
+        hcloud: []
+      hetznerSecretRef:
+        name: hetzner-credentials
+        key:
+          hcloudToken: hcloud
+---
+# ── spokepool-cluster-v2 — ADR-046 §25.1 fix ─────────────────────────────────
+# controlPlaneEndpoint.port is 6443 (not 443) so that the LB's :443 listener
+# is available for tenant HTTPS ingress via extraServices. A Hetzner LB cannot
+# carry two services on one listen_port, so v1's port 443 silently dropped the
+# ingress entry (ADR-046 §25.1). v1 cannot be edited in place because
+# HetznerClusterTemplate.spec is immutable once referenced by a Cluster — the
+# CAPH webhook denies the edit and ArgoCD selfHeal retries forever, wedging the
+# infrastructure-provider Application. This template is the §25.5 resolution:
+# a new name that ArgoCD can create rather than mutate.
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HetznerClusterTemplate
+metadata:
+  name: spokepool-cluster-v2
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      controlPlaneEndpoint:
+        host: ""
+        port: 6443
+      controlPlaneRegions:
+      - hel1
+      controlPlaneLoadBalancer:
+        enabled: true
+        type: lb11
+        algorithm: round_robin
+        region: hel1
         extraServices:
         - protocol: tcp
           listenPort: 80
