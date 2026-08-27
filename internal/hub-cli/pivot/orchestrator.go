@@ -511,6 +511,18 @@ func (o *Orchestrator) waitForCAPICRDs(ctx context.Context, kubeconfig string, t
 				"clusters.cluster.x-k8s.io",
 				"machines.cluster.x-k8s.io",
 				"machinedeployments.cluster.x-k8s.io",
+				// clusterctl's own inventory. `clusterctl move` reads it to build
+				// the object graph and fails outright without it:
+				//   failed get providers: no matches for kind "Provider" in
+				//   version "clusterctl.cluster.x-k8s.io/v1alpha3"
+				//
+				// It is created by cluster-api-operator, not by anything in this
+				// repo, and it appears asynchronously after the operator settles —
+				// so a move issued too soon races it. That race is invisible when
+				// it wins and fatal when it loses, which is why it read as an
+				// intermittent pivot failure. Waiting here makes the dependency
+				// explicit instead of leaving it to timing.
+				"providers.clusterctl.cluster.x-k8s.io",
 			),
 		},
 		Interval: 10 * time.Second,
