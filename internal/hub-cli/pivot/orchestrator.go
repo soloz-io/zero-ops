@@ -618,7 +618,9 @@ func (o *Orchestrator) move(ctx context.Context, mgmtKubeconfig string) error {
 	if o.BootstrapKubeconfig != "" {
 		args = append(args, "--kubeconfig", o.BootstrapKubeconfig)
 		if o.BootstrapContext != "" {
-			args = append(args, "--context", o.BootstrapContext)
+			// clusterctl's own flag name — it is not kubectl and does not
+			// accept --context.
+			args = append(args, "--kubeconfig-context", o.BootstrapContext)
 		}
 	}
 	args = append(args, "--namespace", o.Namespace)
