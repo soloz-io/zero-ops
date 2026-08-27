@@ -1214,10 +1214,24 @@ func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
 					break
 				}
 				if i == len(parts)-1 {
-					// Last part — check it's non-empty
-					strVal, ok := val.(string)
-					if !ok || strings.TrimSpace(strVal) == "" {
-						found = false
+					// Last part — present and non-empty.
+					//
+					// A required field is not always a scalar. The gateway's
+					// external-dns target is declared as metadata.annotations,
+					// a MAP, because the key underneath it
+					// (external-dns.alpha.kubernetes.io/target) contains dots and
+					// cannot be addressed by a dot-separated path. Asserting
+					// val.(string) here rejected that artifact as "missing or
+					// empty" while it was present and correct.
+					switch v := val.(type) {
+					case string:
+						found = strings.TrimSpace(v) != ""
+					case map[string]interface{}:
+						found = len(v) > 0
+					case []interface{}:
+						found = len(v) > 0
+					default:
+						found = val != nil
 					}
 				} else {
 					// Intermediate — must be a map
