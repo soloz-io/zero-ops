@@ -11,10 +11,27 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false
 spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/instance: cert-manager
+      app.kubernetes.io/name: cert-manager
   template:
+    metadata:
+      labels:
+        app: cert-manager
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: cert-manager
+        app.kubernetes.io/name: cert-manager
+        app.kubernetes.io/version: v1.20.2
     spec:
       containers:
         - name: cert-manager-controller
+          # IMPORTANT: image is pinned here to v1.20.2. If cert-manager is
+          # upgraded via internal/assets/manifests/core/cert-manager/install.yaml,
+          # this file must be updated in lockstep or ArgoCD silently holds the
+          # old image — the exact drift class that broke Gateway API CRDs.
+          image: "quay.io/jetstack/cert-manager-controller:v1.20.2"
           # Upstream ships no requests -> BestEffort. On the saturated hub node
           # that starved the controller into repeated liveness-probe kills
           # (13 restarts in 8h, exit 1), and each kill dropped an in-flight ACME
@@ -27,3 +44,17 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+          args:
+          - --v=2
+          - --cluster-resource-namespace=$(POD_NAMESPACE)
+          - --leader-election-namespace=kube-system
+          - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.20.2
+          # cert-manager v1.20.2 checks BOTH --enable-gateway-api AND the
+          # ExperimentalGatewayAPISupport feature gate (cmd/controller/app/options:
+          # "gateway api is not enabled" otherwise). Removing either flag breaks
+          # ACME HTTP-01 via Gateway API; the visible failure is a spoke-side
+          # ESO/TLS error, not a cert-manager error — the distance between cause
+          # and symptom is why this was hard to trace.
+          - --enable-gateway-api=true
+          - --feature-gates=ExperimentalGatewayAPISupport=true
+          - --max-concurrent-challenges=60
