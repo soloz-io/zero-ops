@@ -14,24 +14,37 @@ kratos:
         # courier.smtp.connection_uri, so an EMPTY smtp map is a nil pointer and
         # the whole chart fails to render. smtp must stay a non-nil map.
         from_address: no-reply@nutgraf.in
-      from: no-reply@nutgraf.in
+      # `from:` used to live here. It is not a Kratos config key — the schema
+      # rejects it outright ("additionalProperties 'from' not allowed"). The
+      # sender belongs at courier.smtp.from_address, above.
+      #
+      # Every template body must sit under an `email:` key. Without it the
+      # schema reports both 'missing properties: "email"' AND
+      # 'additionalProperties "subject", "body", "plainBody" not allowed' for the
+      # same node, which reads like two unrelated faults and is really one.
+      #
+      # None of this was visible while the DSN defect kept Kratos from starting:
+      # config validation happens after the database is reachable, so these
+      # errors were queued behind it the whole time.
       templates:
         recovery:
           valid:
-            subject: Recover access to your account
-            body: |-
-              Hi, please recover access to your account by clicking the following link:
-              <a href="{{ .RecoveryURL }}">{{ .RecoveryURL }}</a>
-            plainBody: |-
-              Hi, please recover access to your account by clicking the following link: {{ .RecoveryURL }}
+            email:
+              subject: Recover access to your account
+              body: |-
+                Hi, please recover access to your account by clicking the following link:
+                <a href="{{ .RecoveryURL }}">{{ .RecoveryURL }}</a>
+              plainBody: |-
+                Hi, please recover access to your account by clicking the following link: {{ .RecoveryURL }}
           invalid:
-            subject: Account access attempted
-            body: |-
-              Hi, you (or someone else) entered this email address when trying to recover access to an account.
-              However, this email address is not on our database of registered users and therefore the attempt has failed.
-            plainBody: |-
-              Hi, you (or someone else) entered this email address when trying to recover access to an account.
-              However, this email address is not on our database of registered users and therefore the attempt has failed.
+            email:
+              subject: Account access attempted
+              body: |-
+                Hi, you (or someone else) entered this email address when trying to recover access to an account.
+                However, this email address is not on our database of registered users and therefore the attempt has failed.
+              plainBody: |-
+                Hi, you (or someone else) entered this email address when trying to recover access to an account.
+                However, this email address is not on our database of registered users and therefore the attempt has failed.
     serve:
       public:
         base_url: https://console.dev.nutgraf.in
