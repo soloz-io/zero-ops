@@ -4,7 +4,7 @@ metadata:
   name: infisical-fleet-issuer
 spec:
   url: http://infisical-standalone-infisical.platform-security.svc:8080
-  projectId: 19b4e049-4ade-4eae-9a06-53f052c0fedc
+  projectId: 8120601e-85e5-470c-b4d0-a6f21f0133e8
   authentication:
     universalAuth:
-      clientId: ba635460-4ae2-4eb8-9d5d-661359141dba
+      clientId: feb6d7a0-c820-4e88-b04f-7c1dfd50bf83

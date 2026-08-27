@@ -1,16 +1,17 @@
 # ADR-045 bootstrap-generated artifact — DO NOT EDIT BY HAND.
 #
-# Written by the hub CLI during bootstrap from the CAPH control-plane load
-# balancer address (HetznerCluster.spec.controlPlaneEndpoint.host), the same
-# hubIngressAddress it already resolves for the environment-manager chart.
+# Written by the hub CLI from the CAPH control-plane load balancer address
+# (HetznerCluster.spec.controlPlaneEndpoint.host), the same hubIngressAddress it
+# resolves for the environment-manager chart.
 #
-# external-dns publishes the hostnames it finds on this Gateway's HTTPRoutes but
+# external-dns publishes the hostnames it finds on the hub Gateway's HTTPRoutes but
 # has no address to point them at: in hostNetwork mode the Gateway's generated
-# Service is ClusterIP. The address is only known once the load balancer exists,
-# which is why it cannot be written in the base manifest and is generated here.
+# Service is ClusterIP. kustomize applies this to the Gateway and to every route,
+# because external-dns reads the target from the route and falls back to the
+# Gateway's address, which hostNetwork mode leaves unroutable.
 #
-# Regenerate with the CLI rather than editing: a stale value here is published to
-# public DNS, and every hub hostname resolves to whatever it says.
+# Regenerate with the CLI rather than editing: a stale value here reaches public
+# DNS, and every hub hostname resolves to whatever it says.
 apiVersion: v1
 kind: Placeholder
 metadata:
