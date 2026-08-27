@@ -430,6 +430,14 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	generatedPaths := []string{
 		"manifests/hub-core-services/security/generated/",
 		"manifests/environments/base/generated/",
+		// The hub Gateway's external-dns target. Registered in
+		// manifests/generated/artifacts.yaml but previously missing here, so it
+		// was written to the working tree and never committed. ArgoCD renders
+		// this kustomization from Git, so an uncommitted value means external-dns
+		// keeps publishing the PREVIOUS cluster's load balancer address: every hub
+		// hostname resolves to a dead IP and ACME cannot validate a name that does
+		// not resolve. Nothing reports it, because the file on disk looks correct.
+		"manifests/hub-core-services/gateway/generated/",
 	}
 
 	// Try to auto-commit (local-only — git remote not required)
