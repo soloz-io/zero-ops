@@ -416,7 +416,23 @@ func (p *Provisioner) applyCRS(ctx context.Context) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
+	// Server-side apply, not client-side.
+	//
+	// Client-side apply records the entire object in the
+	// kubectl.kubernetes.io/last-applied-configuration annotation, and
+	// annotations are capped at 256 KiB — well under the 1 MiB Secret limit the
+	// payload itself has to satisfy. The cilium addon carries the CNI plus the
+	// Gateway API CRDs it requires (~700 KiB), so client-side apply fails on the
+	// annotation while the Secret it is trying to write would have been legal:
+	//   Secret "<cluster>-cilium-addon" is invalid: metadata.annotations:
+	//   Too long: must have at most 262144 bytes
+	//
+	// Server-side apply keeps ownership in managedFields instead of stuffing a
+	// copy of the object into its own metadata, so only the Secret limit applies.
+	// --force-conflicts because this is the CLI re-asserting Day-0 ownership of
+	// resources it alone writes.
+	cmd := exec.CommandContext(ctx, "kubectl",
+		p.kubectlArgs("apply", "--server-side", "--force-conflicts", "-f", "-")...)
 	cmd.Stdin = &buf
 
 	if output, err := cmd.CombinedOutput(); err != nil {

@@ -17,6 +17,7 @@ const (
 	PhaseDayZero               BootstrapPhase = "day0-infra"
 	PhaseCAPIInit              BootstrapPhase = "capi-init"
 	PhaseClusterProvision      BootstrapPhase = "cluster-provision"
+	PhaseArgoCDInstall         BootstrapPhase = "argocd-install"
 	PhasePivotMove             BootstrapPhase = "pivot-move"
 	PhasePivotReady            BootstrapPhase = "pivot-ready"
 	PhaseCleanup               BootstrapPhase = "cleanup"

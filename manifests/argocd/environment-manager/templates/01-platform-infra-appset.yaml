@@ -41,7 +41,7 @@ spec:
             isPlatformOwned: 'false'
             syncWave: '1'
             repoURL: 'https://argoproj.github.io/argo-helm'
-            targetRevision: '7.7.12'
+            targetRevision: '7.8.0'
             path: ''
             chart: 'argo-cd'
             directoryRecurse: ''

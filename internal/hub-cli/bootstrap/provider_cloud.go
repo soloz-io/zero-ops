@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/binaries"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/cluster"
@@ -168,7 +169,24 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	if err != nil {
 		return fmt.Errorf("failed to render cilium-config for delivery: %w", err)
 	}
-	clusterCfg.CiliumManifest = string(ciliumRaw) + "\n---\n" + string(ciliumConfigOut)
+	// Gateway API CRDs travel WITH Cilium, ahead of it in the document stream.
+	//
+	// Cilium here runs with enable-gateway-api=true, and its operator blocks until
+	// these CRDs exist. Nothing on the cluster gets past that: the operator never
+	// settles, the home-lab worker never goes Ready, and the worker is the hub's
+	// only worker capacity (ADR-046 §19/§21). Delivering the CRDs through ArgoCD
+	// is circular — ArgoCD needs the worker that needs the CRDs that ArgoCD would
+	// install — which is why they belong here, in the same ClusterResourceSet
+	// addon that already carries the CNI (ADR-041).
+	//
+	// Ordered first deliberately. Same addon, one document stream, so the CRDs
+	// cannot be separated from the CNI that requires them by reordering a list.
+	gatewayCRDs, err := assets.ReadManifest("addons/gateway-api-crds.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read the Gateway API CRDs delivered with Cilium: %w", err)
+	}
+	clusterCfg.CiliumManifest = string(gatewayCRDs) + "\n---\n" +
+		string(ciliumRaw) + "\n---\n" + string(ciliumConfigOut)
 
 	provisioner := &cluster.Provisioner{
 		Kubeconfig: cfg.BootstrapKubeconfig,
@@ -430,7 +448,9 @@ func waitForAllMachinesRunning(ctx context.Context, kubeconfig string, timeout t
 // binaries import is used by pivot but referenced transitively through the
 // pivot package. This ensures the import stays.
 var _ = binaries.ClusterctlManager{}
+
 // bytes import for manifest reading.
 var _ = bytes.NewReader
+
 // filepath import for kubeconfig paths.
 var _ = filepath.Join

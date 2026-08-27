@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Orchestrator runs the 16-phase hub cluster bootstrap pipeline.
+// Orchestrator runs the 17-phase hub cluster bootstrap pipeline.
 //
 // The pipeline is identical for every provider — local or cloud. The
 // orchestrator never branches on provider name or type. Cloud-specific
@@ -38,7 +38,8 @@ import (
 //	Phase  8: cleanup                 delete kind unless --keep-bootstrap
 //	Phase  9: clusterclass            ClusterClass deploy (orchestrator-owned)
 //	Phase 10: platform-pre-reqs       Provider.OnPlatformPreReqs(kubeconfig)
-//	Phase 11a: boundary-01            ArgoCD + infra operators (orchestrator-owned)
+//	Phase  5a: argocd-install        ArgoCD + seed Application (pre-worker, hybrid)
+//	Phase 11a: boundary-01            infra operators ready (orchestrator-owned)
 //	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
 //	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
@@ -59,7 +60,7 @@ type Orchestrator struct {
 	Gating GatingMode
 }
 
-// Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
+// Run executes the full 17-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
 		fmt.Println("[DEBUG] Orchestrator.Run() started")
@@ -97,11 +98,12 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 1: Preflight (checkpointed per-bootstrap) ───────────────
-	// Once passed for this bootstrap, skipped on resume via runPhase's
-	// phaseDone check — like every other phase. Dry-run bypasses the
-	// orchestrator entirely and validates without checkpointing.
+	// Infra preflight (docker/kind/hetzner token) — checkpointed via state/<cluster>.json.
+	// Shell static preflight (59 checks, manifests) lives in hub-bootstrap.sh and is
+	// hash-gated there; this Go phase is infra-only. Once passed, skipped on resume
+	// via runPhase's phaseDone check. Dry-run bypasses the orchestrator entirely.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePreFlight, "preflight",
-		"Running preflight validation...",
+		"Running infra preflight validation (docker/kind/token)...",
 		func() error {
 			r := preflight.NewRunner()
 			for _, v := range o.Provider.PreflightValidators() {
@@ -109,7 +111,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 			}
 			return r.Run(ctx)
 		},
-		func() { fmt.Println("[preflight] ✓ All checks passed") },
+		func() { fmt.Println("[preflight] ✓ Infra checks passed") },
 	); err != nil {
 		return err
 	}
@@ -173,9 +175,35 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// which is why this shells out to the provisioning script rather than creating a
 	// Machine. For --cluster hub the script mints its own bootstrap token from the
 	// hub kubeconfig, so it depends on nothing that pivot installs.
+	//
+	// The Gateway API CRDs the Cilium operator waits for are delivered with Cilium
+	// itself, in the same ClusterResourceSet addon (ADR-041), so the operator
+	// settles and this node reaches Ready without anything having to be installed
+	// on the cluster first.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
 		"Joining home-lab worker(s) to the hub...",
 		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		nil,
+	); err != nil {
+		return err
+	}
+
+	// ── Phase 5c: ArgoCD install + seed ────────────────────────────────
+	// Installs ArgoCD and establishes the seed Application (ADR-055).
+	//
+	// This runs AFTER the worker join, not before it. ArgoCD's server, repo
+	// server and application controller are ordinary workloads and belong on a
+	// worker; the hub control plane keeps its taint so it can stay dedicated to
+	// cluster state. Installing pre-worker would have meant tolerating that
+	// taint, which is the wrong answer to a question that no longer needs
+	// asking: the Gateway API CRDs now ship with Cilium, so the worker reaches
+	// Ready on its own and there is a node to schedule on by the time we get
+	// here.
+	//
+	// Still ahead of pivot-move, so the seed exists before CAPI moves in.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseArgoCDInstall, "argocd-install",
+		"Installing ArgoCD + seed on hub...",
+		func() error { return o.installArgoCDAndSeed(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
 		nil,
 	); err != nil {
 		return err
@@ -793,15 +821,22 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 01: Platform infrastructure (ArgoCD + operators)
+// Phase 5a: ArgoCD install + seed (pre-worker)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
+// installArgoCDAndSeed installs ArgoCD on the hub and establishes the seed
+// Application (ADR-055) before the worker joins. This allows Gateway API CRDs
+// to sync via ArgoCD before the Cilium operator init container times out.
+//
+// Uses the hub kubeconfig extracted from the bootstrap cluster's CAPI secret
+// (same mechanism as home-worker-join). The hub API is already up after
+// cluster-provision.
+func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
 	ci := &components.Installer{Kubeconfig: kubeconfig}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
-	fmt.Println("[boundary01] ✓ ArgoCD installed")
+	fmt.Println("[argocd-install] ✓ ArgoCD installed on hub")
 
 	// ADR-055: establish the seed (boundary AppProjects + the Application that
 	// owns all boundary content) and open boundary 01. In sequenced mode the
@@ -809,16 +844,29 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	if err := o.deployBoundary(ctx, kubeconfig, 1); err != nil {
 		return err
 	}
-	fmt.Println("[boundary01] ✓ 01-platform-infra boundary activated")
+	fmt.Println("[argocd-install] ✓ 01-platform-infra boundary activated")
 
 	// ArgoCD apps read manifests from the private soloz-io/zero-ops repo. The
 	// repo credentials must exist before any app can sync (otherwise webhook
 	// waits below block on "authentication required"). Provision them from the
-	// GitHub PAT now so the raw CLI is self-contained (previously only the
-	// shell script's step3 did this, causing a chicken-and-egg on fresh Hubs).
+	// GitHub PAT now so the raw CLI is self-contained.
 	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig); err != nil {
 		return fmt.Errorf("failed to configure ArgoCD GitHub access: %w", err)
 	}
+	fmt.Println("[argocd-install] ✓ ArgoCD configured + seed established")
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Boundary 01: Platform infrastructure (ArgoCD + operators)
+// ──────────────────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
+	// ArgoCD, the seed Application, and boundary 01 activation are already done
+	// in Phase 5a (installArgoCDAndSeed). This phase waits for the operators
+	// that boundary 01 delivers to become ready — webhooks, CRDs, and pods.
+	// Those operators may need the worker to be Ready, which is why this runs
+	// after home-worker-join.
 
 	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
 	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {

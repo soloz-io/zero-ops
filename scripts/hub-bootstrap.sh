@@ -211,6 +211,18 @@ mark_step_completed() {
     log "Step '$step' marked as completed in bootstrap state file"
 }
 
+# Returns 0 (true) iff Go checkpoint shows preflight completed.
+# State-only gate per user request: no hash, no repo drift check.
+is_static_preflight_checkpointed() {
+    local go_state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    [[ -f "$go_state" ]] || return 1
+    if command -v jq >/dev/null 2>&1; then
+        jq -e '.completedPhases | index("preflight")' "$go_state" >/dev/null 2>&1
+    else
+        grep -q '"preflight"' "$go_state" 2>/dev/null
+    fi
+}
+
 # Function to delete all access keys for an IAM user
 delete_iam_access_keys() {
     local iam_user="$1"
@@ -1762,13 +1774,20 @@ main() {
     # and needs no cluster, so config faults are found before the first Hetzner
     # server is billed rather than after a 40-minute provision. Fatal by design:
     # what it reports cannot be fixed forward from a half-built platform.
-    if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
-        log "Running pre-bootstrap validation..."
+    #
+    # Checkpoint-aware: Go infra-preflight is checkpointed via
+    # .zero-ops/state/<cluster>.json (orchestrator.go:99, phaseDone).
+    # Shell static validation (59 checks) is gated only on that state —
+    # no hash, per user request. If Go says preflight completed, skip.
+    if [[ "${SKIP_PREFLIGHT:-0}" == "1" ]]; then
+        log "⚠️  SKIP_PREFLIGHT=1 — static repo validation bypassed (Go infra-preflight still checkpointed via .zero-ops/state/${CLUSTER_NAME}.json)"
+    elif is_static_preflight_checkpointed; then
+        log "Static repo validation skipped (checkpointed — Go state shows preflight completed via .zero-ops/state/${CLUSTER_NAME}.json)"
+    else
+        log "Running static repo validation (59 checks) — Go infra-preflight is checkpointed via .zero-ops/state/${CLUSTER_NAME}.json..."
         if ! ENVIRONMENT="$ENVIRONMENT" bash "$SCRIPT_DIR/validate/run.sh" preflight; then
             error_exit "Pre-bootstrap validation failed — nothing was created. Fix the reported invariants and re-run (SKIP_PREFLIGHT=1 overrides)."
         fi
-    else
-        log "⚠️  SKIP_PREFLIGHT=1 — pre-bootstrap validation bypassed"
     fi
 
     # Execute steps in order (each step is independently idempotent)
