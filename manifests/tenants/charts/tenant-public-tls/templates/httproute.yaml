@@ -1,0 +1,54 @@
+{{- include "tenant-public-tls.requirements" . }}
+{{- if .Values.public.hosts }}
+---
+# Platform-owned per-tenant hostname route (ADR-051).
+#
+# ADR-051 assigns "the spoke authenticating gateway + its hostname route" to
+# Platform Engineering, and rejects tenant-authored routes by name: where routing
+# is a security control, ownership belongs with the control. A tenant therefore
+# cannot author a route reaching its own backends without traversing
+# AgentGateway — the no-bypass requirement holds structurally, not by review.
+#
+# This object completes the migration the Gateway template defers to. It is
+# rendered from the SAME public.hosts declaration as the TLS listeners, so one
+# tenant declaration materialises both, and the two can never disagree.
+#
+# hostnames are EXPLICIT, deliberately. An empty list would attach to every
+# listener and route correctly, but it would leave DNS derived from external-dns's
+# interpretation of a wildcard-listener intersection rather than from a stated
+# platform-owned hostname. external-dns runs the gateway-httproute source, so this
+# route IS the DNS declaration: ADR-051's "DNS is derived from gateway state"
+# resolves to state the platform owns, and the record set is mechanically
+# inspectable.
+#
+# Both parentRefs are intentional: :443 terminates TLS on tenant-tls-gateway
+# (this chart's Gateway), :80 is the plaintext hop and the ACME solver attachment
+# point on tenant-gateway (spoke-catalog's). Backends are same-namespace, so no
+# ReferenceGrant exists to be abused.
+#
+# Coexists with spoke-catalog's hostname-less tenant-ingress: Gateway API resolves
+# overlapping routes by hostname specificity, so these explicit names win for this
+# tenant while the catch-all continues to serve everything else.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ printf "%s-public-ingress" .Values.tenantId }}
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/managed-by: tenant-public-tls
+    zero-ops.io/tenant-id: {{ .Values.tenantId }}
+spec:
+  parentRefs:
+    - name: {{ .Values.tlsGatewayName }}
+      namespace: platform-ops
+    - name: {{ .Values.plaintextGatewayName }}
+      namespace: platform-ops
+  hostnames:
+    {{- range .Values.public.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ .Values.authGatewayService.name }}
+          port: {{ .Values.authGatewayService.port }}
+{{- end }}

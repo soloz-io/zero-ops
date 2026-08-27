@@ -28,5 +28,18 @@ issuer: ""
 # Per-spoke shared TLS-termination Gateway created by this chart.
 tlsGatewayName: tenant-tls-gateway
 
+# The spoke-catalog-owned :80 Gateway. This chart does not create or edit it — it
+# only attaches the tenant's hostname route to it for the plaintext hop and the
+# ACME solver path. Named here rather than hardcoded so the two owners stay
+# explicit about the boundary between them.
+plaintextGatewayName: tenant-gateway
+
+# The authenticating gateway every tenant hostname must traverse (ADR-050).
+# The route's backendRef points here and nowhere else: that is what makes the
+# no-bypass property structural rather than reviewable.
+authGatewayService:
+  name: agentgateway
+  port: 3000
+
 certificateDuration: 2160h    # 90 days
 certificateRenewBefore: 720h  # 30 days
