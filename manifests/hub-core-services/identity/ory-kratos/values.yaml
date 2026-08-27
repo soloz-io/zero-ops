@@ -2,7 +2,18 @@ kratos:
   config:
     courier:
       smtp:
-        connection_uri: env://SMTP_CONNECTION_URI
+        # NO connection_uri HERE — same reason as dsn below. It was
+        # `env://SMTP_CONNECTION_URI`, which the chart copied verbatim into its
+        # Secret and injected as COURIER_SMTP_CONNECTION_URI, so the courier
+        # dialled a host named "env" and crash-looped. Setting this key at all
+        # makes the chart inject that value unconditionally — there is no
+        # extraEnv escape for it, unlike DSN — so it has to stay unset and the
+        # real URI arrives as COURIER_SMTP_CONNECTION_URI in deployment.extraEnv.
+        #
+        # from_address is not decoration: `kratos.configmap` dereferences
+        # courier.smtp.connection_uri, so an EMPTY smtp map is a nil pointer and
+        # the whole chart fails to render. smtp must stay a non-nil map.
+        from_address: no-reply@nutgraf.in
       from: no-reply@nutgraf.in
       templates:
         recovery:
@@ -62,36 +73,61 @@ kratos:
           ui_url: https://console.dev.nutgraf.in/auth/error
         settings:
           ui_url: https://console.dev.nutgraf.in/settings
-    dsn: env://DSN
+
+    # NO dsn HERE, deliberately. `dsn: env://DSN` was not an indirection — Ory
+    # has no env:// scheme. The chart copies kratos.config.dsn verbatim into the
+    # Secret it generates and injects that back as $DSN, so DSN became the
+    # literal string "env://DSN" and `kratos migrate sql -e` parsed "env" as the
+    # driver: "unsupported dialect 'env'". The init container never completed,
+    # ory-kratos-public had zero endpoints, and the console answered every login
+    # with "Something went wrong."
+    #
+    # It stayed hidden for as long as it did because the generated Secret is
+    # annotated helm.sh/resource-policy: keep — an older, correct value survived
+    # every sync until the Secret was recreated, at which point a config error
+    # that had been in Git for weeks became an outage.
+    #
+    # Leaving dsn unset makes the chart skip its own DSN injection entirely
+    # (see the `kratos.dsn` helper), so the DSN below is the only one.
 
   automigration:
     enabled: true
     type: initContainer
 
-  deployment:
-    extraEnv:
-      - name: KRATOS_DB_PASSWORD
-        valueFrom:
-          secretKeyRef:
-            name: kratos-db-credentials
-            key: password
-      - name: DSN
-        value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
-      - name: SMTP_CONNECTION_URI
-        valueFrom:
-          secretKeyRef:
-            name: kratos-smtp-credentials
-            key: connection-uri
+# deployment/* MUST be top-level — the chart reads .Values.deployment, not
+# .Values.kratos.deployment. Nested under kratos: these keys parse as valid YAML,
+# are silently ignored by Helm (which never warns about unknown values), and the
+# resulting Deployment quietly lacks every one of them: no DSN, no SMTP, no
+# identity-schema volume, no startup probe. Verified with `helm template`, which
+# is the only way to see it — the rendered init container carried no extraEnv at
+# all while values.yaml appeared to define it.
+deployment:
+  # KRATOS_DB_PASSWORD must be declared BEFORE DSN: Kubernetes expands $(VAR)
+  # only against variables defined earlier in the same container's env list, and
+  # an unresolvable $(VAR) is left as literal text rather than failing.
+  extraEnv: &kratosEnv
+    - name: KRATOS_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: kratos-db-credentials
+          key: password
+    - name: DSN
+      value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
+    # Named COURIER_SMTP_CONNECTION_URI, not SMTP_CONNECTION_URI: Ory maps env
+    # vars onto config keys by path, so this one overrides courier.smtp.
+    # connection_uri. SMTP_CONNECTION_URI matches no config key and was ignored.
+    - name: COURIER_SMTP_CONNECTION_URI
+      valueFrom:
+        secretKeyRef:
+          name: kratos-smtp-credentials
+          key: connection-uri
 
-    automigration:
-      extraEnv:
-        - name: KRATOS_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: kratos-db-credentials
-              key: password
-        - name: DSN
-          value: postgres://hub_kratos:$(KRATOS_DB_PASSWORD)@platform-db-rw.platform-data.svc.cluster.local:5432/kratos
+  # The migration init container gets its own env list and does NOT inherit
+  # deployment.extraEnv — the chart picks one or the other (see $migrationExtraEnv
+  # in deployment-kratos.yaml). Anchored to the same list so the two cannot drift;
+  # they previously carried separate copies of the DSN.
+  automigration:
+    extraEnv: *kratosEnv
 
   startupProbe:
     httpGet:
