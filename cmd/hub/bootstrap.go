@@ -197,18 +197,17 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
 
-	// Phase 1: Preflight Validation
-	fmt.Println("\n[preflight] Running validation checks...")
-	runner := preflight.NewRunner()
-	for _, v := range bp.PreflightValidators() {
-		runner.Add(v)
-	}
-	if err := runner.Run(ctx); err != nil {
-		return fmt.Errorf("preflight validation failed: %w", err)
-	}
-	fmt.Println("[preflight] ✓ All checks passed")
-
 	if dryRun {
+		// Dry-run validates without checkpointing — no state is written.
+		fmt.Println("\n[preflight] Running validation checks...")
+		runner := preflight.NewRunner()
+		for _, v := range bp.PreflightValidators() {
+			runner.Add(v)
+		}
+		if err := runner.Run(ctx); err != nil {
+			return fmt.Errorf("preflight validation failed: %w", err)
+		}
+		fmt.Println("[preflight] ✓ All checks passed")
 		fmt.Println("\n✓ Dry-run mode: Validation successful")
 		fmt.Println("  All prerequisites validated. Ready to bootstrap.")
 		return nil

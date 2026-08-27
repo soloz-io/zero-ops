@@ -17,6 +17,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/hub-cli/components"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/preflight"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/state"
 	"gopkg.in/yaml.v3"
 )
@@ -91,8 +92,26 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 			Version:      "1.0",
 			ClusterName:  o.ClusterName,
 			Provider:     o.Provider.Name(),
-			CurrentPhase: state.PhaseBootstrapCreate,
+			CurrentPhase: state.PhasePreFlight,
 		}
+	}
+
+	// ── Phase 1: Preflight (checkpointed per-bootstrap) ───────────────
+	// Once passed for this bootstrap, skipped on resume via runPhase's
+	// phaseDone check — like every other phase. Dry-run bypasses the
+	// orchestrator entirely and validates without checkpointing.
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePreFlight, "preflight",
+		"Running preflight validation...",
+		func() error {
+			r := preflight.NewRunner()
+			for _, v := range o.Provider.PreflightValidators() {
+				r.Add(v)
+			}
+			return r.Run(ctx)
+		},
+		func() { fmt.Println("[preflight] ✓ All checks passed") },
+	); err != nil {
+		return err
 	}
 
 	// ── Phase 2: Bootstrap cluster (kind) ─────────────────────────────
