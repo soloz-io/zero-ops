@@ -31,10 +31,19 @@ type resourceMetadata struct {
 // Orchestrator manages CAPI pivot from bootstrap to management cluster
 type Orchestrator struct {
 	BootstrapKubeconfig string
-	ClusterName         string
-	Namespace           string
-	OSType              string // ubuntu or talos
-	Debug               bool
+	// BootstrapContext names the bootstrap cluster explicitly. A kubeconfig
+	// alone is not enough: its current-context is ambient state that an earlier
+	// phase can retarget (bootstrap writes the hub kubeconfig, and
+	// hub-bootstrap.sh exports KUBECONFIG to it whenever that file already
+	// exists — true on every resumed run). Inheriting it sent these calls to the
+	// hub, where platform-capi does not exist yet, and the failure read as a
+	// missing namespace rather than as the wrong-cluster error it was.
+	// Empty falls back to current-context.
+	BootstrapContext string
+	ClusterName      string
+	Namespace        string
+	OSType           string // ubuntu or talos
+	Debug            bool
 }
 
 // ExecuteMove performs the pivot move operation (without waiting for ready)
@@ -214,12 +223,16 @@ func (o *Orchestrator) getKubeconfig(ctx context.Context) (string, error) {
 	secretName := fmt.Sprintf("%s-kubeconfig", o.ClusterName)
 
 	// Always fetch fresh kubeconfig (load balancer IP may have changed)
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", o.BootstrapKubeconfig,
+	args := []string{"--kubeconfig", o.BootstrapKubeconfig}
+	if o.BootstrapContext != "" {
+		args = append(args, "--context", o.BootstrapContext)
+	}
+	args = append(args,
 		"get", "secret", secretName,
 		"-n", o.Namespace,
 		"-o", "jsonpath={.data.value}",
 	)
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -604,6 +617,9 @@ func (o *Orchestrator) move(ctx context.Context, mgmtKubeconfig string) error {
 	args := []string{"move", "--to-kubeconfig", mgmtKubeconfig}
 	if o.BootstrapKubeconfig != "" {
 		args = append(args, "--kubeconfig", o.BootstrapKubeconfig)
+		if o.BootstrapContext != "" {
+			args = append(args, "--context", o.BootstrapContext)
+		}
 	}
 	args = append(args, "--namespace", o.Namespace)
 

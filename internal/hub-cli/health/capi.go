@@ -168,12 +168,21 @@ func (c *CAPIResourceReadyHealth) Check(ctx context.Context, kubeconfig string) 
 // (i.e., the underlying node has joined the cluster).
 type AllMachinesHaveNodesHealth struct {
 	Namespace string
+	// Context names the cluster to query. A kubeconfig alone is not enough:
+	// its current-context is ambient state that an earlier phase can retarget
+	// (bootstrap writes the hub kubeconfig, and hub-bootstrap.sh exports
+	// KUBECONFIG to it when the file already exists — which it does on any
+	// resumed run). Inheriting that pointed this check at the hub, where CAPI
+	// CRDs do not exist until pivot installs them, and the failure read as
+	// "the server doesn't have a resource type machines" rather than as the
+	// wrong-cluster error it was. Empty means fall back to current-context.
+	Context string
 }
 
 // NewAllMachinesHaveNodesHealth returns a checker that verifies all
-// machines in the namespace have joined.
-func NewAllMachinesHaveNodesHealth(namespace string) *AllMachinesHaveNodesHealth {
-	return &AllMachinesHaveNodesHealth{Namespace: namespace}
+// machines in the namespace have joined, on the named context.
+func NewAllMachinesHaveNodesHealth(namespace, kubeContext string) *AllMachinesHaveNodesHealth {
+	return &AllMachinesHaveNodesHealth{Namespace: namespace, Context: kubeContext}
 }
 
 // Name returns the checker identifier.
@@ -183,12 +192,15 @@ func (a *AllMachinesHaveNodesHealth) Name() string {
 
 // Check probes machines for nodeRef.
 func (a *AllMachinesHaveNodesHealth) Check(ctx context.Context, kubeconfig string) error {
-	args := []string{
-		"--kubeconfig", kubeconfig,
+	args := []string{"--kubeconfig", kubeconfig}
+	if a.Context != "" {
+		args = append(args, "--context", a.Context)
+	}
+	args = append(args,
 		"get", "machines",
 		"-n", a.Namespace,
 		"-o", "jsonpath={range .items[*]}{.metadata.name}:{.status.nodeRef.name}{\"\\n\"}{end}",
-	}
+	)
 	out, err := runKubectl(ctx, args)
 	if err != nil {
 		return fmt.Errorf("list machines: %w", err)

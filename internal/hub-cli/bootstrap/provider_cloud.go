@@ -238,13 +238,14 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 	}
 
 	fmt.Println("[pivot] Waiting for all nodes to join cluster...")
-	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, 10*time.Minute); err != nil {
+	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 10*time.Minute); err != nil {
 		return "", fmt.Errorf("machines not ready for pivot: %w", err)
 	}
 	fmt.Println("[pivot] ✓ All nodes joined")
 
 	pivotOrch := &pivot.Orchestrator{
 		BootstrapKubeconfig: cfg.BootstrapKubeconfig,
+		BootstrapContext:    cfg.BootstrapContext,
 		ClusterName:         p.clusterName,
 		Namespace:           constants.NamespaceCAPI,
 		OSType:              p.driver.OSType(),
@@ -431,13 +432,15 @@ func readTemplateManifest(basePath, templateFile, dataKey string) ([]byte, error
 // The AllMachinesHaveNodesHealth check encapsulates the same JSONPath
 // and per-machine validation logic that was previously inlined here.
 //
-// The kubeconfig file's current-context is used (--context was redundant
-// with --kubeconfig in the original implementation, since the file's
-// current-context determines which cluster kubectl talks to).
-func waitForAllMachinesRunning(ctx context.Context, kubeconfig string, timeout time.Duration) error {
+// The context is named explicitly rather than inherited from the kubeconfig's
+// current-context. Current-context is ambient state: earlier phases write the
+// hub kubeconfig, and hub-bootstrap.sh exports KUBECONFIG to it whenever that
+// file already exists — true on every resumed run. Relying on it made this
+// wait query the hub, which has no CAPI CRDs until pivot installs them.
+func waitForAllMachinesRunning(ctx context.Context, kubeconfig, kubeContext string, timeout time.Duration) error {
 	waiter := &health.HealthWaiter{
 		Checkers: []health.HealthChecker{
-			health.NewAllMachinesHaveNodesHealth(constants.NamespaceCAPI),
+			health.NewAllMachinesHaveNodesHealth(constants.NamespaceCAPI, kubeContext),
 		},
 		Interval: 10 * time.Second,
 		Timeout:  timeout,
