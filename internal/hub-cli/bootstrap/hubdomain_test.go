@@ -65,7 +65,7 @@ func TestDerivationCoversEveryHubHostnameLiteral(t *testing.T) {
 		}
 		e := DeriveHubEndpoints(zone)
 		for _, h := range []string{e.API, e.Auth, e.Console, e.ArgoCD, e.Infisical,
-			e.MCP, e.VictoriaMetrics, e.Waypoint, e.Zone} {
+			e.MCP, e.VictoriaMetrics, e.Zone} {
 			derived[h] = true
 		}
 	}

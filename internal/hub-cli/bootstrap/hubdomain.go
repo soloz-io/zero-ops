@@ -45,12 +45,6 @@ type HubEndpoints struct {
 	// requires this to be normalised or recorded as intentional; it is recorded
 	// here so re-deriving it cannot silently change the hostname.
 	VictoriaMetrics string
-
-	// Waypoint is a tenant hostname that appears in the hub's Kratos allowed-origins
-	// list (C3) and nowhere else on the hub. Tenant hostnames are the spoke's to own
-	// under ADR-051, so this is derived only to reproduce the existing origin entry,
-	// not to make the hub authoritative for it.
-	Waypoint string
 }
 
 // DeriveHubEndpoints produces the endpoint set for a base domain.
@@ -76,7 +70,6 @@ func DeriveHubEndpoints(zone string) HubEndpoints {
 		Infisical:       host("infisical"),
 		MCP:             host("mcp"),
 		VictoriaMetrics: host("victoriametrics.hub"),
-		Waypoint:        host("waypoint"),
 	}
 }
 
