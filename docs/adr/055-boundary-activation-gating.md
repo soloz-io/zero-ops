@@ -59,15 +59,19 @@ The boundary AppProjects are established with the seed Application and before an
 
 ### Two modes of cluster creation
 
-Cluster creation is offered in two modes, selected by a Day-0 input with `sequenced` as the default. Environment classes carry a default: ephemeral environments select `converged`, all other classes select `sequenced`.
+Cluster creation is offered in two modes, selected by an explicit Day-0 input. `sequenced` is the default.
 
-**Sequenced.** Every boundary is inactive at creation, and each is activated in phase order behind the readiness gates that already precede it. Ordering is deterministic and a failure is attributable to a named phase. This is the mode for long-lived environments and for any first creation of a hub.
+Mode and environment are independent Day-0 inputs. Every environment class may be created in either mode, and no combination of the two is prohibited. No environment class carries an implicit mode, and no mode is reserved to an environment class: converged creation is requested by name or it does not occur. This follows the rule ADR-051 already applies to issuer policy — an environment-dependent default that is never stated is a policy no one has decided.
 
-**Converged.** No boundary is inactive at creation. All boundaries reconcile concurrently and converge through ArgoCD's retry behaviour. Ordering is not guaranteed and a failure is attributable only to the Application that failed. This is the mode for ephemeral environments, where the environment is short-lived and creation latency dominates.
+**Sequenced.** Every boundary is inactive at creation, and each is activated in phase order behind the readiness gates that already precede it. Ordering is deterministic and a failure is attributable to a named phase. Determinism and attribution are what this mode buys, which is why it is the default for every environment class.
+
+**Converged.** No boundary is inactive at creation. All boundaries reconcile concurrently and converge through ArgoCD's retry behaviour. Ordering is not guaranteed and a failure is attributable only to the Application that failed. Creation latency is what this mode buys, at the cost of attribution. Whether that trade is acceptable is a judgement about a particular act of creation — how the cluster will be used, and whether a failed creation would be discarded or diagnosed — and not a property of the environment class being created.
 
 The two modes are one code path. They share Git content, chart rendering, the boundary AppProjects, the ApplicationSets, the generated Applications, and the Day-0 secret, PKI, and Infisical operations, which run in sequence under both. Converged mode is sequenced mode with the seeding of inactive state omitted; it introduces no branch beyond that omission.
 
 Converged mode does not remove the Day-0 operations interleaved between boundaries. Those operations establish state that boundary content depends on and are not optional in either mode. What converged mode declines is holding a boundary inactive while they proceed: the dependent Applications are created, fail to sync, and retry until that state exists. This is the trade — ordering guarantees are exchanged for latency, not for a reduction in Day-0 work.
+
+Mode selection applies to cluster creation and therefore only where a Day-0 sequence exists. Preview environments created on an existing hub by the ephemeral pull-request generator (ADR-038) have no Day-0 sequence and no boundary phases; they are created in a single ungated act by definition and do not participate in mode selection. The distinction matters because both a cluster and a preview environment are described as ephemeral, and only the former is created by Day-0.
 
 Mode selection has no Day-1 meaning. Once bootstrap completes, no boundary is inactive under either mode, and the resulting platform state is indistinguishable. Mode is not recorded in platform state and no controller may read it.
 
