@@ -375,10 +375,22 @@ try {
   \$switch = Get-VMSwitch -Name '$VSWITCH_NAME' -ErrorAction SilentlyContinue
   if (!\$switch) {
     Write-Output '    → Switch $VSWITCH_NAME missing - creating Internal switch'
+    Write-Output '      NOTE: an Internal switch is host-local. It is correct for a cluster'
+    Write-Output '      that lives on ONE box, and breaks silently across two — each box'
+    Write-Output '      builds its own $HOST_SUBNET_CIDR island and the guests cannot reach'
+    Write-Output '      each other. See scripts/hybrid/README.md and convert-to-external-switch.sh'
     New-VMSwitch -Name '$VSWITCH_NAME' -SwitchType Internal | Out-Null
     \$switch = Get-VMSwitch -Name '$VSWITCH_NAME' -ErrorAction SilentlyContinue
   }
-  if (\$switch) {
+  # The gateway address and NetNat below belong to the Internal layout ONLY.
+  # Applying them to an External switch re-imposes the second NAT that
+  # convert-to-external-switch.sh exists to remove, so a converted host would be
+  # quietly un-converted by the next provisioning run.
+  if (\$switch -and \$switch.SwitchType -ne 'Internal') {
+    Write-Output ('    ✓ Virtual switch ($VSWITCH_NAME) is ' + \$switch.SwitchType + ' - skipping NAT setup')
+    Write-Output 'SWITCH-READY=OK'
+  }
+  elseif (\$switch) {
     \$ifIdx = (Get-NetAdapter -Name ('vEthernet (' + '$VSWITCH_NAME' + ')') -ErrorAction SilentlyContinue).ifIndex
     if (\$ifIdx -and !(Get-NetIPAddress -InterfaceIndex \$ifIdx -IPAddress '$HOST_GATEWAY_IP' -ErrorAction SilentlyContinue)) {
       New-NetIPAddress -IPAddress '$HOST_GATEWAY_IP' -PrefixLength 24 -InterfaceIndex \$ifIdx -ErrorAction SilentlyContinue | Out-Null

@@ -70,6 +70,106 @@ The same node list lives in the SpokePool claim annotation
 | Script | Purpose |
 |--------|---------|
 | `provision-flatcar-worker.sh` | **THE entry point** — Hyper-V + Flatcar provisioning |
+| `convert-to-external-switch.sh` | Convert a host from Internal+NetNat to an External switch (see below) |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |
+
+---
+
+## Guest networking: why Internal + NetNat breaks a two-box cluster
+
+*Findings from the 2026-08-26 investigation. Read this before changing anything
+about the guest network.*
+
+### The defect
+
+`provision-flatcar-worker.sh` created the guest network as an **Internal**
+switch plus `New-NetNat 172.30.0.0/24`. An Internal switch has no physical
+uplink, so every guest sits behind a **second NAT** — Hyper-V NetNat, then the
+home router. That is correct while one box hosts the whole cluster, and silently
+wrong as soon as a cluster spans two boxes:
+
+- Each box independently creates **the same** `172.30.0.0/24` island, each
+  owning `172.30.0.1`. Guests on different boxes cannot ARP each other, and
+  cannot be routed to each other either — the peer address is *local* on both
+  hosts. `ip neigh` on the guest shows the peer as `FAILED`.
+- Double NAT defeats Tailscale's UDP hole-punching, so peers fall back to a DERP
+  relay.
+- Worse: tailscaled advertises **every** local address as a candidate endpoint,
+  including Cilium's `cilium_host` (`10.244.x.x`). That address *is* reachable —
+  through the VXLAN tunnel, which itself rides Tailscale. Peers select it and the
+  "direct" path becomes **Tailscale → VXLAN → Tailscale**.
+
+Observed endpoint set from the Tailscale admin console, with the junk candidate
+first:
+
+```
+10.244.2.237:37397     <- cilium_host: circular, and the only "reachable" one
+110.226.113.35:14986   <- public
+172.30.0.13:37397      <- NAT island, unreachable from the other box
+```
+
+### How it presents
+
+Nothing names the network. Symptoms land far from the cause:
+
+| Symptom | Actually caused by |
+|---|---|
+| `upstream connect error` / 503 from agentgateway | backend Service resolves, path doesn't carry |
+| PostgREST `EAI_AGAIN` storms, then recovery | DNS crossing the relayed path |
+| TCP handshakes taking ~5 s, some timing out | double encapsulation |
+| Postgres client hangs with **zero** sessions on the server | TLS handshake never completes |
+| ArgoCD PreSync migration Job hits `activeDeadlineSeconds` | it never reached the DB |
+
+`kubectl get nodes` reports every node `Ready` throughout — kubelet's *outbound*
+path to the API server is fine. Node `Ready` does not cover this, the same way
+it does not cover kubelet inbound reachability (ADR-046 §22).
+
+### The fix
+
+Bind the switch to a real adapter so the inner NAT disappears:
+
+```bash
+./scripts/hybrid/convert-to-external-switch.sh --node 3 --dry-run
+./scripts/hybrid/convert-to-external-switch.sh --node 3
+```
+
+**`-AllowManagementOS $true` is mandatory on Wi-Fi.** With `$false` the adapter
+is taken away from the host's WLAN service — which is what maintains the 802.11
+association — so it drops to `Status: Disconnected` and the guest sits at
+`State: no-carrier (configuring)` forever. This looks exactly like "Hyper-V
+External switches don't work over Wi-Fi", which is the wrong conclusion.
+
+Verified working on a **Realtek 8821CU USB** adapter (the least favourable case):
+guest received `192.168.1.24` by DHCP, reached the gateway at ~5 ms, and reached
+the *other box's* host over TCP.
+
+After converting, guests still hold the old static `172.30.0.x` address —
+`10-static.network` is `DHCP=no`. Re-provision the node, or switch that unit to
+`DHCP=yes`, before the guest can use the LAN.
+
+### Verifying — and two test methods that lie
+
+A created switch is **not** proof of a working bridge. The Wi-Fi failure mode is
+"switch exists, adapter disconnected, guest has no carrier". Assert the adapter
+stayed `Up` *and* the guest obtained an address.
+
+Both of these produced confident, wrong answers during the investigation:
+
+- **`/dev/tcp/host/port`** — Flatcar's bash does not support it. It reports
+  failure for *every* target, including ones that are reachable. Control it
+  against `localhost:22` first, or use `nc -z`.
+- **`ping` from inside the `cilium-agent` container** — ICMP is unavailable
+  there, so every target "fails", including same-node ones.
+
+Any connectivity claim needs a positive control that is known to work.
+
+### The invariant worth enforcing
+
+> A home worker must never select an endpoint inside the cluster pod CIDR for
+> another home worker.
+
+That single check names this failure in seconds. It holds regardless of which
+switch layout is in use, and it catches the condition while Kubernetes still
+reports everything healthy.
