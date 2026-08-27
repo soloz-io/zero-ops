@@ -7,21 +7,57 @@
 
 ## Fresh Bootstrap
 
+Sequenced (default) — boundaries activated one at a time in phase order:
+
 ./scripts/hub-bootstrap.sh \
   --name hub-hybrid-dev \
   --provider hybrid \
   --region hel1 \
   --environment dev \
+  --gating sequenced \
   --spoke spoke-pool-hybrid-dev-01 \
   --home-worker-enabled \
   --tailnet-name taila4c44b.ts.net
 
+Converged (ADR-055) — all boundaries reconcile at once, red-then-green:
+
+./scripts/hub-bootstrap.sh \
+  --name hub-hybrid-dev \
+  --provider hybrid \
+  --region hel1 \
+  --environment dev \
+  --gating converged \
+  --spoke spoke-pool-hybrid-dev-01 \
+  --home-worker-enabled \
+  --tailnet-name taila4c44b.ts.net
+
+`--gating` defaults to `sequenced`, so omitting it gives the flow this script has
+always run. Mode and environment are independent — any environment can be
+created in either mode. Converged trades ordering guarantees for creation speed:
+every Application is created at once and retries until its dependencies exist, so
+a failure points at an Application rather than at a named phase.
+
+## Boundary activation
+
+Which boundaries are open (activation is not reported as ArgoCD drift — a closed
+boundary looks idle, not failed):
+
+kubectl get appproject -n platform-ops -o custom-columns=\
+NAME:.metadata.name,INACTIVE:.spec.syncWindows | grep boundary-
+
+Open one by hand if a run was interrupted:
+
+kubectl patch appproject boundary-03 -n platform-ops \
+  --type merge -p '{"spec":{"syncWindows":null}}'
+
 # Provision workers
 
 ## Dell Hub VM
+./scripts/hybrid/provision-flatcar-worker.sh --cluster hub
 ./scripts/hybrid/provision-flatcar-worker.sh --node 1
 
 ## Dell Spoke VM
+./scripts/hybrid/provision-flatcar-worker.sh --cluster spoke
 ./scripts/hybrid/provision-flatcar-worker.sh --node 2
 
 ## Prompts

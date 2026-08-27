@@ -53,6 +53,9 @@ type Orchestrator struct {
 	Debug            bool
 	EnvironmentSlug  string
 	Topology         string
+	// Gating selects how the cluster is created (ADR-055). Empty means
+	// sequenced: converged creation is requested by name or it does not occur.
+	Gating GatingMode
 }
 
 // Run executes the full 12-phase bootstrap pipeline with checkpoint/restart.
@@ -781,10 +784,13 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	}
 	fmt.Println("[boundary01] ✓ ArgoCD installed")
 
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, false, false, false, false, false); err != nil {
+	// ADR-055: establish the seed (boundary AppProjects + the Application that
+	// owns all boundary content) and open boundary 01. In sequenced mode the
+	// remaining boundaries are created inactive and opened by their own phases.
+	if err := o.deployBoundary(ctx, kubeconfig, 1); err != nil {
 		return err
 	}
-	fmt.Println("[boundary01] ✓ 01-platform-infra ApplicationSet applied")
+	fmt.Println("[boundary01] ✓ 01-platform-infra boundary activated")
 
 	// ArgoCD apps read manifests from the private soloz-io/zero-ops repo. The
 	// repo credentials must exist before any app can sync (otherwise webhook
@@ -820,10 +826,10 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, false, false, false, false); err != nil {
+	if err := o.deployBoundary(ctx, kubeconfig, 2); err != nil {
 		return err
 	}
-	fmt.Println("[boundary02] ✓ 02-platform-data ApplicationSet applied")
+	fmt.Println("[boundary02] ✓ 02-platform-data boundary activated")
 	return nil
 }
 
@@ -832,34 +838,34 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, false, false, false); err != nil {
+	if err := o.deployBoundary(ctx, kubeconfig, 3); err != nil {
 		return err
 	}
-	fmt.Println("[boundary03] ✓ 03-platform-services ApplicationSet applied")
+	fmt.Println("[boundary03] ✓ 03-platform-services boundary activated")
 	return nil
 }
 
 func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, false, false); err != nil {
+	if err := o.deployBoundary(ctx, kubeconfig, 4); err != nil {
 		return err
 	}
-	fmt.Println("[boundary04] ✓ 04-tenant-services ApplicationSet applied")
+	fmt.Println("[boundary04] ✓ 04-tenant-services boundary activated")
 	return nil
 }
 
 func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true, false); err != nil {
+	if err := o.deployBoundary(ctx, kubeconfig, 5); err != nil {
 		return err
 	}
-	fmt.Println("[boundary05] ✓ 05-tenant-fleet ApplicationSets applied")
+	fmt.Println("[boundary05] ✓ 05-tenant-fleet boundary activated")
 	return nil
 }
 
 func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) error {
-	if err := o.renderAndApplyBoundaries(ctx, kubeconfig, true, true, true, true, true, true); err != nil {
+	if err := o.deployBoundary(ctx, kubeconfig, 6); err != nil {
 		return err
 	}
-	fmt.Println("[boundary06] ✓ 06-tenant-public-tls ApplicationSet applied")
+	fmt.Println("[boundary06] ✓ 06-tenant-public-tls boundary activated")
 	return nil
 }
 
@@ -893,71 +899,6 @@ func (o *Orchestrator) publicTlsIssuerFor() (string, error) {
 			"publicTlsIssuer: no issuer mapping for environment slug %q (expected dev|ephemeral|stg|prod) — refusing to guess TLS policy",
 			o.EnvironmentSlug)
 	}
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// renderAndApplyBoundaries: Helm template + kubectl apply with deploy flags
-// ──────────────────────────────────────────────────────────────────────────
-
-func (o *Orchestrator) renderAndApplyBoundaries(ctx context.Context, kubeconfig string, deployB01, deployB02, deployB03, deployB04, deployB05, deployB06 bool) error {
-	gitBranch := currentGitBranch()
-	envRevision := "main"
-	if gitBranch != "" && gitBranch != "main" {
-		envRevision = gitBranch
-		fmt.Printf("[render] Environment revision: %s\n", envRevision)
-	}
-
-	providerForHelm := o.Provider.Name()
-
-	// hubIngressAddress is the public IPv4 that fronts :80/:443 for this hub. It fed
-	// ingress-nginx's --publish-status-address until the hub moved to the Gateway
-	// API, and the need survived the controller: in hostNetwork mode the Gateway's
-	// generated Service is ClusterIP, so nothing in the cluster carries a routable
-	// address. Without it external-dns has nothing to publish, hostnames stop
-	// resolving, and ACME cannot validate a name that does not resolve.
-	// Sourced from the CAPH control-plane LB — the public entry point per
-	// ADR-046 §25.3, and stable across a control-plane machine roll.
-	hubIngressAddress := o.hubIngressAddress(ctx, kubeconfig)
-	if hubIngressAddress == "" {
-		fmt.Println("[boundary] ⚠️  could not resolve hub ingress address; the hub Gateway's " +
-			"hostnames will not be published, which breaks public DNS and ACME issuance")
-	} else if err := writeExternalDNSTargetArtifact(hubIngressAddress); err != nil {
-		return fmt.Errorf("failed to write the external-dns target artifact: %w", err)
-	}
-
-	publicTlsIssuer := ""
-	if deployB06 {
-		var err error
-		if publicTlsIssuer, err = o.publicTlsIssuerFor(); err != nil {
-			return err
-		}
-	}
-
-	helmCmd := exec.CommandContext(ctx, "helm", "template", "environment-manager",
-		"manifests/argocd/environment-manager",
-		"--set", "environmentRevision="+envRevision,
-		"--set", "environmentSlug="+o.EnvironmentSlug,
-		"--set", "provider="+providerForHelm,
-		"--set", "topology="+o.Topology,
-		"--set", "hubIngressAddress="+hubIngressAddress,
-		"--set", fmt.Sprintf("deploy.boundary01=%t", deployB01),
-		"--set", fmt.Sprintf("deploy.boundary02=%t", deployB02),
-		"--set", fmt.Sprintf("deploy.boundary03=%t", deployB03),
-		"--set", fmt.Sprintf("deploy.boundary04=%t", deployB04),
-		"--set", fmt.Sprintf("deploy.boundary05=%t", deployB05),
-		"--set", fmt.Sprintf("deploy.boundary06=%t", deployB06),
-		"--set", "publicTlsIssuer="+publicTlsIssuer,
-	)
-	rendered, err := helmCmd.Output()
-	if err != nil {
-		return fmt.Errorf("helm template failed: %w\n%s", err, rendered)
-	}
-	applyCmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
-	applyCmd.Stdin = bytes.NewReader(rendered)
-	if out, err := applyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply boundary ApplicationSets: %w\n%s", err, out)
-	}
-	return nil
 }
 
 // hubIngressAddress returns the public IPv4 that fronts :80/:443 for this hub —

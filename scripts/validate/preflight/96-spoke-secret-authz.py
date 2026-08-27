@@ -82,7 +82,10 @@ if not secrets:
 rendered = run(["helm", "template", CHART,
                 "--set", "environmentSlug=dev",
                 "--set", "provider=hybrid",
-                "--set", "environmentRevision=main"],
+                "--set", "environmentRevision=main",
+                # ADR-055: every boundary renders now, so boundary 06's issuer
+                # guard applies here too. ADR-051 gives it no default on purpose.
+                "--set", "publicTlsIssuer=letsencrypt-prod"],
                "environment-manager chart does not render")
 
 appset = next((d for d in yaml.safe_load_all(rendered)

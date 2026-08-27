@@ -74,11 +74,16 @@ PY
 
     # ── R5: AppSet wires publicTlsIssuer into the chart ──────────────────────
     local appset="$VALIDATE_ROOT/manifests/argocd/environment-manager/templates/06-tenant-public-tls-appset.yaml"
+    # ADR-055 moved the boundary gate off chart content: the AppSet is no longer
+    # rendered conditionally, it is scoped to the boundary-06 AppProject whose
+    # deny sync window is the activation state. The issuer contract is unchanged
+    # — the AppSet must still forward it and still refuse to render without it.
     if grep -q 'name: issuer' "$appset" && grep -q '.Values.publicTlsIssuer' "$appset" \
-        && grep -q 'deploy.boundary06' "$appset"; then
-        pass "tenant-public-tls ApplicationSet gated on boundary06 and forwards publicTlsIssuer"
+        && grep -q 'project: boundary-06' "$appset" \
+        && grep -q 'publicTlsIssuer is required' "$appset"; then
+        pass "tenant-public-tls ApplicationSet scoped to boundary-06, forwards publicTlsIssuer, refuses empty issuer"
     else
-        hard_fail "AppSet does not forward the environment issuer or lost its boundary gate"
+        hard_fail "AppSet does not forward the environment issuer, lost its boundary-06 project scope, or lost its empty-issuer guard"
     fi
 
     # ── R6: bootstrap issuer mapping is strict ───────────────────────────────

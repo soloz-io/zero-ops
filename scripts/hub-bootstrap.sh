@@ -25,6 +25,12 @@ CLUSTER_NAME="${CLUSTER_NAME:-hub}"
 PROVIDER="${PROVIDER:-hetzner}"
 REGION="${REGION:-hel1}"
 
+# Cluster creation mode (ADR-055). sequenced = boundaries activated in phase
+# order (the default, and the flow this script has always run); converged = all
+# boundaries reconcile concurrently. Mode and environment are independent: any
+# environment may be created in either mode.
+GATING="${GATING:-sequenced}"
+
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
 SEED_ONLY="${SEED_ONLY:-false}"
@@ -59,6 +65,11 @@ KUBECONFIG_PATH=""
 # ordering and the CLI work-arounds it encodes are the whole point of it.
 # shellcheck source=lib/teardown.sh
 source "$SCRIPT_DIR/lib/teardown.sh"
+
+# Boundary activation gating (ADR-055). Content is Git-owned; only the
+# activation state is Day-0, and only that is reconciled here.
+# shellcheck source=lib/boundary-gating.sh
+source "$SCRIPT_DIR/lib/boundary-gating.sh"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -659,6 +670,7 @@ step1_bootstrap_hub() {
     else
         env_flag="--environment=prod"
     fi
+    local gating_flag="--gating=${GATING}"
     local topo_flag=""
     # Topology is a matrix dimension (ADR-037) but hybrid claims live flat under
     # spoke-pools/{env}/{provider}. Pass an explicit empty topology so the Go CLI
@@ -680,22 +692,24 @@ step1_bootstrap_hub() {
         if [[ -n "${TAILNET_NAME:-}" ]]; then
             hybrid_flags="$hybrid_flags --tailnet-name=$TAILNET_NAME"
         fi
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $hybrid_flags --debug"
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $gating_flag $hybrid_flags --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --provider=hybrid \
             --region="${REGION}" \
             $env_flag \
             $topo_flag \
+            $gating_flag \
             $hybrid_flags \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag --debug"
+        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag $gating_flag --debug"
         (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --region="${REGION}" \
             $env_flag \
             $topo_flag \
+            $gating_flag \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     fi
 
@@ -704,84 +718,6 @@ step1_bootstrap_hub() {
 
     mark_step_completed "bootstrap_hub"
     log "Hub cluster bootstrap completed"
-}
-
-# Step 1b: Reconcile environment-manager ApplicationSets
-# The Go orchestrator renders the boundary ApplicationSets once during the
-# bootstrap. On resume (phases already complete) that render is skipped, so a
-# changed provider/environment/topology would leave stale AppSet paths (e.g.
-# spoke-pools/prod/hybrid/single instead of spoke-pools/dev/hybrid). Re-render
-# and re-apply the environment-manager chart here so the AppSets always match
-# the requested matrix values — idempotent on fresh and resumed runs.
-step1b_reconcile_appsets() {
-    log "Reconciling environment-manager ApplicationSets..."
-
-    # Resolve the management kubeconfig for kubectl apply.
-    local kc_path="${KUBECONFIG_PATH:-}"
-    if [[ -z "$kc_path" ]]; then
-        kc_path="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
-    fi
-    if [[ ! -f "$kc_path" ]]; then
-        log "  ⚠️  Management kubeconfig not found at $kc_path — skipping AppSet reconciliation"
-        return
-    fi
-
-    local git_branch
-    git_branch=$(cd "$ZERO_OPS_DIR" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    local env_rev="main"
-    if [[ "$git_branch" != "main" && -n "$git_branch" ]]; then
-        env_rev="$git_branch"
-    fi
-
-    # This step reconciles the PLATFORM boundaries only (01-04). The tenant
-    # boundaries are sequenced by the Go orchestrator, and boundary06 additionally
-    # requires the publicTlsIssuer policy value this script does not own. Both are
-    # now disabled explicitly: they used to be omitted, and because the chart
-    # defaulted them true this render emitted a tenant-public-tls ApplicationSet
-    # with `issuer: ""` and applied it over the orchestrator's correct one. The
-    # resulting Application could not render, so ArgoCD went ComparisonError —
-    # sync: Unknown, health: Healthy — and silently stopped managing the tenant
-    # certificates, stranding whatever had last been issued.
-    local env_slug="${ENVIRONMENT:-prod}"
-    local topo_value="${TOPOLOGY:-}"
-    if [[ "$PROVIDER" == "hybrid" ]]; then
-        topo_value=""
-    fi
-
-    # hubIngressAddress -> ingress-nginx --publish-status-address, so every
-    # Ingress .status.loadBalancer carries a routable address. The controller
-    # Service is deliberately ClusterIP (no cloud LB), and the chart would
-    # otherwise publish that private 10.x address into every Ingress, which
-    # external-dns then puts in DNS and Let's Encrypt rejects ("no valid A
-    # records found"). Sourced from the CAPH control-plane LB, which is the
-    # public entry point (ADR-046 §25.3) and is stable across a CP machine roll.
-    local hub_ingress_addr
-    hub_ingress_addr=$(kubectl --kubeconfig="$kc_path" get hetznercluster -n platform-capi \
-        -o jsonpath='{.items[0].spec.controlPlaneEndpoint.host}' 2>/dev/null || echo "")
-    if [[ -z "$hub_ingress_addr" ]]; then
-        log "  ⚠️  Could not resolve hub ingress address — the hub Gateway's hostnames"
-        log "      will not be published, which breaks public DNS and ACME."
-    fi
-
-    log "  environmentRevision=$env_rev environmentSlug=$env_slug provider=$PROVIDER topology='$topo_value' hubIngressAddress='$hub_ingress_addr'"
-    (cd "$ZERO_OPS_DIR" && helm template environment-manager \
-        manifests/argocd/environment-manager \
-        --set "environmentRevision=$env_rev" \
-        --set "environmentSlug=$env_slug" \
-        --set "provider=$PROVIDER" \
-        --set "topology=$topo_value" \
-        --set "hubIngressAddress=$hub_ingress_addr" \
-        --set "deploy.boundary01=true" \
-        --set "deploy.boundary02=true" \
-        --set "deploy.boundary03=true" \
-        --set "deploy.boundary04=true" \
-        --set "deploy.boundary05=false" \
-        --set "deploy.boundary06=false" \
-        | kubectl apply --kubeconfig="$kc_path" -f -) || {
-        log "  ⚠️  AppSet reconciliation failed — continuing"
-        return
-    }
-    log "  ✓ environment-manager ApplicationSets reconciled"
 }
 
 # Step 1c: Configure Tailscale credentials (hybrid only)
@@ -1701,6 +1637,14 @@ main() {
                 TOPOLOGY="$2"
                 shift 2
                 ;;
+            --gating=*)
+                GATING="${1#*=}"
+                shift
+                ;;
+            --gating)
+                GATING="$2"
+                shift 2
+                ;;
             --teardown)
                 TEARDOWN="true"
                 shift
@@ -1770,6 +1714,11 @@ main() {
         *) error_exit "Invalid environment: $ENVIRONMENT (expected dev, stg, prod or ephemeral)" ;;
     esac
 
+    case "$GATING" in
+        sequenced|converged) ;;
+        *) error_exit "Invalid gating mode: $GATING (expected sequenced or converged)" ;;
+    esac
+
     # Export KUBECONFIG so the Go bootstrap binary's internal bare-kubectl calls
     # (e.g. infisical bootstrap pod discovery) resolve the same cluster instead
     # of a stale default context. The path is deterministic per cluster name.
@@ -1828,7 +1777,8 @@ main() {
     # between steps — each step polls until its prerequisites converge.
     step1_bootstrap_hub
 
-    step1b_reconcile_appsets
+    step1b_reconcile_boundary_gates
+
 
     # Workers have joined, so every node's InternalIP is now claimed. On hybrid
     # that address is a tailnet IP, and it underpins both kubelet access and

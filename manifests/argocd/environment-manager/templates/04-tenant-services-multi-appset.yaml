@@ -1,4 +1,3 @@
-{{ if .Values.deploy.boundary04 }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -50,7 +49,7 @@ spec:
       annotations:
         argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
-      project: default
+      project: boundary-04
       sources:
         - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
           chart: '{{"{{"}} .chart {{"}}"}}'
@@ -108,4 +107,3 @@ spec:
       {{"{{-"}} end {{"}}"}}
     {{"{{-"}} end {{"}}"}}
 ---
-{{ end }}

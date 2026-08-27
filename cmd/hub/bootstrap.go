@@ -32,6 +32,7 @@ var (
 	debug             bool
 	environment       string
 	topology          string
+	gating            string
 
 	// Hybrid-provider flags (ADR-046 §WS4)
 	homeWorkerEnabled bool
@@ -71,6 +72,7 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
+	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
 	// Hybrid-provider flags (ADR-046 §WS4)
 	cmd.Flags().BoolVar(&homeWorkerEnabled, "home-worker-enabled", false, "Enable home-lab WSL2 worker join flow (hybrid only)")
@@ -218,6 +220,14 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		envSlug = "prod"
 	}
 
+	// ADR-055: mode and environment are independent inputs. Every environment
+	// class may be created in either mode; no combination is prohibited.
+	gatingMode, err := bootstrap.ValidGatingMode(gating)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("[bootstrap] Cluster creation mode: %s\n", gatingMode)
+
 	// Phase 2-12: Bootstrap pipeline
 	orchestrator := &bootstrap.Orchestrator{
 		Provider:         bp,
@@ -228,6 +238,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		Debug:            debug,
 		EnvironmentSlug:  envSlug,
 		Topology:         topology,
+		Gating:           gatingMode,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {

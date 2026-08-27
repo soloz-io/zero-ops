@@ -32,37 +32,25 @@ hubIngressAddress: ""
 # topology: "single"            # single | multi (optional, modifies spoke pool lookup path)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Boundary deployment toggles (ADR-021 §sec:decision)
-# These are set by the hub CLI orchestrator to deploy boundaries sequentially:
-#
-#   PhaseBoundary01 → deploy.boundary01=true  (infra operators)
-#   PhaseBoundary02 → deploy.boundary01=true, deploy.boundary02=true  (data)
-#   PhaseBoundary03 → all boundary01-03 true  (services)
-#   PhaseBoundary04 → boundary01-04 true       (tenant services)
-#   PhaseBoundary05 → boundary01-05 true       (fleet provisioning, ADR-047)
-#   PhaseBoundary06 → boundary01-06 true       (public tenant TLS, ADR-051)
-#
-# On steady-state Day-1, all six are always true. Only the bootstrap
-# orchestrator ever toggles them to achieve sequential boundary gating.
-#
-# boundary06 is the one exception that defaults to FALSE, because it is the only
-# boundary with a REQUIRED companion value (publicTlsIssuer, below). Defaulting
-# it true meant any caller that rendered this chart without naming an issuer —
-# a bare `helm template` in a linter, or a bootstrap step that enumerated only
-# boundary01-04 — still emitted the tenant-public-tls ApplicationSet carrying
-# `issuer: ""`, and applied it. That AppSet cannot render: the chart's guard
-# rejects the empty issuer, so ArgoCD reports ComparisonError and reports the
-# Application Healthy while managing nothing, and whatever Certificate was last
-# issued stays frozen in the cluster indefinitely. Requiring boundary06 to be
-# asked for by name keeps the issuer requirement and the boundary together.
+# Boundary content is complete at all times (ADR-055)
 # ──────────────────────────────────────────────────────────────────────────────
-deploy:
-  boundary01: true
-  boundary02: true
-  boundary03: true
-  boundary04: true
-  boundary05: true
-  boundary06: false
+# The per-boundary deploy toggles that used to live here are gone. They existed
+# so the Day-0 CLI could sequence boundaries by rendering a subset of this chart
+# and applying it directly — which made a partial render a complete,
+# authoritative statement of the boundary set, and left Git unable to be the
+# source of truth for which Applications exist at all.
+#
+# Sequencing did not go away; it moved off content. A boundary is now held
+# inactive by a deny sync window on its own AppProject, and Day-0 opens those
+# windows in phase order. Content and activation are separate concerns owned by
+# separate authorities acting on disjoint fields, so neither can overwrite the
+# other. See ADR-055.
+#
+# Consequence for anyone rendering this chart by hand: every boundary renders,
+# every time. There is no longer a combination of values that emits some
+# boundaries and not others, and publicTlsIssuer below is therefore always
+# required rather than required-only-when-boundary06-was-asked-for.
+# ──────────────────────────────────────────────────────────────────────────────
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Public TLS issuer policy (ADR-051) — REQUIRED, NO DEFAULT.
@@ -82,7 +70,7 @@ deploy:
 # dev issues from prod because dev is browser-facing: people sign in through it,
 # and a staging certificate makes the browser refuse the tenant hostname
 # mid-OAuth-redirect rather than merely warning about it.
-# The hub CLI passes this via --set publicTlsIssuer=<name> alongside
-# deploy.boundary06.
+# The seed Application (ADR-055) carries this as a Helm parameter, resolved at
+# Day-0 from the environment slug and thereafter reconciled continuously.
 # ──────────────────────────────────────────────────────────────────────────────
 publicTlsIssuer: ""

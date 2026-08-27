@@ -29,9 +29,20 @@ validate_manifest_renders() {
         fi
     done
 
+    # ADR-055: environment-manager renders every boundary on every render, so it
+    # must be given the environment values the seed Application carries.
+    # publicTlsIssuer deliberately has no default (ADR-051) and must be named.
+    local em_values=(--set environmentSlug=prod --set provider=hetzner
+                     --set topology=single --set publicTlsIssuer=letsencrypt-prod
+                     --set environmentRevision=main)
+
     local chart
     for chart in manifests/argocd/environment-manager manifests/tenants/charts/universal-tenant internal/opensbt/providers/gitops/helm-chart; do
-        if err=$(helm template "$VALIDATE_ROOT/$chart" 2>&1 >/dev/null); then
+        local values=()
+        if [[ "$chart" == "manifests/argocd/environment-manager" ]]; then
+            values=("${em_values[@]}")
+        fi
+        if err=$(helm template "$VALIDATE_ROOT/$chart" "${values[@]+"${values[@]}"}" 2>&1 >/dev/null); then
             pass "helm renders: $chart"
         else
             hard_fail "helm fails: $chart — $(head -1 <<< "$err")"

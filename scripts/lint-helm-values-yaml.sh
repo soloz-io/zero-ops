@@ -19,10 +19,17 @@ yamllint_config=".yamllint.yaml"
 
 # Phase 0: Pre-flight check — helm template must succeed
 echo "Checking chart renders successfully..."
-if ! rendered=$(helm template environment-manager "$chart_dir" --set environmentRevision=dry-run 2>&1); then
+# ADR-055: every boundary renders on every render, so the lint must supply the
+# same environment values the seed Application does. publicTlsIssuer has no
+# default by design (ADR-051) and must be named here rather than defaulted.
+lint_values=(--set environmentRevision=dry-run --set environmentSlug=prod \
+             --set provider=hetzner --set topology=single \
+             --set publicTlsIssuer=letsencrypt-prod)
+
+if ! rendered=$(helm template environment-manager "$chart_dir" "${lint_values[@]}" 2>&1); then
     echo "❌ helm template failed — chart has a template-level YAML error."
     echo "   Run the following to debug:"
-    echo "     helm template environment-manager $chart_dir --set environmentRevision=dry-run --debug"
+    echo "     helm template environment-manager $chart_dir ${lint_values[*]} --debug"
     exit 1
 fi
 echo "✓ Chart renders successfully"
