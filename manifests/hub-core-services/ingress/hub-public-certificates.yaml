@@ -1,0 +1,77 @@
+# Public TLS for the hub's browser-facing hostnames (ADR-051).
+#
+# These four Certificates did not exist in Git. The Secrets they produce were
+# referenced by hub-gateway's listeners all along, but nothing created them —
+# they had been issued by hand, so they survived only until the hub was rebuilt.
+# When it was, every HTTPS listener went ResolvedRefs: False /
+# InvalidCertificateRef, :443 accepted TCP and then reset without a certificate,
+# and api / auth / console / argocd all went dark at once.
+#
+# The failure did not look like missing certificates. It surfaced as
+# agentgateway on the SPOKE crash-looping, because it fetches
+# https://auth.dev.nutgraf.in/.well-known/openid-configuration at startup and
+# cannot begin without it — one unreachable hub listener taking down tenant
+# ingress in a different cluster.
+#
+# infisical.dev.nutgraf.in kept working throughout, and that is the tell: it is
+# the one hostname whose Certificate was already committed
+# (infisical-certificate.yaml). dev-certificates.yaml is NOT that file — it is
+# commented out of the kustomization and issues from selfsigned-issuer for local
+# development, which no browser would accept.
+#
+# Each Certificate lives in the namespace of the Secret its listener names, not
+# in the Gateway's namespace: a Gateway certificateRef resolves the Secret in the
+# namespace the ref specifies, which is why these are spread across
+# platform-edge, platform-identity and platform-ops.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-zero-ops-dev
+  namespace: platform-edge
+spec:
+  secretName: api-zero-ops-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - api.dev.nutgraf.in
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-zero-ops-dev
+  namespace: platform-edge
+spec:
+  secretName: auth-zero-ops-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - auth.dev.nutgraf.in
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: console-zero-ops-dev
+  namespace: platform-identity
+spec:
+  secretName: console-zero-ops-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - console.dev.nutgraf.in
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-server-dev
+  namespace: platform-ops
+spec:
+  secretName: argocd-server-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - argocd.dev.nutgraf.in

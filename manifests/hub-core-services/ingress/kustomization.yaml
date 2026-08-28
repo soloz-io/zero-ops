@@ -8,6 +8,16 @@ resources:
   # annotations through an ingress class nothing implements.
   - cluster-issuer.yaml
   - infisical-certificate.yaml
+  # The hub's browser-facing certificates. Absent from Git until now: the Secrets
+  # were referenced by hub-gateway but only ever created by hand, so a cluster
+  # rebuild left every HTTPS listener on InvalidCertificateRef and took
+  # api/auth/console/argocd down together — and with auth gone, agentgateway on
+  # the spoke crash-looped on its OIDC discovery fetch.
+  - hub-public-certificates.yaml
 
 # For local development, uncomment:
 # - dev-certificates.yaml
+#
+# NOTE: dev-certificates.yaml is NOT a substitute for hub-public-certificates.yaml.
+# It issues three of the same Secret names from selfsigned-issuer, which no
+# browser accepts; it exists for offline local work only.

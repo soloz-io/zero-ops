@@ -35,82 +35,9 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-    # One HTTPS listener per hostname. certificateRefs point at the Secrets
-    # cert-manager already maintains in each service's own namespace rather than
-    # re-issuing into this one: those certificates are valid and the migration
-    # does not need to touch issuance to complete. Each cross-namespace reference
-    # is admitted by a ReferenceGrant in the Secret's namespace.
-    - name: api
-      hostname: api.dev.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: api-zero-ops-tls
-            namespace: platform-edge
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-edge, platform-identity, platform-ops, platform-security]
-    - name: auth
-      hostname: auth.dev.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: auth-zero-ops-tls
-            namespace: platform-edge
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-edge, platform-identity, platform-ops, platform-security]
-    - name: console
-      hostname: console.dev.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: console-zero-ops-tls
-            namespace: platform-identity
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-edge, platform-identity, platform-ops, platform-security]
-    - name: argocd
-      hostname: argocd.dev.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: argocd-server-tls
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-edge, platform-identity, platform-ops, platform-security]
+    # HTTPS listener for infisical. certificateRefs points at the Secret
+    # cert-manager created via ACME HTTP-01 challenge.
+    # Cross-namespace reference is admitted by a ReferenceGrant in platform-security.
     - name: infisical
       hostname: infisical.dev.nutgraf.in
       port: 443
@@ -129,39 +56,4 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
-    - name: mail
-      hostname: mail.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: stalwart-mail-tls
-            namespace: platform-mail
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-mail, platform-identity, platform-edge]
-    - name: smtp
-      hostname: smtp.nutgraf.in
-      port: 443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: stalwart-mail-tls
-            namespace: platform-mail
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchExpressions:
-              - key: kubernetes.io/metadata.name
-                operator: In
-                values: [platform-mail, platform-identity, platform-edge]
+

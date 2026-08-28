@@ -25,6 +25,7 @@ spec:
         app.kubernetes.io/name: cert-manager
         app.kubernetes.io/version: v1.20.2
     spec:
+      serviceAccountName: cert-manager
       containers:
         - name: cert-manager-controller
           # IMPORTANT: image is pinned here to v1.20.2. If cert-manager is
@@ -32,6 +33,11 @@ spec:
           # this file must be updated in lockstep or ArgoCD silently holds the
           # old image — the exact drift class that broke Gateway API CRDs.
           image: "quay.io/jetstack/cert-manager-controller:v1.20.2"
+          env:
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
           # Upstream ships no requests -> BestEffort. On the saturated hub node
           # that starved the controller into repeated liveness-probe kills
           # (13 restarts in 8h, exit 1), and each kill dropped an in-flight ACME
