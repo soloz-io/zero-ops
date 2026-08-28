@@ -1,7 +1,7 @@
 # ADR-003: Secret Management Architecture
 
 **Date:** 2026-06-08 (rewritten)
-**Status:** Active (rewritten — supersedes original ADR-003 and `bootstrap-vs-application-secrets.md`)
+**Status:** Accepted (rewritten — supersedes original ADR-003 and `bootstrap-vs-application-secrets.md`)
 
 ## Context
 
@@ -170,6 +170,57 @@ spec:
   target:
     creationPolicy: Owner
 ```
+
+### Addendum 1 — Which Infisical path (2026-08-28)
+
+The section above defines the delivery *mechanism* but not **where the value is
+written**, and that is the half people get wrong. Two axes decide it, and the
+second has three positions:
+
+**Who originates the value**
+
+| Origin | Example | Route |
+|---|---|---|
+| Hub Operator generates | DB passwords, cookie secrets | `secret_mappings.go` entry |
+| Supplied externally | API tokens, S3 keys | Infisical UI → ESO |
+| **Another hub controller generates** | hydra-maester OAuth client secrets, cert-manager keypairs | **captured** from the Kubernetes Secret its owner created, then uploaded |
+
+The third row is the one with no previous home. It is neither operator-generated
+nor externally supplied, so neither existing pattern names it, and the question
+"how does the BFF client secret reach a spoke?" had no documented answer. Capture
+it from the owning controller's Secret — never re-issue it, or two credentials
+exist for one client and the second breaks the first.
+
+**Who consumes the value**
+
+| Consumer | Path | Notes |
+|---|---|---|
+| Hub only | `/<root>` | Never readable from any spoke. |
+| Every tenant on one spoke | `/spoke-pool/<cellId>/shared` | Cell infrastructure, e.g. `AGENTGATEWAY_OIDC_COOKIE_SECRET`. |
+| One tenant on one spoke | `/spoke-pool/<cellId>/tenants/<tenantId>` | Per-tenant credentials, e.g. `AGENTREGISTRY_*`. |
+
+Choosing `shared` for a per-tenant credential exposes it to every tenant on that
+cell. That is the isolation ADR-031 exists to enforce, and nothing downstream
+will object — the ExternalSecret resolves and the workload starts.
+
+**Why the root is not a fallback.** A spoke's SecretStore is authorised for its
+own `/spoke-pool/<cellId>/` prefix ONLY (ADR-031). A value at the root is
+unreadable from a spoke however correct it is. The failure is silent and reads
+like a provider outage rather than a path error:
+
+```
+could not get secret data from provider
+```
+
+The value is present, the key name matches, the store is healthy, and the secret
+still does not arrive. Check the path before anything else. This is the observed
+cause of the agentgateway cookie secret existing at the root while every spoke
+ExternalSecret referencing it failed.
+
+**Spelling differs by position, deliberately.** Root entries are kebab-case;
+cell-scoped entries are SCREAMING_SNAKE, matching each consumer's ExternalSecret.
+`CellScopedKey` in `secret_mappings.go` carries both spellings for this reason —
+it is not a duplicate.
 
 ## Consequences
 
