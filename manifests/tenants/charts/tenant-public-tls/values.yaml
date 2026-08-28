@@ -43,3 +43,20 @@ authGatewayService:
 
 certificateDuration: 2160h    # 90 days
 certificateRenewBefore: 720h  # 30 days
+
+# external-dns target IP for the tenant-tls-gateway. When set, external-dns
+# creates A records pointing at this IP for all public.hosts entries.
+#
+# The value is the spoke's CAPH-managed Hetzner LB IP (from
+# HetznerCluster.spec.controlPlaneEndpoint.host). It is injected by the
+# ApplicationSet from a hub-operator-maintained ConfigMap, because the LB
+# IP is only available on the hub (where the HetznerCluster status lives),
+# not on the spoke where external-dns runs.
+#
+# The Cilium gateway Service is ClusterIP (ADR-046 §8 — hostNetwork mode),
+# so external-dns cannot auto-discover the target from the Service. This
+# annotation is the sole mechanism that tells external-dns what IP to
+# publish for tenant hostnames.
+#
+# Empty string = no annotation rendered (external-dns skips the record).
+externalDnsTarget: ""

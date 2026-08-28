@@ -13,9 +13,14 @@
 # Gateways coexist cleanly on different ports. Same-port claims are first-wins,
 # so this :443 Gateway must never coexist with another claimant of :443.
 #
-# DNS publication intentionally NOT wired here: external-dns runs with the
-# gateway-httproute source and follows HTTPRoutes, which arrive with the later
-# routing migration.
+# DNS publication: external-dns runs with the gateway-httproute source on the
+# spoke and reads hostnames from listeners. The Cilium gateway Service is
+# ClusterIP (hostNetwork mode, ADR-046 §8), so external-dns cannot auto-discover
+# the target from the Service. The externalDnsTarget annotation provides the
+# spoke's Hetzner LB IP (from HetznerCluster.spec.controlPlaneEndpoint.host,
+# injected by the ApplicationSet via a hub-operator-maintained ConfigMap).
+# Without it, external-dns has no IP to publish and the tenant hostname is
+# unreachable from the public internet.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -24,6 +29,10 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: tenant-public-tls
     zero-ops.io/tenant-id: {{ .Values.tenantId }}
+  {{- if .Values.externalDnsTarget }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ .Values.externalDnsTarget | quote }}
+  {{- end }}
 spec:
   gatewayClassName: cilium
   listeners:

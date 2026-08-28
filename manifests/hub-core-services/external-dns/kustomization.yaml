@@ -1,0 +1,11 @@
+# Hub external-dns — Kustomize overlay.
+#
+# CRD must be applied BEFORE the Deployment: external-dns starts with
+# --source=crd and fatally errors if the DNSEndpoint CRD is absent.
+# Kustomize resource ordering ensures the CRD is created first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - dnsendpoint-crds.yaml
+  - hetzner-dns-es.yaml
+  - external-dns.yaml
