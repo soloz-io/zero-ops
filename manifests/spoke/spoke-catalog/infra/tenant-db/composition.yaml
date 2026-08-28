@@ -467,7 +467,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-cnpg-ca-reader"
+                      fmt: "%s-cnpg-ca-sa"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.name
@@ -517,7 +517,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-cnpg-ca-reader"
+                      fmt: "%s-cnpg-ca-role"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.name
@@ -561,7 +561,7 @@ spec:
                   - type: string
                     string:
                       type: Format
-                      fmt: "%s-cnpg-ca-reader"
+                      fmt: "%s-cnpg-ca-rb"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.name
@@ -572,7 +572,7 @@ spec:
                       fmt: "tenant-%s-cnpg-ca-reader"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.roleRef.name
+                toFieldPath: spec.forProvider.manifest.roleRef.name
                 transforms:
                   - type: string
                     string:
@@ -580,7 +580,7 @@ spec:
                       fmt: "tenant-%s-cnpg-ca-reader"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.subjects[0].namespace
+                toFieldPath: spec.forProvider.manifest.subjects[0].namespace
                 transforms:
                   - type: string
                     string:
