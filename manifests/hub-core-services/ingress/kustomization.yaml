@@ -7,6 +7,11 @@ resources:
   # it is not inert — cert-manager's ingress-shim keeps trying to service its TLS
   # annotations through an ingress class nothing implements.
   - cluster-issuer.yaml
+  # The DNS-01 webhook the issuer above solves through, plus the ExternalSecret
+  # that materialises cert-manager/hetzner-dns. Must be listed before anything
+  # that requests a certificate: without the webhook's APIService registered,
+  # every DNS-01 challenge stays pending with no error on the Certificate.
+  - cert-manager-webhook-hetzner.yaml
   - infisical-certificate.yaml
   # The hub's browser-facing certificates. Absent from Git until now: the Secrets
   # were referenced by hub-gateway but only ever created by hand, so a cluster

@@ -1,0 +1,428 @@
+# Hetzner DNS-01 webhook for the HUB (ADR-046 §20.5).
+#
+# Byte-identical to the spoke copy at
+# manifests/spoke/spoke-catalog/provider/hetzner/cert-manager-webhook-hetzner.yaml
+# apart from this header. Both clusters need it; neither can reference the other's.
+#
+# WHY THE HUB NEEDS DNS-01 AT ALL
+# ------------------------------
+# The hub issued its public certificates over HTTP-01, through the same Gateway
+# those certificates are for. That is circular, and it deadlocks on any rebuild:
+#
+#   cert needs HTTP-01 -> HTTP-01 needs the :80 listener -> the :80 listener is
+#   claimed by the http-to-https redirect (parentRef sectionName: http) -> the
+#   redirect sends the challenge to :443 -> :443 has no certificate yet.
+#
+# cert-manager's solver HTTPRoute sets no sectionName, so Cilium binds it to the
+# TLS listeners only: the generated CEC carries a single `listener-secure` route
+# config while the port-80 filter chain points at a `listener-insecure` config
+# that contains no solver route. Observed on the hub with all four HTTPS
+# listeners on InvalidCertificateRef and every challenge answered 301.
+#
+# The spoke never hit this because ADR-051 puts the ACME solver on tenant-gateway
+# :80 and deliberately places no redirect there. The hub added one, and HTTP-01
+# stopped being viable the moment it did.
+#
+# DNS-01 removes the HTTP path from issuance entirely, so certificates no longer
+# depend on the Gateway they are for. It also survives a cluster rebuild, where
+# HTTP-01 cannot: nothing serves :443 until the cert exists.
+
+# cert-manager-webhook-hetzner — official Hetzner DNS01 ACME solver.
+#
+# WHY DNS01 (ADR-051 addendum 2026-08-25): hybrid spokes (ADR-046) expose no
+# public :80 — Cilium Gateway services are ClusterIP in hostNetwork mode and
+# home workers are Tailscale-only, so Let's Encrypt can never reach HTTP-01
+# solver pods (observed: permanent 503 / timeouts, 2026-08-24). DNS-01 writes
+# the challenge TXT record straight into the nutgraf.in zone instead.
+#
+# WHICH WEBHOOK: the OFFICIAL github.com/hetzner/cert-manager-webhook-hetzner
+# v0.9.0, vendored from its Helm chart (helm template, values below). It uses
+# hcloud-go v2 and therefore speaks the Hetzner CLOUD API with a Bearer token —
+# the only API the platform hcloud-token still works against since the
+# standalone dns.hetzner.com API was retired. Do NOT substitute third-party
+# forks pinned to the retired endpoint.
+#
+# Rendered with:
+#   helm template cert-manager-webhook-hetzner <chart> \
+#     --set groupName=acme.nutgraf.in \
+#     --set certManager.namespace=cert-manager \
+#     --set certManager.serviceAccountName=cert-manager   # hub; spoke uses cm-cert-manager
+#
+# The solver stanza in acme-cluster-issuer.yaml must match:
+#   groupName: acme.nutgraf.in | solverName: hetzner (hardcoded Name() upstream)
+#
+# Credential: ExternalSecret mirrors the Infisical hcloud-token into
+# cert-manager/hetzner-dns under the same api-key name external-dns uses in
+# platform-ops. Referenced from the ClusterIssuer config as
+# tokenSecretKeyRef {name: hetzner-dns, key: api-key}.
+---
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-manager-webhook-hetzner:read-secrets
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+# Grant cert-manager permission to validate using our apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-manager-webhook-hetzner:domain-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+rules:
+  - apiGroups:
+      - acme.nutgraf.in
+    resources:
+      - "*"
+    verbs:
+      - create
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-webhook-hetzner:read-secrets
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cert-manager-webhook-hetzner:read-secrets
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager-webhook-hetzner
+    namespace: default
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+# apiserver gets the auth-delegator role to delegate auth decisions to
+# the core apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-webhook-hetzner:auth-delegator
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager-webhook-hetzner
+    namespace: default
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-webhook-hetzner:domain-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cert-manager-webhook-hetzner:domain-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    # The HUB's cert-manager ServiceAccount is `cert-manager`; the spoke's is
+    # `cm-cert-manager` because its Helm release is named `cm`. This binding is
+    # what lets cert-manager call the webhook's domain-solver API, and a wrong
+    # name here fails only at challenge time, as
+    #   "hetzner.acme.nutgraf.in is forbidden: User
+    #    system:serviceaccount:cert-manager:cert-manager cannot create resource
+    #    hetzner in API group acme.nutgraf.in"
+    # with the Certificate itself still just Ready=False and no clue why.
+    name: cert-manager
+    namespace: cert-manager
+---
+# Source: cert-manager-webhook-hetzner/templates/rbac.yaml
+# Grant the webhook permission to read the ConfigMap containing the Kubernetes
+# apiserver's requestheader-ca-certificate.
+# This ConfigMap is automatically created by the Kubernetes apiserver.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-manager-webhook-hetzner:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager-webhook-hetzner
+    namespace: default
+---
+# Source: cert-manager-webhook-hetzner/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    app: cert-manager-webhook-hetzner
+    release: cert-manager-webhook-hetzner
+---
+# Source: cert-manager-webhook-hetzner/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cert-manager-webhook-hetzner
+      release: cert-manager-webhook-hetzner
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: cert-manager-webhook-hetzner
+        release: cert-manager-webhook-hetzner
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: cert-manager-webhook-hetzner
+      containers:
+        - name: cert-manager-webhook-hetzner
+          image: "docker.io/hetzner/cert-manager-webhook-hetzner:v0.9.0" # x-releaser-pleaser-version
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+            - --secure-port=8443
+          env:
+            - name: GROUP_NAME
+              value: "acme.nutgraf.in"
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          volumeMounts:
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          resources:
+            {}
+      volumes:
+        - name: certs
+          secret:
+            secretName: cert-manager-webhook-hetzner-webhook-tls
+---
+# Source: cert-manager-webhook-hetzner/templates/apiservice.yaml
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.acme.nutgraf.in
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+  annotations:
+    cert-manager.io/inject-ca-from: "default/cert-manager-webhook-hetzner-webhook-tls"
+spec:
+  group: acme.nutgraf.in
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: cert-manager-webhook-hetzner
+    namespace: default
+  version: v1alpha1
+---
+# Source: cert-manager-webhook-hetzner/templates/pki.yaml
+# Generate a CA Certificate used to sign certificates for the webhook
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cert-manager-webhook-hetzner-ca
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  secretName: cert-manager-webhook-hetzner-ca
+  duration: 43800h # 5y
+  issuerRef:
+    name: cert-manager-webhook-hetzner-selfsign
+  commonName: "ca.cert-manager-webhook-hetzner.cert-manager"
+  isCA: true
+---
+# Source: cert-manager-webhook-hetzner/templates/pki.yaml
+# Finally, generate a serving certificate for the webhook to use
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cert-manager-webhook-hetzner-webhook-tls
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  secretName: cert-manager-webhook-hetzner-webhook-tls
+  duration: 8760h # 1y
+  issuerRef:
+    name: cert-manager-webhook-hetzner-ca
+  dnsNames:
+    - cert-manager-webhook-hetzner
+    - cert-manager-webhook-hetzner.default
+    - cert-manager-webhook-hetzner.default.svc
+---
+# Source: cert-manager-webhook-hetzner/templates/pki.yaml
+# Create a selfsigned Issuer, in order to create a root CA certificate for
+# signing webhook serving certificates
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cert-manager-webhook-hetzner-selfsign
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  selfSigned: {}
+---
+# Source: cert-manager-webhook-hetzner/templates/pki.yaml
+# Create an Issuer that uses the above generated CA certificate to issue certs
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cert-manager-webhook-hetzner-ca
+  namespace: "default"
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.9.0 # x-releaser-pleaser-version
+    release: cert-manager-webhook-hetzner
+    heritage: Helm
+spec:
+  ca:
+    secretName: cert-manager-webhook-hetzner-ca
+---
+# Mirror the platform hcloud-token into the cert-manager namespace so the
+# webhook can read it. Same remote key as external-dns' Secret in platform-ops
+# (single source of truth in Infisical); emitted under the same api-key name.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hetzner-dns-cert-manager
+  namespace: cert-manager
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: hetzner-dns
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        api-key: "{{ .apikey }}"
+  data:
+    - secretKey: apikey
+      remoteRef:
+        key: hcloud-token

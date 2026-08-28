@@ -9,19 +9,45 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
-    # HTTP-01 solved through the hub Gateway, not an ingress class. cert-manager
-    # creates a temporary HTTPRoute for each challenge and attaches it to the
-    # Gateway's plaintext listener; the listener admits routes from every namespace
-    # for exactly this reason, since a challenge route is created beside the
-    # Certificate that provoked it.
+    # DNS-01, NOT HTTP-01. Solving over the hub Gateway is circular and deadlocks
+    # on every rebuild:
     #
-    # This must move with the ingress controller, not after it. An issuer solving
-    # over ingressClassName nginx cannot complete a challenge once nothing serves
-    # that class, and the failure appears only at the first renewal, up to ninety
-    # days after the change that caused it.
-    - http01:
-        gatewayHTTPRoute:
-          parentRefs:
-            - name: hub-gateway
-              namespace: platform-ops
-              kind: Gateway
+    #   the certificate needs HTTP-01 -> HTTP-01 needs the :80 listener -> the :80
+    #   listener is claimed by http-to-https (parentRef sectionName: http) -> the
+    #   redirect sends the challenge to :443 -> :443 has no certificate yet.
+    #
+    # cert-manager's solver HTTPRoute sets no sectionName, so Cilium binds it to
+    # the TLS listeners only. The generated CiliumEnvoyConfig carries a single
+    # `listener-secure` route config while the port-80 filter chain points at a
+    # `listener-insecure` config holding no solver route, so the challenge is
+    # answered 301 and never reaches the solver. Observed with all four HTTPS
+    # listeners on InvalidCertificateRef.
+    #
+    # The previous comment here reasoned the plaintext listener admits routes from
+    # every namespace "for exactly this reason" — that is true and still not
+    # enough: admission is not the same as the route being bound to that listener,
+    # and Cilium binds it elsewhere.
+    #
+    # The spoke solves over HTTP-01 successfully because ADR-051 puts the solver on
+    # tenant-gateway :80 and places no redirect on it. The hub has a redirect, so
+    # the two cannot share a solver strategy.
+    #
+    # DNS-01 removes the HTTP path from issuance entirely: certificates stop
+    # depending on the Gateway they are for, and issuance works before anything
+    # serves :443 at all. Solver config mirrors the spoke
+    # (manifests/spoke/spoke-catalog/infra/acme-cluster-issuer.yaml); the webhook
+    # and its cert-manager/hetzner-dns secret ship in
+    # cert-manager-webhook-hetzner.yaml beside this file.
+    - selector:
+        dnsZones:
+          - dev.nutgraf.in
+          - stg.nutgraf.in
+          - nutgraf.in
+      dns01:
+        webhook:
+          groupName: acme.nutgraf.in
+          solverName: hetzner
+          config:
+            tokenSecretKeyRef:
+              name: hetzner-dns
+              key: api-key
