@@ -23,9 +23,23 @@ This rewrite broadens the PKI ban from component-specific scopes to a universal 
 
 ## Decision
 
-### Universal PKI Rule
+### Core Architectural Principle
 
-**Only cert-manager may reconcile certificate lifecycle resources and perform certificate issuance and renewal operations.** This is a universal prohibition. No component — present or future — may perform PKI operations unless explicitly authorized by an amendment to this ADR.
+> **"A mechanism that distributes authority is not itself the authority."**
+> - `cert-manager` is the certificate lifecycle authority for platform-delegated X.509 certificates.
+> - `CNPG` is the authority for CNPG-native internal database TLS.
+> - `Infisical` is the authority for Infisical-managed platform secrets and intermediate PKI.
+> - `ESO` is a delivery/synchronization mechanism, not a source of truth or issuance authority.
+> - `ClusterResourceSet (CRS)` is a Day-0 distribution transport, not a certificate manager.
+> - `RBAC aggregation` is a permission composition mechanism, not an authorization boundary.
+
+### Universal Platform PKI Rule
+
+**Only cert-manager may reconcile platform-delegated X.509 certificate lifecycle resources and perform platform certificate issuance and renewal operations.** This is a universal platform rule. No component — present or future — may perform PKI operations unless explicitly authorized by an amendment to this ADR.
+
+#### Bounded Subsystem Exception (CNPG Native TLS)
+
+Components that own a delegated subsystem's native internal PKI, such as CloudNativePG (CNPG) managing its internal PostgreSQL cluster TLS, MAY manage that subsystem-native PKI within their documented ownership boundary ([ADR-005](docs/adr/005-unified-abstraction-layers-crossplane.md), [ADR-041](docs/adr/041-controller-responsibility-matrix.md)). This bounded exception applies strictly to intra-subsystem communication managed natively by the subsystem operator and does not extend to platform-wide mTLS or external workload identities.
 
 #### Forbidden from ALL PKI operations
 
@@ -76,11 +90,10 @@ Creating a Certificate resource is not a PKI operation. It is a Kubernetes resou
 
 #### Offline Root CA
 
-- Generated outside Infisical during Day-0.
-- Stored offline. Never connected to production systems.
-- Signs the Fleet Intermediate CA.
-- Private key is never stored in Kubernetes.
-- Public certificate distributed as a ConfigMap (not a Secret) to Hub and Spoke clusters.
+- **Generation & Key Management**: The Root CA private key SHALL be generated and retained using an approved offline key-management process. Hardware Security Module (HSM) backing or hardware-isolated key storage is required for enterprise production. No Kubernetes cluster, Infisical instance, CI/CD pipeline, operator, CLI cache, or application component may retain the Root CA private key.
+- **Role**: Offline platform trust anchor. Signs the Fleet Intermediate CA during Day-0 bootstrap or formal CA rollover ceremonies.
+- **Storage**: Stored strictly offline. Never connected to production systems or runtime environments.
+- **Trust Distribution**: Public certificate distributed as a ConfigMap (not a Secret) to Hub and Spoke clusters.
 
 #### Fleet Intermediate CA
 
@@ -147,11 +160,11 @@ rotated certificate, and its ceiling is **7 days** for the reasons set out in
 addendum §5. A certificate requests the duration it needs; the profile refuses
 anything above the ceiling.
 
-### Bootstrap Certificate (Declarative Certificate CR Pattern)
+### Bootstrap Certificate & Private-Key Transit Exception (Bounded Security Exemption)
 
-The ArgoCD Agent must establish an mTLS connection before GitOps becomes available on a new Spoke. A bootstrap certificate is issued declaratively via `cert-manager` — no custom operator code performs PKI operations.
+The ArgoCD Agent must establish an mTLS connection before GitOps becomes available on a new Spoke. A bootstrap certificate is issued declaratively via `cert-manager` on the Hub — no custom operator code performs PKI operations.
 
-Bootstrap certificates are **transient Day-0 artifacts** delivered through `ClusterResourceSet` (CRS) using `ApplyOnce` semantics. The 72-hour TTL ensures they expire automatically — the Spoke must establish its own PKI before expiry. Certificate renewal on the Hub must not mutate the bootstrap payload.
+The delivery of this bootstrap certificate requires private key transit across the Hub control plane via `ClusterResourceSet` (CRS). This is an **explicit, formally bounded architectural exception** to the principle that private keys must never leave their originating node or cluster.
 
 **Lifecycle:**
 
@@ -168,7 +181,7 @@ SpokePool (cluster-scoped owner, platform-capi)
    │
    ├── hub-operator: ensureBootstrapCertCRSWrapper()
    │       │
-   │       ├── reads TLS Secret
+   │       ├── reads TLS Secret (strictly scoped RBAC)
    │       ├── packages into CRS wrapper Secret (type: addons.cluster.x-k8s.io/resource-set)
    │       ├── sets ownerReferences → SpokePool (for GC)
    │       ↓
@@ -197,35 +210,39 @@ SpokePool (cluster-scoped owner, platform-capi)
        Bootstrap certificate expires at 72h
 ```
 
-**Key Invariants:**
+**Formal Exemption Controls & Security Invariants:**
 
 1. **Only cert-manager issues certificates.** The hub-operator creates the `Certificate` CR — a declarative resource declaration, not a PKI operation (per ADR-035 Universal PKI Rule).
 
-2. **CRS wrapper Secrets are immutable once created.** The hub-operator's `ensureBootstrapCertCRSWrapper()` and the spoke-identity-operator's identity wrapper reconciler both guard wrapper creation with:
+2. **Strictly Scoped RBAC for Transit Access.** The Hub Operator is granted read access *only* to the specific bootstrap TLS Secret in `platform-capi` by exact name/label convention. The Hub Operator SHALL NOT possess cluster-wide `get`, `list`, or `watch` permissions across Kubernetes Secrets.
 
-   ```
+3. **Zero Logging & Secret Exposure Prohibition.** Private key and certificate contents SHALL never be logged in controller stdout/stderr, written to Kubernetes Event messages, or exposed in Custom Resource `status` fields.
+
+4. **CRS wrapper Secrets are immutable once created.** The hub-operator's `ensureBootstrapCertCRSWrapper()` and the spoke-identity-operator's identity wrapper reconciler both guard wrapper creation with:
+
+   ```go
    if existing Secret exists AND type == "addons.cluster.x-k8s.io/resource-set":
        return nil  // Immutable — never regenerate after initial creation
    ```
 
    This prevents Certificate renewal from mutating the `ApplyOnce` bootstrap payload. Bootstrap material is disposable by design.
 
-3. **Automatic garbage collection.** All bootstrap artifacts (Certificate CR, SpokeMachineIdentity CR, CRS wrapper Secrets) set `ownerReferences` pointing to the SpokePool. The implementation relies on Kubernetes support for cluster-scoped owners of namespaced resources. This behavior SHALL be validated during implementation before cert-operator removal. If GC does not cascade correctly, finalizer-based cleanup on SpokePool becomes the fallback mechanism.
+5. **Automatic garbage collection.** All bootstrap artifacts (Certificate CR, SpokeMachineIdentity CR, CRS wrapper Secrets) set `ownerReferences` pointing to the SpokePool. The implementation relies on Kubernetes support for cluster-scoped owners of namespaced resources. This behavior SHALL be validated during implementation before cert-operator removal. If GC does not cascade correctly, finalizer-based cleanup on SpokePool becomes the fallback mechanism.
 
-4. **Namespace alignment (ADR-015).** All bootstrap artifacts live in `platform-capi`:
+6. **Namespace alignment (ADR-015).** All bootstrap artifacts live in `platform-capi`:
    - `Certificate` CR
    - `SpokeMachineIdentity` CR
    - CRS wrapper Secrets
 
-5. **Private key handling:** The bootstrap certificate private key is generated by cert-manager and stored in a Kubernetes Secret. The hub-operator reads this Secret and packages it into the CRS wrapper Secret. The private key is therefore stored in two Secrets (TLS Secret + CRS wrapper) and transmitted through the ClusterResourceSet delivery chain to the Spoke. Private key material is never persisted outside Kubernetes Secret storage, never logged, and never handled by any component other than cert-manager and the hub-operator CRS packager. After the Spoke applies the bootstrap certificate, the CRS wrapper Secret on the Hub is retained only as an immutable historical record (ApplyOnce); the Spoke's local cert-manager takes over all subsequent certificate lifecycle.
-
-6. **Rotation updates the authoritative Secret, not the bootstrap wrapper.** Machine Identity rotation (`spec.rotationPolicy`) updates the authoritative `smi-{spokeName}-auth` Secret used by Spoke ExternalSecrets (ESO) for Day-1 credential access. The identity CRS wrapper Secret (`{spokeName}-machine-identity`) is a bootstrap-only artifact — it is created once and never mutated. This distinction means:
+7. **Rotation updates the authoritative Secret, not the bootstrap wrapper.** Machine Identity rotation (`spec.rotationPolicy`) updates the authoritative `smi-{spokeName}-auth` Secret used by Spoke ExternalSecrets (ESO) for Day-1 credential access. The identity CRS wrapper Secret (`{spokeName}-machine-identity`) is a bootstrap-only artifact — it is created once and never mutated. This distinction means:
    - **Day-0:** Bootstrap wrapper delivers initial identity credentials to the Spoke via CRS.
    - **Day-1:** Spoke ESO pulls rotated credentials from Infisical directly, bypassing the immutable wrapper.
    
    The bootstrap wrapper's immutability ensures CRS `ApplyOnce` semantics are never violated by later rotation events.
 
-**This is the only exception to delegated issuer-based issuance.** All other certificates are issued directly on the Spoke by cert-manager + infisical-issuer.
+8. **Periodic Architectural Review.** This transit exemption exists solely to overcome the Day-0 mTLS cold-start chicken-and-egg dilemma. Platform engineering SHALL periodically evaluate mechanisms (e.g., node attestation, SPIFFE/SPIRE federation, TPM-backed identity) to deprecate and eliminate private-key transit entirely.
+
+**This is the only platform exception to delegated issuer-based issuance.** All other certificates are issued directly on the Spoke by cert-manager + infisical-issuer.
 
 ### Failure Domain Analysis
 
@@ -255,13 +272,36 @@ The platform PKI architecture has three critical components. This section docume
 - **Bootstrap:** SpokeMachineIdentity CRs remain in `Ready=False` until the operator is restored.
 - **Existing Spokes:** Identity rotation resumes once the operator is restored. Existing identities continue functioning.
 
-### CNPG Native TLS
+### CNPG Native TLS & Trust-Material Distribution Pattern
+
+#### CNPG Native TLS Boundary
 
 CNPG clusters manage their own internal TLS PKI natively. Zero-Ops does not provision or manage CNPG internal CAs. Consumers requiring database trust material SHALL obtain the CA certificate from the CNPG-generated `<cluster-name>-ca` Secret (e.g., `platform-db-ca` for the `platform-db` cluster, containing key `ca.crt`).
 
-This is consistent with ADR-005 (domain-bounded controllers) and ADR-041 (ownership boundaries): CNPG owns its database lifecycle, including TLS. No platform component — CLI, Hub Operator, or custom operator — generates or manages CNPG certificate material.
+This is consistent with ADR-005 (domain-bounded controllers), ADR-039 (platform ownership model), and ADR-041 (controller responsibility matrix): CNPG owns its database lifecycle, including internal TLS. No platform component — CLI, Hub Operator, or custom operator — generates or manages CNPG certificate material.
 
 The CNPG-generated CA Secret is a Kubernetes resource. It must be included in Kubernetes resource backups (e.g., Velero) for disaster recovery, as it is not contained within PostgreSQL data directory backups.
+
+#### Trust-Material Distribution Pattern (Public CA Projection vs. PKI Issuance)
+
+**Trust material distribution is not certificate issuance.** Consuming and projecting a public CA certificate across namespaces or subsystems according to documented ownership rules does not grant or require PKI issuance authority.
+
+Approved trust-distribution architecture:
+
+```text
+CNPG-owned CA Secret (e.g., platform-db-ca)
+        │
+        ▼
+Platform-approved read-only projection (e.g., ESO / Reflector / ConfigMap)
+        │
+        ▼
+Tenant-local Secret / Trust Bundle (read-only consumer)
+        │
+        ▼
+Consuming Client / Workload
+```
+
+Platform components MAY distribute public trust anchors (CA certificates/bundles) to enable client verification. This does not violate the Universal Platform PKI Rule because no private key material is generated, signed, renewed, or transferred. This prevents the mistaken assumption that because cert-manager owns PKI, all CA certificates must be routed through cert-manager or Infisical.
 
 ### Operator Responsibilities
 
@@ -328,15 +368,45 @@ The platform maintains two Infisical projects:
 
 Machine Identity permissions are project scoped in Infisical OSS. Separation into two projects ensures PKI Machine Identities cannot read application secrets and ESO only references the secrets project.
 
-### Revocation Strategy
+### Compromise Response Matrix
 
-The platform does not implement CRLs, OCSP, or online revocation infrastructure. Compromise mitigation relies on:
-1. Short certificate TTLs.
-2. Machine Identity rotation.
-3. Fleet Intermediate replacement.
-4. Trust anchor replacement when required.
+The platform deliberately avoids online CRL/OCSP infrastructure to prevent distributed runtime availability dependencies on revocation responders. Mitigation and incident response are strictly partitioned by credential tier:
 
-Compromised certificates expire naturally.
+| Compromise Domain | Primary Mitigation & Containment | Operational Invariant & Recovery Action |
+|---|---|---|
+| **Leaf Private Key** | Short certificate TTL (1h – 24h; 7d ceiling for serving identities). | Delete compromised Secret; trigger `cert-manager` re-issuance; restart consuming workload via Reloader. Certificate expires naturally. |
+| **Machine Identity** | Scoped Infisical permissions (`hub-platform`). | Immediate revocation and rotation of client secret via `spoke-identity-operator` / Infisical API. Access token invalidated on expiry. |
+| **Fleet Intermediate CA** | Project-scoped isolation in Infisical. | Immediate CA replacement ceremony: sign new Intermediate via Offline Root CA, update Infisical profiles, and trigger fleet-wide re-issuance. |
+| **Root CA** | Offline, HSM/hardware-isolated storage. | Full trust-anchor replacement: rebootstrap trust bundle ConfigMaps across all Hub and Spoke clusters via out-of-band management. |
+
+### CA Rotation and Trust-Anchor Rollover Procedure
+
+CA rotation (whether planned lifecycle retirement or emergency replacement) is fundamentally distinct from leaf certificate renewal. CA rotation requires a strict, multi-phase **dual-trust overlap** to prevent fleet-wide mTLS partition:
+
+```text
+       Existing State: [Old CA] trusted, [Old CA] signs
+                              │
+                              ▼
+ Phase 1: Publish Dual-Trust  [Old CA + New CA] published to Trust Bundle ConfigMaps
+                              │
+                              ▼
+ Phase 2: Roll Consumers      Workloads reload Trust Bundle (trust both Old and New)
+                              │
+                              ▼
+ Phase 3: Switch Issuance     Infisical profiles updated; [New CA] signs all new certs
+                              │
+                              ▼
+ Phase 4: Fleet Convergence   Verify 100% of active leaf certificates chain to [New CA]
+                              │
+                              ▼
+ Phase 5: Remove Old CA       [Old CA] stripped from Trust Bundle ConfigMaps; reload
+```
+
+**CA Rollover Operational Invariants:**
+1. **Mandatory Overlap Period**: In normal planned rotations, both Old and New CAs MUST remain present in all trust bundles for a duration exceeding the longest active leaf certificate TTL plus renewal buffer (minimum 10 days).
+2. **Atomic Verification Gate**: The Old CA SHALL NOT be removed until fleet metrics verify that zero active mTLS connections or unrenewed certificates reference the retired authority.
+3. **Emergency Fast-Path**: In an active CA compromise scenario, Phase 1 through Phase 3 execute concurrently with an immediate fleet-wide certificate re-issuance and pod restart directive.
+4. **Audit & Observability**: Every CA generation, profile repointing, and trust bundle mutation MUST generate immutable audit log events in Infisical and Kubernetes API audit sinks.
 
 ### Infisical OSS Authorization Limitation
 
@@ -515,12 +585,7 @@ days is where they balance:
    restart. A 24h ceiling would restart a control-plane component roughly 1.5×
    per day, which trades a small compromise window for continuous availability
    churn — worse, not better.
-3. **Infisical is a single point of failure and the TTL is also the outage
-   tolerance window.** This ADR's own failure analysis: when Infisical is
-   unavailable, *"certificate issuance and renewal fail; existing certificates
-   continue operating until TTL expiry."* On this platform Infisical runs on one
-   home-lab node. Too short a ceiling converts a brief Infisical outage into a
-   fleet-wide mTLS outage.
+3. **Infisical dependency and the outage tolerance window.** Per this ADR's failure domain analysis, if Infisical becomes unavailable, *"certificate issuance and renewal fail; existing certificates continue operating until TTL expiry."* The selected maximum TTL ceiling SHALL account for the documented control-plane dependency's Recovery Time Objective (RTO) and maximum tolerated outage window under disaster recovery scenarios. An excessively short ceiling would convert a transient intermediate PKI outage into an immediate fleet-wide mTLS partition.
 
 7 days with `renewBefore: 48h` cuts the unrevocable compromise window by roughly
 **13×** versus 90 days, still tolerates about **5 days** of Infisical unavailability

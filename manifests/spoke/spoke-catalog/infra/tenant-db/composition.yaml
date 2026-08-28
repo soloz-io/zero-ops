@@ -436,3 +436,281 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
+
+          # ──────────────────────────────────────────────────────────────────
+          # Resource 7: ServiceAccount for CNPG CA cert reader
+          # ADR-035: CNPG manages its own TLS PKI. Consumers obtain the CA
+          # certificate from the CNPG-generated Secret. This ServiceAccount
+          # grants read-only access to shared-cnpg-ca in platform-data.
+          # ADR-031: Namespace-scoped SecretStore per tenant.
+          # ──────────────────────────────────────────────────────────────────
+          - name: cnpg-ca-serviceaccount
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ServiceAccount
+                    metadata:
+                      namespace: ""
+                      name: cnpg-ca-reader
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+
+          # ──────────────────────────────────────────────────────────────────
+          # Resource 8: Role granting read-only access to shared-cnpg-ca
+          # Least-privilege: only get on the specific Secret in platform-data.
+          # ──────────────────────────────────────────────────────────────────
+          - name: cnpg-ca-role
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: rbac.authorization.k8s.io/v1
+                    kind: Role
+                    metadata:
+                      namespace: platform-data
+                      name: ""  # Patched per tenant
+                    rules:
+                      - apiGroups: [""]
+                        resources: ["secrets"]
+                        resourceNames: ["shared-cnpg-ca"]
+                        verbs: ["get"]
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-cnpg-ca-reader"
+
+          # ──────────────────────────────────────────────────────────────────
+          # Resource 9: RoleBinding linking ServiceAccount to Role
+          # ──────────────────────────────────────────────────────────────────
+          - name: cnpg-ca-rolebinding
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: rbac.authorization.k8s.io/v1
+                    kind: RoleBinding
+                    metadata:
+                      namespace: platform-data
+                      name: ""  # Patched per tenant
+                    roleRef:
+                      apiGroup: rbac.authorization.k8s.io
+                      kind: Role
+                      name: ""  # Patched per tenant
+                    subjects:
+                      - kind: ServiceAccount
+                        name: cnpg-ca-reader
+                        namespace: ""  # Patched to tenant-<id>
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.roleRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-cnpg-ca-reader"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.subjects[0].namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+
+          # ──────────────────────────────────────────────────────────────────
+          # Resource 10: Kubernetes SecretStore for CNPG CA cert
+          # ADR-031: Namespace-scoped SecretStore per tenant.
+          # ──────────────────────────────────────────────────────────────────
+          - name: cnpg-ca-secretstore
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1
+                    kind: SecretStore
+                    metadata:
+                      namespace: ""
+                      name: cnpg-ca-store
+                    spec:
+                      provider:
+                        kubernetes:
+                          server: https://kubernetes.default.svc
+                          auth:
+                            serviceAccount:
+                              name: cnpg-ca-reader
+                              namespace: ""
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-cnpg-ca-store"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "cnpg-ca-store"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.provider.kubernetes.auth.serviceAccount.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+
+          # ──────────────────────────────────────────────────────────────────
+          # Resource 11: ExternalSecret syncing ca.crt from shared-cnpg-ca
+          # ADR-035: Consumers obtain the CA certificate from the CNPG-generated
+          # Secret. Only the public ca.crt is synced — never ca.key.
+          # ──────────────────────────────────────────────────────────────────
+          - name: cnpg-ca-externalsecret
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                managementPolicies: ["*"]
+                providerConfigRef:
+                  name: default
+                forProvider:
+                  manifest:
+                    apiVersion: external-secrets.io/v1
+                    kind: ExternalSecret
+                    metadata:
+                      namespace: ""
+                      name: shared-cnpg-ca
+                    spec:
+                      refreshInterval: 1h
+                      secretStoreRef:
+                        name: cnpg-ca-store
+                        kind: SecretStore
+                      target:
+                        name: shared-cnpg-ca
+                        creationPolicy: Owner
+                      data:
+                        - secretKey: ca.crt
+                          remoteRef:
+                            key: shared-cnpg-ca
+                            property: ca.crt
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "%s-shared-cnpg-ca"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "shared-cnpg-ca"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.manifest.spec.target.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "shared-cnpg-ca"
