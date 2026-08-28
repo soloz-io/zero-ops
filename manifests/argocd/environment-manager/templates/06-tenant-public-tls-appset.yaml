@@ -94,6 +94,32 @@ spec:
               - name: issuer
                 value: '{{ .Values.publicTlsIssuer }}'
 
+              # The A record external-dns publishes for this tenant's hostnames.
+              #
+              # It has to be passed in, not discovered. tenant-tls-gateway is a
+              # Cilium hostNetwork Gateway, so its generated Service is ClusterIP
+              # (ADR-046 addendum 8) and carries no external address. external-dns
+              # reads the Gateway/HTTPRoute hostnames happily, finds no target to
+              # attach to them, publishes nothing, and reports "All records are
+              # already up to date" — while the hostname keeps resolving to
+              # whatever stale value was last set by hand. That is how
+              # waypoint.dev.nutgraf.in stayed pointed at a decommissioned IP.
+              #
+              # Derived from the cluster secret rather than a ConfigMap: capi2argo
+              # already keeps `.server` in step with the CAPI kubeconfig, so this
+              # follows the load balancer with nothing new to maintain, and it is
+              # per-spoke by construction — a chart default could never be.
+              #
+              # ASSUMPTION, and the first thing to check if a tenant resolves to
+              # the wrong address: this takes the INGRESS target from the API
+              # SERVER host. That holds only because the CAPH control-plane LB
+              # carries both — port 6443 for the apiserver plus extraServices
+              # 80/443 for ingress. A topology giving ingress its own load
+              # balancer would publish the apiserver's address here, and it would
+              # look correct while being wrong.
+              - name: externalDnsTarget
+                value: '{{"{{"}} (splitList ":" (trimPrefix "https://" .server)) | first {{"}}"}}'
+
         # Source 2: Fleet registry values file ($values ref above).
         - repoURL: https://github.com/soloz-io/fleet-registry
           targetRevision: main
