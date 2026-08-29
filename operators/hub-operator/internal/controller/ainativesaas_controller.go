@@ -90,7 +90,10 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	provisioned := provisionedOAuthClients(ainativesaas)
 	oauthClients := declaredOAuthClients(ainativesaas, provisioned)
 
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients)
+	// A fleet that declares no cache gets no credential generated for one.
+	cacheEnabled, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "cache", "enabled")
+
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients, cacheEnabled)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {

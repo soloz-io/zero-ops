@@ -65,6 +65,295 @@ spec:
   # 2. CNPG Pooler CR - Wrapped in provider-kubernetes Object
   #    Uses tenant-specific credentials from tenant-<id>-db-credentials Secret
   #    (created by TenantDatabase Composition on Spoke).
+  # ---------------------------------------------------------------------------
+  # Tenant cache (ADR-014, ADR-035, ADR-047).
+  #
+  # Platform-rendered, not fleet-authored. A fleet previously hand-wrote the
+  # Deployment, Service, NetworkPolicy and Certificate in its own repository; the
+  # tenant-specific part of that was two resource stanzas, and everything else —
+  # the pinned digest, the TLS flags, the ACL, the security context — was platform
+  # policy replicated per fleet with no validator watching it. One consequence was
+  # already live: the Certificate existed on disk but was never listed in its
+  # kustomization, so the TLS Secret was never created and the workload could not
+  # start. Resources emitted together cannot develop that gap.
+  #
+  # Rendered only when the fleet declares spec.cache.enabled.
+  # ---------------------------------------------------------------------------
+  - name: cache-credential
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies:
+          - "*"
+        forProvider:
+          manifest:
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: ""      # Patched: <tenantId>-cache-auth
+              namespace: "" # Patched: tenant-<tenantId>
+            spec:
+              refreshInterval: 1h
+              secretStoreRef:
+                name: tenant-secret-store
+                kind: SecretStore
+              target:
+                name: ""    # Patched: <tenantId>-cache-auth
+                creationPolicy: Owner
+                deletionPolicy: Retain
+                template:
+                  engineVersion: v2
+                  data:
+                    # The ACL file is rendered here rather than stored, so its
+                    # format is owned in one place and a fleet cannot author a
+                    # syntactically valid file that grants the wrong thing. The
+                    # default user is disabled outright: leaving it enabled makes
+                    # the password advisory.
+                    users.acl: |
+                      user default off
+                      user app on >{{ .password }} ~* +@all
+                    REDIS_URL: ""  # Patched: redis://app:<pw>@<tenantId>-cache:6379
+              data:
+                - secretKey: password
+                  remoteRef:
+                    key: CACHE_PASSWORD
+        providerConfigRef:
+          name: ""
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cellId
+      toFieldPath: spec.providerConfigRef.name
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: metadata.name
+      transforms:
+      - type: string
+        string: {fmt: "%s-cache-credential"}
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string: {fmt: "%s-cache-auth"}
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.target.name
+      transforms:
+      - type: string
+        string: {fmt: "%s-cache-auth"}
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.metadata.namespace
+      transforms:
+      - type: string
+        string: {fmt: "tenant-%s"}
+    # The ESO template cannot see the tenant, so the host is patched in. The short
+    # Service name resolves because the consumer shares the namespace.
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenantId
+      toFieldPath: spec.forProvider.manifest.spec.target.template.data.REDIS_URL
+      transforms:
+      - type: string
+        string: {fmt: "redis://app:{{ .password }}@%s-cache:6379"}
+
+  - name: cache-certificate
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            metadata:
+              name: ""
+              namespace: ""
+            spec:
+              # ADR-035: cert-manager is the only issuer of X.509 material.
+              secretName: ""
+              issuerRef:
+                name: tenant-ca-issuer
+                kind: ClusterIssuer
+              duration: 2160h
+              renewBefore: 360h
+              dnsNames: []
+        providerConfigRef:
+          name: ""
+    patches:
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cellId, toFieldPath: spec.providerConfigRef.name}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-certificate"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.spec.secretName, transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.dnsNames[0]", transforms: [{type: string, string: {fmt: "%s-cache"}}]}
+
+  - name: cache-service
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: ""
+              namespace: ""
+            spec:
+              type: ClusterIP
+              selector:
+                app.kubernetes.io/component: cache
+              ports:
+              - {name: redis, port: 6379, targetPort: 6379, protocol: TCP}
+              - {name: redis-tls, port: 6380, targetPort: 6380, protocol: TCP}
+        providerConfigRef:
+          name: ""
+    patches:
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cellId, toFieldPath: spec.providerConfigRef.name}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-service"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+
+  - name: cache-deployment
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ""
+              namespace: ""
+              labels:
+                app.kubernetes.io/component: cache
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app.kubernetes.io/component: cache
+              template:
+                metadata:
+                  labels:
+                    app.kubernetes.io/component: cache
+                spec:
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 999
+                    fsGroup: 999
+                    seccompProfile: {type: RuntimeDefault}
+                  containers:
+                  - name: cache
+                    # Digest-pinned by the platform, so a fleet cannot float it and
+                    # every tenant patches together.
+                    image: docker.io/library/redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+                    command: ["redis-server"]
+                    args:
+                    - --port
+                    - "6379"
+                    - --tls-port
+                    - "6380"
+                    - --tls-cert-file
+                    - /tls/tls.crt
+                    - --tls-key-file
+                    - /tls/tls.key
+                    - --tls-ca-cert-file
+                    - /tls/ca.crt
+                    # Authentication is the ACL, not client certificates.
+                    - --tls-auth-clients
+                    - "no"
+                    - --aclfile
+                    - /acl/users.acl
+                    - --dir
+                    - /data
+                    ports:
+                    - {name: redis, containerPort: 6379}
+                    - {name: redis-tls, containerPort: 6380}
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: {drop: ["ALL"]}
+                    resources:
+                      requests: {cpu: 50m, memory: 64Mi}
+                      limits: {cpu: 250m, memory: 256Mi}
+                    volumeMounts:
+                    - {name: tls, mountPath: /tls, readOnly: true}
+                    - {name: acl, mountPath: /acl, readOnly: true}
+                    - {name: data, mountPath: /data}
+                  volumes:
+                  # Transient by design (ADR-014): an emptyDir, never a PVC. The
+                  # cache holds no state the tenant may not lose.
+                  - {name: data, emptyDir: {}}
+                  - name: tls
+                    secret: {secretName: ""}
+                  - name: acl
+                    secret:
+                      secretName: ""
+                      items: [{key: users.acl, path: users.acl}]
+        providerConfigRef:
+          name: ""
+    patches:
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cellId, toFieldPath: spec.providerConfigRef.name}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-deployment"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[1].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[2].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-auth"}}]}
+    # The fleet's only inputs.
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cache.resources.requests.cpu, toFieldPath: "spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu", policy: {fromFieldPath: Optional}}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cache.resources.requests.memory, toFieldPath: "spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory", policy: {fromFieldPath: Optional}}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cache.resources.limits.cpu, toFieldPath: "spec.forProvider.manifest.spec.template.spec.containers[0].resources.limits.cpu", policy: {fromFieldPath: Optional}}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cache.resources.limits.memory, toFieldPath: "spec.forProvider.manifest.spec.template.spec.containers[0].resources.limits.memory", policy: {fromFieldPath: Optional}}
+
+  - name: cache-network-policy
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha2
+      kind: Object
+      spec:
+        managementPolicies: ["*"]
+        forProvider:
+          manifest:
+            apiVersion: cilium.io/v2
+            kind: CiliumNetworkPolicy
+            metadata:
+              name: ""
+              namespace: ""
+            spec:
+              endpointSelector:
+                matchLabels:
+                  app.kubernetes.io/component: cache
+              # DNS out, tenant namespace in. The cache reaches nothing else.
+              egress:
+              - toEndpoints:
+                - matchLabels:
+                    k8s:io.kubernetes.pod.namespace: kube-system
+                    k8s:k8s-app: kube-dns
+                toPorts:
+                - ports:
+                  - {port: "53", protocol: UDP}
+                  - {port: "53", protocol: TCP}
+              ingress:
+              - fromEndpoints:
+                - matchLabels:
+                    k8s:io.kubernetes.pod.namespace: ""
+                toPorts:
+                - ports:
+                  - {port: "6379", protocol: TCP}
+                  - {port: "6380", protocol: TCP}
+        providerConfigRef:
+          name: ""
+    patches:
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.cellId, toFieldPath: spec.providerConfigRef.name}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-network-policy"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.ingress[0].fromEndpoints[0].matchLabels.k8s:io.kubernetes.pod.namespace", transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+
   - name: pooler
     base:
       apiVersion: kubernetes.crossplane.io/v1alpha2

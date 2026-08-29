@@ -1063,7 +1063,7 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient) (*EnsureTenantCredentialsResult, error) {
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled bool) (*EnsureTenantCredentialsResult, error) {
 	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
 	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
 
@@ -1169,7 +1169,39 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		dbOutcome = EnsureCreated
 	}
 
-	// Step 3: OAuth confidential client credentials (ADR-053).
+	// Step 3: cache credential.
+	//
+	// A password, not an ACL file. The file is rendered from it by the delivering
+	// ExternalSecret's template, so the platform owns the ACL's shape in one place
+	// rather than each fleet hand-writing a file whose format nothing validates.
+	// Generated once under the same rule as everything else here: its later absence
+	// is a fault, because regenerating locks out a running cache's clients.
+	if cacheEnabled {
+		exists, err := c.SecretExists(ctx, tenantPath, InfisicalCachePasswordKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalCachePasswordKey, err)
+		}
+		if !exists {
+			if !isFirstTime {
+				logger.Error(nil, "CRITICAL: cache credential missing for an already-provisioned tenant. Manual recovery required.", "path", tenantPath)
+				return &EnsureTenantCredentialsResult{
+					Result:                dbOutcome,
+					InfisicalCredsOutcome: infisicalCredsOutcome,
+				}, fmt.Errorf("%s missing from Infisical for already-provisioned tenant %s — manual recovery required", InfisicalCachePasswordKey, tenantId)
+			}
+			value, err := GenerateSecurePassword()
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate cache credential for tenant %s: %w", tenantId, err)
+			}
+			if err := c.CreateSecret(ctx, tenantPath, InfisicalCachePasswordKey, value); err != nil {
+				return nil, fmt.Errorf("failed to write %s for tenant %s: %w", InfisicalCachePasswordKey, tenantId, err)
+			}
+			logger.Info("Seeded tenant cache credential", "path", tenantPath, "key", InfisicalCachePasswordKey)
+			dbOutcome = EnsureCreated
+		}
+	}
+
+	// Step 4: OAuth confidential client credentials (ADR-053).
 	//
 	// Reached whether or not step 2 generated anything, because a tenant
 	// provisioned before it declared a client must still receive that client's
@@ -1190,6 +1222,11 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		OAuthOutcome:          oauthOutcome,
 	}, nil
 }
+
+// InfisicalCachePasswordKey names the tenant cache credential. The delivering
+// ExternalSecret templates both the ACL file and the connection URL from this one
+// value, so nothing downstream stores a second copy of it.
+const InfisicalCachePasswordKey = "CACHE_PASSWORD"
 
 // InfisicalOAuthClientIDKey and InfisicalOAuthClientSecretKey name the two scalars
 // an OAuth confidential client occupies in a tenant's Infisical folder.

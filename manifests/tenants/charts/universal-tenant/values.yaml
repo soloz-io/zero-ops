@@ -11,6 +11,21 @@ deployXR: false
 # OAuth2 clients for this fleet, reconciled into Hydra by hydra-maester.
 # The platform does not declare tenant clients (ADR-047 addendum); they are rendered
 # here, per fleet, at onboarding.
+# Ephemeral in-memory cache (ADR-014, ADR-047). A declaration, not an
+# implementation: the platform renders the Deployment, Service, Certificate and
+# NetworkPolicy from this. Image, TLS, ACL, security context and network rules are
+# deliberately not expressible here — each is a policy a fleet should not be able
+# to get wrong on its own, and the credential is generated into Infisical and
+# delivered by ESO like every other tenant secret.
+#
+# State is transient by construction (emptyDir, never a PVC), so a fleet needing
+# durable state needs something other than this.
+cache:
+  enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 250m, memory: 256Mi}
+
 oauth:
   # Public hostname this fleet serves, e.g. waypoint.dev.nutgraf.in
   publicHost: ""

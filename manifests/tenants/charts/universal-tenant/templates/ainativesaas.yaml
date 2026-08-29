@@ -57,6 +57,15 @@ spec:
   ownerEmail: {{ .Values.ownerEmail }}
   {{- end }}
 
+  {{- with .Values.cache }}
+  cache:
+    enabled: {{ .enabled | default false }}
+    {{- with .resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+
   {{- /*
     ADR-053: the declared OAuth clients, reduced to what the credential producer
     needs. The operator generates one credential per confidential client into the
