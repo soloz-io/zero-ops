@@ -177,6 +177,7 @@ spec:
                 name: infisical-fleet-issuer
                 kind: ClusterIssuer
                 group: infisical-issuer.infisical.com
+              commonName: ""
               duration: 2160h
               renewBefore: 360h
               dnsNames: []
@@ -189,6 +190,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.spec.secretName, transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.dnsNames[0]", transforms: [{type: string, string: {fmt: "%s-cache"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.spec.commonName, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
 
   - name: cache-service
     base:
