@@ -178,8 +178,8 @@ spec:
                 kind: ClusterIssuer
                 group: infisical-issuer.infisical.com
               commonName: ""
-              duration: 2160h
-              renewBefore: 360h
+              duration: 168h
+              renewBefore: 48h
               dnsNames: []
         providerConfigRef:
           name: ""
@@ -371,7 +371,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
-    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.ingress[0].fromEndpoints[0].matchLabels.k8s:io.kubernetes.pod.namespace", transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.ingress[0].fromEndpoints[0].matchLabels['k8s:io.kubernetes.pod.namespace']", transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
 
   - name: pooler
     base:
