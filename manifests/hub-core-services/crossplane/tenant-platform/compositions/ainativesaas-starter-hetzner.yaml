@@ -174,8 +174,9 @@ spec:
               # ADR-035: cert-manager is the only issuer of X.509 material.
               secretName: ""
               issuerRef:
-                name: tenant-ca-issuer
+                name: infisical-fleet-issuer
                 kind: ClusterIssuer
+                group: infisical-issuer.infisical.com
               duration: 2160h
               renewBefore: 360h
               dnsNames: []
