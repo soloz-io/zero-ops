@@ -205,6 +205,10 @@ spec:
             metadata:
               name: ""
               namespace: ""
+              labels:
+                app.kubernetes.io/component: cache
+                cost-center: platform
+                tenant-id: ""
             spec:
               type: ClusterIP
               selector:
@@ -219,6 +223,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-service"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
 
   - name: cache-deployment
     base:
@@ -235,6 +240,8 @@ spec:
               namespace: ""
               labels:
                 app.kubernetes.io/component: cache
+                cost-center: platform
+                tenant-id: ""
             spec:
               replicas: 1
               selector:
@@ -244,6 +251,8 @@ spec:
                 metadata:
                   labels:
                     app.kubernetes.io/component: cache
+                    cost-center: platform
+                    tenant-id: ""
                 spec:
                   securityContext:
                     runAsNonRoot: true
@@ -305,6 +314,8 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-deployment"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.metadata.labels.tenant-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[1].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[2].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-auth"}}]}
     # The fleet's only inputs.
@@ -326,6 +337,10 @@ spec:
             metadata:
               name: ""
               namespace: ""
+              labels:
+                app.kubernetes.io/component: cache
+                cost-center: platform
+                tenant-id: ""
             spec:
               endpointSelector:
                 matchLabels:
@@ -355,6 +370,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: metadata.name, transforms: [{type: string, string: {fmt: "%s-cache-network-policy"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.ingress[0].fromEndpoints[0].matchLabels.k8s:io.kubernetes.pod.namespace", transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
 
   - name: pooler
