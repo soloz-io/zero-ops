@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,16 +74,38 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// TODO(ADR-039): Move tenant credential generation to Kube-SBT
 	// ADR-031: Delegate to InfisicalClient for tenant secret provisioning.
-	// isFirstTime is always true because EnsureTenantFolderAndCredentials has its own
-	// idempotency check. This handles existing tenants that were provisioned before
-	// the ADR-031 controller code was deployed.
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, true)
+	//
+	// ADR-053: isFirstTime is derived from this resource's own observed status, not
+	// passed as a literal. It used to be a hardcoded true, which made the ADR-003
+	// protection unreachable: a credential lost after provisioning was silently
+	// regenerated rather than reported, invalidating whatever already held it.
+	// A tenant whose credentials have been seeded is not provisioning for the first
+	// time, and the seeded condition is that durable record.
+	isFirstTime := !r.isConditionTrue(ainativesaas, conditionTypeDBSeeded)
+
+	// The declared clients, each carrying whether its credential has been generated
+	// before. That marker is per client rather than per tenant: a client declared
+	// today on a tenant provisioned months ago is new, and treating its absent
+	// credential as a fault would make declaring a second client impossible.
+	provisioned := provisionedOAuthClients(ainativesaas)
+	oauthClients := declaredOAuthClients(ainativesaas, provisioned)
+
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {
 			_ = r.setCondition(ctx, ainativesaas, tenantId, conditionMissing)
 		}
 		return ctrl.Result{}, err
+	}
+
+	// Record the confidential clients now holding a credential, before reporting
+	// the outcome. This is what makes a later absence distinguishable from a client
+	// that was never provisioned, so it must be durable before anything depends on
+	// it. A failure here is logged and retried rather than fatal: the credential
+	// exists either way, and the next reconcile repeats the record.
+	if err := r.recordProvisionedOAuthClients(ctx, ainativesaas, oauthClients); err != nil {
+		logger.Error(err, "Failed to record provisioned OAuth clients; will retry", "tenant", tenantId)
 	}
 
 	switch result.Result {
@@ -93,6 +116,106 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	default:
 		return ctrl.Result{}, nil
 	}
+}
+
+// conditionTypeDBSeeded is the condition recording that this tenant's credentials
+// have been provisioned. It doubles as the durable first-provisioning marker.
+const conditionTypeDBSeeded = "TenantDBCredentialsSeeded"
+
+// declaredOAuthClients reads the OAuth clients declared on the tenant resource
+// (ADR-053), pairing each with whether it has been provisioned before.
+//
+// A client with no explicit type is treated as confidential. The safe default is
+// the one that generates a credential nothing consumes, rather than the one that
+// silently skips a credential something needs.
+func declaredOAuthClients(obj *unstructured.Unstructured, provisioned map[string]bool) []secrets.OAuthClient {
+	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "oauth", "clients")
+	if err != nil || !found {
+		return nil
+	}
+
+	var clients []secrets.OAuthClient
+	for _, entry := range raw {
+		fields, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := fields["name"].(string)
+		if name == "" {
+			continue
+		}
+		clientType, _ := fields["type"].(string)
+		clients = append(clients, secrets.OAuthClient{
+			Name:                  name,
+			Confidential:          clientType != "public",
+			PreviouslyProvisioned: provisioned[name],
+		})
+	}
+	return clients
+}
+
+// provisionedOAuthClients reads the durable record of which clients have already
+// had a credential generated.
+func provisionedOAuthClients(obj *unstructured.Unstructured) map[string]bool {
+	provisioned := map[string]bool{}
+	names, found, err := unstructured.NestedStringSlice(obj.Object, "status", "provisionedOAuthClients")
+	if err != nil || !found {
+		return provisioned
+	}
+	for _, name := range names {
+		provisioned[name] = true
+	}
+	return provisioned
+}
+
+// recordProvisionedOAuthClients adds each confidential client to the durable
+// record. Entries are never removed here: a client dropped from the declaration
+// still has a credential in Infisical and a registration in Hydra, and forgetting
+// that it was provisioned would let a later re-declaration regenerate over them.
+// Decommissioning is a separate transition.
+func (r *AINativeSaaSReconciler) recordProvisionedOAuthClients(ctx context.Context, obj *unstructured.Unstructured, clients []secrets.OAuthClient) error {
+	confidential := map[string]bool{}
+	for _, client := range clients {
+		if client.Confidential {
+			confidential[client.Name] = true
+		}
+	}
+	if len(confidential) == 0 {
+		return nil
+	}
+
+	latest := &unstructured.Unstructured{}
+	latest.SetGroupVersionKind(obj.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKeyFromObject(obj), latest); err != nil {
+		return err
+	}
+
+	existing, _, err := unstructured.NestedStringSlice(latest.Object, "status", "provisionedOAuthClients")
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, name := range existing {
+		seen[name] = true
+	}
+
+	changed := false
+	for name := range confidential {
+		if !seen[name] {
+			existing = append(existing, name)
+			seen[name] = true
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	sort.Strings(existing)
+
+	if err := unstructured.SetNestedStringSlice(latest.Object, existing, "status", "provisionedOAuthClients"); err != nil {
+		return err
+	}
+	return r.Status().Update(ctx, latest)
 }
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.
@@ -165,21 +288,21 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 	switch state {
 	case conditionSeeded:
 		cond = metav1.Condition{
-			Type:    "TenantDBCredentialsSeeded",
+			Type:    conditionTypeDBSeeded,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Seeded",
 			Message: fmt.Sprintf("DB credentials generated and uploaded to Infisical for tenant %s", tenantId),
 		}
 	case conditionAlreadyExists:
 		cond = metav1.Condition{
-			Type:    "TenantDBCredentialsSeeded",
+			Type:    conditionTypeDBSeeded,
 			Status:  metav1.ConditionTrue,
 			Reason:  "AlreadyExists",
 			Message: fmt.Sprintf("DB credentials already present in Infisical for tenant %s", tenantId),
 		}
 	case conditionMissing:
 		cond = metav1.Condition{
-			Type:    "TenantDBCredentialsSeeded",
+			Type:    conditionTypeDBSeeded,
 			Status:  metav1.ConditionFalse,
 			Reason:  "CredentialsMissing",
 			Message: fmt.Sprintf("CRITICAL: DB credentials missing from Infisical for already-provisioned tenant %s. Manual recovery required.", tenantId),

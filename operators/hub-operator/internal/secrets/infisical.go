@@ -710,6 +710,27 @@ type EnsureInfisicalCredentialsResult struct {
 type EnsureTenantCredentialsResult struct {
 	Result                EnsureResult
 	InfisicalCredsOutcome EnsureResult
+	OAuthOutcome          EnsureResult
+}
+
+// OAuthClient is a declared OAuth client, reduced to what the credential producer
+// needs (ADR-053). Grant types, scopes and redirect URIs are absent because they
+// belong to the registration controller and never reach this boundary.
+type OAuthClient struct {
+	// Name is unique within the tenant. The client is registered under
+	// "<tenantId>-<Name>".
+	Name string
+
+	// Confidential is true when the client authenticates with a secret. A public
+	// client has no credential to generate, store or rotate.
+	Confidential bool
+
+	// PreviouslyProvisioned records that this client's credential has been
+	// generated before, taken from the tenant resource's observed status. It
+	// governs whether a missing credential is generated or reported as a fault,
+	// and is per client rather than per tenant: a client declared today on an
+	// existing tenant is new, not lost.
+	PreviouslyProvisioned bool
 }
 
 // EnsureInfisicalCredentials provisions a REAL Machine Identity in Infisical
@@ -1028,7 +1049,9 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //
 // EnsureTenantFolderAndCredentials creates the tenant folder, syncs shared
 // Machine Identity credentials into the tenant's path (for SDK identity resolution
-// per ADR-019), and generates DB credentials for the tenant database.
+// per ADR-019), generates DB credentials for the tenant database, and materialises
+// the identifier and credential of each declared OAuth confidential client
+// (ADR-053).
 //
 // Unlike EnsureInfisicalCredentials, this does NOT read the shared path first to
 // short-circuit — it always reads shared and converges tenant to match, ensuring
@@ -1040,7 +1063,7 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool) (*EnsureTenantCredentialsResult, error) {
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient) (*EnsureTenantCredentialsResult, error) {
 	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
 	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
 
@@ -1103,51 +1126,185 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		return nil, fmt.Errorf("failed to check Infisical for %s: %w", dbSecretName, err)
 	}
 
-	if dbExists {
+	dbOutcome := EnsureAlreadyExists
+	switch {
+	case dbExists:
 		logger.Info("DB credentials already exist in Infisical, skipping generation", "path", tenantPath, "secret", dbSecretName)
-		return &EnsureTenantCredentialsResult{
-			Result:                EnsureAlreadyExists,
-			InfisicalCredsOutcome: infisicalCredsOutcome,
-		}, nil
-	}
 
-	if !isFirstTime {
+	case !isFirstTime:
+		// Absence after first provisioning is a fault, never a trigger to
+		// regenerate: a credential that was never created cannot be told apart
+		// from one that was lost, and only the first is safe to replace.
 		logger.Error(nil, "CRITICAL: DB credentials missing from Infisical for already-provisioned tenant. Manual intervention required.", "path", tenantPath)
 		return &EnsureTenantCredentialsResult{
 			Result:                EnsureMissing,
 			InfisicalCredsOutcome: infisicalCredsOutcome,
 		}, fmt.Errorf("db-credentials missing from Infisical for already-provisioned tenant %s — manual recovery required", tenantId)
+
+	default:
+		password, err := GenerateSecurePassword()
+		if err != nil {
+			logger.Error(err, "Failed to generate password for tenant")
+			return nil, fmt.Errorf("failed to generate password for tenant %s: %w", tenantId, err)
+		}
+		username := fmt.Sprintf("tenant-%s-user", tenantId)
+
+		logger.Info("Generated credentials for tenant", "usernameLength", len(username), "passwordLength", len(password))
+
+		// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
+		dbJsonBytes, err := json.Marshal(map[string]string{
+			"username": username,
+			"password": password,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal db credentials: %w", err)
+		}
+
+		logger.Info("Uploading db-credentials to Infisical", "path", tenantPath)
+		if err := c.CreateSecret(ctx, tenantPath, dbSecretName, string(dbJsonBytes)); err != nil {
+			logger.Error(err, "Failed to upload db-credentials to Infisical", "path", tenantPath)
+			return nil, fmt.Errorf("failed to push db-credentials for tenant %s: %w", tenantId, err)
+		}
+		logger.Info("Tenant DB credentials seeded in Infisical", "path", tenantPath, "secret", dbSecretName)
+		dbOutcome = EnsureCreated
 	}
 
-	password, err := GenerateSecurePassword()
+	// Step 3: OAuth confidential client credentials (ADR-053).
+	//
+	// Reached whether or not step 2 generated anything, because a tenant
+	// provisioned before it declared a client must still receive that client's
+	// credential. The db-credentials step used to return here, which is why this
+	// is a switch above rather than an early return.
+	oauthOutcome, err := c.ensureOAuthClientCredentials(ctx, tenantPath, tenantId, oauthClients)
 	if err != nil {
-		logger.Error(err, "Failed to generate password for tenant")
-		return nil, fmt.Errorf("failed to generate password for tenant %s: %w", tenantId, err)
+		return &EnsureTenantCredentialsResult{
+			Result:                dbOutcome,
+			InfisicalCredsOutcome: infisicalCredsOutcome,
+			OAuthOutcome:          EnsureMissing,
+		}, err
 	}
-	username := fmt.Sprintf("tenant-%s-user", tenantId)
-
-	logger.Info("Generated credentials for tenant", "usernameLength", len(username), "passwordLength", len(password))
-
-	// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
-	dbCreds := map[string]string{
-		"username": username,
-		"password": password,
-	}
-	dbJsonBytes, err := json.Marshal(dbCreds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal db credentials: %w", err)
-	}
-
-	logger.Info("Uploading db-credentials to Infisical", "path", tenantPath)
-	if err := c.CreateSecret(ctx, tenantPath, dbSecretName, string(dbJsonBytes)); err != nil {
-		logger.Error(err, "Failed to upload db-credentials to Infisical", "path", tenantPath)
-		return nil, fmt.Errorf("failed to push db-credentials for tenant %s: %w", tenantId, err)
-	}
-
-	logger.Info("Tenant DB credentials seeded in Infisical", "path", tenantPath, "secret", dbSecretName)
 
 	return &EnsureTenantCredentialsResult{
-		Result:                EnsureCreated,
+		Result:                dbOutcome,
 		InfisicalCredsOutcome: infisicalCredsOutcome,
+		OAuthOutcome:          oauthOutcome,
 	}, nil
+}
+
+// InfisicalOAuthClientIDKey and InfisicalOAuthClientSecretKey name the two scalars
+// an OAuth confidential client occupies in a tenant's Infisical folder.
+//
+// Scalars rather than one composite JSON value, matching how the tenant's other
+// application secrets are stored and read: the fleet's ExternalSecret maps each
+// key by name, with no 'property' parsing. db-credentials is composite because ESO
+// parses a property out of it; these are consumed as whole values in two different
+// places — the registration controller wants them under fixed key names, the
+// workload wants them under whatever names it reads — so a scalar each keeps both
+// projections a plain rename.
+//
+// The tenant is not part of the key. The folder path already scopes it, and
+// repeating it here would put a tenant identifier in platform code (ADR-047).
+func InfisicalOAuthClientIDKey(clientName string) string {
+	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_ID"
+}
+
+func InfisicalOAuthClientSecretKey(clientName string) string {
+	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_SECRET"
+}
+
+func oauthKeySegment(clientName string) string {
+	return strings.ToUpper(strings.ReplaceAll(clientName, "-", "_"))
+}
+
+// OAuthClientIdentifier is the identifier a client is registered under: derived
+// from the tenant and the client name, declared before registration and stable for
+// the client's life (ADR-053). Changing it is not an in-place update — the
+// registration is removed and recreated — so it is derived, never stored as an
+// independent input.
+func OAuthClientIdentifier(tenantId, clientName string) string {
+	return fmt.Sprintf("%s-%s", tenantId, clientName)
+}
+
+// ensureOAuthClientCredentials materialises each declared confidential client's
+// identifier and credential in the tenant's Infisical folder.
+//
+// The two halves obey different rules on purpose. The identifier is derived and
+// public, so it is written convergently and a drifted value is repaired. The
+// credential is secret material under ADR-003: generated once, and its later
+// absence is a fault rather than a trigger to regenerate, because regenerating
+// would invalidate a credential that may already be registered and in use.
+//
+// PreviouslyProvisioned is per client, not per tenant. A client declared today on
+// a tenant provisioned months ago is being provisioned for the first time even
+// though the tenant is not, and treating that as a fault would make declaring a
+// second client impossible.
+func (c *InfisicalClient) ensureOAuthClientCredentials(ctx context.Context, tenantPath, tenantId string, clients []OAuthClient) (EnsureResult, error) {
+	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "path", tenantPath)
+
+	outcome := EnsureAlreadyExists
+	for _, client := range clients {
+		if !client.Confidential {
+			// A public client authenticates with no secret; there is nothing to
+			// generate, store or rotate. It is declared so the set is complete.
+			continue
+		}
+
+		idKey := InfisicalOAuthClientIDKey(client.Name)
+		secretKey := InfisicalOAuthClientSecretKey(client.Name)
+		identifier := OAuthClientIdentifier(tenantId, client.Name)
+
+		// Identifier: converge, repairing drift.
+		idFound, err := c.SecretExists(ctx, tenantPath, idKey)
+		if err != nil {
+			return outcome, fmt.Errorf("failed to check Infisical for %s: %w", idKey, err)
+		}
+		storedID := ""
+		if idFound {
+			if storedID, err = c.GetSecret(ctx, tenantPath, idKey); err != nil {
+				return outcome, fmt.Errorf("failed to read %s for tenant %s: %w", idKey, tenantId, err)
+			}
+		}
+		switch {
+		case !idFound:
+			if err := c.CreateSecret(ctx, tenantPath, idKey, identifier); err != nil {
+				return outcome, fmt.Errorf("failed to write %s for tenant %s: %w", idKey, tenantId, err)
+			}
+			logger.Info("Seeded OAuth client identifier", "client", client.Name, "key", idKey)
+			outcome = EnsureCreated
+		case storedID != identifier:
+			if err := c.UpdateSecret(ctx, tenantPath, idKey, identifier); err != nil {
+				return outcome, fmt.Errorf("failed to repair %s for tenant %s: %w", idKey, tenantId, err)
+			}
+			logger.Info("Repaired drifted OAuth client identifier", "client", client.Name, "key", idKey)
+			outcome = EnsureCreated
+		}
+
+		// Credential: generate once, never regenerate.
+		secretExists, err := c.SecretExists(ctx, tenantPath, secretKey)
+		if err != nil {
+			return outcome, fmt.Errorf("failed to check Infisical for %s: %w", secretKey, err)
+		}
+		if secretExists {
+			continue
+		}
+		if client.PreviouslyProvisioned {
+			logger.Error(nil, "CRITICAL: OAuth client credential missing for an already-provisioned client. Manual recovery required.",
+				"client", client.Name, "key", secretKey)
+			return EnsureMissing, fmt.Errorf(
+				"%s missing from Infisical for already-provisioned client %s of tenant %s — manual recovery required",
+				secretKey, client.Name, tenantId)
+		}
+
+		value, err := GenerateSecurePassword()
+		if err != nil {
+			return outcome, fmt.Errorf("failed to generate credential for client %s of tenant %s: %w", client.Name, tenantId, err)
+		}
+		if err := c.CreateSecret(ctx, tenantPath, secretKey, value); err != nil {
+			return outcome, fmt.Errorf("failed to write %s for tenant %s: %w", secretKey, tenantId, err)
+		}
+		logger.Info("Seeded OAuth confidential client credential", "client", client.Name, "key", secretKey)
+		outcome = EnsureCreated
+	}
+
+	return outcome, nil
 }

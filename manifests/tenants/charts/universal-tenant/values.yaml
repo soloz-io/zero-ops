@@ -12,14 +12,55 @@ deployXR: false
 # The platform does not declare tenant clients (ADR-047 addendum); they are rendered
 # here, per fleet, at onboarding.
 oauth:
-  enabled: false
   # Public hostname this fleet serves, e.g. waypoint.dev.nutgraf.in
   publicHost: ""
   # Namespace hydra-maester watches for OAuth2Client resources.
   identityNamespace: platform-identity
-  # Local/dev callbacks, if the fleet needs them.
-  extraBrowserRedirectUris: []
-  extraBFFRedirectUris: []
+  # OAuth clients this fleet declares (ADR-053). One per service that INITIATES an
+  # OAuth flow; a service that only validates tokens is not a client. An empty list
+  # renders nothing, which is how a fleet with no OAuth declares it — there is no
+  # enabled flag, because the list already says whether anything is wanted.
+  #
+  # Each entry:
+  #   name              required; unique within the tenant. The client is registered
+  #                     as "<tenantId>-<name>" and named Secret "<tenantId>-<name>-secret".
+  #                     Changing it is not an in-place update — the registration is
+  #                     removed and recreated — so choose once.
+  #   type              public | confidential (default confidential). A confidential
+  #                     client receives a generated credential in Infisical; a public
+  #                     one holds no secret material.
+  #   grantTypes        default [authorization_code, refresh_token]
+  #   responseTypes     default [code]
+  #   scope             space-separated; default "openid offline_access"
+  #   redirectPaths     paths appended to publicHost
+  #   extraRedirectUris absolute URIs, for local/dev callbacks
+  #   rotationId        confidential only; changing it re-pushes the credential to
+  #                     Hydra. Bump only after the consumer has adopted the new value.
+  #   refreshInterval   confidential only; default 5m
+  #
+  # Everything else is DERIVED from `name` — nothing below is chosen per fleet:
+  #
+  #   client identifier   <tenantId>-<name>              e.g. acme-bff
+  #   hub Secret          <tenantId>-<name>-secret       e.g. acme-bff-secret
+  #   keys inside it      CLIENT_ID, CLIENT_SECRET       fixed by hydra-maester
+  #   Infisical keys      OAUTH_<NAME>_CLIENT_ID         name uppercased, - becomes _
+  #                       OAUTH_<NAME>_CLIENT_SECRET
+  #
+  # A confidential client's credential is delivered to its workload under those SAME
+  # Infisical key names. Do not rename them on the way through: the correspondence
+  # between what is stored and what is read stops being visible, and no validator
+  # sees fleet-registry ExternalSecrets, so a rename that drifts is caught by nothing
+  # — the secret simply never resolves and the sync wave never reports healthy.
+  # The tenant is not part of the key; the folder path and the namespace scope it.
+  #
+  # To add a client to a fleet, in its fleet-registry values:
+  #   1. add an entry here;
+  #   2. for a confidential client, add its two Infisical keys to the fleet's
+  #      externalSecrets data list, secretKey and remoteKey leaf identical;
+  #   3. reference those env names from the consuming workload.
+  # Step 2 is the one nothing checks. Copy the key names from step 1's `name`
+  # rather than typing them.
+  clients: []
 
 # Tenant tier (required)
 # Valid values: starter, enterprise

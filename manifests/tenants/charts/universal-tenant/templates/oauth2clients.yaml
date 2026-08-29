@@ -1,69 +1,75 @@
-{{- if and .Values.oauth.enabled .Values.deployXR }}
-{{- $host := required "oauth.publicHost is required when oauth.enabled" .Values.oauth.publicHost }}
-# Tenant OAuth2 clients, rendered per fleet at onboarding.
+{{- if and .Values.deployXR (.Values.oauth | default dict).clients }}
+{{- $host := required "oauth.publicHost is required when oauth.clients is non-empty" .Values.oauth.publicHost }}
+{{- $identityNs := .Values.oauth.identityNamespace | default "platform-identity" }}
+{{- $tenantId := .Values.tenantId }}
+# Tenant OAuth2 clients, rendered per fleet from the declared list (ADR-053).
 #
-# These used to live in manifests/hub-core-services/identity/hydra-maester/ with a
-# tenant name written into them, and the tenant's BFF client secret was compiled
-# into the auth-proxy binary. That inverted ADR-004/ADR-047 — tenant runtime state
-# belongs to the fleet, not the platform — and produced a dependency the platform
-# could not satisfy: auth-proxy waited on an ExternalSecret whose key only exists
-# once the tenant's client is registered, so on a fresh hub it never resolved.
+# One client per service that INITIATES an OAuth flow. A service that only accepts
+# tokens is not a client and gets none — it validates or introspects. Sharing one
+# client across services is rejected: redirect URIs are per-client and are a
+# security boundary, since the union of every consumer's callbacks would become a
+# valid destination for all of their codes.
 #
-# hydra-maester reconciles these into Hydra. auth-proxy remains the login/consent
-# provider; it no longer authors them.
+# hydra-maester registers every client here, confidential and public alike. What
+# differs is where the credential comes from: a confidential client's is projected
+# from Infisical by oauth-client-secrets.yaml in an earlier wave, a public client
+# has none. The platform does not implement registration, ownership scoping or
+# orphan retirement, because this controller already provides all three.
 #
-# Guarded by deployXR: OAuth2Client CRs must only be applied to the Hub where
-# hydra-maester is installed. The Spoke AppSet passes deployXR=false; the CRD
-# is absent on spokes, so applying it there would SyncFail.
+# Guarded by deployXR: these resources belong only on the Hub, where hydra-maester
+# is installed. The Spoke AppSet passes deployXR=false; the CRD is absent there, so
+# applying them would SyncFail.
+{{- range .Values.oauth.clients }}
+{{- $clientType := .type | default "confidential" }}
+{{- $identifier := printf "%s-%s" $tenantId .name }}
+---
 apiVersion: hydra.ory.sh/v1alpha1
 kind: OAuth2Client
 metadata:
-  name: {{ .Values.tenantId }}-public-client
-  namespace: {{ .Values.oauth.identityNamespace }}
+  name: {{ $identifier }}
+  namespace: {{ $identityNs }}
   annotations:
-    # After oauth-public-client-id.yaml (wave -10), so the stable CLIENT_ID exists
-    # before hydra-maester reconciles this client and would otherwise mint a UUID.
+    # After the wave -10 Secret, so the identifier — and, for a confidential
+    # client, the credential — exist before hydra-maester reconciles this client
+    # and would otherwise mint its own.
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  clientName: "{{ .Values.tenantId }} (browser)"
-  grantTypes: ["authorization_code", "refresh_token"]
-  responseTypes: ["code"]
-  scope: "openid tenant:read tenant:write offline_access"
-  # Public client: PKCE only, no secret is used to authenticate it.
+  clientName: {{ .clientName | default (printf "%s %s" $tenantId .name) | quote }}
+  grantTypes: {{ .grantTypes | default (list "authorization_code" "refresh_token") | toJson }}
+  responseTypes: {{ .responseTypes | default (list "code") | toJson }}
+  scope: {{ .scope | default "openid offline_access" | quote }}
+  {{- if eq $clientType "public" }}
+  # Public client: PKCE only, no secret authenticates it.
   tokenEndpointAuthMethod: none
-  # secretName is REQUIRED by the OAuth2Client CRD (spec.required = [grantTypes,
-  # secretName]) even for a public client that authenticates with no secret.
-  # Omitting it does not render an optional field absent — the API server rejects
-  # the object outright with "spec.secretName: Required value", so the resource
-  # never existed, hydra-maester never registered the client, and the browser
-  # reached the authorize endpoint to be told the client does not exist. The
-  # OutOfSync/Missing state was visible on the tenant Application while the BFF
-  # client beside it applied cleanly.
-  secretName: {{ .Values.tenantId }}-public-client-secret
+  {{- else }}
+  tokenEndpointAuthMethod: {{ .tokenEndpointAuthMethod | default "client_secret_basic" }}
+  {{- end }}
+  # secretName is REQUIRED by the CRD even for a public client that authenticates
+  # with none. Omitting it does not render an optional field absent: the API server
+  # rejects the object outright, so the resource never exists, the client is never
+  # registered, and the browser is told at the authorize endpoint that the client
+  # does not exist.
+  secretName: {{ $identifier }}-secret
+  {{- if .rotationId }}
+  # ADR-053 rotation trigger. hydra-maester reconciles only on changes to this
+  # resource and never on changes to the Secret it reads, so a rotated credential
+  # sitting in that Secret is not observed until something here changes. metadata is
+  # part of the spec, so changing this value changes .metadata.generation and
+  # defeats the Generation == ObservedGeneration early exit, causing the credential
+  # to be re-read and pushed to Hydra.
+  #
+  # Order matters: deliver first, flip last. Bump this only once the consumer has
+  # adopted the new credential, because exactly one secret is accepted at a time and
+  # flipping early fails every request until the workload converges.
+  metadata:
+    rotationId: {{ .rotationId | quote }}
+  {{- end }}
   redirectUris:
-    - https://{{ $host }}/oauth/callback
-{{- range .Values.oauth.extraBrowserRedirectUris }}
+  {{- range .redirectPaths | default list }}
+    - https://{{ $host }}{{ . }}
+  {{- end }}
+  {{- range .extraRedirectUris | default list }}
     - {{ . }}
-{{- end }}
----
-# Confidential client for the tenant's BFF: server-side delegated token lifecycle.
-# secretName is created BY hydra-maester when it registers the client, so nothing
-# has to pre-seed it — which is what previously could not be satisfied.
-apiVersion: hydra.ory.sh/v1alpha1
-kind: OAuth2Client
-metadata:
-  name: {{ .Values.tenantId }}-bff-client
-  namespace: {{ .Values.oauth.identityNamespace }}
-spec:
-  clientName: "{{ .Values.tenantId }} BFF (delegated)"
-  grantTypes: ["authorization_code", "refresh_token"]
-  responseTypes: ["code"]
-  scope: "openid tenant:read tenant:write offline_access"
-  tokenEndpointAuthMethod: client_secret_basic
-  secretName: {{ .Values.tenantId }}-bff-client-secret
-  redirectUris:
-    - https://{{ $host }}/api/v1/auth/oauth/callback
-{{- range .Values.oauth.extraBFFRedirectUris }}
-    - {{ . }}
+  {{- end }}
 {{- end }}
 {{- end }}

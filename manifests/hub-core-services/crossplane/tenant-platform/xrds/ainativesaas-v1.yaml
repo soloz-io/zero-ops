@@ -130,9 +130,48 @@ spec:
                 type: string
                 description: "Tenant owner email for notifications"
                 pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+              oauth:
+                type: object
+                description: |
+                  OAuth clients this fleet declares (ADR-053). Only what the credential
+                  producer needs appears here: a confidential client receives a generated
+                  credential in Infisical, a public client holds no secret material and is
+                  listed so the set is complete. Grant types, scopes and redirect URIs are
+                  the registration controller's concern and reach it through the chart, not
+                  through this resource.
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - name
+                      - type
+                      properties:
+                        name:
+                          type: string
+                          description: "Client name, unique within the tenant. The client identifier is <tenantId>-<name>."
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                          maxLength: 32
+                        type:
+                          type: string
+                          enum:
+                          - confidential
+                          - public
           status:
             type: object
             properties:
+              provisionedOAuthClients:
+                type: array
+                description: |
+                  Confidential clients whose credential has been generated (ADR-053).
+                  The durable first-provisioning marker, per client rather than per
+                  tenant: a client declared after the tenant was provisioned is new,
+                  and its absent credential must be generated rather than reported as
+                  lost. Entries are not removed when a client is undeclared, because
+                  the credential and its registration still exist.
+                items:
+                  type: string
               conditions:
                 type: array
                 items:

@@ -41,23 +41,11 @@ EXTERNAL = {
 # failure so an open design question does not block a bootstrap. Anything not listed
 # here and not produced is a hard failure — that is the point of the check.
 # Removing an entry here is the last step of closing its gap.
-PENDING = {
-    "waypoint-bff-client-secret":
-        "hydra-maester mints this when it registers waypoint-bff-client, but nothing "
-        "uploads it to Infisical, so no consumer can resolve it. The consumer is the "
-        "tenant BFF workload on the spoke, which is declared in the fleet-registry but "
-        "not yet deployed in dev - so nothing is broken by its absence today, and "
-        "nothing proves the path works either. (This entry previously named "
-        "auth-proxy's ExternalSecret; auth-proxy consumes the client REGISTRATION, not "
-        "this credential, and has no ExternalSecret for it.) "
-        "Closing it is ADR-053: the hub-operator generates the credential once, writes "
-        "it to Infisical, registers the confidential client against Hydra directly, and "
-        "ESO delivers it to the spoke. Removing this entry is that ADR's acceptance "
-        "gate, and the check then enforces the producer.",
-}
+PENDING = {}
 
 SRC = glob.glob("operators/hub-operator/internal/infisical/*.go") + \
-      glob.glob("operators/hub-operator/internal/database/*.go")
+      glob.glob("operators/hub-operator/internal/database/*.go") + \
+      glob.glob("operators/hub-operator/internal/secrets/*.go")
 
 # Keys produced INTO a cell path (/spoke-pool/<cellId>/...), as opposed to the
 # Infisical root. This distinction is the whole point of the check: a spoke's
@@ -129,8 +117,31 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
             elif "PLACEHOLDER" not in k:
                 wanted.setdefault(k, f)
 
+# Producers whose key names are BUILT from declared input and so cannot be found by
+# scanning for literals: one OAuth client credential per client a fleet declares
+# (ADR-053), named for the client. Each entry pairs the shape of the keys with a
+# source fragment that must still exist, so deleting the producer breaks this check
+# rather than silently widening it — the same principle as deriving the literal
+# producers from source instead of restating them here.
+DYNAMIC = [
+    (re.compile(r"^OAUTH_[A-Z0-9_]+_CLIENT_(ID|SECRET)$"), "func InfisicalOAuthClientIDKey("),
+]
+
+all_src = "\n".join(open(f).read() for f in SRC)
+for pattern, sentinel in DYNAMIC:
+    if sentinel not in all_src:
+        print("\t".join(["BAD", pattern.pattern,
+                          "declared as a dynamic producer but '%s' is gone from the operator source"
+                          % sentinel]))
+
+def is_produced(key):
+    if key in produced or key in EXTERNAL:
+        return True
+    return any(p.match(key) and sentinel in all_src for p, sentinel in DYNAMIC)
+
+
 for k in sorted(wanted):
-    if k in produced or k in EXTERNAL:
+    if is_produced(k):
         continue
     if k in PENDING:
         print("\t".join(["PENDING", k, PENDING[k]]))
@@ -139,7 +150,7 @@ for k in sorted(wanted):
 
 for leaf in sorted(wanted_cell):
     full, f = wanted_cell[leaf]
-    if leaf in cell_produced:
+    if leaf in cell_produced or any(p.match(leaf) and sentinel in all_src for p, sentinel in DYNAMIC):
         continue
     where = "produced at the ROOT only" if (leaf in produced or leaf in EXTERNAL) else "not produced anywhere"
     print("\t".join(["BAD", full,

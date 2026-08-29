@@ -43,6 +43,8 @@ The credential has one authority, and it is Infisical. Hydra's registration and 
 
 This is the property that makes the existing registration mechanism sound rather than merely convenient. Delivering the credential into Hydra is the same class of operation as delivering it into the tenant namespace: one is performed by the registration controller reading a projected Secret, the other by ESO reading Infisical. Neither holds authority over the value, so no second authority exists and ADR-043 is satisfied without a bespoke reconciler.
 
+A credential is named for the client it belongs to, and every projection carries that name unchanged into the consumer's environment. Two names are fixed by the registration controller's own contract and are the single exception; everything else is derived and identical throughout. Renaming a credential per fleet on the way to its consumer is not permitted: the correspondence between what is stored and what is read stops being visible, and a fleet's delivery declarations lie outside the producer validator's scope, so a drifted rename is caught by nothing — the secret does not resolve, and the wave that depends on it never reports healthy. The tenant does not appear in the name, because the folder path and the namespace already scope it.
+
 ### The registration mechanism is the platform's existing one
 
 Confidential clients are registered by the same controller that registers every other OAuth client. The platform does not implement its own registration, ownership scoping, orphan retirement or client resource, because all four already exist, are maintained upstream, and are already in use for the public client.
@@ -108,6 +110,72 @@ Because the normal path reaches the registration through declaration and reconci
 A transition with no window cannot be achieved by rotating a client's secret. It is achieved by registering a second client, converging consumers onto it, and retiring the first — an overlap of clients rather than of secrets.
 
 This is an escalation, not the default. It churns the client identifier, duplicates scopes and redirect URIs across two registrations, and splits audit attribution for one logical client. It is warranted only for a consumer that cannot tolerate the interval described above, and it requires that every consumer derive the identifier from the declaration rather than holding it independently.
+
+### The path a credential takes
+
+```
+DECLARATION
+  fleet-registry values   oauth.clients[]: name, type, grants, scope, redirects
+        |
+        +--> universal-tenant chart
+                |
+                +--> AINativeSaaS      spec.oauth.clients  (name + type only;
+                |                       grants and redirects never reach the
+                |                       producer, only the registrar)
+                +--> Secret | ExternalSecret          sync wave -10
+                +--> OAuth2Client                     sync wave  0
+
+GENERATION            once per client, on the tenant provisioning path
+  hub-operator --> Infisical  /spoke-pool/<cell>/tenants/<tenant>/
+                                OAUTH_<NAME>_CLIENT_ID      derived, converged
+                                OAUTH_<NAME>_CLIENT_SECRET  generated once
+                              ^
+                              +-- SYSTEM OF RECORD.
+                                  Everything below holds a projection of it.
+
+DELIVERY              one value, two projections, neither authoritative
+
+  to the registrar, on the hub
+    Infisical --ESO--> <tenant>-<name>-secret            wave -10
+                       keys CLIENT_ID, CLIENT_SECRET
+                       (these two names are the registrar's contract,
+                        the only ones not derived from the client name)
+                             |
+                             v
+                       hydra-maester
+                         Secret present -> adopts it, originates nothing
+                         Secret absent  -> mints its own, which would make
+                                           Kubernetes the origin and breach
+                                           ADR-003. The wave above is what
+                                           makes this branch unreachable.
+                             |                           wave 0
+                             v
+                       Hydra   client_id <tenant>-<name>
+
+  to the consumer, on the spoke
+    Infisical --ESO--> tenant secret            same keys, same names, no rename
+                       OAUTH_<NAME>_CLIENT_ID
+                       OAUTH_<NAME>_CLIENT_SECRET
+                             |
+                             v
+                       workload
+
+ROTATION              deliver, converge, then flip
+  1  new value           --> Infisical            previous value still accepted
+  2  ESO refresh         --> both projections     previous value still accepted
+  3  consumer restarts, adopts new value          previous value still accepted
+  4  bump rotationId     --> OAuth2Client generation changes, defeating the
+                             Generation == ObservedGeneration exit; the Secret is
+                             re-read and Hydra accepts the new value ONLY
+  Steps 1-3 are the slow part and are safe. The only interval in which the
+  consumer and Hydra disagree is between 3 and 4. Reversing the order makes that
+  interval the whole of 1-3 instead, which is why it is rejected.
+
+EMERGENCY REVOCATION  flip first, accept the interruption
+  1  registration changed directly against Hydra  compromised value dead at once
+  2  then steps 1-3 above                         tenant cannot authenticate
+                                                  until convergence completes
+```
 
 ### Alternatives considered
 
