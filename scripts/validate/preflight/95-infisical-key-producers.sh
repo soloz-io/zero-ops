@@ -86,7 +86,20 @@ for f in SRC:
     produced |= set(re.findall(r'PrivateKeyKey:\s*"([^"]+)"', src))
     produced |= set(re.findall(r'PublicKeyKey:\s*"([^"]+)"', src))
     # Key constants, consumed by the DB-role and uploader paths.
-    produced |= set(re.findall(r'\bKey[A-Za-z0-9_]*\s*=\s*"([^"]+)"', src))
+    #
+    # A DECLARED constant is not a producer. hub-centralized-db-username and its
+    # password were declared and referenced nowhere — no mapping entry, no uploader
+    # path — so nothing ever wrote them, while this check reported them produced and
+    # stayed green. The gap was invisible for as long as the values happened to
+    # survive in Infisical from an earlier bootstrap; once that store was
+    # reinitialised they were gone, one ExternalSecret could not resolve, and every
+    # hub database role failed to provision behind it.
+    #
+    # Count a constant only when its identifier is used outside its own declaration.
+    for ident, key in re.findall(r'\b(Key[A-Za-z0-9_]*)\s*=\s*"([^"]+)"', src):
+        if any(re.search(r'\b' + re.escape(ident) + r'\b', open(f).read())
+               for f in SRC if not f.endswith("constants.go")):
+            produced.add(key)
     # Values written inline, e.g. the Svix JWT derived from its signing secret.
     produced |= set(re.findall(r'CreateOrUpdateSecretRaw\([^)]*?"([A-Za-z0-9_.\-]+)"', src, re.S))
 

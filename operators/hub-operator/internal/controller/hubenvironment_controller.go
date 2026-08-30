@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -111,6 +113,22 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		logger.Info("Cleared all conditions and uploaded secrets, forcing full reconciliation")
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Keep Infisical's copy of the CNPG CA current.
+	//
+	// DB_ROOT_CERT is how Infisical verifies TLS to Postgres. It is written once at
+	// Day-0 by the bootstrap CLI, and nothing reconciled it afterwards — so any
+	// event that regenerates the cluster CA (a CNPG Cluster rebuild, which is what
+	// a lost node-pinned volume forces) left Infisical trusting a CA that no longer
+	// signs anything. It then failed its boot migration with SELF_SIGNED_CERT_IN_CHAIN
+	// and crash-looped, which blocked Phase 0, which blocked database roles, which
+	// left the whole auth tier in init. One stale copied certificate, total outage.
+	//
+	// This runs before Phase 1 because Infisical must be able to reach its database
+	// before anything else in this reconcile is meaningful.
+	if err := r.ensureInfisicalDBRootCert(ctx); err != nil {
+		logger.Error(err, "Failed to reconcile Infisical DB_ROOT_CERT; continuing")
 	}
 
 	// Phase 1: Generate Bootstrap Secrets Only
@@ -1189,5 +1207,51 @@ func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEn
 	}
 
 	logger.Info("PKI templates ensured successfully")
+	return nil
+}
+
+// ensureInfisicalDBRootCert keeps infisical-secrets.DB_ROOT_CERT in step with the
+// live CNPG cluster CA.
+//
+// The encoding is not obvious and getting it wrong fails silently in a way that
+// looks like a wrong certificate rather than a wrong format: Infisical expects the
+// env var to be a base64-encoded PEM, and Kubernetes base64-encodes Secret data on
+// the wire, so the stored value is the PEM encoded twice. Copying the CA Secret's
+// data field across verbatim yields a value whose bytes match the CA exactly and
+// still does not work.
+func (r *HubEnvironmentReconciler) ensureInfisicalDBRootCert(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+
+	caSecret := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+		Name: "platform-db-ca", Namespace: "platform-data",
+	}, caSecret); err != nil {
+		// Before CNPG exists there is nothing to mirror; that is not an error.
+		return client.IgnoreNotFound(err)
+	}
+	caPEM, ok := caSecret.Data["ca.crt"]
+	if !ok || len(caPEM) == 0 {
+		return nil
+	}
+	want := []byte(base64.StdEncoding.EncodeToString(caPEM))
+
+	target := &corev1.Secret{}
+	if err := r.UncachedClient.Get(ctx, client.ObjectKey{
+		Name: "infisical-secrets", Namespace: infisical.InfisicalServiceNamespace,
+	}, target); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if bytes.Equal(target.Data["DB_ROOT_CERT"], want) {
+		return nil
+	}
+
+	if target.Data == nil {
+		target.Data = map[string][]byte{}
+	}
+	target.Data["DB_ROOT_CERT"] = want
+	if err := r.UncachedClient.Update(ctx, target); err != nil {
+		return err
+	}
+	logger.Info("Refreshed Infisical DB_ROOT_CERT from the live CNPG CA")
 	return nil
 }

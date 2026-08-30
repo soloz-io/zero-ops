@@ -406,6 +406,21 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Control Plane DB credentials (mcp-server)",
 	},
 
+	// hub_centralized is declared in HubEnvironment.spec.database.roles and its
+	// credential secret (hub-db-credentials) is named by mapRoleToSecretName, but
+	// this table had no entry for it — so nothing ever produced
+	// hub-centralized-db-username/password. The gap stayed invisible while the
+	// values happened to exist in Infisical from an earlier bootstrap; once that
+	// store was reinitialised they were gone for good, the ExternalSecret failed
+	// with "could not get secret data from provider", and RoleManager could not
+	// create the role. Because role provisioning is all-or-nothing, one missing
+	// producer left every hub_* role absent and the whole auth tier in init.
+	{
+		UsernameKey: "hub-centralized-db-username",
+		PasswordKey: "hub-centralized-db-password",
+		Username:    "hub_centralized",
+		Description: "Centralized hub DB credentials",
+	},
 	{
 		UsernameKey: "hub-hydra-db-username",
 		PasswordKey: "hub-hydra-db-password",
