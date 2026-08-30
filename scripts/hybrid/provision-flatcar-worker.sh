@@ -216,6 +216,42 @@ win_ps_stream() { # Stream PowerShell output live from Windows host via SSH
     grep --line-buffered -E "$FILTER" | sed 's/^/      /' || true
 }
 
+# ── Registry naming: ONE definition of the conventions ───────────────────────
+# These three facts were previously restated at four call sites between the
+# verify loop, the cleanup phase and the main loop. Restating an implicit rule
+# is how it drifts, and a drifted copy is exactly what let an index-derived
+# cleanup name match a live node and delete it.
+
+# The cluster an entry belongs to: its target-cluster column when set, else the
+# legacy positional default (entry 1 = hub, the rest = spoke).
+#
+# $TARGET_CLUSTER deliberately does NOT participate. --cluster SELECTS which
+# registered entries to act on; it never retargets them. The verify loop used to
+# apply it here, so `--cluster hub` checked every spoke node against the hub.
+cluster_for_entry() {
+  local target_field="$1" idx="$2"
+  if [[ -n "$target_field" ]]; then printf '%s\n' "$target_field"
+  elif [[ "$idx" -gt 1 ]]; then printf '%s\n' "spoke"
+  else printf '%s\n' "hub"; fi
+}
+
+# The VM / node name for an entry: its hostname column when set, else the
+# conventional name. This is the only place the convention is spelled out.
+vm_name_for() {
+  local host_field="$1" cluster="$2" idx="$3"
+  if [[ -n "$host_field" ]]; then printf '%s\n' "$host_field"
+  elif [[ "$cluster" == "hub" ]]; then printf '%s\n' "flatcar-hub-node-${idx}"
+  else printf '%s\n' "flatcar-spoke-node-${idx}"; fi
+}
+
+# Names an entry at index $1 could have carried under older schemes. Cleanup
+# candidates only — never authoritative, and always filtered against the real
+# registry by cleanup_names_for() before anything is destroyed.
+legacy_names_for_idx() {
+  local idx="$1"
+  printf '%s\n' "flatcar-node-${idx}" "flatcar-hub-node-${idx}" "flatcar-spoke-node-${idx}"
+}
+
 # ── Phase 0: Offline binary cache verification on Mac ────────────────────────
 phase_prep_binaries() {
   echo "    [0/6] Verifying offline worker binary cache on Mac..."
@@ -489,9 +525,27 @@ if (!(Test-Path \$baseVhdx)) {
     return 1
   fi
 
-  # 2. Stop and remove existing VM to release file locks (checks legacy, hub, and spoke names)
+  # 2. Stop and remove any existing VM carrying this node's names, on EVERY
+  #    registered host -- not just this node's current one. A hostname can move
+  #    between boxes, and the box it left keeps running a VM with that hostname
+  #    unless it is cleaned here. cleanup_names_for() guarantees we never touch
+  #    a name that belongs to a different registered node.
+  local CLEAN_NAMES
+  CLEAN_NAMES="$(cleanup_names_for "$VM_NAME" "$NODE_IDX")"
+  local -a CLEAN_ARR=()
+  local _cn
+  while IFS= read -r _cn; do
+    [[ -n "$_cn" ]] && CLEAN_ARR+=("$_cn")
+  done <<< "$CLEAN_NAMES"
+
+  local PS_NAME_LIST=""
+  for _cn in "${CLEAN_ARR[@]}"; do
+    PS_NAME_LIST="${PS_NAME_LIST}'${_cn}',"
+  done
+  PS_NAME_LIST="${PS_NAME_LIST%,}"
+
   local PS_STOP="
-\$vmNames = @('$VM_NAME', 'flatcar-node-${NODE_IDX}', 'flatcar-hub-node-${NODE_IDX}', 'flatcar-spoke-node-${NODE_IDX}') | Select-Object -Unique;
+\$vmNames = @(${PS_NAME_LIST}) | Select-Object -Unique;
 foreach (\$name in \$vmNames) {
   \$existingVM = Get-VM -Name \$name -ErrorAction SilentlyContinue
   if (\$existingVM) {
@@ -500,11 +554,18 @@ foreach (\$name in \$vmNames) {
   }
 }
 "
-  win_ps "$SSH_TARGET" "$PS_STOP" >/dev/null
+  local _clean_host
+  while IFS= read -r _clean_host; do
+    [[ -z "$_clean_host" ]] && continue
+    if [[ "$_clean_host" != "$SSH_TARGET" ]]; then
+      echo "    → Sweeping stale VMs named [${CLEAN_ARR[*]}] on ${_clean_host}..."
+    fi
+    win_ps "$_clean_host" "$PS_STOP" >/dev/null
+  done <<< "$REGISTERED_SSH_TARGETS"
 
   # 2b. Clean up any stale Kubernetes node registration (idempotent across Hub & Spoke)
-  echo "    → Cleaning up any stale Kubernetes node registration (${VM_NAME})..."
-  kubectl --kubeconfig="${HUB_KUBECONFIG}" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" "flatcar-spoke-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+  echo "    → Cleaning up any stale Kubernetes node registration (${CLEAN_ARR[*]})..."
+  kubectl --kubeconfig="${HUB_KUBECONFIG}" delete node "${CLEAN_ARR[@]}" --ignore-not-found=true >/dev/null 2>&1 || true
 
   local SPOKE_KC
   SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
@@ -512,7 +573,7 @@ foreach (\$name in \$vmNames) {
         get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
         -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
         | base64 -d > "$SPOKE_KC" 2>/dev/null; then
-    kubectl --kubeconfig="$SPOKE_KC" delete node "${VM_NAME}" "flatcar-node-${NODE_IDX}" "flatcar-hub-node-${NODE_IDX}" "flatcar-spoke-node-${NODE_IDX}" --ignore-not-found=true >/dev/null 2>&1 || true
+    kubectl --kubeconfig="$SPOKE_KC" delete node "${CLEAN_ARR[@]}" --ignore-not-found=true >/dev/null 2>&1 || true
     rm -f "$SPOKE_KC"
   else
     rm -f "$SPOKE_KC"
@@ -1385,18 +1446,8 @@ if [[ "$MODE" == "verify" ]]; then
   while IFS='|' read -r _HOST _SSH _OS _TAILNET _TAG NODE_TARGET _STARTUP_GB _MIN_GB _MAX_GB _CPUS <&3; do
     [[ -z "$_HOST" && -z "$_SSH" ]] && continue
     idx=$((idx + 1))
-    CURR_TARGET="hub"
-    if [[ "$idx" -gt 1 ]]; then CURR_TARGET="spoke"; fi
-    if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
-    if [[ "$TARGET_CLUSTER" == "hub" || "$TARGET_CLUSTER" == "spoke" ]]; then CURR_TARGET="$TARGET_CLUSTER"; fi
-    VM_NAME="${_HOST}"
-    if [[ -z "$VM_NAME" ]]; then
-      if [[ "$CURR_TARGET" == "hub" ]]; then
-        VM_NAME="flatcar-hub-node-${idx}"
-      else
-        VM_NAME="flatcar-spoke-node-${idx}"
-      fi
-    fi
+    CURR_TARGET="$(cluster_for_entry "${NODE_TARGET:-}" "$idx")"
+    VM_NAME="$(vm_name_for "${_HOST}" "$CURR_TARGET" "$idx")"
     if node_ready "$VM_NAME" "$CURR_TARGET"; then :; else local_ok=0; fi
   done 3<<< "$HOME_WORKER_NODES"
   [[ "$local_ok" == "1" ]] && echo "=== ALL REGISTERED NODES READY ===" || echo "=== SOME NODES NOT READY ==="
@@ -1415,6 +1466,54 @@ while IFS='|' read -r _RC_HOST _RC_SSH _RC_REST <&3; do
   [[ -z "$_RC_SSH" ]] && continue
   REGISTRY_TOTAL=$((REGISTRY_TOTAL + 1))
 done 3<<< "$HOME_WORKER_NODES"
+
+# Every registered hostname, and every distinct Windows host, read once.
+#
+# Both exist to make node cleanup safe under two things the original cleanup
+# assumed away (ADR-046, home-lab placement addendum 2026-08-30):
+#
+#   1. That the index-derived name variants below could never collide with a
+#      REAL node. They can. The variants are flatcar-{,hub-,spoke-}node-$IDX,
+#      which was safe only while hub and spoke occupied disjoint index ranges.
+#      Once the registry became hub 1-3 / spoke 4-5, provisioning hub index 1
+#      swept the name "flatcar-spoke-node-1" -- a live node -- deleting its
+#      Node object and, on a shared host, destroying its VM.
+#
+#   2. That a hostname never moves between boxes. It does: the hub moved from
+#      box-a to box-b. Cleaning only the node's CURRENT ssh-target leaves the
+#      old box running a VM with the same hostname, whose kubelet still holds a
+#      valid client cert and re-registers the Node object the new VM just took.
+REGISTERED_HOSTNAMES=""
+REGISTERED_SSH_TARGETS=""
+_RN_IDX=0
+while IFS='|' read -r _RN_HOST _RN_SSH _RN_OS _RN_TAILNET _RN_TAG _RN_TARGET _RN_REST <&3; do
+  [[ -z "$_RN_SSH" ]] && continue
+  _RN_IDX=$((_RN_IDX + 1))
+  # Store the EFFECTIVE name, resolved the same way the main loop resolves it.
+  # Storing the raw column would miss entries that omit a hostname and fall back
+  # to the conventional name, leaving them unprotected from another entry's sweep.
+  REGISTERED_HOSTNAMES="${REGISTERED_HOSTNAMES}$(vm_name_for "$_RN_HOST" "$(cluster_for_entry "${_RN_TARGET:-}" "$_RN_IDX")" "$_RN_IDX")
+"
+  REGISTERED_SSH_TARGETS="${REGISTERED_SSH_TARGETS}${_RN_SSH}
+"
+done 3<<< "$HOME_WORKER_NODES"
+REGISTERED_SSH_TARGETS="$(printf '%s' "$REGISTERED_SSH_TARGETS" | awk 'NF' | sort -u)"
+
+# Names that are safe to destroy when provisioning $1 (hostname) at index $2.
+# The node's own name, plus the legacy index-derived variants MINUS any variant
+# that is a different registered node's hostname. Never returns a name that
+# belongs to another node in the registry.
+cleanup_names_for() {
+  local vm_name="$1" idx="$2" n
+  {
+    printf '%s\n' "$vm_name"
+    while IFS= read -r n; do
+      [[ "$n" == "$vm_name" ]] && continue
+      printf '%s\n' "$REGISTERED_HOSTNAMES" | grep -qxF -- "$n" && continue
+      printf '%s\n' "$n"
+    done <<< "$(legacy_names_for_idx "$idx")"
+  } | awk 'NF' | sort -u
+}
 
 echo "=== Hybrid Hyper-V + Flatcar Container Linux worker provisioner ==="
 echo "    Target Mode:    ${TARGET_CLUSTER} (Hub + Spoke auto-routing)"
@@ -1454,9 +1553,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   # Where this node belongs. The registry's target field (column 6) is
   # authoritative; the index heuristic is only a fallback for older registries
   # that predate that column.
-  CURR_TARGET="hub"
-  if [[ "$NODE_IDX" -gt 1 ]]; then CURR_TARGET="spoke"; fi
-  if [[ -n "${NODE_TARGET:-}" ]]; then CURR_TARGET="$NODE_TARGET"; fi
+  CURR_TARGET="$(cluster_for_entry "${NODE_TARGET:-}" "$NODE_IDX")"
 
   # --cluster SELECTS which registered nodes to act on; it does not retarget them.
   #
@@ -1478,14 +1575,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   [[ "${DISK_GB:-}" =~ ^[0-9]+$ ]] && NODE_DISK_BYTES="$((DISK_GB * 1024 * 1024 * 1024))"
   [[ "$CLI_DISK_SET" == "1" ]] && NODE_DISK_BYTES="$DISK_SIZE_BYTES"
 
-  HOSTNAME="${_HOST}"
-  if [[ -z "$HOSTNAME" ]]; then
-    if [[ "$CURR_TARGET" == "hub" ]]; then
-      HOSTNAME="flatcar-hub-node-${NODE_IDX}"
-    else
-      HOSTNAME="flatcar-spoke-node-${NODE_IDX}"
-    fi
-  fi
+  HOSTNAME="$(vm_name_for "${_HOST}" "$CURR_TARGET" "$NODE_IDX")"
   TAILNET_HOST="${HOSTNAME}.${TAILNET_NAME}"
 
   echo "── node ${NODE_IDX}: ${HOSTNAME} (${BOX_TAG} → ${CURR_TARGET}) ─────────────────"
