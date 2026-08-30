@@ -5,6 +5,46 @@ metadata:
   namespace: platform-data
 spec:
   instances: 1
+
+  # Bounded on purpose. Previously this carried neither resources nor a
+  # shared_buffers setting, so Postgres sized itself against the whole node —
+  # CNPG's default derives from what the container can see, and with no cgroup
+  # ceiling that is the node's total RAM, not a share of it. The scheduler
+  # meanwhile reasoned about a pod declaring nothing, so it placed work here
+  # freely. The result was measured, not theoretical: this pod alone drove
+  # flatcar-hub-node-1 to 9 GB against a 4 GB allocation until the kubelet
+  # stopped posting status, and because the PVC is node-pinned local-path
+  # (ADR-046) the primary could not reschedule. Every hub service that waits on
+  # this database stayed in init, and the hub Gateway answered "no healthy
+  # upstream" for every hostname.
+  #
+  # limits and requests are deliberately unequal: Postgres benefits from page
+  # cache above its own allocation, so the request reserves the working set and
+  # the limit caps the blast radius.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+  postgresql:
+    parameters:
+      # ~25% of the memory limit, the standard starting point. This is the value
+      # whose absence made the limit alone insufficient: without it Postgres
+      # still sizes from the node and gets OOM-killed against a cgroup it never
+      # knew about.
+      shared_buffers: "512MB"
+      # Planner hint only — allocates nothing. Reflects limit plus expected page
+      # cache.
+      effective_cache_size: "1536MB"
+      # Per sort, per connection, and multiplied by both. The single easiest way
+      # to exceed the limit above is to raise this without doing that arithmetic.
+      work_mem: "4MB"
+      maintenance_work_mem: "128MB"
+      # Connections arrive through platform-db-pooler (PgBouncer), so the ceiling
+      # bounds pooler backends rather than clients.
+      max_connections: "100"
   storage:
     size: 10Gi
     # storageClass comes from the provider overlay (providers/<provider>).
