@@ -278,28 +278,50 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
-          - appName: 'prometheus-operator'
-            destinationNamespace: 'platform-observability'
+          # prometheus-operator: WITHDRAWN.
+          #
+          # It ran with prometheus, alertmanager, grafana, kubeStateMetrics and
+          # nodeExporter all disabled — the operator alone, whose entire job is
+          # reconciling ServiceMonitor, PodMonitor and PrometheusRule resources.
+          # This repository defines none of those, so it reconciled nothing while
+          # occupying a pod on a hub worker that is memory-constrained enough for
+          # one node's kubelet to have already been killed.
+          #
+          # Metrics collection does not depend on it: grafana-alloy scrapes through
+          # Kubernetes service and pod discovery directly and remote-writes to
+          # Grafana Cloud, with no operator in the path.
+          #
+          # Restore it only alongside the resources that need it, and check the
+          # memory budget first.
+          - appName: 'metrics-server'
+            destinationNamespace: 'kube-system'
             isPlatformOwned: 'false'
-            repoURL: 'https://prometheus-community.github.io/helm-charts'
-            targetRevision: '82.15.0'
+            repoURL: 'https://kubernetes-sigs.github.io/metrics-server/'
+            targetRevision: '3.12.2'
             path: ''
-            chart: 'kube-prometheus-stack'
+            chart: 'metrics-server'
             directoryRecurse: ''
             directoryInclude: ''
+            # Without this the cluster has no resource metrics API at all: no
+            # `kubectl top`, no usage-based descheduling, and no way to set
+            # requests from evidence rather than guesswork. Every memory figure
+            # in this cluster's recent incident was inferred from declarations
+            # because this was absent.
+            #
+            # kubelet-insecure-tls: kubelet serving certificates here are not
+            # signed by a CA metrics-server trusts, so verification fails and no
+            # node reports. The traffic stays inside the cluster. Remove this flag
+            # if kubelet serving certs are ever properly signed.
             helmValues: |
-              prometheus:
-                enabled: false
-              alertmanager:
-                enabled: false
-              grafana:
-                enabled: false
-              prometheusOperator:
-                enabled: true
-              kubeStateMetrics:
-                enabled: false
-              nodeExporter:
-                enabled: false
+              args:
+                - --kubelet-insecure-tls
+                - --kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
