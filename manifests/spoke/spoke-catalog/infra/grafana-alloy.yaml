@@ -63,6 +63,104 @@ data:
         }
       }
     }
+
+    // ------------------------------------------------------------------
+    // Pod log collection.
+    //
+    // Ships to the same Grafana Cloud stack as metrics, using LOKI_URL and
+    // LOKI_USER from grafana-cloud-credentials — already delivered by the
+    // ExternalSecret beside this file and, until now, unused.
+    //
+    // The label set is deliberately small and closed. trace_id is NOT a label:
+    // it is per-request, and indexing it would make Loki's index unbounded.
+    // It is read at query time out of the JSON line instead:
+    //
+    //   {tenant="waypoint"} | json | trace_id="..."
+    //
+    // which is what makes one API call readable in one place across the spoke,
+    // ephemeral Hetzner jobs and RunPod — all three write the same field.
+    // ------------------------------------------------------------------
+    loki.write "grafanacloud" {
+      endpoint {
+        url = sys.env("LOKI_URL")
+
+        basic_auth {
+          username = sys.env("LOKI_USER")
+          password = sys.env("API_KEY")
+        }
+      }
+    }
+
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+
+      // Same cell identity the metrics pipeline uses, so a metric and a log
+      // line from one pod agree on which cluster they came from.
+      rule {
+        target_label = "cluster"
+        replacement  = sys.env("CELL_ID")
+      }
+      rule {
+        target_label = "substrate"
+        replacement  = "spoke"
+      }
+
+      // tenant defaults to "platform" and is overwritten only for a tenant
+      // namespace. A non-matching regex leaves the target label untouched, so
+      // the default must be set first.
+      rule {
+        target_label = "tenant"
+        replacement  = "platform"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex         = "tenant-(.+)"
+        target_label  = "tenant"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+        separator     = ";"
+        regex         = "^(?:;)?([^;]+)(?:;.*)?$"
+        target_label  = "workload"
+      }
+
+      // Kept for triage; none is per-request, so cardinality stays bounded.
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+        separator     = "/"
+        action        = "replace"
+        replacement   = "/var/log/pods/*$1/*.log"
+        target_label  = "__path__"
+      }
+    }
+
+    local.file_match "pod_logs" {
+      path_targets = discovery.relabel.pod_logs.output
+    }
+
+    loki.source.file "pod_logs" {
+      targets    = local.file_match.pod_logs.targets
+      forward_to = [loki.write.grafanacloud.receiver]
+    }
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -108,6 +206,14 @@ spec:
               mountPath: /etc/alloy
             - name: data
               mountPath: /var/lib/alloy/data
+            # Container logs live on the node. Required only since this agent
+            # began collecting logs as well as metrics.
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -121,6 +227,12 @@ spec:
             name: alloy-config
         - name: data
           emptyDir: {}
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
 ---
 apiVersion: v1
 kind: ServiceAccount

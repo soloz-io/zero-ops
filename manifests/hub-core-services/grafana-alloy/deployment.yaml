@@ -65,6 +65,17 @@ data:
         target_label = "cluster"
         replacement  = "hub"
       }
+      // Same closed label set the spokes emit, so one query spans both without
+      // knowing where a workload runs. trace_id stays out of the labels and is
+      // read at query time: {tenant="..."} | json | trace_id="..."
+      rule {
+        target_label = "substrate"
+        replacement  = "hub"
+      }
+      rule {
+        target_label = "tenant"
+        replacement  = "platform"
+      }
       rule {
         source_labels = ["__meta_kubernetes_namespace"]
         target_label  = "namespace"
@@ -81,7 +92,7 @@ data:
         source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
         separator     = ";"
         regex         = "^(?:;)?([^;]+)(?:;.*)?$"
-        target_label  = "app"
+        target_label  = "workload"
       }
       rule {
         source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
