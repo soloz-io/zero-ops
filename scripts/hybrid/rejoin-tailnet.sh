@@ -167,10 +167,28 @@ echo ""
 # never use backticks in this block, not even inside a comment.
 read -r -d '' HOST_SCRIPT <<HOSTEOF || true
 set -e
+# Node classes install tailscale in different places, and nsenter drops us into
+# a login-less shell whose PATH may not include /opt/bin:
+#   CAPI Ubuntu (ClusterClass) -> on PATH, /usr/bin/tailscale
+#   Flatcar home worker        -> /opt/bin/tailscale
+# Same resolution idiom the provisioner already uses (provision-flatcar-worker.sh).
+export PATH="/opt/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+TS="\$(command -v tailscale 2>/dev/null || true)"
+for _c in /opt/bin/tailscale /usr/bin/tailscale /usr/local/bin/tailscale; do
+  [ -n "\$TS" ] && break
+  [ -x "\$_c" ] && TS="\$_c"
+done
+if [ -z "\$TS" ]; then
+  echo "ERROR: no tailscale binary found on this node."
+  echo "       Looked on PATH and in /opt/bin, /usr/bin, /usr/local/bin."
+  exit 1
+fi
+echo "tailscale binary: \$TS"
+
 echo "--- current state ---"
-CUR="\$(tailscale ip -4 2>/dev/null || true)"
+CUR="\$("\$TS" ip -4 2>/dev/null || true)"
 echo "tailnet IP: \${CUR:-<none>}"
-JSON="\$(tailscale status --json 2>/dev/null | tr -d ' \\r' || true)"
+JSON="\$("\$TS" status --json 2>/dev/null | tr -d ' \\r' || true)"
 STATE="\$(printf '%s' "\$JSON" | grep -o '"BackendState":"[A-Za-z]*"' | head -1 | cut -d'"' -f4 || true)"
 ONLINE="\$(printf '%s' "\$JSON" | grep -o '"Online":[a-z]*' | head -1 | cut -d: -f2 || true)"
 echo "BackendState: \${STATE:-<unknown>}"
@@ -216,10 +234,10 @@ else
   echo ">>> No auth key available. Visit the URL below to authenticate. <<<"
 fi
 
-tailscale up "\$@"
+"\$TS" up "\$@"
 
-for i in \$(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done
-NEW="\$(tailscale ip -4 2>/dev/null || true)"
+for i in \$(seq 1 30); do "\$TS" ip -4 >/dev/null 2>&1 && break; sleep 2; done
+NEW="\$("\$TS" ip -4 2>/dev/null || true)"
 echo "--- result ---"
 echo "TAILNET_IP=\${NEW:-<none>}"
 HOSTEOF
@@ -328,8 +346,8 @@ fi
 echo ""
 echo "!  The tailnet address CHANGED: ${IP_BEFORE:-<none>} → ${IP_AFTER}"
 echo "!  The node still advertises the old InternalIP, so the apiserver cannot"
-echo "!  reach its kubelet. Restarting kubelet re-registers it via"
-echo "!  /usr/local/bin/dynamic-node-ip.sh."
+echo "!  reach its kubelet. Restarting kubelet re-registers it via the node's"
+echo "!  dynamic-node-ip.sh helper (/opt/bin or /usr/local/bin, per node class)."
 if kubectl --kubeconfig="$KC" get node "$NODE" \
      -o jsonpath='{.metadata.labels}' 2>/dev/null | grep -q 'control-plane'; then
   echo "!"
@@ -376,11 +394,18 @@ spec:
       args:
         - |
           set -e
-          if [ -x /usr/local/bin/dynamic-node-ip.sh ]; then
+          # Flatcar home workers keep it in /opt/bin; CAPI Ubuntu nodes in
+          # /usr/local/bin. Probe both rather than assume a node class.
+          NODEIP=""
+          for c in /opt/bin/dynamic-node-ip.sh /usr/local/bin/dynamic-node-ip.sh; do
+            [ -x "$c" ] && NODEIP="$c" && break
+          done
+          if [ -n "$NODEIP" ]; then
+            echo "node-ip helper: $NODEIP"
             systemctl daemon-reload
-            /usr/local/bin/dynamic-node-ip.sh
+            "$NODEIP"
           else
-            echo "WARNING: /usr/local/bin/dynamic-node-ip.sh not present;"
+            echo "WARNING: no dynamic-node-ip.sh found in /opt/bin or /usr/local/bin;"
             echo "         kubelet may re-register with the wrong --node-ip."
           fi
           systemctl restart kubelet

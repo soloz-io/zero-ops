@@ -10,8 +10,10 @@ verification are handled by **one script**:
 # Provision / (re)provision a node — prepares Windows (power/Hyper-V),
 # builds the Flatcar base VHDX + Ignition ISO, creates the Gen2 VM, and
 # joins the spoke via kubeadm.
-./scripts/hybrid/provision-flatcar-worker.sh --node 1
 ./scripts/hybrid/provision-flatcar-worker.sh --cluster hub 
+./scripts/hybrid/provision-flatcar-worker.sh --cluster spoke 
+
+./scripts/hybrid/provision-flatcar-worker.sh --node 1
 
 # Provision all registered nodes (home-lab.env)
 ./scripts/hybrid/provision-flatcar-worker.sh
@@ -55,9 +57,19 @@ verification are handled by **one script**:
 
 Nodes are declared in `scripts/hybrid/home-lab.env` (gitignored; see
 `home-lab.env.example`). Each line is
-`<hostname>|<ssh-target>|<os-info>|<tailnet-host>|<box-tag>` — the
-hostname/tailnet-host fields are derived by the provisioner
-(`flatcar-node-<idx>`), so only the SSH target and box tag are authoritative.
+
+```
+<hostname>|<ssh-target>|<os-info>|<tailnet-host>|<box-tag>|<target-cluster>|<startupGB>|<minGB>|<maxGB>|<cpus>
+```
+
+**The hostname column is authoritative**, not informational: the provisioner
+uses it directly (`VM_NAME="${_HOST}"`) and only falls back to the conventional
+`flatcar-<cluster>-node-<idx>` when it is empty. `--node N` indexes this list in
+order, counting every entry — including ones a `--cluster` filter skips — so
+renumbering the file changes what `--node N` means.
+
+Capacity fields are the default per-node Hyper-V sizing; sum the `cpus` column
+per box and keep it at or near that host's logical CPU count (ADR-046 §24.5).
 
 The same node list lives in the SpokePool claim annotation
 (`home-workers`), which drives hub-operator's join-payload Secret via
@@ -72,8 +84,98 @@ The same node list lives in the SpokePool claim annotation
 | `provision-flatcar-worker.sh` | **THE entry point** — Hyper-V + Flatcar provisioning |
 | `convert-to-external-switch.sh` | Convert a host from Internal+NetNat to an External switch (see below) |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
+| `rejoin-tailnet.sh` | Re-join a node to the tailnet after its device was deleted (see below) |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |
+
+---
+
+## Recovering a node's tailnet membership
+
+Use `rejoin-tailnet.sh` when a node's **Tailscale device was deleted or expired**
+— usually by clearing out stale devices in the admin console and catching a live
+one by mistake. Deletion revokes the node key permanently; there is no undelete,
+so the node must re-register.
+
+```bash
+# Interactive: prints a login URL, you authenticate in a browser
+./scripts/hybrid/rejoin-tailnet.sh --node hub-hybrid-dev-h2vst-pll5z
+
+# Cluster is auto-detected; pass it explicitly to skip the lookup
+./scripts/hybrid/rejoin-tailnet.sh --node flatcar-spoke-node-1 --cluster spoke
+
+# Non-interactive, and a no-op dry run that changes nothing
+./scripts/hybrid/rejoin-tailnet.sh --node <n> --authkey-file k8-secrets/tailscale/authkey
+./scripts/hybrid/rejoin-tailnet.sh --node <n> --dry-run
+```
+
+### How it presents
+
+The same trap as the NetNat defect below: **every node reports `Ready`
+throughout**. Kubelet's outbound path to the API server runs over the *public*
+LB endpoint and never touches the tailnet, so `Ready` stays green while the
+return path is dead (ADR-046 §22).
+
+The tell is asymmetry — the API server can reach kubelet on nodes that still
+have the tailnet, and hangs on the ones that don't:
+
+```
+kubectl logs <pod on the affected node>   -> hangs, exit 124
+kubectl logs <pod on a healthy node>      -> instant
+```
+
+`exec` and `port-forward` fail the same way. A whole-cluster sweep localises it:
+
+```bash
+for N in $(kubectl get nodes -o name | cut -d/ -f2); do
+  P=$(kubectl get pods -n kube-system --field-selector spec.nodeName=$N \
+        -o jsonpath='{.items[0].metadata.name}')
+  timeout 20 kubectl logs -n kube-system "$P" --tail=1 >/dev/null 2>&1
+  printf '%-38s rc=%s\n' "$N" "$?"
+done
+```
+
+### Two things that mislead during diagnosis
+
+**`BackendState: Running` does not prove the device is still authorised.** A
+deleted device keeps serving from its cached netmap — interface up, old IP
+still held, state still `Running` — until tailscaled next reaches the
+coordination server and is rejected. If that sync is failing the node may never
+find out. The script therefore requires `Self.Online` as well, prints any
+`Health` warnings, and re-authenticates when the two disagree.
+
+**A revoked node cannot route to *any* peer.** So one broken node looks like
+several broken peers, and it is easy to blame the wrong end. Confirm against the
+admin console, which is the only authoritative view of what is still registered.
+
+### What it does
+
+Delivery is through the Kubernetes API, not SSH: CAPI-provisioned control planes
+have port 22 closed, and a node that has lost the tailnet often has no other
+route in. The script runs a privileged `hostPID` pod pinned to the node and
+`nsenter`s into PID 1 to re-run that node's own bootstrap sequence. It prompts
+before doing so.
+
+It is node-class aware, because the two classes differ:
+
+| | CAPI Ubuntu CP | Flatcar home worker |
+|---|---|---|
+| `tailscale` binary | on `PATH` | `/opt/bin/tailscale` |
+| node-ip helper | `/usr/local/bin/dynamic-node-ip.sh` | `/opt/bin/dynamic-node-ip.sh` |
+| `/etc/tailscale-authkey` | present | absent — interactive login only |
+
+Both are probed, never assumed.
+
+### The control-plane caveat
+
+Re-registration usually yields a **new** tailnet IP. The node still advertises
+the old one as its `InternalIP`, so kubelet must restart for
+`dynamic-node-ip.sh` to re-derive it. The script detects the change and asks
+first — and **on a control-plane node that restart bounces the static pods**, so
+the API server and etcd go with it. On a single-replica control plane that is a
+short outage. Take it deliberately.
+
+If the address comes back unchanged, no restart is needed and the script says so.
 
 ---
 
