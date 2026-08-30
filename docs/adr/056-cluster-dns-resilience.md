@@ -49,11 +49,13 @@ The count is instead derived at runtime from live node and core count, with a fl
 
 This is a scheduling property only. The resolver's image and configuration remain owned by the cluster bootstrap that created them; this platform contributes placement and does not take ownership of what it does not need to change.
 
-### The node-local cache is introduced before anything depends on it
+### Adoption requires no node configuration
 
-The cache is deployed and confirmed answering on every node before any node is configured to use it. Ordering matters and is not incidental: a node told to resolve against an address where nothing listens cannot resolve anything at all, including the names required to diagnose the condition. Introduced in this order, the cache is inert until adopted and reversible at any point before that.
+The cache binds the cluster resolver's virtual address on each node in addition to its link-local one. Pods already resolve against that virtual address, so they are served locally the moment the cache is present — no pod, kubelet or node configuration changes, existing workloads are intercepted where they stand, and a node joined later is covered as soon as the cache schedules on it.
 
-Adoption is a node-level configuration change, made per node, and therefore outside the reconciliation loop that manages workloads. It is a deliberate operation with its own verification, not a consequence of applying a manifest.
+The alternative, repointing each node's kubelet at the link-local address, is rejected. It is a per-node change outside the reconciliation loop, applied by hand to every existing node and remembered for every future one, so a node provisioned later silently loses the property. It also fails badly if ordered wrongly: a node told to resolve against an address where nothing listens cannot resolve anything at all, including the names required to diagnose the condition.
+
+Because the cache occupies the address it would otherwise forward to, misses are sent to a second Service selecting the same resolver pods. Forwarding to the original address would return to the local listener and loop.
 
 ### Tolerating a network fault does not resolve it
 
@@ -80,7 +82,6 @@ Per ADR-039.
 | Node-local DNS cache | Git | platform | ArgoCD | every pod | Day-1+ |
 | Cluster resolver placement | Git | platform | ArgoCD | every pod | Day-1+ |
 | Cluster resolver image and configuration | cluster bootstrap | cluster bootstrap | cluster bootstrap | every pod | Day-0 |
-| Node resolver configuration | node configuration | platform operator | none — applied per node | kubelet | Day-1+ |
 
 ## Consequences
 
@@ -96,7 +97,8 @@ Per ADR-039.
 
 - A cache introduces staleness bounded by its TTL, so a record that changes is observed late by up to that interval.
 - A resolver now runs on every node, adding a small fixed cost per node and one more component in the critical path of every pod.
-- Adoption requires a node-level change outside the reconciliation loop, so a node added later does not inherit it automatically and must be configured as part of provisioning.
+- A second Service exists solely to give the cache a non-local address to forward to, which is machinery whose purpose is not obvious from its name alone.
+- The cache must know the cluster resolver's virtual address in order to bind it, and that address is derived from the service network the platform pins in its cluster definitions. The two are stated in different places, and divergence fails quietly: the cache would bind an address nothing sends to, and the only symptom would be the return of the intermittent failures this decision removes.
 - The platform becomes tolerant of a network fault, which reduces the pressure to fix it. On the hybrid topology the packet loss remains, and everything else crossing that link stays exposed.
 - Forwarding misses over TCP costs a connection per miss, which is only acceptable while the miss rate stays low.
 
@@ -104,8 +106,8 @@ Per ADR-039.
 
 - **Applies to every provider and topology.** The resolver runs on all nodes of all clusters, not only where a network is known to be imperfect. Single-site clusters carry the same structural exposure at a lower failure rate.
 - **Extends ADR-046.** The hybrid topology already accommodates this link's constraints through an MTU reduction; name resolution now has an equivalent accommodation. The hybrid topology is where this fault became measurable, not where it is confined.
-- **Introduces a Day-1 platform component** deployed to every node, and a corresponding node-level configuration step that provisioning must apply to any node joined subsequently.
-- **Requires ordering during rollout.** The cache is confirmed answering on every node before any node is configured to use it.
+- **Introduces a Day-1 platform component** deployed to every node, inherited automatically by any node joined subsequently.
+- **Requires no node configuration and no rollout ordering.** The cache intercepts the existing resolver address, so it takes effect as it schedules and needs nothing applied per node.
 - **Leaves the hybrid topology's packet loss open.** Remediating that path remains outstanding and is not superseded by this decision.
 - **Reframes prior incident findings.** Intermittent failures previously attributed to timing in the secret store, the certificate issuer, the identity tier and database connectivity are consistent with this single cause, and should be re-examined against it rather than treated as independent.
 

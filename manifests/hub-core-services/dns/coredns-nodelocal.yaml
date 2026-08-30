@@ -13,17 +13,74 @@
 # case never touches the overlay.
 #
 # ADDRESSING
-#   169.254.20.10  link-local, unroutable off-host by definition.
-#   10.96.0.10     the existing kube-dns ClusterIP, kept as the upstream so a
-#                  cache miss still resolves and nothing depends on this working.
+#   169.254.20.10  Link-local (RFC 3927), unroutable off-host by definition, and
+#                  the upstream convention for this component. Safe on any
+#                  cluster because nothing can route it anywhere — not a
+#                  cluster-specific value.
 #
-# WIRING (deliberately not automatic)
-#   Pods use this only once kubelet advertises it as the cluster DNS
-#   (--cluster-dns=169.254.20.10). That is a node configuration change, applied
-#   per node, and it is intentionally NOT done here: applying the DaemonSet first
-#   is safe and reversible on its own, and the kubelet change should follow once
-#   the cache is confirmed answering on every node. Reversing the order gives a
-#   cluster whose pods point at a resolver that does not exist yet.
+#   10.96.0.10     The kube-dns ClusterIP, bound on the node as well. This one IS
+#                  derived: it is the tenth address of the service CIDR, which
+#                  this platform pins to 10.96.0.0/12 in the CAPI ClusterClass
+#                  and both provider compositions. Every cluster the platform
+#                  creates therefore has kube-dns here.
+#
+#                  It is nonetheless a restatement of a value owned elsewhere,
+#                  and the failure if they diverge is quiet: the cache would bind
+#                  an address nothing sends to, every query would go back over
+#                  the network, and the only symptom would be the intermittent
+#                  resolution failures this component exists to remove — with no
+#                  error anywhere pointing at the cause. Changing serviceSubnet
+#                  requires changing this in step.
+#
+# WHY BIND THE CLUSTERIP
+#   Pods already resolve against 10.96.0.10 because kubelet advertises it. Binding
+#   it here means those queries are answered by this node's cache without any pod,
+#   kubelet or node configuration changing: existing pods are intercepted where
+#   they stand, and a node joined later is covered the moment this DaemonSet
+#   schedules on it.
+#
+#   The alternative — repointing kubelet at 169.254.20.10 — needs a per-node
+#   change outside reconciliation, applied by hand to every existing node and
+#   remembered for every future one. It also fails badly in the wrong order: a
+#   node told to resolve against an address where nothing listens cannot resolve
+#   anything, including the names needed to diagnose it.
+#
+#   Misses forward to kube-dns-upstream, a Service selecting the CoreDNS pods
+#   directly. Forwarding to 10.96.0.10 instead would resolve to this very
+#   listener and loop.
+#
+#   __PILLAR__CLUSTER__DNS__ is substituted at startup by the node-cache binary,
+#   which resolves the Service named by -upstreamsvc through the API server and
+#   writes its ClusterIP into the Corefile. A literal DNS name could not be used
+#   here: the cache would need working DNS in order to find its own upstream.
+---
+# The cache's upstream for misses.
+#
+# A separate Service is required rather than reusing kube-dns: the DaemonSet now
+# binds the kube-dns ClusterIP on every node, so forwarding a miss to that address
+# would arrive back at this same listener and loop. This Service selects the same
+# CoreDNS pods under a different ClusterIP, which is not bound locally and
+# therefore routes to a real resolver.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-dns-upstream
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/name: KubeDNSUpstream
+spec:
+  selector:
+    k8s-app: kube-dns
+  ports:
+    - name: dns
+      port: 53
+      protocol: UDP
+      targetPort: 53
+    - name: dns-tcp
+      port: 53
+      protocol: TCP
+      targetPort: 53
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -50,8 +107,8 @@ data:
         }
         reload
         loop
-        bind 169.254.20.10
-        forward . 10.96.0.10 {
+        bind 169.254.20.10 10.96.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
         prometheus :9253
@@ -62,8 +119,8 @@ data:
         cache 30
         reload
         loop
-        bind 169.254.20.10
-        forward . 10.96.0.10 {
+        bind 169.254.20.10 10.96.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
         prometheus :9253
@@ -73,8 +130,8 @@ data:
         cache 30
         reload
         loop
-        bind 169.254.20.10
-        forward . 10.96.0.10 {
+        bind 169.254.20.10 10.96.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
         prometheus :9253
@@ -84,12 +141,12 @@ data:
         cache 30
         reload
         loop
-        bind 169.254.20.10
+        bind 169.254.20.10 10.96.0.10
         # External names go to the cluster resolver too, so the IPv4-only
         # upstream pinning stays in one place (the CoreDNS Corefile) rather than
         # being restated here. The hub's nodes have no working IPv6 route, and
         # duplicating that knowledge is how the two drift.
-        forward . 10.96.0.10 {
+        forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
         prometheus :9253
@@ -141,11 +198,13 @@ spec:
               memory: 64Mi
           args:
             - -localip
-            - 169.254.20.10
+            # Both: the link-local address and the kube-dns ClusterIP, so pods
+            # already pointed at the ClusterIP are served locally.
+            - 169.254.20.10,10.96.0.10
             - -conf
             - /etc/Corefile
             - -upstreamsvc
-            - kube-dns
+            - kube-dns-upstream
             # setupinterface/setupiptables are left at their defaults: the cache
             # creates the dummy interface holding the link-local address and the
             # NOTRACK rules that keep conntrack out of the DNS path. Disabling
