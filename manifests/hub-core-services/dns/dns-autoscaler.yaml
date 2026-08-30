@@ -1,0 +1,109 @@
+# CoreDNS replica autoscaling.
+#
+# The number of cluster resolver replicas is a function of cluster size, and
+# cluster size is not something this repository can know: clusters in this fleet
+# range from two nodes upward and change as nodes are added, rebuilt or
+# consolidated. Any number committed here is wrong somewhere.
+#
+# It is also wrong in a costly way. The anti-affinity in coredns-distribution.yaml
+# is *required*, so a replica with no free node does not double up — it stays
+# Pending indefinitely. A count pinned for a large cluster leaves permanently
+# unschedulable pods on a small one, which is a worse failure than the
+# co-location that motivated constraining placement in the first place.
+#
+# cluster-proportional-autoscaler resolves the count from live cluster state
+# instead. It is the upstream-standard mechanism for this and is what makes the
+# replica count an observed property rather than a committed one.
+#
+# LADDER
+#   coresPerReplica / nodesPerReplica are treated as a ladder: replicas =
+#   max(ceil(cores / coresPerReplica), ceil(nodes / nodesPerReplica)), then
+#   clamped to [min, max]. nodesPerReplica: 1 gives one replica per node up to
+#   the ceiling, which is what a node-local-cache topology wants — the resolver
+#   tier only has to survive node loss, since per-node coverage is the
+#   DaemonSet's job.
+#   preventSinglePointFailure keeps at least 2 replicas whenever the cluster has
+#   more than one node, so no single node's loss removes cluster DNS.
+#   min: 1 is deliberate: a single-node cluster must still resolve.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coredns-autoscaler
+  namespace: kube-system
+  labels:
+    k8s-app: coredns-autoscaler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: coredns-autoscaler
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["replicationcontrollers/scale"]
+    verbs: ["get", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "replicasets/scale"]
+    verbs: ["get", "update"]
+  # The autoscaler persists its resolved ladder in a ConfigMap so a restart does
+  # not re-derive from defaults.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: coredns-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: coredns-autoscaler
+subjects:
+  - kind: ServiceAccount
+    name: coredns-autoscaler
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns-autoscaler
+  namespace: kube-system
+  labels:
+    k8s-app: coredns-autoscaler
+spec:
+  selector:
+    matchLabels:
+      k8s-app: coredns-autoscaler
+  template:
+    metadata:
+      labels:
+        k8s-app: coredns-autoscaler
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: coredns-autoscaler
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      containers:
+        - name: autoscaler
+          image: registry.k8s.io/cpa/cluster-proportional-autoscaler:v1.9.0
+          resources:
+            requests:
+              cpu: 20m
+              memory: 10Mi
+            limits:
+              memory: 64Mi
+          command:
+            - /cluster-proportional-autoscaler
+            - --namespace=kube-system
+            - --configmap=coredns-autoscaler
+            - --target=Deployment/coredns
+            - --default-params={"linear":{"coresPerReplica":256,"nodesPerReplica":1,"min":1,"max":6,"preventSinglePointFailure":true}}
+            - --logtostderr=true
+            - --v=2

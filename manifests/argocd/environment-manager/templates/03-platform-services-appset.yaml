@@ -504,6 +504,28 @@ spec:
           # (resource requests + webhook probe deadlines). See the path's README:
           # upstream's BestEffort QoS + timeoutSeconds:1 made the webhook
           # probe-kill in a loop, which blocked ALL Certificate creation.
+          # Cluster DNS resilience (ADR-046). Both CoreDNS distribution and the
+          # NodeLocal DNSCache DaemonSet. Placed before cert-manager because
+          # DNS-01 challenges, ESO, and ArgoCD's own manifest generation all
+          # depend on cluster DNS being reliable — a lossy resolver path
+          # presented as missing services and unresolvable secrets rather than
+          # as a DNS fault.
+          - appName: 'platform-dns'
+            destinationNamespace: 'kube-system'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/dns'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            # CoreDNS is kubeadm-owned; this Application contributes scheduling
+            # only. Without server-side apply the controller would fight kubeadm
+            # over fields it does not set.
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: '' 
           - appName: 'platform-cert-manager'
             destinationNamespace: 'cert-manager'
             isPlatformOwned: 'true'

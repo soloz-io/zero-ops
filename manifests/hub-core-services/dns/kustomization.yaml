@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Cluster DNS resilience for the hybrid topology (ADR-046).
+#
+# Both files address one fault: cluster DNS queries were crossing the
+# VXLAN-over-Tailscale link between the Hetzner control plane and the home
+# workers, and that path drops packets. Roughly 1 lookup in 8 failed, which is
+# invisible in isolation and fatal in aggregate — it stopped ArgoCD generating
+# manifests, and it is the most likely explanation for a run of "transient"
+# failures elsewhere that were each written off individually.
+resources:
+  # DaemonSet + its ConfigMap and ServiceAccount. Safe to apply on its own: it
+  # starts answering on 169.254.20.10 but nothing uses it until kubelet is told
+  # to (--cluster-dns), which is a per-node change made separately and
+  # deliberately.
+  - coredns-nodelocal.yaml
+
+  # CoreDNS scheduling. Listed as a resource rather than a patch: kustomize can
+  # only patch an object it also renders, and CoreDNS is created by kubeadm, not
+  # by this repository. A `patches:` entry with no matching resource produces no
+  # output and no error — the build simply omits it, which is how this change
+  # could appear applied while doing nothing.
+  #
+  # Applied server-side, this merges into the existing Deployment: it carries
+  # only replicas, affinity, topology spread and tolerations, so kubeadm keeps
+  # ownership of the image and the Corefile.
+  - coredns-distribution.yaml
+
+  # Derives the CoreDNS replica count from live node and core count, so no number
+  # is committed to Git for a property that differs per cluster and changes over
+  # time. coredns-distribution.yaml deliberately omits `replicas` so the two do
+  # not contend for the field.
+  - dns-autoscaler.yaml
