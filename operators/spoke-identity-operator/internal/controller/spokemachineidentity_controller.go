@@ -118,9 +118,41 @@ func (r *SpokeMachineIdentityReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	if identity.ID != "" && smi.Status.IdentityID != identity.ID {
+	// An identity that is new to us has no usable credential yet, and the only
+	// writer of the auth Secret is handleRotation — which returns early while
+	// NextRotation is in the future. Left alone, a replaced identity therefore
+	// waits out the remainder of a 60-day rotation interval before anything mints
+	// a client secret for it, while the wrapper keeps serving the previous
+	// generation's credential.
+	//
+	// That is not hypothetical: reinitialising Infisical destroyed every machine
+	// identity, this controller recreated the spoke's, and the wrapper still held
+	// an 08-27 credential for an identity that no longer existed. The spoke's
+	// ClusterSecretStore reported InvalidProviderConfig and fourteen
+	// ExternalSecrets could not resolve — while status read
+	// IdentityProvisioned=True, because creating the identity had genuinely
+	// succeeded.
+	//
+	// Clearing the rotation clock makes the next handleRotation call mint and
+	// publish immediately. ClientSecretIDs is cleared with it so the rotation does
+	// not try to revoke a secret ID belonging to the identity that was replaced.
+	identityReplaced := identity.ID != "" && smi.Status.IdentityID != identity.ID
+	credentialMissing := identity.ID != "" && len(smi.Status.ClientSecretIDs) == 0
+
+	if identityReplaced {
 		smi.Status.IdentityID = identity.ID
 		smi.Status.ClientID = identity.ClientID
+	}
+	if identityReplaced || credentialMissing {
+		if identityReplaced {
+			logger.Info("Machine Identity was replaced; forcing credential rotation so the wrapper stops serving the previous identity's secret",
+				"identityID", identity.ID)
+		} else {
+			logger.Info("Machine Identity has no recorded client secret; forcing credential rotation",
+				"identityID", identity.ID)
+		}
+		smi.Status.ClientSecretIDs = nil
+		smi.Status.NextRotation = nil
 	}
 
 	// Grant project access. The identity is granted access to both the
