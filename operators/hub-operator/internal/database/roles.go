@@ -110,6 +110,57 @@ func NewRoleManager(ctx context.Context, k8sClient client.Client, namespace stri
 }
 
 // CreateOrUpdateRoles provisions all database roles from HubEnvironment CR
+// MissingRoles reports which declared roles do not exist in PostgreSQL.
+//
+// It exists because a status condition recording that roles were provisioned is
+// a statement about the past, not about the database. When the cluster's data
+// directory is lost — a node rebuilt under node-pinned local-path storage, say —
+// PostgreSQL comes back with only the bootstrap user while the condition still
+// reads True. The operator then skips provisioning forever, and every service
+// fails authentication against a role that no longer exists. That is not
+// hypothetical: it is how hub-hybrid-dev stayed down after its primary was
+// re-initialised, with the condition asserting work that had been erased.
+//
+// Role names are resolved the same way CreateOrUpdateRoles resolves them —
+// through the credential secret rather than from the spec directly — so the two
+// cannot disagree about what a role is called.
+func (rm *RoleManager) MissingRoles(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) ([]string, error) {
+	namespace := hubEnv.Spec.Database.Namespace
+
+	var missing []string
+	for _, roleSpec := range hubEnv.Spec.Database.Roles {
+		secret := &corev1.Secret{}
+		if err := rm.client.Get(ctx, client.ObjectKey{
+			Name:      mapRoleToSecretName(roleSpec.Name),
+			Namespace: mapRoleToSecretNamespace(roleSpec.Name, namespace),
+		}, secret); err != nil {
+			// The credential is not available yet, so provisioning cannot be
+			// verified either way. Treat it as missing so the caller reconciles
+			// rather than concluding the role is present.
+			missing = append(missing, roleSpec.Name)
+			continue
+		}
+
+		username := string(secret.Data["username"])
+		if username == "" {
+			missing = append(missing, roleSpec.Name)
+			continue
+		}
+
+		var exists bool
+		if err := rm.db.QueryRowContext(ctx,
+			"SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", username,
+		).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("failed to check whether role %s exists: %w", username, err)
+		}
+		if !exists {
+			missing = append(missing, username)
+		}
+	}
+
+	return missing, nil
+}
+
 // Requirement 6.1-6.7: Create roles for all services
 // Requirement 6.9: Use idempotent CREATE ROLE IF NOT EXISTS
 func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) error {

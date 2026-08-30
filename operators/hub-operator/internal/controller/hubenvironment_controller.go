@@ -416,7 +416,51 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Phase 2: Provision database roles
 	// Must run after ApplicationSecretsReady (ESO has created the credential
 	// secrets that RoleManager reads) and after CNPG is ready.
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesProvisioned", hubEnv.Generation) {
+	//
+	// The condition alone does not gate this phase. A condition records what this
+	// operator did; it says nothing about what the database currently contains,
+	// and the two diverge whenever the cluster's data directory is lost — a node
+	// rebuilt under node-pinned local-path storage being the case that actually
+	// occurred. PostgreSQL then holds only its bootstrap user while the condition
+	// still reads True, so provisioning is skipped permanently and every service
+	// fails authentication against a role that no longer exists.
+	//
+	// Verifying costs one query per declared role against a database this
+	// reconcile has already connected to, and it turns a permanent outage into a
+	// self-healing one.
+	rolesProvisioned := isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "DatabaseRolesProvisioned", hubEnv.Generation)
+	if rolesProvisioned {
+		verifier, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
+		if err != nil {
+			// Unreachable database is not evidence the roles are gone. Retry
+			// rather than re-provisioning against a cluster we cannot see.
+			logger.Error(err, "Failed to create RoleManager for role verification")
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+		missing, err := verifier.MissingRoles(ctx, hubEnv)
+		verifier.Close()
+		if err != nil {
+			logger.Error(err, "Failed to verify database roles")
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+		if len(missing) > 0 {
+			logger.Info("Declared database roles are absent despite DatabaseRolesProvisioned=True; re-provisioning",
+				"missing", missing)
+			meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
+				Type:               "DatabaseRolesProvisioned",
+				Status:             metav1.ConditionFalse,
+				Reason:             "RolesMissing",
+				Message:            fmt.Sprintf("Roles absent from PostgreSQL and being re-provisioned: %v", missing),
+				ObservedGeneration: hubEnv.Generation,
+			})
+			if err := r.Status().Update(ctx, hubEnv); err != nil {
+				return ctrl.Result{}, err
+			}
+			rolesProvisioned = false
+		}
+	}
+
+	if !rolesProvisioned {
 		logger.Info("Phase 2: Provisioning database roles")
 
 		roleManager, err := database.NewRoleManager(ctx, r.UncachedClient, hubEnv.Spec.Database.Namespace)
