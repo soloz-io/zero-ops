@@ -2189,8 +2189,8 @@ authority than the stale one beside it; it happened to be right.
 **Decision — the hub moves to box-b, the spoke to box-a.**
 
 ```
-box-b (Lenovo, 4C/8T, 35W)  → hub    3 nodes x 4 GB,  6 vCPU,  0.75:1
-box-a (Dell,   2C/4T, 15W)  → spoke  2 nodes x 6 GB,  5 vCPU,  1.25:1
+box-b (Lenovo, 4C/8T, 35W)  → hub    1 node  x 13 GB, 6 vCPU,  0.75:1
+box-a (Dell,   2C/4T, 15W)  → spoke  2 nodes x  6 GB, 5 vCPU,  1.25:1
 ```
 
 The hub carries the platform — ArgoCD, Crossplane, CAPI/CAPH, cert-manager,

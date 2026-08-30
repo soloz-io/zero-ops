@@ -26,7 +26,7 @@ metadata:
     # kubeconfig server (LB endpoint).
     # Home worker node list (JSON array; each entry: {hostname, tailnetHost})
     # Flatcar Hyper-V nodes, provisioned via scripts/hybrid/provision-flatcar-worker.sh
-    home-workers: '[{"hostname":"flatcar-hub-node-1","tailnetHost":"flatcar-hub-node-1.taila4c44b.ts.net"},{"hostname":"flatcar-hub-node-2","tailnetHost":"flatcar-hub-node-2.taila4c44b.ts.net"},{"hostname":"flatcar-hub-node-3","tailnetHost":"flatcar-hub-node-3.taila4c44b.ts.net"},{"hostname":"flatcar-spoke-node-1","tailnetHost":"flatcar-spoke-node-1.taila4c44b.ts.net"},{"hostname":"flatcar-spoke-node-2","tailnetHost":"flatcar-spoke-node-2.taila4c44b.ts.net"}]'
+    home-workers: '[{"hostname":"flatcar-hub-node-1","tailnetHost":"flatcar-hub-node-1.taila4c44b.ts.net"},{"hostname":"flatcar-spoke-node-1","tailnetHost":"flatcar-spoke-node-1.taila4c44b.ts.net"},{"hostname":"flatcar-spoke-node-2","tailnetHost":"flatcar-spoke-node-2.taila4c44b.ts.net"}]'
     # Home worker join flow settings (read by hub-operator reconcileHomeWorkerJoin)
     home-worker-enabled: "true"
     home-worker-ttl: "24h"
