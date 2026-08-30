@@ -513,7 +513,7 @@ run_full_teardown() {
 
     log ""
     log "Out-of-band cleanup this script deliberately does not touch:"
-    log "  • Tailscale devices (flatcar-hub-node-1, flatcar-spoke-node-1) — remove in the admin console"
+    log "  • Tailscale devices (flatcar-hub-node-{1,2,3} on box-b, flatcar-spoke-node-{1,2} on box-a) — remove in the admin console"
     log "  • AWS Secrets Manager: delete the old ENCRYPTION_KEY / AUTH_SECRET entries."
     log "    Restoring a stale key against a fresh Infisical database is the failure to avoid."
     log "  • The shared Flatcar base image (C:\\ProgramData\\soloz\\flatcar\\flatcar-base.vhdx)"

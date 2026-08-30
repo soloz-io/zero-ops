@@ -14,6 +14,7 @@ fixes
 manifests/spoke/**/charts/
 # Hybrid home-lab environment (contains real IPs/hostnames - do not commit)
 scripts/hybrid/home-lab.env
+scripts/hybrid/home-lab.env.bak-*
 reference-projects
 .zero-ops/*.log
 .zero-ops/*.out

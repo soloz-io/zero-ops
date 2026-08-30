@@ -2172,6 +2172,80 @@ This fixes the outer packet's route without altering marks, so the proxy redirec
 
 **Verified.** Applied on `hub-hybrid-dev`: the mark-0x200 route moved from `lo` back to `tailscale0`, and hub hostnames went from 503 to serving — argocd 307 and console 303, the latter being the login redirect that proves the backend on the far node is reached.
 
+### Addendum — home-lab placement is capacity-driven, not historical (2026-08-30)
+
+Both home boxes are now 16 GB (box-b was upgraded from 8 GB), and both were
+measured directly rather than taken from spec sheets:
+
+```
+DELL   (box-a)  i5-6300U   2C / 4T  @2.4GHz  15.9 GB   Skylake, 15W ULV
+LENOVO (box-b)  i7-3632QM  4C / 8T  @2.2GHz  15.95 GB  Ivy Bridge, 35W quad
+```
+
+`Win32_Processor` / `Win32_ComputerSystem` over SSH. The registry previously
+recorded box-b as 8 GB, so its adjacent CPU claim was carrying no more
+authority than the stale one beside it; it happened to be right.
+
+**Decision — the hub moves to box-b, the spoke to box-a.**
+
+```
+box-b (Lenovo, 4C/8T, 35W)  → hub    3 nodes x 4 GB,  6 vCPU,  0.75:1
+box-a (Dell,   2C/4T, 15W)  → spoke  2 nodes x 6 GB,  5 vCPU,  1.25:1
+```
+
+The hub carries the platform — ArgoCD, Crossplane, CAPI/CAPH, cert-manager,
+ESO, Infisical, VictoriaMetrics, ClickHouse, OpenMeter, NATS, CNPG, Kyverno,
+identity — roughly 58 pods and ~1840m of requests. That is concurrency, not a
+latency-sensitive path, so it belongs on the box with more physical cores and
+more power headroom. box-a's Skylake cores are quicker per thread, but that is
+the wrong axis for this workload.
+
+The original layout had the hub on box-a for historical reasons: box-a was the
+only box with enough RAM. That constraint is gone.
+
+box-a stays at the §24.5 remediated ratio of 1.25:1, which must not be exceeded
+on a 15 W part. Three VMs there would have been 1.5:1 — above the ratio that was
+itself the fix for the ACPI critical-thermal shutdowns — which is why the
+3-node side went to box-b and box-a kept two, larger nodes.
+
+**§13's per-node vCPU rationale is superseded.** The old registry argued the hub
+node needed 3 vCPU because a single node could not schedule Infisical's 350m
+request at 2 vCPU, breaking the ClusterSecretStore and every hub ExternalSecret.
+That failure was *concentration*, not the per-node figure: three hub nodes give
+~6000m aggregate against ~1840m requested and Infisical fits on any one of them.
+2 vCPU per hub node is therefore correct now, and the hub must not be collapsed
+back onto a single node at that size.
+
+**Consequence — intra-cluster cross-box redundancy is gone, deliberately.**
+Each cluster's home workers now live entirely on one physical machine. §587
+reads that "a later `instances: 2` spreads replicas across two home workers";
+that is no longer true in the sense it was written, because both spoke home
+workers are box-a VMs. `instances: 2` would place both CNPG replicas on one
+host, and a box-a outage takes the whole spoke home tier with it. Anything
+needing real redundancy must span boxes, which now means spanning clusters, or
+burst to Hetzner (ADR-052).
+
+This is an accepted trade for a disposable dev environment: performance-driven
+placement over placement that merely preserves what was already there.
+
+**Unchanged, and verified so.** `cilium-addon-hybrid.yaml`'s `replicas: 1`
+(§24.3) still holds — its premise is that a hybrid spoke is single-node *at
+boot*, because burst workers are `replicas: 0` and home workers only join once
+the control plane is Ready. Node count after convergence does not enter into it.
+
+**Codified.**
+- `scripts/hybrid/home-lab.env` — five nodes, measured host specs, new ratios.
+- `manifests/spoke/spoke-pools/dev/hybrid/hybrid-dev.yaml` — the `home-workers`
+  annotation now carries all five, regenerated via
+  `scripts/hybrid/render-home-workers.sh` rather than hand-edited.
+- `scripts/lib/teardown.sh`, `scripts/hybrid/setup-hyper-v.sh` — node list and
+  box address corrected. box-b answers on `192.168.1.11`, not the `.12` these
+  files carried.
+
+§1080's naming of `flatcar-hub-node-1` as *the* hub home worker now reads as one
+of three.
+
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

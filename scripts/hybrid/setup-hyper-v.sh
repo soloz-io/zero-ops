@@ -8,8 +8,8 @@
 #
 # Usage:
 #   ./setup-hyper-v.sh                          # uses default target from home-lab.env
-#   ./setup-hyper-v.sh --target LENOVO@192.168.1.12
-#   ./setup-hyper-v.sh --target LENOVO@192.168.1.12 --no-reboot
+#   ./setup-hyper-v.sh --target LENOVO@192.168.1.11
+#   ./setup-hyper-v.sh --target LENOVO@192.168.1.11 --no-reboot
 # =============================================================================
 set -euo pipefail
 
@@ -24,7 +24,7 @@ Usage: $0 [OPTIONS]
 Install Hyper-V on a remote Windows Home machine via SSH.
 
 Options:
-  --target USER@IP    SSH target (e.g. LENOVO@192.168.1.12)
+  --target USER@IP    SSH target (e.g. LENOVO@192.168.1.11)
   --no-reboot         Skip automatic reboot after installation
   -h, --help          Show this help message
 EOF
