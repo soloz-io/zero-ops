@@ -82,6 +82,19 @@ spec:
       # Per-spoke prefix applied by the platform-spoke-catalog ApplicationSet
       # patch on /spec/backup/barmanObjectStore/destinationPath.
       destinationPath: s3://spoke-pool-backups/
+      # serverName defaults to the CLUSTER name, which is stable across
+      # recreations — so a rebuilt cluster lands on the previous incarnation's
+      # WALs. barman-cloud-check-wal-archive then fails "Expected empty archive"
+      # (it guards against two databases interleaving WALs under one server
+      # name), ContinuousArchiving stays False, and CNPG blocks every base
+      # backup behind it. That is why no backup had ever completed by
+      # 2026-08-30 despite a ScheduledBackup running for days.
+      #
+      # Recreation is routine here: re-provisioning a node destroys its
+      # local-path data (see .agents/spec/enhancements/2026-08-30.md items 1
+      # and 13), so this collides every time unless the name is bumped.
+      # BUMP THE SUFFIX whenever the cluster is recreated from initdb.
+      serverName: shared-cnpg-v2
       # ADR-014 backup contract: Hetzner Object Storage, hel1.
       endpointURL: https://hel1.your-objectstorage.com
       s3Credentials:

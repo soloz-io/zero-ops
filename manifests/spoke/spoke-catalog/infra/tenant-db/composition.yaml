@@ -351,6 +351,56 @@ spec:
                       type: Format
                       fmt: "tenant-%s-db-credentials"
 
+          # Resource 4b: give crossplane_admin ADMIN OPTION on the tenant role.
+          #
+          # PostgreSQL 16 narrowed CREATEROLE. Previously a CREATEROLE user could
+          # alter essentially any non-superuser role; from 16 it may only alter
+          # roles it created, or holds ADMIN OPTION on. When a tenant role ends up
+          # created by anything other than crossplane_admin — which is what happens
+          # after a database is rebuilt and the role is re-established outside this
+          # composition — provider-sql can observe the role and not touch it:
+          #
+          #   Synced=False ReconcileError
+          #     update failed: cannot update role: pq: permission denied to alter role
+          #
+          # The tenant's password can then never be reconciled, so its migrations
+          # fail authentication with nothing in the tenant's own resources
+          # indicating why.
+          #
+          # Granting membership WITH ADMIN OPTION restores the authority
+          # declaratively, and is idempotent: where crossplane_admin created the
+          # role it already holds this implicitly and the grant is a no-op.
+          - name: db-user-admin-option
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: Grant
+              metadata: {}
+              spec:
+                forProvider:
+                  role: crossplane_admin
+                  memberOf: ""  # Patched to tenant-<id>-user
+                  withOption: ADMIN
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Delete
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user-admin-option"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: spec.forProvider.memberOf
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-user"
+
           # Resource 5: provider-sql DefaultPrivileges (ALL privileges on tables in public schema)
           - name: default-privileges-tables
             base:
