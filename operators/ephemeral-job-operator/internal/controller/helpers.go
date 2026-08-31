@@ -1,0 +1,78 @@
+package controller
+
+import (
+	"strings"
+
+	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
+)
+
+func ptr[T any](v T) *T { return &v }
+
+func meta_SetStatusCondition(c *[]metav1.Condition, cond metav1.Condition) {
+	meta.SetStatusCondition(c, cond)
+}
+
+func isTerminal(p computev1alpha1.Phase) bool {
+	switch p {
+	case computev1alpha1.PhaseSucceeded, computev1alpha1.PhaseFailed, computev1alpha1.PhaseTimedOut:
+		return true
+	}
+	return false
+}
+
+func jobNameFor(ej *computev1alpha1.EphemeralJob) string {
+	return "ej-" + ej.Name
+}
+
+// tenantFromNamespace derives the cost-attribution label the tenant ABI
+// requires on workloads in tenant-* namespaces.
+func tenantFromNamespace(ns string) string {
+	return strings.TrimPrefix(ns, "tenant-")
+}
+
+// jobFinished maps the Job's terminal conditions onto the EphemeralJob phase.
+//
+// DeadlineExceeded is reported as TimedOut rather than Failed. The distinction
+// is the submitter's: a job that ran out of time may be worth resubmitting with
+// a larger budget, and one that exited non-zero is not.
+func jobFinished(job *batchv1.Job) (bool, computev1alpha1.Phase, *int32) {
+	if job == nil {
+		return false, "", nil
+	}
+	for _, c := range job.Status.Conditions {
+		if c.Status != "True" {
+			continue
+		}
+		switch c.Type {
+		case batchv1.JobComplete:
+			return true, computev1alpha1.PhaseSucceeded, ptr(int32(0))
+		case batchv1.JobFailed:
+			if c.Reason == "DeadlineExceeded" {
+				return true, computev1alpha1.PhaseTimedOut, nil
+			}
+			return true, computev1alpha1.PhaseFailed, nil
+		}
+	}
+	return false, "", nil
+}
+
+// jobAdmissionRejected detects a Job whose pods the API server refuses to
+// admit. At the expected submission volume the common cause is the fleet's
+// priority-scoped ResourceQuota being full (ADR-052 §5), which is terminal —
+// the pod was never created, so no amount of waiting produces one.
+func jobAdmissionRejected(job *batchv1.Job) (reason, message string, rejected bool) {
+	if job == nil {
+		return "", "", false
+	}
+	for _, c := range job.Status.Conditions {
+		if c.Type == batchv1.JobFailed && c.Status == "True" &&
+			(c.Reason == "FailedCreate" || strings.Contains(c.Message, "exceeded quota")) {
+			return c.Reason, c.Message, true
+		}
+	}
+	return "", "", false
+}

@@ -1,0 +1,33 @@
+{{- if (.Values.burstCompute | default dict).enabled }}
+# Per-fleet ceiling on burst consumption (ADR-052 §5).
+#
+# Scoped to the burst PriorityClass, so it bounds burst work only and leaves the
+# fleet's ordinary quota untouched. Without it the only bound is
+# BurstCapacity.maxNodes, which is per-CELL: one fleet could consume the whole
+# cell's burst budget and every other fleet on it would find no capacity.
+#
+# The values are the platform's, selected by tier. A fleet that could raise its
+# own ceiling would make the bound meaningless.
+{{- $tier := .Values.tier | default "starter" }}
+{{- $q := index (.Values.burstQuota | default dict) $tier }}
+{{- if not $q }}{{ fail (printf "burstQuota has no entry for tier %q — refusing to grant burst capacity with no ceiling" $tier) }}{{ end }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: burst-compute
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+spec:
+  # Counts only pods carrying the burst PriorityClass, which the platform's
+  # mutating policy assigns. Ordinary workloads are unaffected by this quota.
+  scopeSelector:
+    matchExpressions:
+      - operator: In
+        scopeName: PriorityClass
+        values: ["burst-tenant"]
+  hard:
+    requests.cpu: {{ $q.cpu | quote }}
+    requests.memory: {{ $q.memory | quote }}
+    pods: {{ $q.pods | quote }}
+{{- end }}

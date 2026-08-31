@@ -1,0 +1,130 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
+)
+
+// CapacityState is what the operator could determine about why a pod is not
+// running, and whether waiting will help.
+//
+// ADR-052 §12 requires these three to be distinguishable and to not share a
+// code path. The distinction that matters most is the first: a quota rejection
+// means the Pod was never created, so a caller that treats it as "still
+// pending" waits out its entire cold-start budget before reporting a condition
+// that was knowable at admission.
+type CapacityState struct {
+	Reason   string
+	Message  string
+	Terminal bool // waiting will not change the outcome
+	Ready    bool
+}
+
+// Event reasons emitted by cluster-autoscaler onto a pending Pod. These are
+// namespaced objects, which is what makes ADR-052 §12's contract satisfiable
+// without granting a fleet — or this operator — cluster-scoped Node read.
+const (
+	eventTriggeredScaleUp  = "TriggeredScaleUp"
+	eventNotTriggerScaleUp = "NotTriggerScaleUp"
+	eventFailedScheduling  = "FailedScheduling"
+)
+
+// AssessCapacity determines, from namespaced objects only, why the job's pod is
+// not yet running.
+//
+// It deliberately reads the Pod and its Events and nothing else. Reading Nodes
+// or the MachineDeployment would be simpler and is refused: this operator runs
+// in the platform's namespace but the contract it implements is the one a fleet
+// must be able to satisfy, and building it on cluster-scoped reads would make
+// the fleet-facing half unimplementable.
+func AssessCapacity(ctx context.Context, c client.Client, ns, jobName string) (CapacityState, error) {
+	var pods corev1.PodList
+	if err := c.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"job-name": jobName}); err != nil {
+		return CapacityState{}, fmt.Errorf("listing pods for job %s: %w", jobName, err)
+	}
+
+	// No Pod yet. The Job controller creates it promptly, so persistent absence
+	// means admission refused it — most commonly the fleet's priority-scoped
+	// ResourceQuota (ADR-052 §5). The Job's own failure condition carries the
+	// reason; the caller supplies it via CheckQuotaRejection.
+	if len(pods.Items) == 0 {
+		return CapacityState{
+			Reason:  computev1alpha1.ReasonWaitingForCapacity,
+			Message: "pod not yet created",
+		}, nil
+	}
+
+	pod := pods.Items[0]
+
+	if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
+		return CapacityState{Reason: computev1alpha1.ReasonScheduled, Ready: true}, nil
+	}
+
+	scheduled := podCondition(&pod, corev1.PodScheduled)
+	if scheduled != nil && scheduled.Status == corev1.ConditionTrue {
+		return CapacityState{Reason: computev1alpha1.ReasonScheduled, Ready: true}, nil
+	}
+
+	// Unschedulable. The autoscaler's own events on this Pod say whether that is
+	// a transient state (a node is coming) or a bound (maxNodes reached).
+	var events corev1.EventList
+	if err := c.List(ctx, &events, client.InNamespace(ns),
+		client.MatchingFields{"involvedObject.name": pod.Name}); err != nil {
+		// Event read is best-effort: without it we still know the pod is
+		// unschedulable, we just cannot say why. Reporting "waiting" is the
+		// safe default — it does not delete anything (ADR-052 §11 rule 3).
+		return CapacityState{
+			Reason:  computev1alpha1.ReasonWaitingForCapacity,
+			Message: unschedulableMessage(scheduled),
+		}, nil
+	}
+
+	for _, e := range events.Items {
+		switch e.Reason {
+		case eventTriggeredScaleUp:
+			return CapacityState{
+				Reason:  computev1alpha1.ReasonWaitingForCapacity,
+				Message: "burst capacity is being provisioned: " + e.Message,
+			}, nil
+		case eventNotTriggerScaleUp:
+			// maxNodes reached, or no node group fits this pod's envelope.
+			// Terminal for now — and explicitly NOT a reason to delete and
+			// recreate, which would only re-enter the same state having lost
+			// the pod's place (ADR-052 §11 rule 3).
+			return CapacityState{
+				Reason:   computev1alpha1.ReasonCapacityUnavailable,
+				Message:  "burst capacity ceiling reached: " + e.Message,
+				Terminal: true,
+			}, nil
+		}
+	}
+
+	return CapacityState{
+		Reason:  computev1alpha1.ReasonWaitingForCapacity,
+		Message: unschedulableMessage(scheduled),
+	}, nil
+}
+
+func unschedulableMessage(c *corev1.PodCondition) string {
+	if c == nil {
+		return "pod is not yet scheduled"
+	}
+	if c.Message != "" {
+		return c.Message
+	}
+	return string(c.Reason)
+}
+
+func podCondition(p *corev1.Pod, t corev1.PodConditionType) *corev1.PodCondition {
+	for i := range p.Status.Conditions {
+		if p.Status.Conditions[i].Type == t {
+			return &p.Status.Conditions[i]
+		}
+	}
+	return nil
+}

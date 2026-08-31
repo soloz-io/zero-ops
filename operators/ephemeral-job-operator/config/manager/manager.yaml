@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ephemeral-job-operator
+  namespace: platform-ops
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ephemeral-job-operator
+  namespace: platform-ops
+  labels:
+    app: ephemeral-job-operator
+    cost-center: platform
+    workload-class: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ephemeral-job-operator
+  template:
+    metadata:
+      labels:
+        app: ephemeral-job-operator
+    spec:
+      serviceAccountName: ephemeral-job-operator
+      # ADR-052 §10 capacity rule: this is platform infrastructure, so it runs
+      # on home-lab capacity. It must NOT be placed on burst nodes — a
+      # controller that lives on the capacity it is waiting for cannot report
+      # that the capacity is missing.
+      nodeSelector:
+        workload-location: home
+        node-role.kubernetes.io/worker: ""
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: ghcr.io/soloz-io/ephemeral-job-operator:latest
+          args:
+            - --leader-elect
+            # ADR-052 §11: measured p95 for this spoke's burst placement class.
+            # Reported, never acted on by deletion.
+            - --provisioning-budget=6m
+          ports:
+            - containerPort: 8080
+              name: metrics
+            - containerPort: 8081
+              name: health
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8081}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8081}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

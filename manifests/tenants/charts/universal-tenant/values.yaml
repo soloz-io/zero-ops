@@ -177,6 +177,40 @@ sandbox:
   agentVault:
     enabled: false
 
+# Burst compute (ADR-052).
+#
+# A fleet DECLARES the request here; the platform grants it by labelling the
+# namespace, which is what the burst placement policy matches on. The fleet
+# never sets placement on its own pods — nodeSelector, the burst toleration and
+# priorityClassName are written by a platform-owned mutating policy, and a
+# companion validating policy rejects them if a fleet writes them itself
+# (ADR-052 §4).
+#
+# So this is a request, not a grant. Enabling it says "this fleet's sandboxes
+# may run on burst capacity"; how much of that capacity it may consume is the
+# platform's decision below, not the fleet's.
+burstCompute:
+  # Off by default. Burst capacity costs money per node-hour and a fleet
+  # acquires it deliberately.
+  enabled: false
+
+# The ceiling on burst consumption, scoped to the burst PriorityClass (ADR-052
+# §5). Platform-set and NOT fleet-overridable: a fleet that could raise its own
+# ceiling could exhaust the cell's burst budget for every other fleet on it.
+#
+# Scoped by PriorityClassName, so it bounds burst work only and leaves the
+# fleet's ordinary quota untouched. Without it, `maxNodes` is the only bound and
+# it is per-cell, not per-fleet — one fleet could consume all of it.
+burstQuota:
+  starter:
+    cpu: "2"
+    memory: "4Gi"
+    pods: "4"
+  enterprise:
+    cpu: "8"
+    memory: "16Gi"
+    pods: "16"
+
 # Resource quotas (tier-based defaults)
 resourceQuota:
   # CPU limits (millicores)

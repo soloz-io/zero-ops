@@ -1,0 +1,5 @@
+namespace: platform-ops
+resources:
+  - ../crd
+  - ../rbac
+  - ../manager

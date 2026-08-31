@@ -11,3 +11,14 @@ metadata:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
+{{- if (.Values.burstCompute | default dict).enabled }}
+    # ADR-052 §4: the capability grant. The burst placement policy matches on
+    # this label, so a sandbox pod in this namespace is mutated onto burst
+    # capacity — nodeSelector, toleration and priorityClassName written by the
+    # platform, never by the fleet.
+    #
+    # The label is on the NAMESPACE and not on the pod, and that is the whole
+    # control: a fleet authors pods, so a pod label would be self-granted. It
+    # does not author its namespace.
+    compute.nutgraf.in/burst-compute: enabled
+{{- end }}

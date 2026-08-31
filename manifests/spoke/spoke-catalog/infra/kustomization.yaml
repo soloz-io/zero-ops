@@ -10,6 +10,9 @@ resources:
   - crds/gateway-api-crds.yaml
   - gatewayclass.yaml
   - namespaces.yaml
+  # ADR-052 §5: burst execution priority class. Cluster-scoped and inert until
+  # something references it — it defines an ordering, it does not place anything.
+  - burst-priorityclass.yaml
   # ADR-047: spoke platform operators (vendored, wave 0) — crossplane, ESO,
   # kyverno, cloudnative-pg. Their CRDs apply at wave -5.
   - crossplane/crd.yaml

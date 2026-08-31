@@ -1,0 +1,30 @@
+# ADR-052 §5: the burst execution class.
+#
+# This object does two jobs that must not be separated. It is the preemption
+# order — burst work sits below every platform workload, so a tenant job can
+# never evict infrastructure — and it is the scope the per-fleet ResourceQuota
+# selects on. Deriving both from one object is deliberate: a quota scoped to a
+# priority class that did not also set the preemption order could bound a
+# fleet's burst footprint while leaving that footprint able to displace the
+# platform.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: burst-tenant
+  labels:
+    cost-center: platform
+# Deliberately low and deliberately positive. Platform workloads run at
+# system-cluster-critical (2000000000) and at the default 0; anything at or
+# above 0 could preempt an unclassified platform pod.
+value: -1000
+# Never the default. A pod acquires this class only because the platform put it
+# there — the ephemeral-job operator writes it into the Job it authors, and
+# Kyverno mutates it onto sandbox pods (ADR-052 §4). A fleet cannot request it:
+# the validating policy rejects fleet-authored priorityClassName.
+globalDefault: false
+# Burst work is preemptible by definition — it runs on capacity that exists only
+# while there is work for it.
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Tenant burst execution (ADR-052). Below every platform workload; the scope
+  selector for per-fleet burst ResourceQuota. Platform-assigned only.

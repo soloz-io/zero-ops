@@ -6,6 +6,43 @@
 
 ---
 
+> **Amendment 2026-08-31 — Cold-start budget and sandbox provisioning visibility.**
+> Two gaps, both on the interactive-sandbox path, neither of which changes the
+> decision. The four layers stand and no consumer gains an infrastructure
+> permission. What is added is a *stated*
+> cold-start budget (§11) — this ADR names node-join latency as a cost but never
+> as a number, and the first consumer to reach burst capacity holds a
+> 120-second readiness deadline that a node join cannot meet — and a
+> provisioning-visibility contract for `Sandbox` (§12), which §7 grants
+> `EphemeralJob` and §8 withholds from the workload where a human is actually
+> waiting.
+
+> **Amendment 2026-08-31 (2) — Placement authorship, and why the job path stays
+> a controller.**
+> Two clarifications to the Decision, neither changing it.
+>
+> **Placement is supplied by whichever component authors the pod (§4).** The job
+> controller authors the `batch/v1` Job and therefore writes `nodeSelector`, the
+> burst toleration and `priorityClassName` into it directly. Kyverno mutation is
+> scoped to `Sandbox`, the one pod the platform does not author because its CRD
+> is vendored (constraint 1). An arrangement in which the controller marks the
+> Job for classification and admission policy then adds placement to that same
+> object is rejected: it holds the weaker guarantee while the platform has
+> already paid for the stronger one.
+>
+> **`EphemeralJob` is deliberately not an XRD and composition (§7).** ADR-005
+> would normally place a tenant-facing abstraction there, and it was considered.
+> It does not hold for this resource class: submission rate follows a fleet's
+> concurrent users, so job objects are numerous and short-lived, while
+> Crossplane's costs are proportional to object lifetime. The exception is
+> recorded in §Impact and does not generalise.
+>
+> A consequence of that volume is stated in §Consequences and is not resolved
+> here: at the expected rate, admission rejection under the §5 quota is the
+> common case rather than an error path, and this ADR provides no queue.
+
+---
+
 ## Context
 
 Spoke worker capacity is a platform asset with a hard ceiling. Under ADR-046 the
@@ -117,8 +154,8 @@ Each layer answers exactly one question and owns nothing the layer below owns:
 EphemeralJob / Sandbox
         │  "this workload must run on cloud capacity"
         ▼
-EphemeralJob controller  ·  Kyverno placement policy
-        │  emits a Pod carrying burst placement intent
+EphemeralJob controller (jobs)  ·  Kyverno mutation (Sandbox only)
+        │  emits a Pod already carrying burst placement
         ▼
 Scheduler + cluster-autoscaler
         │  "I need N more nodes"
@@ -135,10 +172,10 @@ Hetzner nodes  (workload-location: hetzner)
 Normal Kubernetes scheduling → workload Pod
 ```
 
-**The controller expresses capacity intent; it never expresses capacity
-quantity.** It does not create, patch or compute `replicas`, and it does not own
-the `BurstCapacity` XR. Its relationship to that XR is a *dependency* — the job
-requires capacity the XR governs — not ownership. If every job scaled
+**This layer expresses capacity intent; it never expresses capacity quantity.**
+Neither the controller nor the mutation creates, patches or computes `replicas`,
+and neither owns the `BurstCapacity` XR. The relationship to that XR is a
+*dependency* — the job requires capacity the XR governs — not ownership. If every job scaled
 infrastructure independently, N jobs would produce N uncoordinated scaling
 decisions; deciding how many nodes serve a set of pending pods is the
 autoscaler's single responsibility.
@@ -193,20 +230,46 @@ The platform writes no scaling logic. Node group discovery, scale-down,
 draining, PodDisruptionBudget awareness, unready-node handling and expander
 policy are all inherited.
 
-### 4. Placement is platform-mutated, never fleet-declared
+### 4. Placement is platform-supplied, never fleet-declared
 
-A platform-owned Kyverno mutating policy adds, to pods that match a
-platform-owned selector — sandbox pods, and pods owned by an `EphemeralJob` — in
-namespaces whose fleet has the capability enabled:
+Placement is set by whichever component authors the pod, and the platform authors
+it on both paths — but by different means, because it authors the two pods to a
+different degree.
+
+**Jobs: authored.** The platform writes the entire `batch/v1` Job (§7), so
+`nodeSelector`, the burst toleration and `priorityClassName` are written into it
+directly. The fleet's `EphemeralJob` has no field in which to express placement,
+so on this path there is nothing to mutate and nothing to reject.
+
+**Sandboxes: mutated.** The `Sandbox` CRD is vendored (constraint 1) and the
+upstream controller authors the pod from `spec.podTemplate`, so the platform
+cannot compose it. Here a platform-owned Kyverno mutating policy adds, to pods
+matching the platform-owned `agents.x-k8s.io/sandbox` selector, in namespaces
+whose fleet has the capability enabled:
 
 - `nodeSelector: workload-location: <placementClass>`
 - the matching toleration for the burst pool taint
 - the platform `PriorityClass` for burst work (§5)
 
 A companion validating policy rejects fleet-authored burst tolerations and
-`priorityClassName` values. This preserves ADR-047: a fleet can neither place
-itself onto burst capacity it was not granted, nor escape burst placement to
-consume home-lab nodes.
+`priorityClassName` values on that path. This preserves ADR-047: a fleet can
+neither place itself onto burst capacity it was not granted, nor escape burst
+placement to consume home-lab nodes.
+
+The two mechanisms are not equally strong, and the difference is worth stating.
+Mutation is a guarantee that holds because a policy matches correctly and a
+companion policy rejects correctly. Authorship is a guarantee that holds because
+the fleet-facing resource has no field to carry the value. **Unrepresentable is
+a stronger property than rejected** — it survives a policy being disabled,
+mis-scoped, or lost in a refactor.
+
+The test is therefore not which component supplies placement in the abstract,
+but whether the platform authors the pod. Where it does, it writes placement and
+no mutation is required. Where an unmodifiable upstream CRD means it does not,
+mutation is correct and the validating policy carries the guarantee. A design in
+which the platform authors the pod and *then* has a second component add
+placement to it satisfies neither test: it holds the weaker guarantee while
+paying for the stronger one.
 
 ### 5. Per-fleet bounds are native Kubernetes, not a new admission path
 
@@ -293,6 +356,33 @@ Beyond the state machine the CRD adds what a bare `batch/v1` Job lacks: a
 single-use completion token, an input/output object contract, a terminal result
 the submitter can await, and TTL cleanup. It provisions nothing.
 
+**Why a controller and not a composition** (Amendment 2). A tenant-facing
+abstraction on this platform is normally an XRD and a composition, and ADR-005
+would point that way. It does not hold here, because job objects are not
+infrastructure. Submission rate scales with the number of concurrent users of a
+fleet's product rather than with how often infrastructure changes, so the
+population is large, short-lived and continuously turning over. Crossplane
+reconciles a composite and its managed resources for as long as they exist,
+polls their observed state, and holds finalizers on both — costs proportional to
+object lifetime, which is the correct trade for a database and the wrong one for
+a workload measured in seconds. Deletion is where this concentrates: TTL cleanup
+is the most frequently executed path in the system, and it is the path on which
+finalizer-bound objects accumulate. A controller reconciles on watch rather than
+on a timer and adds one object per request rather than three.
+
+**Placement is written by the controller, not stamped for another component**
+(Amendment 2). Because the controller authors the Job, it supplies the §4
+placement fields directly. An arrangement in which the controller marks the Job
+with a burst classification and admission policy then adds placement to the same
+object is rejected: it holds the weaker guarantee — placement present only while
+a policy is loaded and correctly scoped — while the platform has already paid
+for the stronger one by authoring the object. The validating policy remains, as
+defence in depth rather than as the mechanism.
+
+This does not reopen the ADR-041 boundary. The controller writes placement into
+a workload it owns; it does not author placement *policy*, and it holds no
+authority over nodes, machine templates or replica counts.
+
 ### 8. `Sandbox` is unmodified
 
 The upstream controller creates a pod; Kyverno places it on burst capacity; the
@@ -330,6 +420,130 @@ layers, no new component.
 Fleet quota (ADR-047) bounds the first. `BurstCapacity.maxNodes` and the
 priority-scoped `ResourceQuota` bound the second.
 
+### 11. Cold start is a budget, not an acknowledgement (Amendment 2026-08-31)
+
+§Consequences records that "cold-start latency is a node join, materially slower
+than starting a pod on existing capacity." That is true and it is not actionable.
+It names no number, and it says nothing about what the latency demands of the
+consumers this ADR moves onto burst capacity — which is where the cost is
+actually paid.
+
+The first such consumer already contradicts it. `@waypoint/sandbox-k8s` — the
+library that creates every `Sandbox` CR under §8 — holds `POLL_TIMEOUT_MS` and
+`HTTP_READY_TIMEOUT_MS` at 120 seconds. A cold burst start is the serial sum of
+the autoscaler's scan interval, the CAPI/CAPH machine create, Hetzner
+provisioning and boot, kubeadm join, CNI readiness, image pull and container
+start. Two minutes does not cover it, and no tuning of the consumer's polling
+interval changes that.
+
+**The resulting failure is not a clean timeout.** In-cluster, the readiness wait
+polls the `ClusterIP` URL and never reads pod phase, so an unschedulable pod and
+a crashed sandbox are the same observation — connection refused until the
+deadline — and the error distinguishes neither. Worse, the registry row is
+written only *after* readiness succeeds, so a timeout leaves a `Sandbox` CR with
+no registry entry. The next message finds no active mapping, takes the recreate
+branch, and deletes the deterministically-named CR — destroying the pending pod
+whose node was still being provisioned. The autoscaler observes the pending pod
+disappear and may reverse the scale-up it had already triggered; a new pod with
+the same name appears moments later and the cycle repeats. The system does not
+converge, it thrashes, and it pays for node joins that never serve a request.
+
+This is a contract gap, not a bug in one consumer. Any consumer written against
+existing capacity carries a deadline calibrated to pod start, and this ADR moves
+such consumers onto capacity measured in machine start without telling them.
+Therefore:
+
+1. **Every placement class MUST declare a cold-start budget** — p50 and p95
+   seconds from unschedulable pod to `Running` — as a measured, documented
+   property of the `BurstCapacity` XR. This ADR deliberately declines to name a
+   number: it depends on machine type, image size and registry locality, and an
+   invented default would be adopted as though it had been measured.
+
+2. **No consumer may hold a readiness deadline shorter than the p95 budget of
+   the placement class it targets.** A consumer that cannot wait that long has
+   not been made burst-ready by relabelling its pods; the remedy is `minNodes > 0`
+   (§6), which is what warm capacity exists for.
+
+3. **A consumer MUST NOT delete a workload object solely because a readiness
+   deadline expired.** To the autoscaler, deletion during provisioning is
+   indistinguishable from deletion of a healthy workload, and is the thrash
+   described above. Provisioning-timeout and provisioning-failure are different
+   terminal conditions and must be distinguished before any cleanup runs.
+
+4. **Where an interactive path cannot tolerate the budget, warm capacity is a
+   required cost, not a tuning preference.** `minNodes > 0` is the only setting
+   under which cold start does not apply, and §6's trade — money for latency —
+   is then already decided by the workload, not open to the operator.
+
+The migration consequence is explicit: **a fleet is not burst-ready when its
+pods carry burst placement. It is burst-ready when its timeouts and its
+failure handling match the budget of the class it was placed in.**
+
+### 12. `Sandbox` provisioning visibility (Amendment 2026-08-31)
+
+§7 gives `EphemeralJob` a `Provisioning` state that surfaces *why* —
+unschedulable, scaling, node joining, image pulling — "so a submitter sees
+infrastructure progress without holding infrastructure permissions." §8 says
+`Sandbox` is unmodified. Both are right, and together they left the asymmetry
+backwards: batch work, where no human is waiting, got the progress signal;
+the interactive session, where a human is waiting, got none.
+
+The asymmetry is not in the CRD and the remedy must not be. Constraint 1 stands
+— `Sandbox` is vendored and is not forked — and nothing here amends it. The gap
+is that this ADR never said where a sandbox consumer is *permitted* to read
+provisioning state from, so the only obvious answers are the ones ADR-047
+forbids it: `Node` conditions, the `MachineDeployment`, the autoscaler's own
+status, all cluster-scoped and all outside a Tier-2 namespaced grant.
+
+**Burst placement MUST be observable from namespaced objects alone.** The
+pending Pod's `PodScheduled` condition carries `reason: Unschedulable` and its
+message, and `cluster-autoscaler` writes its `TriggeredScaleUp` /
+`NotTriggerScaleUp` events onto that same Pod — in the tenant's own namespace.
+Between them, "waiting on capacity" is already distinguishable from "failed to
+start" without reading a single cluster-scoped object. That this signal exists
+where a fleet may read it is now a **requirement on the platform**, not an
+incidental property of the components chosen: any future change to the scaling
+component must preserve a namespaced provisioning signal on the pending Pod.
+
+Two obligations follow.
+
+**On the platform:** the burst placement path must not require a fleet consumer
+to read `Nodes`, `MachineDeployments`, or autoscaler state to learn that its pod
+is waiting for capacity. The ADR-047 Tier-2 grant for a sandbox-consuming fleet
+must therefore include `pods` and `events` read in its own namespace — which the
+existing example grant, scoped to `agents.x-k8s.io/sandboxes` verbs alone, does
+not cover.
+
+**On the consumer:** a wait on a burst-placed pod MUST read that signal before
+concluding failure, and MUST distinguish three outcomes that are not the same
+condition and must not share a code path:
+
+| Observation | Meaning | Correct response |
+|---|---|---|
+| Create rejected at admission | Fleet's priority-scoped `ResourceQuota` (§5) is full | Terminal. Do not retry, do not create. Surface the quota. |
+| Pod exists, `PodScheduled=false`, scale-up event present | Capacity is being provisioned | Wait, up to the §11 p95 budget. Report progress. |
+| Pod exists, `PodScheduled=false`, `NotTriggerScaleUp` | `maxNodes` reached, or no node group fits | Terminal for now. Surface the cell ceiling; do not delete and recreate. |
+
+The first case is easy to mistake for the second and is the opposite of it: a
+quota rejection means the pod was never created, so a consumer that treats it as
+"still pending" waits out its full budget before reporting a condition that was
+knowable at the create call.
+
+This adds no component. It states where the signal lives, that the platform must
+keep it there, and that a consumer must read it — which is what §7 already
+promised the batch path and §8 left unsaid for the interactive one.
+
+**Scope.** The two paths reach the same guarantee by different routes. On the
+**job path** the controller already holds the projection responsibility §7
+assigns it, so a fleet reads its own `EphemeralJob` status and needs no access
+to the Pod at all. On the **`Sandbox` path** no such component exists — the
+upstream controller projects nothing about capacity — so the consumer reads the
+Pod and its Events directly, and the namespaced-signal requirement above is what
+makes that possible without a cluster-scoped grant. Both learn that they are
+waiting on capacity rather than broken, which is the guarantee; only the route
+differs, and only the `Sandbox` path constrains the platform's choice of scaling
+component.
+
 ---
 
 ## Alternatives considered and rejected
@@ -359,6 +573,25 @@ workload controller.
 would produce N uncoordinated scaling decisions, and the controller would own a
 capacity-planning responsibility that `cluster-autoscaler` already discharges
 correctly, including scale-down and draining.
+
+**`EphemeralJob` as an XRD and composition** (Amendment 2). Attractive, and
+rejected on volume. It would place the job path on the platform's established
+tenant-abstraction pattern and introduce no new component, and for a job
+population comparable to the tenant population it would be the right answer.
+The population is not comparable: submission rate follows a fleet's concurrent
+users, so job objects are numerous, short-lived and continuously turning over,
+while Crossplane's costs — continuous reconciliation of composite and managed
+resource, observed-state polling, finalizers on both — are proportional to
+object lifetime. The pattern is correct for resources that outlive their
+reconcile interval and inverted for a workload that does not.
+
+**Fleet-created `batch/v1` Jobs placed by admission policy alone.** Rejected.
+It introduces no component and no reconciliation cost, but requires the fleet to
+hold `create` on Jobs in its own namespace, which is the authority that makes
+burst placement escapable: a fleet holding it can author a Job without burst
+placement and consume home-lab capacity. The guarantee would then rest entirely
+on a validating policy being present and correctly scoped, which §4 establishes
+as the weaker of the two available guarantees.
 
 ---
 
@@ -409,10 +642,13 @@ compute-provisioning code and no provider credential.**
 | Allowed | Forbidden |
 |---|---|
 | Reconciling `EphemeralJob` CRs and owning the job state machine | Infrastructure provisioning of any kind |
-| Creating and owning the `batch/v1` Job for a request | Creating, patching or computing `MachineDeployment` replicas |
+| Creating and owning the `batch/v1` Job for a request, including its placement fields | Creating, patching or computing `MachineDeployment` replicas |
 | Projecting pod and node conditions into job status | Holding or reading provider credentials |
-| Minting single-use, job-scoped completion tokens | Authoring placement policy, quota or `PriorityClass` |
+| Minting single-use, job-scoped completion tokens | Authoring placement *policy*, quota or `PriorityClass` |
 | Enforcing job timeout and TTL cleanup | Secret generation, PKI operations |
+
+Writing placement fields into a Job the controller owns is distinct from
+authoring placement policy, which remains platform-declared in Git (§4).
 
 **cluster-autoscaler**
 
@@ -441,6 +677,9 @@ declared in Git.
   drives it. This is the goal the ADR exists to serve.
 - The only new component is the ephemeral job state machine. No new
   infrastructure controller, no new Crossplane provider, no guest agent.
+- Placement on the job path is written by the component that owns the workload,
+  so it does not depend on an admission policy being loaded and correctly scoped
+  (§4).
 - `Sandbox` runs on burst capacity with the upstream controller unmodified, and
   every Kubernetes semantic it depends on — Services, DNS, NetworkPolicy, logs,
   CSI — continues to work because a burst node is an ordinary node.
@@ -455,7 +694,9 @@ declared in Git.
 
 - **Cold-start latency is a node join**, materially slower than starting a pod
   on existing capacity. `minNodes > 0` trades money for latency; there is no
-  setting that is both cheap and fast.
+  setting that is both cheap and fast. The obligation this places on consumers —
+  a declared budget, deadlines matched to it, and no deletion on timeout — is
+  normative in §11.
 - **Idle interactive sandboxes pin nodes**, so burst cost tracks idle timeout
   rather than usage (§6). This is the dominant cost risk and it is a tuning
   problem, not a design flaw.
@@ -465,6 +706,17 @@ declared in Git.
   require a dedicated pool (§9), which is less efficient than shared nodes.
 - Node churn adds CAPI/CAPH reconciliation load and cloud API calls that scale
   with burst frequency rather than with fleet count.
+- **Admission rejection is the expected steady state, and this ADR provides no
+  queue** (Amendment 2). Because submission rate follows a fleet's concurrent
+  users while the priority-scoped `ResourceQuota` (§5) and `maxNodes` (§2) are
+  fixed, demand routinely exceeds both. Both bounds reject rather than defer:
+  the quota refuses the pod at admission and `maxNodes` refuses the node. At low
+  volume a rejection is an error a submitter can surface; at the expected volume
+  it is the common case, and a batch API whose common case is rejection is
+  unusable without a queue and a submitter-visible position in it. Whether
+  admission is synchronous or a submission may be accepted-and-deferred is a
+  contract question this ADR does not settle and must be decided before the job
+  path carries production load.
 
 ---
 
@@ -475,9 +727,16 @@ declared in Git.
   `BurstCapacity` XR. The escape hatch becomes a product.
 - **ADR-047** gains a platform capability consumed through Tier-2 RBAC and
   platform-rendered quota, and the §10 capacity rule constrains what a fleet may
-  run on home-lab capacity.
+  run on home-lab capacity. Per §12 the Tier-2 grant for a sandbox-consuming
+  fleet must also carry namespaced `pods` and `events` read, without which burst
+  placement is unobservable to the consumer that has to wait for it.
 - **ADR-039** gains seven resource-class rows; **ADR-041** gains two controller
   entries (§Ownership).
+- **ADR-005** records a bounded exception: `EphemeralJob` is a tenant-facing
+  abstraction that is deliberately not an XRD and composition, because its
+  object population is workload-shaped rather than infrastructure-shaped (§7,
+  Amendment 2). The exception is scoped to this resource class and does not
+  generalise.
 - **ADR-036** gains burst size classes and warm-capacity settings in the
   provider capability contract.
 - **ADR-043**, **ADR-014** and **ADR-005** are unaffected.

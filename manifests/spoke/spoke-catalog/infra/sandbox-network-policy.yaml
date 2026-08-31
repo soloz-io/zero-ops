@@ -4,16 +4,32 @@
 # tenant workload base netpol. This cluster-wide policy default-denies them:
 # DNS + public-internet egress only (agent-vault proxy + harness), no
 # cluster-internal access.
-# Sandbox pods are selected by the agents.x-k8s.io/sandbox: "true" label that
-# sandbox-capable SDKs must add to their sandbox podTemplate.
+# Sandbox pods are selected by agents.x-k8s.io/sandbox-name-hash, which the
+# agent-sandbox CONTROLLER sets on every pod it creates.
+#
+# This previously selected on agents.x-k8s.io/sandbox: "true", the label the SDK
+# puts in the Sandbox CR's podTemplate. That label never reaches the pod: the
+# controller owns the agents.x-k8s.io/ label space and replaces it with
+# agents.x-k8s.io/sandbox-name-hash. Verified 2026-08-31 on a live sandbox — the
+# CR's podTemplate carried {agents.x-k8s.io/sandbox: "true"} while the resulting
+# pod carried only {agents.x-k8s.io/sandbox-name-hash: <hash>, ...}.
+#
+# The selector therefore matched nothing and this default-deny policy governed
+# no pods. Nothing reported an error, because a CiliumClusterwideNetworkPolicy
+# that selects zero endpoints is healthy — it is simply inert.
+#
+# Selecting on the controller's own label is also the more robust choice: it is
+# present because the pod IS a sandbox, so it cannot be omitted by an SDK that
+# forgets it or by a fleet that would rather not be policed.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: agent-sandbox-default-deny
 spec:
   endpointSelector:
-    matchLabels:
-      agents.x-k8s.io/sandbox: "true"
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox-name-hash
+        operator: Exists
 
   egress:
     # DNS for FQDN rules.

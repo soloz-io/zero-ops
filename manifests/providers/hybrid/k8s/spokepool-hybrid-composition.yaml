@@ -6,14 +6,16 @@
 #      (public Hetzner LB advertises the spoke API, same as hetzner/hub)
 #   3. capi-cluster: controlPlaneEndpoint.host left empty — CAPH auto-fills from the LB IPv4 (ControlPlaneEndpointSet)
 #   4. capi-cluster: control-plane replicas patched from annotation (1 dev / 3 stg)
-#   5. capi-cluster: workers.machineDeployments[0].replicas defaults to 0 (burst pool; home workers are unmanaged)
+#   5. capi-cluster: workers.machineDeployments[0] is the ADR-052 burst pool (class burst-worker),
+#      with NO replicas field — cluster-autoscaler owns the count within the annotated bounds
 #   6. home-worker-join-config ConfigMap step added (carries {hostname,tailnetHost} list from claim annotations)
 #
 # Worker lifecycle split (ADR-046 §1):
 #   Home workers → unmanaged kubeadm join + hub-operator token minting (WS4)
-#   Hetzner burst workers → native CAPI KubeadmConfigTemplate; replicas:0 by default
+#   Hetzner burst workers → native CAPI, class burst-worker, scaled 0..maxNodes by cluster-autoscaler
 #   Scheduling → nodeSelector: workload-location: home (default)
-#               nodeSelector: workload-location: hetzner (burst; explicit)
+#               burst pods carry workload-location=hetzner + the workload-class=burst
+#               toleration, written by the platform (ADR-052 §4)
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -86,9 +88,66 @@ spec:
                           replicas: 1  # Patched from annotation: control-plane-replicas (1 dev / 3 stg)
                         workers:
                           machineDeployments:
-                          - class: default-worker
+                          # ADR-052 burst pool. `replicas` is DELIBERATELY ABSENT.
+                          #
+                          # Ownership of the replica count belongs to
+                          # cluster-autoscaler (ADR-052 §Ownership: "Burst Node
+                          # Count | cluster-autoscaler | MachineDeployment.spec.replicas").
+                          # Declaring it here would make Crossplane and the
+                          # autoscaler two writers of one field, and Crossplane
+                          # would reconcile every scale-up back to zero.
+                          #
+                          # CAPI additionally REJECTS a topology that sets both
+                          # `replicas` and the autoscaler bounds annotations.
+                          # That rejection is not soft: provider-kubernetes
+                          # applies this Cluster with a full Update, not a
+                          # server-side apply, so one invalid field fails the
+                          # whole Object and every subsequent Crossplane update
+                          # to this Cluster blocks behind it. Commit bac465a9
+                          # added the annotations while leaving the replicas
+                          # patch and wedged the dev spoke's Cluster Object at
+                          # Synced=False until it was reverted (0557c269).
+                          #
+                          # Base field, patch and annotations therefore move
+                          # together or not at all.
+                          - class: burst-worker
                             name: md-0
-                            replicas: 0  # Burst pool: 0 by default; home workers join unmanaged
+                            metadata:
+                              labels:
+                                # ADR-046 §11: workload-location is never
+                                # sufficient alone. Set here rather than in
+                                # kubeletExtraArgs because kubelet may not
+                                # self-register a node-role.kubernetes.io/*
+                                # label — NodeRestriction rejects it — so CAPI
+                                # propagates it from this template instead.
+                                node-role.kubernetes.io/worker: ""
+                              annotations:
+                                # Bounds the autoscaler may not exceed. maxNodes
+                                # is this cell's cloud spend ceiling (ADR-052 §2),
+                                # reviewed in Git like any other infrastructure
+                                # change and enforced by a component that cannot
+                                # raise it.
+                                cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "0"
+                                cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "8"
+                                # Scale-from-zero: with the pool at 0 there is no
+                                # real node to inspect, so the autoscaler must be
+                                # told what a node of this group WOULD look like.
+                                # Without these it cannot determine that a pending
+                                # pod would fit and will not scale off zero at all.
+                                #
+                                # The taints value MUST match
+                                # register-with-taints in
+                                # spokepool-burst-bootstrap-v1 exactly. If the
+                                # real node carries a taint this annotation omits,
+                                # the autoscaler simulates a node the pending pod
+                                # cannot tolerate, concludes scale-up will not
+                                # help, declines to scale, and logs no error —
+                                # the pod pends forever.
+                                capacity.cluster-autoscaler.kubernetes.io/cpu: "4"
+                                capacity.cluster-autoscaler.kubernetes.io/memory: "8G"
+                                capacity.cluster-autoscaler.kubernetes.io/maxPods: "110"
+                                capacity.cluster-autoscaler.kubernetes.io/labels: "workload-location=hetzner,workload-class=burst,node-role.kubernetes.io/worker="
+                                capacity.cluster-autoscaler.kubernetes.io/taints: "workload-class=burst:NoSchedule"
                         variables:
                           - name: region
                             value: "hel1"  # Patched from spec.region
@@ -113,10 +172,11 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]
-              # Burst worker replicas from claim (default 0)
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.nodePool.count
-                toFieldPath: spec.forProvider.manifest.spec.topology.workers.machineDeployments[0].replicas
+              # NO replicas patch — see the burst pool comment above.
+              # spec.nodePool.count remains meaningful for the pure-hetzner
+              # composition, where default-worker is the general worker pool.
+              # For hybrid it is inert: home workers join unmanaged and the
+              # burst pool's count is the autoscaler's.
               # Region variable
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.region

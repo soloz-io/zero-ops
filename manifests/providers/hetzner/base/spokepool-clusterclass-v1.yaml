@@ -34,6 +34,27 @@ spec:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
             kind: HCloudMachineTemplate
             name: spokepool-worker-machine-v1
+    # ADR-052: the elastic tenant-execution pool. A SEPARATE class, not a
+    # modification of default-worker.
+    #
+    # default-worker is shared: on a pure-hetzner spoke those nodes are the
+    # general worker pool and carry workload-location=hetzner themselves.
+    # Tainting that class to reserve it for burst work would make every
+    # workload on a pure-hetzner spoke unschedulable. The two pools are
+    # distinguished by workload CLASS, which is why the taint is keyed on
+    # workload-class and not on location.
+    - class: burst-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
+            name: spokepool-burst-bootstrap-v1
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: spokepool-burst-machine-v1
   patches:
   - name: region
     definitions:
@@ -506,6 +527,117 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HCloudMachineTemplate
 metadata:
   name: spokepool-worker-machine-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      type: cx33
+      imageName: ubuntu-24.04
+
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: spokepool-burst-bootstrap-v1
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            # workload-class=burst is what the ADR-052 placement selects on and
+            # what the taint below repels; workload-location=hetzner is the
+            # ADR-046 §11 location. node-role.kubernetes.io/worker is NOT set
+            # here — kubelet may not self-register a node-role.kubernetes.io/*
+            # label (NodeRestriction rejects it); CAPI propagates it from the
+            # MachineDeployment's template metadata instead.
+            node-labels: "workload-location=hetzner,workload-class=burst"
+            # Reserves this pool for workloads the platform has explicitly
+            # placed here. Without it, any pod with a hetzner nodeSelector —
+            # or none at all — could consume burst capacity the cell is paying
+            # for by the minute.
+            #
+            # MUST match, exactly:
+            #   - capacity.cluster-autoscaler.kubernetes.io/taints on the burst
+            #     MachineDeployment (or the autoscaler simulates a node the
+            #     pending pod cannot tolerate, declines to scale, logs nothing)
+            #   - BurstTaintKey/BurstTaintValue in the ephemeral-job operator
+            # Asserted by scripts/validate/preflight/86-burst-node-identity.sh.
+            register-with-taints: "workload-class=burst:NoSchedule"
+      files:
+      - path: /etc/tailscale-authkey
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: authkey
+      - path: /etc/tailscale-hostname
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: hostname
+      preKubeadmCommands:
+      - set -x
+      - export CONTAINERD=1.7.26
+      - export RUNC=1.2.5
+      - export KUBERNETES_VERSION=1.31.6
+      - export TRIMMED_KUBERNETES_VERSION=1.31
+      - ARCH="$(dpkg --print-architecture)"
+      - localectl set-locale LANG=en_US.UTF-8
+      - localectl set-locale LANGUAGE=en_US.UTF-8
+      - apt-get update -y
+      - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+      - sed -i '/swap/d' /etc/fstab
+      - swapoff -a
+      - modprobe overlay && modprobe br_netfilter && sysctl --system
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+      - sha256sum --check --ignore-missing runc.sha256sum
+      - install runc.$ARCH /usr/local/sbin/runc
+      - rm -f runc.$ARCH runc.sha256sum
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+      - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - mkdir -p /etc/containerd
+      - containerd config default > /etc/containerd/config.toml
+      - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+      - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+      - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+      - sysctl -p
+      - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+      - mkdir -p /etc/apt/keyrings/
+      - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+      - apt-get update
+      - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+      - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+      - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+      - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+      - apt-get -y autoremove && apt-get -y clean all
+      - curl -fsSL https://tailscale.com/install.sh | sh || true
+      - systemctl enable --now tailscaled || true
+      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+      postKubeadmCommands:
+      # WS0.1 (ADR-046): Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium runs
+      # routing-mode=tunnel, so cross-node pod traffic is VXLAN-encapsulated between
+      # tailnet IPs and pod IPs never reach the wire. Advertising or accepting podCIDR
+      # subnet routes is unnecessary AND harmful: tailscaled installs them into table 52,
+      # whose ip rule (5270) precedes main (32766), shadowing Cilium's tunnel route for
+      # host-originated traffic to remote pods. Deliberately no --advertise-routes here.
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HCloudMachineTemplate
+metadata:
+  name: spokepool-burst-machine-v1
   namespace: platform-capi
 spec:
   template:
