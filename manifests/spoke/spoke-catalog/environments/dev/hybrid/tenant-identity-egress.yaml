@@ -1,0 +1,67 @@
+# Egress from tenant workloads to this environment's identity endpoints.
+#
+# WHY THIS EXISTS AT ALL
+#
+# The tenant egress contract already names these endpoints, by FQDN, in
+# `toFQDNs` — which is the right way to express it and the way it should
+# eventually work. Cilium enforces a `toFQDNs` rule against a cache of
+# name-to-IP mappings it builds by proxying the workload's own DNS queries, and
+# on this spoke that proxy never receives a query: the redirect is programmed,
+# the mark is set, and the TPROXY rule matches, but nothing arrives at the
+# listening socket. Measured on every node, control plane included, so it is not
+# a property of the home workers. See .agents/spec/enhancements/2026-08-31.md
+# items 9 and 10 for the evidence and for the two candidate fixes that were
+# tested and did not work.
+#
+# The consequence is not a warning anywhere. The FQDN cache stays empty, the
+# `toFQDNs` rules match no address, and a workload's egress is dropped with no
+# RST — so it waits out its own timeout and reports whatever its own failure
+# looks like. For the BFF that is a 10s JWKS fetch timeout answered as
+# 401 Unauthenticated, which reads as a broken login rather than blocked egress.
+#
+# WHY IT IS SHAPED THIS WAY
+#
+# The address is written here, in the environment overlay, and not in the tenant
+# contract. Three reasons, in order of how much they matter:
+#
+#   1. A tenant must not carry the platform's addressing. It does not know this
+#      value, cannot be expected to update it, and ADR-047 assigns the identity
+#      endpoints to the platform.
+#   2. This directory is already environment-scoped, so dev's address lives in
+#      dev's overlay rather than in a base shared with stg and prod.
+#   3. One place changes when the hub is re-addressed, instead of one per fleet.
+#
+# The `toFQDNs` rules stay in the tenant contract. When the DNS proxy is fixed
+# they resume being the operative rule and this becomes redundant — at which
+# point it should be deleted rather than left to rot. That is the revisit
+# trigger: this file exists only for as long as the FQDN cache is empty.
+#
+# WHAT IT DOES NOT DO
+#
+# It grants egress to two hosts on one port. It is not a widening of the
+# contract to `world`, which was the alternative and would have allowed every
+# tenant to reach anything on 443 — trading a login outage for the removal of
+# the control the contract exists to provide.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: tenant-identity-endpoint-egress
+spec:
+  # Every tenant workload. `tenant-id` is stamped by the tenant kustomization's
+  # commonLabels and is required on tenant workloads by the ABI policy
+  # (enforce-tenant-abi), so selecting on its presence covers present and future
+  # fleets without naming one (ADR-047).
+  endpointSelector:
+    matchExpressions:
+      - key: tenant-id
+        operator: Exists
+  egress:
+    # The hub's public ingress address for dev — auth.dev.nutgraf.in and
+    # console.dev.nutgraf.in both resolve here. Kept as a /32: the hub is one
+    # address, and a wider prefix would allow neighbouring Hetzner tenants.
+    - toCIDRSet:
+        - cidr: 65.109.41.23/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

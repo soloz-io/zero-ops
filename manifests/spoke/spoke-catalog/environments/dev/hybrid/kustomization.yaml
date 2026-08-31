@@ -9,6 +9,10 @@ resources:
   - ../../../provider/hetzner
   - cnpg-cluster.yaml
   - scheduled-backup.yaml
+  # Egress to this environment's identity endpoints, standing in for the tenant
+  # contract's toFQDNs rules while Cilium's DNS proxy on this spoke receives no
+  # queries. Environment-scoped because it carries an address. See the file.
+  - tenant-identity-egress.yaml
 patches:
   # ADR-046 §11: the base is provider-neutral; the location and storage class
   # its nodes can attach are supplied here.
