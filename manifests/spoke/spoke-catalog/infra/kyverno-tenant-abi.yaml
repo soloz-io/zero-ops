@@ -39,6 +39,31 @@ spec:
               tenant-id: "?*"
               cost-center: "?*"
 
+    # Rule 1b: No tenant may declare a Gateway.
+    #
+    # Cilium runs one Envoy per node with hostNetwork, so a Gateway listener binds
+    # 0.0.0.0:<port> on the node itself. Two Gateways claiming the same port
+    # collide in one process, and the loser is not merely inert: Envoy NACKs the
+    # duplicate listener, and a NACK invalidates the whole xDS version — taking
+    # down listeners belonging to other Gateways. A fleet-owned :80 Gateway did
+    # exactly that on 2026-08-31 and every tenant hostname answered 503.
+    #
+    # ADR-047 assigns routing to the platform and ADR-051 makes the public entry
+    # point platform-owned; this makes that structural rather than reviewed. A
+    # tenant-namespace Gateway would also be a path to tenant workloads that never
+    # traverses AgentGateway, which ADR-050 forbids.
+    - name: no-tenant-gateways
+      match:
+        any:
+          - resources:
+              kinds:
+                - gateway.networking.k8s.io/v1/Gateway
+              namespaces:
+                - "tenant-*"
+      validate:
+        message: "Tenants do not declare Gateways. Public entry is platform-owned (ADR-047, ADR-051); a tenant Gateway collides with the platform's on the shared node-local Envoy and bypasses AgentGateway."
+        deny: {}
+
     # Rule 2: All Pods in tenant namespaces must use immutable image digests.
     # Tags like :latest or :main are mutable and violate supply chain integrity.
     - name: require-image-digest
