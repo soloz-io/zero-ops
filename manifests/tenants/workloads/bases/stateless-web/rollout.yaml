@@ -31,6 +31,28 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
     spec:
+      # Resolve a service FQDN in one query, not five.
+      #
+      # Kubernetes defaults to ndots:5, which treats any name with fewer than 5
+      # dots as relative and tries every search domain before the name itself.
+      # A normal service address —
+      # `sdk-workload.tenant-waypoint.svc.cluster.local` — has 4, so it costs 5
+      # queries, and on this platform the fourth is the node's tailnet domain,
+      # which forwards OFF-CLUSTER. Measured from a tenant pod: 30 concurrent
+      # lookups took 15.7s unqualified versus 3.1s with a trailing dot, and 2 in
+      # 25 failed outright with EAI_AGAIN under load. The BFF surfaced that as
+      # `getaddrinfo EAI_AGAIN sdk-workload...` and answered 500 on
+      # send-message — an application error caused by resolver amplification.
+      #
+      # ndots:2 keeps the short forms working: a bare `service` (0 dots) and
+      # `service.namespace` (1 dot) still expand through the search list, while
+      # anything more qualified is tried as written first. External names benefit
+      # too — `auth.dev.nutgraf.in` has 3 dots and was also paying the full
+      # expansion.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       # Dedicated SA — name resolved after tenant namePrefix is applied.
       serviceAccountName: workload-sa
       imagePullSecrets:
