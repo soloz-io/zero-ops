@@ -3,6 +3,11 @@ export interface TenantClaims {
   sub: string;
   /** User email */
   email: string;
+  /**
+   * Standard OIDC claim. Optional because not every provider or flow emits it,
+   * and an absent claim must not be read as "verified".
+   */
+  email_verified?: boolean;
   /** Tenant ID — required for tenant-scoped authorization */
   tenant_id: string;
   /** Tenant tier (e.g., "free", "pro", "enterprise") */
@@ -29,6 +34,7 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
   return {
     sub: String(payload.sub ?? ""),
     email: String(payload.email ?? ""),
+    email_verified: payload.email_verified === true,
     tenant_id: String(payload.tenant_id ?? ""),
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,
     // The platform's auth-proxy injects a SINGULAR `role` claim

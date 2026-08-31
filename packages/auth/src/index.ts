@@ -42,3 +42,12 @@ export { requireTenantBoundary } from "./authz/tenant-boundary.js";
 export type { TenantBoundaryOptions } from "./authz/tenant-boundary.js";
 
 export { requireRole } from "./authz/role.js";
+
+// Tenant-local user resolution (platform baseline `users` / `identities`).
+export type {
+  SqlExecutor,
+  SqlTransactor,
+  ResolvedUser,
+  ResolveUserOptions,
+} from "./user/types.js";
+export { resolveUser, withUserContext } from "./user/resolve.js";
