@@ -1,5 +1,17 @@
 #!/bin/sh
-# NOTE: keep in sync with agent-vault-entrypoint.sh
+# Platform-owned copy. Canonical source:
+#   waypoint/packages/sandbox-k8s/k8s/agent-vault-entrypoint.sh
+#
+# THREE copies of this script exist — that one, the ConfigMap literal beside it
+# (configmap-agent-vault-entrypoint.yaml), and this one, which is what actually
+# runs in a cluster. Each carries a "keep in sync" comment and they drifted
+# anyway: this copy sat ~3 weeks behind and was missing both AI gateway blocks
+# below, so agent-vault held no credential for the model provider and its proxy
+# passed the sandbox's placeholder key (sk-proxy-managed) through untouched. The
+# provider answered 401 and the agent reported "Something went wrong".
+#
+# A comment is not a mechanism. Until one copy is generated from another, any
+# change here must be applied to all three and verified in a cluster.
 set -e
 
 MASTER_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
@@ -68,6 +80,14 @@ if [ -n "$AGENTREGISTRY_RUNPOD_AUTH" ]; then
     http://localhost:14321/v1/credentials >/dev/null 2>&1
 fi
 
+if [ -n "$AI_GATEWAY_API_KEY" ]; then
+  AI_GATEWAY_CRED_BODY='{"vault":"sandbox","credentials":{"AI_GATEWAY_KEY":"'"$AI_GATEWAY_API_KEY"'"}}'
+  wget -qO- --post-data="$AI_GATEWAY_CRED_BODY" \
+    --header='Content-Type: application/json' \
+    --header="Authorization: Bearer $TOKEN" \
+    http://localhost:14321/v1/credentials >/dev/null 2>&1
+fi
+
 wget -qO- --post-data='{"services":[{"name":"github-api","host":"api.github.com","auth":{"type":"bearer","token":"GITHUB_TOKEN"}},{"name":"github-git","host":"github.com","auth":{"type":"basic","username":"GIT_USERNAME","password":"GITHUB_TOKEN"}}]}' \
   --header='Content-Type: application/json' \
   --header="Authorization: Bearer $TOKEN" \
@@ -82,6 +102,14 @@ fi
 
 if [ -n "$AGENTREGISTRY_RUNPOD_AUTH" ]; then
   wget -qO- --post-data='{"services":[{"name":"runpod","host":"api.runpod.ai","auth":{"type":"bearer","token":"RUNPOD_AUTH"}}]}' \
+    --header='Content-Type: application/json' \
+    --header="Authorization: Bearer $TOKEN" \
+    http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1
+fi
+
+if [ -n "$AI_GATEWAY_API_KEY" ]; then
+  AI_HOST=$(echo "${AI_GATEWAY_BASE_URL:-https://api.deepseek.com}" | sed -e 's|^[^/]*//||' -e 's|/.*$||' -e 's|:.*$||')
+  wget -qO- --post-data='{"services":[{"name":"ai-gateway","host":"'"$AI_HOST"'","auth":{"type":"bearer","token":"AI_GATEWAY_KEY"}}]}' \
     --header='Content-Type: application/json' \
     --header="Authorization: Bearer $TOKEN" \
     http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1
