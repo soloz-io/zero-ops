@@ -17,7 +17,9 @@ const (
 	APIEndpointSecretsRawKey              = "/api/v3/secrets/raw/%s"
 	APIEndpointPKITemplates               = "/api/v2/pki/certificate-templates"
 	APIEndpointCertificateAuthorities     = "/api/v1/cert-manager/ca"
-	APIEndpointCACertificate              = "/api/v1/cert-manager/ca/%s/certificate"
-	APIEndpointWorkspace                  = "/api/v1/workspace"
-	APIEndpointFolders                    = "/api/v2/folders"
+	// The /internal segment is required: the generic ca/%s route does not exist
+	// and returns 404. Mirrors the CLI's PathCACertificate.
+	APIEndpointCACertificate = "/api/v1/cert-manager/ca/internal/%s/certificate"
+	APIEndpointWorkspace     = "/api/v1/workspace"
+	APIEndpointFolders       = "/api/v2/folders"
 )
