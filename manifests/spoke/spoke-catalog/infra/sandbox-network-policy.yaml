@@ -32,6 +32,30 @@ spec:
         operator: Exists
 
   egress:
+    # The tenant's own database, through the pooler.
+    #
+    # The harness is handed a DATABASE_URL by the SDK and fails startup without
+    # it — "psycopg.errors.ConnectionTimeout: connection timeout expired", then
+    # "Application startup failed" — so the sandbox starts, serves nothing and
+    # exits, while the workflow node sits in `running` until it times out.
+    #
+    # This was not needed while the policy's selector matched no pods: sandboxes
+    # were governed by nothing and reached everything. Correcting the selector is
+    # what made this rule necessary, and its absence is the one hole that
+    # correction opened.
+    #
+    # Scoped to the pooler, not to platform-data: the sandbox runs tenant-authored
+    # agent code, so it gets the one endpoint it must reach and not the namespace
+    # around it.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform-data
+            k8s:cnpg.io/podRole: pooler
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+
     # DNS for FQDN rules.
     - toEndpoints:
         - matchLabels:
