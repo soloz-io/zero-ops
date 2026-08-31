@@ -40,7 +40,24 @@ export class JwksCache {
    */
   async getSigningKey(): Promise<jose.JWTVerifyGetKey> {
     if (!this.remoteStore) {
-      this.remoteStore = jose.createRemoteJWKSet(new URL(this.jwksUrl));
+      // The options are passed. They were not, and jose's defaults are not this
+      // platform's: timeoutDuration defaults to 5s, while fetchTimeoutMs above
+      // documents 10s and is the value a caller can set. Verification goes
+      // through this store, so the configured timeout applied to nothing that
+      // verifies a token — the class read as configurable while behaving as a
+      // fixed 5 seconds.
+      //
+      // Five seconds is not enough here. A tenant workload on a home worker
+      // reaches the hub over a domestic uplink, and a measured JWKS fetch from
+      // that pod took 2.6s — comfortably inside 10s and close enough to 5s that
+      // it fails intermittently. jose reports that as `request timed out`, which
+      // the validator wraps and the BFF answers as 401, so a slow fetch is
+      // indistinguishable from a bad token.
+      this.remoteStore = jose.createRemoteJWKSet(new URL(this.jwksUrl), {
+        timeoutDuration: this.fetchTimeoutMs,
+        cooldownDuration: this.refreshIntervalMs,
+        cacheMaxAge: this.keyTtlMs,
+      });
     }
     return this.remoteStore;
   }
