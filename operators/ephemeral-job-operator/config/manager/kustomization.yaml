@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - manager.yaml
+- manager.yaml
 
 # Written by CI on every build (.github/workflows/ephemeral-job-operator.yml).
 #
@@ -12,6 +12,6 @@ resources:
 # tag pointed at. This fails the pull instead, which is the correct outcome for
 # an image that does not exist yet.
 images:
-  - name: ephemeral-job-operator
-    newName: ghcr.io/soloz-io/ephemeral-job-operator
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+- digest: sha256:5ecd080d95db5b4cf45b0d6b730ee64a5a536cb804a46038dde1b5a2781234c5
+  name: ephemeral-job-operator
+  newName: ghcr.io/soloz-io/ephemeral-job-operator
