@@ -187,13 +187,51 @@ spec:
                     end
                     return hs
 
+                params:
+                  # The Cilium Gateway terminates TLS (hub-gateway.yaml mode: Terminate)
+                  # and forwards plaintext to argocd-server:80 (httproutes.yaml). In its
+                  # default secure mode argocd-server answers that plaintext request with
+                  # a 307 to https://<same-url>, which the Gateway terminates again --
+                  # an infinite redirect. Browsers follow it invisibly; the CLI fails
+                  # outright with "stopped after 10 redirects", so `argocd login` could
+                  # never work over the Gateway, only via port-forward.
+                  #
+                  # --insecure makes argocd-server serve HTTP and trust the
+                  # X-Forwarded-Proto header the Gateway sets. TLS is still terminated
+                  # at the Gateway; nothing leaves the cluster unencrypted.
+                  server.insecure: "true"
+
               # ArgoCD server ingress is deployed in 03-platform-services (after
               # ingress-nginx controller is healthy). This avoids the webhook
               # race: ingress-nginx controller must be running before any Ingress
+
+                params:
+                  # The Cilium Gateway terminates TLS (hub-gateway.yaml mode: Terminate)
+                  # and forwards plaintext to argocd-server:80 (httproutes.yaml). In its
+                  # default secure mode argocd-server answers that plaintext request with
+                  # a 307 to https://<same-url>, which the Gateway terminates again --
+                  # an infinite redirect. Browsers hide it; the CLI fails outright with
+                  # "stopped after 10 redirects", so `argocd login` could never work over
+                  # the Gateway, only via port-forward.
+                  #
+                  # --insecure makes argocd-server serve HTTP and trust the
+                  # X-Forwarded-Proto header the Gateway sets. TLS is still terminated at
+                  # the Gateway; nothing is unencrypted outside the cluster.
+                  server.insecure: "true"
               # resource is applied, otherwise the validating webhook rejects.
               server:
                 ingress:
                   enabled: false
+                service:
+                  # Both Service ports target containerPort 8080. Under
+                  # server.insecure that port serves PLAINTEXT, so a port named
+                  # "https" on 443 would be a lie: a client dialling
+                  # argocd-server:443 expecting TLS gets cleartext and no
+                  # warning. TLS for this service terminates at the Gateway
+                  # (hub-gateway listener "argocd", mode: Terminate); nothing
+                  # behind it speaks TLS. Name the port for what it carries.
+                  # The Gateway's HTTPRoute uses port 80 regardless.
+                  servicePortHttpsName: http-no-tls
             helmReleaseName: 'argocd'
           # ADR-023: Atlas CRDs/controller are spoke-side (vendored in
           # manifests/spoke/spoke-catalog/infra/atlas-operator). The hub had a

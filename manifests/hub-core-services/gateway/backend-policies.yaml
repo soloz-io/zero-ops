@@ -7,8 +7,12 @@
 # timeout at the client, never a visible denial.
 #
 # Only workloads with policy already enforced need an entry. A pod that no policy
-# selects is unrestricted and reachable without one, so argocd-server, infisical,
-# agentgateway and auth-proxy need nothing until they gain a policy.
+# selects is unrestricted and reachable without one, so infisical, agentgateway
+# and auth-proxy need nothing until they gain a policy.
+#
+# argocd-server DID gain one (below), because server.insecure makes its :8080 a
+# functioning plaintext ArgoCD API rather than a port that only answers 307. The
+# security boundary moved, so the port stopped being unrestricted.
 #
 # Cilium evaluates these together with the Kubernetes NetworkPolicies in each
 # service's own directory and admits the union, so those keep expressing the
@@ -45,4 +49,53 @@ spec:
       toPorts:
         - ports:
             - port: "4433"
+              protocol: TCP
+---
+# argocd-server runs with server.insecure (see 01-platform-infra-appset.yaml):
+# TLS terminates at the hub Gateway and the backend speaks plain HTTP. Selecting
+# it here makes it default-deny in Cilium, so every legitimate caller must be
+# named — including the Gateway itself, or the UI and CLI break.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-gateway-to-argocd-server
+  namespace: platform-ops
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+  ingress:
+    # The Gateway. cilium-envoy is hostNetwork, so this traffic carries no pod
+    # identity and a podSelector would match nothing — it arrives as
+    # reserved:ingress, the same way the kratos entries above rely on.
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # ArgoCD's own components: notifications and applicationset controllers call
+    # the API, dex handles the OIDC callback, agent-principal fronts the fleet.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform-ops
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Metrics only (8083), never the API. Covers both a pod-networked scraper
+    # and a host-networked one, which presents as reserved:host.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform-observability
+      toPorts:
+        - ports:
+            - port: "8083"
+              protocol: TCP
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8083"
               protocol: TCP
