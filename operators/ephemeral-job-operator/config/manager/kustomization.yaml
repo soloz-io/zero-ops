@@ -1,2 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
 resources:
   - manager.yaml
+
+# Written by CI on every build (.github/workflows/ephemeral-job-operator.yml).
+#
+# The digest below is a PLACEHOLDER and is replaced by the first build. It is
+# deliberately an unresolvable all-zero digest rather than a tag: a tag would be
+# pullable, so a deploy before the first build would quietly run whatever that
+# tag pointed at. This fails the pull instead, which is the correct outcome for
+# an image that does not exist yet.
+images:
+  - name: ephemeral-job-operator
+    newName: ghcr.io/soloz-io/ephemeral-job-operator
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

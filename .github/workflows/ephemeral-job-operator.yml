@@ -1,0 +1,67 @@
+name: ephemeral-job-operator
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - operators/ephemeral-job-operator/**
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: operators/ephemeral-job-operator
+          # amd64 only. Every node in the fleet is x86: Hetzner control planes and
+          # the Flatcar home-lab workers alike, so an arm64 image is built and
+          # pushed for nothing.
+          #
+          # It is not merely wasted time. None of these Dockerfiles cross-compile —
+          # there is no --platform=$BUILDPLATFORM stage — so buildx runs the whole
+          # non-native leg under QEMU. That is slow for the Go images and fatal for
+          # the Node one, where pnpm install dies with "qemu: uncaught target
+          # signal 4 (Illegal instruction)" and the build hangs.
+          #
+          # Restore arm64 by adding a cross-compiling builder stage first, not by
+          # putting the platform back and emulating.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/ephemeral-job-operator:${{ github.sha }}
+            ghcr.io/soloz-io/ephemeral-job-operator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      - name: Update Kustomization with new image
+        run: |
+          cd operators/ephemeral-job-operator/config/manager
+          kustomize edit set image ephemeral-job-operator=ghcr.io/soloz-io/ephemeral-job-operator@${{ steps.build.outputs.digest }}
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/ephemeral-job-operator/config/manager/kustomization.yaml
+          git commit -m "chore(ephemeral-job-operator): update image to ${{ github.sha }}" || exit 0
+          git push

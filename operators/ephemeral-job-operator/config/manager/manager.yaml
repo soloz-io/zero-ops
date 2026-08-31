@@ -38,7 +38,15 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: ghcr.io/soloz-io/ephemeral-job-operator:latest
+          # Rewritten by config/manager/kustomization.yaml, which CI updates with
+          # the digest it just pushed.
+          #
+          # This is a kustomize image NAME, not a pullable reference. It must match
+          # the `name:` in that kustomization and the argument CI passes to
+          # `kustomize edit set image` — all three are the same string. A literal
+          # repo:tag here would match none of them, so nothing would rewrite it and
+          # the deployed image would drift from the digest recorded in Git.
+          image: ephemeral-job-operator
           args:
             - --leader-elect
             # ADR-052 §11: measured p95 for this spoke's burst placement class.
