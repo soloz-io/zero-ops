@@ -127,10 +127,20 @@ data:
         name: {{ $t }}-oidc
         namespace: default
       target:
+        # The gateway itself — no port, no listener name.
+        #
+        # Gateway-phase policies are looked up by gateway target
+        # (gateway_policies -> as_gateway_target_ref) and by listener name,
+        # never by port: the port field is only consulted on a separate
+        # frontend-policy path. A target carrying `port: 3000` matched nothing
+        # and the policy silently did not apply — the SPA answered 200 to an
+        # unauthenticated request.
+        #
+        # gatewayName/gatewayNamespace are the xDS identity, which a file-driven
+        # gateway reports as default/default.
         gateway:
           gatewayName: default
           gatewayNamespace: default
-          port: 3000
       # Before route selection. At the default "route" phase this policy did not
       # take effect at all: the SPA answered 200 to an unauthenticated request
       # and the API reached the BFF with no identity.
