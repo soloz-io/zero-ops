@@ -144,6 +144,11 @@ spec:
             parameters:
               - name: deployXR
                 value: "false"
+              # Environment-owned, never fleet-supplied (ADR-050). Passed as a
+              # parameter so it overrides anything a fleet's values file might
+              # set, rather than merging with it.
+              - name: oidcIssuer
+                value: {{ .Values.oidcIssuer | quote }}
 
         # Source 2: Fleet registry values file
         - repoURL: https://github.com/soloz-io/fleet-registry

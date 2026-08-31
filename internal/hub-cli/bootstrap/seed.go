@@ -135,7 +135,7 @@ spec:
 // than passed to a one-shot render. They are the cluster's identity, fixed at
 // creation, and being part of a reconciled object they survive rather than
 // having to be re-supplied by whoever last ran a render.
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer string) string {
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer string) string {
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -161,6 +161,8 @@ spec:
           value: %q
         - name: publicTlsIssuer
           value: %q
+        - name: oidcIssuer
+          value: %q
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops
@@ -170,7 +172,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer)
+`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -192,6 +194,20 @@ func (o *Orchestrator) applySeed(ctx context.Context, kubeconfig string) error {
 		return fmt.Errorf("failed to apply boundary AppProjects: %w", err)
 	}
 
+	// The identity provider tenants authenticate against (ADR-050). Derived from
+	// the environment's own zone rather than configured separately: the Hydra
+	// issuer IS the auth endpoint this bootstrap already computes, and a second
+	// source for it is a way for the two to disagree.
+	//
+	// Supplied here because it is environment identity, not fleet data — a fleet
+	// able to set it could point its login flow at an issuer this platform does
+	// not trust.
+	zone, err := ReadHubZone(".", o.EnvironmentSlug)
+	if err != nil {
+		return fmt.Errorf("failed to read hub zone for the OIDC issuer: %w", err)
+	}
+	oidcIssuer := "https://" + DeriveHubEndpoints(zone).Auth
+
 	publicTlsIssuer, err := o.publicTlsIssuerFor()
 	if err != nil {
 		return err
@@ -211,7 +227,7 @@ func (o *Orchestrator) applySeed(ctx context.Context, kubeconfig string) error {
 	}
 
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.Provider.Name(),
-		o.Topology, hubIngressAddress, publicTlsIssuer)
+		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}

@@ -74,3 +74,15 @@ hubIngressAddress: ""
 # Day-0 from the environment slug and thereafter reconciled continuously.
 # ──────────────────────────────────────────────────────────────────────────────
 publicTlsIssuer: ""
+
+# The identity provider tenants authenticate against, as an issuer URL.
+#
+# Environment-owned, not fleet-owned (ADR-050): which provider a spoke trusts is
+# a platform property, and a fleet able to set it could point its own login flow
+# at an issuer the platform does not trust. Passed to every tenant's chart as a
+# parameter for that reason, rather than left in a values file a fleet supplies.
+#
+# Conventionally auth.<environment domain>. Left empty here because the bootstrap
+# owns environment identity, and a default would be silently wrong in every
+# environment but one — the same reasoning as publicTlsIssuer above.
+oidcIssuer: ""
