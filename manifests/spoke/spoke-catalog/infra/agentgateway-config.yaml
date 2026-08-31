@@ -55,6 +55,31 @@ data:
             transformations:
               request:
                 set:
+                  # Forward the ID token itself, not merely claims derived from it.
+                  #
+                  # ADR-050 makes the BFF validate identity independently: the
+                  # gateway routes, it is not the root of trust. The BFF therefore
+                  # requires an Authorization bearer token and treats the x-auth-*
+                  # headers below as convenience claims only, refusing to derive
+                  # identity from them (packages/bff/src/routes/auth.ts). That
+                  # refusal is deliberate hardening — before it, any client could
+                  # send x-auth-subject and be trusted.
+                  #
+                  # Without this line the two halves never meet. The gateway
+                  # authenticates the user against Hydra correctly, strips the
+                  # token, forwards only headers, and every BFF request resolves
+                  # to UNAUTHENTICATED — with nothing failing anywhere to say so.
+                  #
+                  # jwt.rawToken is the raw ID TOKEN here, not an access token:
+                  # the OIDC filter validates browser_session.raw_id_token and
+                  # publishes those claims (agentgateway http/oidc/mod.rs:217).
+                  # That is what the BFF's ID-token validator expects.
+                  # .unredacted() is required — the value renders as "<redacted>"
+                  # otherwise, which would forward a syntactically valid header
+                  # carrying nothing.
+                  Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+                  # Retained for logging, tracing and dev-mode convenience. Never
+                  # a source of identity in production.
                   X-Auth-Subject: jwt.sub
                   X-Auth-Email: jwt.email
                   X-Auth-Role: jwt.role
