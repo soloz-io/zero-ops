@@ -88,11 +88,20 @@ export class JwtValidator {
       // identical to any other malformed token.
       const claim = (err as { claim?: string }).claim;
       if (joseErr.code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+        // Report the claim's VALUE, not its name. Both errors take (expected,
+        // actual) and were being handed `claim`, which is the string "iss" or
+        // "aud" — so an audience mismatch read `expected "<...>", got ""aud""`,
+        // naming the field instead of what the token actually carried. The one
+        // fact needed to diagnose the mismatch was the one thing omitted.
+        //
+        // Decoded without verification, and only to build the message: the token
+        // has already failed validation and nothing here is trusted or returned.
+        const actual = decodeClaimForDiagnostics(token, claim);
         if (claim === "iss") {
-          throw new InvalidIssuerError(this.issuer ?? "", claim);
+          throw new InvalidIssuerError(this.issuer ?? "", describeClaim(actual));
         }
         if (claim === "aud") {
-          throw new InvalidAudienceError(this.audience ?? "", claim);
+          throw new InvalidAudienceError(this.audience ?? "", describeClaim(actual));
         }
       }
 
@@ -102,5 +111,29 @@ export class JwtValidator {
         cause: err,
       });
     }
+  }
+}
+
+
+/**
+ * Reads one claim out of an unverified token, for error messages only.
+ *
+ * The token reaching here has already failed verification, so the value is
+ * untrusted by construction and is used solely to say what was seen. Returns
+ * undefined rather than throwing: a malformed token must not turn a claim
+ * mismatch into a different error on the way out.
+ */
+function describeClaim(value: unknown): string {
+  if (value === undefined) return "<absent>";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function decodeClaimForDiagnostics(token: string, claim: string | undefined): unknown {
+  if (!claim) return undefined;
+  try {
+    return (jose.decodeJwt(token) as Record<string, unknown>)[claim];
+  } catch {
+    return undefined;
   }
 }
