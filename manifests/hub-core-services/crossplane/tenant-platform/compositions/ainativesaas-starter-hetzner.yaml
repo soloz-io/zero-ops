@@ -668,7 +668,7 @@ spec:
             metadata:
               namespace: ""  # Patched: tenant-<id>
             data:
-              "20240101000001_create_users_table.sql": |-
+              "20240101000001_create_users_table.sql": |
                 -- Migration: Create users table with RLS
                 -- Description: Users table for tenant identity management with row-level security
                 -- Idempotent: Yes (uses IF NOT EXISTS)
@@ -721,7 +721,7 @@ spec:
                   BEFORE UPDATE ON public.users
                   FOR EACH ROW
                   EXECUTE FUNCTION public.update_updated_at_column();
-              "20240101000002_create_sessions_table.sql": |-
+              "20240101000002_create_sessions_table.sql": |
                 -- Migration: Create sessions table with RLS
                 -- Description: Sessions table for user authentication state with row-level security
                 -- Idempotent: Yes (uses IF NOT EXISTS)
@@ -759,7 +759,7 @@ spec:
                   WITH CHECK (
                     user_id = (current_setting('request.jwt.claims', true)::json->>'user_id')::uuid
                   );
-              "20240101000003_create_identities_table.sql": |-
+              "20240101000003_create_identities_table.sql": |
                 -- Migration: Create identities table with RLS
                 -- Description: Identities table for OAuth/OIDC provider linkage with row-level security
                 -- Idempotent: Yes (uses IF NOT EXISTS)
@@ -805,7 +805,7 @@ spec:
                   BEFORE UPDATE ON public.identities
                   FOR EACH ROW
                   EXECUTE FUNCTION public.update_updated_at_column();
-              "20240101000004_create_buckets_table.sql": |-
+              "20240101000004_create_buckets_table.sql": |
                 -- Migration: Create buckets table with RLS
                 -- Description: Buckets table for object storage organization with row-level security
                 -- Idempotent: Yes (uses IF NOT EXISTS)
@@ -859,7 +859,7 @@ spec:
                   BEFORE UPDATE ON public.buckets
                   FOR EACH ROW
                   EXECUTE FUNCTION public.update_updated_at_column();
-              "20240101000005_create_objects_table.sql": |-
+              "20240101000005_create_objects_table.sql": |
                 -- Migration: Create objects table with RLS
                 -- Description: Objects table for file metadata storage with row-level security
                 -- Idempotent: Yes (uses IF NOT EXISTS)
