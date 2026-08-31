@@ -167,6 +167,14 @@ metadata:
   namespace: tenant-{{ $t }}
   labels:
     app: {{ $name }}
+    # Required by enforce-tenant-abi/require-cost-labels, which matches every
+    # Deployment in a tenant-* namespace. The shared gateway lived in
+    # platform-ops, outside that match, so moving it here brought it under rules
+    # it had never had to meet. cost-center is the platform's because the
+    # platform, not the fleet, decides this workload runs and how large it is.
+    tenant-id: {{ $t }}
+    cost-center: platform
+    workload-class: stateless-web
 spec:
   # Fixed. Replica count and resource requests are the platform's capacity
   # decision — a spoke's tenant ceiling is derived from them (ADR-050) — and a
@@ -187,6 +195,15 @@ spec:
         checksum/config: {{ printf "%s%s" (toString $hosts) $issuer | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
+      # Pod-level, not only container-level. The tenant admission policy reads
+      # /spec/template/spec/securityContext/runAsNonRoot, so a container-level
+      # setting alone satisfies the intent and fails the rule.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: agentgateway
         # Pinned to tag + digest. `:latest` is not reproducible — a rebuild of the
@@ -260,6 +277,7 @@ metadata:
   namespace: tenant-{{ $t }}
   labels:
     app: {{ $name }}
+    tenant-id: {{ $t }}
 spec:
   selector:
     app: {{ $name }}
