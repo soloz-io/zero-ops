@@ -73,7 +73,7 @@ data:
         # with a redirect to the login page, which a browser blocks on an XHR as a
         # CORS error naming the identity provider rather than the routing.
         - name: {{ $t }}
-          rule_name: api
+          ruleName: api
           backends:
           - host: {{ $bff }}
           hostnames:
@@ -113,7 +113,7 @@ data:
                   X-Auth-Role: jwt.role
                   X-Auth-Tenant: jwt.tenant_id
         - name: {{ $t }}
-          rule_name: spa
+          ruleName: spa
           backends:
           - host: {{ $frontend }}
           hostnames:
