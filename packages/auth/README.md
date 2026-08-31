@@ -8,7 +8,7 @@ Platform-wide authentication and authorization primitives for tenant services.
 npm install zero-ops-auth
 # or
 pnpm add zero-ops-auth
-```
+``` 
 
 ## Features
 
