@@ -11,9 +11,15 @@ import (
 const fleetCAName = "Fleet Intermediate CA"
 
 type caEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
+
+// caStatusPendingCertificate is the state a root CA sits in between being
+// created and having its self-signed certificate generated. A CA in this state
+// answers issuance requests with "CA is not active".
+const caStatusPendingCertificate = "pending-certificate"
 
 type policyEntry struct {
 	ID   string `json:"id"`
@@ -36,10 +42,10 @@ func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID
 		return fmt.Errorf("list certificate authorities: %w", err)
 	}
 
-	var fleetCAID string
+	var fleetCAID, fleetCAStatus string
 	for _, ca := range cas {
 		if ca.Name == fleetCAName {
-			fleetCAID = ca.ID
+			fleetCAID, fleetCAStatus = ca.ID, ca.Status
 			break
 		}
 	}
@@ -48,14 +54,25 @@ func ensureCertificateProfiles(ctx context.Context, podName, adminJWT, projectID
 		if err != nil {
 			return fmt.Errorf("create CA %q: %w", fleetCAName, err)
 		}
+		fleetCAStatus = caStatusPendingCertificate
 		fmt.Printf("[infisical-bootstrap] Created CA %q: id=%s\n", fleetCAName, fleetCAID)
+	} else {
+		fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s status=%s\n", fleetCAName, fleetCAID, fleetCAStatus)
+	}
 
+	// Activation keys off status, not off whether this run created the CA.
+	//
+	// Creating and activating are two API calls, so anything that interrupts a
+	// bootstrap between them leaves a CA that exists, is found by the check
+	// above, and can never issue. That is not a hypothetical: it is how this
+	// fleet's CA ended up stuck at pending-certificate, which stayed invisible
+	// until the certificates issued by its predecessor expired days later and
+	// every renewal failed with "CA is not active".
+	if fleetCAStatus == caStatusPendingCertificate {
 		if err := activateRootCA(ctx, podName, adminJWT, fleetCAID); err != nil {
 			return fmt.Errorf("activate CA %q: %w", fleetCAName, err)
 		}
 		fmt.Printf("[infisical-bootstrap] Activated CA %q: id=%s\n", fleetCAName, fleetCAID)
-	} else {
-		fmt.Printf("[infisical-bootstrap] Found CA %q: id=%s\n", fleetCAName, fleetCAID)
 	}
 
 	// Phase 2: Resolve certificate policy (one policy covers all profiles)

@@ -1200,6 +1200,13 @@ func (r *HubEnvironmentReconciler) ensurePKITemplates(ctx context.Context, hubEn
 	// could not issue argocd-agent-jwt and argocd-agent-principal never started,
 	// while it created argocd-principals and argocd-agents, which no issuer,
 	// Certificate or ADR references. See internal/pki.
+	// Before the templates, because every template hangs off this CA and a CA
+	// still awaiting its own certificate accepts template creation while
+	// refusing every issuance request with "CA is not active".
+	if err := infisicalClient.EnsureCAActive(ctx, projectSlug, "fleet-intermediate-ca"); err != nil {
+		return fmt.Errorf("ensure CA active failed: %w", err)
+	}
+
 	for _, p := range pki.RequiredProfiles {
 		if err := infisicalClient.EnsurePKITemplate(ctx, projectSlug, "fleet-intermediate-ca", p.Slug, p.TTLDays); err != nil {
 			return fmt.Errorf("ensure PKI template %q failed: %w", p.Slug, err)

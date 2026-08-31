@@ -16,6 +16,8 @@ const (
 	APIEndpointSecretsRaw                 = "/api/v3/secrets/raw"
 	APIEndpointSecretsRawKey              = "/api/v3/secrets/raw/%s"
 	APIEndpointPKITemplates               = "/api/v2/pki/certificate-templates"
+	APIEndpointCertificateAuthorities     = "/api/v1/cert-manager/ca"
+	APIEndpointCACertificate              = "/api/v1/cert-manager/ca/%s/certificate"
 	APIEndpointWorkspace                  = "/api/v1/workspace"
 	APIEndpointFolders                    = "/api/v2/folders"
 )

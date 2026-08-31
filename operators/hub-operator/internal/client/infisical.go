@@ -678,3 +678,129 @@ func (c *InfisicalClient) createPKITemplate(ctx context.Context, workspaceId, ca
 
 	return nil
 }
+
+// caStatusPendingCertificate is the state a root CA occupies between being
+// created and having its self-signed certificate generated. A CA in this state
+// exists, is discoverable by name, and answers every issuance request with
+// "CA is not active".
+const caStatusPendingCertificate = "pending-certificate"
+
+// EnsureCAActive activates the named certificate authority if it is still
+// awaiting its own certificate.
+//
+// The CLI creates and activates the CA in two API calls during Day-0 (ADR-042).
+// Anything interrupting a bootstrap between them — or a rebuild of Infisical
+// that recreates the CA — leaves a CA that later runs find by name and assume
+// is usable. Nothing surfaces the difference: templates are created against it
+// successfully, issuance works for as long as certificates issued by the
+// previous CA remain valid, and the fleet only discovers the fault days later
+// when those expire and every renewal fails at once.
+//
+// This is the self-healing half of PKI_READY, matching ensurePKITemplates. It
+// activates on status rather than on whether this process created the CA,
+// because the caller cannot know which bootstrap left it in this state.
+func (c *InfisicalClient) EnsureCAActive(ctx context.Context, projectSlug, caName string) error {
+	logger := log.FromContext(ctx)
+
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	caID, status, err := c.findCertificateAuthority(ctx, workspaceId, caName)
+	if err != nil {
+		return fmt.Errorf("failed to look up CA %q: %w", caName, err)
+	}
+	if caID == "" {
+		// The CLI owns creation. A missing CA is a bootstrap that has not run,
+		// not a fault this reconcile can repair.
+		logger.Info("Certificate authority not found; leaving creation to Day-0 bootstrap", "caName", caName)
+		return nil
+	}
+	if status != caStatusPendingCertificate {
+		return nil
+	}
+
+	logger.Info("Certificate authority is pending its certificate; activating", "caName", caName, "caId", caID)
+	if err := c.activateCertificateAuthority(ctx, caID); err != nil {
+		return fmt.Errorf("failed to activate CA %q: %w", caName, err)
+	}
+	logger.Info("Activated certificate authority", "caName", caName, "caId", caID)
+	return nil
+}
+
+// findCertificateAuthority returns the id and status of the named CA, or an
+// empty id when the project has no CA by that name.
+func (c *InfisicalClient) findCertificateAuthority(ctx context.Context, workspaceId, caName string) (string, string, error) {
+	url := fmt.Sprintf("%s%s?projectId=%s", c.baseURL, constant.APIEndpointCertificateAuthorities, workspaceId)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("unexpected status code listing certificate authorities: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		CertificateAuthorities []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"certificateAuthorities"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", fmt.Errorf("failed to parse certificate authority list: %w", err)
+	}
+	for _, ca := range result.CertificateAuthorities {
+		if ca.Name == caName {
+			return ca.ID, ca.Status, nil
+		}
+	}
+	return "", "", nil
+}
+
+// activateCertificateAuthority generates the root CA's self-signed certificate.
+//
+// The validity window matches the CLI's Day-0 activation so a CA activated here
+// is indistinguishable from one activated at bootstrap.
+func (c *InfisicalClient) activateCertificateAuthority(ctx context.Context, caID string) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"notBefore":     "2026-06-07T00:00:00Z",
+		"notAfter":      "2036-06-07T00:00:00Z",
+		"maxPathLength": 1,
+	})
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s%s", c.baseURL, fmt.Sprintf(constant.APIEndpointCACertificate, caID))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d activating CA: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
