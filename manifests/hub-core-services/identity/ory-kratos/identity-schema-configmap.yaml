@@ -1,3 +1,22 @@
+# Identity traits for the platform's users.
+#
+# `tenant_id` and `role` are here because the rest of the chain already depends
+# on them and this schema was the one place that could not hold them. The
+# consent handler builds the ID token's claims from these traits
+# (internal/auth-proxy/handlers.go), and the token validator refuses a token
+# without a tenant (packages/auth, ADR-057, whose own diagram specifies the
+# validated token carries subject, email and tenant).
+#
+# With `additionalProperties: false` and neither trait declared, an identity
+# could not carry them at all: the consent handler read nil, issued a token
+# without the claim, and every authenticated request was answered 401 by the
+# tenant's BFF — after the gateway had authenticated the person correctly.
+#
+# Neither is `required`. A trait that gates authentication but is absent from
+# every identity created so far would make those identities invalid rather than
+# unauthorised, and would fail registration rather than the request that needs
+# it. How a person comes to have a tenant is a separate question (ADR-057); this
+# only makes it possible to record.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,6 +48,14 @@ data:
                   "via": "email"
                 }
               }
+            },
+            "tenant_id": {
+              "type": "string",
+              "title": "Tenant"
+            },
+            "role": {
+              "type": "string",
+              "title": "Role"
             }
           },
           "required": [
