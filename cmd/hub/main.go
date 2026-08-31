@@ -21,6 +21,7 @@ func main() {
 	rootCmd.AddCommand(newConfigureTailscaleCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
+	rootCmd.AddCommand(newReseedCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

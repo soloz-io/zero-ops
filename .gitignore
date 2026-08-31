@@ -2,7 +2,11 @@ k8-secrets
 archived
 chat-logs
 bin
-hub
+# The built CLI binaries, not the package directory. A bare "hub" also matched
+# cmd/hub/, so every new source file added there was silently ignored — the file
+# stays untracked, the build keeps working locally, and the change is lost.
+/hub
+/cmd/hub/hub
 hub.exe
 codebase.md
 .kiro/specs/agentic-enterprise-onboarding/references

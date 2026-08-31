@@ -194,6 +194,18 @@ func (o *Orchestrator) applySeed(ctx context.Context, kubeconfig string) error {
 		return fmt.Errorf("failed to apply boundary AppProjects: %w", err)
 	}
 
+	return o.applySeedApplication(ctx, kubeconfig)
+}
+
+// applySeedApplication renders and applies the seed Application alone.
+//
+// Separated from the AppProjects because the two have different lifetimes. The
+// AppProjects carry boundary activation state, and in sequenced mode restating
+// them re-applies every deny sync window — correct during a bootstrap that
+// activates each boundary afterwards, and a fleet-wide freeze on a cluster that
+// is already running. The seed Application carries no such state and can be
+// restated at any time.
+func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig string) error {
 	// The identity provider tenants authenticate against (ADR-050). Derived from
 	// the environment's own zone rather than configured separately: the Hydra
 	// issuer IS the auth endpoint this bootstrap already computes, and a second
@@ -226,12 +238,77 @@ func (o *Orchestrator) applySeed(ctx context.Context, kubeconfig string) error {
 		envRevision = b
 	}
 
-	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.Provider.Name(),
+	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
 		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}
 	return nil
+}
+
+// ReapplySeed brings an existing cluster's seed Application to what the
+// renderer above defines.
+//
+// The seed Application is written once, at bootstrap. Adding a parameter to
+// renderSeedApplication therefore changes nothing on a cluster already running:
+// the live Application keeps the parameter set it was created with, the
+// environment-manager chart renders without the new value, and every
+// Application generated from it fails comparison. That failure does not present
+// as a missing parameter — it presents as ComparisonError, which ArgoCD reports
+// as sync status Unknown, and auto-sync only fires on OutOfSync. The change
+// appears pushed, the Application appears healthy, and nothing deploys. This is
+// how the per-tenant gateway sat undeployed after being committed.
+//
+// The alternative is patching the live Application by hand, which loses the fix
+// the moment anyone reads the repository as the source of truth. This exists so
+// the renderer stays the single definition of the seed and an existing cluster
+// can be brought to it — the same manifest, applied, rather than a second one
+// typed at a terminal.
+//
+// Only the seed Application is applied. Boundary activation is Day-0 state
+// (ADR-040, ADR-055) and restating it here would re-gate boundaries that have
+// been opened.
+func (o *Orchestrator) ReapplySeed(ctx context.Context, kubeconfig string) error {
+	return o.applySeedApplication(ctx, kubeconfig)
+}
+
+// ReadSeedIdentity returns the environment, provider and topology recorded on a
+// cluster's existing seed Application.
+//
+// These three name the cluster. Re-supplying them by hand to restate the seed
+// invites supplying one of them differently, and the failure is quiet: topology
+// is a path segment, so a value that merely looks reasonable repoints the spoke
+// pool ApplicationSet at a directory that does not exist, and the Applications
+// generated from it go missing rather than erroring. Reading them back from the
+// cluster removes the opportunity.
+func ReadSeedIdentity(ctx context.Context, kubeconfig string) (envSlug, provider, topology string, err error) {
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"-n", "platform-ops", "get", "application", seedAppName,
+		"-o", `jsonpath={range .spec.source.helm.parameters[*]}{.name}={.value}{"\n"}{end}`)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read the seed Application %q: %w: %s",
+			seedAppName, err, strings.TrimSpace(stderr.String()))
+	}
+
+	values := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		name, value, found := strings.Cut(strings.TrimSpace(line), "=")
+		if found {
+			values[name] = value
+		}
+	}
+
+	envSlug, provider = values["environmentSlug"], values["provider"]
+	if envSlug == "" || provider == "" {
+		return "", "", "", fmt.Errorf(
+			"the seed Application %q records no environmentSlug or provider — refusing to guess the cluster's identity", seedAppName)
+	}
+	// topology is legitimately empty on a single-topology cluster, so its
+	// absence is not an error and must not be defaulted.
+	return envSlug, provider, values["topology"], nil
 }
 
 // activateBoundary opens boundary n by removing its deny sync window.

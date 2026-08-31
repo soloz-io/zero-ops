@@ -58,6 +58,22 @@ type Orchestrator struct {
 	// Gating selects how the cluster is created (ADR-055). Empty means
 	// sequenced: converged creation is requested by name or it does not occur.
 	Gating GatingMode
+	// ProviderName names the provider when no Provider is constructed. A
+	// bootstrap always has one; operations that only restate Day-0 artifacts on
+	// an existing cluster need the name and nothing else, and building a whole
+	// provider to read one string would mean standing up cloud credentials to
+	// apply a manifest.
+	ProviderName string
+}
+
+// providerName returns the provider's name from whichever of the two fields is
+// populated. Provider wins: when a bootstrap has constructed one, it is the
+// authority on its own name.
+func (o *Orchestrator) providerName() string {
+	if o.Provider != nil {
+		return o.Provider.Name()
+	}
+	return o.ProviderName
 }
 
 // Run executes the full 17-phase bootstrap pipeline with checkpoint/restart.
