@@ -2246,6 +2246,167 @@ the control plane is Ready. Node count after convergence does not enter into it.
 of three.
 
 
+### 29. The mark guard runs only on the control plane; tenant workloads run where it does not (2026-08-31)
+
+Addenda 8, 27 and 28 each exempt one path from Cilium's `0x200` to-proxy mark,
+and each concluded the same thing: the mark is applied broadly, and every path
+that must not be captured has to be exempted explicitly. All three exemptions are
+asserted by `cilium-hostnetwork-mangle-guard`, which is scoped to one node class:
+
+```
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""     desired=1 ready=1
+```
+
+Every tenant workload runs on the home workers. Those nodes join the same
+tailnet, carry `100.x` addresses, and reach the control plane over the same VXLAN
+tunnel, so the conditions all three addenda describe hold there identically:
+
+```
+control-plane   8: from all to 100.64.0.0/10 lookup 52
+                9: from all fwmark 0x200/0xf00 lookup 2004
+worker          9: from all fwmark 0x200/0xf00 lookup 2004      (nothing ahead of it)
+```
+
+The three addenda were each found by a failure on the control plane, because that
+is where the hub's Gateway and its Envoy upstreams live. Nothing has yet failed
+in a way that traced back to a worker, which is why the scope was never
+questioned — not because the workers were considered and excluded.
+
+Extending the guard is not a selector change. It also asserts two iptables rules
+written for the host-network Gateway listener, which exists only on the control
+plane: a `RETURN` for tcp/80/443, and a `RETURN` for TCP from the pod CIDR to a
+LOCAL destination. Whether both are inert on a worker has not been established,
+and assuming it is the reasoning that produced three of these addenda. The
+narrower change is to split addendum 28's `ip rule` into a guard that runs
+everywhere and leave the gateway-specific iptables rules where they are.
+
+**Not codified.** Recorded because the gap is real and the shape of the fix is
+known; the verification it needs has not been done.
+
+### 30. `toFQDNs` is inert on the hybrid spoke: the DNS proxy receives nothing (2026-08-31)
+
+**Symptom.** A tenant's BFF answered `401 Unauthenticated` on every request the
+gateway had already authenticated and forwarded with `jwt.sub` set. Its own log
+gave the reason — `ID token validation failed: request timed out` — after 10
+seconds spent fetching JWKS from the issuer. The tenant egress contract allows
+that host by name.
+
+**Root cause.** Cilium enforces a `toFQDNs` rule against a cache of name-to-IP
+mappings built by proxying the workload's own DNS queries. That proxying happens
+only when the DNS egress rule carries a `rules.dns` match pattern; the contract
+had none, so the cache was empty and every `toFQDNs` rule matched no address:
+
+```
+cilium-dbg fqdn cache list
+Endpoint   Source   FQDN   TTL   ExpirationTime   IPs
+                          -- no entries --
+```
+
+Adding the visibility block is the documented remedy and made it worse: DNS
+stopped resolving entirely for the selected workloads, internal names included.
+The redirect is programmed and the packets reach it, but the proxy never does:
+
+```
+BPF policy map    53/UDP -> PROXY PORT 39789, PACKETS 2
+proxy mark        0x6d9b0200 = MARK_MAGIC_TO_PROXY | (39789<<16)
+iptables TPROXY   13 pkts, 1310 bytes -> 127.0.0.1:39789        matched
+ip rule 9         fwmark 0x200/0xf00 -> table 2004 (local dev lo)
+proxy socket      127.0.0.1:39789 UDP+TCP, cilium-agent          listening
+proxy received    0                                              <-- the only failure
+```
+
+Ruled out: `rp_filter` (0 on all, default and every lxc), TPROXY kernel modules
+(`xt_TPROXY`, `nf_tproxy_ipv4` loaded), filter `INPUT` (policy ACCEPT),
+Tailscale's `ts-input` DROP (0 packets), NOTRACK (applied), and encryption
+(disabled, so transparent mode is not pinned on).
+
+**Not a property of the home workers.** The same reproducer fails on the Hetzner
+control-plane node, which rules out Flatcar, the tailnet and the guard scope of
+addendum 29.
+
+**Three candidate fixes tested and falsified.** Recorded so none is retried:
+
+| Candidate | Result |
+|---|---|
+| Addendum 28's `ip rule priority 8 to 100.64.0.0/10` | proxy received 0 |
+| `dnsproxy-enable-transparent-mode: false` + agent restart | proxy received 0 |
+| `route_localnet=1` on the control plane (addendum 31) | proxy received 0 |
+
+The first fails for a reason addendum 28 states itself: it exempts *tailnet*
+destinations and "cannot affect the proxy redirect, which exists for traffic
+addressed to pods". A DNS query to CoreDNS is addressed to a pod.
+
+**Decision — a platform-owned CIDR allowance, with a deletion trigger.** The
+tenant contract keeps its `toFQDNs` rules; they remain the correct expression and
+resume being operative when the proxy is fixed. Until then a
+`CiliumClusterwideNetworkPolicy` in the environment overlay grants tenant
+workloads egress to the identity endpoints on 443.
+
+The address lives in the environment overlay and not in the tenant contract: a
+tenant must not carry the platform's addressing, that directory is already
+environment-scoped, and one place changes when the hub is re-addressed instead of
+one per fleet. It grants two hosts on one port — widening to `world` was the
+alternative and would have traded a login outage for the removal of the control
+the contract exists to provide.
+
+**Codified.** `manifests/spoke/spoke-catalog/environments/dev/hybrid/tenant-identity-egress.yaml`.
+
+**Revisit trigger.** This file exists only while the FQDN cache is empty. When the
+DNS proxy is fixed it should be deleted, not left to rot. The fault is narrow
+enough to take upstream: a marked, TPROXY-matched packet that never reaches a
+listening transparent socket, on Cilium 1.17.18, tunnel/vxlan, legacy host
+routing, kernel 6.12-flatcar.
+
+### 31. `route_localnet` was a side effect of the bootstrap DNAT block (2026-08-31)
+
+The bootstrap DNAT in `provision-flatcar-worker.sh` redirects `127.0.0.1:6443` to
+the control-plane endpoint so kubelet can reach the API server before Cilium is
+up. A DNAT to a loopback address is only routed when `route_localnet` is set, and
+that sysctl was enabled by `sysctl -w` inside the same conditional.
+
+A kernel setting the node depends on was therefore both undeclared and
+non-persistent: absent from the node's sysctl configuration, skipped when that
+branch does not run, and gone after a reboot unless it runs again.
+
+It also produced a difference between node classes that nothing recorded. Home
+workers carry `route_localnet=1` as a side effect; the Hetzner control plane,
+provisioned by CAPI and never by this script, has it at 0. That difference was
+noticed only while diagnosing addendum 30, as a candidate cause — which it was
+not.
+
+**Codified.** Declared in `/etc/sysctl.d/99-kubernetes.conf` alongside the other
+kernel settings the node needs. The runtime `sysctl -w` calls stay so the setting
+is in place before the DNAT rules are inserted on first boot.
+
+### 32. Two Gateways claimed :80 on the shared Envoy, and the loser broke the winner (2026-08-31)
+
+`gatewayAPI.hostNetwork` (§8) has the embedded Envoy bind `0.0.0.0:80/443` on the
+node directly. Two Gateways claiming the same port therefore collide in one Envoy
+process. That happened on the spoke between the platform's `:80` redirect Gateway
+in `platform-ops` and a fleet-owned `:80` Gateway in the tenant namespace.
+
+`probes/l2-dual-gateway-probe.yaml` records the hazard and expects the losing
+Gateway to be "marked Programmed but INERT" — a quiet failure. It is not quiet.
+Envoy rejects the duplicate listener with a NACK, and a NACK invalidates the whole
+xDS version, so the `:443` listener in a different CiliumEnvoyConfig stopped being
+programmed too. Every tenant hostname answered `503 no healthy upstream`.
+
+The collision was latent for as long as nothing re-pushed the losing config, and
+which Gateway held the port was decided by whichever was programmed first. It
+surfaced only when a CEC was regenerated, days after both Gateways were created.
+
+**Resolved** by retiring the fleet-owned Gateway (fleet-registry), which was also
+a plaintext path to tenant workloads that never traversed AgentGateway — the
+bypass ADR-050 forbids. Public entry is platform-owned per ADR-051.
+
+Two things remain. Nothing prevents the next fleet from declaring a Gateway; a
+rule in `enforce-tenant-abi` refusing `gateway.networking.k8s.io/Gateway` in
+`tenant-*` namespaces would make ADR-047's assignment structural rather than
+reviewed. And the probe's expectation should be corrected: a second claim on a
+bound port is *rejected*, and it takes the working listener with it.
+
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
