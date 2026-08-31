@@ -22,7 +22,7 @@ spec:
       restartPolicy: OnFailure
       initContainers:
         - name: install-curl
-          image: alpine:3.20
+          image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
           command: ["sh", "-c", "apk add --no-cache curl && cp /scripts/dkim-postsync.sh /tmp/dkim-postsync.sh && chmod +x /tmp/dkim-postsync.sh"]
           volumeMounts:
             - name: scripts
@@ -32,7 +32,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: dkim-postsync
-          image: alpine:3.20
+          image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
           command: ["/tmp/dkim-postsync.sh"]
           env:
             - name: STALWART_URL
