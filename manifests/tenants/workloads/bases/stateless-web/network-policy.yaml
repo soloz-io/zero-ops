@@ -35,6 +35,39 @@ spec:
             - port: "5432"
               protocol: TCP
 
+
+    # STOPGAP: outbound HTTPS to any external host.
+    #
+    # Every toFQDNs rule a tenant adds below matches nothing. Cilium builds the
+    # FQDN cache by proxying the workload's DNS queries; that proxy receives
+    # nothing on this platform, so the cache stays empty and an allowlist
+    # enforces a deny-all. See enhancements 2026-08-31 items 9, 10, 15 and
+    # ADR-046 addendum 30 — four candidate fixes tested and falsified, the last
+    # being enable-bpf-tproxy on 2026-09-01.
+    #
+    # This is the SECOND place the same stopgap has been needed: the sandbox
+    # policy got it so an agent could reach its model provider, and the SDK needs
+    # it to reach RunPod. The workflow step failed with "HTTP request failed:
+    # fetch failed" and the job never left the cluster, while the run reported
+    # QUEUED — an outward-looking symptom for a local egress denial.
+    #
+    # It IS a real widening: any tenant workload may now open HTTPS to any host.
+    # What bounds it: the FQDN rules match nothing today, so the posture this
+    # replaces is no external access at all rather than the allowlist; it is 443
+    # and egress only; and cluster-internal destinations are unaffected, because
+    # `world` matches external addresses only — pod and service endpoints carry
+    # their own Cilium identities.
+    #
+    # REVISIT TRIGGER: delete this rule the moment the FQDN cache populates. The
+    # toFQDNs rules resume being operative on their own and nothing else needs to
+    # change. Check with `cilium-dbg fqdn cache list` on any node.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
     # 3. Platform identity endpoints — present in every tenant workload.
     #    Tenant overlays add their own FQDN entries on top of these.
     - toFQDNs:
