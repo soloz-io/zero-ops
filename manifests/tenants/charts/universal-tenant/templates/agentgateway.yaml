@@ -65,15 +65,15 @@ data:
               body: "OK"
         # BFF first: the more specific /api prefix must precede the catch-all.
         #
-        # Both routes share `name`, deliberately. AgentGateway derives its OIDC
-        # cookie names from a hash of "<listener>/<namespace>/<route name>" — the
-        # rule name is not part of that key. Two names would mean two session
-        # cookies, so a session established by loading the SPA would be invisible
-        # to /api: every API call would be treated as unauthenticated and answered
-        # with a redirect to the login page, which a browser blocks on an XHR as a
-        # CORS error naming the identity provider rather than the routing.
-        - name: {{ $t }}
-          ruleName: api
+        # The two routes carry DIFFERENT names, and must. Routes are stored in a
+        # map keyed by "<listener>/<namespace>/<route name>", and inserting a
+        # second route with a key already present REMOVES the first
+        # (RouteSet::insert, types/agent.rs). rule_name is not part of that key,
+        # so two rules sharing a name are not two rules — the later one silently
+        # deletes the earlier. Giving both the name "waypoint" is what deleted
+        # this /api route: every API call fell through to the SPA backend, which
+        # does not answer them, and returned 504 after a 60s timeout.
+        - name: {{ $t }}-api
           backends:
           - host: {{ $bff }}
           hostnames:
@@ -84,19 +84,6 @@ data:
           - path:
               pathPrefix: /api
           policies:
-            oidc:
-              issuer: {{ $issuer }}
-              clientId: {{ $clientId }}
-              clientSecret: ""
-              tokenEndpointAuth: null
-              redirectURI: {{ $redirect }}
-              # Fixed by the platform. Scopes bound what a token may do, so a
-              # fleet able to widen its own would be granting itself authority
-              # the platform did not issue.
-              scopes:
-              - openid
-              - tenant:read
-              - tenant:write
             transformations:
               request:
                 set:
@@ -112,8 +99,7 @@ data:
                   X-Auth-Email: jwt.email
                   X-Auth-Role: jwt.role
                   X-Auth-Tenant: jwt.tenant_id
-        - name: {{ $t }}
-          ruleName: spa
+        - name: {{ $t }}-spa
           backends:
           - host: {{ $frontend }}
           hostnames:
@@ -123,20 +109,42 @@ data:
           matches:
           - path:
               pathPrefix: /
-          policies:
-            oidc:
-              issuer: {{ $issuer }}
-              clientId: {{ $clientId }}
-              clientSecret: ""
-              tokenEndpointAuth: null
-              redirectURI: {{ $redirect }}
-              # Fixed by the platform. Scopes bound what a token may do, so a
-              # fleet able to widen its own would be granting itself authority
-              # the platform did not issue.
-              scopes:
-              - openid
-              - tenant:read
-              - tenant:write
+    # OIDC is attached to the GATEWAY, not to either route.
+    #
+    # The session cookie's name is derived from the identity of whatever the
+    # policy is attached to. A policy inlined on a route is named for that route,
+    # so the SPA and the API would each mint their own cookie: a session
+    # established by loading the SPA would be invisible to /api, every API call
+    # would be answered with a login redirect, and the browser would report that
+    # redirect on an XHR as a CORS failure naming the identity provider rather
+    # than the routing.
+    #
+    # A named policy is identified by its own name instead (PolicyId::policy),
+    # so every route under this gateway shares one cookie — which is the reason
+    # to attach it here rather than repeating it per route.
+    policies:
+    - name:
+        name: {{ $t }}-oidc
+        namespace: default
+      target:
+        gateway:
+          gatewayName: default
+          gatewayNamespace: default
+          port: 3000
+      policy:
+        oidc:
+          issuer: {{ $issuer }}
+          clientId: {{ $clientId }}
+          clientSecret: ""
+          tokenEndpointAuth: null
+          redirectURI: {{ $redirect }}
+          # Fixed by the platform. Scopes bound what a token may do, so a fleet
+          # able to widen its own would be granting itself authority the platform
+          # did not issue.
+          scopes:
+          - openid
+          - tenant:read
+          - tenant:write
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
