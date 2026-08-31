@@ -1,0 +1,48 @@
+{{- if and (not .Values.deployXR) (.Values.sandbox.agentVault | default dict).enabled }}
+# Sandbox -> this fleet's SDK (ADR-047).
+#
+# A sandbox is not an island. Agent tools call back into the SDK to submit work:
+# the audio generator POSTs to {WAYPOINT_SDK_BASE_URL}/internal/runs/start with a
+# 10 second timeout, and other tools do the same. Without this rule that connect
+# hangs and the agent reports the platform as down — which is what happened, and
+# it presented as a DNS or outage problem rather than a missing egress rule.
+#
+# The platform-owned agent-sandbox-default-deny (spoke-catalog) governs sandbox
+# egress cluster-wide and correctly does not name any tenant's services. This
+# supplies the one internal destination a sandbox legitimately needs, in the
+# namespace that owns both ends. Cilium unions allow rules across policies, so
+# this widens the default-deny by exactly one destination and nothing else.
+#
+# Deliberately a namespaced CiliumNetworkPolicy rather than a rule on the
+# clusterwide one. A clusterwide rule matching `app: sdk` would let a sandbox in
+# any tenant reach every other tenant's SDK: Cilium cannot express "the SDK in
+# the source's own namespace" in a CiliumClusterwideNetworkPolicy, so the
+# isolation has to come from the policy being per-namespace. The SDK's internal
+# token would still refuse the call, but an authorisation check is not a
+# substitute for not being reachable.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sandbox-to-sdk
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+spec:
+  # The label the agent-sandbox CONTROLLER puts on every pod it creates. The
+  # label the SDK writes into the Sandbox CR's podTemplate never reaches the pod
+  # — the controller owns that label space and replaces it — which is why the
+  # default-deny policy selected nothing for as long as it selected on that one.
+  endpointSelector:
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox-name-hash
+        operator: Exists
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: tenant-{{ .Values.tenantId }}
+            k8s:app: sdk
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+{{- end }}
