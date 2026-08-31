@@ -1203,22 +1203,20 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 
 	// Step 4: gateway session-cookie key.
 	//
-	// Generated once and never regenerated on a later absence: rotating it
-	// invalidates every live session for that tenant, so an absent key after
-	// provisioning is a fault to report rather than a value to replace.
+	// Written on absence whatever the tenant's age, like the OAuth credentials in
+	// step 5 and for the same reason: enabling the gateway is a thing a tenant
+	// does long after it is provisioned, and refusing to seed the key then would
+	// make the feature unreachable for every tenant that already exists.
+	//
+	// The value this protects — never invalidating live sessions by replacing a
+	// key in use — is held by the existence check alone. An absent key means no
+	// gateway has ever started with one, so there is no session to lose.
 	if gatewayEnabled {
 		exists, err := c.SecretExists(ctx, tenantPath, InfisicalGatewayCookieSecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalGatewayCookieSecretKey, err)
 		}
 		if !exists {
-			if !isFirstTime {
-				logger.Error(nil, "CRITICAL: gateway cookie key missing for an already-provisioned tenant. Manual recovery required.", "path", tenantPath)
-				return &EnsureTenantCredentialsResult{
-					Result:                dbOutcome,
-					InfisicalCredsOutcome: infisicalCredsOutcome,
-				}, fmt.Errorf("%s missing from Infisical for already-provisioned tenant %s — manual recovery required", InfisicalGatewayCookieSecretKey, tenantId)
-			}
 			value, err := GenerateHexKey(32)
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate gateway cookie key for tenant %s: %w", tenantId, err)
