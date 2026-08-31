@@ -21,10 +21,14 @@
 # resolves to state the platform owns, and the record set is mechanically
 # inspectable.
 #
-# Both parentRefs are intentional: :443 terminates TLS on tenant-tls-gateway
-# (this chart's Gateway), :80 is the plaintext hop and the ACME solver attachment
-# point on tenant-gateway (spoke-catalog's). Backends are same-namespace, so no
-# ReferenceGrant exists to be abused.
+# TWO routes, one per listener, because the two listeners must behave differently.
+# :443 terminates TLS on tenant-tls-gateway (this chart's Gateway) and proxies to
+# the backend. :80 on tenant-gateway (spoke-catalog's) redirects to HTTPS instead
+# of proxying. Gateway API attaches rules to a route, not to a parentRef, so a
+# single route cannot proxy on one listener and redirect on the other — which is
+# why this was previously one route that proxied plaintext traffic.
+#
+# Backends are same-namespace, so no ReferenceGrant exists to be abused.
 #
 # Coexists with spoke-catalog's hostname-less tenant-ingress: Gateway API resolves
 # overlapping routes by hostname specificity, so these explicit names win for this
@@ -41,6 +45,47 @@ spec:
   parentRefs:
     - name: {{ .Values.tlsGatewayName }}
       namespace: platform-ops
+  hostnames:
+    {{- range .Values.public.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  rules:
+    - filters:
+        # Tell the browser never to try plaintext for this host again. The
+        # redirect below only helps someone who already made the insecure
+        # request; this stops the second one being made at all.
+        #
+        # No preload and no includeSubDomains: preload is effectively
+        # irreversible for the registered domain, and subdomains here are other
+        # tenants and platform hostnames whose TLS this chart does not own.
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+      backendRefs:
+        - name: {{ .Values.authGatewayService.name }}
+          port: {{ .Values.authGatewayService.port }}
+---
+# Plaintext listener: redirect, do not proxy.
+#
+# Previously the :80 parentRef shared the route above, so a request to
+# http://<host>/ was PROXIED in clear text. A browser sent to a bare hostname
+# tries http first, so the first request of a session travelled unencrypted and
+# the browser marked the origin insecure. The OAuth redirect target and state
+# parameter were exposed with it, and an active attacker on that hop could
+# rewrite where the person was sent. The session cookie is Secure and so was not
+# at risk; everything around it was.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ printf "%s-public-redirect" .Values.tenantId }}
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/managed-by: tenant-public-tls
+    zero-ops.io/tenant-id: {{ .Values.tenantId }}
+spec:
+  parentRefs:
     - name: {{ .Values.plaintextGatewayName }}
       namespace: platform-ops
   hostnames:
@@ -48,7 +93,31 @@ spec:
     - {{ . | quote }}
     {{- end }}
   rules:
-    - backendRefs:
+    # ACME challenges must keep reaching :80 in plaintext. ADR-051 puts the
+    # HTTP-01 solver on this listener, and a certificate cannot be issued over a
+    # redirect to a port whose certificate does not exist yet — that circularity
+    # is what deadlocked issuance on the hub and forced it onto DNS-01.
+    #
+    # This rule is first and matches a longer prefix, so it takes precedence over
+    # the redirect. cert-manager's own solver route matches the exact token path,
+    # which is more specific still, so an active challenge reaches the solver
+    # rather than the backend named here.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /.well-known/acme-challenge/
+      backendRefs:
         - name: {{ .Values.authGatewayService.name }}
           port: {{ .Values.authGatewayService.port }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            # 308 rather than 302: permanent, and it preserves the method and
+            # body. A 302 would silently turn a POST into a GET.
+            statusCode: 308
 {{- end }}
