@@ -59,6 +59,26 @@ Where a tenant separates an authentication boundary from a data-owning service, 
 
 Forwarded identity is trusted only where two conditions hold together: the caller has proved which service it is, and the network permits no other caller to reach the recipient. Neither is sufficient alone. A boundary reachable from outside the cluster must validate the token itself and must not accept an asserted identity, which is the rule ADR-050 already establishes for the internet-facing boundary.
 
+### The mapping is resolved per request and is not cached
+
+Each authenticated request resolves the acting user by reading the identity row. No cache stands in front of that read.
+
+This is a decision rather than an omission, and it is worth stating because the platform already operates a store that looks like the obvious place to put one. That store holds delegated credentials on a user's behalf, along with pending authorisation-flow state and a lock preventing concurrent refreshes. It is keyed by subject, which makes it appear suited to holding the mapping too.
+
+It is not, and the reason is lifetime. A credential expires, and its store is built around that: entries carry the remaining validity of what they hold and disappear when it lapses. The mapping between a subject and a tenant-local user is permanent until the user is removed. Storing a permanent fact in a structure whose expiry is dictated by credential lifetime means it evaporates on every token refresh and is re-derived for no reason, while still being stale in the one case that matters — a user removed while an entry survives.
+
+The read itself is a single indexed lookup on a connection the caller already holds, in a transaction the request needs regardless. A cache in front of it saves less than its invalidation costs.
+
+Where the cost of the read does become material, the remedy is to resolve within the same transaction that performs the request's work, rather than in one of its own. That removes the additional round trip outright and is also stricter: the user is then guaranteed to exist for the duration of the work referencing it. A cache should be considered only after that, must live with the component that owns the mapping rather than the one that authenticates, and must hold the identifier alone — never an address or a role, both of which change and would go stale invisibly.
+
+### Identity is ambient within a request, not passed between functions
+
+The acting user is established once per request and made available for its duration, rather than threaded through the parameters of everything the request goes on to call.
+
+The reason is the failure mode of the alternative. A parameter that a call site omits does not produce an error: the call proceeds without an acting user, the work is recorded unattributed, and the omission is discovered much later as data with no owner. Since the identity applies to everything a request does, making it a property of the request rather than an argument to each step removes the opportunity to forget.
+
+The scope is exactly one request. Nothing survives its completion, which is what distinguishes this from the cache rejected above.
+
 ### Absent identity is permitted; unattributed writes are not
 
 A request carrying no acting user is not an error. Background work, scheduled jobs and schema migration all operate without one, and failing such requests closed would make user resolution a dependency of machinery that has no user.
@@ -174,6 +194,8 @@ Providing resolution as a platform service was rejected. It would add a remote d
 
 Reusing the platform's administrative identity interface for per-request resolution was rejected. It manages provider identities on the hub and has no notion of a tenant-local record, so it answers a different question, and consulting it per request would place a cross-site call on the request path.
 
+Holding the mapping in the platform's existing credential store was rejected. It is keyed by subject and already reachable from the authenticating boundary, which makes it look suited to the purpose, but its entries are scoped to the lifetime of a credential. A mapping that is permanent until a user is removed would be discarded on every credential refresh and retained in the one case where it is wrong.
+
 Treating the provider's subject as the tenant-local identifier directly, removing the mapping, was rejected. It would make the tenant's records depend on an identifier owned by an external system, so a change of provider or of subject format would rewrite every referencing row, and the baseline's existing policies expect a local identifier.
 
 ## Ownership
@@ -201,6 +223,7 @@ Per ADR-039.
 
 - A tenant whose authenticating boundary is separate from its data-owning service must forward identity between them, and that forwarding is trusted on the strength of a service credential and a network restriction. Both are load-bearing; relaxing either makes an asserted identity sufficient to impersonate any user.
 - Provisioning on first request means the first authenticated request from a new person performs writes, so it is measurably slower than subsequent ones and can fail for reasons unrelated to authentication.
+- Every authenticated request performs a read to resolve the acting user. The read is indexed and shares the request's own transaction where the two are merged, but it is a cost paid on each request rather than amortised, and it is accepted in exchange for having no cache to invalidate.
 - The library must be versioned and adopted by each tenant, so a correction does not reach tenants until they upgrade.
 - Existing tenant records that identify owners by some other value require migration, and where that value cannot be resolved to a subject the ownership cannot be recovered automatically.
 - Nothing detects a tenant that consumes the baseline schema without applying the security context. Such a tenant appears to have row-level isolation and does not have it.
