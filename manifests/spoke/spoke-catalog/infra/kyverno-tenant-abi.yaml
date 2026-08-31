@@ -81,6 +81,42 @@ spec:
             containers:
               - image: "*@sha256:*"
 
+    # Rule 2b: image references passed as configuration must be digests too.
+    #
+    # Rule 2 only sees a Pod, and some Pods are created by a controller from an
+    # image reference held in a workload's environment — the SDK launches sandbox
+    # Pods from OPENCODE_IMAGE, OPENCODE_SANDBOX_IMAGE and K8S_AGENT_VAULT_IMAGE.
+    # A mutable tag there is admitted without complaint, because the Pod that
+    # violates rule 2 does not exist until someone uses the feature.
+    #
+    # It then fails far from its cause: the user sees a workflow node in error,
+    # while the admission denial is in the sandbox controller's log in another
+    # namespace. Two of those three carried tags and every sandbox launch was
+    # rejected (2026-08-31).
+    #
+    # Only entries with a literal value are checked; a valueFrom reference is
+    # resolved at runtime and is not readable here.
+    - name: require-image-digest-in-env
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - Job
+                - argoproj.io/v1alpha1/Rollout
+              namespaces:
+                - "tenant-*"
+      validate:
+        message: "Image references passed as *_IMAGE environment values must be immutable sha256 digests, not mutable tags — they become Pods at runtime and would be rejected then, far from this manifest."
+        foreach:
+          - list: "request.object.spec.template.spec.containers[].env[?ends_with(name, '_IMAGE') && value][]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ contains(element.value, '@sha256:') }}"
+                    operator: Equals
+                    value: false
+
     # Rule 3: All Pods in tenant namespaces must run as non-root.
     # This is a defence-in-depth control complementing the PSA restricted label
     # on the namespace — both must pass independently.
