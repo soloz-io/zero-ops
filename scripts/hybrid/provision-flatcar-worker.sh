@@ -651,7 +651,21 @@ EOF
 
   local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
   HOSTNAME_B64=$(printf '%s' "${VM_NAME}" | base64 | tr -d '\r\n')
-  SYSCTL_B64=$(printf 'net.ipv4.ip_forward = 1\nnet.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1\nfs.inotify.max_user_watches = 524288\nfs.inotify.max_user_instances = 8192\n' | base64 | tr -d '\r\n')
+  # route_localnet is DECLARED here, not left to the `sysctl -w` in the bootstrap
+  # DNAT block below.
+  #
+  # That block DNATs 127.0.0.1:6443 to the control-plane endpoint so kubelet can
+  # reach the API server before Cilium is up, and a DNAT to a loopback address is
+  # only routed when route_localnet is set. It was being enabled by `sysctl -w`
+  # inside the same `if`, which makes a kernel setting the node depends on both
+  # undeclared and non-persistent: it is invisible to anyone reading the node's
+  # sysctl configuration, it is skipped entirely when that branch does not run,
+  # and it does not survive a reboot on its own.
+  #
+  # It also produced a difference between node classes that nothing recorded: home
+  # workers ended up with route_localnet=1 as a side effect while the Hetzner
+  # control plane, provisioned by CAPI and never by this script, has it at 0.
+  SYSCTL_B64=$(printf 'net.ipv4.ip_forward = 1\nnet.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1\nnet.ipv4.conf.all.route_localnet = 1\nfs.inotify.max_user_watches = 524288\nfs.inotify.max_user_instances = 8192\n' | base64 | tr -d '\r\n')
   MODULES_B64=$(printf 'overlay\nbr_netfilter\n' | base64 | tr -d '\r\n')
   local STATIC_NET="[Match]
 Name=eth*
