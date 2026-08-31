@@ -131,6 +131,10 @@ data:
           gatewayName: default
           gatewayNamespace: default
           port: 3000
+      # Before route selection. At the default "route" phase this policy did not
+      # take effect at all: the SPA answered 200 to an unauthenticated request
+      # and the API reached the BFF with no identity.
+      phase: gateway
       policy:
         oidc:
           issuer: {{ $issuer }}
@@ -243,12 +247,18 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
+        # The gateway's own readiness listener, not a route on the data plane
+        # port. The OIDC policy below is attached to the gateway and therefore
+        # runs before route selection, so a probe against a :3000 path would be
+        # answered with a login redirect — the kubelet would mark the pod
+        # unready, the Service would drop it, and the tenant would go down
+        # because its gateway was working.
         livenessProbe:
-          httpGet: {path: /health, port: 3000}
+          httpGet: {path: /healthz/ready, port: 15021}
           initialDelaySeconds: 10
           periodSeconds: 10
         readinessProbe:
-          httpGet: {path: /health, port: 3000}
+          httpGet: {path: /healthz/ready, port: 15021}
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:
