@@ -13,7 +13,21 @@ spec:
       app: workload
 
   egress:
-    # 1. DNS — required for all FQDN-based rules.
+    # 1. DNS — required for all FQDN-based rules, and the `rules.dns` block is
+    #    what makes that true rather than merely intended.
+    #
+    #    A toFQDNs rule is enforced against a cache of name->IP mappings that
+    #    Cilium builds by proxying the pod's own DNS queries. Allowing port 53
+    #    without a dns match pattern lets the query through unproxied, so nothing
+    #    is ever learned: the FQDN cache stays empty and every toFQDNs rule below
+    #    matches no address at all.
+    #
+    #    The failure is silent and looks nothing like a policy problem. Name
+    #    resolution works, so the workload gets an address and connects to it —
+    #    and the packet is dropped with no RST, so the caller waits for its own
+    #    timeout. The BFF's ID-token validation fetches JWKS from the issuer,
+    #    timed out after 10s, and answered 401 Unauthenticated, which reads as a
+    #    broken login rather than a blocked egress.
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -24,6 +38,9 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
 
     # 2. Internal CNPG database on the spoke.
     - toEndpoints:
