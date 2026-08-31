@@ -1,0 +1,37 @@
+# Leader election (controller-runtime).
+#
+# Without this the manager starts, holds its lease loop, and logs
+# "cannot get resource leases" forever — the pod reports Ready because its
+# health probe answers, while it has never become leader and therefore
+# reconciles nothing. A controller that is running and doing nothing is the
+# failure this Role prevents.
+#
+# Namespaced deliberately: the lease lives beside the manager, so nothing here
+# needs cluster scope.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: ephemeral-job-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ephemeral-job-operator-leader-election-role
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
