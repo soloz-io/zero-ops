@@ -72,15 +72,64 @@ metadata:
   namespace: platform-ops
 spec:
   parentRefs:
-  # :80 plaintext — ACME solver HTTPRoutes also attach same-namespace here.
-  - name: tenant-gateway
-    namespace: platform-ops
-  # :443 TLS-terminated — tenant-tls-gateway terminates TLS then forwards
-  # plaintext to AgentGateway. Without this parentRef the TLS listener has
-  # attached=0 routes and returns 404 on all HTTPS requests.
+  # :443 ONLY. tenant-tls-gateway terminates TLS then forwards plaintext to
+  # AgentGateway; without this parentRef the TLS listener has attached=0 routes
+  # and returns 404 on all HTTPS requests.
+  #
+  # The :80 listener is deliberately NOT here any more. This route proxies, and
+  # attaching it to the plaintext listener meant a request to http://<host>/ was
+  # SERVED in clear text rather than redirected. A browser given a bare hostname
+  # tries http first, so the first request of every session travelled
+  # unencrypted and the browser marked the origin insecure. Gateway API attaches
+  # rules to a route rather than to a parentRef, so one route cannot proxy on
+  # one listener and redirect on the other — hence the separate route below.
   - name: tenant-tls-gateway
     namespace: platform-ops
   rules:
   - backendRefs:
     - name: agentgateway
       port: 3000
+---
+# Plaintext listener: redirect to HTTPS.
+#
+# Hostname-agnostic like the route above, so it covers every tenant on this
+# spoke — present and future — without naming one (ADR-047).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tenant-redirect
+  namespace: platform-ops
+spec:
+  parentRefs:
+  - name: tenant-gateway
+    namespace: platform-ops
+  rules:
+  # ACME challenges must continue to be served in plaintext on :80.
+  #
+  # ADR-051 makes this listener the HTTP-01 solver attachment point, and a
+  # certificate cannot be issued through a redirect to a port whose certificate
+  # does not exist yet. That circularity is what deadlocked issuance on the hub
+  # and forced it onto DNS-01; this rule is what stops it recurring here.
+  #
+  # Listed first and matching a longer prefix, so it takes precedence over the
+  # redirect. cert-manager's own solver route matches the exact token path and is
+  # more specific still, so an active challenge reaches the solver rather than
+  # the backend named here.
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /.well-known/acme-challenge/
+    backendRefs:
+    - name: agentgateway
+      port: 3000
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    filters:
+    # 308, not 302: permanent, and it preserves method and body where a 302
+    # would silently turn a POST into a GET.
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 308

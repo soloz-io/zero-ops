@@ -21,12 +21,11 @@
 # resolves to state the platform owns, and the record set is mechanically
 # inspectable.
 #
-# TWO routes, one per listener, because the two listeners must behave differently.
-# :443 terminates TLS on tenant-tls-gateway (this chart's Gateway) and proxies to
-# the backend. :80 on tenant-gateway (spoke-catalog's) redirects to HTTPS instead
-# of proxying. Gateway API attaches rules to a route, not to a parentRef, so a
-# single route cannot proxy on one listener and redirect on the other — which is
-# why this was previously one route that proxied plaintext traffic.
+# :443 only. This route proxies, and the plaintext listener must redirect rather
+# than proxy — Gateway API attaches rules to a route rather than to a parentRef,
+# so one route cannot do both. The redirect lives once at the platform level
+# (spoke-catalog's tenant-redirect), hostname-agnostic, covering every tenant
+# rather than being restated per tenant here.
 #
 # Backends are same-namespace, so no ReferenceGrant exists to be abused.
 #
@@ -66,58 +65,4 @@ spec:
       backendRefs:
         - name: {{ .Values.authGatewayService.name }}
           port: {{ .Values.authGatewayService.port }}
----
-# Plaintext listener: redirect, do not proxy.
-#
-# Previously the :80 parentRef shared the route above, so a request to
-# http://<host>/ was PROXIED in clear text. A browser sent to a bare hostname
-# tries http first, so the first request of a session travelled unencrypted and
-# the browser marked the origin insecure. The OAuth redirect target and state
-# parameter were exposed with it, and an active attacker on that hop could
-# rewrite where the person was sent. The session cookie is Secure and so was not
-# at risk; everything around it was.
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: {{ printf "%s-public-redirect" .Values.tenantId }}
-  namespace: platform-ops
-  labels:
-    app.kubernetes.io/managed-by: tenant-public-tls
-    zero-ops.io/tenant-id: {{ .Values.tenantId }}
-spec:
-  parentRefs:
-    - name: {{ .Values.plaintextGatewayName }}
-      namespace: platform-ops
-  hostnames:
-    {{- range .Values.public.hosts }}
-    - {{ . | quote }}
-    {{- end }}
-  rules:
-    # ACME challenges must keep reaching :80 in plaintext. ADR-051 puts the
-    # HTTP-01 solver on this listener, and a certificate cannot be issued over a
-    # redirect to a port whose certificate does not exist yet — that circularity
-    # is what deadlocked issuance on the hub and forced it onto DNS-01.
-    #
-    # This rule is first and matches a longer prefix, so it takes precedence over
-    # the redirect. cert-manager's own solver route matches the exact token path,
-    # which is more specific still, so an active challenge reaches the solver
-    # rather than the backend named here.
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /.well-known/acme-challenge/
-      backendRefs:
-        - name: {{ .Values.authGatewayService.name }}
-          port: {{ .Values.authGatewayService.port }}
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      filters:
-        - type: RequestRedirect
-          requestRedirect:
-            scheme: https
-            # 308 rather than 302: permanent, and it preserves the method and
-            # body. A 302 would silently turn a POST into a GET.
-            statusCode: 308
 {{- end }}
