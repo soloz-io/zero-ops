@@ -85,6 +85,44 @@ A request carrying no acting user is not an error. Background work, scheduled jo
 
 Operations that record ownership are different: they require an acting user and fail explicitly when none is present, at the point where the requirement exists rather than at the boundary. This keeps the requirement visible in the operation that has it, instead of implied by a middleware that would have to guess.
 
+### Clients reach identity through the same abstraction, on every platform
+
+The behaviour a client needs in order to know who is signed in is platform-supplied, and is supplied once for every kind of client rather than per application.
+
+This platform serves more than one: a browser application and a native one, with more likely. Each could implement the identity check itself — it is one request — and each would then decide independently what the response means. That is where they diverge, and the divergence is not cosmetic. The consequential judgements are which unsuccessful responses indicate a signed-out person and which indicate that the client does not know; whether an unfinished first check is distinguishable from a completed one that found nobody; and whether being authenticated is sufficient to act on a person's behalf. Each has an answer that looks reasonable and is wrong, and a client that gets one wrong signs people out when a gateway returns an error, or shows a signed-out screen for an instant on every load, or sends a null owner and records data belonging to nobody.
+
+Authentication state is therefore modelled as a closed set of possibilities rather than as independent indicators. Indicators permit combinations with no meaning — in progress and succeeded, failed and holding a result — and every meaningless combination is a branch that some client eventually renders. A closed set makes those states unrepresentable rather than merely undesirable.
+
+Two distinctions within that set are load-bearing. Not having checked yet is not the same as having checked and found nobody: treating them alike produces a visible flash of the signed-out view on every load. And a failure to reach the identity endpoint is not a signed-out signal: it means the client does not know, and asserting otherwise signs a person out because something unrelated broke.
+
+Being authenticated is separately insufficient to act on a person's behalf. The tenant-local identifier can be absent while a session is entirely valid, so anything keyed on ownership waits for it rather than proceeding with nothing. The platform provides that readiness test so each client does not decide separately what readiness means.
+
+### The client abstraction carries no server dependencies
+
+The client-facing part of the platform's authentication library is separated from the rest of it and depends on nothing.
+
+The remainder necessarily depends on components that exist only on a server — a cache client, a cryptographic library, server middleware. A browser or native application that imported the library as a whole would fail when bundled, or succeed and ship those components to a device. Separation is what makes a single library serviceable by both, rather than requiring a second library that would drift from the first.
+
+How a session travels is the one place platforms genuinely differ, and it is expressed as a parameter rather than by duplicating the client. A browser presents a cookie the gateway set and asks for credentials to be included; a native application has no cookie store the gateway can write to and must present a token it holds. Both are otherwise the same request. The token is obtained per request rather than captured once, so a native client can supply a freshly refreshed one.
+
+### Waiting for identity is a client concern; enforcing access is not
+
+A client holds its interface until the identity check has completed, and does not decide whether the person may proceed.
+
+Access is enforced at the edge, where the gateway's policy redirects an unauthenticated request to the identity provider before the application is served at all (ADR-050). A client that also enforced it would duplicate a decision already made and create a second place for the two to disagree — and the client's copy would be the one an attacker controls.
+
+What the client owns is narrower and still necessary. Rendering before the identity is known means rendering with no user: a placeholder where a name belongs, and any value that falls back to a client-supplied source when the user is absent. It also makes the tenant-local identifier unusable, because a component reading it during that window reads nothing and either sends nothing or silently does no work.
+
+A failed check is presented as a failure, not as being signed out. The client does not know, it can try again, and telling someone they have been signed out because a gateway returned an error is both untrue and unhelpful.
+
+### A tenant identifier has one source
+
+The tenant a client acts within comes from the validated token, and not from anywhere a client can set.
+
+This is stated because the alternative is easy to arrive at unintentionally. A client that renders before identity is known needs some value, and a query parameter or stored value is the obvious fallback — which makes a value under the caller's control authoritative for the interface, while the boundary that serves it derives the tenant from the token and ignores what was sent. The result is not an authorisation failure, and that is what makes it durable: the two disagree silently, an interface can be made to present one tenant while acting within another, and a second source for a single-authority value tends to acquire dependents.
+
+Holding render until identity is known removes the need for the fallback. Where one remains for local development, it is confined to a development build so that a production one cannot carry it.
+
 ### Administration is separate from resolution
 
 Managing which people exist within a tenant — invitation, listing, removal — is administrative work performed against the identity provider through the platform's existing administrative interface. It is not part of resolving the acting user on a request, and the two must not be conflated: one is an infrequent operation performed by an administrator against the hub, the other is a lookup performed on every authenticated request against the tenant's own database.
@@ -97,6 +135,17 @@ abstraction is a divergence to be justified, not a default.
 
 ```
                                           PLATFORM SUPPLIES
+CLIENT                                    zero-ops-auth/client
+  browser app  |  native app                createAuthClient, AuthState
+    holds render until identity is          UserIdentity, hasUserContext
+    known; never decides access —           — no dependencies, so a browser
+    the edge already did that                 or device bundle can carry it
+       |
+       |  session travels differently per platform, and only here:
+       |    browser — cookie the gateway set, credentials included
+       |    native  — token the app holds, supplied per request
+       |
+       v
 IDENTITY
   browser --> gateway --> identity provider
                                           gateway OIDC policy: the browser
@@ -160,6 +209,11 @@ IDENTITY
        |  the transaction ends.
        v
      tenant tables, isolated to the acting user
+       |
+       |  the resolved user id returns the way it came, so the client can
+       |  reference ownership by the tenant's own identifier
+       v
+     back to CLIENT
 
 
 IDENTIFIERS                     three values, two of them for one person
@@ -171,6 +225,11 @@ IDENTIFIERS                     three values, two of them for one person
   The first two are the same shape for the same person. Treating one as
   the other produces no immediate error, which is why the mapping is a
   stored row rather than a convention.
+
+  A client may hold a valid session while the tenant user id is still
+  unknown. That is a real state, not an error: the person is signed in and
+  ownership is undetermined. Anything keyed on ownership waits for it
+  rather than sending nothing.
 
 
 ADMINISTRATION                              deliberately not on this path
@@ -194,6 +253,10 @@ Providing resolution as a platform service was rejected. It would add a remote d
 
 Reusing the platform's administrative identity interface for per-request resolution was rejected. It manages provider identities on the hub and has no notion of a tenant-local record, so it answers a different question, and consulting it per request would place a cross-site call on the request path.
 
+Allowing each client application to implement the identity check itself was rejected. It is a single request, which is what makes the option attractive, but the judgements around it are not obvious — which failures mean signed out, whether an unfinished check is distinguishable from a completed one, whether authenticated is sufficient to act. Two clients answering independently will answer differently, and the wrong answers are silent: signing people out on an unrelated error, a flash of the signed-out view on every load, or records written with no owner.
+
+Enforcing access within client applications was rejected. The edge already refuses an unauthenticated request before the application is served, and a second enforcement point duplicates a decision already made while creating somewhere for the two to disagree — with the client's copy being the one under a caller's control.
+
 Holding the mapping in the platform's existing credential store was rejected. It is keyed by subject and already reachable from the authenticating boundary, which makes it look suited to the purpose, but its entries are scoped to the lifetime of a credential. A mapping that is permanent until a user is removed would be discarded on every credential refresh and retained in the one case where it is wrong.
 
 Treating the provider's subject as the tenant-local identifier directly, removing the mapping, was rejected. It would make the tenant's records depend on an identifier owned by an external system, so a change of provider or of subject format would rewrite every referencing row, and the baseline's existing policies expect a local identifier.
@@ -206,6 +269,7 @@ Per ADR-039.
 |---|---|---|---|---|---|
 | Tenant user and identity schema | Git | platform | tenant baseline migration | tenant services | Day-1+ |
 | Resolution and security-context behaviour | Git | platform | platform auth library | tenant services | Day-1+ |
+| Client identity state and readiness | Git | platform | platform auth library, client surface | tenant client applications | Day-1+ |
 | Tenant user records | tenant database | tenant | tenant data-owning service | tenant services | Day-1+ |
 | Provider identities | identity provider | platform | platform administrative interface | platform console | Day-1+ |
 
@@ -218,6 +282,8 @@ Per ADR-039.
 - Tenant records reference an identifier the tenant owns, so a change of identity provider or subject format does not rewrite referencing rows.
 - Resolution is a query against a connection the caller already holds, adding no remote dependency and no cross-site traffic to the request path.
 - Placing resolution with the database connection keeps the tenant's own separation of concerns intact, rather than requiring an aggregation boundary to acquire database access.
+- Every client platform inherits one answer to what an identity response means, so a browser application and a native one cannot disagree about when a person is signed out.
+- Holding render until identity is known removes the need for a client-supplied fallback for values that arrive with it, which is how a second source for the tenant identifier came to exist.
 
 ### Negative
 
@@ -227,12 +293,16 @@ Per ADR-039.
 - The library must be versioned and adopted by each tenant, so a correction does not reach tenants until they upgrade.
 - Existing tenant records that identify owners by some other value require migration, and where that value cannot be resolved to a subject the ownership cannot be recovered automatically.
 - Nothing detects a tenant that consumes the baseline schema without applying the security context. Such a tenant appears to have row-level isolation and does not have it.
+- Holding render until the identity check completes makes first paint wait on a network request. The wait is short and replaces a visible correction, but it is a wait where previously there was none.
+- The client surface must stay free of server dependencies, and nothing enforces that beyond review. A dependency added to the wrong part of the library is discovered when a client bundle fails, or does not fail and ships it.
 
 ## Impact
 
 - **Extends the tenant baseline's role.** The baseline's user and identity tables become part of the platform's contract with tenants rather than unused scaffolding.
 - **Amends ADR-050.** That decision establishes how a tenant authenticates and where identity is validated; this one establishes what the validated identity resolves to inside the tenant's own data.
 - **Requires the platform auth library to be versioned and published** before a tenant can adopt the behaviour, so tenant adoption follows a release rather than a commit.
+- **Extends the platform auth library with a client surface** carrying no dependencies, so browser and native applications consume it directly rather than each restating the identity contract.
+- **Requires client applications to defer render until identity is known**, and to stop deriving a tenant identifier from anything a caller can set.
 - **Requires tenants recording ownership by another value to migrate**, including constraining such columns to reference the user table.
 - **Leaves administration where it is.** The platform's administrative identity interface remains the surface for managing who exists within a tenant, and is not placed on any request path.
 - **Does not by itself enforce isolation on tenant-defined tables.** The baseline's policies protect the baseline's tables; a tenant's own tables carry whatever isolation that tenant defines, and adopting the same pattern there is a separate decision per tenant.
