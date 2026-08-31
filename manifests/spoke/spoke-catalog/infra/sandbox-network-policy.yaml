@@ -69,6 +69,42 @@ spec:
               protocol: TCP
 
     # Public-internet egress for the agent-vault proxy / harness tooling.
+    # STOPGAP: outbound HTTPS to any external host.
+    #
+    # The toFQDNs rules below are the intended expression and are kept. They
+    # match nothing on this platform: Cilium builds the FQDN cache by proxying
+    # the workload's DNS queries, that proxy receives nothing here, and the cache
+    # stays empty — so an allowlist enforces a deny-all. Verified again on
+    # 2026-09-01 with `enable-bpf-tproxy`, the fourth candidate fix and the last
+    # configuration lever; the cache stayed empty. See enhancements 2026-08-31
+    # items 9, 10, 15 and ADR-046 addendum 30.
+    #
+    # Without this the agent cannot reach its model provider at all: the request
+    # leaves through agent-vault's transparent proxy, the proxy cannot reach
+    # upstream, and it answers 502 — surfacing as `graph_execution_failed:
+    # bad gateway` and reaching the browser as "Something went wrong".
+    #
+    # This IS a real widening. A sandbox runs tenant-authored agent code and this
+    # grants it outbound HTTPS anywhere. Two things bound how far: the FQDN rules
+    # currently match nothing, so the posture it replaces is no external access
+    # rather than the allowlist; and that allowlist already contains github.com,
+    # which is itself an exfiltration path. Neither makes this equivalent to the
+    # allowlist, and it should not be described as though it were.
+    #
+    # 443 only, egress only. There is no ingress section in this policy, so
+    # nothing here affects what may reach a sandbox — the SDK still reaches :3000
+    # for SSE because that is ingress.
+    #
+    # REVISIT TRIGGER: delete this rule the moment the FQDN cache populates. The
+    # toFQDNs rules below resume being operative on their own; nothing else needs
+    # to change. Check with `cilium-dbg fqdn cache list` on any node.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
     - toFQDNs:
         - matchName: "api.github.com"
         - matchName: "github.com"
