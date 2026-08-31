@@ -94,7 +94,7 @@ data:
   enable-gateway-api-secrets-sync: "true"
   enable-gateway-api-proxy-protocol: "false"
   enable-gateway-api-app-protocol: "false"
-  enable-gateway-api-alpn: "false"
+  enable-gateway-api-alpn: "true"
   gateway-api-xff-num-trusted-hops: "0"
   gateway-api-service-externaltrafficpolicy: "Cluster"
   gateway-api-secrets-namespace: "cilium-secrets"

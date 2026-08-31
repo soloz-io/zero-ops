@@ -26,6 +26,19 @@ cleanState: false
 cleanBpfState: false
 gatewayAPI:
   enabled: true
+  # Advertise ALPN (h2, http/1.1) on Gateway listeners. Without it Cilium
+  # negotiates no protocol at all -- "server did not agree on a protocol" --
+  # and clients silently fall back to HTTP/1.1.
+  #
+  # That is invisible to browsers and fatal to gRPC clients. The argocd CLI
+  # probes TLS before connecting; with no ALPN it concludes the endpoint is not
+  # TLS at all, prints "server is not configured with TLS", and downgrades to
+  # http:// -- which the Gateway only answers with a 301 that a gRPC POST will
+  # not follow. Result: 404 on session.SessionService/Create, and `argocd login`
+  # is impossible over the Gateway no matter what flags are passed
+  # (--grpc-web and --plaintext=false were both verified not to help).
+  # The certificate was valid throughout; ALPN was the whole cause.
+  enableAlpn: true
   secretsNamespace:
     # enable-gateway-api-secrets-sync + gateway-api-secrets-namespace:
     # the agent-side SDS fix that 1.15.6 never delivered (the 443 bug).
