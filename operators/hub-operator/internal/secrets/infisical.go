@@ -1063,7 +1063,7 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled bool) (*EnsureTenantCredentialsResult, error) {
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
 	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
 	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
 
@@ -1201,7 +1201,37 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		}
 	}
 
-	// Step 4: OAuth confidential client credentials (ADR-053).
+	// Step 4: gateway session-cookie key.
+	//
+	// Generated once and never regenerated on a later absence: rotating it
+	// invalidates every live session for that tenant, so an absent key after
+	// provisioning is a fault to report rather than a value to replace.
+	if gatewayEnabled {
+		exists, err := c.SecretExists(ctx, tenantPath, InfisicalGatewayCookieSecretKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalGatewayCookieSecretKey, err)
+		}
+		if !exists {
+			if !isFirstTime {
+				logger.Error(nil, "CRITICAL: gateway cookie key missing for an already-provisioned tenant. Manual recovery required.", "path", tenantPath)
+				return &EnsureTenantCredentialsResult{
+					Result:                dbOutcome,
+					InfisicalCredsOutcome: infisicalCredsOutcome,
+				}, fmt.Errorf("%s missing from Infisical for already-provisioned tenant %s — manual recovery required", InfisicalGatewayCookieSecretKey, tenantId)
+			}
+			value, err := GenerateHexKey(32)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate gateway cookie key for tenant %s: %w", tenantId, err)
+			}
+			if err := c.CreateSecret(ctx, tenantPath, InfisicalGatewayCookieSecretKey, value); err != nil {
+				return nil, fmt.Errorf("failed to write %s for tenant %s: %w", InfisicalGatewayCookieSecretKey, tenantId, err)
+			}
+			logger.Info("Seeded tenant gateway cookie key", "path", tenantPath, "key", InfisicalGatewayCookieSecretKey)
+			dbOutcome = EnsureCreated
+		}
+	}
+
+	// Step 5: OAuth confidential client credentials (ADR-053).
 	//
 	// Reached whether or not step 2 generated anything, because a tenant
 	// provisioned before it declared a client must still receive that client's
@@ -1227,6 +1257,22 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 // ExternalSecret templates both the ACL file and the connection URL from this one
 // value, so nothing downstream stores a second copy of it.
 const InfisicalCachePasswordKey = "CACHE_PASSWORD"
+
+// InfisicalGatewayCookieSecretKey names the tenant gateway's session-cookie
+// encryption key.
+//
+// Per tenant, not shared. Each tenant runs its own gateway instance (ADR-050
+// amendment 2026-08-31), and the gateway encrypts its OIDC session cookie with
+// this value — so a shared key would let one tenant's gateway decrypt another's
+// sessions. That is currently harmless, because cookies are host-only and never
+// presented across hostnames, and it is exactly the kind of latent dependency
+// that stops being harmless without anyone noticing.
+//
+// 32 bytes hex-encoded: the gateway hex-decodes it and requires exactly 32 bytes
+// for AES-256-GCM. A password from the general generator is the right length in
+// characters and the wrong alphabet, and fails at startup complaining about an
+// invalid character rather than about encoding.
+const InfisicalGatewayCookieSecretKey = "AGENTGATEWAY_OIDC_COOKIE_SECRET"
 
 // InfisicalOAuthClientIDKey and InfisicalOAuthClientSecretKey name the two scalars
 // an OAuth confidential client occupies in a tenant's Infisical folder.

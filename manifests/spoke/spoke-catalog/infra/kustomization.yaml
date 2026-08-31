@@ -56,8 +56,6 @@ resources:
   # ADR-051: spoke-terminated public ingress. AgentGateway runs beside the
   # workloads it protects; the Gateway and the hostname route are platform-owned
   # so a tenant cannot author a route that bypasses it.
-  - agentgateway.yaml
-  - agentgateway-config.yaml
   - tenant-gateway.yaml
   # ADR-048: The completed ClusterIssuer (infisical-fleet-issuer) is delivered by
   # ClusterResourceSet lifecycle injection (spoke-identity-operator -> {spoke}-cluster-issuer

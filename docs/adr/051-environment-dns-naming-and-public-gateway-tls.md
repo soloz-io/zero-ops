@@ -128,7 +128,8 @@ practice. This ADR does not treat that as an acceptable end state.
 | Tenant ACME solver binding | Git (spoke catalog) | Platform Engineering | ArgoCD | cert-manager | Day-1+ |
 | Spoke authenticating gateway + its hostname route | Git (spoke catalog) | Platform Engineering | ArgoCD | Public clients | Day-1+ |
 | Per-spoke TLS termination gateway + per-tenant listeners | Git (fleet-registry `public.hosts` × environment-overlay issuer) | Platform Engineering | ArgoCD (tenant-public-tls) | Gateway data plane | Day-1+ |
-| Tenant hostname and backend declaration | Git (fleet registry) | Tenant | ArgoCD (rendered into gateway config) | Spoke gateway | Day-1+ |
+| Tenant hostname and backend declaration | Git (fleet registry) | Tenant | ArgoCD (rendered per tenant, composed into gateway config) | Spoke gateway | Day-1+ |
+| Gateway base configuration | Git (spoke catalog) | Platform Engineering | ArgoCD | Spoke gateway | Day-1+ |
 
 Gateway listener TLS material is written by cert-manager into `platform-ops`, the same
 namespace as the shared per-spoke tenant gateway, under the `allowedRoutes.namespaces.from:

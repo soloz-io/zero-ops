@@ -130,6 +130,17 @@ spec:
                 type: string
                 description: "Tenant owner email for notifications"
                 pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+              gateway:
+                type: object
+                description: |
+                  Whether this fleet has a browser-facing gateway. The platform
+                  generates its session-cookie key when so; everything else about
+                  the gateway is derived or platform-fixed and is deliberately
+                  not expressible here.
+                properties:
+                  enabled:
+                    type: boolean
+                    default: false
               cache:
                 type: object
                 description: |

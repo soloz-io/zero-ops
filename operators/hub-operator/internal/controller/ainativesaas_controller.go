@@ -93,7 +93,10 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// A fleet that declares no cache gets no credential generated for one.
 	cacheEnabled, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "cache", "enabled")
 
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients, cacheEnabled)
+	// A fleet with no browser-facing gateway needs no session-cookie key.
+	gatewayEnabled, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "gateway", "enabled")
+
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients, cacheEnabled, gatewayEnabled)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {

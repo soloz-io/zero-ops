@@ -26,6 +26,38 @@ cache:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 250m, memory: 256Mi}
 
+# This fleet's browser-facing gateway (ADR-050, ADR-047).
+#
+# A fleet CONFIGURES a gateway; it does not define one. Everything below that a
+# fleet can set is a choice the platform offers — whether to have a gateway, and
+# which hostnames it answers for. Everything else is derived from the tenant
+# identity or fixed by the platform, and is deliberately absent from this
+# surface: image, replicas, resource requests, backend addresses, OAuth client
+# identity and redirect path are platform decisions, and a fleet that could set
+# them could run an arbitrary container, claim another fleet's client, or route
+# to another fleet's services.
+#
+# Derived rather than declared:
+#   backends    bff-workload / frontend-workload in this fleet's own namespace
+#   clientId    <tenantId>-public-client, matching ADR-053's identifier rule
+#   redirect    <publicHost>/oauth/callback
+#
+# Supplied by the environment, not the fleet:
+#   issuer      the environment's identity provider
+# Supplied by the environment bootstrap, never by a fleet. Which identity
+# provider a spoke trusts is a platform property; a fleet able to set it could
+# point its own login flow at an issuer the platform does not trust.
+oidcIssuer: ""
+
+gateway:
+  enabled: false
+  # Hostnames this fleet answers on. The first is the browser-facing host and is
+  # where the OAuth redirect returns; the rest are additional names for the same
+  # gateway. These must already be declared under `public.hosts` so a certificate
+  # exists for them (ADR-051) — a hostname here without one serves no traffic.
+  hostnames: []
+
+
 oauth:
   # Public hostname this fleet serves, e.g. waypoint.dev.nutgraf.in
   publicHost: ""

@@ -57,6 +57,11 @@ spec:
   ownerEmail: {{ .Values.ownerEmail }}
   {{- end }}
 
+  {{- if (.Values.gateway | default dict).enabled }}
+  gateway:
+    enabled: true
+  {{- end }}
+
   {{- with .Values.cache }}
   cache:
     enabled: {{ .enabled | default false }}

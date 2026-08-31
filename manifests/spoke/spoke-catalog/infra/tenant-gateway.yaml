@@ -58,38 +58,14 @@ spec:
   # not imply a wildcard certificate exists (ADR-051 addendum); per-tenant TLS
   # terminates on tenant-tls-gateway.
 ---
-# Every tenant hostname on this spoke resolves to AgentGateway. Adding a tenant
-# means adding a route block to agentgateway-config — NOT adding a hostname here.
-# Hostnames are intentionally omitted: the route matches all hostnames accepted by
-# the parent listeners (*.dev.nutgraf.in on tenant-gateway; the per-tenant
-# listeners declared on tenant-tls-gateway by the tenant-public-tls AppSet).
-# Listing hostnames here would embed tenant identity in a platform manifest,
-# violating ADR-047.
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: tenant-ingress
-  namespace: platform-ops
-spec:
-  parentRefs:
-  # :443 ONLY. tenant-tls-gateway terminates TLS then forwards plaintext to
-  # AgentGateway; without this parentRef the TLS listener has attached=0 routes
-  # and returns 404 on all HTTPS requests.
-  #
-  # The :80 listener is deliberately NOT here any more. This route proxies, and
-  # attaching it to the plaintext listener meant a request to http://<host>/ was
-  # SERVED in clear text rather than redirected. A browser given a bare hostname
-  # tries http first, so the first request of every session travelled
-  # unencrypted and the browser marked the origin insecure. Gateway API attaches
-  # rules to a route rather than to a parentRef, so one route cannot proxy on
-  # one listener and redirect on the other — hence the separate route below.
-  - name: tenant-tls-gateway
-    namespace: platform-ops
-  rules:
-  - backendRefs:
-    - name: agentgateway
-      port: 3000
----
+# Tenant hostnames are routed by per-tenant HTTPRoutes, not by a catch-all here.
+#
+# A hostname-less catch-all sending everything to one shared AgentGateway was
+# removed with that shared instance (ADR-050 amendment 2026-08-31). Each tenant
+# now has its own gateway and its own HTTPRoute naming it as backend, rendered
+# from the fleet registry — so a tenant appears by publishing its declarations
+# rather than by anything changing in this file.
+#
 # Plaintext listener: redirect to HTTPS.
 #
 # Hostname-agnostic like the route above, so it covers every tenant on this
@@ -115,13 +91,22 @@ spec:
   # redirect. cert-manager's own solver route matches the exact token path and is
   # more specific still, so an active challenge reaches the solver rather than
   # the backend named here.
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /.well-known/acme-challenge/
-    backendRefs:
-    - name: agentgateway
-      port: 3000
+  # No ACME carve-out is needed here, and adding one would be wrong.
+  #
+  # cert-manager creates its own HTTPRoute for an active HTTP-01 challenge,
+  # matching the exact token path. Gateway API resolves overlapping routes by
+  # specificity, and an exact path match outranks the prefix match below, so the
+  # solver wins whenever a challenge is in flight without this route conceding
+  # anything. When no challenge is in flight there is nothing to concede to.
+  #
+  # This matters because getting it wrong is the deadlock already recorded on the
+  # hub: a redirect that swallows the challenge path sends the solver to a port
+  # whose certificate does not exist yet, and issuance can never complete. The
+  # protection is precedence, not a rule.
+  #
+  # This spoke solves over DNS-01 in any case (acme-cluster-issuer.yaml); Hetzner
+  # spokes patch back to HTTP-01, which is why precedence rather than topology has
+  # to be the thing that holds.
   - matches:
     - path:
         type: PathPrefix

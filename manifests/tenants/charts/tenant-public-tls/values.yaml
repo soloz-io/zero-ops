@@ -37,9 +37,9 @@ plaintextGatewayName: tenant-gateway
 # The authenticating gateway every tenant hostname must traverse (ADR-050).
 # The route's backendRef points here and nowhere else: that is what makes the
 # no-bypass property structural rather than reviewable.
-authGatewayService:
-  name: agentgateway
-  port: 3000
+# Retired: the backend is now derived as this tenant's own gateway
+# (agentgateway-<tenantId> in tenant-<tenantId>). Naming it here would let a
+# tenant point its hostname at another tenant's gateway.
 
 certificateDuration: 2160h    # 90 days
 certificateRenewBefore: 720h  # 30 days

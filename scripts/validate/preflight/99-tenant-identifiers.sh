@@ -42,13 +42,6 @@ TENANTS = ["waypoint", "oranger"]
 BASELINE = {
     "manifests/hub-core-services/api-gateway/agentgateway-config.yaml",
     "manifests/argocd/environment-manager/templates/05-tenant-fleet-appset.yaml",
-    # manifests/spoke was previously OUT of PLATFORM, so the spoke catalog — which is
-    # platform infrastructure delivered to every spoke — accumulated tenant identifiers
-    # unchecked. Scope now covers it. This file carries tenant ROUTING, which ADR-051
-    # assigns to the fleet registry ("Tenant hostname and backend declaration | Git
-    # (fleet registry) | Tenant | ArgoCD (rendered into gateway config)"); retiring it
-    # means rendering routes per tenant, not editing this file.
-    "manifests/spoke/spoke-catalog/infra/agentgateway-config.yaml",
 }
 
 pattern = r"\b(" + "|".join(re.escape(t) for t in TENANTS) + r")\b"

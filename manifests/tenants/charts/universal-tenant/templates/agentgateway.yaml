@@ -1,0 +1,270 @@
+{{- if and (not .Values.deployXR) .Values.gateway.enabled }}
+{{- $t := .Values.tenantId }}
+{{- $hosts := .Values.gateway.hostnames }}
+{{- if not $hosts }}{{ fail "gateway.hostnames must list at least one hostname when gateway.enabled" }}{{ end }}
+{{- /* The browser-facing host is the first declared. The OAuth redirect must
+       return to exactly one origin, and choosing it here rather than accepting a
+       separate value removes a way for the two to disagree. */ -}}
+{{- $host := first $hosts }}
+{{- /* Supplied by the environment, not the fleet: which identity provider a
+       spoke authenticates against is a platform property, and a fleet able to
+       set it could point its login flow at an issuer the platform does not
+       trust. */ -}}
+{{- $issuer := required "oidcIssuer must be supplied by the environment" .Values.oidcIssuer }}
+{{- /* Derived, not declared. A fleet that could name its own backends could
+       route to another fleet's services; one that could name its own client id
+       could claim another fleet's OAuth client. Both follow from the tenant
+       identity by platform convention (ADR-053 for the client id). */ -}}
+{{- $ns := printf "tenant-%s" $t }}
+{{- $bff := printf "bff-workload.%s.svc.cluster.local:3001" $ns }}
+{{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
+{{- $clientId := printf "%s-public-client" $t }}
+{{- $redirect := printf "https://%s/oauth/callback" $host }}
+{{- $name := printf "agentgateway-%s" $t }}
+# This fleet's own AgentGateway instance (ADR-050 amendment 2026-08-31).
+#
+# One instance per tenant, not one per spoke. The shared instance required every
+# tenant's hostnames, backends and OAuth client to live in a platform manifest —
+# tenant-owned data that ADR-047 forbids there and ADR-051 assigns to the fleet
+# registry. AgentGateway reads a single configuration file with no merge, so a
+# shared instance and tenant-owned configuration cannot both hold without a
+# runtime aggregator, and that aggregator is an accidental control plane whose
+# correctness every tenant would then depend on.
+#
+# Dynamic configuration would be the better answer and is unavailable: the pinned
+# release carries no OIDC policy in its xDS schema, and the browser login flow is
+# the whole point of this gateway. ADR-050 records the revisit trigger.
+#
+# What this buys is structural isolation. A malformed configuration here stops
+# THIS tenant's gateway and nothing else — no other tenant runs a process that
+# reads it. There is nothing to validate, skip, or lose in a refactor.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: tenant-{{ $t }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  namespace: tenant-{{ $t }}
+data:
+  config.yaml: |
+    binds:
+    - port: 3000
+      listeners:
+      - routes:
+        - matches:
+          - path:
+              exact: /health
+          policies:
+            directResponse:
+              status: 200
+              body: "OK"
+        # BFF first: the more specific /api prefix must precede the catch-all.
+        #
+        # Both routes share `name`, deliberately. AgentGateway derives its OIDC
+        # cookie names from a hash of "<listener>/<namespace>/<route name>" — the
+        # rule name is not part of that key. Two names would mean two session
+        # cookies, so a session established by loading the SPA would be invisible
+        # to /api: every API call would be treated as unauthenticated and answered
+        # with a redirect to the login page, which a browser blocks on an XHR as a
+        # CORS error naming the identity provider rather than the routing.
+        - name: {{ $t }}
+          rule_name: api
+          backends:
+          - host: {{ $bff }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          - path:
+              pathPrefix: /api
+          policies:
+            oidc:
+              issuer: {{ $issuer }}
+              clientId: {{ $clientId }}
+              clientSecret: ""
+              tokenEndpointAuth: null
+              redirectURI: {{ $redirect }}
+              # Fixed by the platform. Scopes bound what a token may do, so a
+              # fleet able to widen its own would be granting itself authority
+              # the platform did not issue.
+              scopes:
+              - openid
+              - tenant:read
+              - tenant:write
+            transformations:
+              request:
+                set:
+                  # Forward the ID token itself, not merely claims derived from
+                  # it. The BFF validates identity independently (ADR-050) and
+                  # refuses to derive it from the x-auth-* headers below, so
+                  # without this the gateway authenticates the user and the BFF
+                  # still sees nobody. .unredacted() is required: the value
+                  # renders as "<redacted>" otherwise, forwarding a well-formed
+                  # header carrying nothing.
+                  Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+                  X-Auth-Subject: jwt.sub
+                  X-Auth-Email: jwt.email
+                  X-Auth-Role: jwt.role
+                  X-Auth-Tenant: jwt.tenant_id
+        - name: {{ $t }}
+          rule_name: spa
+          backends:
+          - host: {{ $frontend }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          - path:
+              pathPrefix: /
+          policies:
+            oidc:
+              issuer: {{ $issuer }}
+              clientId: {{ $clientId }}
+              clientSecret: ""
+              tokenEndpointAuth: null
+              redirectURI: {{ $redirect }}
+              # Fixed by the platform. Scopes bound what a token may do, so a
+              # fleet able to widen its own would be granting itself authority
+              # the platform did not issue.
+              scopes:
+              - openid
+              - tenant:read
+              - tenant:write
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}-oidc-cookie-secret
+  namespace: tenant-{{ $t }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $name }}-oidc-cookie-secret
+    creationPolicy: Owner
+  data:
+    # Per tenant, not shared. The cookie secret encrypts the session cookie, so a
+    # shared value would let one tenant's gateway decrypt another's sessions —
+    # harmless while cookies are host-only, and exactly the kind of dependency
+    # that stops being harmless quietly.
+    - secretKey: oidc-cookie-secret
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/AGENTGATEWAY_OIDC_COOKIE_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: tenant-{{ $t }}
+  labels:
+    app: {{ $name }}
+spec:
+  # Fixed. Replica count and resource requests are the platform's capacity
+  # decision — a spoke's tenant ceiling is derived from them (ADR-050) — and a
+  # fleet able to raise its own would invalidate that calculation for everyone.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+      annotations:
+        # The configuration is rendered into the ConfigMap above, so a change to
+        # this tenant's declarations must restart this pod. AgentGateway watches
+        # its file and hot-reloads, but a ConfigMap update is not guaranteed to
+        # land as a write it notices.
+        checksum/config: {{ printf "%s%s" (toString $hosts) $issuer | sha256sum }}
+    spec:
+      serviceAccountName: {{ $name }}
+      containers:
+      - name: agentgateway
+        # Pinned to tag + digest. `:latest` is not reproducible — a rebuild of the
+        # same manifest can silently change the gateway binary.
+        # Fixed here, not a value. A fleet able to set this would run an
+        # arbitrary container inside its own namespace with the platform's
+        # gateway identity.
+        image: cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29
+        args: ["-f", "/etc/agentgateway/config.yaml"]
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        # Config compile HARD-FAILS without this — the OIDC session cookie is
+        # AES-256-GCM encrypted with it.
+        - name: OIDC_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-cookie-secret
+              key: oidc-cookie-secret
+        volumeMounts:
+        - name: config
+          mountPath: /etc/agentgateway
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          httpGet: {path: /health, port: 3000}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet: {path: /health, port: 3000}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: {{ $name }}-config
+---
+# Permits the tenant's public HTTPRoute — which lives in platform-ops, because
+# the Gateway does — to name this tenant's gateway Service as a backend.
+#
+# Gateway API refuses a cross-namespace backendRef without an explicit grant, and
+# that refusal is the point: the grant is issued BY the namespace being referenced,
+# so a tenant cannot make another tenant's services routable. It is scoped to the
+# one kind and the one namespace that needs it, not to all routes everywhere.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: {{ $name }}-from-platform-ops
+  namespace: tenant-{{ $t }}
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: platform-ops
+  to:
+    - group: ""
+      kind: Service
+      name: {{ $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: tenant-{{ $t }}
+  labels:
+    app: {{ $name }}
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+{{- end }}

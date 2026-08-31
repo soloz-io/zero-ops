@@ -63,6 +63,11 @@ spec:
               - name: Strict-Transport-Security
                 value: max-age=31536000
       backendRefs:
-        - name: {{ .Values.authGatewayService.name }}
-          port: {{ .Values.authGatewayService.port }}
+        # This tenant's OWN gateway, in its own namespace (ADR-050 amendment
+        # 2026-08-31). Derived from the tenant id rather than configured: a
+        # tenant able to name this could route its public hostname at another
+        # tenant's gateway, and inherit that tenant's session.
+        - name: agentgateway-{{ .Values.tenantId }}
+          namespace: tenant-{{ .Values.tenantId }}
+          port: 3000
 {{- end }}

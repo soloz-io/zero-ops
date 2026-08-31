@@ -317,8 +317,47 @@ BFF's client credential.
   downstream resource server. Downstream OAuth credentials must originate
   exclusively from the BFF's delegated-token lifecycle.
 
+### Gateway topology: one instance per tenant (Amendment 2026-08-31)
+
+Each tenant is served by its own AgentGateway instance, configured entirely from that tenant's own declarations in the fleet registry. This supersedes the prior arrangement in which a single instance per spoke served every tenant from one configuration file.
+
+**Why the shared instance could not hold.** Tenant routing — hostnames, backend services, OAuth client identity — is tenant-owned data that ADR-047 forbids in platform manifests and ADR-051 assigns to the fleet registry. Under a shared instance it was written into a platform manifest, so adding a tenant meant editing platform code, and the tenant-identifier validator carried the file as a standing exception.
+
+The obstacle is not policy but mechanism: AgentGateway reads a single configuration file, with no merge, no directory and no include. Several independently-owned contributors and one file is a shape with only three resolutions, and two of them are worse than the topology change.
+
+**Composing the file at runtime is rejected outright.** A process that discovers tenant contributions and assembles them into one shared artifact is a control plane, whether or not it is called one — and one that must then define discovery, ordering, partial failure, staleness, atomic publication, validation, rollback and provenance, and keep all of it correct against a proxy it does not release. The decisive objection is what it makes of tenant configuration: materialised state assembled by a bespoke aggregator, rather than owned resources reconciled into gateway state. Isolation under that design is a property of the aggregator's care rather than of the architecture, so a refactor can remove it without any observable change until a tenant publishes something malformed and every other tenant loses routing.
+
+**Dynamic configuration is rejected for the pinned release, on capability rather than principle.** A control plane delivering tenant resources over the proxy's dynamic configuration interface would be the better architecture: one data plane, tenant ownership outside platform code, incremental updates, no bespoke aggregation. It is closed because the pinned release cannot carry the policy this decision depends on. The dynamic configuration schema enumerates the policies it can deliver — timeout, retry, rate limiting, external authorisation, authorization, JWT validation, transformation, CSRF, external processing, header modification, redirect, rewrite, mirror, direct response, CORS, basic auth, API-key auth, host rewrite, buffer, delay — and there is no OIDC variant among them. No OIDC policy representation exists anywhere in the schema set.
+
+JWT validation is not a substitute. It authenticates a bearer token already in hand; it cannot perform the authorization-code redirect, hold the session cookie, or complete the PKCE exchange, which is the entire browser flow this ADR is built on. The internal policy type does include an OIDC variant, and local and dynamic configuration do converge on it — but dynamic configuration reaches a strict subset, and OIDC is outside that subset. Only locally-supplied configuration can express it.
+
+**What the per-tenant topology buys.** Isolation stops being defended and becomes structural: a malformed tenant configuration prevents that tenant's gateway from starting, and no other tenant runs a process that reads it. There is nothing to validate, skip, or accidentally remove. Each tenant's gateway is reconciled by that tenant's own Application, so a failure is attributed where it originates. And it matches how this platform already separates tenants — namespace, database role, certificate, OAuth client — of which the shared gateway was the sole exception.
+
+**Capacity is a deployment gate, not an assumption.** The cost is linear in tenants: one deployment, one service and one pod per tenant. The planning figure for a single instance is approximately 128 MiB of memory and 100m of CPU requested, which is an input to a capacity calculation and not a bound.
+
+A maximum tenant count per spoke is therefore a required deployment parameter. It must be set explicitly for each spoke from that spoke's own resource budget, and validated before tenants are provisioned against it — not inferred from the figure above, and not left unset. A spoke that has not declared one is not configured to host tenants. This ADR deliberately declines to name a number: the correct value depends on node sizing and on everything else the spoke runs, and an invented default would be adopted as though it had been measured.
+
+**What a fleet configures, and what it does not.** A fleet declares whether it has a browser-facing gateway and which hostnames that gateway answers on. Nothing else. Backend addresses, OAuth client identity and redirect target follow from the tenant identity by platform convention; scopes, container image, replica count and resource requests are fixed by the platform; the identity provider comes from the environment.
+
+The distinction is not tidiness. A fleet able to name its own backends could route its public hostname at another fleet's services; one able to name its own client identity could claim another fleet's OAuth client; one able to set its own image would run an arbitrary container holding the platform's gateway position in its namespace; one able to widen its own scopes would grant itself authority the platform never issued; and one able to raise its own replica count or resource requests would invalidate the capacity calculation the spoke's tenant ceiling depends on. A fleet configures a gateway the platform defines; it does not define one.
+
+The cross-namespace reference this requires — the tenant's public route names a service in the tenant's own namespace — is granted explicitly by the namespace being referenced, so a fleet cannot make another fleet's services routable.
+
+**Revisit trigger.** Re-evaluate this topology when the deployed AgentGateway release exposes OIDC through its supported dynamic configuration interface. At that point a single instance per spoke with a control plane reconciling tenant resources becomes available, and is the preferred architecture: it removes the per-tenant resource multiplication while keeping tenant ownership outside platform code. This decision is a deferred optimisation awaiting a missing capability, not a judgement that a shared data plane is wrong.
+
 ### Alternatives considered
 
+- **Runtime composition of a shared gateway configuration file** — rejected: an
+  aggregator assembling independently-owned contributions into one shared mutable
+  artifact is an accidental control plane, and makes tenant isolation a property
+  of that aggregator's correctness rather than of the architecture.
+- **Dynamic (xDS) configuration with a single shared data plane** — rejected for
+  the pinned release only, and preferred once available: the release's dynamic
+  configuration schema has no OIDC policy representation, so the browser login
+  flow this ADR depends on cannot be delivered that way.
+- **Continuing to declare tenant routing in the platform's gateway manifest** —
+  rejected: contradicts ADR-047 and ADR-051's own ownership table, and makes
+  adding a tenant a change to platform code.
 - **BFF-held session cookie proxied through auth-proxy** — rejected: puts
   auth-proxy in the tenant request path and duplicates what AgentGateway does.
 - **Browser-held tokens (SPA store)** — rejected: exposes tokens to XSS.
@@ -357,6 +396,9 @@ BFF's client credential.
 | Identity claims (`email`, `role`, `tenant_id`) | Kratos traits | auth-proxy (consent injection) | auth-proxy consent handler | AgentGateway → BFF | Day-1+ |
 | Tenant hostnames | DNS | Platform Networking | external-dns (spoke, zone-scoped) | spoke AgentGateway | Day-1+ |
 | `<tenant>-public-client` / `<tenant>-bff-client` OAuth clients | Hydra | Platform Engineering | hydra-maester (`OAuth2Client` CRD) | AgentGateway `oidc` policy / Tenant BFF | Day-1+ |
+| AgentGateway instance (per tenant) | Git (spoke catalog chart) | Platform Engineering | ArgoCD | Tenant browser traffic | Day-1+ |
+| Tenant gateway configuration | Git (fleet registry) | Tenant | ArgoCD (rendered per tenant) | That tenant's AgentGateway | Day-1+ |
+| Maximum tenant count per spoke | Git (spoke configuration) | Platform Engineering | validated before tenant provisioning | Capacity planning | Day-0 |
 
 ---
 
