@@ -17,6 +17,10 @@
        identity by platform convention (ADR-053 for the client id). */ -}}
 {{- $ns := printf "tenant-%s" $t }}
 {{- $bff := printf "bff-workload.%s.svc.cluster.local:3001" $ns }}
+{{- /* The SDK owns workflow hooks, so it owns the endpoint that resumes them
+       (ADR-024). Derived like the others: a fleet able to name this backend
+       could point an unauthenticated public path at a service of its choosing. */ -}}
+{{- $sdk := printf "sdk-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $clientId := printf "%s-public-client" $t }}
 {{- $redirect := printf "https://%s/oauth/callback" $host }}
@@ -129,27 +133,38 @@ data:
     # HTTPRoute selects on (tenant-public-tls), which is how one hostname reaches
     # two different policy scopes.
     #
-    # This bind is NOT a bypass of ADR-050. It reaches only the BFF, only on the
-    # callback prefix, and the request still has to present an unguessable
-    # single-use token that the SDK minted for one specific run — see the BFF
-    # exemption, which is scoped to this exact path for the same reason.
+    # Straight to the SDK, NOT via the BFF (ADR-024). The BFF is the backend for
+    # the frontend; there is no frontend in this flow. Its former callback route
+    # only added the internal token and forwarded here, which is transport, and
+    # it put the one unauthenticated public path on the browser-facing service.
+    #
+    # This bind is NOT a bypass of ADR-050. It reaches one path on one backend,
+    # and the request must still present an unguessable single-use token the SDK
+    # minted for one specific run — 80 bits of CSPRNG entropy, claimed exactly
+    # once. Nothing else on the SDK is reachable through it.
     - port: 3001
       listeners:
       - name: webhook
         routes:
         - name: {{ $t }}-webhook-callback
           backends:
-          - host: {{ $bff }}
+          - host: {{ $sdk }}
           hostnames:
           {{- range $hosts }}
           - {{ . }}
           {{- end }}
           matches:
+          # VERSIONED, and must track PUBLIC_CALLBACK_PREFIX in the SDK
+          # (internal/api-paths.ts). An external runner stores this URL when a
+          # job is submitted and calls back much later, so v1 is retired only
+          # once no in-flight job can still hold it — a v2 is added beside it,
+          # as another route here, never by editing this line.
+          #
           # The trailing slash matters: it confines this listener to
-          # /api/v1/webhooks/callback/<token> and keeps the sibling webhook
-          # routes (/resume, /pending) on the authenticated listener.
+          # /v1/webhooks/callback/<token>. Every other SDK route — /internal/*
+          # above all — stays unreachable from outside.
           - path:
-              pathPrefix: /api/v1/webhooks/callback/
+              pathPrefix: /v1/webhooks/callback/
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
     # The session cookie's name is derived from the identity of whatever the
@@ -315,7 +330,7 @@ spec:
         # this tenant's declarations must restart this pod. AgentGateway watches
         # its file and hot-reloads, but a ConfigMap update is not guaranteed to
         # land as a write it notices.
-        checksum/config: {{ printf "%s%s%s" (toString $hosts) $issuer $bff | sha256sum }}
+        checksum/config: {{ printf "%s%s%s%s" (toString $hosts) $issuer $bff $sdk | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       # Pod-level, not only container-level. The tenant admission policy reads
