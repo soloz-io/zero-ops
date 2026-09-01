@@ -230,6 +230,21 @@ func (r *EphemeralJobReconciler) buildJob(
 			Labels: map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
+				// enforce-tenant-abi/require-cost-labels matches every Job in a
+				// tenant-* namespace and demands BOTH labels. tenant-id alone
+				// meant the Job was rejected at admission — and rejected inside
+				// this operator's reconcile, where the tenant sees only a CR
+				// that never produces a pod.
+				//
+				// "platform" for the same reason the tenant gateway carries it:
+				// this operator authors the pod, and its placement class,
+				// priority and resource envelope are platform decisions with no
+				// fleet-supplied input. Charging burst compute back to the
+				// submitting tenant needs a real per-tenant source, which no
+				// tenant namespace carries today; when one exists it belongs
+				// here, read from the namespace rather than from the CR, so a
+				// tenant cannot label its own spend.
+				"cost-center": "platform",
 			},
 		},
 		Spec: batchv1.JobSpec{
