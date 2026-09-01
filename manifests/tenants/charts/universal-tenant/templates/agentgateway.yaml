@@ -149,7 +149,32 @@ data:
         oidc:
           issuer: {{ $issuer }}
           clientId: {{ $clientId }}
+          # Empty, and correct. This is a PUBLIC client — oauth2clients.yaml
+          # registers <tenant>-public-client with tokenEndpointAuthMethod: none
+          # (ADR-050), so no secret authenticates it and PKCE carries the proof.
+          #
+          # Do not "fix" this by issuing a secret. The client would then need
+          # re-registering as confidential, and a browser-delivered flow gains
+          # nothing from a secret the gateway alone holds.
           clientSecret: ""
+          # Null means "derive from discovery", and what it derives is
+          # clientSecretBasic — NOT none. agentgateway has no `none`: the enum
+          # holds only ClientSecretBasic and ClientSecretPost (http/oauth.rs:23),
+          # and parse_token_endpoint_auth_methods returns the first of those the
+          # provider advertises (http/oauth.rs:110), never considering `none`
+          # even though Hydra offers it. So the token exchange sends
+          # `Authorization: Basic base64("<tenant>-public-client:")`.
+          #
+          # Hydra accepts that from a public client — verified 2026-09-01 against
+          # the dev issuer: the same request answered invalid_GRANT, not
+          # invalid_client, meaning the client authentication passed and only the
+          # test code was rejected. Login works, and works by the provider's
+          # leniency rather than by agreement between the two sides.
+          #
+          # Recorded as enhancement 2026-08-31 #22b, because RFC 6749 2.3.1 says
+          # a client without a secret should not use the Basic scheme, and a
+          # stricter issuer would reject this with invalid_client — surfacing as
+          # a bare 500 at /oauth/callback that no client-side listener can see.
           tokenEndpointAuth: null
           redirectURI: {{ $redirect }}
           # Fixed by the platform. Scopes bound what a token may do, so a fleet
