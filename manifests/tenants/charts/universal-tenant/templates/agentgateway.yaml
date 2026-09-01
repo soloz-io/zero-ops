@@ -154,17 +154,22 @@ data:
           - {{ . }}
           {{- end }}
           matches:
-          # VERSIONED, and must track PUBLIC_CALLBACK_PREFIX in the SDK
-          # (internal/api-paths.ts). An external runner stores this URL when a
-          # job is submitted and calls back much later, so v1 is retired only
-          # once no in-flight job can still hold it — a v2 is added beside it,
-          # as another route here, never by editing this line.
+          # VERSIONED, and must track PUBLIC_WEBHOOKS_PREFIX in the SDK
+          # (internal/api-paths.ts). An external caller stores this URL — a job
+          # runner at submit time, Meta at webhook registration — and calls it
+          # back much later, so v1 is retired only once nothing can still hold
+          # it. A v2 is added beside this route, never by editing this line.
+          #
+          # Covers the whole /v1/webhooks/ surface: the async-job callback and
+          # the WhatsApp inbound webhook. Every path under it authenticates its
+          # OWN caller — a single-use hook token, or Meta's verify-token and
+          # x-hub-signature — because nothing else guards this bind.
           #
           # The trailing slash matters: it confines this listener to
-          # /v1/webhooks/callback/<token>. Every other SDK route — /internal/*
-          # above all — stays unreachable from outside.
+          # /v1/webhooks/*. Every other SDK route — /internal/* above all —
+          # stays unreachable from outside.
           - path:
-              pathPrefix: /v1/webhooks/callback/
+              pathPrefix: /v1/webhooks/
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
     # The session cookie's name is derived from the identity of whatever the
