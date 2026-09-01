@@ -55,6 +55,60 @@ metadata:
   name: {{ $name }}-config
   namespace: tenant-{{ $t }}
 data:
+  # nginx config for the callback shim below.
+  #
+  # AgentGateway answers a failed OAuth callback with a bare 400 or 500 at
+  # /oauth/callback: no styling, no link back, and the SPA never loads so no
+  # client-side code can react. Every timing failure looks like this — an
+  # expired 5-minute transaction cookie (MissingTransaction), a stale or reused
+  # login challenge (ProviderCallback), a CSRF mismatch — and all of them are
+  # recoverable by simply starting the login again.
+  #
+  # LocalOidcConfig has no error-page or failure-redirect field, and the OIDC
+  # policy runs at gateway phase, so its Err becomes a response before route
+  # selection — no route or backend policy can intercept it. Sitting in front of
+  # the gateway on this one path is the only place left.
+  callback-shim.conf: |
+    server {
+      listen 8080;
+      server_name _;
+
+      # Emit the redirect below exactly as written, relative.
+      #
+      # nginx rewrites a relative Location into an absolute URL by default,
+      # built from the listen directive — which produced
+      # "Location: http://127.0.0.1:8080/" in testing. In the cluster that is
+      # the pod's own address on an internal port: the browser would follow it
+      # off the public hostname and the login would dead-end differently rather
+      # than recover.
+      absolute_redirect off;
+
+      # Proxy to the gateway on loopback: same pod, so this adds no network hop
+      # and no service-discovery failure mode to the login path.
+      #
+      # Host is preserved because the gateway's routes are hostname-scoped.
+      location /oauth/callback {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+
+        # Intercept ONLY the failures listed below. The success path is a 302
+        # carrying the session cookie in Set-Cookie, and it is deliberately not
+        # in that list, so it passes through untouched — intercepting it would
+        # swallow the cookie and break login outright.
+        proxy_intercept_errors on;
+        error_page 400 401 403 404 500 502 503 504 = @relogin;
+      }
+
+      # Start over. A relative Location keeps this hostname without the shim
+      # needing to know what it is; the gateway then mints a fresh transaction
+      # and sends the browser to the identity provider as usual.
+      location @relogin {
+        return 302 "/";
+      }
+
+      location = /healthz { return 200 "ok\n"; }
+    }
   config.yaml: |
     binds:
     - port: 3000
@@ -335,7 +389,7 @@ spec:
         # this tenant's declarations must restart this pod. AgentGateway watches
         # its file and hot-reloads, but a ConfigMap update is not guaranteed to
         # land as a write it notices.
-        checksum/config: {{ printf "%s%s%s%s" (toString $hosts) $issuer $bff $sdk | sha256sum }}
+        checksum/config: {{ printf "%s%s%s%s%s" (toString $hosts) $issuer $bff $sdk (.Files.Get "templates/agentgateway.yaml" | sha256sum) | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       # Pod-level, not only container-level. The tenant admission policy reads
@@ -370,6 +424,42 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway
+      # Turns a failed OAuth callback into a fresh login instead of a bare 400.
+      #
+      # A SIDECAR, not a separate Deployment: it proxies to the gateway over
+      # loopback, so it adds no network hop and cannot fail independently of the
+      # container it fronts. It also scales and rolls with the gateway, so the
+      # two can never be at different versions.
+      #
+      # It is on the LOGIN SUCCESS PATH, which is the risk worth stating: the
+      # public HTTPRoute sends /oauth/callback here, so if this container is
+      # broken, login is broken — not merely its error page. Hence loopback,
+      # hence intercepting only the listed error codes, and hence nothing else
+      # routes through it.
+      - name: callback-shim
+        # nginx-unprivileged: the stock nginx image runs as root and binds :80,
+        # which the tenant admission policy rejects. This one runs as non-root
+        # on 8080 by default.
+        image: nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
+        ports:
+        - containerPort: 8080
+          name: callback
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d/callback-shim.conf
+          subPath: callback-shim.conf
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {cpu: 100m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          initialDelaySeconds: 3
+          periodSeconds: 5
         resources:
           requests: {cpu: 100m, memory: 128Mi}
           limits: {cpu: 500m, memory: 512Mi}
@@ -440,4 +530,8 @@ spec:
   - name: webhook
     port: 3001
     targetPort: 3001
+  # The callback shim. Only /oauth/callback is routed here.
+  - name: callback
+    port: 3002
+    targetPort: 8080
 {{- end }}

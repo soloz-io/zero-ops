@@ -67,6 +67,25 @@ spec:
     #
     # No HSTS filter here: that header is for browsers, and this endpoint is
     # never loaded by one.
+    # The OAuth callback, via the gateway's error-catching shim.
+    #
+    # Exact path, and more specific than the catch-all, so only this one URL is
+    # affected. It still reaches the same gateway — the shim proxies to it over
+    # loopback — but a failed callback comes back as a redirect to the login
+    # instead of a bare 400 the SPA never gets to see.
+    #
+    # Every OAuth timing failure surfaces here: a transaction cookie older than
+    # its 5-minute TTL, a stale login challenge, a CSRF mismatch. All are
+    # recoverable by starting again, and none can be handled inside the gateway
+    # because its OIDC policy errors before route selection.
+    - matches:
+        - path:
+            type: Exact
+            value: /oauth/callback
+      backendRefs:
+        - name: agentgateway-{{ .Values.tenantId }}
+          namespace: tenant-{{ .Values.tenantId }}
+          port: 3002
     - matches:
         - path:
             type: PathPrefix
