@@ -1,4 +1,4 @@
-# ADR-023: Deterministic Platform Bootstrapping and CRD Supply Chain Security
+# ADR-029: Deterministic Platform Bootstrapping and CRD Supply Chain Security
 
 ## Status
 Accepted
