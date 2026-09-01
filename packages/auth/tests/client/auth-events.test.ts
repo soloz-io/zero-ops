@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createAuthClient,
-  detectRedirectResult,
-  type AuthEvent,
-} from "../../src/client/index.js";
+import { createAuthClient, type AuthEvent } from "../../src/client/index.js";
 
 const USER = {
   userId: "u_1",
@@ -109,24 +105,4 @@ describe("auth events", () => {
     expect(events.filter((e) => e.event === "signedOut")).toHaveLength(0);
   });
 
-  it("reports a refused redirect distinctly from an ordinary failure", () => {
-    // The provider explicitly said no. An application should show a sign-in
-    // error, not retry — which is why this cannot share checkFailed.
-    const r = detectRedirectResult("?error=access_denied&error_description=User%20denied");
-    expect(r?.kind).toBe("failure");
-    if (r?.kind === "failure") {
-      expect(r.error.name).toBe("access_denied");
-      expect(r.error.message).toContain("User denied");
-    }
-  });
-
-  it("recognises the successful authorization-code landing", () => {
-    expect(detectRedirectResult("?code=abc&state=xyz")?.kind).toBe("success");
-  });
-
-  it("says nothing about a URL that is not a redirect landing", () => {
-    // An ordinary page load must not be reported as a sign-in attempt.
-    expect(detectRedirectResult("?tab=settings")).toBeNull();
-    expect(detectRedirectResult("")).toBeNull();
-  });
 });

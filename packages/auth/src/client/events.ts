@@ -10,10 +10,12 @@ import type { UserIdentity } from "./types.js";
  * application that reconstructs the transition from successive states arrives
  * at a slightly different answer.
  *
- * Names are Amplify's wherever the concept exists — `signedIn`, `signedOut`,
- * `signInWithRedirect`, `signInWithRedirect_failure`, underscore and all — so
- * that Amplify's documentation reads as documentation for this package. The
- * three differences are deliberate and each has a reason:
+ * Names are Amplify's wherever the concept exists — `signedIn`, `signedOut` —
+ * so that Amplify's documentation reads as documentation for this package. The
+ * differences are deliberate, and every one of them follows from the same fact:
+ * the gateway, not this client, performs OAuth and owns the session cookie.
+ * Amplify's client holds tokens and runs the redirect flow itself, so it can
+ * observe steps that are simply not visible from here.
  *
  *   tokenRefresh          not emitted. Amplify holds tokens in the client and
  *   tokenRefresh_failure  refreshes them there. Here the gateway owns the
@@ -21,6 +23,21 @@ import type { UserIdentity } from "./types.js";
  *                         is not an event this side can observe. `sessionExpired`
  *                         reports the only consequence that is observable, and
  *                         carries `tokenRefresh_failure`'s semantics.
+ *
+ *   signInWithRedirect    not emitted, and deliberately absent rather than
+ *   signInWithRedirect_   declared-but-silent. Verified against agentgateway
+ *   failure               (http/oidc/callback.rs, http/oidc/mod.rs): on success
+ *                         the gateway redirects to the originally requested URI
+ *                         with no `code` or `state` in the query, so a
+ *                         successful return is indistinguishable from any other
+ *                         authenticated load. On failure — `?error=` from the
+ *                         provider, or a CSRF, nonce or exchange failure — the
+ *                         gateway answers 400 or 500 AT the callback path, so
+ *                         the application is never loaded and no listener of
+ *                         ours can run. An event that can never fire is worse
+ *                         than a missing one: it invites a sign-in error
+ *                         handler that never runs, and the impression that
+ *                         sign-in cannot fail.
  *
  *   customOAuthState      not emitted. Amplify passes application state through
  *                         the `state` parameter and hands it back on return. The
@@ -67,24 +84,6 @@ export type AuthEvent =
   /** Dispatched after the user signs out. Amplify: `signedOut`. */
   | { readonly event: "signedOut" }
   /**
-   * Dispatched when a redirect sign-in completes. Amplify: `signInWithRedirect`.
-   *
-   * Detected from the callback landing, because the gateway — not this client —
-   * performs the OAuth exchange. See `detectRedirectResult`.
-   */
-  | { readonly event: "signInWithRedirect" }
-  /**
-   * Dispatched when the redirect flow fails. Amplify:
-   * `signInWithRedirect_failure`, underscore and all, so the name matches the
-   * reference exactly.
-   *
-   * Distinct from `checkFailed`: the provider explicitly refused — consent
-   * denied, a bad client, an expired authorization code. An application should
-   * show a sign-in error rather than retry, which is why the two cannot share an
-   * event.
-   */
-  | { readonly event: "signInWithRedirect_failure"; readonly data: { readonly error: Error } }
-  /**
    * An established session is no longer valid, without the person asking.
    *
    * Amplify's nearest equivalent is `tokenRefresh_failure`, and the name is
@@ -107,40 +106,6 @@ export type AuthEvent =
    * ones such as service issues or rate limits.
    */
   | { readonly event: "checkFailed"; readonly data: { readonly error: Error } };
-
-/**
- * What an OAuth redirect landing says about the attempt.
- *
- * The gateway performs the code exchange, so this client never sees a token. It
- * can still read the provider's answer from the URL it was returned to, which is
- * the only place a redirect failure is visible: without this, a refused consent
- * is indistinguishable from any other unauthenticated load.
- *
- * Exported for testing and because a native client landing on a deep link needs
- * the same interpretation.
- */
-export function detectRedirectResult(
-  search: string,
-): { kind: "success" } | { kind: "failure"; error: Error } | null {
-  let params: URLSearchParams;
-  try {
-    params = new URLSearchParams(search);
-  } catch {
-    return null;
-  }
-  const error = params.get("error");
-  if (error) {
-    const description = params.get("error_description");
-    const err = new Error(description ? `${error}: ${description}` : error);
-    // `name` carries the provider's code, matching Amplify's AuthError shape
-    // ({ name, message }) so a listener can branch on it.
-    err.name = error;
-    return { kind: "failure", error: err };
-  }
-  // `code` with `state` is the successful authorization-code landing.
-  if (params.get("code") && params.get("state")) return { kind: "success" };
-  return null;
-}
 
 export type AuthEventListener = (event: AuthEvent) => void;
 

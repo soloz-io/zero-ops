@@ -135,9 +135,6 @@ const unlisten = auth.listen((e) => {
       // send them to sign in again.
       window.location.href = "/";
       break;
-    case "signInWithRedirect_failure":
-      showError(e.data.error.message);
-      break;
     case "checkFailed":
       // Unknown, not signed out. Do nothing.
       break;
@@ -163,14 +160,19 @@ by this package, so an application cannot fake a `signedIn`.
 #### Amplify parity
 
 Event names are AWS Amplify's wherever the concept exists, so Amplify's
-documentation applies here.
+documentation applies here. Where an event is absent it is because the gateway,
+not this client, performs OAuth and owns the session cookie — Amplify's client
+holds tokens and runs the redirect itself, so it can observe steps that are not
+visible from here. Absences were verified against the agentgateway source
+(`http/oidc/callback.rs`, `http/oidc/mod.rs`); an event that could never fire is
+not declared, because it would invite a handler that never runs.
 
 | Amplify | This package | |
 |---|---|---|
 | `signedIn` | `signedIn` | payload is `data: UserIdentity` |
 | `signedOut` | `signedOut` | |
-| `signInWithRedirect` | `signInWithRedirect` | |
-| `signInWithRedirect_failure` | `signInWithRedirect_failure` | `data: { error }` |
+| `signInWithRedirect` | — | on success the gateway redirects to the originally requested URI with no `code`/`state`, so the return is indistinguishable from any authenticated load |
+| `signInWithRedirect_failure` | — | the gateway answers 400/500 **at the callback path**, so the application never loads and no listener can run |
 | `tokenRefresh_failure` | `sessionExpired` | the gateway owns the cookie and any refresh; the expiry is the only observable consequence |
 | `tokenRefresh` | — | not observable from this side |
 | `customOAuthState` | — | the gateway performs the exchange and does not surface `state`; keep pre-redirect state in `sessionStorage` |

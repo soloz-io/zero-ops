@@ -10,4 +10,3 @@ export type { UserIdentity, AuthState, AuthTransport } from "./types.js";
 export { createAuthClient, hasUserContext } from "./auth-client.js";
 export type { AuthClient } from "./auth-client.js";
 export type { AuthEvent, AuthEventListener } from "./events.js";
-export { detectRedirectResult } from "./events.js";

@@ -1,8 +1,4 @@
-import {
-  createEventEmitter,
-  detectRedirectResult,
-  type AuthEventListener,
-} from "./events.js";
+import { createEventEmitter, type AuthEventListener } from "./events.js";
 import type { AuthState, AuthTransport, UserIdentity } from "./types.js";
 
 /** Where the aggregation boundary serves the current identity. */
@@ -172,23 +168,6 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
         user: null,
         error: cause instanceof Error ? cause : new Error("identity check failed"),
       });
-    }
-  }
-
-  // Report the redirect outcome once, before any state transition.
-  //
-  // The gateway performs the OAuth exchange, so the only trace this client sees
-  // is the URL it was returned to. Read at construction because it is a property
-  // of this page load, not of any later check — and a failure must be reported
-  // even though the resulting state is simply "unauthenticated", which on its
-  // own is indistinguishable from an ordinary anonymous visit.
-  if (typeof globalThis !== "undefined") {
-    const loc = (globalThis as { location?: { search?: string } }).location;
-    const outcome = loc?.search ? detectRedirectResult(loc.search) : null;
-    if (outcome?.kind === "failure") {
-      events.emit({ event: "signInWithRedirect_failure", data: { error: outcome.error } });
-    } else if (outcome?.kind === "success") {
-      events.emit({ event: "signInWithRedirect" });
     }
   }
 
