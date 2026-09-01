@@ -116,6 +116,66 @@ const freshTokens = await tokenStore.refreshToken(
 );
 ```
 
+### Browser: reacting to the session
+
+A tenant application should not implement authentication logic. It listens.
+
+```ts
+import { createAuthClient } from "zero-ops-auth/client";
+
+const auth = createAuthClient({ baseUrl: "" });
+
+const unlisten = auth.listen((e) => {
+  switch (e.event) {
+    case "signedIn":
+      console.log("welcome", e.data.email);
+      break;
+    case "sessionExpired":
+      // The person did NOT ask to leave. Tear down session-scoped UI and
+      // send them to sign in again.
+      window.location.href = "/";
+      break;
+    case "signInWithRedirect_failure":
+      showError(e.data.error.message);
+      break;
+    case "checkFailed":
+      // Unknown, not signed out. Do nothing.
+      break;
+  }
+});
+
+await auth.refresh();
+const stopWatch = auth.startSessionWatch(); // polls; emits sessionExpired
+
+// On teardown:
+unlisten();
+stopWatch();
+```
+
+`auth.signOut()` emits `signedOut` rather than `sessionExpired`, so a deliberate
+departure is never reported as an expiry.
+
+`listen` returns an unsubscribe function, and a listener that throws is caught
+and logged rather than being allowed to stop the others — both matching
+Amplify's `Hub.listen`. There is no public `dispatch`: events are emitted only
+by this package, so an application cannot fake a `signedIn`.
+
+#### Amplify parity
+
+Event names are AWS Amplify's wherever the concept exists, so Amplify's
+documentation applies here.
+
+| Amplify | This package | |
+|---|---|---|
+| `signedIn` | `signedIn` | payload is `data: UserIdentity` |
+| `signedOut` | `signedOut` | |
+| `signInWithRedirect` | `signInWithRedirect` | |
+| `signInWithRedirect_failure` | `signInWithRedirect_failure` | `data: { error }` |
+| `tokenRefresh_failure` | `sessionExpired` | the gateway owns the cookie and any refresh; the expiry is the only observable consequence |
+| `tokenRefresh` | — | not observable from this side |
+| `customOAuthState` | — | the gateway performs the exchange and does not surface `state`; keep pre-redirect state in `sessionStorage` |
+| — | `checkFailed` | determining the session is a network call, so "unknown" exists here and must not be read as "signed out" |
+
 ## API Reference
 
 ### `JwtValidator`

@@ -1,4 +1,8 @@
-import { createEventEmitter, type AuthEvent, type AuthEventListener } from "./events.js";
+import {
+  createEventEmitter,
+  detectRedirectResult,
+  type AuthEventListener,
+} from "./events.js";
 import type { AuthState, AuthTransport, UserIdentity } from "./types.js";
 
 /** Where the aggregation boundary serves the current identity. */
@@ -89,7 +93,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     for (const listener of listeners) listener(state);
 
     if (next.status === "authenticated" && previous.status !== "authenticated") {
-      events.emit({ event: "signedIn", user: next.user as UserIdentity });
+      events.emit({ event: "signedIn", data: next.user as UserIdentity });
     } else if (
       next.status === "unauthenticated" &&
       previous.status === "authenticated"
@@ -97,7 +101,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
       // The only transition that means a live session ended on its own.
       events.emit({ event: "sessionExpired" });
     } else if (next.status === "error" && next.error) {
-      events.emit({ event: "checkFailed", error: next.error });
+      events.emit({ event: "checkFailed", data: { error: next.error } });
     }
     return state;
   }
@@ -168,6 +172,23 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
         user: null,
         error: cause instanceof Error ? cause : new Error("identity check failed"),
       });
+    }
+  }
+
+  // Report the redirect outcome once, before any state transition.
+  //
+  // The gateway performs the OAuth exchange, so the only trace this client sees
+  // is the URL it was returned to. Read at construction because it is a property
+  // of this page load, not of any later check — and a failure must be reported
+  // even though the resulting state is simply "unauthenticated", which on its
+  // own is indistinguishable from an ordinary anonymous visit.
+  if (typeof globalThis !== "undefined") {
+    const loc = (globalThis as { location?: { search?: string } }).location;
+    const outcome = loc?.search ? detectRedirectResult(loc.search) : null;
+    if (outcome?.kind === "failure") {
+      events.emit({ event: "signInWithRedirect_failure", data: { error: outcome.error } });
+    } else if (outcome?.kind === "success") {
+      events.emit({ event: "signInWithRedirect" });
     }
   }
 
