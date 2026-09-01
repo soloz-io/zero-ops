@@ -11,6 +11,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,6 +33,13 @@ type EphemeralJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
+	// APIReader reads straight from the API server, bypassing the manager's
+	// cache. It exists for one job: reading a Job's Events. Events are numerous
+	// and short-lived, and a cached read would make this controller maintain an
+	// informer over every Event in the cluster to answer a question it asks only
+	// when a job looks stuck.
+	APIReader client.Reader
+
 	// ProvisioningBudget is the p95 cold-start budget for the placement class
 	// (ADR-052 §11). A job that has been waiting for capacity longer than this
 	// is reported as such — but it is NOT deleted, because deletion during
@@ -49,6 +57,11 @@ const (
 	// Bounded so a slow or hanging receiver cannot stall the work queue for
 	// every other job. The callback is a notification, not a transaction.
 	callbackTimeout = 10 * time.Second
+
+	// The envelope every burst pod gets when its CR names none. See the comment
+	// at the assignment for why an absent value cannot be left absent.
+	defaultRequestCPU    = "2"
+	defaultRequestMemory = "4Gi"
 )
 
 // callbackHTTP is shared so connections are reused across reconciles rather
@@ -90,6 +103,16 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// the expected one at volume (ADR-052 §Consequences). It is terminal: the
 	// fleet's burst quota is full, and retrying cannot change that.
 	if reason, msg, rejected := jobAdmissionRejected(job); rejected {
+		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed,
+			computev1alpha1.ReasonQuotaRejected, fmt.Sprintf("%s: %s", reason, msg))
+	}
+
+	// The same outcome by the other route. The check above sees a Job the
+	// controller gave up on; this sees one it will retry forever because each
+	// pod is refused before it exists. Both mean no pod will run, and neither
+	// resolves by waiting — but only this one is reached in practice, because a
+	// refused create sets no condition for the check above to read.
+	if reason, msg, blocked := jobPodCreationBlocked(ctx, r.APIReader, job); blocked {
 		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed,
 			computev1alpha1.ReasonQuotaRejected, fmt.Sprintf("%s: %s", reason, msg))
 	}
@@ -219,8 +242,32 @@ func (r *EphemeralJobReconciler) buildJob(
 			{Name: "result", MountPath: "/result"},
 		},
 	}
+	// Resources are OPTIONAL on the CR but MANDATORY on the pod.
+	//
+	// Every burst pod runs under the burst-tenant priority class, and the
+	// burst-compute ResourceQuota is scoped to it. A quota that sets
+	// requests.cpu/requests.memory rejects any pod that omits them — so a CR
+	// with no resources produced a Job whose every pod creation was forbidden.
+	// The Job reports Running with no pods, forever: the job controller retries
+	// pod creation indefinitely and never sets JobFailed, so nothing above
+	// notices. Both callers that exist today omit resources, so this was not an
+	// edge case; it was the default path.
+	//
+	// The floor is deliberately modest. It is a request, not a limit, so a
+	// render still bursts above it on an idle node, while four can be admitted
+	// concurrently within the 8 CPU / 16Gi the quota allows. A workload that
+	// needs a different envelope states it on the CR and this is not consulted.
 	if ej.Spec.Resources != nil {
 		container.Resources = *ej.Spec.Resources
+	}
+	if container.Resources.Requests == nil {
+		container.Resources.Requests = corev1.ResourceList{}
+	}
+	if _, ok := container.Resources.Requests[corev1.ResourceCPU]; !ok {
+		container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultRequestCPU)
+	}
+	if _, ok := container.Resources.Requests[corev1.ResourceMemory]; !ok {
+		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(defaultRequestMemory)
 	}
 
 	return &batchv1.Job{
@@ -370,6 +417,9 @@ func (r *EphemeralJobReconciler) markTerminal(
 }
 
 func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&computev1alpha1.EphemeralJob{}).
 		Owns(&batchv1.Job{}).
