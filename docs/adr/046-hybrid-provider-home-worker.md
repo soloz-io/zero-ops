@@ -2407,6 +2407,91 @@ reviewed. And the probe's expectation should be corrected: a second claim on a
 bound port is *rejected*, and it takes the working listener with it.
 
 
+### 33. A DNS burst on the home node froze a GitOps sync mid-hook (2026-09-01)
+
+**Symptom.** `tenant-waypoint-dev-workloads` reported `Healthy` and `OutOfSync`
+with its operation stuck on
+
+```
+waiting for completion of hook batch/Job/sdk-waypoint-sdk-migration-48c2caea
+```
+
+for a Job that did not exist. Nothing alerted: the health status was green
+throughout, which is the failure mode §18 of the enhancement log already
+describes.
+
+**What actually happened.** The sync was mid-hook. ArgoCD's
+`BeforeHookCreation` policy had deleted the previous PreSync Job and was about to
+recreate it when the operation aborted:
+
+```
+ComparisonError: Failed to load target state: failed to generate manifest for
+source 1 of 1: rpc error: code = Unavailable desc = connection error:
+dial tcp: lookup argocd-repo-server on 10.96.0.10:53: no such host
+```
+
+The delete had happened; the create had not. The recorded hook phase stayed
+`Running` against a name with no live object, and a frozen `operationState` is
+not re-read — so the Application waited indefinitely. Clearing `.operation`, a
+hard refresh, and recreating the Job and letting it complete all failed to
+release it.
+
+**Why this is a hybrid concern.** The failure is not in ArgoCD. It is a
+name-resolution failure for a Service that exists — `argocd-repo-server`,
+ClusterIP, four days old — and it is bounded and bursty:
+
+```
+4 occurrences, one name only, 06:20:10Z – 06:23:46Z, then nothing
+```
+
+CoreDNS (2 replicas) and node-local-dns (2) were `Running` for 32 hours across
+the window and logged no error. `10.96.0.10` is the kube-dns ClusterIP, which on
+this platform is bound on every node by the `hostNetwork` node-local-dns
+DaemonSet, so the query was answered locally and only a cache miss forwards
+upstream.
+
+The placement is the part that belongs to this ADR. Both the ArgoCD
+application-controller and the repo-server it could not resolve run on
+`flatcar-hub-node-1` — the home-lab worker — and the hub's nodes address each
+other over the tailnet (`100.85.103.45`, `100.112.240.52`). One CoreDNS replica
+sits on that home node and one on the Hetzner control plane, so a node-local-dns
+cache miss can forward across the Tailscale/VXLAN underlay this ADR exists to
+describe. The platform's whole GitOps control loop therefore depends on the
+home-lab node's DNS path, which §24.5 already establishes is the least reliable
+place in the cell.
+
+**Stated as unverified.** The mechanism above is a candidate, not a conclusion.
+The one fact that does not fit a simple underlay disruption is the error itself:
+`no such host` is NXDOMAIN, a definitive negative answer, where a dropped or
+delayed packet produces a timeout. Something answered, and answered wrongly. A
+stale negative cache entry in node-local-dns is the obvious suspect and was not
+confirmed — the burst had ended before it was investigated, and neither DNS
+component logs at a level that would show it.
+
+**Not the same fault as §30.** That one is Cilium's DNS *proxy* failing to
+receive packets, which makes `toFQDNs` inert while resolution itself keeps
+working. This is resolution failing while the proxy is irrelevant — the query is
+answered by node-local-dns on the host, not proxied. They should not be
+conflated when either is next investigated.
+
+**Consequences.**
+
+1. A DNS blip on the home node can wedge a GitOps sync permanently, because
+   `BeforeHookCreation` is not atomic: delete and create are separate steps and
+   an abort between them is unrecoverable without operator action.
+2. The wedge reports `Healthy`. `scripts/validate/cluster/75-sync-divergence.sh`
+   detects it by comparing `operationState.revision` against `sync.revision`; it
+   is the only signal, and it is not wired to alerting.
+3. Running both ArgoCD components on the home worker means a home-lab
+   disturbance stops deployments cell-wide, not just workloads placed there.
+
+**Revisit trigger.** If this recurs, raise node-local-dns log verbosity to
+capture the answer rather than the client's interpretation of it, before
+theorising further. Independently, ArgoCD components are a candidate for the
+Hetzner placement class on the same reasoning §24.5 applies to other
+availability-sensitive components — a control loop for the whole cell should not
+depend on the least reliable node in it.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
