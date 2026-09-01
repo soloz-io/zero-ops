@@ -1,0 +1,72 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "automerge": true,
+  "platformAutomerge": true,
+  "rebaseWhen": "conflicted",
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Kyverno Helm chart version in ArgoCD ApplicationSet",
+      "managerFilePatterns": ["/01-platform-infra-appset\\.yaml$/"],
+      "matchStrings": [
+        "repoURL: 'https://kyverno\\.github\\.io/kyverno'\\s+targetRevision: '(?<currentValue>[^']+)'"
+      ],
+      "depNameTemplate": "kyverno",
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://kyverno.github.io/kyverno",
+      "autoReplaceStringTemplate": "repoURL: 'https://kyverno.github.io/kyverno'\n            targetRevision: '{{{newValue}}}'"
+    },
+    {
+      "customType": "regex",
+      "description": "Kyverno provenance header in spoke vendored manifests",
+      "managerFilePatterns": ["/manifests/spoke/spoke-catalog/infra/kyverno/"],
+      "matchStrings": [
+        "# Vendored from helm chart (?<depName>\\S+) v(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://kyverno.github.io/kyverno"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Kyverno: dashboard-approve major upgrades",
+      "matchDepNames": ["kyverno"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "dependencyDashboardApproval": true,
+      "labels": ["breaking", "kyverno"]
+    },
+    {
+      "description": "Kyverno: CI + approval for minor upgrades",
+      "matchDepNames": ["kyverno"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "labels": ["kyverno"]
+    },
+    {
+      "description": "Kyverno: automerge patch after CI",
+      "matchDepNames": ["kyverno"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "labels": ["kyverno"]
+    }
+  ],
+  "postUpgradeTasks": {
+    "executionMode": "branch",
+    "installTools": {
+      "helm": {},
+      "kustomize": {}
+    },
+    "commands": [
+      "bash scripts/renovate/revendor-kyverno.sh"
+    ],
+    "fileFilters": [
+      "manifests/argocd/environment-manager/templates/01-platform-infra-appset.yaml",
+      "manifests/spoke/spoke-catalog/infra/kyverno/controller.yaml",
+      "manifests/spoke/spoke-catalog/infra/kyverno/crd.yaml"
+    ]
+  }
+}

@@ -48,3 +48,7 @@ jobs:
       - name: Validate SpokePool composition alignment
         run: |
           scripts/validate-spokepool-compositions.sh
+
+      - name: Verify vendored manifest digests
+        run: |
+          scripts/validate/verify-vendor-digest.sh

@@ -32,6 +32,16 @@ const (
 	ConditionCapacity = "CapacityAvailable"
 	// ConditionComplete reports terminal outcome.
 	ConditionComplete = "Complete"
+	// ConditionCallbackDelivered records that CallbackURL has been notified of
+	// the terminal outcome.
+	//
+	// It exists to make delivery exactly-once from this side. Reconcile runs
+	// again for reasons unrelated to the job — a resync, a status write, an
+	// operator restart — and without a marker each pass would POST again. The
+	// receiver claims a single-use hook token, so a duplicate is not corrupting,
+	// but it is a spurious error in someone's logs for a workflow that already
+	// resumed correctly.
+	ConditionCallbackDelivered = "CallbackDelivered"
 )
 
 // Reasons for ConditionCapacity. These are the three outcomes ADR-052 §12

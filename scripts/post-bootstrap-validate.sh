@@ -729,6 +729,37 @@ check_spoke_crd() {
     fi
 }
 
+# Verify that Kyverno CRDs have the Established=True condition.
+# A CRD can be present (APIServed) but not yet Established — the API server
+# has not yet accepted the schema. Controllers that depend on the CRD will
+# fail with "no matches for kind" if they start before Established=True.
+# See: kyverno-tenant-abi.yaml ("applying before the CRD is Established
+# causes an irrecoverable rejection") and cilium-addon-hybrid.yaml
+# (--for=condition=Established).
+check_kyverno_crd_established() {
+    log "  Checking Kyverno CRD Established conditions..."
+    local kyverno_crds=(
+        "clusterpolicies.kyverno.io"
+        "policyreports.kyverno.io"
+        "clusterpolicyreports.kyverno.io"
+        "admissionreports.kyverno.io"
+        "backgroundscanreports.kyverno.io"
+        "clusterbackgroundscanreports.kyverno.io"
+    )
+    for crd in "${kyverno_crds[@]}"; do
+        local established
+        established=$(kc_spoke get crd "$crd" \
+            -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null || echo "NotFound")
+        if [[ "$established" == "True" ]]; then
+            log_pass "Spoke CRD $crd: Established=True"
+        elif [[ "$established" == "NotFound" ]]; then
+            log_fail "Spoke CRD $crd: not found"
+        else
+            log_fail "Spoke CRD $crd: Established=$established"
+        fi
+    done
+}
+
 check_spoke_cnpg() {
     local phase
     phase=$(kc_spoke get cluster shared-cnpg -n platform-data \
@@ -762,6 +793,11 @@ check_spoke_platform() {
         "clusterpolicies.kyverno.io"
     )
     for c in "${crds[@]}"; do check_spoke_crd "$c"; done
+
+    # Verify Kyverno CRDs are Established (not just present).
+    # A CRD that is present but not Established means the API server has
+    # not yet accepted the schema — controllers depending on it will fail.
+    check_kyverno_crd_established
 
     # Platform operators
     check_spoke_namespace_pods "crossplane-system"

@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -42,7 +45,17 @@ const (
 	finalizerName  = "compute.nutgraf.in/ephemeraljob"
 	labelJobUID    = "compute.nutgraf.in/ephemeraljob-uid"
 	defaultRequeue = 10 * time.Second
+
+	// Bounded so a slow or hanging receiver cannot stall the work queue for
+	// every other job. The callback is a notification, not a transaction.
+	callbackTimeout = 10 * time.Second
 )
+
+// callbackHTTP is shared so connections are reused across reconciles rather
+// than a new transport being built per callback.
+var callbackHTTP = &http.Client{Timeout: callbackTimeout}
+
+func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callbackHTTP }
 
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs/status,verbs=get;update;patch
@@ -314,7 +327,13 @@ func (r *EphemeralJobReconciler) markFinished(
 		Message:            ej.Status.Message,
 		ObservedGeneration: ej.Generation,
 	})
-	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
+	if err := client.IgnoreNotFound(r.Status().Update(ctx, ej)); err != nil {
+		return err
+	}
+	// Terminal state is recorded; now tell whoever is waiting for it. Ordered
+	// after the status write so the CR is the source of truth even if the
+	// callback fails and this is retried.
+	return r.fireCallback(ctx, ej, phase, exit)
 }
 
 func (r *EphemeralJobReconciler) markTerminal(
@@ -340,4 +359,94 @@ func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&computev1alpha1.EphemeralJob{}).
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+// fireCallback notifies Spec.CallbackURL that the job reached a terminal state.
+//
+// This is the completion signal the workflow is suspended on. The SDK's step
+// creates a single-use hook, puts its URL here, and returns pending_hitl; until
+// something POSTs, the run waits indefinitely. Rendering takes tens of minutes,
+// so polling for this would be wasteful and slow — the Job's own status change
+// already wakes this controller (Owns(&batchv1.Job{})), and this turns that
+// event into the message the workflow is waiting for.
+//
+// It is deliberately the OPERATOR that reports, not the workload. A container
+// can only report outcomes it survives: an OOM kill, an image that will not
+// pull, a pod evicted, a deadline exceeded — in each case the workload posts
+// nothing and the run hangs. jobFinished already classifies those, so reporting
+// from here covers the failures the job itself cannot.
+//
+// Delivery is at-least-once and marked with ConditionCallbackDelivered so a
+// later reconcile does not repeat it. The receiver claims a single-use token,
+// so a duplicate that races the marker is refused rather than double-resuming.
+func (r *EphemeralJobReconciler) fireCallback(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
+) error {
+	l := log.FromContext(ctx)
+
+	// Optional by design: a job nobody is waiting on needs no callback.
+	if ej.Spec.CallbackURL == "" {
+		return nil
+	}
+	if meta_IsStatusConditionTrue(ej.Status.Conditions, computev1alpha1.ConditionCallbackDelivered) {
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"jobId":    ej.Name,
+		"status":   string(phase),
+		"exitCode": exit,
+		"output":   ej.Spec.Output,
+		"message":  ej.Status.Message,
+	})
+	if err != nil {
+		// Unmarshallable payload is a programming error, not a transient one:
+		// retrying cannot fix it, and blocking the TTL on it would leak the CR.
+		l.Error(err, "callback payload could not be marshalled", "ephemeralJob", ej.Name)
+		return nil
+	}
+
+	// Bounded: this runs inside Reconcile, and a hanging callback would stall
+	// the work queue for every other job.
+	cctx, cancel := context.WithTimeout(ctx, callbackTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(cctx, http.MethodPost, ej.Spec.CallbackURL, bytes.NewReader(body))
+	if err != nil {
+		l.Error(err, "callback request could not be built", "ephemeralJob", ej.Name)
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := r.callbackClient().Do(req)
+	if err != nil {
+		// Requeue rather than swallow: a dropped callback strands the workflow
+		// forever, which is a worse failure than a late one.
+		l.Info("callback failed, will retry", "ephemeralJob", ej.Name, "err", err.Error())
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 {
+		l.Info("callback returned a server error, will retry",
+			"ephemeralJob", ej.Name, "status", resp.StatusCode)
+		return fmt.Errorf("callback to %s returned %d", ej.Spec.CallbackURL, resp.StatusCode)
+	}
+
+	// A 4xx is not retried. The token is single-use, so 404/409 is the expected
+	// answer to a duplicate that beat the marker, and every other 4xx means the
+	// receiver rejected this payload — neither improves by repeating.
+	if resp.StatusCode >= 400 {
+		l.Info("callback rejected, not retrying",
+			"ephemeralJob", ej.Name, "status", resp.StatusCode)
+	}
+
+	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+		Type:               computev1alpha1.ConditionCallbackDelivered,
+		Status:             metav1.ConditionTrue,
+		Reason:             string(phase),
+		Message:            fmt.Sprintf("callback responded %d", resp.StatusCode),
+		ObservedGeneration: ej.Generation,
+	})
+	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
 }
