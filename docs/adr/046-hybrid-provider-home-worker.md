@@ -2432,9 +2432,35 @@ dial tcp: lookup argocd-repo-server on 10.96.0.10:53: no such host
 
 The delete had happened; the create had not. The recorded hook phase stayed
 `Running` against a name with no live object, and a frozen `operationState` is
-not re-read — so the Application waited indefinitely. Clearing `.operation`, a
-hard refresh, and recreating the Job and letting it complete all failed to
-release it.
+not re-read, so the Application did not advance on its own reconcile loop.
+
+**How it was resolved — recorded honestly, because the causality is not known.**
+An earlier revision of this section claimed that clearing `.operation`, a hard
+refresh, and recreating the Job all failed. That is what was observed at each
+check, and it is incomplete: the Application recovered without operator
+intervention beyond those steps. Sequence, with only what was actually seen:
+
+| time | observed |
+|---|---|
+| `05:48:07Z` | the operation that froze started |
+| — | `.operation` cleared; it went away, but `operationState.phase` stayed `Running` from `05:48:07Z` |
+| — | hard refresh (`argocd.argoproj.io/refresh=hard`); no change |
+| — | the hook Job applied by hand from the rendered manifest; it ran and completed |
+| — | Application still reporting `waiting for completion of hook …` |
+| `06:01:47Z` | a **new** operation had started and reported `successfully synced (all tasks run)` |
+
+What cannot be stated is which step was decisive. The recovery appeared between
+two checks, and a patch of `status.operationState` was attempted but blocked, so
+the one action that would have isolated the cause was never applied. The
+plausible reading — that clearing `.operation` plus the hook Job existing in
+`Complete` state let the next reconcile start fresh and find what it expected —
+is inference from ordering, not observation.
+
+For anyone recovering this in future, the shape to try is therefore
+`.operation = null` **plus** the hook Job present and Complete, then wait for the
+next reconcile. Reproduce it deliberately before codifying it as the procedure:
+a recovery path derived from a single uncontrolled incident is a guess with a
+timestamp on it.
 
 **Why this is a hybrid concern.** The failure is not in ArgoCD. It is a
 name-resolution failure for a Service that exists — `argocd-repo-server`,
@@ -2476,14 +2502,24 @@ conflated when either is next investigated.
 
 **Consequences.**
 
-1. A DNS blip on the home node can wedge a GitOps sync permanently, because
-   `BeforeHookCreation` is not atomic: delete and create are separate steps and
-   an abort between them is unrecoverable without operator action.
+1. A DNS blip on the home node can wedge a GitOps sync, because
+   `BeforeHookCreation` is not atomic: delete and create are separate steps, and
+   an abort between them leaves a recorded hook phase with no live object behind
+   it. "Permanently" was the earlier wording and it is not supported — this
+   instance recovered, in a way not fully traced. Treat it as a wedge that
+   requires operator attention and may or may not clear itself; that uncertainty
+   is itself the argument for detection.
 2. The wedge reports `Healthy`. `scripts/validate/cluster/75-sync-divergence.sh`
    detects it by comparing `operationState.revision` against `sync.revision`; it
    is the only signal, and it is not wired to alerting.
 3. Running both ArgoCD components on the home worker means a home-lab
    disturbance stops deployments cell-wide, not just workloads placed there.
+
+4. The digest-derived hook name shipped on 2026-09-01 removes the specific
+   trigger seen here: a Job named for its image digest is one ArgoCD has no
+   prior record of, so an image bump no longer meets a retained Job. It does not
+   remove the class — any abort between the delete and the create can still
+   strand the phase, whatever caused it.
 
 **Revisit trigger.** If this recurs, raise node-local-dns log verbosity to
 capture the answer rather than the client's interpretation of it, before
