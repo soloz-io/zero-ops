@@ -424,6 +424,28 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        # The gateway's own readiness listener, not a route on the data plane
+        # port. The OIDC policy below is attached to the gateway and therefore
+        # runs before route selection, so a probe against a :3000 path would be
+        # answered with a login redirect — the kubelet would mark the pod
+        # unready, the Service would drop it, and the tenant would go down
+        # because its gateway was working.
+        livenessProbe:
+          httpGet: {path: /healthz/ready, port: 15021}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet: {path: /healthz/ready, port: 15021}
+          initialDelaySeconds: 5
+          periodSeconds: 5
       # Turns a failed OAuth callback into a fresh login instead of a bare 400.
       #
       # A SIDECAR, not a separate Deployment: it proxies to the gateway over
@@ -459,28 +481,6 @@ spec:
         readinessProbe:
           httpGet: {path: /healthz, port: 8080}
           initialDelaySeconds: 3
-          periodSeconds: 5
-        resources:
-          requests: {cpu: 100m, memory: 128Mi}
-          limits: {cpu: 500m, memory: 512Mi}
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop: ["ALL"]
-        # The gateway's own readiness listener, not a route on the data plane
-        # port. The OIDC policy below is attached to the gateway and therefore
-        # runs before route selection, so a probe against a :3000 path would be
-        # answered with a login redirect — the kubelet would mark the pod
-        # unready, the Service would drop it, and the tenant would go down
-        # because its gateway was working.
-        livenessProbe:
-          httpGet: {path: /healthz/ready, port: 15021}
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        readinessProbe:
-          httpGet: {path: /healthz/ready, port: 15021}
-          initialDelaySeconds: 5
           periodSeconds: 5
       volumes:
       - name: config
