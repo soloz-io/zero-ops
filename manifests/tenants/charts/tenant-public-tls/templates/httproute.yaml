@@ -49,6 +49,28 @@ spec:
     - {{ . | quote }}
     {{- end }}
   rules:
+    # The async-job callback, to the gateway's OIDC-free bind.
+    #
+    # FIRST rule, and more specific than the catch-all below. Gateway API sorts
+    # by path specificity rather than by document order, so the position is for
+    # the reader; the prefix is what makes it win.
+    #
+    # This is the one path on this hostname that is not behind a login, because
+    # the caller is a third-party job runner with no session — see the bind's
+    # comment in the universal-tenant chart. It is confined to the callback
+    # prefix and still reaches only the BFF, which requires an unguessable
+    # single-use token minted for one run.
+    #
+    # No HSTS filter here: that header is for browsers, and this endpoint is
+    # never loaded by one.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/webhooks/callback/
+      backendRefs:
+        - name: agentgateway-{{ .Values.tenantId }}
+          namespace: tenant-{{ .Values.tenantId }}
+          port: 3001
     - filters:
         # Tell the browser never to try plaintext for this host again. The
         # redirect below only helps someone who already made the insecure

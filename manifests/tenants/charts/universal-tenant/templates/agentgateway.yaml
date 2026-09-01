@@ -55,7 +55,13 @@ data:
     binds:
     - port: 3000
       listeners:
-      - routes:
+      # NAMED, deliberately. The OIDC policy below is scoped to this listener by
+      # name, and an unnamed listener is auto-numbered ("listener0"), so relying
+      # on the generated ordinal would silently re-point the policy the moment a
+      # listener is added or reordered — and the failure would be an unprotected
+      # route answering 200, not an error.
+      - name: app
+        routes:
         - matches:
           - path:
               exact: /health
@@ -109,7 +115,42 @@ data:
           matches:
           - path:
               pathPrefix: /
-    # OIDC is attached to the GATEWAY, not to either route.
+    # A SECOND bind, carrying only the async-job callback, with no OIDC.
+    #
+    # Long-running external jobs (RunPod TTS today) report completion by calling
+    # back. The caller is a third party with no session and no cookie, so on the
+    # :3000 listener it is answered with a login redirect and the callback is
+    # lost — the workflow then waits on its hook forever while the job has
+    # actually finished.
+    #
+    # A separate BIND, not a second listener on 3000: listeners under one bind
+    # are discriminated by hostname, and this tenant serves a single hostname, so
+    # two listeners there could not be told apart. The port is what the public
+    # HTTPRoute selects on (tenant-public-tls), which is how one hostname reaches
+    # two different policy scopes.
+    #
+    # This bind is NOT a bypass of ADR-050. It reaches only the BFF, only on the
+    # callback prefix, and the request still has to present an unguessable
+    # single-use token that the SDK minted for one specific run — see the BFF
+    # exemption, which is scoped to this exact path for the same reason.
+    - port: 3001
+      listeners:
+      - name: webhook
+        routes:
+        - name: {{ $t }}-webhook-callback
+          backends:
+          - host: {{ $bff }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          # The trailing slash matters: it confines this listener to
+          # /api/v1/webhooks/callback/<token> and keeps the sibling webhook
+          # routes (/resume, /pending) on the authenticated listener.
+          - path:
+              pathPrefix: /api/v1/webhooks/callback/
+    # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
     # The session cookie's name is derived from the identity of whatever the
     # policy is attached to. A policy inlined on a route is named for that route,
@@ -120,8 +161,10 @@ data:
     # than the routing.
     #
     # A named policy is identified by its own name instead (PolicyId::policy),
-    # so every route under this gateway shares one cookie — which is the reason
-    # to attach it here rather than repeating it per route.
+    # so every route under this listener shares one cookie — which is the reason
+    # to attach it here rather than repeating it per route. Scoping the target to
+    # a listener does not change that: the cookie is named for the POLICY, so the
+    # SPA and the API still share one session.
     policies:
     - name:
         name: {{ $t }}-oidc
@@ -141,6 +184,15 @@ data:
         gateway:
           gatewayName: default
           gatewayNamespace: default
+          # SCOPED to the app listener. Without this the field is null, and a
+          # null listenerName targets the gateway itself — meaning EVERY
+          # listener, including the callback bind above, which would put a login
+          # redirect back in front of the callback and undo the whole point.
+          #
+          # listenerName, not port. ListenerTarget carries both, and only
+          # listener_name is consulted here; a `port:` in this target is the
+          # same mistake that silently matched nothing before.
+          listenerName: app
       # Before route selection. At the default "route" phase this policy did not
       # take effect at all: the SPA answered 200 to an unauthenticated request
       # and the API reached the BFF with no identity.
@@ -184,6 +236,30 @@ data:
           - openid
           - tenant:read
           - tenant:write
+---
+# The tenant's public base URL, published for its own workloads to consume.
+#
+# The SDK has to tell an external job runner where to call back, and that URL is
+# this hostname. The hostname is platform-owned (ADR-051) while the SDK's
+# Deployment is fleet-authored, so without this the fleet would have to type the
+# hostname into its own manifest — two places free to disagree, which is exactly
+# how PROVIDER_RUNPOD_TTS_ENDPOINT_ID and WAYPOINT_SDK_SERVICE_NAME each went
+# wrong. Publishing it here means the fleet references a value it cannot get
+# wrong, and a hostname change moves both sides at once.
+#
+# Derived from the SAME $host as the OIDC redirectURI above, so the address a
+# user is returned to and the address a job calls back to can never diverge.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tenant-public-endpoint
+  namespace: tenant-{{ $t }}
+  labels:
+    tenant-id: {{ $t }}
+data:
+  # Scheme included: consumers paste this in front of a path, and the SDK's
+  # callback guard rejects anything that is not http(s) and public.
+  PUBLIC_BASE_URL: https://{{ $host }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -239,7 +315,7 @@ spec:
         # this tenant's declarations must restart this pod. AgentGateway watches
         # its file and hot-reloads, but a ConfigMap update is not guaranteed to
         # land as a write it notices.
-        checksum/config: {{ printf "%s%s" (toString $hosts) $issuer | sha256sum }}
+        checksum/config: {{ printf "%s%s%s" (toString $hosts) $issuer $bff | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       # Pod-level, not only container-level. The tenant admission policy reads
@@ -338,4 +414,10 @@ spec:
   - name: http
     port: 3000
     targetPort: 3000
+  # The callback bind. Reachable only via the platform HTTPRoute rule that
+  # selects this port for the callback prefix (tenant-public-tls); nothing else
+  # routes to it.
+  - name: webhook
+    port: 3001
+    targetPort: 3001
 {{- end }}
