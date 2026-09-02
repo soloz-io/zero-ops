@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: ephemeral-provisioner
+  name: ephemeral-vm-provisioner
   namespace: default
 spec:
   selector:
-    app: ephemeral-provisioner
+    app: ephemeral-vm-provisioner
   ports:
     - port: 80
       targetPort: 8080
@@ -13,19 +13,19 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ephemeral-provisioner
+  name: ephemeral-vm-provisioner
   namespace: default
   labels:
-    app: ephemeral-provisioner
+    app: ephemeral-vm-provisioner
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ephemeral-provisioner
+      app: ephemeral-vm-provisioner
   template:
     metadata:
       labels:
-        app: ephemeral-provisioner
+        app: ephemeral-vm-provisioner
     spec:
       terminationGracePeriodSeconds: 10
       containers:
@@ -34,7 +34,7 @@ spec:
           # kustomize image key, not a pullable reference: it must match the
           # 'name:' in kustomization.yaml and the argument CI passes to
           # 'kustomize edit set image', or nothing rewrites it and a tag ships.
-          image: ephemeral-provisioner
+          image: ephemeral-vm-provisioner
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

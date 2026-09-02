@@ -1,4 +1,4 @@
-module github.com/soloz-io/ephemeral-provisioner
+module github.com/soloz-io/ephemeral-vm-provisioner
 
 go 1.25.3
 

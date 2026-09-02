@@ -193,50 +193,31 @@ if burst_doc is not None:
             "nodes are unreachable. Cluster DNS still resolves, so the node looks "
             "healthy (ADR-046 invariant 6)." % (burst_ref, NODE_IP_SCRIPT))
 
-    if NODE_IP_DROPIN not in paths:
+    # The kubelet drop-in is FORBIDDEN, which reverses the earlier rule.
+    #
+    # It carried After=tailscaled.service, which makes kubelet wait for
+    # tailscaled. If tailscaled is slow or unhealthy kubelet never starts,
+    # kubeadm join times out, and no Node registers — the server boots,
+    # BootstrapReady goes true, and CAPI sits on "Waiting for a node with
+    # matching ProviderID to exist". It was the only structural difference
+    # between the template that joins and the four that did not.
+    if NODE_IP_DROPIN in paths:
         errors.append(
-            "NO KUBELET ORDERING — %s does not write %s.\n"
-            "        Effect: kubelet can register before tailscaled has an address, "
-            "so the wrong InternalIP is published and the fault is intermittent "
-            "rather than absolute." % (burst_ref, NODE_IP_DROPIN))
+            "KUBELET DROP-IN PRESENT — %s writes %s.\n        Effect: its "
+            "After=tailscaled.service gates kubelet on tailscaled, and a slow or "
+            "unhealthy tailscaled stops the node registering at all. Apply the "
+            "node ip from postKubeadmCommands instead, where a failure costs the "
+            "address rather than the node." % (burst_ref, NODE_IP_DROPIN))
 
     post = spec.get("postKubeadmCommands") or []
-    dropin = next((f.get("content", "") for f in (spec.get("files") or [])
-                   if f.get("path") == NODE_IP_DROPIN), "")
-    # The drop-in's ExecStartPre counts as invocation, and is the PREFERRED one:
-    # it fires before kubelet's first start, so the first registration already
-    # carries the flags, and it re-applies on every later start. A
-    # preKubeadmCommand is the fragile alternative — see the restart check below.
-    invoked = (any("dynamic-node-ip.sh" in c for c in (pre + post))
-               or "ExecStartPre=" + NODE_IP_SCRIPT in dropin)
-    if not invoked:
+    if not any("dynamic-node-ip.sh" in c for c in post):
         errors.append(
-            "NODE IP NEVER APPLIED — %s writes the script but nothing runs it: no "
-            "kubeadm command and no ExecStartPre in %s.\n        Effect: the file "
-            "exists and the node still registers its private address."
-            % (burst_ref, NODE_IP_DROPIN))
+            "NODE IP NOT APPLIED AFTER JOIN — %s does not run %s in "
+            "postKubeadmCommands.\n        Effect: it must run where "
+            "kubeadm-flags.env already exists and tailscaled is up; anywhere "
+            "earlier either does nothing or risks the join itself."
+            % (burst_ref, NODE_IP_SCRIPT))
 
-    # providerID must be self-assigned, and that is the whole trick.
-    #
-    # Once --node-ip is a tailnet address the Hetzner CCM refuses to initialise
-    # the node: it validates provided-node-ip against the addresses the cloud
-    # reports and never writes .spec.providerID. CAPI matches Machines to Nodes
-    # BY providerID, so without it the Machine keeps an empty NODENAME.
-    #
-    # The instance id is authoritative and readable from the node's own metadata
-    # service, so kubelet sets providerID directly and CCM leaves the critical
-    # path. This is why the hub control plane holds BOTH a tailnet InternalIP and
-    # providerID=hcloud://..., and it is the piece a worker template that only
-    # sets --node-ip is missing — that shape registers the right address and
-    # never becomes schedulable.
-    script = next((f.get("content", "") for f in (spec.get("files") or [])
-                   if f.get("path") == NODE_IP_SCRIPT), "")
-    if script and "--provider-id=" not in script:
-        errors.append(
-            "NO SELF-ASSIGNED providerID — %s sets --node-ip but not --provider-id.\n"
-            "        Effect: with a tailnet node-ip the CCM refuses the node and never "
-            "writes .spec.providerID, so node.cloudprovider.kubernetes.io/uninitialized "
-            "is never removed and nothing schedules on it." % burst_ref)
     # A preKubeadmCommand must not restart kubelet.
     #
     # It runs BEFORE kubeadm join, when kubeadm-flags.env does not exist: the

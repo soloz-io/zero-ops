@@ -28,7 +28,7 @@ spec:
           ref:
             apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
             kind: KubeadmConfigTemplate
-            name: spokepool-worker-bootstrap-v5
+            name: spokepool-worker-bootstrap-v6
         infrastructure:
           ref:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -49,7 +49,7 @@ spec:
           ref:
             apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
             kind: KubeadmConfigTemplate
-            name: spokepool-burst-bootstrap-v5
+            name: spokepool-burst-bootstrap-v6
         infrastructure:
           ref:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -2012,6 +2012,411 @@ spec:
       - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
       - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
       postKubeadmCommands:
+      # WS0.1 (ADR-046): Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium runs
+      # routing-mode=tunnel, so cross-node pod traffic is VXLAN-encapsulated between
+      # tailnet IPs and pod IPs never reach the wire. Advertising or accepting podCIDR
+      # subnet routes is unnecessary AND harmful: tailscaled installs them into table 52,
+      # whose ip rule (5270) precedes main (32766), shadowing Cilium's tunnel route for
+      # host-originated traffic to remote pods. Deliberately no --advertise-routes here.
+
+---
+# Carries the ADR-046 invariant 6 mechanism the v1 template lacked.
+#
+# invariant 6 requires a routable Tailscale IP on every node that carries pod
+# traffic, and Cilium derives the VXLAN tunnel endpoint from the node's
+# InternalIP directly. With cloud-provider=external the hcloud CCM sets
+# InternalIP to the node's PRIVATE network address, and nothing overrode it
+# here — so a CAPI-provisioned worker registered 10.0.0.x, Cilium built its
+# tunnel on that address, and home-lab nodes had no route to it.
+#
+# Observed 2026-09-02: a burst node resolved cluster DNS (CoreDNS runs on the
+# Hetzner control plane, reachable over the private network) while every
+# connection to a pod on a home node timed out — the sandbox harness failed with
+# psycopg ConnectionTimeout against waypoint-pooler, which runs on a Flatcar
+# worker. The control plane was unaffected because ONLY its template carried
+# dynamic-node-ip.sh.
+#
+# The kubelet drop-in orders kubelet after tailscaled. Without that ordering the
+# node can register before the tailnet address exists, which makes the fault
+# intermittent rather than absolute.
+#
+# v2 rather than an edit: KubeadmConfigTemplate.spec is immutable, so changing
+# v1 in place is rejected by the API server and leaves the Application
+# permanently OutOfSync — the state spokepool-burst-bootstrap-v1 is already in.
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: spokepool-worker-bootstrap-v6
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            node-labels: "workload-location=hetzner"
+      files:
+      - path: /usr/local/bin/dynamic-node-ip.sh
+        owner: root
+        permissions: "0755"
+        content: |
+          # Ported verbatim from the hub control plane's ClusterClass
+          # (internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml), which has
+          # been running this arrangement since ADR-046 §21.
+          #
+          # The part that matters, and that v2/v3 of this template lacked, is the
+          # providerID self-assignment. Once --node-ip is a tailnet address the Hetzner
+          # CCM refuses to initialise the node — it validates provided-node-ip against
+          # the addresses the cloud reports and never writes .spec.providerID — and CAPI
+          # matches Machines to Nodes BY providerID. The instance id is authoritative and
+          # available from the node's own metadata service, so kubelet sets providerID
+          # directly and CCM is no longer on the critical path for it.
+          #
+          # This is why the hub control plane holds BOTH a tailnet InternalIP and
+          # providerID=hcloud://..., which no worker node had managed before.
+          #
+          # v3 tried to sequence around CCM instead — register privately, wait for the
+          # uninitialized taint to clear, then switch. That is unnecessary: the hub does
+          # not wait for CCM at all, and the first registration already carries the
+          # tailnet node-ip.
+          #!/bin/sh
+          # Re-assert kubelet --node-ip = tailnet IPv4.
+          # Idempotent, and survives kubeadm upgrades, which rewrite kubeadm-flags.env.
+          TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+          FLAGS=/var/lib/kubelet/kubeadm-flags.env
+          [ -f "$FLAGS" ] || exit 0
+          [ -x "$TS_BIN" ] || exit 0
+          TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+          [ -n "$TS_IP" ] || exit 0
+          sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+          sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+          # Self-assign providerID from Hetzner metadata.
+          #
+          # Once --node-ip is a tailnet address the Hetzner CCM refuses to
+          # initialise the node: the cloud-node-controller validates
+          # alpha.kubernetes.io/provided-node-ip against the addresses the cloud
+          # reports (ExternalIP 37.x, InternalIP 10.0.x) and fails with
+          #   provided node ip ... is not valid: failed to get node address from
+          #   cloud provider that matches ip: 100.x.x.x
+          # so it never writes .spec.providerID. CAPI matches Machines to Nodes
+          # BY providerID, so the Machine keeps an empty NODENAME and pivot-move
+          # times out on "all machines joined".
+          #
+          # The instance id is authoritative and available from the metadata
+          # service on the node itself, so kubelet can set providerID directly and
+          # the CCM is no longer on the critical path for it.
+          if ! grep -q '\-\-provider-id=' "$FLAGS"; then
+            ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
+            if [ -n "$ID" ]; then
+              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--provider-id=hcloud:\/\/${ID} /g" "$FLAGS"
+            fi
+          fi
+          exit 0
+      - path: /etc/tailscale-authkey
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: authkey
+      - path: /etc/tailscale-hostname
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: hostname
+      preKubeadmCommands:
+      - set -x
+      - export CONTAINERD=1.7.26
+      - export RUNC=1.2.5
+      - export KUBERNETES_VERSION=1.31.6
+      - export TRIMMED_KUBERNETES_VERSION=1.31
+      - ARCH="$(dpkg --print-architecture)"
+      - localectl set-locale LANG=en_US.UTF-8
+      - localectl set-locale LANGUAGE=en_US.UTF-8
+      - apt-get update -y
+      - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+      - sed -i '/swap/d' /etc/fstab
+      - swapoff -a
+      - modprobe overlay && modprobe br_netfilter && sysctl --system
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+      - sha256sum --check --ignore-missing runc.sha256sum
+      - install runc.$ARCH /usr/local/sbin/runc
+      - rm -f runc.$ARCH runc.sha256sum
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+      - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - mkdir -p /etc/containerd
+      - containerd config default > /etc/containerd/config.toml
+      - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+      - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+      - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+      - sysctl -p
+      - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+      - mkdir -p /etc/apt/keyrings/
+      - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+      - apt-get update
+      - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+      - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+      - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+      - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+      - apt-get -y autoremove && apt-get -y clean all
+      - curl -fsSL https://tailscale.com/install.sh | sh || true
+      - systemctl enable --now tailscaled || true
+      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+      # daemon-reload ONLY. The drop-in does the rest, at the right moment.
+      #
+      # This runs BEFORE kubeadm join, when /var/lib/kubelet/kubeadm-flags.env
+      # does not exist yet: the script exits 0 harmlessly, and then
+      # `systemctl restart kubelet` acts on an unconfigured kubelet. A non-zero
+      # exit there fails the && chain, and a failed preKubeadmCommand aborts
+      # cloud-init before kubeadm join is ever reached — the server boots,
+      # BootstrapReady goes true, and no Node ever registers (v4, 2026-09-02).
+      #
+      # Nothing is lost by removing it. kubeadm join writes kubeadm-flags.env
+      # and THEN starts kubelet; systemd runs ExecStartPre before ExecStart and
+      # reads EnvironmentFile at ExecStart, so the drop-in rewrites the flags
+      # and kubelet's FIRST registration already carries --node-ip and
+      # --provider-id. The reload must stay so systemd has the drop-in loaded
+      # before kubeadm starts the unit.
+      - 'if [ -s /etc/tailscale-hostname ]; then systemctl daemon-reload; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+      postKubeadmCommands:
+      # ADR-046 invariant 6, applied AFTER join.
+      #
+      # There is deliberately no kubelet systemd drop-in. Its
+      # After=tailscaled.service made kubelet wait for tailscaled, and if
+      # tailscaled is slow or unhealthy kubelet never starts, kubeadm join
+      # times out and NO NODE EVER REGISTERS — the server boots,
+      # BootstrapReady goes true, and CAPI sits on "Waiting for a node with
+      # matching ProviderID to exist". That drop-in is the only structural
+      # difference between v1 (which joins) and v2-v5 (which do not).
+      #
+      # Running here instead removes every way this can prevent a join:
+      # kubeadm-flags.env exists, tailscaled is up, and a failure costs the
+      # address rather than the node. The trade is that the flags are not
+      # re-applied on reboot or kubeadm upgrade, which is the right trade for
+      # a burst node — it is ephemeral and reaped within hours, and a node
+      # that joins beats a node that would have survived a reboot it never has.
+      - 'if [ -s /etc/tailscale-hostname ]; then /usr/local/bin/dynamic-node-ip.sh && systemctl restart kubelet || true; fi'
+      # WS0.1 (ADR-046): Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium runs
+      # routing-mode=tunnel, so cross-node pod traffic is VXLAN-encapsulated between
+      # tailnet IPs and pod IPs never reach the wire. Advertising or accepting podCIDR
+      # subnet routes is unnecessary AND harmful: tailscaled installs them into table 52,
+      # whose ip rule (5270) precedes main (32766), shadowing Cilium's tunnel route for
+      # host-originated traffic to remote pods. Deliberately no --advertise-routes here.
+---
+# Carries the ADR-046 invariant 6 mechanism the v1 template lacked.
+#
+# invariant 6 requires a routable Tailscale IP on every node that carries pod
+# traffic, and Cilium derives the VXLAN tunnel endpoint from the node's
+# InternalIP directly. With cloud-provider=external the hcloud CCM sets
+# InternalIP to the node's PRIVATE network address, and nothing overrode it
+# here — so a CAPI-provisioned worker registered 10.0.0.x, Cilium built its
+# tunnel on that address, and home-lab nodes had no route to it.
+#
+# Observed 2026-09-02: a burst node resolved cluster DNS (CoreDNS runs on the
+# Hetzner control plane, reachable over the private network) while every
+# connection to a pod on a home node timed out — the sandbox harness failed with
+# psycopg ConnectionTimeout against waypoint-pooler, which runs on a Flatcar
+# worker. The control plane was unaffected because ONLY its template carried
+# dynamic-node-ip.sh.
+#
+# The kubelet drop-in orders kubelet after tailscaled. Without that ordering the
+# node can register before the tailnet address exists, which makes the fault
+# intermittent rather than absolute.
+#
+# v2 rather than an edit: KubeadmConfigTemplate.spec is immutable, so changing
+# v1 in place is rejected by the API server and leaves the Application
+# permanently OutOfSync — the state spokepool-burst-bootstrap-v1 is already in.
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: spokepool-burst-bootstrap-v6
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            # workload-class=burst is what the ADR-052 placement selects on and
+            # what the taint below repels; workload-location=hetzner is the
+            # ADR-046 §11 location. node-role.kubernetes.io/worker is NOT set
+            # here — kubelet may not self-register a node-role.kubernetes.io/*
+            # label (NodeRestriction rejects it); CAPI propagates it from the
+            # MachineDeployment's template metadata instead.
+            node-labels: "workload-location=hetzner,workload-class=burst"
+            # Reserves this pool for workloads the platform has explicitly
+            # placed here. Without it, any pod with a hetzner nodeSelector —
+            # or none at all — could consume burst capacity the cell is paying
+            # for by the minute.
+            #
+            # MUST match, exactly:
+            #   - capacity.cluster-autoscaler.kubernetes.io/taints on the burst
+            #     MachineDeployment (or the autoscaler simulates a node the
+            #     pending pod cannot tolerate, declines to scale, logs nothing)
+            #   - BurstTaintKey/BurstTaintValue in the ephemeral-job operator
+            # Asserted by scripts/validate/preflight/86-burst-node-identity.sh.
+            register-with-taints: "workload-class=burst:NoSchedule"
+      files:
+      - path: /usr/local/bin/dynamic-node-ip.sh
+        owner: root
+        permissions: "0755"
+        content: |
+          # Ported verbatim from the hub control plane's ClusterClass
+          # (internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml), which has
+          # been running this arrangement since ADR-046 §21.
+          #
+          # The part that matters, and that v2/v3 of this template lacked, is the
+          # providerID self-assignment. Once --node-ip is a tailnet address the Hetzner
+          # CCM refuses to initialise the node — it validates provided-node-ip against
+          # the addresses the cloud reports and never writes .spec.providerID — and CAPI
+          # matches Machines to Nodes BY providerID. The instance id is authoritative and
+          # available from the node's own metadata service, so kubelet sets providerID
+          # directly and CCM is no longer on the critical path for it.
+          #
+          # This is why the hub control plane holds BOTH a tailnet InternalIP and
+          # providerID=hcloud://..., which no worker node had managed before.
+          #
+          # v3 tried to sequence around CCM instead — register privately, wait for the
+          # uninitialized taint to clear, then switch. That is unnecessary: the hub does
+          # not wait for CCM at all, and the first registration already carries the
+          # tailnet node-ip.
+          #!/bin/sh
+          # Re-assert kubelet --node-ip = tailnet IPv4.
+          # Idempotent, and survives kubeadm upgrades, which rewrite kubeadm-flags.env.
+          TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+          FLAGS=/var/lib/kubelet/kubeadm-flags.env
+          [ -f "$FLAGS" ] || exit 0
+          [ -x "$TS_BIN" ] || exit 0
+          TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+          [ -n "$TS_IP" ] || exit 0
+          sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+          sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+          # Self-assign providerID from Hetzner metadata.
+          #
+          # Once --node-ip is a tailnet address the Hetzner CCM refuses to
+          # initialise the node: the cloud-node-controller validates
+          # alpha.kubernetes.io/provided-node-ip against the addresses the cloud
+          # reports (ExternalIP 37.x, InternalIP 10.0.x) and fails with
+          #   provided node ip ... is not valid: failed to get node address from
+          #   cloud provider that matches ip: 100.x.x.x
+          # so it never writes .spec.providerID. CAPI matches Machines to Nodes
+          # BY providerID, so the Machine keeps an empty NODENAME and pivot-move
+          # times out on "all machines joined".
+          #
+          # The instance id is authoritative and available from the metadata
+          # service on the node itself, so kubelet can set providerID directly and
+          # the CCM is no longer on the critical path for it.
+          if ! grep -q '\-\-provider-id=' "$FLAGS"; then
+            ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
+            if [ -n "$ID" ]; then
+              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--provider-id=hcloud:\/\/${ID} /g" "$FLAGS"
+            fi
+          fi
+          exit 0
+      - path: /etc/tailscale-authkey
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: authkey
+      - path: /etc/tailscale-hostname
+        owner: root
+        permissions: "0600"
+        contentFrom:
+          secret:
+            name: tailscale-hybrid-psk
+            key: hostname
+      preKubeadmCommands:
+      - set -x
+      - export CONTAINERD=1.7.26
+      - export RUNC=1.2.5
+      - export KUBERNETES_VERSION=1.31.6
+      - export TRIMMED_KUBERNETES_VERSION=1.31
+      - ARCH="$(dpkg --print-architecture)"
+      - localectl set-locale LANG=en_US.UTF-8
+      - localectl set-locale LANGUAGE=en_US.UTF-8
+      - apt-get update -y
+      - apt-get -y install at jq unzip wget socat mtr logrotate apt-transport-https
+      - sed -i '/swap/d' /etc/fstab
+      - swapoff -a
+      - modprobe overlay && modprobe br_netfilter && sysctl --system
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.$ARCH
+      - wget https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.sha256sum
+      - sha256sum --check --ignore-missing runc.sha256sum
+      - install runc.$ARCH /usr/local/sbin/runc
+      - rm -f runc.$ARCH runc.sha256sum
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz
+      - wget https://github.com/containerd/containerd/releases/download/v$CONTAINERD/containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - sha256sum --check containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - tar -zxf containerd-$CONTAINERD-linux-$ARCH.tar.gz -C /usr/local
+      - rm -f containerd-$CONTAINERD-linux-$ARCH.tar.gz containerd-$CONTAINERD-linux-$ARCH.tar.gz.sha256sum
+      - mkdir -p /etc/containerd
+      - containerd config default > /etc/containerd/config.toml
+      - sed -i "s/SystemdCgroup = false/SystemdCgroup = true/" /etc/containerd/config.toml
+      - wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service -O /etc/systemd/system/containerd.service
+      - echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+      - sysctl -p
+      - systemctl daemon-reload && systemctl enable containerd && systemctl start containerd
+      - mkdir -p /etc/apt/keyrings/
+      - curl -fsSL https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v$TRIMMED_KUBERNETES_VERSION/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+      - apt-get update
+      - apt-get install -y kubelet="$KUBERNETES_VERSION-*" kubeadm="$KUBERNETES_VERSION-*" kubectl="$KUBERNETES_VERSION-*" bash-completion && apt-mark hold kubelet kubectl kubeadm && systemctl enable kubelet
+      - kubeadm config images pull --kubernetes-version $KUBERNETES_VERSION
+      - echo 'source <(kubectl completion bash)' >>/root/.bashrc
+      - echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >>/root/.bashrc
+      - apt-get -y autoremove && apt-get -y clean all
+      - curl -fsSL https://tailscale.com/install.sh | sh || true
+      - systemctl enable --now tailscaled || true
+      - 'if [ -s /etc/tailscale-hostname ]; then tailscale up --authkey="$(cat /etc/tailscale-authkey)" --hostname="$(cat /etc/tailscale-hostname)" --accept-dns=false; fi'
+      # daemon-reload ONLY. The drop-in does the rest, at the right moment.
+      #
+      # This runs BEFORE kubeadm join, when /var/lib/kubelet/kubeadm-flags.env
+      # does not exist yet: the script exits 0 harmlessly, and then
+      # `systemctl restart kubelet` acts on an unconfigured kubelet. A non-zero
+      # exit there fails the && chain, and a failed preKubeadmCommand aborts
+      # cloud-init before kubeadm join is ever reached — the server boots,
+      # BootstrapReady goes true, and no Node ever registers (v4, 2026-09-02).
+      #
+      # Nothing is lost by removing it. kubeadm join writes kubeadm-flags.env
+      # and THEN starts kubelet; systemd runs ExecStartPre before ExecStart and
+      # reads EnvironmentFile at ExecStart, so the drop-in rewrites the flags
+      # and kubelet's FIRST registration already carries --node-ip and
+      # --provider-id. The reload must stay so systemd has the drop-in loaded
+      # before kubeadm starts the unit.
+      - 'if [ -s /etc/tailscale-hostname ]; then systemctl daemon-reload; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then for i in $(seq 1 30); do tailscale ip -4 >/dev/null 2>&1 && break; sleep 2; done; fi'
+      - 'if [ -s /etc/tailscale-hostname ]; then echo "tailnet IP: $(tailscale ip -4)"; else echo "tailscale: disabled (no hostname)"; fi'
+      postKubeadmCommands:
+      # ADR-046 invariant 6, applied AFTER join.
+      #
+      # There is deliberately no kubelet systemd drop-in. Its
+      # After=tailscaled.service made kubelet wait for tailscaled, and if
+      # tailscaled is slow or unhealthy kubelet never starts, kubeadm join
+      # times out and NO NODE EVER REGISTERS — the server boots,
+      # BootstrapReady goes true, and CAPI sits on "Waiting for a node with
+      # matching ProviderID to exist". That drop-in is the only structural
+      # difference between v1 (which joins) and v2-v5 (which do not).
+      #
+      # Running here instead removes every way this can prevent a join:
+      # kubeadm-flags.env exists, tailscaled is up, and a failure costs the
+      # address rather than the node. The trade is that the flags are not
+      # re-applied on reboot or kubeadm upgrade, which is the right trade for
+      # a burst node — it is ephemeral and reaped within hours, and a node
+      # that joins beats a node that would have survived a reboot it never has.
+      - 'if [ -s /etc/tailscale-hostname ]; then /usr/local/bin/dynamic-node-ip.sh && systemctl restart kubelet || true; fi'
       # WS0.1 (ADR-046): Tailscale is a NODE-LEVEL UNDERLAY ONLY. Cilium runs
       # routing-mode=tunnel, so cross-node pod traffic is VXLAN-encapsulated between
       # tailnet IPs and pod IPs never reach the wire. Advertising or accepting podCIDR

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/soloz-io/ephemeral-provisioner/internal/store"
+	"github.com/soloz-io/ephemeral-vm-provisioner/internal/store"
 )
 
 // Server exposes the idempotent ingress the SDK's Graphile Worker calls.
