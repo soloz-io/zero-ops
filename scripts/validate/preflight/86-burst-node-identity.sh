@@ -49,18 +49,41 @@ def norm_labels(s):
     return out
 
 # ── 1. the real node ──────────────────────────────────────────────────────
+#
+# The template name is RESOLVED from the ClusterClass, never hardcoded. A
+# KubeadmConfigTemplate is immutable, so fixes ship as a new version and the
+# ClusterClass is repointed; a check naming a version validates whatever that
+# version happens to say long after nothing uses it. This check named
+# spokepool-burst-bootstrap-v1 and would have kept passing against a template
+# no node was built from.
+docs = [d for d in yaml.safe_load_all(io.open(CLUSTERCLASS, encoding="utf-8")) if d]
+
+burst_ref = None
+for doc in docs:
+    if doc.get("kind") != "ClusterClass":
+        continue
+    for m in doc["spec"]["workers"]["machineDeployments"]:
+        if m.get("class") == "burst-worker":
+            burst_ref = m["template"]["bootstrap"]["ref"]["name"]
+
+if burst_ref is None:
+    errors.append("no burst-worker class in the ClusterClass in %s" % CLUSTERCLASS)
+
 node_taints = node_labels = None
-for doc in yaml.safe_load_all(io.open(CLUSTERCLASS, encoding="utf-8")):
-    if not doc or doc.get("kind") != "KubeadmConfigTemplate":
+burst_doc = None
+for doc in docs:
+    if doc.get("kind") != "KubeadmConfigTemplate":
         continue
-    if doc["metadata"]["name"] != "spokepool-burst-bootstrap-v1":
+    if doc["metadata"]["name"] != burst_ref:
         continue
+    burst_doc = doc
     args = doc["spec"]["template"]["spec"]["joinConfiguration"]["nodeRegistration"]["kubeletExtraArgs"]
     node_taints = args.get("register-with-taints", "")
     node_labels = args.get("node-labels", "")
 
 if node_taints is None:
-    errors.append("spokepool-burst-bootstrap-v1 not found in %s" % CLUSTERCLASS)
+    errors.append("%s (referenced by the burst-worker class) not found in %s"
+                  % (burst_ref, CLUSTERCLASS))
 elif not node_taints:
     errors.append(
         "burst bootstrap has no register-with-taints: the burst pool is "
@@ -135,6 +158,54 @@ elif node_taints:
             "        Effect: every burst pod is rejected by the taint it was "
             "supposed to tolerate." % (want, node_taints))
 
+# ── 4. the tailnet node IP (ADR-046 invariant 6) ──────────────────────────
+#
+# Invariant 6 requires a routable Tailscale IP on every node that carries pod
+# traffic, and Cilium derives the VXLAN tunnel endpoint from the node's
+# InternalIP DIRECTLY. With cloud-provider=external the hcloud CCM sets
+# InternalIP to the node's private address, so without something re-asserting
+# kubelet --node-ip the burst node registers 10.0.0.x, Cilium builds its tunnel
+# there, and home-lab nodes have no route to it.
+#
+# The failure is partial, which is what makes it hard to see: the burst node
+# still reaches pods on the Hetzner control plane over the private network, so
+# cluster DNS resolves and the node looks healthy. Only traffic to home-lab
+# nodes times out. On 2026-09-02 that presented as a sandbox harness dying with
+# psycopg ConnectionTimeout against waypoint-pooler while every dashboard,
+# including the node's own Ready condition, was green.
+#
+# Only the control-plane template carried dynamic-node-ip.sh; both worker
+# templates lacked it, and burst was simply the first CAPI-provisioned worker to
+# carry pod traffic.
+NODE_IP_SCRIPT = "/usr/local/bin/dynamic-node-ip.sh"
+NODE_IP_DROPIN = "/etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf"
+
+if burst_doc is not None:
+    spec = burst_doc["spec"]["template"]["spec"]
+    paths = [f.get("path") for f in (spec.get("files") or [])]
+    pre = spec.get("preKubeadmCommands") or []
+
+    if NODE_IP_SCRIPT not in paths:
+        errors.append(
+            "NO TAILNET NODE IP — %s does not write %s.\n"
+            "        Effect: the node registers its PRIVATE address as InternalIP, "
+            "Cilium builds the VXLAN tunnel endpoint on it, and pods on home-lab "
+            "nodes are unreachable. Cluster DNS still resolves, so the node looks "
+            "healthy (ADR-046 invariant 6)." % (burst_ref, NODE_IP_SCRIPT))
+
+    if NODE_IP_DROPIN not in paths:
+        errors.append(
+            "NO KUBELET ORDERING — %s does not write %s.\n"
+            "        Effect: kubelet can register before tailscaled has an address, "
+            "so the wrong InternalIP is published and the fault is intermittent "
+            "rather than absolute." % (burst_ref, NODE_IP_DROPIN))
+
+    if not any("dynamic-node-ip.sh" in c for c in pre):
+        errors.append(
+            "NODE IP NEVER APPLIED — %s writes the script but no preKubeadmCommand "
+            "runs it.\n        Effect: the file exists and the node still registers "
+            "its private address." % burst_ref)
+
 # ── 4. the priority class value, in the two places it is written ──────────
 #
 # Kyverno must set spec.priority alongside priorityClassName on sandbox pods:
@@ -181,7 +252,8 @@ if errors:
         print("  FAIL: %s" % e)
     sys.exit(1)
 
-print("  burst identity agrees across bootstrap, autoscaler, operator and Kyverno")
+print("  burst identity agrees across bootstrap, autoscaler, operator, Kyverno and node IP")
+print("    bootstrap: %s" % burst_ref)
 print("    taint : %s" % node_taints)
 print("    labels: %s" % node_labels)
 PY
