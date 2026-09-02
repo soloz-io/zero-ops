@@ -121,6 +121,33 @@ spec:
         providerConfigRef:
           name: ""
     patches:
+    # The Infisical key, as an ABSOLUTE path.
+    #
+    # The base leaves it as the bare name CACHE_PASSWORD, and the tenant
+    # SecretStore is scoped with secretsPath "/", so a bare key is looked up at
+    # the Infisical ROOT. hub-operator writes this credential to
+    # /spoke-pool/<cell>/tenants/<tenant>/CACHE_PASSWORD, so the ExternalSecret
+    # was asking a place the value has never been.
+    #
+    # It failed as "could not get secret data from provider", which reads like a
+    # store or auth problem — and the store was fine: waypoint-app-secrets and
+    # hub-ory-jwt-secret sync through the same SecretStore. The tell is that
+    # every working ExternalSecret here names an absolute path and this one did
+    # not.
+    #
+    # Cost of the omission on 2026-09-02: waypoint-cache-auth never resolved, so
+    # bff-workload could not start (CreateContainerConfigError), its Service had
+    # no endpoints, and /api/v1/auth/me returned 503 behind an EPERM from Cilium
+    # socket-LB. waypoint-cache sat ContainerCreating for five hours.
+    - type: CombineFromComposite
+      combine:
+        variables:
+          - fromFieldPath: spec.cellId
+          - fromFieldPath: spec.tenantId
+        strategy: string
+        string:
+          fmt: "/spoke-pool/%s/tenants/%s/CACHE_PASSWORD"
+      toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId
       toFieldPath: spec.providerConfigRef.name
