@@ -556,6 +556,33 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		}
 	}
 
+	// A writable /tmp, always.
+	//
+	// Every container here runs with ReadOnlyRootFilesystem, which is right —
+	// but a read-only root with no tmpfs is not a hardened container, it is a
+	// broken one. Python resolves a temp directory at import time and aborts
+	// when it cannot: "No usable temporary directory found in ['/tmp',
+	// '/var/tmp', '/usr/tmp', '/app']". The sandbox harness died on that while
+	// its health endpoint kept answering 200, so the pod read as healthy with
+	// the agent runtime dead underneath.
+	//
+	// The path this replaced did not set ReadOnlyRootFilesystem at all, so the
+	// harness had a writable root and never noticed. Tightening that without
+	// supplying a tmpfs is what broke it.
+	//
+	// Added rather than made optional: no workload is improved by having
+	// nowhere to write a temp file, and requiring every caller to remember one
+	// reproduces this failure for the next one.
+	if !hasVolume(volumes, "tmp") {
+		volumes = append(volumes, corev1.Volume{
+			Name:         "tmp",
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	}
+	container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
+		Name: "tmp", MountPath: "/tmp",
+	})
+
 	// Every container, not just the workload.
 	//
 	// The burst-compute ResourceQuota refuses a POD in which any container omits
@@ -981,4 +1008,24 @@ func (r *EphemeralJobReconciler) deletePod(ctx context.Context, pod *corev1.Pod)
 		return err
 	}
 	return nil
+}
+
+func hasVolume(vs []corev1.Volume, name string) bool {
+	for i := range vs {
+		if vs[i].Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// appendMountIfAbsent adds a mount unless the caller already mounted that path
+// or that volume — a workload that supplies its own /tmp keeps it.
+func appendMountIfAbsent(ms []corev1.VolumeMount, m corev1.VolumeMount) []corev1.VolumeMount {
+	for i := range ms {
+		if ms[i].MountPath == m.MountPath || ms[i].Name == m.Name {
+			return ms
+		}
+	}
+	return append(ms, m)
 }
