@@ -32,6 +32,32 @@ spec:
           # this file must be updated in lockstep or ArgoCD silently holds the
           # old image — the exact drift class that broke Gateway API CRDs.
           image: "quay.io/jetstack/cert-manager-webhook:v1.20.2"
+          # OWNED HERE ON PURPOSE, copied verbatim from the vendored asset.
+          #
+          # This file is a PARTIAL server-side-apply patch: it owns only the
+          # fields it names. args was not one of them, and on 2026-09-02 the
+          # live Deployment ended up with args: null — the webhook then exited
+          # immediately with
+          #   error executing command: no CertificateSource specified
+          # and crash-looped 65 times over five hours. The Deployment still
+          # reported 1/1 because an OLDER ReplicaSet kept one healthy pod, so
+          # the rollout stalled silently instead of failing.
+          #
+          # The Deployment is created at pivot by client-side kubectl apply and
+          # then patched here by ArgoCD with server-side apply. Fields that no
+          # applier explicitly owns can be dropped when those two mix, so the
+          # arguments the webhook cannot start without are named here rather
+          # than left to survive by luck. Keep in lockstep with
+          # internal/assets/manifests/core/cert-manager/install.yaml, exactly as
+          # the image pin below already requires.
+          args:
+            - --v=2
+            - --secure-port=10250
+            - --dynamic-serving-ca-secret-namespace=$(POD_NAMESPACE)
+            - --dynamic-serving-ca-secret-name=cert-manager-webhook-ca
+            - --dynamic-serving-dns-names=cert-manager-webhook
+            - --dynamic-serving-dns-names=cert-manager-webhook.$(POD_NAMESPACE)
+            - --dynamic-serving-dns-names=cert-manager-webhook.$(POD_NAMESPACE).svc
           # Upstream ships no requests -> BestEffort -> lowest CPU shares, so the
           # webhook is starved first on a saturated node and misses its probes.
           resources:
