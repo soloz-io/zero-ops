@@ -285,6 +285,19 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              maxLifetimeSeconds:
+                default: 28800
+                description: |-
+                  MaxLifetimeSeconds is the absolute bound on a Service-mode workload,
+                  independent of idleness or readiness.
+
+                  The idle clock is refreshable by a client, so it bounds nothing a client
+                  can keep touching. This is the bound nothing can extend: burst capacity
+                  bills per node-hour, and a workload whose end depends entirely on a
+                  cooperative client has no end at all.
+                format: int32
+                minimum: 1
+                type: integer
               mode:
                 allOf:
                 - enum:
@@ -367,6 +380,23 @@ spec:
                   - containerPort
                   type: object
                 type: array
+              readinessDeadlineSeconds:
+                default: 300
+                description: |-
+                  ReadinessDeadlineSeconds bounds how long a Service-mode workload may run
+                  without becoming ready before it is declared failed.
+
+                  It exists because idleness cannot detect a broken workload. The idle clock
+                  is refreshed by ATTEMPTS — a client retrying against a dead sandbox
+                  refreshes it on every try — so a workload that never serves is never idle
+                  and never reaped. Observed on a sandbox whose harness had been dead for 37
+                  minutes with an idle age of 30 seconds, holding a burst node the whole
+                  time.
+
+                  Measured from StartTime, so waiting for a node is not counted against it.
+                format: int32
+                minimum: 1
+                type: integer
               readinessProbe:
                 description: |-
                   ReadinessProbe decides whether the workload is fit to receive traffic.

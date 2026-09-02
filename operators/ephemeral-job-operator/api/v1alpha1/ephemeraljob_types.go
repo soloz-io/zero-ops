@@ -233,6 +233,34 @@ type EphemeralJobSpec struct {
 	// +optional
 	IdleTimeoutSeconds int32 `json:"idleTimeoutSeconds,omitempty"`
 
+	// ReadinessDeadlineSeconds bounds how long a Service-mode workload may run
+	// without becoming ready before it is declared failed.
+	//
+	// It exists because idleness cannot detect a broken workload. The idle clock
+	// is refreshed by ATTEMPTS — a client retrying against a dead sandbox
+	// refreshes it on every try — so a workload that never serves is never idle
+	// and never reaped. Observed on a sandbox whose harness had been dead for 37
+	// minutes with an idle age of 30 seconds, holding a burst node the whole
+	// time.
+	//
+	// Measured from StartTime, so waiting for a node is not counted against it.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=300
+	// +optional
+	ReadinessDeadlineSeconds int32 `json:"readinessDeadlineSeconds,omitempty"`
+
+	// MaxLifetimeSeconds is the absolute bound on a Service-mode workload,
+	// independent of idleness or readiness.
+	//
+	// The idle clock is refreshable by a client, so it bounds nothing a client
+	// can keep touching. This is the bound nothing can extend: burst capacity
+	// bills per node-hour, and a workload whose end depends entirely on a
+	// cooperative client has no end at all.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=28800
+	// +optional
+	MaxLifetimeSeconds int32 `json:"maxLifetimeSeconds,omitempty"`
+
 	// TerminationGracePeriodSeconds for the pod.
 	// +optional
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`

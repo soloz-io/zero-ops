@@ -479,7 +479,6 @@ func (r *EphemeralJobReconciler) fireCallback(
 	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
 }
 
-
 // buildWorkloadContainer builds the container the request describes. Shared by
 // both modes: a sandbox and a render job differ in lifecycle, not in how the
 // workload container itself is assembled.
@@ -677,7 +676,6 @@ func (r *EphemeralJobReconciler) buildService(
 	}
 }
 
-
 // reconcileServiceMode drives a long-lived workload: a Pod, an optional Service
 // in front of it, and an idle clock instead of a completion.
 //
@@ -740,13 +738,55 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
+	// The absolute bound, checked before anything a client can influence.
+	//
+	// Everything below is refreshable or conditional; this is not. Burst
+	// capacity bills per node-hour, and a workload whose end depends on a
+	// cooperative client has no end at all.
+	if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
+		l.Info("reaping workload at its lifetime bound", "ephemeralJob", ej.Name, "lived", lived.Truncate(time.Second))
+		if err := r.deletePod(ctx, pod); err != nil {
+			return ctrl.Result{}, err
+		}
+		ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime", ej.Spec.MaxLifetimeSeconds)
+		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
+	}
+
+	// StartTime is seeded as soon as the pod runs, ready or not: the readiness
+	// deadline below measures from it, and a workload that never becomes ready
+	// would otherwise have no clock at all.
 	now := metav1.Now()
 	if ej.Status.StartTime == nil {
 		ej.Status.StartTime = &now
 	}
-	// Seed the idle clock when the workload first runs, not when the request
-	// was created: time spent waiting for a node is not idle time, and charging
-	// it against the idle budget would reap a sandbox that never got to serve.
+
+	// A workload that never becomes ready is broken, and IDLENESS CANNOT SEE
+	// THAT. The idle clock is refreshed by attempts, so a client retrying
+	// against a dead sandbox keeps it alive indefinitely — observed on a
+	// sandbox whose harness had been dead 37 minutes with an idle age of 30
+	// seconds, holding a burst node throughout. This is the bound that catches
+	// it.
+	if !workloadReady(pod) {
+		if waited := time.Since(ej.Status.StartTime.Time); waited > time.Duration(ej.Spec.ReadinessDeadlineSeconds)*time.Second {
+			l.Info("workload never became ready", "ephemeralJob", ej.Name, "waited", waited.Truncate(time.Second))
+			if err := r.deletePod(ctx, pod); err != nil {
+				return ctrl.Result{}, err
+			}
+			ej.Status.Message = fmt.Sprintf(
+				"workload did not become ready within %ds of starting", ej.Spec.ReadinessDeadlineSeconds)
+			return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseFailed, nil)
+		}
+		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
+		ej.Status.Message = "workload container is not ready"
+		ej.Status.PodName = pod.Name
+		if err := r.Status().Update(ctx, ej); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+	}
+
+	// The idle clock starts only once the workload has actually served, so a
+	// slow start is not charged against the session's idle budget.
 	if ej.Status.LastActivityTime == nil {
 		ej.Status.LastActivityTime = &now
 	}
@@ -763,23 +803,6 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		ej.Status.Message = fmt.Sprintf("idle for %s, exceeding the %ds idle budget",
 			idle.Truncate(time.Second), ej.Spec.IdleTimeoutSeconds)
 		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
-	}
-
-	// Running means the workload serves, not that a pod exists.
-	//
-	// pod.Status.Phase stays Running while a container is dead, because one
-	// healthy sidecar is enough. Reporting that as Running told a caller the
-	// sandbox was up while its harness had exited, so the failure surfaced to
-	// the user as a 502 from the Service rather than as a workload that had not
-	// come up.
-	if !workloadReady(pod) {
-		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
-		ej.Status.Message = "workload container is not ready"
-		ej.Status.PodName = pod.Name
-		if err := r.Status().Update(ctx, ej); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	r.setPhase(ej, computev1alpha1.PhaseRunning, cap)
@@ -870,7 +893,6 @@ func minDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
-
 // authoredLabels merges the request's own labels into the ones this operator
 // stamps on what it authors.
 //
@@ -907,7 +929,6 @@ func validateSpec(ej *computev1alpha1.EphemeralJob) (reason, message string, inv
 	return "", "", false
 }
 
-
 // serviceNameFor is the address a client resolves.
 //
 // "<name>-svc" is the convention the SDK's serviceName() already used when it
@@ -917,7 +938,6 @@ func validateSpec(ej *computev1alpha1.EphemeralJob) (reason, message string, inv
 func serviceNameFor(ej *computev1alpha1.EphemeralJob) string {
 	return ej.Name + "-svc"
 }
-
 
 // withRequests fills in any resource request a container leaves unset.
 //
@@ -937,7 +957,6 @@ func withRequests(c *corev1.Container, cpu, memory string) {
 	}
 }
 
-
 // workloadReady reports whether the workload container itself is ready.
 //
 // It looks at the workload container by name rather than at the pod phase:
@@ -951,4 +970,15 @@ func workloadReady(p *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// deletePod removes a Service-mode workload's pod. The Service and the
+// EphemeralJob outlive it until TTL, so the terminal status stays readable.
+func (r *EphemeralJobReconciler) deletePod(ctx context.Context, pod *corev1.Pod) error {
+	policy := metav1.DeletePropagationBackground
+	if err := r.Delete(ctx, pod, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil &&
+		!apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
