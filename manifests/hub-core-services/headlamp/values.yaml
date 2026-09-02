@@ -4,7 +4,6 @@ config:
   oidc:
     enabled: true
     clientID: "headlamp"
-    clientSecret: ""
     issuerURL: "https://auth.dev.nutgraf.in/oauth2"
     scopes: "openid,profile,email,groups"
     callbackURL: "https://dashboard.dev.nutgraf.in/oidc-callback"

@@ -34,3 +34,18 @@ spec:
     - http://localhost:54321/callback
     - http://127.0.0.1:18999/callback
     - http://localhost:18999/callback
+---
+apiVersion: hydra.ory.sh/v1alpha1
+kind: OAuth2Client
+metadata:
+  name: headlamp
+  namespace: platform-identity
+spec:
+  clientName: "Headlamp Dashboard"
+  grantTypes: ["authorization_code", "refresh_token"]
+  responseTypes: ["code"]
+  scope: "openid profile email groups offline_access"
+  tokenEndpointAuthMethod: none
+  secretName: headlamp-credentials
+  redirectUris:
+    - "https://dashboard.dev.nutgraf.in/oidc-callback"

@@ -6,10 +6,10 @@ kind: Kustomization
 #
 # Renders the headlamp helm chart through kustomize (the Infisical/OpenMeter
 # pattern) so we can:
-#   1. Inject OIDC client secret via ExternalSecret from Infisical
-#   2. Apply a custom read-only ClusterRole (not cluster-admin)
-#   3. Override resource limits for the hub's constrained nodes
+#   1. Apply a custom read-only ClusterRole (not cluster-admin)
+#   2. Override resource limits for the hub's constrained nodes
 #
+# OIDC: public client registered via hydra-maester CRD (no client secret).
 # Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
 
 helmCharts:
@@ -21,7 +21,6 @@ helmCharts:
     valuesFile: values.yaml
 
 resources:
-  - external-secret.yaml
   - clusterrole.yaml
   - clusterrolebinding.yaml
 
