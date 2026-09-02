@@ -179,7 +179,6 @@ elif node_taints:
 # carry pod traffic.
 NODE_IP_SCRIPT = "/usr/local/bin/dynamic-node-ip.sh"
 NODE_IP_DROPIN = "/etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf"
-NODE_IP_MARKER = "/var/lib/kubelet/.node-ip-after-ccm"
 
 if burst_doc is not None:
     spec = burst_doc["spec"]["template"]["spec"]
@@ -208,27 +207,33 @@ if burst_doc is not None:
             "        Effect: the file exists and the node still registers its "
             "private address." % burst_ref)
 
-    # The ORDER matters as much as the mechanism, and getting it wrong swaps one
-    # outage for another. hcloud CCM matches provided-node-ip against addresses
-    # the Hetzner API knows; a tailnet address is not one, so a node that
-    # registers with it is never initialised and keeps
-    # node.cloudprovider.kubernetes.io/uninitialized — nothing schedules on it.
-    # The script must therefore run AFTER the cloud provider, gated on the
-    # marker the post-join step writes once that taint clears.
+    # providerID must be self-assigned, and that is the whole trick.
+    #
+    # Once --node-ip is a tailnet address the Hetzner CCM refuses to initialise
+    # the node: it validates provided-node-ip against the addresses the cloud
+    # reports and never writes .spec.providerID. CAPI matches Machines to Nodes
+    # BY providerID, so without it the Machine keeps an empty NODENAME.
+    #
+    # The instance id is authoritative and readable from the node's own metadata
+    # service, so kubelet sets providerID directly and CCM leaves the critical
+    # path. This is why the hub control plane holds BOTH a tailnet InternalIP and
+    # providerID=hcloud://..., and it is the piece a worker template that only
+    # sets --node-ip is missing — that shape registers the right address and
+    # never becomes schedulable.
     script = next((f.get("content", "") for f in (spec.get("files") or [])
                    if f.get("path") == NODE_IP_SCRIPT), "")
-    if script and NODE_IP_MARKER not in script:
+    if script and "--provider-id=" not in script:
         errors.append(
-            "NODE IP APPLIED TOO EARLY — %s runs %s without gating on %s.\n"
-            "        Effect: the node registers its tailnet address before hcloud "
-            "CCM has initialised it, CCM refuses the unknown address and never "
-            "removes the uninitialized taint, and nothing schedules on the node."
-            % (burst_ref, NODE_IP_SCRIPT, NODE_IP_MARKER))
-    if script and any("dynamic-node-ip.sh" in c for c in pre) and NODE_IP_MARKER not in script:
+            "NO SELF-ASSIGNED providerID — %s sets --node-ip but not --provider-id.\n"
+            "        Effect: with a tailnet node-ip the CCM refuses the node and never "
+            "writes .spec.providerID, so node.cloudprovider.kubernetes.io/uninitialized "
+            "is never removed and nothing schedules on it." % burst_ref)
+    if script and "169.254.169.254" not in script:
         errors.append(
-            "NODE IP IN preKubeadmCommands — %s applies it before the node has "
-            "joined, so the very first registration carries the tailnet address."
-            % burst_ref)
+            "providerID NOT FROM METADATA — %s does not read the instance id from "
+            "the Hetzner metadata service.\n        Effect: the id must come from "
+            "somewhere the node can reach without the cloud provider, or this "
+            "reintroduces the dependency it exists to remove." % burst_ref)
 
 # ── 4. the priority class value, in the two places it is written ──────────
 #
