@@ -634,7 +634,15 @@ spec:
         chart: '{{"{{"}} .chart {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
-          values: '{{"{{"}} .helmValues {{"}}"}}'
+          # A single-quoted scalar FOLDS newlines into spaces, so a multi-line
+          # helmValues arrived at helm as one line and failed to parse:
+          #   error converting YAML to JSON: yaml: mapping values are not
+          #   allowed in this context
+          # The values were authored correctly as a block scalar in the list
+          # element and were destroyed in transit, which is why reading either
+          # file alone showed nothing wrong. nindent re-establishes the block.
+          values: |
+            {{"{{-"}} .helmValues | nindent 12 {{"}}"}}
 
       destination:
         server: https://kubernetes.default.svc
@@ -653,6 +661,9 @@ spec:
       source:
         directory:
           recurse: true
+    {{"{{-"}} if ne .directoryInclude "" {{"}}"}}
+          include: '{{"{{"}} .directoryInclude {{"}}"}}'
+    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .ignoreDifferencesNamespace "true" {{"}}"}}
     spec:
@@ -671,7 +682,9 @@ spec:
           targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'
           helm:
             releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
-            values: '{{"{{"}} .helmValues {{"}}"}}'
+            # Same folding bug as the single-source block above.
+            values: |
+              {{"{{-"}} .helmValues | nindent 14 {{"}}"}}
         - repoURL: https://github.com/soloz-io/zero-ops
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values

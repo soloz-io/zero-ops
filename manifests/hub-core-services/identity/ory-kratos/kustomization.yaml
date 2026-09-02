@@ -5,4 +5,9 @@ resources:
   - kratos-smtp-credentials-es.yaml
   - identity-schema-configmap.yaml
   - network-policy.yaml
-  - ../user-groups.yaml
+  # Kustomize refuses a resource outside the kustomization root ("is not in or
+  # below"), so this is a sibling, not a parent reference. The file moved into
+  # this directory rather than the path being made relative-er: a root-escaping
+  # resource cannot be expressed at all, and every ArgoCD comparison for this
+  # app failed on it.
+  - user-groups.yaml
