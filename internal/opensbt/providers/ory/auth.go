@@ -145,7 +145,7 @@ func (a *Auth) ValidateSession(ctx context.Context, token string) (*models.Sessi
 
 	userID, _ := raw["sub"].(string)
 	tenantID, _ := raw["tenant_id"].(string)
-	
+
 	var roles []string
 	if rolesRaw, ok := raw["roles"].([]interface{}); ok {
 		for _, r := range rolesRaw {
