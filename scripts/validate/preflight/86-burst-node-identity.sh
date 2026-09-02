@@ -201,11 +201,20 @@ if burst_doc is not None:
             "rather than absolute." % (burst_ref, NODE_IP_DROPIN))
 
     post = spec.get("postKubeadmCommands") or []
-    if not any("dynamic-node-ip.sh" in c for c in (pre + post)):
+    dropin = next((f.get("content", "") for f in (spec.get("files") or [])
+                   if f.get("path") == NODE_IP_DROPIN), "")
+    # The drop-in's ExecStartPre counts as invocation, and is the PREFERRED one:
+    # it fires before kubelet's first start, so the first registration already
+    # carries the flags, and it re-applies on every later start. A
+    # preKubeadmCommand is the fragile alternative — see the restart check below.
+    invoked = (any("dynamic-node-ip.sh" in c for c in (pre + post))
+               or "ExecStartPre=" + NODE_IP_SCRIPT in dropin)
+    if not invoked:
         errors.append(
-            "NODE IP NEVER APPLIED — %s writes the script but nothing runs it.\n"
-            "        Effect: the file exists and the node still registers its "
-            "private address." % burst_ref)
+            "NODE IP NEVER APPLIED — %s writes the script but nothing runs it: no "
+            "kubeadm command and no ExecStartPre in %s.\n        Effect: the file "
+            "exists and the node still registers its private address."
+            % (burst_ref, NODE_IP_DROPIN))
 
     # providerID must be self-assigned, and that is the whole trick.
     #
@@ -228,6 +237,28 @@ if burst_doc is not None:
             "        Effect: with a tailnet node-ip the CCM refuses the node and never "
             "writes .spec.providerID, so node.cloudprovider.kubernetes.io/uninitialized "
             "is never removed and nothing schedules on it." % burst_ref)
+    # A preKubeadmCommand must not restart kubelet.
+    #
+    # It runs BEFORE kubeadm join, when kubeadm-flags.env does not exist: the
+    # script exits 0 and the restart then acts on an unconfigured kubelet. A
+    # non-zero exit fails the && chain, and a failed preKubeadmCommand aborts
+    # cloud-init before kubeadm join — the server boots, BootstrapReady goes
+    # true, and no Node ever registers. Diagnosed only from the CAPI Machine
+    # condition "Waiting for a node with matching ProviderID to exist" (v4).
+    #
+    # It is also unnecessary: the kubelet drop-in's ExecStartPre applies the
+    # flags before kubelet's first start, so the first registration already
+    # carries them.
+    for c in pre:
+        if "restart kubelet" in c:
+            errors.append(
+                "KUBELET RESTART BEFORE JOIN — %s restarts kubelet in a "
+                "preKubeadmCommand.\n        Effect: it runs against an "
+                "unconfigured kubelet before kubeadm join; a non-zero exit "
+                "aborts cloud-init and the node never registers. The drop-in's "
+                "ExecStartPre already applies the flags at first start." % burst_ref)
+            break
+
     if script and "169.254.169.254" not in script:
         errors.append(
             "providerID NOT FROM METADATA — %s does not read the instance id from "

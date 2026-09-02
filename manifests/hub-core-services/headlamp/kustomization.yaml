@@ -23,6 +23,7 @@ helmCharts:
 resources:
   - clusterrole.yaml
   - clusterrolebinding.yaml
+  - dns-endpoint.yaml
 
 patches:
   - target:

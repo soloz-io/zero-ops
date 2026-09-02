@@ -1,0 +1,21 @@
+# Headlamp DNS record via external-dns CRD source.
+#
+# The gateway-httproute source cannot generate records for this host because the
+# Cilium host-networked Gateway has no status.addresses. A manual DNSEndpoint
+# CR gives external-dns the record it needs to publish via the --source=crd flag.
+# Target: hub control-plane LB (65.109.41.23).
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: dashboard
+  namespace: platform-ops
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: dashboard.dev.nutgraf.in
+    external-dns.alpha.kubernetes.io/target: 65.109.41.23
+spec:
+  endpoints:
+  - dnsName: dashboard.dev.nutgraf.in
+    ttl: 300
+    recordType: A
+    targets:
+    - 65.109.41.23
