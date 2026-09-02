@@ -98,6 +98,23 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
+          # ADR-052 §Ownership: the component that owns burst node count. The
+          # burst MachineDeployment is rendered with autoscaler bounds and no
+          # replicas field, so without this running the pool stays at zero and
+          # every EphemeralJob pends against capacity that cannot arrive.
+          - appName: 'cluster-autoscaler'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            targetRevision: 'main'
+            path: 'manifests/hub-core-services/cluster-autoscaler'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
           - appName: 'infrastructure-provider'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'

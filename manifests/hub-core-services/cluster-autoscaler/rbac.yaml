@@ -1,0 +1,71 @@
+# ADR-052: the component that owns burst node COUNT.
+#
+# ADR-052 §Ownership assigns "Burst Node Count | cluster-autoscaler |
+# MachineDeployment.spec.replicas" — and until now nothing filled that role.
+# The burst MachineDeployment is rendered with autoscaler bounds and NO replicas
+# field, deliberately, because CAPI rejects a topology that sets both. With no
+# autoscaler running, that meant the pool sat at zero forever and every
+# EphemeralJob pended against capacity that could never arrive.
+#
+# It runs on the HUB, not the spoke. The objects it scales (MachineDeployment,
+# MachineSet, Machine) live here in platform-capi, and it reaches the workload
+# cluster read-only through the kubeconfig CAPI already publishes. The reverse —
+# running on the spoke with hub credentials — would put a management-cluster
+# identity capable of scaling EVERY spoke inside a tenant-facing cluster.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-autoscaler
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+    app.kubernetes.io/component: burst-capacity
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-autoscaler-capi
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+rules:
+  # The node groups it scales. scale is the subresource the clusterapi provider
+  # writes; the others are how it discovers the group and reads its bounds.
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources:
+      - machinedeployments
+      - machinedeployments/scale
+      - machines
+      - machinesets
+      - machinepools
+      - machinepools/scale
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Leader election, so two replicas can never both decide the node count.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # The workload kubeconfig CAPI publishes. Restricted by name: this identity
+  # can scale every spoke's node groups, so it must not also be able to read
+  # every Secret in the namespace it does that from.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["spoke-pool-hybrid-dev-01-kubeconfig"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-autoscaler-capi
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-autoscaler-capi
+subjects:
+  - kind: ServiceAccount
+    name: cluster-autoscaler
+    namespace: platform-ops

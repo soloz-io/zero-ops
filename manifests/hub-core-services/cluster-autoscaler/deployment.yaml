@@ -1,0 +1,116 @@
+# One autoscaler per WORKLOAD cluster.
+#
+# The clusterapi provider needs two clients: the management cluster, to scale
+# node groups, and the workload cluster, to see which pods are pending. Only the
+# first can be in-cluster, so the workload cluster is named explicitly and a
+# second spoke needs a second Deployment rather than a flag on this one.
+#
+# That per-spoke shape is why this is a hub-core-service and not part of the
+# spoke catalog: it is hub-side infrastructure ABOUT a spoke, not something
+# running in it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler-spoke-pool-hybrid-dev-01
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+    app.kubernetes.io/component: burst-capacity
+    zero-ops.io/workload-cluster: spoke-pool-hybrid-dev-01
+spec:
+  # Fixed at one. Two autoscalers deciding one node count is a scale-up race
+  # that costs real servers; leader election is configured for safety but the
+  # correct replica count for a controller like this is one.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-autoscaler
+      zero-ops.io/workload-cluster: spoke-pool-hybrid-dev-01
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-autoscaler
+        zero-ops.io/workload-cluster: spoke-pool-hybrid-dev-01
+    spec:
+      serviceAccountName: cluster-autoscaler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # ADR-047: single-node spokes and this hub run workloads on the
+      # control-plane node, which carries the control-plane taint.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: cluster-autoscaler
+          image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.31.1
+          command:
+            - /cluster-autoscaler
+          args:
+            - --cloud-provider=clusterapi
+            # Discovery by cluster name, so this instance can only ever scale
+            # the node groups of the workload cluster it was given. A namespace
+            # scope alone would let it act on every spoke in platform-capi.
+            - --node-group-auto-discovery=clusterapi:clusterName=spoke-pool-hybrid-dev-01,namespace=platform-capi
+            # The WORKLOAD cluster: where pending pods are. The management
+            # cluster is this one, reached in-cluster.
+            - --kubeconfig=/workload/value
+            - --clusterapi-cloud-config-authoritative=false
+            # least-waste picks the group whose simulated node leaves the least
+            # idle CPU. With one burst group it is not yet load-bearing; it is
+            # set now so adding a second group does not silently change how the
+            # first is chosen.
+            - --expander=least-waste
+            - --scale-down-enabled=true
+            # A burst node costs by the hour, so an idle one is money. These are
+            # deliberately shorter than the upstream defaults (10m/10m): the
+            # workloads here are minutes long, and holding a node for twenty
+            # minutes after the last render is most of a wasted hour.
+            - --scale-down-delay-after-add=5m
+            - --scale-down-unneeded-time=5m
+            - --scale-down-unready-time=5m
+            # Never touch anything but burst. Nodes without this are the home
+            # workers and the control plane, which this must not consider.
+            - --scale-down-utilization-threshold=0.5
+            - --skip-nodes-with-local-storage=false
+            - --skip-nodes-with-system-pods=false
+            - --balance-similar-node-groups=true
+            - --leader-elect=true
+            - --leader-elect-resource-namespace=platform-ops
+            - --v=2
+          env:
+            # Unset means "use in-cluster for the management cluster", which is
+            # this cluster. Stated explicitly because the alternative is silent.
+            - name: CAPI_GROUP
+              value: cluster.x-k8s.io
+          volumeMounts:
+            - name: workload-kubeconfig
+              mountPath: /workload
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /health-check
+              port: 8085
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: workload-kubeconfig
+          secret:
+            # Published by CAPI for every workload cluster it creates. The key
+            # is "value", which is why the mount path above ends in /value.
+            secretName: spoke-pool-hybrid-dev-01-kubeconfig
+            defaultMode: 0400
