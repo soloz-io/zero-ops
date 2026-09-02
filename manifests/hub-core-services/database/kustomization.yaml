@@ -13,6 +13,7 @@ resources:
   - openmeter-db-credentials-es.yaml
   - password-rotation-job.yaml
   - platform-db-app-credentials-es.yaml
+  - platform-databases.yaml
   - platform-db-pooler.yaml
   - platform-db.yaml
   - s3-credentials-es.yaml

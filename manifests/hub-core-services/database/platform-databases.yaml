@@ -1,0 +1,104 @@
+# The six databases platform-db creates in postInitSQL, declared instead.
+#
+# WHY THIS EXISTS
+#
+# postInitSQL runs exactly ONCE, at initdb. A cluster bootstrapped any other way
+# never executes it. That is fine today because every platform-db has been an
+# initdb cluster, and it becomes a correctness problem the moment one is
+# bootstrapped from a backup (bootstrap.recovery), where postInitSQL is skipped
+# entirely and these six databases would simply not be created.
+#
+# Declaring them makes the two bootstrap paths equivalent:
+#   - initdb   : postInitSQL creates them, these CRs then reconcile as no-ops
+#   - recovery : they arrive inside the backup, these CRs confirm them
+#   - repair   : a database dropped by accident is recreated, which postInitSQL
+#                can never do on an existing cluster
+#
+# postInitSQL is deliberately LEFT IN PLACE for now. Both mechanisms are
+# idempotent together, and removing it is a separate change that should land
+# only once these CRs have been observed converging on a real cluster.
+#
+# OWNERSHIP IS PRESERVED, NOT IMPROVED
+#
+# owner: postgres matches what is actually on the live cluster — postInitSQL
+# issues bare `CREATE DATABASE x;` as the superuser, so all six are owned by
+# postgres (verified 2026-09-02 via pg_database.datdba). Assigning them to their
+# application roles would be tidier and is NOT done here: ownership confers full
+# privileges, the applications connect as separate roles (kratos connects as
+# hub_kratos, for instance), and changing it silently alters the privilege model
+# of a running platform. That belongs in its own reviewed change.
+#
+# infisical and stalwart are not listed: they already have their own CRs, with
+# their own owning roles declared in platform-db.yaml spec.managed.roles.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: control-plane
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: control_plane
+  owner: postgres
+  ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: hub
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: hub
+  owner: postgres
+  ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: openmeter
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: openmeter
+  owner: postgres
+  ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: hydra
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: hydra
+  owner: postgres
+  ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: kratos
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: kratos
+  owner: postgres
+  ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keto
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: keto
+  owner: postgres
+  ensure: present
