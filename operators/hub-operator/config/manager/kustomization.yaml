@@ -3,7 +3,7 @@ resources:
 - provider-registry.yaml
 
 images:
-- digest: sha256:0bbe18895b27b57aaf884e3eafd345d07be033ae5f1201a3a525a74cf025588c
+- digest: sha256:163fee4e0e4acb046003f12c613c336fae41b53b0908b392b27eb0c10e108db6
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/hub-operator
 apiVersion: kustomize.config.k8s.io/v1beta1
