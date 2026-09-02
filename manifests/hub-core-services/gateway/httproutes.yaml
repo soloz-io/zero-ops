@@ -125,6 +125,27 @@ spec:
         - name: infisical-standalone-infisical
           port: 8080
 ---
+# Headlamp Kubernetes dashboard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dashboard
+  namespace: platform-ops
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: dashboard
+  hostnames: ["dashboard.dev.nutgraf.in"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: headlamp
+          port: 80
+---
 # Plaintext redirect. The Ingress objects were inconsistent here — argocd,
 # infisical and agentgateway forced HTTPS while auth and console did not — and the
 # inconsistency was not deliberate. Every one of these hostnames is reached over
@@ -147,6 +168,7 @@ spec:
     - console.dev.nutgraf.in
     - argocd.dev.nutgraf.in
     - infisical.dev.nutgraf.in
+    - dashboard.dev.nutgraf.in
     - mail.nutgraf.in
     - smtp.nutgraf.in
   rules:

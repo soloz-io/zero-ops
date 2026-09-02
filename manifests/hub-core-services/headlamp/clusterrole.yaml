@@ -1,0 +1,16 @@
+---
+# Headlamp read-only ClusterRole. Replaces the chart default of cluster-admin.
+# Users authenticate via OIDC (Ory) and Headlamp proxies requests with their
+# credentials, so the pod's own RBAC only needs enough to start; per-user
+# K8s RBAC determines actual permissions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-viewer
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/portforward"]
+    verbs: ["create"]

@@ -101,6 +101,15 @@ spec:
       - refresh_token
       responseTypes:
       - code
+    - clientId: headlamp
+      clientName: "Headlamp Dashboard"
+      redirectUris:
+      - "https://dashboard.dev.nutgraf.in/oidc-callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code
   secrets:
     infisical:
       # ProjectSlug and EnvironmentSlug are sourced from hub-bootstrap-config ConfigMap

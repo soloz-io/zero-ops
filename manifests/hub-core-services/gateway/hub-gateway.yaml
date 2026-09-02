@@ -170,3 +170,22 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-mail, platform-identity, platform-edge]
+    # Headlamp Kubernetes dashboard. TLS cert issued by cert-manager via DNS-01.
+    - name: dashboard
+      hostname: dashboard.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: dashboard-tls
+            namespace: platform-ops
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-ops, platform-identity]

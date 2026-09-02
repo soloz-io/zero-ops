@@ -1,0 +1,45 @@
+replicaCount: 1
+
+config:
+  oidc:
+    enabled: true
+    clientID: "headlamp"
+    clientSecret: ""
+    issuerURL: "https://auth.dev.nutgraf.in/oauth2"
+    scopes: "openid,profile,email,groups"
+    callbackURL: "https://dashboard.dev.nutgraf.in/oidc-callback"
+    useAccessToken: false
+    usePKCE: true
+  enableDynamicClusters: true
+  inClusterContextName: "hub"
+  pluginsDir: /headlamp/plugins
+  staticPlugins: true
+  enableHelm: true
+  sessionTTL: 86400
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 4466
+
+clusterRoleBinding:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+ingress:
+  enabled: false
+
+# Headlamp proxies all requests through the user's own K8s credentials.
+# The custom headlamp-viewer ClusterRole provides read-only access; the
+# per-user OIDC token determines actual permissions.
+unsafeUseServiceAccountToken: false

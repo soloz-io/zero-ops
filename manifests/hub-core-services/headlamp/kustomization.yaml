@@ -1,0 +1,47 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Headlamp Kubernetes Dashboard (ADR-058).
+#
+# Renders the headlamp helm chart through kustomize (the Infisical/OpenMeter
+# pattern) so we can:
+#   1. Inject OIDC client secret via ExternalSecret from Infisical
+#   2. Apply a custom read-only ClusterRole (not cluster-admin)
+#   3. Override resource limits for the hub's constrained nodes
+#
+# Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
+
+helmCharts:
+  - name: headlamp
+    repo: https://kubernetes-sigs.github.io/headlamp/
+    version: 0.45.0
+    releaseName: headlamp
+    namespace: platform-ops
+    valuesFile: values.yaml
+
+resources:
+  - external-secret.yaml
+  - clusterrole.yaml
+  - clusterrolebinding.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: headlamp
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: headlamp
+      spec:
+        template:
+          spec:
+            containers:
+              - name: headlamp
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    memory: 512Mi

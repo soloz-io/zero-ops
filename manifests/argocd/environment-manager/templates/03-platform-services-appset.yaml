@@ -98,6 +98,19 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
+          - appName: 'platform-headlamp'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            repoURL: 'https://github.com/soloz-io/zero-ops'
+            targetRevision: ''
+            path: 'manifests/hub-core-services/headlamp'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: ''
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: '' 
           # ADR-052 §Ownership: the component that owns burst node count. The
           # burst MachineDeployment is rendered with autoscaler bounds and no
           # replicas field, so without this running the pool stays at zero and
