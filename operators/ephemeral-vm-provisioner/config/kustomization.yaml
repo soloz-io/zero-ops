@@ -15,9 +15,14 @@ resources:
 # placeholder in deploy.yaml and the argument CI passes to
 # `kustomize edit set image`, or nothing rewrites it and the running image
 # drifts from what Git records.
-    # Placeholder until CI's first build writes a real digest. Deploying this
-    # fails to pull, which is the correct failure: an unbuilt image must not
-    # silently resolve to something else.
+# This is the PROVISIONER's own image — the controller that runs in-cluster in
+# platform-ops. It is not the image a render VM runs: that is named per job by
+# the payload (see EPHEMERAL_WORKER_IMAGE in deploy.yaml), and it is not
+# oranger/services/ephemeral-worker, which this path does not invoke. Three
+# different images, one of which is easy to mistake for another.
+#
+# CI-MAINTAINED, and written twice already (bef7af02, 4316f4c3). Do not
+# hand-edit; if the digest is wrong, the workflow is wrong.
 images:
 - digest: sha256:d15aff213079d9c1f950957390ff3265b46515bf9d1d3e1e57f91ccbb2f17515
   name: ephemeral-vm-provisioner

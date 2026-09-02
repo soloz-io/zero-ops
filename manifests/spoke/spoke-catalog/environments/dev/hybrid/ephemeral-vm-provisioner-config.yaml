@@ -1,30 +1,41 @@
 # Non-secret configuration for the VM path (ADR-052 §13).
 #
-# These two values were originally read from Infisical alongside the Hetzner
-# token. Neither is a credential: a worker image digest and a Hetzner volume id
-# carry no secret and grant nothing. Routing them through a secret store made a
-# digest bump invisible to review and demanded a producer for a value that
-# belongs in git — so they live here, where a change is a reviewable diff.
+# These values were originally read from Infisical alongside the Hetzner token.
+# Neither is a credential: an image reference and a Hetzner volume id carry no
+# secret and grant nothing. Routing them through a secret store made a digest
+# bump invisible to review and demanded a producer for a value that belongs in
+# git — so they live here, where a change is a reviewable diff.
 #
 # Environment-scoped rather than in the component's config/ because volume-id
 # names a volume that exists in one project, in one location.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # Optional FALLBACK only — deliberately unset, and correct that way.
+  name: ephemeral-vm-provisioner-config
+  namespace: platform-ops
+data:
+  # ephemeral-worker-image is an optional FALLBACK, deliberately unset.
   #
-  # GenerateCloudInit reads this, then lets the job payload override it:
+  # GenerateCloudInit reads it, then lets the job payload override it:
   #     workerImage := os.Getenv("EPHEMERAL_WORKER_IMAGE")
   #     if payload.Image != nil && *payload.Image != "" { workerImage = *payload.Image }
-  # Every render job carries its own pinned digest, fed by the CI-maintained
+  #
+  # Every render job carries its own pinned digest, supplied by the CI-maintained
   # channel at fleet-registry tenants/oranger/workloads/remotion-headless, so the
-  # fallback is never reached on the render path. Setting it would add a second,
+  # fallback is not reached on the render path. Setting it would add a second,
   # staler source for a value that is already pinned per job.
   #
   # oranger/services/ephemeral-worker is NOT this image and is not invoked by
   # this path (ADR-052 burst-execution plan): cloud-init is itself the guest
   # agent — it docker-pulls and runs the workload image directly.
   #
-  # Optional. Only set where a models volume is attached to render VMs.
+  # volume-id is optional too; set it only where a models volume is attached to
+  # render VMs. Absent means no volume is mounted.
+  #
+  # If ever set, it names the WORKLOAD image a render VM runs — e.g.
+  # ghcr.io/soloz-io/remotion-headless@sha256:... It is NOT the provisioner's own
+  # image (pinned in operators/ephemeral-vm-provisioner/config/kustomization.yaml)
+  # and NOT ghcr.io/soloz-io/ephemeral-worker.
+  #   ephemeral-worker-image: ghcr.io/soloz-io/remotion-headless@sha256:...
   #   volume-id: "12345678"
-  {}
+  placeholder: ""
