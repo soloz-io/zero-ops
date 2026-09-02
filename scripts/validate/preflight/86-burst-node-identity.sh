@@ -179,6 +179,7 @@ elif node_taints:
 # carry pod traffic.
 NODE_IP_SCRIPT = "/usr/local/bin/dynamic-node-ip.sh"
 NODE_IP_DROPIN = "/etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf"
+NODE_IP_MARKER = "/var/lib/kubelet/.node-ip-after-ccm"
 
 if burst_doc is not None:
     spec = burst_doc["spec"]["template"]["spec"]
@@ -200,11 +201,34 @@ if burst_doc is not None:
             "so the wrong InternalIP is published and the fault is intermittent "
             "rather than absolute." % (burst_ref, NODE_IP_DROPIN))
 
-    if not any("dynamic-node-ip.sh" in c for c in pre):
+    post = spec.get("postKubeadmCommands") or []
+    if not any("dynamic-node-ip.sh" in c for c in (pre + post)):
         errors.append(
-            "NODE IP NEVER APPLIED — %s writes the script but no preKubeadmCommand "
-            "runs it.\n        Effect: the file exists and the node still registers "
-            "its private address." % burst_ref)
+            "NODE IP NEVER APPLIED — %s writes the script but nothing runs it.\n"
+            "        Effect: the file exists and the node still registers its "
+            "private address." % burst_ref)
+
+    # The ORDER matters as much as the mechanism, and getting it wrong swaps one
+    # outage for another. hcloud CCM matches provided-node-ip against addresses
+    # the Hetzner API knows; a tailnet address is not one, so a node that
+    # registers with it is never initialised and keeps
+    # node.cloudprovider.kubernetes.io/uninitialized — nothing schedules on it.
+    # The script must therefore run AFTER the cloud provider, gated on the
+    # marker the post-join step writes once that taint clears.
+    script = next((f.get("content", "") for f in (spec.get("files") or [])
+                   if f.get("path") == NODE_IP_SCRIPT), "")
+    if script and NODE_IP_MARKER not in script:
+        errors.append(
+            "NODE IP APPLIED TOO EARLY — %s runs %s without gating on %s.\n"
+            "        Effect: the node registers its tailnet address before hcloud "
+            "CCM has initialised it, CCM refuses the unknown address and never "
+            "removes the uninitialized taint, and nothing schedules on the node."
+            % (burst_ref, NODE_IP_SCRIPT, NODE_IP_MARKER))
+    if script and any("dynamic-node-ip.sh" in c for c in pre) and NODE_IP_MARKER not in script:
+        errors.append(
+            "NODE IP IN preKubeadmCommands — %s applies it before the node has "
+            "joined, so the very first registration carries the tailnet address."
+            % burst_ref)
 
 # ── 4. the priority class value, in the two places it is written ──────────
 #
