@@ -5,7 +5,7 @@ config:
   sessionTTL: 86400
   oidc:
     clientID: "headlamp"
-    issuerURL: "https://auth.dev.nutgraf.in/oauth2"
+    issuerURL: "https://auth.dev.nutgraf.in"
     scopes: "openid,profile,email,groups"
     callbackURL: "https://dashboard.dev.nutgraf.in/oidc-callback"
     useAccessToken: false
