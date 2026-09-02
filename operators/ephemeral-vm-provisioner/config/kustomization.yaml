@@ -24,6 +24,6 @@ resources:
 # CI-MAINTAINED, and written twice already (bef7af02, 4316f4c3). Do not
 # hand-edit; if the digest is wrong, the workflow is wrong.
 images:
-- digest: sha256:d15aff213079d9c1f950957390ff3265b46515bf9d1d3e1e57f91ccbb2f17515
+- digest: sha256:101861db7e8f40f1644db90e904a81849d301a9d1b133754bb81103ab8a6da30
   name: ephemeral-vm-provisioner
   newName: ghcr.io/soloz-io/ephemeral-vm-provisioner
