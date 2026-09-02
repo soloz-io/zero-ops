@@ -62,6 +62,13 @@ const (
 	// assignment for why an absent value cannot be left absent.
 	defaultRequestCPU    = "2"
 	defaultRequestMemory = "4Gi"
+
+	// Sidecars get their own, much smaller floor. A sidecar is auxiliary by
+	// definition — a credential broker, a log shipper — so giving it the
+	// workload's envelope would multiply a sandbox's quota footprint several
+	// times over for containers that idle.
+	defaultSidecarRequestCPU    = "50m"
+	defaultSidecarRequestMemory = "64Mi"
 )
 
 // callbackHTTP is shared so connections are reused across reconciles rather
@@ -515,15 +522,7 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 	if ej.Spec.Resources != nil {
 		container.Resources = *ej.Spec.Resources
 	}
-	if container.Resources.Requests == nil {
-		container.Resources.Requests = corev1.ResourceList{}
-	}
-	if _, ok := container.Resources.Requests[corev1.ResourceCPU]; !ok {
-		container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultRequestCPU)
-	}
-	if _, ok := container.Resources.Requests[corev1.ResourceMemory]; !ok {
-		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(defaultRequestMemory)
-	}
+	withRequests(&container, defaultRequestCPU, defaultRequestMemory)
 	if ej.Spec.ImagePullPolicy != "" {
 		container.ImagePullPolicy = ej.Spec.ImagePullPolicy
 	}
@@ -553,6 +552,20 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		}
 	}
 
+	// Every container, not just the workload.
+	//
+	// The burst-compute ResourceQuota refuses a POD in which any container omits
+	// requests.cpu/memory, so defaulting only the primary left the sidecar to
+	// fail the whole pod: "must specify requests.cpu for: agent-vault". The
+	// rejection names the container, but it is the pod that is never created —
+	// and the request that named an envelope for its workload looks, from the
+	// outside, like one that did not.
+	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars))
+	for _, c := range ej.Spec.Sidecars {
+		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		sidecars = append(sidecars, c)
+	}
+
 	spec := corev1.PodSpec{
 		RestartPolicy: corev1.RestartPolicyNever,
 
@@ -576,7 +589,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 			RunAsUser:      ptr(int64(1000)),
 			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 		},
-		Containers:                    append([]corev1.Container{container}, ej.Spec.Sidecars...),
+		Containers:                    append([]corev1.Container{container}, sidecars...),
 		Volumes:                       volumes,
 		ImagePullSecrets:              ej.Spec.ImagePullSecrets,
 		TerminationGracePeriodSeconds: ej.Spec.TerminationGracePeriodSeconds,
@@ -863,4 +876,23 @@ func validateSpec(ej *computev1alpha1.EphemeralJob) (reason, message string, inv
 // published alongside it for anything that would rather read than derive.
 func serviceNameFor(ej *computev1alpha1.EphemeralJob) string {
 	return ej.Name + "-svc"
+}
+
+
+// withRequests fills in any resource request a container leaves unset.
+//
+// It exists because the requirement is per-CONTAINER: the burst-compute
+// ResourceQuota refuses a pod in which any container omits requests.cpu or
+// requests.memory, so the workload and every sidecar must each carry them. A
+// stated value is never overwritten.
+func withRequests(c *corev1.Container, cpu, memory string) {
+	if c.Resources.Requests == nil {
+		c.Resources.Requests = corev1.ResourceList{}
+	}
+	if _, ok := c.Resources.Requests[corev1.ResourceCPU]; !ok {
+		c.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(cpu)
+	}
+	if _, ok := c.Resources.Requests[corev1.ResourceMemory]; !ok {
+		c.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(memory)
+	}
 }
