@@ -848,18 +848,16 @@ spec:
             # which is what made it look like a seeding gap rather than an
             # authorisation contract violation.
             #
-            # AGENTGATEWAY_OIDC_COOKIE_SECRET is per-spoke by design (ADR-050 P1-4):
-            # a shared session signing key couples session validity across isolated
-            # cells. GRAFANA_CLOUD_* is one fleet credential materialised into each
-            # cell's own path — deliberate duplication, chosen over a privileged
-            # cross-cell read path that would weaken ADR-031's invariant.
-            - target:
-                kind: ExternalSecret
-                name: agentgateway-oidc-cookie-secret
-              patch: |
-                - op: replace
-                  path: /spec/data/0/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/AGENTGATEWAY_OIDC_COOKIE_SECRET'
+            # GRAFANA_CLOUD_* is one fleet credential materialised into each cell's
+            # own path — deliberate duplication, chosen over a privileged cross-cell
+            # read path that would weaken ADR-031's invariant.
+            #
+            # The agentgateway-oidc-cookie-secret patch that stood here was removed
+            # on 2026-09-02. d3b7303d moved the gateway to one instance per tenant,
+            # so the spoke-catalog no longer renders that ExternalSecret and the
+            # tenant chart reads its own per-tenant path directly. A kustomize patch
+            # whose target does not exist is a BUILD error, so this did not merely
+            # do nothing — it would fail the whole spoke-catalog Application.
             - target:
                 kind: ExternalSecret
                 name: grafana-cloud-credentials

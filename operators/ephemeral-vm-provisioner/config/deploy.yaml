@@ -56,16 +56,21 @@ spec:
                   name: ephemeral-vm-provisioner
                   key: hcloud-token
                   optional: false
+            # NOT secrets, so NOT from the ExternalSecret. A worker image digest
+            # and a volume id are configuration: they carry no credential, and
+            # routing them through Infisical made them invisible to review and
+            # required a producer for a value that belongs in git. The digest in
+            # particular must be reviewable — a bump is a code change.
             - name: VOLUME_ID
               valueFrom:
-                secretKeyRef:
-                  name: ephemeral-vm-provisioner
+                configMapKeyRef:
+                  name: ephemeral-vm-provisioner-config
                   key: volume-id
                   optional: true
             - name: EPHEMERAL_WORKER_IMAGE
               valueFrom:
-                secretKeyRef:
-                  name: ephemeral-vm-provisioner
+                configMapKeyRef:
+                  name: ephemeral-vm-provisioner-config
                   key: ephemeral-worker-image
                   optional: false
             - name: S3_ENDPOINT_URL

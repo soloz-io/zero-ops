@@ -41,7 +41,22 @@ EXTERNAL = {
 # failure so an open design question does not block a bootstrap. Anything not listed
 # here and not produced is a hard failure — that is the point of the check.
 # Removing an entry here is the last step of closing its gap.
-PENDING = {}
+PENDING = {
+    "HCLOUD_TOKEN": (
+        "ephemeral-vm-provisioner (ADR-052 §13, dev/hybrid only). The token exists "
+        "— hub-cli reads it from the environment at bootstrap — but has never been "
+        "materialised into a cell path, and doing so is a PRIVILEGE decision, not a "
+        "list edit: it is the fleet-wide Hetzner API token, so every cell that can "
+        "read it can create and delete servers across the whole fleet. A "
+        "cell-scoped token would be the right answer and does not exist yet."
+    ),
+    "EPHEMERAL_JOBS_DATABASE_URL": (
+        "ephemeral-vm-provisioner (ADR-052 §13, dev/hybrid only). The provisioner "
+        "reads the ephemeral_jobs queue directly, so it needs a DSN for the tenant "
+        "database rather than Kubernetes RBAC. Whether the platform mints a "
+        "least-privilege role for it, or the tenant supplies the DSN, is open."
+    ),
+}
 
 SRC = glob.glob("operators/hub-operator/internal/infisical/*.go") + \
       glob.glob("operators/hub-operator/internal/database/*.go") + \
@@ -164,6 +179,11 @@ for k in sorted(wanted):
 for leaf in sorted(wanted_cell):
     full, f = wanted_cell[leaf]
     if leaf in cell_produced or any(p.match(leaf) and sentinel in all_src for p, sentinel in DYNAMIC):
+        continue
+    # PENDING applies to a cell path too. It is keyed by the leaf because that is
+    # the name a producer would create; the cell prefix is per-spoke.
+    if leaf in PENDING:
+        print("\t".join(["PENDING", full, PENDING[leaf]]))
         continue
     where = "produced at the ROOT only" if (leaf in produced or leaf in EXTERNAL) else "not produced anywhere"
     print("\t".join(["BAD", full,

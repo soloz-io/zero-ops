@@ -1,0 +1,30 @@
+# Non-secret configuration for the VM path (ADR-052 §13).
+#
+# These two values were originally read from Infisical alongside the Hetzner
+# token. Neither is a credential: a worker image digest and a Hetzner volume id
+# carry no secret and grant nothing. Routing them through a secret store made a
+# digest bump invisible to review and demanded a producer for a value that
+# belongs in git — so they live here, where a change is a reviewable diff.
+#
+# Environment-scoped rather than in the component's config/ because volume-id
+# names a volume that exists in one project, in one location.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ephemeral-vm-provisioner-config
+  namespace: platform-ops
+data:
+  # REQUIRED. The guest agent image a render VM pulls and runs. Built from
+  # oranger/services/ephemeral-worker; pin the digest, never a tag, so a VM that
+  # boots next month runs what was reviewed (ADR-052 D2).
+  #
+  # DELIBERATELY UNSET. The digest is not derivable from this repo and inventing
+  # one yields a VM that boots and pulls nothing. The provisioner refuses to
+  # start without it rather than accepting a job it cannot run, so the failure is
+  # a clear message at startup instead of a render that never returns.
+  #   ephemeral-worker-image: <registry>/oranger/ephemeral-worker@sha256:...
+  #
+  # Optional. Only set where a models volume is attached to render VMs; absent
+  # means no volume is mounted.
+  #   volume-id: "12345678"
+  {}

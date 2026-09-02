@@ -41,8 +41,6 @@ spec:
       data:
         hcloud-token: "{{ .hcloudToken }}"
         database-url: "{{ .databaseUrl }}"
-        ephemeral-worker-image: "{{ .workerImage }}"
-        volume-id: "{{ .volumeId }}"
   data:
     # The spoke name is injected by the ApplicationSet (spoke-catalog kustomize
     # patch); PLACEHOLDER is the unreachable default, matching s3-credentials-es.
@@ -52,13 +50,3 @@ spec:
     - secretKey: databaseUrl
       remoteRef:
         key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_JOBS_DATABASE_URL
-    - secretKey: workerImage
-      remoteRef:
-        key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_WORKER_IMAGE
-    # Optional: only set where a models volume is attached to render VMs.
-    - secretKey: volumeId
-      remoteRef:
-        key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_VOLUME_ID
-        # Absent on spokes that attach no volume; an unresolvable key must not
-        # block delivery of the three that matter.
-        conversionStrategy: Default

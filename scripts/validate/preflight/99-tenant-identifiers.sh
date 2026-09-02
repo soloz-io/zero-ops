@@ -39,12 +39,73 @@ TENANTS = ["waypoint", "oranger"]
 # The auth-proxy coupling is CLOSED: the platform binary no longer registers a
 # tenant's OAuth clients, and its Deployment no longer mounts a tenant secret.
 # What remains is hostname-level.
-BASELINE = {
-    "manifests/hub-core-services/api-gateway/agentgateway-config.yaml",
-    "manifests/argocd/environment-manager/templates/05-tenant-fleet-appset.yaml",
-}
+# EMPTY as of 2026-09-02. Both former entries are remediated: d3b7303d moved
+# AgentGateway to one instance per tenant configured from the fleet registry, so
+# agentgateway-config.yaml no longer defines tenant routing, and the appset is
+# fleet-parameterised. What each still contains is a tenant name in a COMMENT,
+# which this check no longer counts.
+BASELINE = set()
 
 pattern = r"\b(" + "|".join(re.escape(t) for t in TENANTS) + r")\b"
+
+
+def strip_comments(line, ext):
+    """Remove the comment tail of a line, ignoring comment markers inside strings.
+
+    Naive stripping is not safe here. A Go line may carry
+    "postgresql://tenant:..." — a real violation whose "//" is part of a URL, not
+    a comment — so the marker only counts when it falls OUTSIDE a quoted string.
+    Conversely a tenant name in prose (an example query, an incident note, a
+    comment explaining why a label IS fleet-agnostic) is documentation, and
+    flagging it penalises writing down the reasoning.
+    """
+    # A YAML file may embed another language whose comment marker differs — the
+    # Alloy/River config in grafana-alloy.yaml is written with "//" inside a YAML
+    # block scalar. Honour both markers there rather than only the outer one.
+    markers = ("//",) if ext == ".go" else ("#", "//")
+    quote = None
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\" and ext == ".go":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c == '"' or c == "'":
+            # Deliberately not treating a Go raw-string delimiter as a quote: a
+            # tenant name inside one is still hardcoded, and skipping it would
+            # be the unsafe direction.
+            quote = c
+        elif any(line.startswith(m, i) for m in markers):
+            m = next(m for m in markers if line.startswith(m, i))
+            # '#' opens a comment only at line start or after space; '//' must not
+            # swallow a URL scheme ("postgresql://tenant:..."), which is a real
+            # violation rather than a comment.
+            if m == "#" and i > 0 and line[i - 1] not in " \t":
+                i += 1
+                continue
+            if m == "//" and i > 0 and line[i - 1] == ":":
+                i += 2
+                continue
+            return line[:i]
+        i += 1
+    return line
+
+
+def count_code_hits(path):
+    ext = os.path.splitext(path)[1]
+    n = 0
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                n += len(re.findall(pattern, strip_comments(line, ext)))
+    except OSError:
+        return 0
+    return n
+
+
 hits = {}
 for root in PLATFORM:
     if not os.path.isdir(root):
@@ -57,8 +118,9 @@ for root in PLATFORM:
         # Vendored or generated trees are not authored platform code.
         if "/vendor/" in f or "/reference-projects/" in f:
             continue
-        r2 = subprocess.run(["grep", "-coE", pattern, f], capture_output=True, text=True)
-        hits[f] = int(r2.stdout.strip() or 0)
+        n = count_code_hits(f)
+        if n:
+            hits[f] = n
 
 new = {f: n for f, n in hits.items() if f not in BASELINE}
 known = {f: n for f, n in hits.items() if f in BASELINE}

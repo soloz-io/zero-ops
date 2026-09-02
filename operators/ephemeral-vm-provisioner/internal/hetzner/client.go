@@ -13,7 +13,9 @@ import (
 	"time"
 )
 
-const ManagedBy = "ephemeral-provisioner"
+// ManagedBy is the value half of the ownership label. It tracks the component
+// name (ADR-041), so it moved with the rename to ephemeral-vm-provisioner.
+const ManagedBy = "ephemeral-vm-provisioner"
 
 // Client interacts with the Hetzner Cloud API.
 type Client struct {
@@ -110,8 +112,8 @@ func (c *Client) CreateServer(ctx context.Context, name, cloudInit, serverType s
 		"user_data":   cloudInit,
 		"ssh_keys":    sshKeys,
 		"labels": map[string]string{
-			"oranger.dev/job-type":   "ephemeral",
-			"oranger.dev/managed-by": ManagedBy,
+			"compute.nutgraf.in/job-type":   "ephemeral",
+			"compute.nutgraf.in/managed-by": ManagedBy,
 		},
 	}
 
@@ -178,7 +180,7 @@ func (c *Client) GetServer(ctx context.Context, id string) (*Server, error) {
 
 // ListServers returns all servers carrying the ephemeral-provisioner managed label.
 func (c *Client) ListServers(ctx context.Context) ([]Server, error) {
-	labelQuery := "oranger.dev/managed-by=" + ManagedBy
+	labelQuery := "compute.nutgraf.in/managed-by=" + ManagedBy
 	var servers []Server
 
 	for page := 1; ; page++ {

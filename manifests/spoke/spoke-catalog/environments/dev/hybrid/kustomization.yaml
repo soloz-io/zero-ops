@@ -17,6 +17,7 @@ resources:
   # is not in the shared infra base — a pure-Hetzner spoke uses burst capacity
   # and must not receive a Hetzner API token to run a component it does not need.
   - ephemeral-vm-provisioner.yaml
+  - ephemeral-vm-provisioner-config.yaml
   - ../../../../../../operators/ephemeral-vm-provisioner/config
 patches:
   # ADR-046 §11: the base is provider-neutral; the location and storage class

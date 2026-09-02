@@ -20,13 +20,25 @@ validate_ingress_topology() {
 
     local kust="$VALIDATE_ROOT/manifests/spoke/spoke-catalog/infra/kustomization.yaml"
     local f
-    for f in agentgateway.yaml agentgateway-config.yaml tenant-gateway.yaml external-dns.yaml; do
+    # agentgateway.yaml / agentgateway-config.yaml are deliberately ABSENT here.
+    # d3b7303d replaced the single spoke-wide gateway with one per tenant,
+    # rendered by manifests/tenants/charts/universal-tenant (asserted below), so
+    # requiring the spoke-catalog to deliver them asserted the pre-d3b7303d
+    # topology against a tree that no longer has the files.
+    for f in tenant-gateway.yaml external-dns.yaml; do
         if grep -q "  - $f" "$kust"; then
             pass "spoke-catalog delivers $f"
         else
             hard_fail "spoke-catalog kustomization.yaml does not list $f — it is never applied"
         fi
     done
+
+    local tenant_gw="$VALIDATE_ROOT/manifests/tenants/charts/universal-tenant/templates/agentgateway.yaml"
+    if [[ -f "$tenant_gw" ]]; then
+        pass "universal-tenant chart renders the per-tenant AgentGateway"
+    else
+        hard_fail "universal-tenant chart does not render agentgateway.yaml — no tenant gets a gateway"
+    fi
 
     if (cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import sys, yaml

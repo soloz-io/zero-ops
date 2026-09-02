@@ -209,6 +209,12 @@ if burst_doc is not None:
             "node ip from postKubeadmCommands instead, where a failure costs the "
             "address rather than the node." % (burst_ref, NODE_IP_DROPIN))
 
+    # Content of the node-ip script, needed by the providerID assertion below.
+    # Bound here beside `paths`, which carries only the path strings.
+    script = next((f.get("content") or ""
+                   for f in (spec.get("files") or [])
+                   if f.get("path") == NODE_IP_SCRIPT), "")
+
     post = spec.get("postKubeadmCommands") or []
     if not any("dynamic-node-ip.sh" in c for c in post):
         errors.append(
