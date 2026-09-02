@@ -20,7 +20,23 @@ data:
   principal.tls.server.allow-generate: "false"
   principal.tls.insecure-plaintext: "false"
   principal.tls.client-cert.require: "true"
-  principal.tls.server.root-ca-secret-name: "argocd-agent-ca-secret-source"
+  # argocd-agent-ca-secret-source does not exist and nothing in this repo has
+  # ever created it. certificates.yaml declares four Certificates —
+  # principal-tls, resource-proxy-tls, jwt and principal-internal-tls — and none
+  # of them produces that name, so the principal died on every start with
+  #   [FATAL]: Could not load resource proxy TLS configuration:
+  #   error getting client CA certificate: could not read secret:
+  #   secrets "argocd-agent-ca-secret-source" not found
+  # 60 restarts over five and a half hours, taking two ArgoCD Applications
+  # Degraded with it.
+  #
+  # The CA it wants is already present: every certificate here is issued by the
+  # infisical-fleet-issuer, and cert-manager writes the issuing CA into ca.crt
+  # of each TLS secret it creates. Pointing at the real secret uses the CA that
+  # actually signs the agent certificates and inherits cert-manager renewal,
+  # rather than adding a job to copy a CA into a third secret that then has to
+  # be kept in step.
+  principal.tls.server.root-ca-secret-name: "argocd-agent-principal-tls"
   principal.tls.server.root-ca-path: ""
   principal.tls.client-cert.match-subject: "false"
   principal.tls.min-version: "tls1.2"
@@ -39,7 +55,9 @@ data:
   principal.resource-proxy.secret-name: "argocd-agent-resource-proxy-tls"
   principal.resource-proxy.tls.cert-path: ""
   principal.resource-proxy.tls.key-path: ""
-  principal.resource-proxy.ca.secret-name: "argocd-agent-ca-secret-source"
+  # Same missing secret as above; the resource proxy's own TLS secret carries the
+  # identical fleet CA in ca.crt.
+  principal.resource-proxy.ca.secret-name: "argocd-agent-resource-proxy-tls"
   principal.resource-proxy.ca.path: ""
 
   # JWT Configuration
