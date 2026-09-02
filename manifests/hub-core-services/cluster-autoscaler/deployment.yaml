@@ -94,13 +94,17 @@ spec:
             - --leader-elect-resource-namespace=platform-capi
             - --v=2
           env:
-            # Unset means "use in-cluster for the management cluster", which is
-            # this cluster. Stated explicitly because the alternative is silent.
-            - name: CAPI_GROUP
-              value: cluster.x-k8s.io
+            # The management cluster, stated explicitly. Left unset, the
+            # clusterapi provider falls back to --kubeconfig and looks for
+            # MachineDeployments in the SPOKE, which has no CAPI CRDs.
+            - name: CAPI_KUBECONFIG
+              value: /management/kubeconfig
           volumeMounts:
             - name: workload-kubeconfig
               mountPath: /workload
+              readOnly: true
+            - name: management-kubeconfig
+              mountPath: /management
               readOnly: true
           resources:
             requests:
@@ -126,3 +130,6 @@ spec:
             # is "value", which is why the mount path above ends in /value.
             secretName: spoke-pool-hybrid-dev-01-kubeconfig
             defaultMode: 0440
+        - name: management-kubeconfig
+          configMap:
+            name: cluster-autoscaler-management-kubeconfig

@@ -3,4 +3,5 @@ kind: Kustomization
 
 resources:
   - rbac.yaml
+  - management-kubeconfig.yaml
   - deployment.yaml
