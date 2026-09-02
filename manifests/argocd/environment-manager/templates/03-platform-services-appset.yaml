@@ -103,7 +103,7 @@ spec:
           # replicas field, so without this running the pool stays at zero and
           # every EphemeralJob pends against capacity that cannot arrive.
           - appName: 'cluster-autoscaler'
-            destinationNamespace: 'platform-ops'
+            destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
             repoURL: 'https://github.com/soloz-io/zero-ops.git'
             targetRevision: 'main'

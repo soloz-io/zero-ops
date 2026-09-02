@@ -8,11 +8,17 @@
 # That per-spoke shape is why this is a hub-core-service and not part of the
 # spoke catalog: it is hub-side infrastructure ABOUT a spoke, not something
 # running in it.
+#
+# platform-capi, not platform-ops. Secrets are namespaced, and the workload
+# kubeconfig CAPI publishes lives beside the Cluster it belongs to. Running here
+# mounts it directly; running in platform-ops would need the secret copied
+# across namespaces, which means a second copy of a credential to rotate and to
+# leak.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cluster-autoscaler-spoke-pool-hybrid-dev-01
-  namespace: platform-ops
+  namespace: platform-capi
   labels:
     app.kubernetes.io/name: cluster-autoscaler
     app.kubernetes.io/component: burst-capacity
@@ -79,7 +85,7 @@ spec:
             - --skip-nodes-with-system-pods=false
             - --balance-similar-node-groups=true
             - --leader-elect=true
-            - --leader-elect-resource-namespace=platform-ops
+            - --leader-elect-resource-namespace=platform-capi
             - --v=2
           env:
             # Unset means "use in-cluster for the management cluster", which is

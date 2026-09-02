@@ -17,7 +17,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cluster-autoscaler
-  namespace: platform-ops
+  namespace: platform-capi
   labels:
     app.kubernetes.io/name: cluster-autoscaler
     app.kubernetes.io/component: burst-capacity
@@ -68,4 +68,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: cluster-autoscaler
-    namespace: platform-ops
+    namespace: platform-capi
