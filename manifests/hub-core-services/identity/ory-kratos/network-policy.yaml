@@ -31,6 +31,14 @@ spec:
       port: 4433
     - protocol: TCP
       port: 4434
+  # Allow from hub-operator (platform-ops) for user groups reconciliation
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: platform-ops
+    ports:
+    - protocol: TCP
+      port: 4434
   # Allow from Ingress for public API
   # Traffic now arrives through Cilium's Gateway API proxy, not an ingress
   # controller pod, so there is no namespace to name as the source. Cilium presents
