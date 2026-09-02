@@ -11,20 +11,20 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ephemeral-vm-provisioner-config
-  namespace: platform-ops
-data:
-  # REQUIRED. The guest agent image a render VM pulls and runs. Built from
-  # oranger/services/ephemeral-worker; pin the digest, never a tag, so a VM that
-  # boots next month runs what was reviewed (ADR-052 D2).
+  # Optional FALLBACK only — deliberately unset, and correct that way.
   #
-  # DELIBERATELY UNSET. The digest is not derivable from this repo and inventing
-  # one yields a VM that boots and pulls nothing. The provisioner refuses to
-  # start without it rather than accepting a job it cannot run, so the failure is
-  # a clear message at startup instead of a render that never returns.
-  #   ephemeral-worker-image: <registry>/oranger/ephemeral-worker@sha256:...
+  # GenerateCloudInit reads this, then lets the job payload override it:
+  #     workerImage := os.Getenv("EPHEMERAL_WORKER_IMAGE")
+  #     if payload.Image != nil && *payload.Image != "" { workerImage = *payload.Image }
+  # Every render job carries its own pinned digest, fed by the CI-maintained
+  # channel at fleet-registry tenants/oranger/workloads/remotion-headless, so the
+  # fallback is never reached on the render path. Setting it would add a second,
+  # staler source for a value that is already pinned per job.
   #
-  # Optional. Only set where a models volume is attached to render VMs; absent
-  # means no volume is mounted.
+  # oranger/services/ephemeral-worker is NOT this image and is not invoked by
+  # this path (ADR-052 burst-execution plan): cloud-init is itself the guest
+  # agent — it docker-pulls and runs the workload image directly.
+  #
+  # Optional. Only set where a models volume is attached to render VMs.
   #   volume-id: "12345678"
   {}

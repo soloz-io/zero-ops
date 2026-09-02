@@ -26,15 +26,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Same contract as DATABASE_URL. Without an image a VM boots, pulls nothing
-	// and the job never returns a result — a render that hangs rather than one
-	// that fails. Refuse the job at startup, where the reason is visible.
-	if os.Getenv("EPHEMERAL_WORKER_IMAGE") == "" {
-		log.Error("EPHEMERAL_WORKER_IMAGE is required",
-			"hint", "set it in the ephemeral-vm-provisioner-config ConfigMap; pin a digest, not a tag")
-		os.Exit(1)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
