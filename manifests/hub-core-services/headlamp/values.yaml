@@ -12,7 +12,8 @@ config:
   enableDynamicClusters: true
   inClusterContextName: "hub"
   pluginsDir: /headlamp/plugins
-  staticPlugins: true
+  staticPlugins:
+    enabled: true
   enableHelm: true
   sessionTTL: 86400
 
