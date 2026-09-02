@@ -13,6 +13,11 @@ resources:
   # contract's toFQDNs rules while Cilium's DNS proxy on this spoke receives no
   # queries. Environment-scoped because it carries an address. See the file.
   - tenant-identity-egress.yaml
+  # ADR-052 §13: the VM path for renders, hybrid-only. See the file for why it
+  # is not in the shared infra base — a pure-Hetzner spoke uses burst capacity
+  # and must not receive a Hetzner API token to run a component it does not need.
+  - ephemeral-vm-provisioner.yaml
+  - ../../../../../../operators/ephemeral-vm-provisioner/config
 patches:
   # ADR-046 §11: the base is provider-neutral; the location and storage class
   # its nodes can attach are supplied here.

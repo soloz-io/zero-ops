@@ -1,0 +1,64 @@
+# ADR-052 §13: the VM path for ephemeral compute, on hybrid spokes only.
+#
+# WHY THIS IS ENVIRONMENT-SCOPED AND NOT IN THE BASE
+#
+# A hybrid spoke cannot give a CAPI-provisioned burst node both the tailnet
+# InternalIP Cilium needs to reach home-lab nodes and the cloud-provider
+# initialisation that makes it schedulable — the two want the same field. So a
+# render, which needs nothing inbound, runs on a VM outside the cluster instead.
+#
+# A pure-Hetzner spoke has no such conflict: every node is Hetzner and reachable
+# over the private network, so renders use burst capacity and this component
+# must NOT be deployed there. Putting it in the shared infra base would ship a
+# Hetzner API token to every spoke to run a component none of them needs.
+#
+# It provisions servers rather than pods, which is why it is not an operator and
+# why it lives in platform-ops: it holds a token that can spend money, and a
+# credential like that does not belong in a tenant namespace (ADR-047).
+#
+# It reads the job queue from PostgreSQL (ephemeral_jobs, via Graphile Worker),
+# NOT from the EphemeralJob CR — so it needs a database URL, not Kubernetes RBAC
+# on the CR. That distinction is easy to get wrong: the two mechanisms sit side
+# by side and only one of them is Kubernetes-native.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ephemeral-vm-provisioner
+  namespace: platform-ops
+spec:
+  # Credential-bearing, so shorter than the 1h default: a rotated Hetzner token
+  # reaches the workload promptly, and a deleted projection is restored promptly.
+  refreshInterval: 5m
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: ephemeral-vm-provisioner
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        hcloud-token: "{{ .hcloudToken }}"
+        database-url: "{{ .databaseUrl }}"
+        ephemeral-worker-image: "{{ .workerImage }}"
+        volume-id: "{{ .volumeId }}"
+  data:
+    # The spoke name is injected by the ApplicationSet (spoke-catalog kustomize
+    # patch); PLACEHOLDER is the unreachable default, matching s3-credentials-es.
+    - secretKey: hcloudToken
+      remoteRef:
+        key: /spoke-pool/PLACEHOLDER/shared/HCLOUD_TOKEN
+    - secretKey: databaseUrl
+      remoteRef:
+        key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_JOBS_DATABASE_URL
+    - secretKey: workerImage
+      remoteRef:
+        key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_WORKER_IMAGE
+    # Optional: only set where a models volume is attached to render VMs.
+    - secretKey: volumeId
+      remoteRef:
+        key: /spoke-pool/PLACEHOLDER/shared/EPHEMERAL_VOLUME_ID
+        # Absent on spokes that attach no volume; an unresolvable key must not
+        # block delivery of the three that matter.
+        conversionStrategy: Default
