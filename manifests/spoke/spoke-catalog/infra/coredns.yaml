@@ -38,3 +38,54 @@ data:
         reload
         loadbalance
     }
+---
+# CoreDNS placement — spread across nodes, mandatorily.
+#
+# kubeadm ships CoreDNS with a podAntiAffinity that is PREFERRED, not required.
+# The scheduler is free to ignore a preference and it did: on
+# spoke-pool-hybrid-dev-01 both replicas landed on the Hetzner control plane,
+# which is the only node they tolerate a taint for.
+#
+# On a hybrid spoke that is not merely unbalanced, it is a single point of
+# failure across a WAN. Every DNS query from every home-lab pod then crosses
+# home → Hetzner over Tailscale, and that hop is behind three separate outages
+# on 2026-09-02:
+#
+#   - nginx: [emerg] host not found in upstream  → 69m CrashLoopBackOff, and the
+#     frontend rollout carrying two fixes never shipped
+#   - the sandbox harness dying on "Temporary failure in name resolution"
+#   - ArgoCD's controller failing to resolve argocd-repo-server, which blocked
+#     GitOps delivery seven times and left a ClusterClass five days stale
+#
+# CoreDNS logs were clean throughout all of it, because CoreDNS was never the
+# problem — the queries were not reaching it.
+#
+# whenUnsatisfiable: DoNotSchedule is the whole point. ScheduleAnyway reproduces
+# exactly the advisory behaviour that failed. With replicas spread across nodes,
+# a home-lab pod resolves against a replica on its own side of the tailnet.
+#
+# Applied as a PARTIAL object: the Deployment itself belongs to kubeadm, and the
+# spoke-catalog Application syncs with ServerSideApply, so this owns these
+# fields and nothing else. Declaring the containers here would fork a manifest
+# the platform does not maintain.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  template:
+    metadata:
+      labels:
+        k8s-app: kube-dns
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              k8s-app: kube-dns
