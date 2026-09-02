@@ -34,7 +34,19 @@ jobs:
           # gofmt is checked rather than applied: CI must not rewrite the tree
           # it is validating, and a formatting diff here means the commit was
           # never formatted locally.
-          test -z "internal/hetzner/cloudinit.go" || { echo "unformatted files:"; gofmt -l .; exit 1; }
+          #
+          # Captured ONCE into a variable. The first version of this line ran
+          # gofmt twice — testing one result and printing another — so a failure
+          # could report an empty file list. Worse, it was authored through an
+          # unquoted heredoc, which expanded the command substitution at write
+          # time and baked a literal filename into the workflow: the test could
+          # then never pass, and the list it printed was always empty.
+          unformatted="$(gofmt -l . 2>/dev/null)"
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - uses: docker/setup-buildx-action@v3
 
