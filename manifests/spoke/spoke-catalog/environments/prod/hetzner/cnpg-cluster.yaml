@@ -74,7 +74,20 @@ spec:
       # local-path data (see .agents/spec/enhancements/2026-08-30.md items 1
       # and 13), so this collides every time unless the name is bumped.
       # BUMP THE SUFFIX whenever the cluster is recreated from initdb.
-      serverName: shared-cnpg-v2
+      # BUMPED v2 -> v3 on 2026-09-02. The dev spoke was rebuilt from initdb
+      # that day while this still read v2, so the fresh cluster pointed at the
+      # previous incarnation's WALs under this spoke's own prefix and barman
+      # refused every archive:
+      #   WAL archive check failed for server shared-cnpg-v2: Expected empty archive
+      # ContinuousArchiving stayed False, which blocks every base backup behind
+      # it, so shared-cnpg-daily sat in phase=walArchivingFailing and
+      # lastSuccessfulBackup was None for the life of the cluster.
+      #
+      # destinationPath is already per-spoke (the platform-spoke-catalog patch
+      # rewrites it to .../<spoke>/), so this name only ever collides with an
+      # EARLIER incarnation of the SAME spoke — which is precisely what a
+      # local-path rebuild produces every time.
+      serverName: shared-cnpg-v3
       # ADR-014 backup contract: Hetzner Object Storage, hel1.
       endpointURL: https://hel1.your-objectstorage.com
       s3Credentials:
