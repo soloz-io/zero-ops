@@ -272,6 +272,10 @@ spec:
           apiServer:
             extraArgs:
               cloud-provider: external
+              oidc-issuer-url: https://auth.dev.nutgraf.in
+              oidc-client-id: d32a30f0-f2b1-4a11-b3e9-d1e0aec4af6d
+              oidc-username-claim: email
+              oidc-groups-claim: groups
           controllerManager:
             extraArgs:
               cloud-provider: external
