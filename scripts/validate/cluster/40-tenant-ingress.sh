@@ -13,12 +13,39 @@ validate_tenant_ingress() {
     fi
 
     # AgentGateway is the only thing enforcing OIDC in front of tenant workloads.
-    local ag
-    ag=$(kc_spoke get deployment agentgateway -n platform-ops -o jsonpath='{.status.readyReplicas}')
-    if [[ "${ag:-0}" -ge 1 ]]; then
-        pass "spoke AgentGateway has $ag ready replica(s)"
+    #
+    # ONE PER TENANT, in the tenant's own namespace. This asserted a single
+    # deployment named "agentgateway" in platform-ops until 2026-09-02, which
+    # d3b7303d had already replaced: that commit moved the gateway to one
+    # instance per tenant rendered by the universal-tenant chart, deleted the
+    # shared one, and updated 80-ingress-topology.sh and the tenant-identifier
+    # validator — but not this. So it read readyReplicas of a deployment that no
+    # longer exists, reported 0, and failed a fleet whose gateway was running
+    # fine (agentgateway-waypoint, 1/1, for two and a half hours).
+    #
+    # Enumerating by label rather than by name means adding a tenant does not
+    # need another edit here, and a tenant whose gateway is genuinely down is
+    # still caught.
+    local ag_json total ready
+    ag_json=$(kc_spoke get deployment -A -l app.kubernetes.io/name=agentgateway -o json 2>/dev/null)
+    total=$(printf '%s' "$ag_json" | jq -r '[.items[]?] | length' 2>/dev/null)
+    if [[ "${total:-0}" -eq 0 ]]; then
+        # Fall back to a name prefix: the chart may not carry the label.
+        ag_json=$(kc_spoke get deployment -A -o json 2>/dev/null \
+            | jq '{items: [.items[]? | select(.metadata.name|startswith("agentgateway"))]}')
+        total=$(printf '%s' "$ag_json" | jq -r '[.items[]?] | length' 2>/dev/null)
+    fi
+
+    if [[ "${total:-0}" -eq 0 ]]; then
+        soft_fail "no AgentGateway deployment found on the spoke — nothing enforces OIDC in front of tenant workloads"
     else
-        soft_fail "spoke AgentGateway not ready (readyReplicas=${ag:-0}) — nothing enforces OIDC in front of tenant workloads"
+        local notready
+        notready=$(printf '%s' "$ag_json" | jq -r '[.items[]? | select((.status.readyReplicas // 0) < 1) | .metadata.namespace + "/" + .metadata.name] | join(", ")')
+        if [[ -z "$notready" ]]; then
+            pass "all $total tenant AgentGateway(s) ready"
+        else
+            soft_fail "AgentGateway not ready: $notready — nothing enforces OIDC in front of those tenants' workloads"
+        fi
     fi
 
     _validate_external_dns_runtime

@@ -64,7 +64,8 @@ sel = json.loads('''$sel''')
 want = sel.get('matchLabels') or {}
 exprs = sel.get('matchExpressions') or []
 n = 0
-for pod in json.load(sys.stdin).get('items', []):
+pods = json.load(sys.stdin).get('items', [])
+for pod in pods:
     labels = pod['metadata'].get('labels') or {}
     ns = pod['metadata']['namespace']
     # Cilium prefixes k8s labels and encodes the namespace as a label; compare
@@ -83,9 +84,32 @@ for pod in json.load(sys.stdin).get('items', []):
             if op == 'Exists' and key not in labels: ok = False; break
             if op == 'DoesNotExist' and key in labels: ok = False; break
     if ok: n += 1
-print(n)
+# Pods carrying the selector KEYS at all, whatever their values. This separates
+# a wrong selector from a workload that is simply not running: if no pod
+# anywhere carries the key, there is nothing for this policy to govern yet.
+# (No double quotes in this comment - it lives inside a double-quoted python -c.)
+keys = [k.split(':')[-1] for k in want] + [e['key'].split(':')[-1] for e in exprs]
+present = 0
+for pod in pods:
+    labels = pod['metadata'].get('labels') or {}
+    if any(k in labels for k in keys if k != 'io.kubernetes.pod.namespace'):
+        present += 1
+print('%d %d' % (n, present))
 " 2>/dev/null)
-        if [[ "${matched:-0}" == "0" ]]; then
+        local present
+        # An empty result means the matcher itself failed, not that the policy
+        # governs nothing. Treating those the same is how this check silently
+        # reported "benign" while its python was broken by a quoting error
+        # (2026-09-02) — the check has to fail loudly when it cannot answer.
+        if [[ -z "${matched// /}" ]]; then
+            hard_fail "could not evaluate CiliumClusterwideNetworkPolicy $name — the endpoint matcher produced no result, so this policy was NOT verified"
+            continue
+        fi
+        present=$(printf '%s' "$matched" | awk '{print $2}')
+        matched=$(printf '%s' "$matched" | awk '{print $1}')
+        if [[ "${matched:-0}" == "0" && "${present:-0}" != "0" ]]; then
+            hard_fail "CiliumClusterwideNetworkPolicy $name selects no pods, but $present pod(s) carry its label keys — the SELECTOR IS WRONG and the policy is enforcing nothing: $sel"
+        elif [[ "${matched:-0}" == "0" ]]; then
             # Reported, not failed. Zero matches is ambiguous by construction: it
             # is the signature of a wrong label, and equally the correct answer
             # when the workload the policy governs is simply not running. This
@@ -96,7 +120,13 @@ print(n)
             # wrong and the policy is enforcing nothing. Compare the selector
             # against a live pod's labels — that is exactly how the sandbox
             # default-deny was found to be inert.
-            soft_fail "CiliumClusterwideNetworkPolicy $name selects no pods — inert if its workload is running, benign if it is not; check a live pod's labels against $sel"
+            # No pod anywhere carries the selector's keys, so the workload this
+            # policy governs is not running. That is the benign half of the
+            # ambiguity this check's header describes, and it was previously
+            # reported as a failure — which is what the header says NOT to do,
+            # because failing the benign case trains people to ignore the one
+            # that matters. The wrong-selector half is a hard failure above.
+            note "CiliumClusterwideNetworkPolicy $name selects no pods, and nothing carries its label keys — its workload is not running: $sel"
         else
             pass "$name selects $matched pod(s)"
         fi
