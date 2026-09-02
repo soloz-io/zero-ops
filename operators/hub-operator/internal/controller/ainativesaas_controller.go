@@ -96,7 +96,12 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// A fleet with no browser-facing gateway needs no session-cookie key.
 	gatewayEnabled, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "gateway", "enabled")
 
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients, cacheEnabled, gatewayEnabled)
+	// Per-credential, for the same reason the OAuth clients above are: a cache
+	// enabled today on a tenant provisioned months ago is new, and its absent
+	// credential is not evidence of loss.
+	cacheIsFirstTime := !r.isConditionTrue(ainativesaas, conditionTypeCacheSeeded)
+
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, oauthClients, cacheEnabled, cacheIsFirstTime, gatewayEnabled)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {
@@ -114,6 +119,21 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		logger.Error(err, "Failed to record provisioned OAuth clients; will retry", "tenant", tenantId)
 	}
 
+	// Record the cache credential's own state BEFORE returning on the tenant-wide
+	// outcome below, which short-circuits. Without this the marker never becomes
+	// true, cacheIsFirstTime stays true forever, and the protection that makes a
+	// LOST cache credential a fault would never engage again — trading one silent
+	// failure for another.
+	//
+	// EnsureSkipped is deliberately not recorded: a tenant with no cache has not
+	// seeded a cache credential, and saying otherwise would deadlock it the day
+	// it enables one.
+	if result.CacheOutcome == secrets.EnsureCreated || result.CacheOutcome == secrets.EnsureAlreadyExists {
+		if err := r.setCacheSeededCondition(ctx, ainativesaas, tenantId, result.CacheOutcome); err != nil {
+			logger.Error(err, "Failed to record cache credential condition; will retry", "tenant", tenantId)
+		}
+	}
+
 	switch result.Result {
 	case secrets.EnsureAlreadyExists:
 		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionAlreadyExists)
@@ -127,6 +147,17 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // conditionTypeDBSeeded is the condition recording that this tenant's credentials
 // have been provisioned. It doubles as the durable first-provisioning marker.
 const conditionTypeDBSeeded = "TenantDBCredentialsSeeded"
+
+// conditionTypeCacheSeeded records that THIS tenant's cache credential has been
+// written, separately from whether the tenant itself is new.
+//
+// Without it the cache reused TenantDBCredentialsSeeded, which answers a
+// different question. Infisical outlives a cluster rebuild, so a tenant's DB
+// credentials survive and that condition stays true — while a credential
+// introduced after the tenant was first provisioned has never been written.
+// The operator then refuses to create a key that never existed and reports
+// "manual recovery required" for which the platform ships no recovery path.
+const conditionTypeCacheSeeded = "TenantCacheCredentialSeeded"
 
 // declaredOAuthClients reads the OAuth clients declared on the tenant resource
 // (ADR-053), pairing each with whether it has been provisioned before.
@@ -315,6 +346,53 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 		}
 	}
 
+	return r.mergeCondition(ctx, obj, cond)
+}
+
+// mergeCondition re-fetches the resource, merges one condition into its status
+// and writes it back.
+//
+// Extracted from setCondition so a second condition can be recorded without a
+// second copy of the re-fetch/serialise/update sequence. Crossplane stores
+// conditions as unstructured maps, so this converts in both directions rather
+// than using the typed helpers directly.
+func (r *AINativeSaaSReconciler) mergeCondition(ctx context.Context, obj *unstructured.Unstructured, cond metav1.Condition) error {
+	logger := log.FromContext(ctx)
+
+	// Re-fetch the latest version to avoid resource version conflicts.
+	latest := &unstructured.Unstructured{}
+	latest.SetGroupVersionKind(obj.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKeyFromObject(obj), latest); err != nil {
+		logger.Error(err, "Failed to re-fetch AINativeSaaS before status update")
+		return err
+	}
+
+	existing, found, err := unstructured.NestedSlice(latest.Object, "status", "conditions")
+	if err != nil || !found {
+		existing = []interface{}{}
+	}
+
+	var metaConditions []metav1.Condition
+	for _, c := range existing {
+		condMap, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		typeVal, _ := condMap["type"].(string)
+		statusVal, _ := condMap["status"].(string)
+		reasonVal, _ := condMap["reason"].(string)
+		messageVal, _ := condMap["message"].(string)
+		if typeVal == "" || statusVal == "" {
+			continue
+		}
+		metaConditions = append(metaConditions, metav1.Condition{
+			Type:    typeVal,
+			Status:  metav1.ConditionStatus(statusVal),
+			Reason:  reasonVal,
+			Message: messageVal,
+		})
+	}
+
 	meta.SetStatusCondition(&metaConditions, cond)
 
 	// Serialise back to unstructured map format for Crossplane.
@@ -330,12 +408,12 @@ func (r *AINativeSaaSReconciler) setCondition(ctx context.Context, obj *unstruct
 	}
 
 	if err := unstructured.SetNestedSlice(latest.Object, updated, "status", "conditions"); err != nil {
-		logger.Error(err, "Failed to set status conditions", "tenant", tenantId)
+		logger.Error(err, "Failed to set status conditions")
 		return err
 	}
 
 	if err := r.Status().Update(ctx, latest); err != nil {
-		logger.Error(err, "Failed to update status", "tenant", tenantId)
+		logger.Error(err, "Failed to update status")
 		return err
 	}
 
@@ -354,4 +432,22 @@ func (r *AINativeSaaSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(u).
 		Complete(r)
+}
+
+// setCacheSeededCondition records TenantCacheCredentialSeeded on the XR.
+//
+// Separate from setCondition, which owns TenantDBCredentialsSeeded: the two
+// answer different questions and conflating them is what let a credential
+// introduced after a tenant's provisioning become unseedable.
+func (r *AINativeSaaSReconciler) setCacheSeededCondition(ctx context.Context, obj *unstructured.Unstructured, tenantId string, outcome secrets.EnsureResult) error {
+	reason, message := "Seeded", fmt.Sprintf("Cache credential generated and uploaded to Infisical for tenant %s", tenantId)
+	if outcome == secrets.EnsureAlreadyExists {
+		reason, message = "AlreadyExists", fmt.Sprintf("Cache credential already present in Infisical for tenant %s", tenantId)
+	}
+	return r.mergeCondition(ctx, obj, metav1.Condition{
+		Type:    conditionTypeCacheSeeded,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	})
 }

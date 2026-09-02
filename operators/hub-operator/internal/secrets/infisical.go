@@ -699,6 +699,14 @@ const (
 	// EnsureRotated indicates stored credentials were found to be invalid
 	// (401) and were rotationally self-healed by the operator.
 	EnsureRotated
+	// EnsureSkipped indicates the credential was not applicable — the feature
+	// that needs it is not enabled for this tenant. Distinct from
+	// EnsureAlreadyExists, which asserts the credential is present: a caller
+	// recording "seeded" must not do so for a credential nobody asked for.
+	//
+	// Appended last on purpose: these are iota values, and inserting above would
+	// silently renumber every existing outcome.
+	EnsureSkipped
 )
 
 // EnsureInfisicalCredentialsResult is the outcome of EnsureInfisicalCredentials.
@@ -711,6 +719,11 @@ type EnsureTenantCredentialsResult struct {
 	Result                EnsureResult
 	InfisicalCredsOutcome EnsureResult
 	OAuthOutcome          EnsureResult
+	// CacheOutcome is reported separately so the controller can record that THIS
+	// credential has been seeded. Folding it into Result made the cache
+	// indistinguishable from the tenant's other credentials, which is what let a
+	// per-tenant marker stand in for a per-credential one.
+	CacheOutcome EnsureResult
 }
 
 // OAuthClient is a declared OAuth client, reduced to what the credential producer
@@ -1063,9 +1076,14 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
 	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
 	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
+
+	// Declared with the other outcomes so every early return reports it. A
+	// tenant with no cache reports Skipped, never AlreadyExists — the controller
+	// must not record "seeded" for a credential nobody asked for.
+	cacheOutcome := EnsureSkipped
 
 	logger.Info("Ensuring tenant folder hierarchy in Infisical", "path", tenantPath)
 	if err := c.EnsureFolder(ctx, tenantPath); err != nil {
@@ -1139,6 +1157,7 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		return &EnsureTenantCredentialsResult{
 			Result:                EnsureMissing,
 			InfisicalCredsOutcome: infisicalCredsOutcome,
+			CacheOutcome:          cacheOutcome,
 		}, fmt.Errorf("db-credentials missing from Infisical for already-provisioned tenant %s — manual recovery required", tenantId)
 
 	default:
@@ -1181,12 +1200,35 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalCachePasswordKey, err)
 		}
+		cacheOutcome = EnsureAlreadyExists
 		if !exists {
-			if !isFirstTime {
-				logger.Error(nil, "CRITICAL: cache credential missing for an already-provisioned tenant. Manual recovery required.", "path", tenantPath)
+			// PER-CREDENTIAL, not per-tenant. The tenant-wide isFirstTime is the
+			// wrong question for this key, and asking it deadlocked waypoint on
+			// 2026-09-02: the tenant's DB credentials survived a cluster rebuild
+			// in Infisical, so TenantDBCredentialsSeeded stayed true and every
+			// reconcile thereafter concluded the tenant was already provisioned
+			// — while CACHE_PASSWORD, a credential introduced AFTER that tenant
+			// was first provisioned, had never been written at all. The operator
+			// then refused to seed a key that had never existed, the cache
+			// ExternalSecret stayed SecretSyncedError, and bff and the cache
+			// could not start for want of a secret nothing was allowed to create.
+			//
+			// This is the same argument the OAuth clients above already make:
+			// "a client declared today on a tenant provisioned months ago is
+			// new, and treating its absent credential as a fault would make
+			// declaring a second client impossible." A cache enabled today on a
+			// tenant provisioned months ago is new in exactly that way.
+			//
+			// The protection is unchanged where it matters: once this credential
+			// HAS been seeded, its later absence is still a fault requiring
+			// manual recovery, because regenerating it locks out a running
+			// cache's clients.
+			if !cacheIsFirstTime {
+				logger.Error(nil, "CRITICAL: cache credential missing for a tenant whose cache credential was already seeded. Manual recovery required.", "path", tenantPath)
 				return &EnsureTenantCredentialsResult{
 					Result:                dbOutcome,
 					InfisicalCredsOutcome: infisicalCredsOutcome,
+					CacheOutcome:          cacheOutcome,
 				}, fmt.Errorf("%s missing from Infisical for already-provisioned tenant %s — manual recovery required", InfisicalCachePasswordKey, tenantId)
 			}
 			value, err := GenerateSecurePassword()
@@ -1198,6 +1240,7 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 			}
 			logger.Info("Seeded tenant cache credential", "path", tenantPath, "key", InfisicalCachePasswordKey)
 			dbOutcome = EnsureCreated
+			cacheOutcome = EnsureCreated
 		}
 	}
 
@@ -1240,6 +1283,7 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		return &EnsureTenantCredentialsResult{
 			Result:                dbOutcome,
 			InfisicalCredsOutcome: infisicalCredsOutcome,
+			CacheOutcome:          cacheOutcome,
 			OAuthOutcome:          EnsureMissing,
 		}, err
 	}
@@ -1247,6 +1291,7 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 	return &EnsureTenantCredentialsResult{
 		Result:                dbOutcome,
 		InfisicalCredsOutcome: infisicalCredsOutcome,
+		CacheOutcome:          cacheOutcome,
 		OAuthOutcome:          oauthOutcome,
 	}, nil
 }
