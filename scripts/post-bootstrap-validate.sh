@@ -740,8 +740,12 @@ check_kyverno_crd_established() {
     log "  Checking Kyverno CRD Established conditions..."
     local kyverno_crds=(
         "clusterpolicies.kyverno.io"
-        "policyreports.kyverno.io"
-        "clusterpolicyreports.kyverno.io"
+        # Policy reports live in the Kubernetes Policy WG group, NOT kyverno.io.
+        # Asserted as policyreports.kyverno.io until 2026-09-02 and reported
+        # "not found" on every run against a spoke where Kyverno was healthy and
+        # the reports existed the whole time.
+        "policyreports.wgpolicyk8s.io"
+        "clusterpolicyreports.wgpolicyk8s.io"
         "admissionreports.kyverno.io"
         "backgroundscanreports.kyverno.io"
         "clusterbackgroundscanreports.kyverno.io"
@@ -810,7 +814,12 @@ check_spoke_platform() {
     check_spoke_deployment "kyverno" "kyverno-background-controller"
     check_spoke_deployment "cnpg-system" "cnpg-cloudnative-pg"
     check_spoke_namespace_pods "cert-manager"
-    check_spoke_deployment "cert-manager" "cert-manager"
+    # cm- prefix: the spoke installs cert-manager as a Helm release named "cm",
+    # so its deployments are cm-cert-manager{,-cainjector,-webhook}. Asserting
+    # the unprefixed name reported "0/0 available" against a spoke whose
+    # cert-manager had been 1/1 for hours.
+    check_spoke_deployment "cert-manager" "cm-cert-manager"
+    check_spoke_deployment "cert-manager" "cm-cert-manager-webhook"
     check_spoke_deployment "cert-manager" "infisical-issuer"
     check_spoke_deployment "agent-sandbox-system" "agent-sandbox-controller"
 
