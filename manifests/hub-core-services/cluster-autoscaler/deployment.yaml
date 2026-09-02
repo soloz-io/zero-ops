@@ -70,7 +70,15 @@ spec:
             # The WORKLOAD cluster: where pending pods are. The management
             # cluster is this one, reached in-cluster.
             - --kubeconfig=/workload/value
-            - --clusterapi-cloud-config-authoritative=false
+            # The management cluster, and the flag that makes it authoritative.
+            #
+            # CAPI_KUBECONFIG is NOT the knob in 1.31: the clusterapi provider
+            # builds its management client from --cloud-config, and with
+            # authoritative=false it falls back to --kubeconfig — the spoke,
+            # which has no CAPI CRDs. Both are set together; setting the path
+            # without the flag changes nothing.
+            - --cloud-config=/management/kubeconfig
+            - --clusterapi-cloud-config-authoritative=true
             # least-waste picks the group whose simulated node leaves the least
             # idle CPU. With one burst group it is not yet load-bearing; it is
             # set now so adding a second group does not silently change how the
