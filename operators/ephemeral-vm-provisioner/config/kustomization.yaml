@@ -19,6 +19,6 @@ resources:
     # fails to pull, which is the correct failure: an unbuilt image must not
     # silently resolve to something else.
 images:
-- digest: sha256:05280a4267285519c47ee3e506174ec23005b95372e6e50afa1992b6ce51cbf7
+- digest: sha256:d15aff213079d9c1f950957390ff3265b46515bf9d1d3e1e57f91ccbb2f17515
   name: ephemeral-vm-provisioner
   newName: ghcr.io/soloz-io/ephemeral-vm-provisioner
