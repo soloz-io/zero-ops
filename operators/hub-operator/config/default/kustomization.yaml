@@ -157,7 +157,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: KRATOS_ADMIN_URL
-        value: "http://ory-kratos-admin.platform-identity.svc.cluster.local:4434"
+        value: "http://ory-kratos-admin.platform-identity.svc.cluster.local:80"
   target:
     kind: Deployment
     name: hub-operator
