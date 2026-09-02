@@ -138,7 +138,7 @@ type EphemeralJobSpec struct {
 	// (ADR-046 §11). It names a class, never a node property: the operator
 	// resolves it to concrete placement, and an unknown class is rejected rather
 	// than passed through.
-	// +kubebuilder:validation:Enum=burst
+	// +kubebuilder:validation:Enum=burst;home
 	// +kubebuilder:default=burst
 	// +optional
 	PlacementClass string `json:"placementClass,omitempty"`

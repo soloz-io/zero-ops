@@ -63,11 +63,45 @@ func TestBurstPlacementIsComplete(t *testing.T) {
 // never a pass-through. Silently emitting a Job with no placement would put
 // tenant demand on home-lab capacity.
 func TestUnknownPlacementClassIsRejected(t *testing.T) {
-	if _, ok := ResolvePlacement("home"); ok {
-		t.Error(`"home" must not be a selectable placement class for tenant jobs (ADR-052 §10)`)
-	}
 	if _, ok := ResolvePlacement("nonsense"); ok {
 		t.Error("unknown placement class must be rejected, not passed through")
+	}
+}
+
+// TestHomePlacementIsSelectable records a DELIBERATE reversal.
+//
+// This test previously asserted the opposite — that "home" must never be a
+// selectable class, citing ADR-052 §10, which reserves home-lab capacity for
+// platform infrastructure. That rule is now scoped rather than absolute: on a
+// hybrid spoke a sandbox MUST run in-cluster, because the SDK connects to it at
+// sandbox-<id>-svc.<ns>.svc.cluster.local and a Hetzner VM has no ClusterIP to
+// offer. Renders, which need no inbound path, keep using elastic capacity
+// through the provisioner.
+//
+// The safeguards §10 exists for are kept rather than dropped: home placement
+// still carries the burst-tenant priority class, so tenant execution cannot
+// preempt platform infrastructure and remains inside the burst-compute
+// ResourceQuota scoped to that class.
+//
+// ADR-052 §10 must be amended to record this. A test asserting the old rule
+// while the code implements the new one is worse than either.
+func TestHomePlacementIsSelectable(t *testing.T) {
+	p, ok := ResolvePlacement("home")
+	if !ok {
+		t.Fatal(`"home" must be selectable: a sandbox cannot run outside the cluster`)
+	}
+	if p.NodeSelector[WorkloadLocationKey] != WorkloadLocationHome {
+		t.Errorf("home placement must select home nodes, got %q", p.NodeSelector[WorkloadLocationKey])
+	}
+	if _, ok := p.NodeSelector[NodeRoleWorkerKey]; !ok {
+		t.Error("ADR-046 §11: workload-location is never sufficient alone; the worker role must accompany it")
+	}
+	if p.PriorityClassName != BurstPriorityClass {
+		t.Errorf("home placement must keep %s so tenant work cannot preempt infrastructure, got %q",
+			BurstPriorityClass, p.PriorityClassName)
+	}
+	if len(p.Tolerations) != 0 {
+		t.Error("home workers carry no burst taint; a toleration here would be inert and misleading")
 	}
 }
 

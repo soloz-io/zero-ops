@@ -338,6 +338,7 @@ spec:
                   than passed through.
                 enum:
                 - burst
+                - home
                 type: string
               ports:
                 description: |-

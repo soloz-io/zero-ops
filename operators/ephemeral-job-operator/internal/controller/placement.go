@@ -44,6 +44,9 @@ const (
 	WorkloadLocationKey   = "workload-location"
 	WorkloadLocationValue = "hetzner"
 
+	// The home-lab side of the hybrid spoke (ADR-046 §13).
+	WorkloadLocationHome = "home"
+
 	// ADR-046 §11: workload-location is never sufficient alone. Propagated from
 	// the MachineDeployment by CAPI — kubelet cannot self-register a
 	// node-role.kubernetes.io/* label, NodeRestriction rejects it.
@@ -58,6 +61,39 @@ const (
 // own — the worker role label must accompany it, or a workload can land on a
 // control-plane node that happens to carry the location label.
 var placements = map[string]Placement{
+	// Home-lab capacity, for workloads that must be REACHABLE from inside the
+	// cluster.
+	//
+	// A sandbox is connected to: the SDK holds an SSE stream against
+	// sandbox-<id>-svc.<ns>.svc.cluster.local, so the workload has to be a pod
+	// with a Service. A Hetzner VM created outside the cluster cannot provide
+	// that — it has no ClusterIP — which is why the provisioner path serves
+	// renders (S3 plus a public callback, nothing inbound) and this one serves
+	// sandboxes.
+	//
+	// On a hybrid spoke these are the only nodes a pod can occupy today: a
+	// CAPI-provisioned burst node cannot yet hold both a tailnet InternalIP,
+	// which Cilium needs to reach home-lab nodes, and CCM initialisation.
+	//
+	// The burst-tenant priority class is kept deliberately. It places this
+	// BELOW every platform workload, so tenant execution can never preempt
+	// infrastructure — a property that matters more on home-lab hardware than
+	// on elastic capacity, not less. It also keeps these pods inside the
+	// burst-compute ResourceQuota, which is scoped to that class, so home
+	// capacity stays bounded rather than open-ended.
+	//
+	// ADR-046 §11: workload-location is never sufficient alone. Without the
+	// worker role a pod can land on a control-plane node carrying the label.
+	"home": {
+		NodeSelector: map[string]string{
+			WorkloadLocationKey: WorkloadLocationHome,
+			NodeRoleWorkerKey:   "",
+		},
+		// No toleration: home workers carry no burst taint. Adding one would be
+		// inert here and misleading to the next reader.
+		PriorityClassName: BurstPriorityClass,
+	},
+
 	"burst": {
 		NodeSelector: map[string]string{
 			WorkloadLocationKey: WorkloadLocationValue,
