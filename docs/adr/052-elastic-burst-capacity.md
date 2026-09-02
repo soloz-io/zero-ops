@@ -6,6 +6,18 @@
 
 ---
 
+> **Amendment 2026-09-02b — Ephemeral compute is two mechanisms, not one.**
+> §0's premise that a burst node is an ordinary node of the spoke does not hold
+> on a HYBRID spoke: Cilium needs a tailnet InternalIP to reach home-lab nodes
+> and the hcloud CCM needs the private one, and a node publishes only one. Five
+> bootstrap versions were attempted; §13 records each and why it failed. The
+> decision splits by what a workload needs rather than by what is available — a
+> render needs nothing inbound and runs on a VM outside the cluster, a sandbox is
+> connected to and must be a pod. Pure-Hetzner spokes are unaffected and keep
+> burst capacity for both. §10's capacity rule is scoped rather than withdrawn.
+
+---
+
 > **Amendment 2026-09-02 — Authorship replaces admission; the count gets an owner.**
 > Two gaps, both found by running the path end to end. Neither changes the four
 > layers. §8 is withdrawn and rewritten: placing a sandbox by admission policy is
@@ -642,6 +654,65 @@ component.
 
 ---
 
+### 13. Ephemeral compute per environment (Amendment 2026-09-02)
+
+§0 assumes a burst node is an ordinary node of the spoke. On a **hybrid** spoke
+that assumption does not hold, and the reason is structural rather than a defect
+to be fixed: two components require different values in the same field.
+
+- Cilium derives the VXLAN tunnel endpoint from the node's `InternalIP`, so
+  reaching home-lab nodes requires a **tailnet** address (ADR-046 invariant 6).
+- The hcloud CCM validates `provided-node-ip` against the addresses the Hetzner
+  API reports, so initialising the node requires the **private** address.
+
+A node cannot publish both. Five bootstrap versions were attempted and each
+failed in a way worth recording, because each looked like the previous one had
+been fixed:
+
+| version | change | outcome |
+|---|---|---|
+| v1 | no node-ip mechanism | joins, CCM-initialised, **unreachable** from home-lab nodes |
+| v2 | force tailnet node-ip at join | reachable, but CCM refuses the node; `uninitialized` taint never clears, nothing schedules |
+| v3 | register privately, wait for the taint, then switch | joins **and** initialises — the only version to do both — but the address never switches |
+| v4 | port the hub CP's script, incl. self-assigned `--provider-id` from the metadata service | node never joins at all |
+| v5 | drop the pre-join kubelet restart from v4 | node still never joins |
+
+v3 is the high-water mark and the evidence that sequencing is achievable. v4/v5
+regressed node join for a cause not identified from the API; the remaining
+signal is on the server (`/var/log/cloud-init-answer.log`), and the preflight
+now asserts each of these four properties separately so a future attempt fails
+at the check rather than on a spoke.
+
+**Decision, by environment.** Ephemeral compute is not one mechanism. It is two,
+selected by what the workload needs rather than by what is available:
+
+| | dev (hybrid) | staging / production (pure Hetzner) |
+|---|---|---|
+| **render** — S3 in, callback out, nothing inbound | `ephemeral-vm-provisioner`: a Hetzner VM outside the cluster | `EphemeralJob` on burst capacity |
+| **sandbox** — the SDK connects *to* it over SSE | `EphemeralJob`, `placementClass: home` | `EphemeralJob` on burst capacity |
+
+The split follows **direction**, which is the property that actually decides it.
+A render needs no inbound path, so a VM with no cluster membership serves it and
+the node-ip conflict never arises — the VM has no `InternalIP`, no Cilium and no
+CCM. A sandbox is connected to at
+`sandbox-<id>-svc.<ns>.svc.cluster.local`, so it must be a pod with a Service,
+and on a hybrid spoke the only nodes a pod can occupy today are home-lab ones.
+
+On a pure-Hetzner spoke neither constraint exists: every node is Hetzner,
+reachable over the private network, so `InternalIP` is uncontested and both
+workloads use burst capacity as §0 describes. **The hybrid arrangement is a
+topology consequence, not a downgrade**, and it does not generalise to other
+cells.
+
+**§10's capacity rule is scoped, not withdrawn.** It reserved home-lab capacity
+for platform infrastructure; a hybrid sandbox now runs there. The protections
+that rule existed for are kept rather than dropped: home placement carries the
+`burst-tenant` PriorityClass, so tenant execution still cannot preempt platform
+infrastructure, and it remains inside the `burst-compute` ResourceQuota scoped to
+that class. What changes is that on a hybrid spoke the binding limit is the
+hardware, not the quota — measured headroom is roughly 1.6 and 0.8 CPU across the
+two home workers, against a quota ceiling of 8 CPU those nodes cannot supply.
+
 ## Alternatives considered and rejected
 
 **Dedicated machine per workload (Virtual Kubelet + a new Crossplane provider).**
@@ -706,6 +777,7 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Burst Placement Policy (defence in depth) | Platform | Git (`zero-ops`) | ArgoCD | Kyverno | Burst pods | Day-1+ |
 | Per-Fleet Burst Quota | Platform | Git (`fleet-registry`) | ArgoCD | kube-apiserver | Fleets | Day-1+ |
 | Ephemeral Job Request | Fleet workload | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Fleet workloads | Day-1+ |
+| Ephemeral VM (dev/hybrid) | ephemeral-vm-provisioner | Provider API (Hetzner) | ephemeral-vm-provisioner | ephemeral-vm-provisioner | Fleet workloads | Day-1+ |
 | Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
 | Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
 
