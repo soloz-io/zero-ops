@@ -157,6 +157,27 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 		"--set", "networkPolicy.defaultDeny=false",
 		"--set", "repoServer.env[0].name=ARGOCD_EXEC_TIMEOUT",
 		"--set", "repoServer.env[0].value=600s",
+		// Server-side DIFF, not just server-side apply.
+		//
+		// Applications here sync with ServerSideApply=true, which never writes
+		// kubectl.kubernetes.io/last-applied-configuration. ArgoCD's default
+		// diff is a client-side three-way merge that uses exactly that
+		// annotation to tell "a field the user manages" from "a field the API
+		// server defaulted". Without it every defaulted field reads as drift.
+		//
+		// The result on 2026-09-02 was eleven Applications permanently
+		// OutOfSync-but-Healthy, all on an ExternalSecret, because the
+		// ExternalSecret CRD defaults six fields nobody declares —
+		// conversionStrategy, decodingStrategy, metadataPolicy, deletionPolicy,
+		// engineVersion, mergePolicy. Nothing was wrong with any of them; the
+		// diff could not be computed correctly, and real drift was
+		// indistinguishable from that noise.
+		//
+		// This makes the diff use the same server-side apply dry-run the sync
+		// uses, so fields no manager owns are ignored. The controller flag is
+		// --server-side-diff-enabled, wired from this key via
+		// ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF, and defaults false.
+		"--set", `configs.params.controller\.diff\.server\.side=true`,
 		"--wait",
 		"--timeout", "10m",
 	)
