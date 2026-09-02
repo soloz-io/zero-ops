@@ -40,6 +40,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/soloz-io/zero-ops/internal/opensbt/providers/ory"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/controller"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
@@ -284,6 +285,31 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
 		os.Exit(1)
 	}
+
+	// UserGroups controller: watches identity-user-groups ConfigMap and syncs
+	// group assignments to Kratos metadata_public.
+	kratosAdminURL := os.Getenv("KRATOS_ADMIN_URL")
+	if kratosAdminURL == "" {
+		setupLog.Error(fmt.Errorf("KRATOS_ADMIN_URL is required"), "operator misconfigured")
+		os.Exit(1)
+	}
+	authProvider, err := ory.NewAuthProvider(kratosAdminURL)
+	if err != nil {
+		setupLog.Error(err, "Failed to create auth provider for user groups")
+		os.Exit(1)
+	}
+	if err := (&controller.UserGroupsReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Auth:          authProvider,
+		ConfigMapName: "identity-user-groups",
+		ConfigMapNS:   "platform-identity",
+		DataKey:       "groups.yaml",
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "UserGroups")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	ctx := ctrl.SetupSignalHandler()

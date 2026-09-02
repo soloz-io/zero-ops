@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
@@ -106,10 +108,30 @@ func (a *Auth) SetUserGroups(ctx context.Context, email string, groups []string)
 	if err != nil {
 		return err
 	}
+
+	// Idempotent: skip if groups already match
+	if groupsEqual(user.Groups, groups) {
+		return nil
+	}
+
 	updates := models.UserUpdates{
 		Groups: &groups,
 	}
 	return a.kratos.updateIdentity(ctx, user.ID, updates)
+}
+
+// groupsEqual compares two string slices for equality (order-independent).
+func groupsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aSorted := make([]string, len(a))
+	bSorted := make([]string, len(b))
+	copy(aSorted, a)
+	copy(bSorted, b)
+	sort.Strings(aSorted)
+	sort.Strings(bSorted)
+	return slices.Equal(aSorted, bSorted)
 }
 
 // ─── Session Management ──────────────────────────────────────────────────────

@@ -254,6 +254,7 @@ type userGroupsConfig struct {
 // syncUserGroups reads the identity-user-groups ConfigMap and sets groups on
 // each user's metadata_public in Kratos. This runs on every bootstrap to
 // ensure group assignments stay in sync with the Git source of truth.
+// Users not in the ConfigMap have their groups removed (deletion semantics).
 func (cp *ControlPlane) syncUserGroups(ctx context.Context) error {
 	if cp.cfg.K8sClient == nil {
 		log.Println("controlplane: skipping user groups sync (no k8s client)")
@@ -277,12 +278,35 @@ func (cp *ControlPlane) syncUserGroups(ctx context.Context) error {
 		return fmt.Errorf("controlplane: parse user groups: %w", err)
 	}
 
+	// Build desired state: email -> groups
+	desired := make(map[string][]string, len(cfg.Users))
 	for _, u := range cfg.Users {
-		if err := cp.auth.SetUserGroups(ctx, u.Email, u.Groups); err != nil {
-			log.Printf("controlplane: set groups for %s: %v", u.Email, err)
-			continue
+		desired[u.Email] = u.Groups
+	}
+
+	// List all users to find stale group assignments (deletion semantics)
+	users, err := cp.auth.ListUsers(ctx, "", "", "")
+	if err != nil {
+		return fmt.Errorf("controlplane: list users: %w", err)
+	}
+
+	for _, u := range users {
+		if desiredGroups, ok := desired[u.Email]; ok {
+			// User is in ConfigMap — sync groups
+			if err := cp.auth.SetUserGroups(ctx, u.Email, desiredGroups); err != nil {
+				log.Printf("controlplane: set groups for %s: %v", u.Email, err)
+				continue
+			}
+			log.Printf("controlplane: synced groups for %s: %v", u.Email, desiredGroups)
+		} else if len(u.Groups) > 0 {
+			// User is NOT in ConfigMap but has groups — remove them
+			empty := []string{}
+			if err := cp.auth.SetUserGroups(ctx, u.Email, empty); err != nil {
+				log.Printf("controlplane: remove groups for %s: %v", u.Email, err)
+				continue
+			}
+			log.Printf("controlplane: removed stale groups for %s", u.Email)
 		}
-		log.Printf("controlplane: synced groups for %s: %v", u.Email, u.Groups)
 	}
 
 	return nil
