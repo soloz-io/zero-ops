@@ -520,14 +520,6 @@ spec:
                       fmt: "%s-cnpg-ca-sa"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "cnpg-ca-reader"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -681,14 +673,6 @@ spec:
                       fmt: "%s-cnpg-ca-store"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "cnpg-ca-store"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -748,25 +732,9 @@ spec:
                       fmt: "%s-shared-cnpg-ca"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "shared-cnpg-ca"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "tenant-%s"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.manifest.spec.target.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "shared-cnpg-ca"
