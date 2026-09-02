@@ -634,15 +634,18 @@ spec:
         chart: '{{"{{"}} .chart {{"}}"}}'
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
-          # A single-quoted scalar FOLDS newlines into spaces, so a multi-line
-          # helmValues arrived at helm as one line and failed to parse:
-          #   error converting YAML to JSON: yaml: mapping values are not
-          #   allowed in this context
-          # The values were authored correctly as a block scalar in the list
-          # element and were destroyed in transit, which is why reading either
-          # file alone showed nothing wrong. nindent re-establishes the block.
-          values: |
-            {{"{{-"}} .helmValues | nindent 12 {{"}}"}}
+          # Single-quoted ON PURPOSE, and NOT a block scalar. This is inside
+          # spec.template, which ArgoCD renders per FIELD VALUE: the parsed value
+          # is the literal '{{ .helmValues }}' and substitution happens after
+          # YAML parsing, so newlines in the result are never folded. The folding
+          # bug is real only in templatePatch below, which is raw text parsed as
+          # YAML AFTER substitution.
+          #
+          # A block scalar here is actively harmful: for the many apps with no
+          # helm values it yields "\n            \n" instead of "", and a
+          # non-empty helm block beside a directory block makes ArgoCD refuse the
+          # app with "multiple application sources defined: Helm,Directory".
+          values: '{{"{{"}} .helmValues {{"}}"}}'
 
       destination:
         server: https://kubernetes.default.svc
