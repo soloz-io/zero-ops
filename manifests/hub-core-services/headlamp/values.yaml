@@ -4,7 +4,7 @@ config:
   inClusterContextName: "hub"
   sessionTTL: 86400
   oidc:
-    clientID: "headlamp"
+    clientID: "d32a30f0-f2b1-4a11-b3e9-d1e0aec4af6d"
     issuerURL: "https://auth.dev.nutgraf.in"
     scopes: "openid,profile,email,groups"
     callbackURL: "https://dashboard.dev.nutgraf.in/oidc-callback"
