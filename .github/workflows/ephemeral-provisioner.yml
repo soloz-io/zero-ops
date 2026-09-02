@@ -1,0 +1,60 @@
+name: ephemeral-provisioner
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - operators/ephemeral-provisioner/**
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: operators/ephemeral-provisioner
+          # amd64 only, for the reasons documented at length in
+          # ephemeral-job-operator.yml: every node in the fleet is x86, and these
+          # Dockerfiles do not cross-compile, so a non-native leg runs under QEMU.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/ephemeral-provisioner:${{ github.sha }}
+            ghcr.io/soloz-io/ephemeral-provisioner:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      # The digest, not the tag, is what deploys. The tags above exist so a
+      # human can find the build; this line is what makes the artifact
+      # immutable and what Git records.
+      - name: Update Kustomization with new image
+        run: |
+          cd operators/ephemeral-provisioner/config
+          kustomize edit set image ephemeral-provisioner=ghcr.io/soloz-io/ephemeral-provisioner@${{ steps.build.outputs.digest }}
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/ephemeral-provisioner/config/kustomization.yaml
+          git commit -m "chore(ephemeral-provisioner): update image to ${{ github.sha }}" || exit 0
+          git push

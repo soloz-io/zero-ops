@@ -30,7 +30,11 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: provisioner
-          image: ephemeral-provisioner:dev
+          # Rewritten by CI to a digest (see kustomization.yaml). The name is a
+          # kustomize image key, not a pullable reference: it must match the
+          # 'name:' in kustomization.yaml and the argument CI passes to
+          # 'kustomize edit set image', or nothing rewrites it and a tag ships.
+          image: ephemeral-provisioner
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
