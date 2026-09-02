@@ -46,7 +46,55 @@ func (k *kratosClient) do(ctx context.Context, method, path string, body interfa
 	return k.client.Do(req)
 }
 
+// PlatformGroups name the groups that make an identity platform-scoped, and
+// therefore legitimately tenant-less. Kept beside the guard that reads it so the
+// two cannot drift; zero-ops-auth carries the same default for the validating
+// side (ADR-058).
+var PlatformGroups = []string{"platform_admins"}
+
+// validateUserScope enforces the invariant. Separated from createIdentity so it
+// can be exercised without a transport: the rule is the valuable part, and a
+// test that needs an HTTP client to assert it would not be run.
+func validateUserScope(u models.User) error {
+	if u.TenantID == "" && !isPlatformScoped(u) {
+		return fmt.Errorf(
+			"refusing to create identity %s with neither a tenant nor a platform group: "+
+				"such a user cannot authenticate, because the tenant_id claim is derived "+
+				"from metadata_public and would be absent", u.Email)
+	}
+	return nil
+}
+
+func isPlatformScoped(u models.User) bool {
+	for _, g := range u.Groups {
+		for _, p := range PlatformGroups {
+			if g == p {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (k *kratosClient) createIdentity(ctx context.Context, u models.User) error {
+	// EVERY user gets exactly one scope: a tenant, or a platform group. Never
+	// neither.
+	//
+	// "Neither" is not a harmless default — it is an account that can never
+	// authenticate. The auth-proxy derives the tenant_id claim from
+	// metadata_public, so an identity created without a tenant produces a token
+	// with no tenant, and every tenant-scoped service rejects it with
+	// "Token missing required tenant_id claim". On 2026-09-02 a user was created
+	// in exactly this state, the API returned 201, and the failure only surfaced
+	// later as a permanent 401 that looked like a session or token problem.
+	//
+	// The rule is deliberately NOT "every user must have a tenant". A platform
+	// admin must not belong to one, and enforcing a tenant unconditionally would
+	// make that identity uncreatable — the same contradiction one step earlier.
+	if err := validateUserScope(u); err != nil {
+		return err
+	}
+
 	// traits carry only what the user may assert about themselves, and the identity
 	// schema admits exactly one: email, which is also the identifier the password
 	// method authenticates against. tenant membership and role are assignments this

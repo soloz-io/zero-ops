@@ -44,12 +44,24 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	// Step 1: Create user in Ory Kratos
+	//
+	// TenantID is set on the FIELD, not smuggled through Traits. createIdentity
+	// reads u.TenantID and writes it to metadata_public (ADR-010); it never looks
+	// at Traits. Passing it as a trait therefore did two wrong things at once —
+	// the value was dropped, and the identity schema admits only `email`, so the
+	// extra trait could not have been stored even if it had been read.
+	//
+	// The cost was invisible: this endpoint returned 201 and produced a user with
+	// no tenant binding at all. On 2026-09-02 such a user could authenticate
+	// against Kratos and was then rejected by every service with
+	// "Token missing required tenant_id claim", because the claim the auth-proxy
+	// derives from metadata_public was never there to derive.
 	user := models.User{
 		Email:    req.Email,
 		Password: req.Password,
+		TenantID: tenantID,
 		Traits: map[string]interface{}{
-			"email":     req.Email,
-			"tenant_id": tenantID,
+			"email": req.Email,
 		},
 	}
 
