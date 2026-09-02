@@ -16,9 +16,26 @@ resources:
   # ADR-052 §13: the VM path for renders, hybrid-only. See the file for why it
   # is not in the shared infra base — a pure-Hetzner spoke uses burst capacity
   # and must not receive a Hetzner API token to run a component it does not need.
-  - ephemeral-vm-provisioner.yaml
-  - ephemeral-vm-provisioner-config.yaml
-  - ../../../../../../operators/ephemeral-vm-provisioner/config
+  #
+  # WITHHELD until its credentials have a producer. Its ExternalSecret consumes
+  # HCLOUD_TOKEN and EPHEMERAL_JOBS_DATABASE_URL from the cell path, and nothing
+  # writes them (both are tracked in 95-infisical-key-producers.sh PENDING).
+  # ESO therefore reports SecretSyncedError "could not get secret data from
+  # provider" forever.
+  #
+  # That is NOT inert, which is what made it worth reverting rather than
+  # leaving: ArgoCD holds the whole spoke-catalog sync on
+  #   waiting for healthy state of external-secrets.io/ExternalSecret/ephemeral-vm-provisioner
+  # so the Application pins itself to the revision that operation started on and
+  # NOTHING else can reach the spoke — one unresolvable secret stopping every
+  # other manifest in the catalog.
+  #
+  # Re-enable these three lines once HCLOUD_TOKEN and EPHEMERAL_JOBS_DATABASE_URL
+  # are produced into /spoke-pool/<cell>/shared/. The manifests stay in the tree
+  # so that is a one-line change.
+  # - ephemeral-vm-provisioner.yaml
+  # - ephemeral-vm-provisioner-config.yaml
+  # - ../../../../../../operators/ephemeral-vm-provisioner/config
 patches:
   # ADR-046 §11: the base is provider-neutral; the location and storage class
   # its nodes can attach are supplied here.

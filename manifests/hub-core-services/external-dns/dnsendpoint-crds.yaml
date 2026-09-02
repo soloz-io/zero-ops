@@ -4,6 +4,20 @@ metadata:
   name: dnsendpoints.externaldns.k8s.io
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.1
+    # REQUIRED, and its absence blocked this CRD from ever installing:
+    #   metadata.annotations[api-approved.kubernetes.io]: Required value:
+    #   protected groups must have approval annotation
+    # Any group ending in .k8s.io is protected, and externaldns.k8s.io is one,
+    # so the API server refuses the CRD outright without this. platform-external-dns
+    # retried the apply four times and platform-headlamp failed alongside it —
+    # its DNSEndpoint could not be created because the kind did not exist.
+    #
+    # "unapproved, experimental-only" is the value Kubernetes defines for a CRD
+    # in a protected group that has NOT been through API review, which is the
+    # honest description of external-dns's DNSEndpoint. A PR link is not invented
+    # here: the gateway-api CRDs beside this one carry a real approval URL
+    # because they actually have one.
+    api-approved.kubernetes.io: "unapproved, experimental-only"
   labels:
     app.kubernetes.io/name: external-dns
 spec:
