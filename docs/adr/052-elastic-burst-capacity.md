@@ -1,8 +1,24 @@
 # ADR-052: Elastic Burst Capacity for Tenant Workloads
 
 **Date:** 2026-08-23
-**Status:** Proposed
+**Status:** Accepted (amended 2026-08-31, 2026-09-02)
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
+
+---
+
+> **Amendment 2026-09-02 — Authorship replaces admission; the count gets an owner.**
+> Two gaps, both found by running the path end to end. Neither changes the four
+> layers. §8 is withdrawn and rewritten: placing a sandbox by admission policy is
+> a weaker guarantee than authoring its pod, and on the dev spoke the policy was
+> absent from the catalog entirely, so every sandbox ran unplaced on home-lab
+> capacity — the outcome this ADR exists to prevent. `EphemeralJob` now carries a
+> lifecycle discriminator and the operator authors the pod for both shapes.
+> Separately, the component §3 and the Ownership table name as owner of Burst
+> Node Count — cluster-autoscaler — had never been deployed. The burst
+> MachineDeployment is rendered with autoscaler bounds and deliberately no
+> replicas field, so with nothing filling that role the pool sat at zero
+> permanently and every burst pod pended against capacity that could not arrive.
+> An ADR naming an owner does not create one.
 
 ---
 
@@ -82,6 +98,49 @@ Four existing constraints bound the answer:
 ---
 
 ## Decision
+
+The abstraction, end to end. Each boundary below is a place where a decision
+stops being the fleet's and becomes the platform's, and nothing crosses back:
+
+```text
+  FLEET                    │ PLATFORM
+  ─────────────────────────┼──────────────────────────────────────────────────
+                           │
+  EphemeralJob             │   ephemeral-job-operator          §7, §8
+    image, command         │     authors the Pod
+    capacity (envelope)    │     writes nodeSelector,          §4
+    mode: Job | Service    │       tolerations, priorityClass
+    timeout / idle         │     never provisions a node
+                           │            │
+  ── declares what ────────┼────────────┼── decides where ────────────────────
+                           │            ▼
+                           │   Pod: unschedulable
+                           │            │
+                           │            │ demand, not a control loop     §3
+                           │            ▼
+                           │   cluster-autoscaler
+                           │     reads MachineDeployment bounds
+                           │     min 0 .. max N                          §2
+                           │            │
+  ── asks for capacity ────┼────────────┼── owns the count ───────────────────
+                           │            ▼
+                           │   MachineDeployment.replicas
+                           │            │
+                           │            ▼
+                           │   CAPI + provider → burst node joins spoke  §0
+                           │            │
+                           │            ▼
+                           │   Pod scheduled, bounded by ResourceQuota   §5
+                           │            │
+  ◄── terminal result ─────┼────────────┘
+      (callback)           │
+```
+
+Four objects, four owners, one direction. A fleet expresses demand and never a
+node property; the autoscaler owns the count and never the placement; the
+operator owns the pod and never the infrastructure. §11 keeps the two clocks —
+waiting for a node, and running — separate, so neither is charged for the other.
+
 
 **Home-lab capacity is reserved for platform infrastructure and fleet
 control-plane services. Tenant execution runs on elastic cloud nodes,
@@ -383,17 +442,54 @@ This does not reopen the ADR-041 boundary. The controller writes placement into
 a workload it owns; it does not author placement *policy*, and it holds no
 authority over nodes, machine templates or replica counts.
 
-### 8. `Sandbox` is unmodified
+### 8. One authored pod, two lifecycles (Amendment 2026-09-02)
 
-The upstream controller creates a pod; Kyverno places it on burst capacity; the
-autoscaler provides the node. `shutdownPolicy`/`shutdownTime` continue to drive
-teardown, and when the last pod leaves a node the autoscaler reclaims it.
+This section previously read "`Sandbox` is unmodified": the upstream controller
+created the pod, Kyverno placed it, the autoscaler provided the node. That is
+withdrawn. It rested on admission being a sufficient insertion point for
+placement, and it is not.
+
+A mutating policy places a pod only while it is loaded, enabled and correctly
+scoped. When it is not, the pod is admitted anyway — unplaced, on whatever node
+has room, with nothing in error. On the dev spoke the policy was absent from the
+catalog entirely and every sandbox ran on home-lab capacity, which is the outcome
+this ADR exists to prevent. §4 already states that authorship is the stronger
+property; §8 was the one place the platform did not hold it.
+
+`EphemeralJob` therefore carries a lifecycle discriminator, and the operator
+authors the pod in both cases:
+
+```
+mode: Job      Pending → Provisioning → Running → Succeeded | Failed | TimedOut
+               bounded by its own exit; reaped by TTL after a terminal phase
+
+mode: Service  Pending → Provisioning → Running → Succeeded
+               no completion to wait for; reaped by an idle clock
+```
+
+`Service` adds a Pod rather than a `batch/v1` Job, because `batch/v1` exists to
+drive something to completion and an interactive sandbox has none; a Service in
+front of it, owned by the same request, gives the stable in-cluster address.
+
+The idle clock is required in `Service` mode, not defaulted. A long-lived
+workload with no idle bound never terminates, and a bound guessed on a session's
+behalf is how burst capacity leaks. It is refreshed through the status
+subresource, so a client saying "still in use" cannot also rewrite the request's
+image, capacity or placement class.
 
 Because a burst node is an ordinary node of the same spoke cluster (§0),
 everything constraint 2 requires keeps working unchanged: `ClusterIP` Services,
 cluster DNS, the platform `CiliumClusterwideNetworkPolicy` egress allowlist,
 `kubectl logs`, events, CSI and quota. The sandbox client's
 `http://<svc>.<ns>.svc.cluster.local:<port>` address is unaffected by placement.
+
+The vendored `Sandbox` CRD is no longer the provisioning path. Constraint 1 — do
+not fork upstream — is satisfied more completely than before: the platform does
+not modify the upstream controller, it stops depending on it for placement.
+
+The validating policy that rejects fleet-supplied placement remains, and the
+mutating policy is now redundant on this path. Defence in depth, not the
+mechanism.
 
 ### 9. Isolation, and the one workload class that needs more
 
@@ -606,9 +702,11 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Burst Capacity Envelope | Platform | Git (`zero-ops`) | ArgoCD | Crossplane | cluster-autoscaler | Day-1+ |
 | Burst Node Count | cluster-autoscaler | Kubernetes API (`MachineDeployment.spec.replicas`) | cluster-autoscaler | CAPI | Scheduler | Day-1+ |
 | Burst Machine | CAPH | Provider API | CAPI | CAPH | Burst pods | Day-1+ |
-| Burst Placement Policy | Platform | Git (`zero-ops`) | ArgoCD | Kyverno | Burst pods | Day-1+ |
+| Burst Placement | Platform | Git (`zero-ops`) | ArgoCD | ephemeral-job-operator | Burst pods | Day-1+ |
+| Burst Placement Policy (defence in depth) | Platform | Git (`zero-ops`) | ArgoCD | Kyverno | Burst pods | Day-1+ |
 | Per-Fleet Burst Quota | Platform | Git (`fleet-registry`) | ArgoCD | kube-apiserver | Fleets | Day-1+ |
-| Ephemeral Job Request | Fleet workload | Kubernetes API (fleet namespace) | Fleet | ephemeral-job controller | Fleet workloads | Day-1+ |
+| Ephemeral Job Request | Fleet workload | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Fleet workloads | Day-1+ |
+| Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
 | Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
 
 **The deliberate split.** A fleet is Lifecycle Owner of the *request* — a
@@ -742,6 +840,14 @@ declared in Git.
 - **ADR-043**, **ADR-014** and **ADR-005** are unaffected.
 - Migration of any existing fleet-built provisioning implementation is tracked
   separately as an alignment plan, not in this ADR.
+- **Amendment 2026-09-02.** The vendored `Sandbox` CRD is no longer the
+  provisioning path for burst compute, so constraint 1 is satisfied more
+  completely: the platform does not modify the upstream controller, it stops
+  depending on it for placement. The mutating placement policy is retained as
+  defence in depth and is no longer load-bearing. **waypoint ADR-031** is amended
+  to submit through this ADR's `EphemeralJob` for both job and sandbox shapes,
+  and no longer names a machine type — capacity is stated, the machine is
+  derived.
 
 ## References
 
