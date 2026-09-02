@@ -58,8 +58,8 @@ const (
 	// every other job. The callback is a notification, not a transaction.
 	callbackTimeout = 10 * time.Second
 
-	// The envelope every burst pod gets when its CR names none. See the comment
-	// at the assignment for why an absent value cannot be left absent.
+	// The envelope a request gets when it names none. See the comment at the
+	// assignment for why an absent value cannot be left absent.
 	defaultRequestCPU    = "2"
 	defaultRequestMemory = "4Gi"
 )
@@ -92,6 +92,15 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if isTerminal(ej.Status.Phase) {
 		return r.reconcileTTL(ctx, &ej)
+	}
+
+	// Reject an unrunnable request once, here, instead of letting it fail later
+	// somewhere that does not say why. Both checks below describe pods the API
+	// server would refuse to create, and refusing them at submission is the
+	// difference between a submitter seeing the reason and a CR that silently
+	// never produces a pod.
+	if reason, msg, invalid := validateSpec(&ej); invalid {
+		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
 	}
 
 	// Service mode has no Job, no completion and no callback to fire. It is a
@@ -233,7 +242,7 @@ func (r *EphemeralJobReconciler) buildJob(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ej.Namespace,
-			Labels: map[string]string{
+			Labels: authoredLabels(ej, map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
 				// enforce-tenant-abi/require-cost-labels matches every Job in a
@@ -251,7 +260,7 @@ func (r *EphemeralJobReconciler) buildJob(
 				// here, read from the namespace rather than from the CR, so a
 				// tenant cannot label its own spend.
 				"cost-center": "platform",
-			},
+			}),
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: &backoff,
@@ -268,9 +277,9 @@ func (r *EphemeralJobReconciler) buildJob(
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
+					Labels: authoredLabels(ej, map[string]string{
 						labelJobUID: string(ej.UID),
-					},
+					}),
 				},
 				Spec: r.buildPodSpec(ej, p, container),
 			},
@@ -488,21 +497,21 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 			{Name: "result", MountPath: "/result"},
 		},
 	}
-	// Resources are OPTIONAL on the CR but MANDATORY on the pod.
+	// The request's envelope wins; the platform supplies one only when the
+	// request names none.
 	//
-	// Every burst pod runs under the burst-tenant priority class, and the
-	// burst-compute ResourceQuota is scoped to it. A quota that sets
-	// requests.cpu/requests.memory rejects any pod that omits them — so a CR
-	// with no resources produced a Job whose every pod creation was forbidden.
-	// The Job reports Running with no pods, forever: the job controller retries
-	// pod creation indefinitely and never sets JobFailed, so nothing above
-	// notices. Both callers that exist today omit resources, so this was not an
-	// edge case; it was the default path.
+	// Resources are optional on the CR but MANDATORY on the pod: every burst pod
+	// runs under the burst-tenant priority class, and the burst-compute
+	// ResourceQuota is scoped to it — a quota naming requests.cpu/memory refuses
+	// any pod that omits them. Left absent, the Job's every pod creation is
+	// forbidden, and invisibly: a refused create is not a failed pod, so the job
+	// controller retries forever, status.failed stays 0, JobFailed is never set,
+	// and the request reports WaitingForCapacity indefinitely.
 	//
-	// The floor is deliberately modest. It is a request, not a limit, so a
-	// render still bursts above it on an idle node, while four can be admitted
-	// concurrently within the 8 CPU / 16Gi the quota allows. A workload that
-	// needs a different envelope states it on the CR and this is not consulted.
+	// The floor is deliberately modest and a REQUEST, not a limit, so a workload
+	// still bursts above it on an idle node while four fit concurrently in the
+	// quota. A workload that needs a different envelope states it and this is
+	// not consulted — which is the normal case: both callers now do.
 	if ej.Spec.Resources != nil {
 		container.Resources = *ej.Spec.Resources
 	}
@@ -515,7 +524,9 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 	if _, ok := container.Resources.Requests[corev1.ResourceMemory]; !ok {
 		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(defaultRequestMemory)
 	}
-
+	if ej.Spec.ImagePullPolicy != "" {
+		container.ImagePullPolicy = ej.Spec.ImagePullPolicy
+	}
 	container.Ports = ej.Spec.Ports
 	container.WorkingDir = ej.Spec.WorkingDir
 	if len(ej.Spec.VolumeMounts) > 0 {
@@ -588,14 +599,14 @@ func (r *EphemeralJobReconciler) buildPod(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ej.Namespace,
-			Labels: map[string]string{
+			Labels: authoredLabels(ej, map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
 				// enforce-tenant-abi/require-cost-labels does not match bare
 				// Pods, but the label is carried anyway so Job-mode and
 				// Service-mode workloads attribute identically.
 				"cost-center": "platform",
-			},
+			}),
 		},
 		Spec: r.buildPodSpec(ej, p, container),
 	}
@@ -609,17 +620,21 @@ func (r *EphemeralJobReconciler) buildPod(
 func (r *EphemeralJobReconciler) buildService(
 	ej *computev1alpha1.EphemeralJob, name string,
 ) *corev1.Service {
+	svcType := ej.Spec.Service.Type
+	if svcType == "" {
+		svcType = corev1.ServiceTypeClusterIP
+	}
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ej.Namespace,
-			Labels: map[string]string{
+			Labels: authoredLabels(ej, map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
-			},
+			}),
 		},
 		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeClusterIP,
+			Type:     svcType,
 			Selector: map[string]string{labelJobUID: string(ej.UID)},
 			Ports:    ej.Spec.Service.Ports,
 		},
@@ -640,14 +655,6 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 ) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
 
-	if ej.Spec.IdleTimeoutSeconds <= 0 {
-		// Refused rather than defaulted. A Service-mode workload with no idle
-		// bound never terminates, and guessing a bound for someone else's
-		// session is how burst capacity leaks.
-		return ctrl.Result{}, r.markTerminal(ctx, ej, computev1alpha1.PhaseFailed,
-			"InvalidSpec", "mode=Service requires idleTimeoutSeconds: without it the workload would never be reaped")
-	}
-
 	placement, ok := ResolvePlacement(ej.Spec.PlacementClass)
 	if !ok {
 		return ctrl.Result{}, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
@@ -659,7 +666,7 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	// moment the pod appears and there is no window where a caller resolves the
 	// address and reaches nothing.
 	if ej.Spec.Service != nil {
-		if err := r.ensureService(ctx, ej, name); err != nil {
+		if err := r.ensureService(ctx, ej, serviceNameFor(ej)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -725,7 +732,7 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	r.setPhase(ej, computev1alpha1.PhaseRunning, cap)
 	ej.Status.PodName = pod.Name
 	if ej.Spec.Service != nil {
-		ej.Status.ServiceName = name
+		ej.Status.ServiceName = serviceNameFor(ej)
 	}
 	if err := r.Status().Update(ctx, ej); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -808,4 +815,52 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+
+// authoredLabels merges the request's own labels into the ones this operator
+// stamps on what it authors.
+//
+// The submitter's labels have to reach the POD, not just the CR, because that
+// is where cluster policy selects: the platform's sandbox default-deny
+// NetworkPolicy matches agents.x-k8s.io/sandbox on the pod. Under the previous
+// design the upstream controller copied podTemplate labels through; now that
+// this operator authors the pod, dropping them here would silently remove a
+// workload from the policy that is supposed to contain it.
+//
+// The operator's own labels win on conflict. They are the ones other platform
+// components key on — ownership, attribution — and a submitter must not be able
+// to reassign its pod's tenant by relabelling its request.
+func authoredLabels(ej *computev1alpha1.EphemeralJob, own map[string]string) map[string]string {
+	merged := make(map[string]string, len(ej.Labels)+len(own))
+	for k, v := range ej.Labels {
+		merged[k] = v
+	}
+	for k, v := range own {
+		merged[k] = v
+	}
+	return merged
+}
+
+// validateSpec rejects requests that describe a pod the API server would refuse,
+// so the submitter learns at submission instead of watching a CR that never
+// produces one.
+func validateSpec(ej *computev1alpha1.EphemeralJob) (reason, message string, invalid bool) {
+	// A Service-mode workload has no completion, so without an idle bound it
+	// never terminates and holds burst capacity indefinitely.
+	if ej.Spec.Mode == computev1alpha1.ModeService && ej.Spec.IdleTimeoutSeconds <= 0 {
+		return "InvalidSpec", "mode=Service requires idleTimeoutSeconds: without it the workload would never be reaped", true
+	}
+	return "", "", false
+}
+
+
+// serviceNameFor is the address a client resolves.
+//
+// "<name>-svc" is the convention the SDK's serviceName() already used when it
+// created this Service itself, and it is kept so that moving ownership into the
+// operator does not also move every caller's address. status.serviceName is
+// published alongside it for anything that would rather read than derive.
+func serviceNameFor(ej *computev1alpha1.EphemeralJob) string {
+	return ej.Name + "-svc"
 }

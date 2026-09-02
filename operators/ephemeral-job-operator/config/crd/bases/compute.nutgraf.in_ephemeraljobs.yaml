@@ -99,6 +99,16 @@ spec:
                   namespace.
                 pattern: ^[a-zA-Z0-9_.\-/]+@sha256:[a-fA-F0-9]{64}$
                 type: string
+              imagePullPolicy:
+                description: |-
+                  ImagePullPolicy for the workload container. A sidecar can already state
+                  its own, so withholding it from the primary was an asymmetry with no
+                  reason behind it.
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
+                type: string
               imagePullSecrets:
                 description: ImagePullSecrets for private registries.
                 items:
@@ -207,9 +217,15 @@ spec:
                 type: array
               resources:
                 description: |-
-                  Resources is the workload's requested envelope. It is bounded by the
-                  fleet's priority-scoped ResourceQuota (ADR-052 §5), which the API server
-                  enforces at admission of the Pod.
+                  Resources is the workload's requested envelope, and it is what the
+                  submitter should state: only the submitter knows what its workload needs,
+                  and a render and a sandbox differ by an order of magnitude.
+
+                  Optional, because the pod cannot go without one. The burst-compute
+                  ResourceQuota is scoped to the burst-tenant priority class and refuses any
+                  pod omitting requests.cpu/memory, so the operator fills in a modest floor
+                  when a request names none rather than letting the pod be refused
+                  invisibly. A stated envelope is always used as-is.
                 properties:
                   claims:
                     description: |-
@@ -344,6 +360,16 @@ spec:
                       type: object
                     minItems: 1
                     type: array
+                  type:
+                    default: ClusterIP
+                    description: |-
+                      Type is ClusterIP in the cluster. NodePort exists for local development,
+                      where the client runs outside the cluster and cannot reach a ClusterIP —
+                      it is not a production shape and nothing on a spoke should ask for it.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    type: string
                 required:
                 - ports
                 type: object

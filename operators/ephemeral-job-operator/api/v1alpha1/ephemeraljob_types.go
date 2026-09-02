@@ -93,9 +93,15 @@ type EphemeralJobSpec struct {
 	// +optional
 	Env map[string]string `json:"env,omitempty"`
 
-	// Resources is the workload's requested envelope. It is bounded by the
-	// fleet's priority-scoped ResourceQuota (ADR-052 §5), which the API server
-	// enforces at admission of the Pod.
+	// Resources is the workload's requested envelope, and it is what the
+	// submitter should state: only the submitter knows what its workload needs,
+	// and a render and a sandbox differ by an order of magnitude.
+	//
+	// Optional, because the pod cannot go without one. The burst-compute
+	// ResourceQuota is scoped to the burst-tenant priority class and refuses any
+	// pod omitting requests.cpu/memory, so the operator fills in a modest floor
+	// when a request names none rather than letting the pod be refused
+	// invisibly. A stated envelope is always used as-is.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
@@ -165,6 +171,13 @@ type EphemeralJobSpec struct {
 	// +optional
 	WorkingDir string `json:"workingDir,omitempty"`
 
+	// ImagePullPolicy for the workload container. A sidecar can already state
+	// its own, so withholding it from the primary was an asymmetry with no
+	// reason behind it.
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
+	// +optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+
 	// Sidecars run beside the workload in the same pod.
 	//
 	// corev1.Container is reused deliberately. The ADR-052 §4 guarantee is
@@ -230,6 +243,14 @@ type ServiceSpec struct {
 	// Ports exposed by the Service.
 	// +kubebuilder:validation:MinItems=1
 	Ports []corev1.ServicePort `json:"ports"`
+
+	// Type is ClusterIP in the cluster. NodePort exists for local development,
+	// where the client runs outside the cluster and cannot reach a ClusterIP —
+	// it is not a production shape and nothing on a spoke should ask for it.
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort
+	// +kubebuilder:default=ClusterIP
+	// +optional
+	Type corev1.ServiceType `json:"type,omitempty"`
 }
 
 // OutputSpec declares the result destination. Credentials are never carried
