@@ -19,7 +19,7 @@ spec:
     ref:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: HetznerClusterTemplate
-      name: spokepool-cluster-v2
+      name: spokepool-cluster-v3
   workers:
     machineDeployments:
     - class: default-worker
@@ -2423,3 +2423,71 @@ spec:
       # subnet routes is unnecessary AND harmful: tailscaled installs them into table 52,
       # whose ip rule (5270) precedes main (32766), shadowing Cilium's tunnel route for
       # host-originated traffic to remote pods. Deliberately no --advertise-routes here.
+
+---
+# ── spokepool-cluster-v3 — break-glass SSH on the control plane ───────────────
+#
+# v2 carried `sshKeys: hcloud: []`, so a spoke control plane had NO way in once
+# its API server stopped answering: no key was ever installed, and every kubectl
+# path and every shell were lost at the same moment, for the same reason.
+#
+# Not hypothetical. On 2026-09-02 the HUB control plane became unreachable on
+# all three of its addresses — load balancer, public and tailnet — and the only
+# reason it could be diagnosed is that the hub class attaches
+# zero-ops-mac-mini-debug. A spoke in that state would have had to be rebuilt to
+# learn why it failed.
+#
+# An attached key is not an open door: Hetzner installs only the PUBLIC half for
+# root, password authentication is off, and reaching port 22 still requires a
+# network path. The cost of omitting it is losing the one channel that survives
+# a control-plane failure — which is precisely when it is needed.
+#
+# v3 rather than an edit: HetznerClusterTemplate.spec is immutable, so changing
+# v2 in place is rejected by the API server and leaves the Application
+# permanently OutOfSync. v2 is retained because the Cluster references it until
+# the ClusterClass repoint rolls through.
+# controlPlaneEndpoint.port is 6443 (not 443) so that the LB's :443 listener
+# is available for tenant HTTPS ingress via extraServices. A Hetzner LB cannot
+# carry two services on one listen_port, so v1's port 443 silently dropped the
+# ingress entry (ADR-046 §25.1). v1 cannot be edited in place because
+# HetznerClusterTemplate.spec is immutable once referenced by a Cluster — the
+# CAPH webhook denies the edit and ArgoCD selfHeal retries forever, wedging the
+# infrastructure-provider Application. This template is the §25.5 resolution:
+# a new name that ArgoCD can create rather than mutate.
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HetznerClusterTemplate
+metadata:
+  name: spokepool-cluster-v3
+  namespace: platform-capi
+spec:
+  template:
+    spec:
+      controlPlaneEndpoint:
+        host: ""
+        port: 6443
+      controlPlaneRegions:
+      - hel1
+      controlPlaneLoadBalancer:
+        enabled: true
+        type: lb11
+        algorithm: round_robin
+        region: hel1
+        extraServices:
+        - protocol: tcp
+          listenPort: 80
+          destinationPort: 80
+        - protocol: tcp
+          listenPort: 443
+          destinationPort: 443
+      hcloudNetwork:
+        enabled: true
+        cidrBlock: 10.0.0.0/16
+        subnetCidrBlock: 10.0.0.0/24
+        networkZone: eu-central
+      sshKeys:
+        hcloud:
+          - name: zero-ops-mac-mini-debug
+      hetznerSecretRef:
+        name: hetzner-credentials
+        key:
+          hcloudToken: hcloud
