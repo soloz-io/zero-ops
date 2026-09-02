@@ -25,8 +25,37 @@ spec:
         app.kubernetes.io/name: webhook
         app.kubernetes.io/version: v1.20.2
     spec:
+      # Named here because this patch demonstrably does NOT behave as a
+      # field-scoped overlay: on 2026-09-02, after args were added above, the
+      # rendered pod also lost serviceAccountName, env and ports, and failed in
+      # three new ways at once —
+      #   secrets "cert-manager-webhook-ca" is forbidden:
+      #     User "system:serviceaccount:cert-manager:default"   (SA dropped)
+      #   ... in the namespace "$(POD_NAMESPACE)"                (env dropped)
+      #   probe errored: strconv.Atoi: parsing "healthcheck"     (ports dropped)
+      #
+      # Anything the container spec here DEPENDS ON has to be named here too:
+      # the args reference $(POD_NAMESPACE), which only expands from the env
+      # var, and the probes reference the port by NAME, which only exists if
+      # ports declares it. All copied verbatim from the vendored asset.
+      serviceAccountName: cert-manager-webhook
       containers:
         - name: cert-manager-webhook
+          ports:
+            - containerPort: 10250
+              name: https
+              protocol: TCP
+            - containerPort: 6080
+              name: healthcheck
+              protocol: TCP
+            - containerPort: 9402
+              name: http-metrics
+              protocol: TCP
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           # IMPORTANT: image is pinned here to v1.20.2. If cert-manager is
           # upgraded via internal/assets/manifests/core/cert-manager/install.yaml,
           # this file must be updated in lockstep or ArgoCD silently holds the
