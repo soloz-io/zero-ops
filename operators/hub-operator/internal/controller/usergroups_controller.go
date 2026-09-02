@@ -139,6 +139,7 @@ func (r *UserGroupsReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func (r *UserGroupsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("usergroups").
 		Watches(
 			&corev1.ConfigMap{},
 			handler.EnqueueRequestsFromMapFunc(r.findUserGroupsConfigMap),
