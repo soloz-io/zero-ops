@@ -118,6 +118,29 @@ spec:
         path: /spec/template/spec/type
         valueFrom:
           variable: workerMachineType
+  # Mirrors the hub class (hetzner-mgmt-ubuntu-v1.yaml). The spoke templates
+  # carried the key name as a LITERAL with no patch over it, so whatever string
+  # sat in the template was what shipped — and on 2026-09-02 that was
+  # zero-ops-mac-mini-debug, which does not exist in the Hetzner project. Every
+  # spoke control-plane server failed with SSHKeyNotFound, so no CP was created,
+  # the cluster never reached ControlPlaneInitialized, and SpokePool readiness
+  # timed out after 49m with nothing naming the key as the cause.
+  #
+  # The hub carried the identical bad literal and was unaffected, because this
+  # patch overwrote it before it reached the API. That asymmetry is the whole
+  # bug: one class renders through a variable, the other shipped raw text.
+  - name: sshKeyName
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/sshKeys/hcloud/0/name
+        valueFrom:
+          variable: hcloudSSHKeyName
   variables:
   - name: region
     required: true
@@ -149,6 +172,18 @@ spec:
       openAPIV3Schema:
         type: string
         default: ""
+  # Same name and default as the hub's variable, so the two classes cannot
+  # drift. mac-mini-ssh is the key that actually exists in the project — the hub
+  # has provisioned against it throughout. An attached key is not an open door:
+  # Hetzner installs only the public half for root and password auth is off, but
+  # it is the one channel that survives a control-plane failure, which is when
+  # it is needed (the reason 1bfa9d3f added a key here in the first place).
+  - name: hcloudSSHKeyName
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "mac-mini-ssh"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
