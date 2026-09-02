@@ -27,7 +27,6 @@
     "boundary-04",
     "boundary-05",
     "boundary-06",
-    "cleanup",
     "finalize",
     "complete"
   ],
@@ -36,136 +35,136 @@
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-08-27T12:12:26.865172Z",
+  "timestamp": "2026-09-02T12:34:21.058372Z",
   "metadata": null,
-  "startedAt": "2026-08-27T11:03:32.469102Z",
-  "completedAt": "2026-08-27T12:12:26.865171Z",
+  "startedAt": "2026-09-02T11:35:20.565645Z",
+  "completedAt": "2026-09-02T12:34:21.058372Z",
   "phaseTimings": [
     {
       "phase": "preflight",
-      "startedAt": "2026-08-27T11:03:31.755582Z",
-      "completedAt": "2026-08-27T11:03:32.469058Z",
-      "seconds": 0.713
+      "startedAt": "2026-09-02T11:35:19.470016Z",
+      "completedAt": "2026-09-02T11:35:20.565618Z",
+      "seconds": 1.096
     },
     {
       "phase": "bootstrap-create",
-      "startedAt": "2026-08-27T11:03:32.470619Z",
-      "completedAt": "2026-08-27T11:04:07.39239Z",
-      "seconds": 34.922
+      "startedAt": "2026-09-02T11:35:20.566046Z",
+      "completedAt": "2026-09-02T11:35:52.665445Z",
+      "seconds": 32.099
     },
     {
       "phase": "day0-infra",
-      "startedAt": "2026-08-27T11:04:07.3929Z",
-      "completedAt": "2026-08-27T11:04:07.563519Z",
-      "seconds": 0.171
+      "startedAt": "2026-09-02T11:35:52.666487Z",
+      "completedAt": "2026-09-02T11:35:52.878938Z",
+      "seconds": 0.212
     },
     {
       "phase": "capi-init",
-      "startedAt": "2026-08-27T11:04:07.563934Z",
-      "completedAt": "2026-08-27T11:06:52.019524Z",
-      "seconds": 164.456
+      "startedAt": "2026-09-02T11:35:52.879686Z",
+      "completedAt": "2026-09-02T11:39:04.381574Z",
+      "seconds": 191.502
     },
     {
       "phase": "cluster-provision",
-      "startedAt": "2026-08-27T11:13:41.788364Z",
-      "completedAt": "2026-08-27T11:17:44.248717Z",
-      "seconds": 242.46
+      "startedAt": "2026-09-02T11:39:04.382208Z",
+      "completedAt": "2026-09-02T11:42:35.847943Z",
+      "seconds": 211.466
     },
     {
       "phase": "home-worker-join",
-      "startedAt": "2026-08-27T11:17:44.250153Z",
-      "completedAt": "2026-08-27T11:21:50.14349Z",
-      "seconds": 245.893
+      "startedAt": "2026-09-02T11:42:35.848865Z",
+      "completedAt": "2026-09-02T11:47:07.747022Z",
+      "seconds": 271.898
     },
     {
       "phase": "argocd-install",
-      "startedAt": "2026-08-27T11:21:50.145614Z",
-      "completedAt": "2026-08-27T11:24:53.355271Z",
-      "seconds": 183.21
+      "startedAt": "2026-09-02T11:47:07.748686Z",
+      "completedAt": "2026-09-02T12:00:07.270691Z",
+      "seconds": 779.522
     },
     {
       "phase": "pivot-move",
-      "startedAt": "2026-08-27T12:00:31.979347Z",
-      "completedAt": "2026-08-27T12:02:56.550433Z",
-      "seconds": 144.571
+      "startedAt": "2026-09-02T12:24:18.389192Z",
+      "completedAt": "2026-09-02T12:27:32.18903Z",
+      "seconds": 193.8
     },
     {
       "phase": "pivot-ready",
-      "startedAt": "2026-08-27T12:02:56.552131Z",
-      "completedAt": "2026-08-27T12:03:03.538831Z",
-      "seconds": 6.987
+      "startedAt": "2026-09-02T12:27:32.190927Z",
+      "completedAt": "2026-09-02T12:28:09.911354Z",
+      "seconds": 37.72
     },
     {
       "phase": "clusterclass-deploy",
-      "startedAt": "2026-08-27T12:03:05.694723Z",
-      "completedAt": "2026-08-27T12:03:06.664612Z",
-      "seconds": 0.97
+      "startedAt": "2026-09-02T12:28:12.572919Z",
+      "completedAt": "2026-09-02T12:28:13.707797Z",
+      "seconds": 1.135
     },
     {
       "phase": "platform-pre-reqs",
-      "startedAt": "2026-08-27T12:03:06.665586Z",
-      "completedAt": "2026-08-27T12:03:25.277298Z",
-      "seconds": 18.612
+      "startedAt": "2026-09-02T12:28:13.708699Z",
+      "completedAt": "2026-09-02T12:28:29.493083Z",
+      "seconds": 15.784
     },
     {
       "phase": "boundary-01",
-      "startedAt": "2026-08-27T12:03:25.282126Z",
-      "completedAt": "2026-08-27T12:03:36.368238Z",
-      "seconds": 11.086
+      "startedAt": "2026-09-02T12:28:29.494012Z",
+      "completedAt": "2026-09-02T12:28:36.839503Z",
+      "seconds": 7.345
     },
     {
       "phase": "generate-local-secrets",
-      "startedAt": "2026-08-27T12:03:36.370108Z",
-      "completedAt": "2026-08-27T12:03:38.897298Z",
-      "seconds": 2.527
+      "startedAt": "2026-09-02T12:28:36.840824Z",
+      "completedAt": "2026-09-02T12:28:39.399361Z",
+      "seconds": 2.559
     },
     {
       "phase": "boundary-02",
-      "startedAt": "2026-08-27T12:03:38.898274Z",
-      "completedAt": "2026-08-27T12:03:47.315061Z",
-      "seconds": 8.417
+      "startedAt": "2026-09-02T12:28:39.400472Z",
+      "completedAt": "2026-09-02T12:28:50.721762Z",
+      "seconds": 11.321
     },
     {
       "phase": "inject-ca-cert",
-      "startedAt": "2026-08-27T12:03:47.316253Z",
-      "completedAt": "2026-08-27T12:04:15.074609Z",
-      "seconds": 27.758
+      "startedAt": "2026-09-02T12:28:50.722863Z",
+      "completedAt": "2026-09-02T12:29:17.80329Z",
+      "seconds": 27.08
     },
     {
       "phase": "boundary-03",
-      "startedAt": "2026-08-27T12:04:15.075964Z",
-      "completedAt": "2026-08-27T12:04:21.037154Z",
-      "seconds": 5.961
+      "startedAt": "2026-09-02T12:29:17.804342Z",
+      "completedAt": "2026-09-02T12:29:23.371568Z",
+      "seconds": 5.567
     },
     {
       "phase": "bootstrap-infisical-api",
-      "startedAt": "2026-08-27T12:04:21.037743Z",
-      "completedAt": "2026-08-27T12:09:16.240964Z",
-      "seconds": 295.203
+      "startedAt": "2026-09-02T12:29:23.372072Z",
+      "completedAt": "2026-09-02T12:33:40.344938Z",
+      "seconds": 256.973
     },
     {
       "phase": "boundary-04",
-      "startedAt": "2026-08-27T12:09:16.24257Z",
-      "completedAt": "2026-08-27T12:09:22.096762Z",
-      "seconds": 5.854
+      "startedAt": "2026-09-02T12:33:40.346653Z",
+      "completedAt": "2026-09-02T12:33:46.040274Z",
+      "seconds": 5.694
     },
     {
       "phase": "boundary-05",
-      "startedAt": "2026-08-27T12:09:22.097252Z",
-      "completedAt": "2026-08-27T12:09:28.285449Z",
-      "seconds": 6.188
+      "startedAt": "2026-09-02T12:33:46.040789Z",
+      "completedAt": "2026-09-02T12:33:52.068939Z",
+      "seconds": 6.028
     },
     {
       "phase": "boundary-06",
-      "startedAt": "2026-08-27T12:09:28.285972Z",
-      "completedAt": "2026-08-27T12:09:34.388066Z",
-      "seconds": 6.102
+      "startedAt": "2026-09-02T12:33:52.069462Z",
+      "completedAt": "2026-09-02T12:33:58.084501Z",
+      "seconds": 6.015
     },
     {
       "phase": "finalize",
-      "startedAt": "2026-08-27T12:12:25.825295Z",
-      "completedAt": "2026-08-27T12:12:26.864067Z",
-      "seconds": 1.039
+      "startedAt": "2026-09-02T12:34:20.272736Z",
+      "completedAt": "2026-09-02T12:34:21.057477Z",
+      "seconds": 0.785
     }
   ]
 }
