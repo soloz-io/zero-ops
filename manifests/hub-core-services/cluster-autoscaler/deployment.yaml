@@ -42,6 +42,12 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        # Secret volumes are owned by root, so a 0400 kubeconfig is unreadable
+        # to a container running as 65532 — the process died with "permission
+        # denied" opening its own mounted credential. fsGroup makes kubelet set
+        # group ownership on the mount, which is what makes 0440 readable here
+        # without making the file world-readable.
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       # ADR-047: single-node spokes and this hub run workloads on the
@@ -119,4 +125,4 @@ spec:
             # Published by CAPI for every workload cluster it creates. The key
             # is "value", which is why the mount path above ends in /value.
             secretName: spoke-pool-hybrid-dev-01-kubeconfig
-            defaultMode: 0400
+            defaultMode: 0440
