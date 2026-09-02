@@ -18,7 +18,10 @@ rules:
   - ""
   resources:
   - pods
+  - services
   verbs:
+  - create
+  - delete
   - get
   - list
   - watch

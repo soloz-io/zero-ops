@@ -43,9 +43,20 @@ const (
 // must be able to satisfy, and building it on cluster-scoped reads would make
 // the fleet-facing half unimplementable.
 func AssessCapacity(ctx context.Context, c client.Client, ns, jobName string) (CapacityState, error) {
+	// batch/v1 stamps job-name onto the pods it creates.
+	return AssessCapacityBySelector(ctx, c, ns, client.MatchingLabels{"job-name": jobName})
+}
+
+// AssessCapacityBySelector is the same assessment for a pod this operator owns
+// directly (Service mode), which carries no job-name because no Job created it.
+// The capacity question is identical either way — a pod is pending, and the
+// reason is on the pod and its events — so the logic must not be duplicated.
+func AssessCapacityBySelector(
+	ctx context.Context, c client.Client, ns string, sel client.MatchingLabels,
+) (CapacityState, error) {
 	var pods corev1.PodList
-	if err := c.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"job-name": jobName}); err != nil {
-		return CapacityState{}, fmt.Errorf("listing pods for job %s: %w", jobName, err)
+	if err := c.List(ctx, &pods, client.InNamespace(ns), sel); err != nil {
+		return CapacityState{}, fmt.Errorf("listing pods in %s for %v: %w", ns, map[string]string(sel), err)
 	}
 
 	// No Pod yet. The Job controller creates it promptly, so persistent absence

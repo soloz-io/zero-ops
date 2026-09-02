@@ -136,6 +136,100 @@ type EphemeralJobSpec struct {
 	// +kubebuilder:default=burst
 	// +optional
 	PlacementClass string `json:"placementClass,omitempty"`
+
+	// Mode selects the lifecycle, and it is the ONE field that decides whether
+	// this request has an end.
+	//
+	// Job   — batch. Runs to completion, reports a terminal phase, fires
+	//         CallbackURL, and is reaped by TTLSecondsAfterFinished.
+	// Service — long-lived. There is no completion to wait for: an agent
+	//         sandbox serves requests until it goes idle, so it is reaped by
+	//         IdleTimeoutSeconds instead and never reports Succeeded.
+	//
+	// Both modes are authored by this operator, which is the whole point of
+	// having one CR. Placement is written here for every pod (ADR-052 §4), so a
+	// sandbox can no longer be admitted unplaced onto home-lab capacity because
+	// a mutating policy failed to match — the failure mode kyverno-burst-placement
+	// documents and which was live on the dev spoke until this existed.
+	// +kubebuilder:validation:Enum=Job;Service
+	// +kubebuilder:default=Job
+	// +optional
+	Mode Mode `json:"mode,omitempty"`
+
+	// Ports the workload container listens on. Required for Service mode to be
+	// reachable; ignored by Job mode, which nothing connects to.
+	// +optional
+	Ports []corev1.ContainerPort `json:"ports,omitempty"`
+
+	// WorkingDir for the workload container.
+	// +optional
+	WorkingDir string `json:"workingDir,omitempty"`
+
+	// Sidecars run beside the workload in the same pod.
+	//
+	// corev1.Container is reused deliberately. The ADR-052 §4 guarantee is
+	// about PLACEMENT, and placement is a pod-level property — nodeSelector,
+	// tolerations, priorityClassName, affinity. None of them is expressible on
+	// a container, so accepting a full container here widens what a workload
+	// may describe about ITSELF without widening what it may say about WHERE it
+	// runs. That distinction is the reason this CR has no podTemplate.
+	// +optional
+	Sidecars []corev1.Container `json:"sidecars,omitempty"`
+
+	// Volumes available to the workload and its sidecars. When empty the
+	// operator supplies its own default pair (workspace, result), so the batch
+	// path is unchanged by this field existing.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// VolumeMounts for the workload container. Empty means the operator's
+	// defaults, matching Volumes above.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// ImagePullSecrets for private registries.
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
+	// Service, when set, gives the workload a stable in-cluster address.
+	// +optional
+	Service *ServiceSpec `json:"service,omitempty"`
+
+	// IdleTimeoutSeconds reaps a Service-mode workload that has gone quiet.
+	//
+	// Measured from Status.LastActivityTime, which a client refreshes to say "I
+	// am still using this". It is the ONLY thing that stops a Service-mode pod
+	// running forever, because unlike Job mode there is no completion — so an
+	// unset value in Service mode is rejected rather than defaulted to
+	// unlimited.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	IdleTimeoutSeconds int32 `json:"idleTimeoutSeconds,omitempty"`
+
+	// TerminationGracePeriodSeconds for the pod.
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+}
+
+// Mode is the workload lifecycle. See EphemeralJobSpec.Mode.
+// +kubebuilder:validation:Enum=Job;Service
+type Mode string
+
+const (
+	// ModeJob runs to completion and reports a terminal phase.
+	ModeJob Mode = "Job"
+	// ModeService runs until idle. It never reports Succeeded.
+	ModeService Mode = "Service"
+)
+
+// ServiceSpec asks for a ClusterIP Service in front of the workload.
+//
+// The operator owns the Service and names it from the EphemeralJob, so a
+// workload cannot claim an address belonging to another.
+type ServiceSpec struct {
+	// Ports exposed by the Service.
+	// +kubebuilder:validation:MinItems=1
+	Ports []corev1.ServicePort `json:"ports"`
 }
 
 // OutputSpec declares the result destination. Credentials are never carried
@@ -160,9 +254,29 @@ type EphemeralJobStatus struct {
 	// +patchStrategy=merge
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// JobName is the batch/v1 Job this request owns.
+	// JobName is the batch/v1 Job this request owns. Job mode only — a
+	// Service-mode request owns a Pod directly, because a batch/v1 Job exists
+	// to drive something to completion and a sandbox has none.
 	// +optional
 	JobName string `json:"jobName,omitempty"`
+
+	// PodName is the Pod this request owns in Service mode.
+	// +optional
+	PodName string `json:"podName,omitempty"`
+
+	// ServiceName is the Service fronting the workload, when one was asked for.
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// LastActivityTime is the idle clock for Service mode. A client refreshes
+	// it to keep the workload alive; IdleTimeoutSeconds is measured from here.
+	//
+	// It lives in status rather than spec because it is an observation about
+	// use, not a declaration of intent — and because a client refreshing it
+	// every few seconds must not be able to rewrite the request itself. The
+	// SDK is therefore granted patch on the status subresource only.
+	// +optional
+	LastActivityTime *metav1.Time `json:"lastActivityTime,omitempty"`
 
 	// StartTime is when the workload began executing — not when the request was
 	// created. TimeoutSeconds is measured from here.

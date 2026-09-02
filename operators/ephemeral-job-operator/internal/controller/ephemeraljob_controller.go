@@ -74,7 +74,8 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 
 func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -91,6 +92,13 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if isTerminal(ej.Status.Phase) {
 		return r.reconcileTTL(ctx, &ej)
+	}
+
+	// Service mode has no Job, no completion and no callback to fire. It is a
+	// different lifecycle over the SAME pod description, so it branches here
+	// rather than inside every step below.
+	if ej.Spec.Mode == computev1alpha1.ModeService {
+		return r.reconcileServiceMode(ctx, &ej)
 	}
 
 	job, err := r.ensureJob(ctx, &ej)
@@ -219,56 +227,7 @@ func (r *EphemeralJobReconciler) buildJob(
 	backoff := int32(0) // no retry: a burst node join per attempt is too costly to spend blindly
 	ttl := ej.Spec.TTLSecondsAfterFinished
 
-	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env))
-	for k, v := range ej.Spec.Env {
-		env = append(env, corev1.EnvVar{Name: k, Value: v})
-	}
-
-	container := corev1.Container{
-		Name:    "workload",
-		Image:   ej.Spec.Image,
-		Command: ej.Spec.Command,
-		Args:    ej.Spec.Args,
-		Env:     env,
-		SecurityContext: &corev1.SecurityContext{
-			AllowPrivilegeEscalation: ptr(false),
-			RunAsNonRoot:             ptr(true),
-			ReadOnlyRootFilesystem:   ptr(true),
-			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: "workspace", MountPath: "/workspace"},
-			{Name: "result", MountPath: "/result"},
-		},
-	}
-	// Resources are OPTIONAL on the CR but MANDATORY on the pod.
-	//
-	// Every burst pod runs under the burst-tenant priority class, and the
-	// burst-compute ResourceQuota is scoped to it. A quota that sets
-	// requests.cpu/requests.memory rejects any pod that omits them — so a CR
-	// with no resources produced a Job whose every pod creation was forbidden.
-	// The Job reports Running with no pods, forever: the job controller retries
-	// pod creation indefinitely and never sets JobFailed, so nothing above
-	// notices. Both callers that exist today omit resources, so this was not an
-	// edge case; it was the default path.
-	//
-	// The floor is deliberately modest. It is a request, not a limit, so a
-	// render still bursts above it on an idle node, while four can be admitted
-	// concurrently within the 8 CPU / 16Gi the quota allows. A workload that
-	// needs a different envelope states it on the CR and this is not consulted.
-	if ej.Spec.Resources != nil {
-		container.Resources = *ej.Spec.Resources
-	}
-	if container.Resources.Requests == nil {
-		container.Resources.Requests = corev1.ResourceList{}
-	}
-	if _, ok := container.Resources.Requests[corev1.ResourceCPU]; !ok {
-		container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultRequestCPU)
-	}
-	if _, ok := container.Resources.Requests[corev1.ResourceMemory]; !ok {
-		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(defaultRequestMemory)
-	}
+	container := r.buildWorkloadContainer(ej)
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -313,27 +272,7 @@ func (r *EphemeralJobReconciler) buildJob(
 						labelJobUID: string(ej.UID),
 					},
 				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-
-					// ── ADR-052 §4: placement, written by the component that
-					// authors the pod. There is no fleet-supplied input to any
-					// of these three fields.
-					NodeSelector:      p.NodeSelector,
-					Tolerations:       p.Tolerations,
-					PriorityClassName: p.PriorityClassName,
-
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   ptr(true),
-						RunAsUser:      ptr(int64(1000)),
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-					},
-					Containers: []corev1.Container{container},
-					Volumes: []corev1.Volume{
-						{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-						{Name: "result", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					},
-				},
+				Spec: r.buildPodSpec(ej, p, container),
 			},
 		},
 	}
@@ -423,6 +362,11 @@ func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&computev1alpha1.EphemeralJob{}).
 		Owns(&batchv1.Job{}).
+		// Service mode owns its Pod and Service directly rather than through a
+		// Job, so both must wake this controller too — otherwise a sandbox pod
+		// going Ready or dying would be noticed only on the next timed requeue.
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.Service{}).
 		Complete(r)
 }
 
@@ -514,4 +458,354 @@ func (r *EphemeralJobReconciler) fireCallback(
 		ObservedGeneration: ej.Generation,
 	})
 	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
+}
+
+
+// buildWorkloadContainer builds the container the request describes. Shared by
+// both modes: a sandbox and a render job differ in lifecycle, not in how the
+// workload container itself is assembled.
+func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.EphemeralJob) corev1.Container {
+	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env))
+	for k, v := range ej.Spec.Env {
+		env = append(env, corev1.EnvVar{Name: k, Value: v})
+	}
+
+	container := corev1.Container{
+		Name:    "workload",
+		Image:   ej.Spec.Image,
+		Command: ej.Spec.Command,
+		Args:    ej.Spec.Args,
+		Env:     env,
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: ptr(false),
+			RunAsNonRoot:             ptr(true),
+			ReadOnlyRootFilesystem:   ptr(true),
+			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+			SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "workspace", MountPath: "/workspace"},
+			{Name: "result", MountPath: "/result"},
+		},
+	}
+	// Resources are OPTIONAL on the CR but MANDATORY on the pod.
+	//
+	// Every burst pod runs under the burst-tenant priority class, and the
+	// burst-compute ResourceQuota is scoped to it. A quota that sets
+	// requests.cpu/requests.memory rejects any pod that omits them — so a CR
+	// with no resources produced a Job whose every pod creation was forbidden.
+	// The Job reports Running with no pods, forever: the job controller retries
+	// pod creation indefinitely and never sets JobFailed, so nothing above
+	// notices. Both callers that exist today omit resources, so this was not an
+	// edge case; it was the default path.
+	//
+	// The floor is deliberately modest. It is a request, not a limit, so a
+	// render still bursts above it on an idle node, while four can be admitted
+	// concurrently within the 8 CPU / 16Gi the quota allows. A workload that
+	// needs a different envelope states it on the CR and this is not consulted.
+	if ej.Spec.Resources != nil {
+		container.Resources = *ej.Spec.Resources
+	}
+	if container.Resources.Requests == nil {
+		container.Resources.Requests = corev1.ResourceList{}
+	}
+	if _, ok := container.Resources.Requests[corev1.ResourceCPU]; !ok {
+		container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(defaultRequestCPU)
+	}
+	if _, ok := container.Resources.Requests[corev1.ResourceMemory]; !ok {
+		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(defaultRequestMemory)
+	}
+
+	container.Ports = ej.Spec.Ports
+	container.WorkingDir = ej.Spec.WorkingDir
+	if len(ej.Spec.VolumeMounts) > 0 {
+		container.VolumeMounts = ej.Spec.VolumeMounts
+	}
+	return container
+}
+
+// buildPodSpec is the ONE place a pod belonging to this operator is described.
+//
+// Both modes go through it, which is the point of the merge: placement is
+// written here, so there is no path — Job or Service — by which a pod of ours
+// reaches a node without it. Previously the sandbox path had exactly such a
+// path, because its pod was authored upstream and placement was bolted on by a
+// mutating policy that could simply not match.
+func (r *EphemeralJobReconciler) buildPodSpec(
+	ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
+) corev1.PodSpec {
+	volumes := ej.Spec.Volumes
+	if len(volumes) == 0 {
+		volumes = []corev1.Volume{
+			{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: "result", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		}
+	}
+
+	spec := corev1.PodSpec{
+		RestartPolicy: corev1.RestartPolicyNever,
+
+		// ── ADR-052 §4: placement, written by the component that authors the
+		// pod. There is no fleet-supplied input to any of these three fields.
+		NodeSelector:      p.NodeSelector,
+		Tolerations:       p.Tolerations,
+		PriorityClassName: p.PriorityClassName,
+
+		// Resolve a service FQDN in one query, not five. The cluster default of
+		// ndots:5 makes any name with fewer than 5 dots relative, so an ordinary
+		// service address is tried against every search domain first — one of
+		// which, on a hybrid spoke, is the node's tailnet domain that forwards
+		// off-cluster. Under load that lookup fails outright.
+		DNSConfig: &corev1.PodDNSConfig{
+			Options: []corev1.PodDNSConfigOption{{Name: "ndots", Value: ptr("2")}},
+		},
+
+		SecurityContext: &corev1.PodSecurityContext{
+			RunAsNonRoot:   ptr(true),
+			RunAsUser:      ptr(int64(1000)),
+			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+		},
+		Containers:                    append([]corev1.Container{container}, ej.Spec.Sidecars...),
+		Volumes:                       volumes,
+		ImagePullSecrets:              ej.Spec.ImagePullSecrets,
+		TerminationGracePeriodSeconds: ej.Spec.TerminationGracePeriodSeconds,
+	}
+	return spec
+}
+
+// buildPod is the Service-mode workload: a bare Pod, not a Job.
+//
+// A batch/v1 Job exists to drive something to completion and reports failure
+// when its pod exits non-zero. A sandbox has no completion — it serves until it
+// goes idle — so wrapping it in a Job would either report a permanent failure
+// or a success that never arrives. The Pod is owned by the EphemeralJob, so it
+// is still garbage-collected structurally.
+func (r *EphemeralJobReconciler) buildPod(
+	ej *computev1alpha1.EphemeralJob, name string, p Placement,
+) *corev1.Pod {
+	container := r.buildWorkloadContainer(ej)
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ej.Namespace,
+			Labels: map[string]string{
+				labelJobUID: string(ej.UID),
+				"tenant-id": tenantFromNamespace(ej.Namespace),
+				// enforce-tenant-abi/require-cost-labels does not match bare
+				// Pods, but the label is carried anyway so Job-mode and
+				// Service-mode workloads attribute identically.
+				"cost-center": "platform",
+			},
+		},
+		Spec: r.buildPodSpec(ej, p, container),
+	}
+}
+
+// buildService fronts a Service-mode workload with a stable in-cluster address.
+//
+// The selector is the EphemeralJob's UID, not its name: a name can be reused
+// after deletion, and a Service that outlived its pod would then silently
+// forward a new session's traffic to whatever claimed the old name.
+func (r *EphemeralJobReconciler) buildService(
+	ej *computev1alpha1.EphemeralJob, name string,
+) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ej.Namespace,
+			Labels: map[string]string{
+				labelJobUID: string(ej.UID),
+				"tenant-id": tenantFromNamespace(ej.Namespace),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{labelJobUID: string(ej.UID)},
+			Ports:    ej.Spec.Service.Ports,
+		},
+	}
+}
+
+
+// reconcileServiceMode drives a long-lived workload: a Pod, an optional Service
+// in front of it, and an idle clock instead of a completion.
+//
+// The idle clock is the only thing that ends it. A Job-mode request is bounded
+// by its own exit; a sandbox serves until nobody is using it, so if
+// LastActivityTime is never refreshed the pod is reaped at IdleTimeoutSeconds.
+// That is deliberately fail-closed: a client that crashes without releasing its
+// sandbox loses it on the timeout rather than holding burst capacity forever.
+func (r *EphemeralJobReconciler) reconcileServiceMode(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob,
+) (ctrl.Result, error) {
+	l := log.FromContext(ctx)
+
+	if ej.Spec.IdleTimeoutSeconds <= 0 {
+		// Refused rather than defaulted. A Service-mode workload with no idle
+		// bound never terminates, and guessing a bound for someone else's
+		// session is how burst capacity leaks.
+		return ctrl.Result{}, r.markTerminal(ctx, ej, computev1alpha1.PhaseFailed,
+			"InvalidSpec", "mode=Service requires idleTimeoutSeconds: without it the workload would never be reaped")
+	}
+
+	placement, ok := ResolvePlacement(ej.Spec.PlacementClass)
+	if !ok {
+		return ctrl.Result{}, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
+	}
+
+	name := jobNameFor(ej)
+
+	// Service first: it selects on the EphemeralJob UID, so it is correct the
+	// moment the pod appears and there is no window where a caller resolves the
+	// address and reaches nothing.
+	if ej.Spec.Service != nil {
+		if err := r.ensureService(ctx, ej, name); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	pod, err := r.ensurePod(ctx, ej, name, placement)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	switch pod.Status.Phase {
+	case corev1.PodFailed:
+		ej.Status.Message = podTerminationMessage(pod)
+		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseFailed, podExitCode(pod))
+	case corev1.PodSucceeded:
+		// A service that exited on its own. Not an error, but it is over.
+		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, podExitCode(pod))
+	}
+
+	cap, err := AssessCapacityBySelector(ctx, r.Client, ej.Namespace,
+		client.MatchingLabels{labelJobUID: string(ej.UID)})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !cap.Ready {
+		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
+		if waited := time.Since(ej.CreationTimestamp.Time); waited > r.ProvisioningBudget {
+			ej.Status.Message = fmt.Sprintf(
+				"waiting %s for burst capacity, over the %s budget for this placement class: %s",
+				waited.Truncate(time.Second), r.ProvisioningBudget, cap.Message)
+		}
+		if err := r.Status().Update(ctx, ej); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+	}
+
+	now := metav1.Now()
+	if ej.Status.StartTime == nil {
+		ej.Status.StartTime = &now
+	}
+	// Seed the idle clock when the workload first runs, not when the request
+	// was created: time spent waiting for a node is not idle time, and charging
+	// it against the idle budget would reap a sandbox that never got to serve.
+	if ej.Status.LastActivityTime == nil {
+		ej.Status.LastActivityTime = &now
+	}
+
+	idle := time.Since(ej.Status.LastActivityTime.Time)
+	budget := time.Duration(ej.Spec.IdleTimeoutSeconds) * time.Second
+	if idle > budget {
+		l.Info("reaping idle service workload", "ephemeralJob", ej.Name, "idle", idle.Truncate(time.Second))
+		policy := metav1.DeletePropagationBackground
+		if err := r.Delete(ctx, pod, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil &&
+			!apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		ej.Status.Message = fmt.Sprintf("idle for %s, exceeding the %ds idle budget",
+			idle.Truncate(time.Second), ej.Spec.IdleTimeoutSeconds)
+		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
+	}
+
+	r.setPhase(ej, computev1alpha1.PhaseRunning, cap)
+	ej.Status.PodName = pod.Name
+	if ej.Spec.Service != nil {
+		ej.Status.ServiceName = name
+	}
+	if err := r.Status().Update(ctx, ej); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// Wake when the idle budget could next expire, so a quiet sandbox is reaped
+	// promptly rather than at the next unrelated event.
+	return ctrl.Result{RequeueAfter: minDuration(budget-idle, defaultRequeue)}, nil
+}
+
+func (r *EphemeralJobReconciler) ensurePod(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
+) (*corev1.Pod, error) {
+	var existing corev1.Pod
+	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
+	if err == nil {
+		return &existing, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+
+	pod := r.buildPod(ej, name, p)
+	if err := ctrl.SetControllerReference(ej, pod, r.Scheme); err != nil {
+		return nil, err
+	}
+	if err := r.Create(ctx, pod); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return &existing, r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
+		}
+		return nil, err
+	}
+	return pod, nil
+}
+
+func (r *EphemeralJobReconciler) ensureService(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string,
+) error {
+	var existing corev1.Service
+	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	svc := r.buildService(ej, name)
+	if err := ctrl.SetControllerReference(ej, svc, r.Scheme); err != nil {
+		return err
+	}
+	if err := r.Create(ctx, svc); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+func podExitCode(p *corev1.Pod) *int32 {
+	for i := range p.Status.ContainerStatuses {
+		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil {
+			code := t.ExitCode
+			return &code
+		}
+	}
+	return nil
+}
+
+func podTerminationMessage(p *corev1.Pod) string {
+	for i := range p.Status.ContainerStatuses {
+		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil && t.Reason != "" {
+			return fmt.Sprintf("container %s terminated: %s", p.Status.ContainerStatuses[i].Name, t.Reason)
+		}
+	}
+	if p.Status.Reason != "" {
+		return p.Status.Reason
+	}
+	return "pod failed"
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }
