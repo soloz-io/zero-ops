@@ -58,6 +58,9 @@ const (
 	// every other job. The callback is a notification, not a transaction.
 	callbackTimeout = 10 * time.Second
 
+	// The workload container's name, which readiness is judged on.
+	workloadContainerName = "workload"
+
 	// The envelope a request gets when it names none. See the comment at the
 	// assignment for why an absent value cannot be left absent.
 	defaultRequestCPU    = "2"
@@ -487,7 +490,7 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 	}
 
 	container := corev1.Container{
-		Name:    "workload",
+		Name:    workloadContainerName,
 		Image:   ej.Spec.Image,
 		Command: ej.Spec.Command,
 		Args:    ej.Spec.Args,
@@ -526,6 +529,8 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 	if ej.Spec.ImagePullPolicy != "" {
 		container.ImagePullPolicy = ej.Spec.ImagePullPolicy
 	}
+	container.ReadinessProbe = ej.Spec.ReadinessProbe
+	container.LivenessProbe = ej.Spec.LivenessProbe
 	container.Ports = ej.Spec.Ports
 	container.WorkingDir = ej.Spec.WorkingDir
 	if len(ej.Spec.VolumeMounts) > 0 {
@@ -760,6 +765,23 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
 	}
 
+	// Running means the workload serves, not that a pod exists.
+	//
+	// pod.Status.Phase stays Running while a container is dead, because one
+	// healthy sidecar is enough. Reporting that as Running told a caller the
+	// sandbox was up while its harness had exited, so the failure surfaced to
+	// the user as a 502 from the Service rather than as a workload that had not
+	// come up.
+	if !workloadReady(pod) {
+		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
+		ej.Status.Message = "workload container is not ready"
+		ej.Status.PodName = pod.Name
+		if err := r.Status().Update(ctx, ej); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+	}
+
 	r.setPhase(ej, computev1alpha1.PhaseRunning, cap)
 	ej.Status.PodName = pod.Name
 	if ej.Spec.Service != nil {
@@ -913,4 +935,20 @@ func withRequests(c *corev1.Container, cpu, memory string) {
 	if _, ok := c.Resources.Requests[corev1.ResourceMemory]; !ok {
 		c.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(memory)
 	}
+}
+
+
+// workloadReady reports whether the workload container itself is ready.
+//
+// It looks at the workload container by name rather than at the pod phase:
+// a pod carrying a sidecar reports Running as long as ANY container runs, so
+// pod phase cannot distinguish "serving" from "the harness died and the
+// credential broker is still up".
+func workloadReady(p *corev1.Pod) bool {
+	for i := range p.Status.ContainerStatuses {
+		if p.Status.ContainerStatuses[i].Name == workloadContainerName {
+			return p.Status.ContainerStatuses[i].Ready
+		}
+	}
+	return false
 }

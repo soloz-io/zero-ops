@@ -171,6 +171,20 @@ type EphemeralJobSpec struct {
 	// +optional
 	WorkingDir string `json:"workingDir,omitempty"`
 
+	// ReadinessProbe decides whether the workload is fit to receive traffic.
+	//
+	// It is what stops a Service routing to a workload that is present but not
+	// working. Without one, a container that started and then died leaves a pod
+	// that still looks alive — one healthy sidecar is enough for the pod to
+	// report Running — and callers get a 502 from an endpoint the platform is
+	// still advertising.
+	// +optional
+	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
+
+	// LivenessProbe restarts a workload that is running but wedged.
+	// +optional
+	LivenessProbe *corev1.Probe `json:"livenessProbe,omitempty"`
+
 	// ImagePullPolicy for the workload container. A sidecar can already state
 	// its own, so withholding it from the primary was an asymmetry with no
 	// reason behind it.

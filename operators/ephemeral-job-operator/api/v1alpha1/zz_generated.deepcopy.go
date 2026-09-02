@@ -109,6 +109,16 @@ func (in *EphemeralJobSpec) DeepCopyInto(out *EphemeralJobSpec) {
 		*out = make([]v1.ContainerPort, len(*in))
 		copy(*out, *in)
 	}
+	if in.ReadinessProbe != nil {
+		in, out := &in.ReadinessProbe, &out.ReadinessProbe
+		*out = new(v1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.LivenessProbe != nil {
+		in, out := &in.LivenessProbe, &out.LivenessProbe
+		*out = new(v1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Sidecars != nil {
 		in, out := &in.Sidecars, &out.Sidecars
 		*out = make([]v1.Container, len(*in))
