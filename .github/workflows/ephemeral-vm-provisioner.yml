@@ -5,6 +5,14 @@ on:
     branches: [main, feat/**]
     paths:
       - operators/ephemeral-vm-provisioner/**
+      # The workflow watches its own definition.
+      #
+      # Without this a change to the build, the verification steps or the
+      # digest-writing logic triggers no run, so a fix to CI cannot be validated
+      # by CI — the next run happens whenever someone next touches the source,
+      # against a workflow nobody has exercised. A broken gofmt check survived
+      # two commits this way on 2026-09-02.
+      - .github/workflows/ephemeral-vm-provisioner.yml
 
 permissions:
   contents: write
