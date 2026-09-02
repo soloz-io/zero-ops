@@ -1,0 +1,77 @@
+# The migration workload's own egress contract.
+#
+# WHY THIS EXISTS AS A CLASS, NOT AN EXCEPTION
+#
+# A migration has a different trust profile from the application it migrates: it
+# needs the database and schema-changing privileges, and it needs nothing else.
+# Its permissions must therefore be stated in one place a reviewer can read, and
+# must not move because someone changed the SDK's egress requirements.
+#
+# It selects workload-class, NOT tenant-id. tenant-id expresses tenancy,
+# ownership and routing; it is not an authorization boundary, and using it as one
+# is how a workload silently acquires — or silently loses — connectivity that
+# nobody decided to give it.
+#
+# THE OUTAGE THIS CLOSES (2026-09-02)
+#
+# tenant-identity-endpoint-egress is a CiliumClusterwideNetworkPolicy selecting
+# `tenant-id Exists` and permitting port 443 only. commonLabels stamps tenant-id
+# on every workload, so it selected the migration pod — and in Cilium, being
+# selected by ANY policy flips an endpoint to default-deny egress. The migration
+# pod inherited the lockdown and none of the allowances: the contract that does
+# permit 5432 selects `app: sdk`, and this pod is `app: migration`.
+#
+# With no DNS and no 5432 it could not resolve or reach Postgres, so it hung
+# until activeDeadlineSeconds killed it at 600s. pg_stat_activity showed zero
+# sessions throughout — it never connected once. ArgoCD held the PreSync hook,
+# the four Rollouts were never created, their Services had no endpoints, and the
+# tenant's front door answered
+#   upstream call failed: Connect: Operation not permitted (os error 1)
+# which is EPERM from Cilium socket-LB against an endpointless Service. A
+# network-policy gap surfaced as a frontend outage four layers away.
+#
+# WHAT IS DELIBERATELY ABSENT
+#
+# No toEntities: world, and no toFQDNs. stateless-web carries a 443-to-anywhere
+# stopgap because application workloads must reach model providers; a migration
+# talks to one database and must not inherit that widening. If a migration ever
+# needs an external endpoint, add it here explicitly and say why.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: migration-egress-contract
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    cost-center: platform
+spec:
+  # Namespaced, so this is already scoped to one tenant. The class is what makes
+  # the grant intentional; the namespace is what makes it tenant-local.
+  endpointSelector:
+    matchLabels:
+      workload-class: migration
+
+  egress:
+    # 1. DNS. Without this the pod cannot resolve the database host at all, which
+    #    is indistinguishable from a slow migration until the deadline fires.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # 2. The spoke's shared CNPG cluster. Selected by the CNPG cluster label
+    #    rather than a Service name so it follows failover between instances.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform-data
+            k8s:cnpg.io/cluster: shared-cnpg
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

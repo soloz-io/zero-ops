@@ -42,6 +42,21 @@ spec:
     metadata:
       labels:
         app: migration
+        # THE SECURITY IDENTITY, and it must be on the POD, not only the Job.
+        #
+        # This label was already set on the Job object above, where Cilium never
+        # sees it: policies select ENDPOINTS, and an endpoint is a pod. The
+        # classification therefore existed on paper and enforced nothing, so the
+        # migration pod fell through to whatever happened to match it — which on
+        # 2026-09-02 was a clusterwide policy selecting `tenant-id Exists` that
+        # permits port 443 only. It got default-deny egress with no DNS and no
+        # 5432, hung until its 600s deadline, and blocked the tenant's entire
+        # rollout behind a PreSync hook.
+        #
+        # network-policy.yaml in this base grants this class DNS and the CNPG
+        # cluster. The label and that contract are one unit: neither is useful
+        # without the other, which is why they live in the same base.
+        workload-class: migration
     spec:
       serviceAccountName: migration-sa
       restartPolicy: Never
