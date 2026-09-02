@@ -247,11 +247,13 @@ func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
 			"email":     traits["email"],
 			"role":      traits["role"],
 			"tenant_id": traits["tenant_id"],
+			"groups":    traits["groups"],
 		},
 		"access_token": map[string]interface{}{
 			"email":     traits["email"],
 			"role":      traits["role"],
 			"tenant_id": traits["tenant_id"],
+			"groups":    traits["groups"],
 		},
 	}
 

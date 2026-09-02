@@ -97,7 +97,7 @@ func (k *KratosClient) GetIdentityTraits(identityID string) (map[string]interfac
 	}
 	// Deliberately last: metadata_public wins over a trait of the same name, so an
 	// identity created before this split cannot re-assert a self-declared role.
-	for _, k := range []string{"role", "tenant_id"} {
+	for _, k := range []string{"role", "tenant_id", "groups"} {
 		if v, ok := identity.MetadataPublic[k]; ok {
 			attrs[k] = v
 		} else {

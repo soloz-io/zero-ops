@@ -12,6 +12,7 @@ type User struct {
 	Name      string                 `json:"name,omitempty"`
 	TenantID  string                 `json:"tenant_id,omitempty"`
 	Roles     []string               `json:"roles,omitempty"`
+	Groups    []string               `json:"groups,omitempty"`
 	Password  string                 `json:"password,omitempty"` // Only used during creation
 	Traits    map[string]interface{} `json:"traits"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
@@ -25,6 +26,7 @@ type UserUpdates struct {
 	Email    *string                 `json:"email,omitempty"`
 	Name     *string                 `json:"name,omitempty"`
 	Roles    *[]string               `json:"roles,omitempty"`
+	Groups   *[]string               `json:"groups,omitempty"`
 	Traits   map[string]interface{}  `json:"traits,omitempty"`
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 }

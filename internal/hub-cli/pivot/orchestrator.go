@@ -511,18 +511,21 @@ func (o *Orchestrator) waitForCAPICRDs(ctx context.Context, kubeconfig string, t
 				"clusters.cluster.x-k8s.io",
 				"machines.cluster.x-k8s.io",
 				"machinedeployments.cluster.x-k8s.io",
-				// clusterctl's own inventory. `clusterctl move` reads it to build
-				// the object graph and fails outright without it:
-				//   failed get providers: no matches for kind "Provider" in
-				//   version "clusterctl.cluster.x-k8s.io/v1alpha3"
+				// NOT waited on here: providers.clusterctl.cluster.x-k8s.io.
+				// 96368f91 added it on the premise that cluster-api-operator
+				// creates it asynchronously. It does not. That CRD is a
+				// `clusterctl init` artifact, and this platform initialises via
+				// the operator, whose install.yaml defines seven CRDs, all in the
+				// operator.cluster.x-k8s.io group. Verified absent on both the
+				// kind source and the pivoted hub while every provider read Ready,
+				// so the wait could only ever time out at 5m and made a working
+				// bootstrap fail 100% of the time.
 				//
-				// It is created by cluster-api-operator, not by anything in this
-				// repo, and it appears asynchronously after the operator settles —
-				// so a move issued too soon races it. That race is invisible when
-				// it wins and fatal when it loses, which is why it read as an
-				// intermittent pivot failure. Waiting here makes the dependency
-				// explicit instead of leaving it to timing.
-				"providers.clusterctl.cluster.x-k8s.io",
+				// If `clusterctl move` fails with
+				//   no matches for kind "Provider" in version
+				//   "clusterctl.cluster.x-k8s.io/v1alpha3"
+				// the inventory is genuinely missing on the SOURCE and must be
+				// created there — blocking on the target cannot supply it.
 			),
 		},
 		Interval: 10 * time.Second,

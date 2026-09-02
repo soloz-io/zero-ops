@@ -11,6 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ControlPlane is the central coordinator for tenant management, authentication,
@@ -231,10 +233,59 @@ func (cp *ControlPlane) bootstrapAdmin(ctx context.Context) error {
 	if cp.cfg.SystemAdminEmail == "" {
 		return nil
 	}
-	return cp.auth.CreateAdminUser(ctx, models.CreateAdminUserProps{
+	if err := cp.auth.CreateAdminUser(ctx, models.CreateAdminUserProps{
 		Email: cp.cfg.SystemAdminEmail,
 		Name:  cp.cfg.SystemAdminName,
-	})
+	}); err != nil {
+		return err
+	}
+	// Sync group assignments from Git ConfigMap
+	return cp.syncUserGroups(ctx)
+}
+
+// userGroupsConfig is the structure of the groups.yaml data in the ConfigMap.
+type userGroupsConfig struct {
+	Users []struct {
+		Email  string   `yaml:"email"`
+		Groups []string `yaml:"groups"`
+	} `yaml:"users"`
+}
+
+// syncUserGroups reads the identity-user-groups ConfigMap and sets groups on
+// each user's metadata_public in Kratos. This runs on every bootstrap to
+// ensure group assignments stay in sync with the Git source of truth.
+func (cp *ControlPlane) syncUserGroups(ctx context.Context) error {
+	if cp.cfg.K8sClient == nil {
+		log.Println("controlplane: skipping user groups sync (no k8s client)")
+		return nil
+	}
+
+	cm, err := cp.cfg.K8sClient.CoreV1().ConfigMaps("platform-identity").Get(ctx, cp.cfg.UserGroupsCM, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("controlplane: user groups ConfigMap not found, skipping: %v", err)
+		return nil
+	}
+
+	data, ok := cm.Data[cp.cfg.UserGroupsKey]
+	if !ok {
+		log.Printf("controlplane: key %q not found in ConfigMap %s, skipping", cp.cfg.UserGroupsKey, cp.cfg.UserGroupsCM)
+		return nil
+	}
+
+	var cfg userGroupsConfig
+	if err := yaml.Unmarshal([]byte(data), &cfg); err != nil {
+		return fmt.Errorf("controlplane: parse user groups: %w", err)
+	}
+
+	for _, u := range cfg.Users {
+		if err := cp.auth.SetUserGroups(ctx, u.Email, u.Groups); err != nil {
+			log.Printf("controlplane: set groups for %s: %v", u.Email, err)
+			continue
+		}
+		log.Printf("controlplane: synced groups for %s: %v", u.Email, u.Groups)
+	}
+
+	return nil
 }
 
 // ─── Event subscriptions (Application Plane → Control Plane) ─────────────────

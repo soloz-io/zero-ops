@@ -101,6 +101,17 @@ func (a *Auth) ListUsers(ctx context.Context, tenantID, page, pageSize string) (
 	return a.kratos.listIdentities(ctx, filters)
 }
 
+func (a *Auth) SetUserGroups(ctx context.Context, email string, groups []string) error {
+	user, err := a.kratos.findUserByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+	updates := models.UserUpdates{
+		Groups: &groups,
+	}
+	return a.kratos.updateIdentity(ctx, user.ID, updates)
+}
+
 // ─── Session Management ──────────────────────────────────────────────────────
 
 func (a *Auth) ValidateSession(ctx context.Context, token string) (*models.Session, error) {

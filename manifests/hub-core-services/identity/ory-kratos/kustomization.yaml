@@ -5,3 +5,4 @@ resources:
   - kratos-smtp-credentials-es.yaml
   - identity-schema-configmap.yaml
   - network-policy.yaml
+  - ../user-groups.yaml

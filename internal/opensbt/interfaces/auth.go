@@ -14,6 +14,7 @@ type IAuth interface {
 	UpdateUser(ctx context.Context, userID string, updates models.UserUpdates) (*models.User, error)
 	DeleteUser(ctx context.Context, userID string) error
 	ListUsers(ctx context.Context, tenantID, page, pageSize string) ([]models.User, error)
+	SetUserGroups(ctx context.Context, email string, groups []string) error
 
 	// Session Management
 	ValidateSession(ctx context.Context, token string) (*models.Session, error)

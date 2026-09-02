@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"k8s.io/client-go/kubernetes"
 )
 
 // Config holds all dependencies and settings for the Control Plane.
@@ -22,12 +23,19 @@ type Config struct {
 	SecretManager interfaces.ISecretManager
 	SystemAdmin   interfaces.ISystemAdmin
 
+	// Kubernetes client for reading ConfigMaps during bootstrap
+	K8sClient kubernetes.Interface
+
 	// HTTP server
 	APIPort int // default 8080
 
 	// System admin bootstrap (created on first Start if non-empty)
 	SystemAdminEmail string
 	SystemAdminName  string
+
+	// User groups ConfigMap (synced to Kratos on bootstrap)
+	UserGroupsCM  string // default "identity-user-groups"
+	UserGroupsKey string // default "groups.yaml"
 
 	// CORS — allowed origins; empty means same-origin only
 	AllowedOrigins []string
@@ -55,5 +63,11 @@ func (c *Config) defaults() {
 	}
 	if c.ShutdownTimeout == 0 {
 		c.ShutdownTimeout = 30 * time.Second
+	}
+	if c.UserGroupsCM == "" {
+		c.UserGroupsCM = "identity-user-groups"
+	}
+	if c.UserGroupsKey == "" {
+		c.UserGroupsKey = "groups.yaml"
 	}
 }

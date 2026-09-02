@@ -64,6 +64,9 @@ func (k *kratosClient) createIdentity(ctx context.Context, u models.User) error 
 		// plural. Collapsing here keeps the wire shape one thing rather than two.
 		metadata["role"] = u.Roles[0]
 	}
+	if len(u.Groups) > 0 {
+		metadata["groups"] = u.Groups
+	}
 
 	payload := map[string]interface{}{
 		"schema_id": "default",
@@ -117,6 +120,9 @@ func (k *kratosClient) updateIdentity(ctx context.Context, userID string, u mode
 	if u.Roles != nil {
 		existing.Roles = *u.Roles
 	}
+	if u.Groups != nil {
+		existing.Groups = *u.Groups
+	}
 	if u.Metadata != nil {
 		existing.Metadata = *u.Metadata
 	}
@@ -129,6 +135,9 @@ func (k *kratosClient) updateIdentity(ctx context.Context, userID string, u mode
 	metadata["tenant_id"] = existing.TenantID
 	if len(existing.Roles) > 0 {
 		metadata["role"] = existing.Roles[0]
+	}
+	if len(existing.Groups) > 0 {
+		metadata["groups"] = existing.Groups
 	}
 
 	payload := map[string]interface{}{
@@ -214,6 +223,19 @@ func (k *kratosClient) listIdentities(ctx context.Context, f models.UserFilters)
 	return users, nil
 }
 
+func (k *kratosClient) findUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	users, err := k.listIdentities(ctx, models.UserFilters{})
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range users {
+		if u.Email == email {
+			return &u, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found: %s", email)
+}
+
 func kratosToUser(id kratosIdentity) *models.User {
 	// The assignments are read back from metadata_public, where this service writes
 	// them, not from traits. Traits fall back only for identities created before the
@@ -227,12 +249,21 @@ func kratosToUser(id kratosIdentity) *models.User {
 	if v, ok := id.MetadataPublic["role"].(string); ok && v != "" {
 		roles = []string{v}
 	}
+	var groups []string
+	if g, ok := id.MetadataPublic["groups"].([]interface{}); ok {
+		for _, v := range g {
+			if s, ok := v.(string); ok {
+				groups = append(groups, s)
+			}
+		}
+	}
 	return &models.User{
 		ID:       id.ID,
 		Email:    id.Traits.Email,
 		Name:     id.Traits.Name,
 		TenantID: tenantID,
 		Roles:    roles,
+		Groups:   groups,
 		Metadata: id.MetadataPublic,
 		Active:   id.State == "active",
 	}
