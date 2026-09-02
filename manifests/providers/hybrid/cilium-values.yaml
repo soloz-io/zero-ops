@@ -115,7 +115,35 @@ socketLB:
   enabled: false
 proxy:
   useOriginalSourceAddress: false
+# Hubble is the L7 record for this cluster, and until now it was agent-local
+# only: flows existed on each node and were queryable nowhere.
+#
+# That gap has a concrete cost. A gateway 503 — "upstream connect error ...
+# reset reason: connection timeout" — is emitted by Envoy, which Cilium runs
+# without stdout access logging, so the request appears in no log anywhere: not
+# in agentgateway's (it never arrived), not in Envoy's (not written), not in the
+# tenant's. Diagnosis reduces to what the browser happened to show, which is how
+# a real 503 on /oauth/callback became unattributable on 2026-09-02.
+#
+# relay makes the per-node ring buffers queryable from one place. The http
+# metrics turn 5xx into a countable series, so a gateway failure becomes
+# alertable rather than something a person has to be looking at to catch.
+#
+# NOTE: enabling metrics changes the agent DaemonSet and therefore rolls it.
+# The embedded-Envoy hot-restart wedge that made agent restarts dangerous is
+# already mitigated by running Envoy standalone (see the envoy block above).
 hubble:
   enabled: true
+  relay:
+    enabled: true
+  metrics:
+    enabled:
+      # Status code is the field that was missing. destinationContext gives the
+      # workload behind a failing request, without which a 5xx series says only
+      # that something failed somewhere.
+      - "http:destinationContext=workload-name|pod-name;sourceContext=workload-name|pod-name"
+      - flow
+      - drop
+      - tcp
 operator:
   replicas: 2
