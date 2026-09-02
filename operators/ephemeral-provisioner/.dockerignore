@@ -1,0 +1,9 @@
+.git/
+bin/
+config/
+test/
+*.md
+Makefile
+PROJECT
+go.work*
+vendor/
