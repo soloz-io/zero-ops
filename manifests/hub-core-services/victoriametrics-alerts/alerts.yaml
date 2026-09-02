@@ -129,3 +129,83 @@ spec:
       annotations:
         summary: "CNPG cluster {{ $labels.cluster }} is not healthy"
         description: "CNPG cluster {{ $labels.cluster }} in namespace {{ $labels.namespace }} status: {{ $labels.status }}"
+
+  # GitOps delivery. Every alert here fires on a condition that today reads as
+  # healthy on every dashboard while nothing the commit introduced reaches the
+  # cluster (see .agents/spec/enhancements/2026-09-02.md §1 and §4).
+  #
+  # On 2026-09-02 a ClusterClass sat five days stale while its Application
+  # reported Synced at current HEAD, and delivery required forcing a sync by
+  # hand six times in one session. None of that was visible without going and
+  # looking at a specific field.
+  - name: platform.gitops.delivery
+    interval: 60s
+    rules:
+    # The controller cannot determine desired state at all.
+    #
+    # This is the one unambiguous signal: ArgoCD is SAYING it cannot render the
+    # manifests, usually because it cannot reach argocd-repo-server. With no
+    # target state it cannot diff, automated sync cannot run, and any sync that
+    # does execute applies a stale cached manifest set — reporting success.
+    #
+    # 15m rather than immediately: the underlying fault is intermittent DNS, and
+    # a comparison that recovers on its own is not worth waking anyone for. One
+    # that persists means delivery has stopped.
+    - alert: ArgoCDComparisonError
+      expr: |
+        argocd_app_info{health_status="",sync_status=""} > 0
+        or on() (
+          count(argocd_app_condition{type="ComparisonError"} > 0) > 0
+        )
+      for: 15m
+      labels:
+        severity: critical
+        component: gitops
+      annotations:
+        summary: "ArgoCD cannot load target state for {{ $labels.name }}"
+        description: >-
+          The application controller cannot generate manifests, so it has no
+          desired state to compare against. Auto-sync cannot run and any sync
+          that does execute applies stale cached manifests while reporting
+          success. Check argocd-repo-server reachability from
+          argocd-application-controller — DNS resolution of argocd-repo-server
+          has been the cause every time so far.
+
+    # Sync operations that never finish.
+    #
+    # A sync stuck at Running pins the application to the revision it started
+    # on, so a newer commit cannot begin — the app keeps reporting the old
+    # revision as in-progress and nothing says why. Observed waiting on hook
+    # Jobs that had completed eleven minutes earlier.
+    - alert: ArgoCDSyncStuck
+      expr: |
+        argocd_app_info{operation_phase="Running"} > 0
+      for: 30m
+      labels:
+        severity: warning
+        component: gitops
+      annotations:
+        summary: "ArgoCD sync for {{ $labels.name }} has been running for 30m"
+        description: >-
+          A sync operation that does not finish blocks every later revision for
+          this application. Check status.operationState.message: a wait on hooks
+          that have already completed, or a resource whose health never
+          resolves, both present this way.
+
+    # Persistently OutOfSync with auto-sync enabled.
+    #
+    # Auto-sync exists so this state is transient. An application that stays
+    # OutOfSync for an hour is one where automated delivery has stopped working
+    # and nobody has been told.
+    - alert: ArgoCDOutOfSyncPersistent
+      expr: |
+        argocd_app_info{sync_status="OutOfSync",autosync_enabled="true"} > 0
+      for: 60m
+      labels:
+        severity: warning
+        component: gitops
+      annotations:
+        summary: "{{ $labels.name }} has been OutOfSync for an hour with auto-sync on"
+        description: >-
+          Auto-sync is enabled and has not converged. Git and the cluster
+          disagree about this application and nothing is correcting it.
