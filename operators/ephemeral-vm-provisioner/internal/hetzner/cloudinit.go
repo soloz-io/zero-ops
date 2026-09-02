@@ -48,12 +48,12 @@ type OutputSpec struct {
 // JobPayload is the shape of ephemeral_jobs.payload written by the SDK's
 // submit-ephemeral-job transition step.
 type JobPayload struct {
-	Image             *string                `json:"image"`
-	Command           []string               `json:"command,omitempty"`
-	Args              []string               `json:"args,omitempty"`
-	Env               map[string]string      `json:"env,omitempty"`
-	ModelsVolume      *bool                  `json:"modelsVolume,omitempty"`
-	ModelsVolumeKebab *bool                  `json:"models-volume,omitempty"`
+	Image             *string           `json:"image"`
+	Command           []string          `json:"command,omitempty"`
+	Args              []string          `json:"args,omitempty"`
+	Env               map[string]string `json:"env,omitempty"`
+	ModelsVolume      *bool             `json:"modelsVolume,omitempty"`
+	ModelsVolumeKebab *bool             `json:"models-volume,omitempty"`
 	Resources         *struct {
 		CPU    *int    `json:"cpu"`
 		Memory *string `json:"memory"`
