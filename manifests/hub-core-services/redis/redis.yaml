@@ -65,6 +65,25 @@ spec:
     spec:
       accessModes: ["ReadWriteOnce"]
       volumeMode: Filesystem
+      # DECLARED, not left to the cluster default.
+      #
+      # platform-redis runs on a home-lab worker (workload-location=home), and
+      # hcloud-csi excludes home workers (ADR-046 §11) — local-path is the only
+      # class that can bind there, so this is not a preference but the one
+      # correct value for where this pod runs.
+      #
+      # Omitting it did NOT mean "no storage class": the API server defaulted it
+      # to local-path and wrote that into the live object. volumeClaimTemplates
+      # is IMMUTABLE, so from then on the manifest could never be applied — the
+      # desired spec (no class) permanently differed from the live spec (a class
+      # it never asked for). Client-side diff hid this as ordinary OutOfSync;
+      # server-side diff surfaced it as
+      #   Forbidden: updates to statefulset spec for fields other than
+      #   'replicas', 'ordinals', 'template', ... are forbidden
+      #
+      # A defaulted field inside an immutable block has to be written down, or
+      # the manifest and the cluster disagree forever by construction.
+      storageClassName: local-path
       resources:
         requests:
           storage: 5Gi
