@@ -40,6 +40,21 @@ rules:
       - machinepools
       - machinepools/scale
     verbs: ["get", "list", "watch", "update", "patch"]
+  # The infrastructure templates behind each node group.
+  #
+  # Scale-from-zero needs them: with the pool at 0 there is no real node to
+  # inspect, so the autoscaler reads what a node WOULD look like from the
+  # capacity.cluster-autoscaler.kubernetes.io/* annotations on the infra
+  # template. Without this it logs a forbidden error in a loop and never
+  # registers the group.
+  #
+  # Wildcarded on resources, not on verbs, and read-only. The infra kind is
+  # provider-specific — HCloudMachineTemplate here, something else on another
+  # provider — so naming it would make this RBAC silently wrong the day a second
+  # provider is added, which is exactly when nobody would be looking at it.
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
   # Leader election, so two replicas can never both decide the node count.
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
