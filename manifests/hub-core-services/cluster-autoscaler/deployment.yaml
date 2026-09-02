@@ -83,6 +83,22 @@ spec:
             # idle CPU. With one burst group it is not yet load-bearing; it is
             # set now so adding a second group does not silently change how the
             # first is chosen.
+            # Consider burst pods at all.
+            #
+            # Pods with priority BELOW this cutoff are treated as expendable and
+            # excluded from scale-up: the autoscaler reports "No unschedulable
+            # pods" and does nothing, whatever is actually pending. The default
+            # is -10, and ADR-052 §5 deliberately places burst-tenant at -1000
+            # so burst work can never preempt platform infrastructure — so every
+            # burst pod fell below it, and the pool would never have grown for
+            # the workload it exists to serve.
+            #
+            # This value MUST stay below the burst-tenant PriorityClass. The two
+            # are coupled the same way the burst node's taint is coupled to the
+            # capacity annotations, and with the same failure mode: no error,
+            # just a pod that pends forever while the autoscaler logs that it
+            # sees nothing to do.
+            - --expendable-pods-priority-cutoff=-1001
             - --expander=least-waste
             - --scale-down-enabled=true
             # A burst node costs by the hour, so an idle one is money. These are
