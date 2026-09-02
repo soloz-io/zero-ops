@@ -1,6 +1,20 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
+  # Sync-wave 0, one wave AFTER s3-credentials-es (-1).
+  #
+  # On 2026-09-02 this Cluster's pod started at 12:29:06, BEFORE ESO had
+  # materialised the s3-credentials Secret, and the instance manager logged
+  #   while getting backup credentials: secrets "s3-credentials" not found
+  # from shouldUpdateWALArchiveSettingsCache. That cache is populated once at
+  # instance reconcile; having missed it, every subsequent wal-archive failed
+  # with "failed to get envs: cache miss" and did NOT retry itself — the
+  # database ran healthy for 3.5 hours archiving nothing.
+  #
+  # The wave makes the credential a precondition rather than a race: ArgoCD
+  # will not apply this until the ExternalSecret ahead of it reports Ready.
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
   name: platform-db
   namespace: platform-data
 spec:
@@ -101,6 +115,23 @@ spec:
       # local-path data (see .agents/spec/enhancements/2026-08-30.md items 1
       # and 13), so this collides every time unless the name is bumped.
       # BUMP THE SUFFIX whenever the cluster is recreated from initdb.
+      # STILL v2, deliberately, and this is NOT clean — read before changing it.
+      #
+      # The hub was rebuilt from initdb on 2026-09-02 without bumping this, so
+      # barman refused every archive:
+      #   WAL archive check failed for server platform-db-v2: Expected empty archive
+      # That guard exists to stop two databases interleaving WALs under one
+      # server name. It was bypassed during recovery on 2026-09-02, and this
+      # cluster now archives into v2 alongside a previous incarnation's WALs
+      # (firstRecoverabilityPoint 2026-08-31). Recovery by explicit backupID is
+      # still well defined; a bare "latest" restore over that prefix is not.
+      #
+      # Do NOT bump this mid-life to tidy it up. check-wal-archive only runs
+      # before a cluster's first archive, so changing the name on a running
+      # cluster re-arms the guard against a prefix that may not be empty and
+      # stops archiving again — trading a working backup for a broken one.
+      # Bump it as part of the NEXT recreation from initdb, where the archive
+      # is empty by construction, and use a name that cannot collide.
       serverName: platform-db-v2
       endpointURL: https://hel1.your-objectstorage.com
       s3Credentials:
