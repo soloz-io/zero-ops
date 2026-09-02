@@ -98,12 +98,38 @@ func (k *KratosClient) GetIdentityTraits(identityID string) (map[string]interfac
 	// Deliberately last: metadata_public wins over a trait of the same name, so an
 	// identity created before this split cannot re-assert a self-declared role.
 	for _, k := range []string{"role", "tenant_id", "groups"} {
-		if v, ok := identity.MetadataPublic[k]; ok {
-			attrs[k] = v
-		} else {
+		v, ok := identity.MetadataPublic[k]
+		if !ok || isEmptyClaim(v) {
 			delete(attrs, k)
+			continue
 		}
+		attrs[k] = v
 	}
 
 	return attrs, nil
+}
+
+// isEmptyClaim reports whether a metadata value carries no information.
+//
+// An identity with no tenant stores tenant_id as "" rather than omitting the
+// key, so a plain presence check emitted the claim with an empty value. That is
+// worse than omitting it: a consumer sees a tenant_id it cannot use, and the
+// error it produces names a MISSING claim for one that was present.
+//
+// On 2026-09-02 a platform admin — who correctly has no tenant — was rejected
+// with "Token missing required tenant_id claim" on every request, and the claim
+// was in the token all along, empty. Omitting it makes the token say what is
+// true, and lets a validator distinguish "no tenant" from "wrong tenant".
+func isEmptyClaim(v interface{}) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case []interface{}:
+		return len(t) == 0
+	case []string:
+		return len(t) == 0
+	}
+	return false
 }

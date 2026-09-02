@@ -20,6 +20,30 @@ export interface JwtValidatorOptions {
   algorithms?: string[];
   /** JWKS cache options */
   jwksCache?: Partial<import("./jwks-cache.js").JwksCacheOptions>;
+  /**
+   * Require a tenant_id claim. Default true.
+   *
+   * Set false only for a validator guarding a platform-scoped surface where no
+   * identity is expected to carry a tenant. A tenant-scoped service must leave
+   * this on: without it, a token minted for no tenant is accepted wherever
+   * tenant isolation is the boundary.
+   */
+  requireTenantId?: boolean;
+  /**
+   * Groups that mark an identity as platform-scoped, and therefore exempt from
+   * the tenant_id requirement. Default ["platform_admins"].
+   *
+   * This exists because the two facts were mutually exclusive: a platform admin
+   * must NOT belong to a tenant, and every token had to carry a tenant_id. An
+   * admin could therefore either authenticate or be correctly modelled, never
+   * both — the observed failure was a permanent 401 with
+   * "Token missing required tenant_id claim" for a correctly-configured admin.
+   *
+   * Exempting by GROUP rather than by disabling the check keeps tenant isolation
+   * intact for everyone else: a token with neither a tenant nor a platform group
+   * is still rejected.
+   */
+  platformGroups?: string[];
 }
 
 export class JwtValidator {
@@ -27,11 +51,15 @@ export class JwtValidator {
   private readonly issuer?: string;
   private readonly audience?: string;
   private readonly algorithms: string[];
+  private readonly requireTenantId: boolean;
+  private readonly platformGroups: string[];
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
     this.audience = opts.audience;
     this.algorithms = opts.algorithms ?? ["RS256", "ES256"];
+    this.requireTenantId = opts.requireTenantId ?? true;
+    this.platformGroups = opts.platformGroups ?? ["platform_admins"];
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -64,7 +92,15 @@ export class JwtValidator {
       const { payload } = await jose.jwtVerify(token, key, verifyOptions);
       const claims = claimsFromPayload(payload as Record<string, unknown>);
 
-      if (!claims.tenant_id) {
+      // A platform-scoped identity has no tenant by design, so its absent
+      // tenant_id is correct rather than missing. Checked by group so the
+      // exemption is a property of the identity, not a per-service opt-out that
+      // would also admit genuinely tenant-less tokens.
+      const platformScoped = claims.groups.some((g) =>
+        this.platformGroups.includes(g),
+      );
+
+      if (this.requireTenantId && !claims.tenant_id && !platformScoped) {
         throw new AuthError({
           code: "MISSING_TENANT_ID",
           message: "Token missing required tenant_id claim",
