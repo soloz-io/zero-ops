@@ -4,23 +4,33 @@
 # tenant workload base netpol. This cluster-wide policy default-denies them:
 # DNS + public-internet egress only (agent-vault proxy + harness), no
 # cluster-internal access.
-# Sandbox pods are selected by agents.x-k8s.io/sandbox-name-hash, which the
-# agent-sandbox CONTROLLER sets on every pod it creates.
+# Sandbox pods are selected by agents.x-k8s.io/sandbox, which the platform's
+# ephemeral-job-operator sets on every sandbox pod it authors.
 #
-# This previously selected on agents.x-k8s.io/sandbox: "true", the label the SDK
-# puts in the Sandbox CR's podTemplate. That label never reaches the pod: the
-# controller owns the agents.x-k8s.io/ label space and replaces it with
-# agents.x-k8s.io/sandbox-name-hash. Verified 2026-08-31 on a live sandbox — the
-# CR's podTemplate carried {agents.x-k8s.io/sandbox: "true"} while the resulting
-# pod carried only {agents.x-k8s.io/sandbox-name-hash: <hash>, ...}.
+# This has now been wrong in BOTH directions, and the reason is the same each
+# time: the selector must name the label whichever component authors the pod
+# actually sets.
 #
-# The selector therefore matched nothing and this default-deny policy governed
-# no pods. Nothing reported an error, because a CiliumClusterwideNetworkPolicy
-# that selects zero endpoints is healthy — it is simply inert.
+# It first selected agents.x-k8s.io/sandbox: "true" while the upstream
+# agent-sandbox controller authored the pod. That controller owns the
+# agents.x-k8s.io/ label space and replaced it with
+# agents.x-k8s.io/sandbox-name-hash, so the selector matched nothing (verified
+# 2026-08-31 on a live sandbox). It was changed to select the hash.
 #
-# Selecting on the controller's own label is also the more robust choice: it is
-# present because the pod IS a sandbox, so it cannot be omitted by an SDK that
-# forgets it or by a fleet that would rather not be policed.
+# ADR-052's 2026-09-02 amendment moved authorship to the ephemeral-job-operator,
+# which propagates the request's own labels onto the pod. The hash is no longer
+# set by anything, so selecting it matched nothing again — verified on a live
+# sandbox pod carrying {agents.x-k8s.io/sandbox: "true", ...} and no hash.
+#
+# Both failures are silent. A CiliumClusterwideNetworkPolicy selecting zero
+# endpoints is Healthy; it is simply inert, and the pods it should default-deny
+# run unconstrained with nothing in error. A selector that matches nothing is
+# indistinguishable from one that matches everything it should, so this file
+# should not be trusted on the strength of its status.
+#
+# The label is now platform-set, on a pod the platform authors, which is the
+# strongest arrangement available: it is present because the operator put it
+# there, and a fleet cannot omit it to escape the policy.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -28,7 +38,7 @@ metadata:
 spec:
   endpointSelector:
     matchExpressions:
-      - key: agents.x-k8s.io/sandbox-name-hash
+      - key: agents.x-k8s.io/sandbox
         operator: Exists
 
   egress:

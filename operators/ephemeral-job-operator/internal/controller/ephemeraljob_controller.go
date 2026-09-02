@@ -566,8 +566,26 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		sidecars = append(sidecars, c)
 	}
 
+	// Never for a job; Always for a service.
+	//
+	// A batch workload that exits non-zero has failed and the Job controller
+	// decides whether to retry, so restarting the container underneath it would
+	// hide the outcome. A Service-mode workload is the opposite: it is expected
+	// to keep running, and a transient startup failure must not be terminal.
+	//
+	// This was Never for both, and the cost was immediate. A sandbox scheduled
+	// onto a burst node 60 seconds old lost the DNS race — cluster DNS had not
+	// converged for the new node — and the harness exited 3 on
+	// "Temporary failure in name resolution". With Never it stayed dead, so the
+	// pod existed, the CR read Running, and the sandbox was permanently broken.
+	// Cold-start races are inherent to scale-from-zero, so recovery has to be.
+	restart := corev1.RestartPolicyNever
+	if ej.Spec.Mode == computev1alpha1.ModeService {
+		restart = corev1.RestartPolicyAlways
+	}
+
 	spec := corev1.PodSpec{
-		RestartPolicy: corev1.RestartPolicyNever,
+		RestartPolicy: restart,
 
 		// ── ADR-052 §4: placement, written by the component that authors the
 		// pod. There is no fleet-supplied input to any of these three fields.
