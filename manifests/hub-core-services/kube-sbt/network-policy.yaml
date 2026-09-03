@@ -52,6 +52,26 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  # The identity provider's API, over HTTPS.
+  #
+  # Needed because the issuer is reached at its PUBLIC URL, not an in-cluster
+  # address: the URL is what relying parties are configured with and what a
+  # token's iss claim must equal, so this service resolves and calls the same
+  # name everything else does. That makes the call leave the cluster and come
+  # back through the gateway, which the rules below — written when the provider
+  # was an in-cluster Service on 4433 — never had to allow.
+  #
+  # Its absence did not deny anything visibly. The connection hung until the
+  # caller's own timeout, surfacing on the operator as "context deadline
+  # exceeded" against the identity service, which points at the wrong component
+  # entirely.
+  #
+  # Not narrowed to an IP. The issuer is a hostname whose address is the
+  # environment's ingress and can change; pinning it here would substitute a
+  # silent breakage on renumbering for the one above.
+  - ports:
+    - protocol: TCP
+      port: 443
   # Allow Ory Kratos and NATS (ports-only: Cilium evaluates NetworkPolicy BEFORE
   # service DNAT; ClusterIPs match no namespace selector. Ports constrain scope.)
   - ports:
