@@ -389,6 +389,31 @@ data:
   # API call, with nothing naming the issuer. Referencing this key means an
   # issuer change moves the gateway and every workload that trusts it together.
   OIDC_ISSUER_URL: {{ $issuer }}
+  # The audience a fleet must REQUIRE on the id_token AgentGateway forwards.
+  #
+  # It is the tenant's own OAuth client id — the same $clientId the gateway
+  # authenticates with, so the token this names and the token that arrives are
+  # minted from one value. Published because the fleet cannot derive it any more:
+  # under Hydra it was <tenant>-public-client and could be spelled out, but a
+  # Zitadel client id is an opaque number the platform looks up.
+  #
+  # Validating aud is load-bearing, not hygiene: it is what stops a token minted
+  # for a different client being replayed here.
+  OIDC_CLIENT_ID: {{ $clientId | quote }}
+  # Where to fetch the signing keys.
+  #
+  # NOT derivable from the issuer, which is why it is published rather than
+  # assembled. Hydra serves <issuer>/.well-known/jwks.json; Zitadel serves
+  # <issuer>/oauth/v2/keys and returns 404 for the well-known path. A consumer
+  # that appends the conventional suffix therefore fails against Zitadel with
+  #
+  #   Token validation failed: Expected 200 OK from the JSON Web Key Set HTTP response
+  #
+  # which reads as an unreachable issuer rather than a wrong path.
+  #
+  # Supplied by the environment alongside the issuer, defaulting to the
+  # conventional suffix so a Hydra environment needs no new value.
+  OIDC_JWKS_URL: {{ .Values.oidcJwksUrl | default (printf "%s/.well-known/jwks.json" $issuer) }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

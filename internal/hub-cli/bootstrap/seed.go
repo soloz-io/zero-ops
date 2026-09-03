@@ -135,7 +135,7 @@ spec:
 // than passed to a one-shot render. They are the cluster's identity, fixed at
 // creation, and being part of a reconciled object they survive rather than
 // having to be re-supplied by whoever last ran a render.
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer string) string {
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL string) string {
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -163,6 +163,8 @@ spec:
           value: %q
         - name: oidcIssuer
           value: %q
+        - name: oidcJwksUrl
+          value: %q
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops
@@ -172,7 +174,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer)
+`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -231,6 +233,17 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	}
 	oidcIssuer := "https://" + DeriveHubEndpoints(zone).ID
 
+	// Zitadel publishes its signing keys at /oauth/v2/keys and returns 404 for
+	// the conventional /.well-known/jwks.json. Passed explicitly rather than
+	// left to the chart's default, which is Hydra's path: appending the
+	// conventional suffix to a Zitadel issuer fails as
+	//
+	//   Token validation failed: Expected 200 OK from the JSON Web Key Set HTTP response
+	//
+	// which names neither the path nor the provider and reads as an unreachable
+	// issuer. Tied to the same issuer variable so the two cannot disagree.
+	oidcJwksURL := oidcIssuer + "/oauth/v2/keys"
+
 	publicTlsIssuer, err := o.publicTlsIssuerFor()
 	if err != nil {
 		return err
@@ -250,7 +263,7 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	}
 
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
-		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer)
+		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}

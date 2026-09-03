@@ -63,6 +63,13 @@ oidcIssuer: ""
 # environment is unaffected and this stays additive rather than a migration.
 oidcClientIds: {}
 
+# Where the issuer publishes its signing keys. Environment-owned like oidcIssuer.
+#
+# Empty falls back to <issuer>/.well-known/jwks.json, which is Hydra's path and
+# was the only one this platform had. Zitadel serves /oauth/v2/keys and answers
+# 404 for the conventional path, so an environment on Zitadel must set this.
+oidcJwksUrl: ""
+
 gateway:
   enabled: false
   # Hostnames this fleet answers on. The first is the browser-facing host and is

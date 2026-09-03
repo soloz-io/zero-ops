@@ -100,3 +100,9 @@ oidcIssuer: ""
 # Empty leaves every tenant on the derived identifier, which is what a
 # Hydra-backed environment wants, so this is inert until an environment fills it.
 oidcClientIds: {}
+
+# Where the issuer publishes its signing keys. Empty falls back to the
+# conventional <issuer>/.well-known/jwks.json, which is Hydra's path; Zitadel
+# serves /oauth/v2/keys and 404s the conventional one, so a Zitadel environment
+# must set this or every token fails to validate.
+oidcJwksUrl: ""

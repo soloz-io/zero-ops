@@ -149,6 +149,8 @@ spec:
               # set, rather than merging with it.
               - name: oidcIssuer
                 value: {{ .Values.oidcIssuer | quote }}
+              - name: oidcJwksUrl
+                value: {{ .Values.oidcJwksUrl | quote }}
 {{- if .Values.oidcClientIds }}
             # A map, so it cannot go through `parameters` — those are flat
             # name/value strings. Passed as a values block instead, which merges
