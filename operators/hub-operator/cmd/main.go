@@ -40,7 +40,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/soloz-io/zero-ops/internal/opensbt/providers/ory"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/controller"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
@@ -286,29 +285,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// UserGroups controller: watches identity-user-groups ConfigMap and syncs
-	// group assignments to Kratos metadata_public.
-	kratosAdminURL := os.Getenv("KRATOS_ADMIN_URL")
-	if kratosAdminURL == "" {
-		setupLog.Error(fmt.Errorf("KRATOS_ADMIN_URL is required"), "operator misconfigured")
-		os.Exit(1)
-	}
-	authProvider, err := ory.NewAuthProvider(kratosAdminURL)
-	if err != nil {
-		setupLog.Error(err, "Failed to create auth provider for user groups")
-		os.Exit(1)
-	}
-	if err := (&controller.UserGroupsReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Auth:          authProvider,
-		ConfigMapName: "identity-user-groups",
-		ConfigMapNS:   "platform-identity",
-		DataKey:       "groups.yaml",
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "UserGroups")
-		os.Exit(1)
-	}
+	// The UserGroups controller was removed with ADR-059.
+	//
+	// It reconciled an identity-user-groups ConfigMap into Kratos
+	// metadata_public.groups so the auth-proxy could inject a groups claim. Every
+	// component in that chain is gone, and the mechanism was ours rather than the
+	// provider's: Zitadel models authorisation as project roles held in an
+	// Organization, and an Organization owns the user, so there is no tenant-less
+	// identity for a platform_admins group to describe.
+	//
+	// It also made KRATOS_ADMIN_URL a hard startup requirement, so the operator
+	// could not run at all without a Kratos to point at.
 
 	// +kubebuilder:scaffold:builder
 

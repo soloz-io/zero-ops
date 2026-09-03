@@ -21,7 +21,7 @@ export interface JwtValidatorOptions {
   /** JWKS cache options */
   jwksCache?: Partial<import("./jwks-cache.js").JwksCacheOptions>;
   /**
-   * Require a tenant_id claim. Default true.
+   * Require a tenant claim. Default true.
    *
    * Set false only for a validator guarding a platform-scoped surface where no
    * identity is expected to carry a tenant. A tenant-scoped service must leave
@@ -29,21 +29,6 @@ export interface JwtValidatorOptions {
    * tenant isolation is the boundary.
    */
   requireTenantId?: boolean;
-  /**
-   * Groups that mark an identity as platform-scoped, and therefore exempt from
-   * the tenant_id requirement. Default ["platform_admins"].
-   *
-   * This exists because the two facts were mutually exclusive: a platform admin
-   * must NOT belong to a tenant, and every token had to carry a tenant_id. An
-   * admin could therefore either authenticate or be correctly modelled, never
-   * both — the observed failure was a permanent 401 with
-   * "Token missing required tenant_id claim" for a correctly-configured admin.
-   *
-   * Exempting by GROUP rather than by disabling the check keeps tenant isolation
-   * intact for everyone else: a token with neither a tenant nor a platform group
-   * is still rejected.
-   */
-  platformGroups?: string[];
 }
 
 export class JwtValidator {
@@ -52,14 +37,12 @@ export class JwtValidator {
   private readonly audience?: string;
   private readonly algorithms: string[];
   private readonly requireTenantId: boolean;
-  private readonly platformGroups: string[];
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
     this.audience = opts.audience;
     this.algorithms = opts.algorithms ?? ["RS256", "ES256"];
     this.requireTenantId = opts.requireTenantId ?? true;
-    this.platformGroups = opts.platformGroups ?? ["platform_admins"];
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -92,15 +75,17 @@ export class JwtValidator {
       const { payload } = await jose.jwtVerify(token, key, verifyOptions);
       const claims = claimsFromPayload(payload as Record<string, unknown>);
 
-      // A platform-scoped identity has no tenant by design, so its absent
-      // tenant_id is correct rather than missing. Checked by group so the
-      // exemption is a property of the identity, not a per-service opt-out that
-      // would also admit genuinely tenant-less tokens.
-      const platformScoped = claims.groups.some((g) =>
-        this.platformGroups.includes(g),
-      );
-
-      if (this.requireTenantId && !claims.tenant_id && !platformScoped) {
+      // No platform-scoped exemption. It existed because Ory could mint an
+      // identity belonging to no tenant, so a platform admin had to be excused
+      // from a rule everyone else obeyed — an exemption is a hole, and this one
+      // was widened by a group string any token could claim to hold.
+      //
+      // The provider closed it. In Zitadel an Organization OWNS the user rather
+      // than describing it, so a tenant-less identity is not expressible and a
+      // platform admin is simply a member of the platform's own organisation,
+      // carrying that organisation as its tenant. There is no longer a state for
+      // the exemption to model, so the rule applies to everyone without one.
+      if (this.requireTenantId && !claims.tenant_id) {
         throw new AuthError({
           code: "MISSING_TENANT_ID",
           message: "Token missing required tenant_id claim",

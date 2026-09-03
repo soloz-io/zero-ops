@@ -10,4 +10,3 @@ resources:
   # this directory rather than the path being made relative-er: a root-escaping
   # resource cannot be expressed at all, and every ArgoCD comparison for this
   # app failed on it.
-  - user-groups.yaml
