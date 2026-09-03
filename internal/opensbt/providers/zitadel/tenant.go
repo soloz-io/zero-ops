@@ -4,20 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-)
 
-// TenantIdentity is everything a tenant needs to authenticate, and the only
-// output of provisioning that anything downstream consumes.
-//
-// ClientID is not a secret. It is a public identifier for a PKCE client, so it
-// travels as configuration rather than through the credential path — but it is
-// ALLOCATED by the issuer, which is why it cannot be derived from the tenant id
-// the way ADR-053 assumed and must be reported back by whatever creates it.
-type TenantIdentity struct {
-	OrgID     string
-	ProjectID string
-	ClientID  string
-}
+	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+)
 
 // Role keys granted within a tenant's project.
 //
@@ -48,7 +38,7 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenant(ctx context.Context, tenantID string, redirectURIs, postLogoutURIs []string) (*TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -80,7 +70,7 @@ func (a *Auth) EnsureTenant(ctx context.Context, tenantID string, redirectURIs, 
 		return nil, fmt.Errorf("ensure application for %q: %w", tenantID, err)
 	}
 
-	return &TenantIdentity{OrgID: orgID, ProjectID: projectID, ClientID: clientID}, nil
+	return &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}, nil
 }
 
 func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
@@ -369,3 +359,5 @@ func (a *Auth) GrantRole(ctx context.Context, orgID, projectID, userID string, r
 	return a.api.do(ctx, http.MethodPost, "/management/v1/users/"+userID+"/grants", orgID,
 		map[string]any{"projectId": projectID, "roleKeys": roles}, nil)
 }
+
+var _ interfaces.ITenantIdentityProvisioner = (*Auth)(nil)
