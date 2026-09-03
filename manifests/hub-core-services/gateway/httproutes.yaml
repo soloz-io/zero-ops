@@ -25,6 +25,34 @@ spec:
         - name: agentgateway
           port: 3000
 ---
+# auth.dev.nutgraf.in is SPLIT between the two identity providers while Zitadel
+# takes over browser login (ADR pending).
+#
+# The split is not a preference, it follows from what an OIDC issuer is. An issuer
+# has to describe itself consistently: Zitadel's discovery document states
+# `"issuer": "https://id.dev.nutgraf.in"`, and a relying party compares that
+# against the URL it was configured with byte-for-byte, rejecting a mismatch as a
+# spoofed provider. So auth.dev.nutgraf.in CANNOT simply be pointed at Zitadel —
+# it would serve a document naming a different host. Making Zitadel own this
+# hostname means changing its ExternalDomain, and instance domains are System-API
+# managed, so on an existing instance that means recreating it.
+#
+# Redirecting is therefore the honest move, and it is a redirect for HUMANS ONLY.
+# The two prefixes below stay on auth-proxy because they are machine surfaces that
+# a redirect would break:
+#
+#   /.well-known/  the Kubernetes API server fetches openid-configuration and
+#                  jwks.json from this issuer to validate tokens (ADR-058 group
+#                  RBAC). Token validation is offline against the JWKS, so this
+#                  keeps working for Hydra-issued tokens without /oauth2 needing
+#                  to stay — but only while the documents themselves are served
+#                  rather than redirected.
+#   /internal/     auth-proxy's own validate endpoint, called server-side.
+#
+# Ordering is by longest matching prefix under Gateway API, not by position, so
+# these two win over the catch-all regardless of where they sit in this list.
+# They are written first anyway, because a reader who assumes document order is
+# reading the rule that matters.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -37,13 +65,39 @@ spec:
       sectionName: auth
   hostnames: ["auth.dev.nutgraf.in"]
   rules:
+    # Machine surfaces — must be SERVED, never redirected.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /.well-known/
+        - path:
+            type: PathPrefix
+            value: /internal/
+      backendRefs:
+        - name: auth-proxy
+          port: 8080
+    # Everything else is a browser, and goes to Zitadel.
     - matches:
         - path:
             type: PathPrefix
             value: /
-      backendRefs:
-        - name: auth-proxy
-          port: 8080
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            hostname: id.dev.nutgraf.in
+            # ReplaceFullPath, not path preservation. The paths on this host are
+            # Hydra's (/oauth2/auth, /login, /consent) and Zitadel serves none of
+            # them — preserving the path would turn every redirect into a 404 on
+            # a host the user did not ask for. Zitadel's root already forwards to
+            # the console, so "/" is the one path guaranteed to land somewhere.
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /
+            # 302, deliberately not 301. A permanent redirect is cached by the
+            # browser and would survive a rollback of this file, leaving users
+            # bounced to Zitadel with nothing in the cluster still saying so.
+            statusCode: 302
 ---
 # console keeps its two-rule split. Gateway API matches the longer prefix first,
 # so /self-service reaches Kratos and everything else reaches the UI, which is the
