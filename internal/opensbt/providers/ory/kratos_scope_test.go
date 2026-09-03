@@ -19,7 +19,7 @@ func TestIsPlatformScoped(t *testing.T) {
 	}{
 		{"platform admin", models.User{Groups: []string{"platform_admins"}}, true},
 		{"platform admin among others", models.User{Groups: []string{"viewers", "platform_admins"}}, true},
-		{"tenant user", models.User{TenantID: "waypoint"}, false},
+		{"tenant user", models.User{TenantID: "acme"}, false},
 		{"unrelated group only", models.User{Groups: []string{"viewers"}}, false},
 		{"nothing at all", models.User{}, false},
 	}
@@ -59,7 +59,7 @@ func TestValidateUserScope(t *testing.T) {
 	// Accepted: an ordinary tenant user.
 	if err := validateUserScope(models.User{
 		Email:    "user@example.com",
-		TenantID: "waypoint",
+		TenantID: "acme",
 	}); err != nil {
 		t.Fatalf("tenant user must be accepted: %v", err)
 	}
