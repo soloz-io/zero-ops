@@ -35,6 +35,15 @@ spec:
     - group: ""
       kind: Secret
       name: console-zero-ops-tls
+    # Zitadel (evaluation spike). A ReferenceGrant grants ONE named Secret per
+    # entry — it is not a namespace-wide permission — so adding a listener whose
+    # certificateRef crosses into platform-identity requires naming its Secret
+    # here too. Without it the listener reports ResolvedRefs: RefNotPermitted,
+    # which reads like a missing certificate but is a missing authorisation, and
+    # appears only once the Certificate itself exists.
+    - group: ""
+      kind: Secret
+      name: id-zero-ops-tls
 ---
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
