@@ -109,6 +109,17 @@ func main() {
 	{
 		dlq := handlers.NewDLQHandler()
 		admin.POST("/dlq/replay", middleware.RateLimiter(50, 100), dlq.ReplayEvent)
+
+		// Tenant identity provisioning (ADR-041: this service owns the identity
+		// lifecycle; the Hub Operator orchestrates and calls it).
+		//
+		// Registered only when the configured provider can provision tenants —
+		// the capability is optional, and a route that always answered "not
+		// implemented" would look like an outage rather than a configuration.
+		if provisioner, ok := authProvider.(interfaces.ITenantIdentityProvisioner); ok {
+			ti := handlers.NewTenantIdentityHandler(provisioner, nil)
+			admin.POST("/tenants/:tenantId/identity", ti.EnsureIdentity)
+		}
 	}
 
 	// Start HTTP server
