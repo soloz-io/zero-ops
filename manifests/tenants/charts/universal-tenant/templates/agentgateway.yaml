@@ -305,7 +305,18 @@ data:
           # variable that exists only in the prose. Describe the syntax; do not
           # spell it. Upstream hits the same edge and special-cases the one such
           # string in its own schema header.
-          clientId: ${OIDC_CLIENT_ID}
+          #
+          # QUOTED. The expansion happens before YAML parsing and substitutes a
+          # bare token, so an all-digit client id would otherwise parse as an
+          # integer and the whole config is rejected:
+          #
+          #   policies[0].policy.oidc.clientId: invalid type: integer
+          #   `389169228512494069`, expected a string
+          #
+          # The quotes must be here, in the literal. The earlier fix quoted the
+          # value in the Helm template, which no longer applies — the value does
+          # not pass through Helm any more.
+          clientId: "${OIDC_CLIENT_ID}"
 
           # Empty, and correct. This is a PUBLIC client — oauth2clients.yaml
           # registers <tenant>-public-client with tokenEndpointAuthMethod: none
