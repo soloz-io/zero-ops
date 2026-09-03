@@ -36,6 +36,7 @@ type HubEndpoints struct {
 
 	API       string // AgentGateway / MCP surface
 	Auth      string // Hydra issuer, login and consent
+	ID        string // Zitadel issuer, hosted login and console
 	Console   string // Kratos self-service UI
 	ArgoCD    string // ArgoCD server
 	Infisical string // Infisical public endpoint
@@ -65,6 +66,7 @@ func DeriveHubEndpoints(zone string) HubEndpoints {
 		Zone:            zone,
 		API:             host("api"),
 		Auth:            host("auth"),
+		ID:              host("id"),
 		Console:         host("console"),
 		ArgoCD:          host("argocd"),
 		Infisical:       host("infisical"),

@@ -207,18 +207,29 @@ func (o *Orchestrator) applySeed(ctx context.Context, kubeconfig string) error {
 // restated at any time.
 func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig string) error {
 	// The identity provider tenants authenticate against (ADR-050). Derived from
-	// the environment's own zone rather than configured separately: the Hydra
-	// issuer IS the auth endpoint this bootstrap already computes, and a second
-	// source for it is a way for the two to disagree.
+	// the environment's own zone rather than configured separately: the issuer IS
+	// an endpoint this bootstrap already computes, and a second source for it is a
+	// way for the two to disagree.
 	//
 	// Supplied here because it is environment identity, not fleet data — a fleet
 	// able to set it could point its login flow at an issuer this platform does
 	// not trust.
+	//
+	// .ID (Zitadel), not .Auth (Hydra). The organisation is the tenant in Zitadel:
+	// it OWNS the user rather than describing it, so a user with no tenant is not
+	// expressible and a token either carries an organisation or is rejected. Under
+	// Hydra the tenant was a claim written onto an identity, which is what allowed
+	// identities to exist with none and produced repeated "Token missing required
+	// tenant_id claim" failures at the BFF.
+	//
+	// Ory keeps serving auth.<zone> and is not removed here. Rolling back is
+	// pointing this line at .Auth again, which is why the endpoint set carries
+	// both rather than renaming one.
 	zone, err := ReadHubZone(".", o.EnvironmentSlug)
 	if err != nil {
 		return fmt.Errorf("failed to read hub zone for the OIDC issuer: %w", err)
 	}
-	oidcIssuer := "https://" + DeriveHubEndpoints(zone).Auth
+	oidcIssuer := "https://" + DeriveHubEndpoints(zone).ID
 
 	publicTlsIssuer, err := o.publicTlsIssuerFor()
 	if err != nil {
