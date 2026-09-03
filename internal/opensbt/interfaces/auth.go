@@ -15,6 +15,15 @@ type IAuth interface {
 	DeleteUser(ctx context.Context, userID string) error
 	ListUsers(ctx context.Context, tenantID, page, pageSize string) ([]models.User, error)
 	SetUserGroups(ctx context.Context, email string, groups []string) error
+	// CreateAdminUser bootstraps the platform administrator. Idempotent: it runs
+	// on every control-plane start, so an existing admin is a success, not a
+	// conflict.
+	CreateAdminUser(ctx context.Context, props models.CreateAdminUserProps) error
+
+	// Discovery
+	// GetWellKnownEndpoint returns the OIDC discovery URL, or "" when the
+	// provider is not configured. Readiness reports on it, so it must not error.
+	GetWellKnownEndpoint() string
 
 	// Session Management
 	ValidateSession(ctx context.Context, token string) (*models.Session, error)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
@@ -118,6 +119,63 @@ func (a *Auth) SetUserGroups(ctx context.Context, email string, groups []string)
 		Groups: &groups,
 	}
 	return a.kratos.updateIdentity(ctx, user.ID, updates)
+}
+
+// CreateAdminUser bootstraps the platform administrator.
+//
+// Ported from sbt-aws, which runs a dedicated createAdminUserFunction for this
+// (src/control-plane/auth/cognito-auth.ts). zero-ops referenced the flow from
+// controlplane.bootstrapAdmin but never landed it, so the package did not
+// compile and the documented recovery path — "the admin is recreated on every
+// control-plane start" — existed in no built binary. On 2026-09-03 that left a
+// cluster with zero identities and nothing able to create one.
+//
+// The admin gets GROUPS and no tenant. That is deliberate and is the whole
+// reason this cannot reuse CreateUser: a platform administrator must not belong
+// to a tenant, while createIdentity refuses an identity with no scope at all.
+// Groups supply the scope, and the token validator exempts exactly those groups
+// from the tenant_id requirement (ADR-058).
+//
+// IDEMPOTENT, because bootstrapAdmin runs on every start. An existing admin is
+// a success and is left untouched — re-creating would fail on the identifier,
+// and updating would risk clobbering group assignments the reconciler owns.
+func (a *Auth) CreateAdminUser(ctx context.Context, props models.CreateAdminUserProps) error {
+	if props.Email == "" {
+		return fmt.Errorf("ory: admin email is required")
+	}
+
+	if existing, err := a.kratos.findUserByEmail(ctx, props.Email); err == nil && existing != nil {
+		return nil
+	}
+
+	groups := props.Groups
+	if len(groups) == 0 {
+		groups = PlatformGroups
+	}
+
+	var roles []string
+	if props.Role != "" {
+		roles = []string{props.Role}
+	}
+
+	return a.kratos.createIdentity(ctx, models.User{
+		Email:  props.Email,
+		Name:   props.Name,
+		Roles:  roles,
+		Groups: groups,
+	})
+}
+
+// GetWellKnownEndpoint returns the OIDC discovery URL for readiness reporting.
+//
+// Returns "" rather than an error when unconfigured: readiness reports
+// "not configured" and degrades, which is information, whereas an error at this
+// call site would fail the whole probe and say less.
+func (a *Auth) GetWellKnownEndpoint() string {
+	if a.cfg.HydraPublicURL == "" {
+		return ""
+	}
+	return strings.TrimSuffix(a.cfg.HydraPublicURL, "/") + "/.well-known/openid-configuration"
 }
 
 // groupsEqual compares two string slices for equality (order-independent).

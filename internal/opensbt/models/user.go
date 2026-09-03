@@ -45,3 +45,24 @@ func (u *User) Validate() error {
 	}
 	return nil
 }
+
+// CreateAdminUserProps is the bootstrap request for the platform's first
+// administrator, mirroring sbt-aws's CreateAdminUserProps
+// (src/control-plane/auth/auth-interface.ts).
+//
+// It carries no TenantID, and that absence is the point: a platform
+// administrator must NOT belong to a tenant. Scope comes from Groups instead,
+// which is the exemption the token validator honours (ADR-058) — a tenant would
+// make the identity wrong, and no scope at all would make it unable to
+// authenticate.
+type CreateAdminUserProps struct {
+	Email string
+	Name  string
+	// Role is a display/authorisation label. It is NOT the security scope;
+	// Groups is. Kept because sbt-aws carries it and the bootstrap config
+	// supplies it.
+	Role string
+	// Groups default to PlatformAdminGroups when empty. Naming them here lets a
+	// caller bootstrap a differently-privileged operator without a code change.
+	Groups []string
+}

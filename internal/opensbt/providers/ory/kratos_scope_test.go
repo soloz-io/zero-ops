@@ -64,3 +64,32 @@ func TestValidateUserScope(t *testing.T) {
 		t.Fatalf("tenant user must be accepted: %v", err)
 	}
 }
+
+// The admin bootstrap must produce an identity that is legitimately tenant-less.
+// If CreateAdminUser built a user with no groups, createIdentity's scope guard
+// would refuse it — the platform would be unable to bootstrap its own
+// administrator, which is the failure this port exists to remove.
+func TestAdminUserPassesScopeGuardWithoutTenant(t *testing.T) {
+	admin := models.User{
+		Email:  "admin@example.com",
+		Groups: PlatformGroups,
+	}
+	if admin.TenantID != "" {
+		t.Fatal("a platform admin must not carry a tenant")
+	}
+	if err := validateUserScope(admin); err != nil {
+		t.Fatalf("admin bootstrap would be rejected by the scope guard: %v", err)
+	}
+}
+
+// Defaulting matters: an empty Groups on the props must not produce a scopeless
+// admin, which would fail the guard at the worst possible moment — first start
+// of a cluster with no identities.
+func TestPlatformGroupsIsNonEmpty(t *testing.T) {
+	if len(PlatformGroups) == 0 {
+		t.Fatal("PlatformGroups must name at least one group, or admin bootstrap has no scope to fall back on")
+	}
+	if !isPlatformScoped(models.User{Groups: PlatformGroups}) {
+		t.Fatal("the default admin groups must satisfy isPlatformScoped")
+	}
+}
