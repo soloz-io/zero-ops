@@ -161,7 +161,18 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: IDENTITY_SERVICE_URL
-        value: "http://kube-sbt.platform-ops.svc.cluster.local:8080"
+        # Port 80 — the SERVICE port, not the container's.
+        #
+        # The Service publishes 80 and targets the container's named "http"
+        # port, which is 8080. Dialling 8080 at the ClusterIP reaches nothing,
+        # and nothing rejects it either: the connection simply hangs until the
+        # caller's timeout, so it surfaces as "context deadline exceeded" and
+        # looks like a slow or unreachable service rather than a wrong port.
+        #
+        # The NetworkPolicy beside that service correctly names 8080, because
+        # policy ports are the POD's. The two numbers are both right and are not
+        # interchangeable.
+        value: "http://kube-sbt.platform-ops.svc.cluster.local:80"
   target:
     kind: Deployment
     name: hub-operator
