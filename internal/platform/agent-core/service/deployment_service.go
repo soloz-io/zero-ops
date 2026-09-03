@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/soloz-io/zero-ops/internal/platform/agent-core/client"
-	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
-	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 )
 
 // DeploymentService orchestrates agent deployment operations

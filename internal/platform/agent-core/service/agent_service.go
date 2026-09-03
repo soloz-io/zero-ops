@@ -10,8 +10,8 @@ import (
 	agentdb "github.com/soloz-io/zero-ops/internal/platform/agent-core/database/generated"
 	. "github.com/soloz-io/zero-ops/internal/platform/agent-core/database/generated"
 	"github.com/soloz-io/zero-ops/internal/platform/agent-core/validators"
-	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
-	"github.com/soloz-io/zero-ops/internal/opensbt/models"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 )
 
 // AgentService orchestrates agent operations

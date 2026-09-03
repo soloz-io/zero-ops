@@ -567,15 +567,15 @@ check_hub_operator() {
 # ─── 12. KUBE-SBT API ─────────────────────────────────────────────────────────
 check_kube_sbt_api() {
     log_section "12. KUBE-SBT API"
-    check_argocd_app "kube-sbt-api" "FAIL"
-    check_namespace_pods "platform-ops" "app=kube-sbt-api"
+    check_argocd_app "kube-sbt" "FAIL"
+    check_namespace_pods "platform-ops" "app=kube-sbt"
 
     local svc_ip
-    svc_ip=$(kc get svc kube-sbt-api -n platform-ops -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
+    svc_ip=$(kc get svc kube-sbt -n platform-ops -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
     if [[ -n "$svc_ip" && "$svc_ip" != "None" ]]; then
-        log_pass "kube-sbt-api Service: ClusterIP=$svc_ip"
+        log_pass "kube-sbt Service: ClusterIP=$svc_ip"
     else
-        log_warn "kube-sbt-api Service: not found or no ClusterIP"
+        log_warn "kube-sbt Service: not found or no ClusterIP"
     fi
 }
 

@@ -77,7 +77,7 @@
 ## Phase 3: REST API Layer & User Management
 
 - [x] 11. Implement REST API server with Gin framework
-  - [x] Create `cmd/kube-sbt-api/main.go` with Gin HTTP server initialization
+  - [x] Create `cmd/kube-sbt/main.go` with Gin HTTP server initialization
   - [x] Add middleware for JWT validation and tenant context injection
   - [x] Add middleware for RFC 7807 Problem Details error responses
   - [x] Configure CORS, rate limiting, and request logging
@@ -557,7 +557,7 @@
   - [ ] Create trigger for automatic updated_at timestamp updates
 
 - [ ] 68. Integrate kube-sbt API with hub-operator
-  - [ ] Add kube-sbt API deployment manifests to `manifests/hub/kube-sbt-api/`
+  - [ ] Add kube-sbt API deployment manifests to `manifests/hub/kube-sbt/`
   - [ ] Configure service mesh integration (Istio sidecar)
   - [ ] Add ArgoCD Application for kube-sbt API
   - [ ] Configure environment variables for OpenMeter, Ory, NATS, Redis endpoints

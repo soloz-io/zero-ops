@@ -95,7 +95,7 @@ kratos:
           # That happened four times on 2026-09-02/03: each sign-up produced
           # metadata_public: null, and deleting the identity only invited the
           # next sign-up to recreate it. Nothing downstream could prevent it —
-          # kube-sbt-api's validateUserScope guards the platform API, and
+          # kube-sbt's validateUserScope guards the platform API, and
           # registration does not go through the platform API.
           #
           # There is also no mechanism that COULD assign a tenant here: no

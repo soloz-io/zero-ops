@@ -7,8 +7,8 @@ RUN go mod download
 
 COPY cmd/mcp-server/ ./cmd/mcp-server/
 COPY internal/platform/agent-core/ ./internal/platform/agent-core/
-COPY internal/opensbt/interfaces/ ./internal/opensbt/interfaces/
-COPY internal/opensbt/models/ ./internal/opensbt/models/
+COPY internal/kube-sbt/interfaces/ ./internal/kube-sbt/interfaces/
+COPY internal/kube-sbt/models/ ./internal/kube-sbt/models/
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -mod=mod -o mcp-server ./cmd/mcp-server
 

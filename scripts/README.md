@@ -106,7 +106,7 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 
 Validates the full hub platform after initial bootstrap. Covers all platform
 namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, ClickHouse, OpenMeter,
-Ory identity stack, NATS, hub-operator, kube-sbt-api, ingress, spoke pool,
+Ory identity stack, NATS, hub-operator, kube-sbt, ingress, spoke pool,
 and observability.
 
 ```bash

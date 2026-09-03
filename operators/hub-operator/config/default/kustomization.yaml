@@ -161,7 +161,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: IDENTITY_SERVICE_URL
-        value: "http://kube-sbt-api.platform-ops.svc.cluster.local:8080"
+        value: "http://kube-sbt.platform-ops.svc.cluster.local:8080"
   target:
     kind: Deployment
     name: hub-operator

@@ -7,7 +7,7 @@ End-to-end tests using [kubernetes-sigs/e2e-framework](https://github.com/kubern
 ```
 test/e2e/
 ├── go.mod              # Separate test module
-├── kube-sbt-api/       # OpenMeter provider tests
+├── kube-sbt/       # OpenMeter provider tests
 │   ├── openmeter_test.go
 │   └── README.md
 └── README.md
@@ -25,7 +25,7 @@ kubectl port-forward -n platform-billing svc/openmeter-api 8080:80
 export KUBECONFIG=../k8-secrets/kubeconfig/hub.kubeconfig
 export OPENMETER_URL=http://localhost:8080
 cd test/e2e
-go test -v ./kube-sbt-api
+go test -v ./kube-sbt
 ```
 
 ### CI/CD

@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-sbt
+  namespace: platform-ops
+  labels:
+    app: kube-sbt
+    component: metering-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kube-sbt
+  template:
+    metadata:
+      labels:
+        app: kube-sbt
+        component: metering-api
+    spec:
+      serviceAccountName: kube-sbt
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: kube-sbt
+        image: controller:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        env:
+        - name: PORT
+          value: "8080"
+        - name: OPENMETER_URL
+          value: "http://openmeter-api.platform-billing.svc.cluster.local"
+        # Which identity provider backs this service.
+        #
+        # A setting, not a build. The provider interface was always pluggable;
+        # the wiring named one product, so a second could not be selected without
+        # a recompile — which is not an abstraction (ADR-059).
+        - name: AUTH_PROVIDER
+          value: "zitadel"
+        # The PUBLIC issuer URL, not an in-cluster Service address. It is what
+        # relying parties are configured with and what a token's iss claim must
+        # equal, and the provider refuses a discovery document that names
+        # anything else.
+        - name: OIDC_ISSUER_URL
+          value: "https://id.dev.nutgraf.in"
+        # The organisation platform administrators belong to.
+        #
+        # An administrator is an ordinary member of it and carries it as their
+        # tenant, which is what removes the need for a tenant-less identity — and
+        # for the exemption that used to model one.
+        - name: PLATFORM_ORG_ID
+          valueFrom:
+            configMapKeyRef:
+              name: identity-platform-org
+              key: orgId
+              optional: true
+        - name: IDENTITY_SERVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: identity-service-credentials
+              key: service-token
+        # Retained so a rollback to the previous provider needs no manifest
+        # change: AUTH_PROVIDER alone selects which of these is read.
+        - name: ORY_KRATOS_URL
+          value: "http://kratos-public.platform-identity.svc.cluster.local"
+        - name: NATS_URL
+          value: "nats://nats.platform-messaging.svc.cluster.local:4222"
+        - name: REDIS_URL
+          value: "redis://redis.platform-billing.svc.cluster.local:6379"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-sbt
+  namespace: platform-ops
+  labels:
+    app: kube-sbt
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: kube-sbt
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-sbt
+  namespace: platform-ops
+imagePullSecrets:
+- name: ghcr-pull-secret

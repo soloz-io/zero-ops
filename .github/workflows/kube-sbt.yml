@@ -1,0 +1,102 @@
+name: kube-sbt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cmd/kube-sbt/**
+      - internal/kube-sbt/**
+      - go.mod
+      - go.sum
+      - .github/workflows/kube-sbt.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: .
+          file: cmd/kube-sbt/Dockerfile
+          # amd64 only. Every node in the fleet is x86: Hetzner control planes and
+          # the Flatcar home-lab workers alike, so an arm64 image is built and
+          # pushed for nothing.
+          #
+          # It is not merely wasted time. None of these Dockerfiles cross-compile —
+          # there is no --platform=$BUILDPLATFORM stage — so buildx runs the whole
+          # non-native leg under QEMU. That is slow for the Go images and fatal for
+          # the Node one, where pnpm install dies with "qemu: uncaught target
+          # signal 4 (Illegal instruction)" and the build hangs.
+          #
+          # Restore arm64 by adding a cross-compiling builder stage first, not by
+          # putting the platform back and emulating.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/zero-ops/kube-sbt:${{ github.sha }}
+            ghcr.io/soloz-io/zero-ops/kube-sbt:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Pin the manifest to the digest just built
+        env:
+          KUSTOMIZE_IMAGE_ARG: controller=ghcr.io/soloz-io/zero-ops/kube-sbt@${{ steps.build.outputs.digest }}
+          MANIFEST_DIR: manifests/hub-core-services/kube-sbt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # The edit is re-derived from the branch tip on every attempt, and never
+          # rebased. Two things made the old loop fail, and both are structural:
+          #
+          # A build takes minutes, so main has usually moved on and a plain push from
+          # the stale checkout is rejected. Rebasing looked like the fix, but two runs
+          # of THIS workflow rewrite the same digest line in the same file, so the
+          # rebase conflicts. The loop then retried `git pull` with the conflicted
+          # rebase still in progress, which fails with "Pulling is not possible because
+          # you have unmerged files" — identically, five times, then gives up having
+          # pushed an image that no manifest references.
+          #
+          # Resetting to the tip and re-applying cannot conflict: there is never a
+          # divergent commit to merge. It is also self-correcting — if a newer run
+          # already pinned a newer digest, this one finds nothing to change and exits
+          # rather than reverting it.
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin "${GITHUB_REF_NAME}"
+            git reset --quiet --hard "origin/${GITHUB_REF_NAME}"
+
+            ( cd "${MANIFEST_DIR}" && kustomize edit set image "${KUSTOMIZE_IMAGE_ARG}" )
+            git add "${MANIFEST_DIR}/kustomization.yaml"
+
+            if git diff --cached --quiet; then
+              echo "digest already pinned on ${GITHUB_REF_NAME} — nothing to do"
+              exit 0
+            fi
+
+            git commit --quiet -m "chore(kube-sbt): pin image to ${GITHUB_SHA}"
+            if git push --quiet origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pinned on attempt ${attempt}"
+              exit 0
+            fi
+
+            echo "attempt ${attempt} lost a push race; re-deriving from the new tip"
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not pin the image digest after 5 attempts"
+          exit 1

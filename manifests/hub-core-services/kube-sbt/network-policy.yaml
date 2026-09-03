@@ -1,0 +1,70 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kube-sbt
+  namespace: platform-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: kube-sbt
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # The Hub Operator, for tenant identity provisioning (ADR-041).
+  #
+  # This is the ONLY thing guarding /internal/tenants/:id/identity, which has no
+  # bearer token: the caller is a controller, and authenticating it as a user
+  # would mean owning a user credential for a machine. Widening this rule widens
+  # who can provision identity, so it names one workload rather than a namespace.
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: hub-operator
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow traffic from AgentGateway
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: platform-gateway
+      podSelector:
+        matchLabels:
+          app: agentgateway
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow DNS (no 'to' selector: Cilium socket-LB resolves kube-dns before
+  # NetworkPolicy evaluation; omitting 'to' is the portable pattern for DNS)
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow OpenMeter API (same namespace)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: openmeter
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow Ory Kratos and NATS (ports-only: Cilium evaluates NetworkPolicy BEFORE
+  # service DNAT; ClusterIPs match no namespace selector. Ports constrain scope.)
+  - ports:
+    - protocol: TCP
+      port: 4433
+  - ports:
+    - protocol: TCP
+      port: 4222
+  # Allow Redis (same namespace)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
