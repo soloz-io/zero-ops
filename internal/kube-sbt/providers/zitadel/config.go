@@ -64,6 +64,16 @@ type Config struct {
 
 func (c *Config) defaults() {
 	c.Issuer = strings.TrimRight(strings.TrimSpace(c.Issuer), "/")
+	// Trimmed, and this is not cosmetic. A credential delivered through a file or
+	// a Secret commonly carries a trailing newline, and Go refuses to build a
+	// request with one:
+	//
+	//   net/http: invalid header field value for "Authorization"
+	//
+	// which names neither the credential nor its source, and looks like a
+	// malformed token rather than an extra byte.
+	c.ServiceToken = strings.TrimSpace(c.ServiceToken)
+	c.PlatformOrgID = strings.TrimSpace(c.PlatformOrgID)
 	if c.ProjectName == "" {
 		c.ProjectName = "platform"
 	}

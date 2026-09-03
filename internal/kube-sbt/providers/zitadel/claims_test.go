@@ -102,3 +102,23 @@ func TestSplitNameNeverYieldsAnEmptyGivenName(t *testing.T) {
 		}
 	}
 }
+
+// A credential delivered through a file or a Secret commonly carries a trailing
+// newline, and Go refuses to build a request with one — reporting an invalid
+// Authorization header, which names neither the credential nor its source.
+func TestServiceTokenIsTrimmed(t *testing.T) {
+	c := Config{Issuer: "https://id.example.com/", ServiceToken: "tok-123\n", PlatformOrgID: " 42 \n"}
+	c.defaults()
+	if c.ServiceToken != "tok-123" {
+		t.Fatalf("ServiceToken = %q, want it trimmed", c.ServiceToken)
+	}
+	if c.PlatformOrgID != "42" {
+		t.Fatalf("PlatformOrgID = %q, want it trimmed", c.PlatformOrgID)
+	}
+	if c.Issuer != "https://id.example.com" {
+		t.Fatalf("Issuer = %q, want no trailing slash", c.Issuer)
+	}
+	if err := c.validate(); err != nil {
+		t.Fatalf("validate() = %v, want nil", err)
+	}
+}
