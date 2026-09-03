@@ -1,7 +1,23 @@
 # ADR-058: OIDC Group-Based Kubernetes RBAC
 
 **Date:** 2026-09-01
-**Status:** Accepted
+**Status:** Superseded by ADR-059 (2026-09-03)
+
+> **Superseded.** The mechanism below — an `identity-user-groups` ConfigMap
+> reconciled by the hub-operator into Kratos `metadata_public.groups`, injected
+> into the token by the auth-proxy — was removed when the platform moved to
+> Zitadel. Every component in that chain is gone.
+>
+> The decision it rests on does not survive the provider change. Zitadel models
+> authorisation as project roles held within an Organization, and an Organization
+> owns the user, so the tenant-less platform identity this ADR works around
+> cannot be expressed. Reproducing the pipeline against Zitadel would be building
+> a second model beside the provider's own.
+>
+> What remains valid is the goal: Kubernetes authorises on users and groups, so
+> a `groups` claim must reach the API server. ADR-059 keeps that requirement and
+> moves the mapping to the edge — where Zitadel's roles are translated once —
+> rather than into a bespoke reconciler.
 
 ## Context
 

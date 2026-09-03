@@ -180,7 +180,13 @@ surprise — it is recorded here so the next switch is a decision, not a discove
   the tenant id. Authority is unchanged.
 - **Amends ADR-050.** `oidcIssuer` is joined by `oidcJwksUrl` and
   `oidcClientIds` as environment-owned, fleet-forbidden values.
-- **Blocks ADR-058** until Layer 3 or an equivalent groups mapping exists.
+- **Supersedes ADR-058.** Its ConfigMap-to-Kratos-to-auth-proxy pipeline is
+  removed; the requirement it served — Kubernetes authorises on users and groups
+  — is kept, with the mapping moved to the edge.
+- **Removes the platform_admins exemption** from the JWT validator. It modelled a
+  tenant-less platform identity, which the provider can no longer produce: an
+  Organization owns every user, so a platform admin carries the platform
+  organisation as its tenant like anyone else.
 - **Depends on ADR-051** for the `auth.<zone>` name.
 
 ## References
