@@ -151,6 +151,21 @@ component to the authentication path, and paying that cost to avoid one rollout
 we are not yet scheduling is the wrong trade. What Layer 3 must not become is a
 surprise — it is recorded here so the next switch is a decision, not a discovery.
 
+### Who provisions a tenant's identity
+
+Kube-SBT, the Tenant Identity Service. ADR-041 grants it "tenant identity
+lifecycle" and "Infisical upload for tenant credentials", and forbids the Hub
+Operator from "acting as a secret manager for tenant or application secrets" and
+Crossplane from "secret generation". Provisioning a tenant's organisation,
+project, roles and OAuth application therefore belongs to that service and not to
+the tenant reconciler, which is where it would naturally have been put.
+
+The provider's client id is published to Infisical from there and reaches a
+tenant's gateway through ESO as an environment value. That is the only path that
+carries a value the platform LEARNS at runtime rather than decides at render
+time, and it is what removes the per-tenant map that previously had to be
+maintained by hand.
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Consumer |

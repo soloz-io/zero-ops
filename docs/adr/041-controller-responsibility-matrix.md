@@ -135,13 +135,19 @@ CNPG manages the physical PostgreSQL cluster lifecycle.
 
 Kube-SBT manages tenant identity and generates tenant passwords at provisioning time.
 
+The abstraction is the responsibility; the product behind it is an implementation
+detail. This row named one product until 2026-09-03, which made the platform's own
+responsibility matrix read as a commitment to a vendor — see ADR-059. Kube-SBT
+selects its provider by configuration and provisions a tenant's identity resources
+through whichever one is configured.
+
 | Allowed | Forbidden |
 |---|---|
 | Tenant identity lifecycle | PKI operations |
 | Initial tenant password generation (one-time) | Runtime credential rotation |
 | Tenant-to-database credential mapping | Infrastructure provisioning |
 | Infisical upload for tenant credentials | Spoke lifecycle management |
-| Ory Kratos API abstraction | Certificate management |
+| Identity provider API abstraction | Certificate management |
 
 ### Kyverno
 
