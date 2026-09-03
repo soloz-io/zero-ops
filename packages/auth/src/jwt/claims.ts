@@ -10,6 +10,15 @@ export interface TenantClaims {
   email_verified?: boolean;
   /** Tenant ID — required for tenant-scoped authorization */
   tenant_id: string;
+  /**
+   * Human-readable tenant name, when the provider supplies one.
+   *
+   * Never load-bearing: tenant_id is the identifier and the only thing an
+   * authorization decision may use. This is for display and logs, where an
+   * opaque number is unreadable — Zitadel's organisation ids look like
+   * "389091373187334477" while the organisation is called "waypoint".
+   */
+  tenant_name?: string;
   /** Tenant tier (e.g., "free", "pro", "enterprise") */
   tenant_tier?: string;
   /** User roles */
@@ -45,7 +54,35 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
     sub: String(payload.sub ?? ""),
     email: String(payload.email ?? ""),
     email_verified: payload.email_verified === true,
-    tenant_id: String(payload.tenant_id ?? ""),
+    // Zitadel spells the tenant differently, so read both.
+    //
+    // In Zitadel the ORGANISATION is the tenant — it owns the user rather than
+    // describing it — and it travels as a reserved URN claim rather than as
+    // `tenant_id`. Hydra emits `tenant_id`. Reading both lets one library serve
+    // either issuer, which is what makes the provider swap a configuration
+    // change instead of a fork.
+    //
+    // tenant_id wins when present so a Hydra-issued token behaves exactly as
+    // before, and this stays additive rather than a migration.
+    //
+    // Zitadel only mints these claims when the token was requested with the
+    // `urn:zitadel:iam:user:resourceowner` scope (see the agentgateway policy in
+    // universal-tenant). Without that scope the claim is absent and the token is
+    // correctly rejected as tenant-less — the check below must therefore stay a
+    // check, not a default.
+    tenant_id: String(
+      payload.tenant_id ??
+        payload["urn:zitadel:iam:user:resourceowner:id"] ??
+        payload["urn:zitadel:iam:org:id"] ??
+        "",
+    ),
+    tenant_name: (() => {
+      const n =
+        payload.tenant_name ??
+        payload["urn:zitadel:iam:user:resourceowner:name"] ??
+        payload["urn:zitadel:iam:org:name"];
+      return n ? String(n) : undefined;
+    })(),
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,
     // The platform's auth-proxy injects a SINGULAR `role` claim
     // (internal/auth-proxy/validate.go). Without this fallback `roles` was always

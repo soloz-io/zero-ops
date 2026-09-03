@@ -149,6 +149,21 @@ spec:
               # set, rather than merging with it.
               - name: oidcIssuer
                 value: {{ .Values.oidcIssuer | quote }}
+{{- if .Values.oidcClientIds }}
+            # A map, so it cannot go through `parameters` — those are flat
+            # name/value strings. Passed as a values block instead, which merges
+            # UNDER the fleet's values file rather than overriding it the way a
+            # parameter does. That is acceptable only because the chart reads
+            # this map by the tenant's own id: a fleet that set the key for its
+            # OWN tenant could at worst reassign its own client, and one that set
+            # another tenant's key would be writing into a map its own render
+            # never indexes.
+            values: |
+              oidcClientIds:
+{{- range $tenant, $clientId := .Values.oidcClientIds }}
+                {{ $tenant }}: {{ $clientId | quote }}
+{{- end }}
+{{- end }}
 
         # Source 2: Fleet registry values file
         - repoURL: https://github.com/soloz-io/fleet-registry

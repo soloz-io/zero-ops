@@ -86,3 +86,17 @@ publicTlsIssuer: ""
 # owns environment identity, and a default would be silently wrong in every
 # environment but one — the same reasoning as publicTlsIssuer above.
 oidcIssuer: ""
+
+# OAuth client id per tenant, keyed by tenantId, e.g.
+#
+#   oidcClientIds:
+#     waypoint: "389096262521061709"
+#
+# Environment-owned for the same reason as oidcIssuer, and needed for the same
+# reason the chart documents: Zitadel issues client ids as opaque numbers and
+# will not accept a chosen one, so ADR-053's derived <tenantId>-public-client
+# cannot be expressed there and the value has to be carried.
+#
+# Empty leaves every tenant on the derived identifier, which is what a
+# Hydra-backed environment wants, so this is inert until an environment fills it.
+oidcClientIds: {}

@@ -22,7 +22,21 @@
        could point an unauthenticated public path at a service of its choosing. */ -}}
 {{- $sdk := printf "sdk-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
+{{- /* Looked up when the environment supplies a map, derived otherwise.
+
+       ADR-053's rule — the client id follows from the tenant identity — holds
+       only while the issuer lets the platform CHOOSE a client_id. Hydra does;
+       Zitadel issues an opaque number at app-creation time and offers no way to
+       set it, so under Zitadel the identifier cannot be derived and must be
+       looked up. The map is environment-owned (see values.yaml), so the
+       authority for the value is unchanged even though its origin is.
+
+       Falling back to the derived name rather than failing keeps every
+       Hydra-backed environment working untouched. */ -}}
 {{- $clientId := printf "%s-public-client" $t }}
+{{- if hasKey .Values.oidcClientIds $t }}
+{{- $clientId = index .Values.oidcClientIds $t }}
+{{- end }}
 {{- $redirect := printf "https://%s/oauth/callback" $host }}
 {{- $name := printf "agentgateway-%s" $t }}
 # This fleet's own AgentGateway instance (ADR-050 amendment 2026-08-31).
@@ -310,6 +324,19 @@ data:
           - openid
           - tenant:read
           - tenant:write
+          # Zitadel only mints the organisation claims when this scope is asked
+          # for. Verified 2026-09-03 by running the full authorization-code flow
+          # both ways: with it the tokens carry
+          # urn:zitadel:iam:user:resourceowner:id / :name, without it they carry
+          # neither and are indistinguishable from a token for a tenant-less
+          # user — the shape that produced "Token missing required tenant_id
+          # claim". The organisation IS the tenant in Zitadel, so this scope is
+          # what makes a token tenant-scoped at all.
+          #
+          # Inert on Hydra, which ignores scopes it does not know (as Zitadel
+          # ignores tenant:read/tenant:write above — also verified), so this is
+          # safe to send at both issuers rather than needing a conditional.
+          - urn:zitadel:iam:user:resourceowner
 ---
 # The tenant's public base URL, published for its own workloads to consume.
 #
