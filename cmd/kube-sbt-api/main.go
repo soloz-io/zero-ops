@@ -110,16 +110,29 @@ func main() {
 		dlq := handlers.NewDLQHandler()
 		admin.POST("/dlq/replay", middleware.RateLimiter(50, 100), dlq.ReplayEvent)
 
-		// Tenant identity provisioning (ADR-041: this service owns the identity
-		// lifecycle; the Hub Operator orchestrates and calls it).
-		//
-		// Registered only when the configured provider can provision tenants —
-		// the capability is optional, and a route that always answered "not
-		// implemented" would look like an outage rather than a configuration.
-		if provisioner, ok := authProvider.(interfaces.ITenantIdentityProvisioner); ok {
-			ti := handlers.NewTenantIdentityHandler(provisioner, nil)
-			admin.POST("/tenants/:tenantId/identity", ti.EnsureIdentity)
-		}
+	}
+
+	// Tenant identity provisioning (ADR-041: this service owns the identity
+	// lifecycle; the Hub Operator orchestrates and calls it).
+	//
+	// On an INTERNAL path, guarded by NetworkPolicy rather than by a bearer
+	// token. The caller is a controller, not a person, and the admin group above
+	// authenticates a USER — putting a reconcile loop behind it would mean
+	// minting and rotating a user credential for a machine, which is a worse
+	// thing to own than an ingress rule. This mirrors the auth-proxy's own
+	// /internal/ surface.
+	//
+	// The guarantee is therefore the NetworkPolicy beside this deployment: it
+	// admits the operator and nothing else. Widening that policy widens this.
+	//
+	// Registered only when the configured provider can provision tenants — the
+	// capability is optional, and a route that always answered "not implemented"
+	// would read as an outage rather than a configuration.
+	if provisioner, ok := authProvider.(interfaces.ITenantIdentityProvisioner); ok {
+		internal := router.Group("/internal")
+		internal.Use(middleware.RFC7807ErrorHandler())
+		ti := handlers.NewTenantIdentityHandler(provisioner, nil)
+		internal.POST("/tenants/:tenantId/identity", ti.EnsureIdentity)
 	}
 
 	// Start HTTP server

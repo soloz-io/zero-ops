@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	client2 "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
 
@@ -32,6 +34,12 @@ import (
 type AINativeSaaSReconciler struct {
 	client.Client
 	InfisicalClient *secrets.InfisicalClient
+
+	// IdentityClient asks the Tenant Identity Service to provision this tenant's
+	// identity resources. Nil when the environment does not provision them, which
+	// is a legitimate state rather than a misconfiguration — an issuer with no
+	// notion of a tenant has nothing to create.
+	IdentityClient *client2.IdentityClient
 }
 
 //+kubebuilder:rbac:groups=nutgraf.in,resources=ainativesaases,verbs=get;list;watch
@@ -117,6 +125,44 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// exists either way, and the next reconcile repeats the record.
 	if err := r.recordProvisionedOAuthClients(ctx, ainativesaas, oauthClients); err != nil {
 		logger.Error(err, "Failed to record provisioned OAuth clients; will retry", "tenant", tenantId)
+	}
+
+	// Tenant identity, provisioned by the service that owns it (ADR-041).
+	//
+	// This operator orchestrates and does not create identity resources itself:
+	// the matrix forbids it from managing tenant credentials, and the client id
+	// the tenant's gateway needs is allocated by the issuer and published to
+	// Infisical from there.
+	//
+	// Failure is logged and retried rather than fatal. Everything above this
+	// point has already been provisioned, and returning an error would redo it
+	// on every attempt; the next reconcile repeats this call, which is
+	// idempotent.
+	if r.IdentityClient != nil {
+		hosts := tenantGatewayHosts(ainativesaas)
+		if len(hosts) == 0 {
+			logger.V(1).Info("Tenant declares no gateway hostname; skipping identity provisioning", "tenant", tenantId)
+		} else {
+			redirects := make([]string, 0, len(hosts))
+			postLogout := make([]string, 0, len(hosts))
+			for _, h := range hosts {
+				// Must match what the gateway sends, exactly — the issuer compares
+				// redirect URIs with no wildcards, so a mismatch fails at the
+				// authorization endpoint before any credential is entered and reads
+				// as a broken login page rather than a missing registration.
+				redirects = append(redirects, "https://"+h+"/oauth/callback")
+				postLogout = append(postLogout, "https://"+h+"/")
+			}
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, redirects, postLogout)
+			switch {
+			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
+				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
+			case err != nil:
+				logger.Error(err, "Failed to provision tenant identity; will retry", "tenant", tenantId)
+			default:
+				logger.Info("Tenant identity provisioned", "tenant", tenantId, "clientId", identity.ClientID)
+			}
+		}
 	}
 
 	// Record the cache credential's own state BEFORE returning on the tenant-wide
@@ -450,4 +496,18 @@ func (r *AINativeSaaSReconciler) setCacheSeededCondition(ctx context.Context, ob
 		Reason:  reason,
 		Message: message,
 	})
+}
+
+// tenantGatewayHosts reads the hostnames a tenant answers on.
+//
+// The FIRST is the browser-facing host and the one an OAuth flow returns to, but
+// every declared host is registered: a tenant reachable on a name whose redirect
+// was never registered fails to log in on that name alone, which presents as an
+// intermittent fault rather than a missing entry.
+func tenantGatewayHosts(obj *unstructured.Unstructured) []string {
+	raw, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "gateway", "hostnames")
+	if err != nil || !found {
+		return nil
+	}
+	return raw
 }

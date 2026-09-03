@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
+	hubclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/controller"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 	// +kubebuilder:scaffold:imports
@@ -277,9 +278,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Nil when unset, and the reconciler skips identity provisioning entirely.
+	// An environment whose issuer has no notion of a tenant has nothing to
+	// provision, so absence is a configuration rather than a fault.
+	identityClient := hubclient.NewIdentityClient(os.Getenv("IDENTITY_SERVICE_URL"))
+
 	if err := (&controller.AINativeSaaSReconciler{
 		Client:          mgr.GetClient(),
 		InfisicalClient: secretsInfisicalClient,
+		IdentityClient:  identityClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
 		os.Exit(1)

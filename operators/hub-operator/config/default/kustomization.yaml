@@ -151,6 +151,20 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
+# [CUSTOM] Append the Tenant Identity Service address
+#
+# Unset means this environment does not provision tenant identity, and the
+# reconciler skips it — an issuer with no notion of a tenant has nothing to
+# create, so absence is a configuration rather than a fault.
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: IDENTITY_SERVICE_URL
+        value: "http://kube-sbt-api.platform-ops.svc.cluster.local:8080"
+  target:
+    kind: Deployment
+    name: hub-operator
 # [CUSTOM] Append NATS URL
 - patch: |-
     - op: add

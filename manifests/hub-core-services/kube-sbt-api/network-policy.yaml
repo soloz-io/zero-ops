@@ -11,6 +11,19 @@ spec:
   - Ingress
   - Egress
   ingress:
+  # The Hub Operator, for tenant identity provisioning (ADR-041).
+  #
+  # This is the ONLY thing guarding /internal/tenants/:id/identity, which has no
+  # bearer token: the caller is a controller, and authenticating it as a user
+  # would mean owning a user credential for a machine. Widening this rule widens
+  # who can provision identity, so it names one workload rather than a namespace.
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: hub-operator
+    ports:
+    - protocol: TCP
+      port: 8080
   # Allow traffic from AgentGateway
   - from:
     - namespaceSelector:
