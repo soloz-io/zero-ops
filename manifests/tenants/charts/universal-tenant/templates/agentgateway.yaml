@@ -334,6 +334,16 @@ data:
           # did not issue.
           scopes:
           - openid
+          # profile and email, or the id_token carries neither.
+          #
+          # OIDC releases identity claims only for the scope that asks for them,
+          # so without these the token authenticates a SUBJECT and nothing else:
+          # /api/v1/auth/me answered 200 with "email":"" because the BFF had a
+          # valid token that simply contained no email. That is not a validation
+          # failure anywhere, which is why it survived — the login works, the
+          # tenant is right, and only the user's identity is blank.
+          - profile
+          - email
           - tenant:read
           - tenant:write
           # Zitadel only mints the organisation claims when this scope is asked
