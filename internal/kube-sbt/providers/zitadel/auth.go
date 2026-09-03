@@ -241,18 +241,41 @@ func (a *Auth) CreateAdminUser(ctx context.Context, props models.CreateAdminUser
 		return err
 	}
 
-	if existing, err := a.findUserByEmail(ctx, props.Email); err == nil && existing != nil {
-		return nil
-	} else if err != nil && !isNotFound(err) {
+	existing, err := a.findUserByEmail(ctx, props.Email)
+	if err != nil && !isNotFound(err) {
 		return err
 	}
 
-	_, err = a.CreateUser(ctx, models.User{
-		Email:    props.Email,
-		Name:     props.Name,
-		TenantID: orgID,
-	})
-	return err
+	if existing == nil {
+		if _, cerr := a.CreateUser(ctx, models.User{
+			Email:    props.Email,
+			Name:     props.Name,
+			TenantID: orgID,
+			Roles:    []string{"admin"},
+		}); cerr != nil {
+			return cerr
+		}
+		return nil
+	}
+
+	// The administrator exists — ensure the GRANT anyway.
+	//
+	// Returning early here was wrong. An account created by the issuer's own
+	// installation, or by an operator before this ran, holds no role in the
+	// platform's project, and the issuer denies authentication to a user with no
+	// role — so the administrator existed and could not sign in to anything the
+	// platform owns, including the Kubernetes API server.
+	//
+	// Bootstrap runs on every start precisely so it converges; stopping at
+	// "exists" made it converge on presence rather than on access.
+	projectID, perr := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
+	if perr != nil {
+		return fmt.Errorf("zitadel: locate the platform project: %w", perr)
+	}
+	if gerr := a.GrantRole(ctx, orgID, projectID, existing.ID, []string{"admin"}); gerr != nil {
+		return fmt.Errorf("zitadel: grant the administrator access: %w", gerr)
+	}
+	return a.EnsureOrgOwner(ctx, orgID, existing.ID)
 }
 
 // ─── Discovery ───────────────────────────────────────────────────────────────
