@@ -290,13 +290,21 @@ data:
           # Interpolated at startup from the environment, not rendered here.
           #
           # agentgateway shell-expands its whole config file before parsing it
-          # (config.rs: `shellexpand::full(&contents)`), so ${VAR} is resolved
-          # from the process environment. That is what lets a value the issuer
-          # allocates — and which therefore cannot be known at render time —
-          # reach a statically rendered config.
+          # (config.rs calls shellexpand::full), so a dollar-brace reference is
+          # resolved from the process environment. That is what lets a value the
+          # issuer allocates — and which therefore cannot be known at render
+          # time — reach a statically rendered config.
           #
           # Unset fails loudly at startup rather than silently authenticating as
           # an empty client, which is the behaviour to want here.
+          #
+          # NOTE FOR ANYONE EDITING THIS FILE: the expansion runs over the raw
+          # text before it is parsed as YAML, so COMMENTS ARE NOT EXEMPT. Writing
+          # a dollar-brace example in a comment makes the gateway fail to start
+          # with "error looking key up: environment variable not found", naming a
+          # variable that exists only in the prose. Describe the syntax; do not
+          # spell it. Upstream hits the same edge and special-cases the one such
+          # string in its own schema header.
           clientId: ${OIDC_CLIENT_ID}
 
           # Empty, and correct. This is a PUBLIC client — oauth2clients.yaml
