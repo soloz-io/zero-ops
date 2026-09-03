@@ -14,9 +14,9 @@ const (
 // Claim shape copied from a real id_token captured 2026-09-03.
 func tokenClaims() map[string]interface{} {
 	return map[string]interface{}{
-		"sub":   "389091433551757645",
-		"email": "arun4infra@gmail.com",
-		"urn:zitadel:iam:user:resourceowner:id":   orgHere,
+		"sub":                                   "389091433551757645",
+		"email":                                 "arun4infra@gmail.com",
+		"urn:zitadel:iam:user:resourceowner:id": orgHere,
 		"urn:zitadel:iam:user:resourceowner:name": "waypoint",
 	}
 }
