@@ -30,3 +30,14 @@ reference-projects
 # committed on purpose); publishing it would leak a working credential.
 .zero-ops/infisical-bootstrap.json
 kube-sbt
+
+# Compiled binaries built at the repo root by `go build ./cmd/...`.
+#
+# Named explicitly rather than by a pattern: these share a name with the source
+# directories (cmd/kube-sbt, internal/kube-sbt), so a bare `kube-sbt` entry would
+# also ignore the package tree. A 37MB binary reached main this way once,
+# re-added by a `git add -A` during a rename.
+/kube-sbt
+/hub
+/mcp-server
+/auth-proxy
