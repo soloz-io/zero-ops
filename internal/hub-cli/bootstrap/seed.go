@@ -169,6 +169,18 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
+        # The legacy identity stack is not deployed alongside the issuer above.
+        #
+        # Tied to the same decision rather than configured separately: an
+        # environment authenticating against one issuer has no use for a second
+        # provider's login surface, and leaving it running means a browser can
+        # reach a live login page that mints tokens nothing trusts.
+        #
+        # This also withdraws the component serving auth.<zone>/.well-known/*,
+        # which the API server reads for OIDC logins — see ADR-059 on why that
+        # consumer cannot follow a configuration change.
+        - name: oryStackEnabled
+          value: "false"
       valuesObject:
         oidcScopes:%s
   destination:
