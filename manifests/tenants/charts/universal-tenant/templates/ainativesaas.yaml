@@ -60,6 +60,13 @@ spec:
   {{- if (.Values.gateway | default dict).enabled }}
   gateway:
     enabled: true
+    {{- with .Values.gateway.hostnames }}
+    {{- /* Repeated onto the tenant record so the component that registers the
+           OAuth client can read where a login must return to. The issuer matches
+           redirect URIs exactly, so this cannot be derived downstream. */}}
+    hostnames:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   {{- end }}
 
   {{- with .Values.cache }}

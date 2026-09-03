@@ -133,14 +133,34 @@ spec:
               gateway:
                 type: object
                 description: |
-                  Whether this fleet has a browser-facing gateway. The platform
-                  generates its session-cookie key when so; everything else about
-                  the gateway is derived or platform-fixed and is deliberately
-                  not expressible here.
+                  Whether this fleet has a browser-facing gateway, and the names
+                  it answers on. Everything else about the gateway is derived or
+                  platform-fixed and is deliberately not expressible here.
                 properties:
                   enabled:
                     type: boolean
                     default: false
+                  hostnames:
+                    type: array
+                    items:
+                      type: string
+                    description: |
+                      The names this fleet answers on, first being the
+                      browser-facing one.
+
+                      Carried on the tenant record because a browser login has to
+                      return somewhere, and the issuer matches redirect URIs
+                      EXACTLY with no wildcards — so the identity service cannot
+                      derive them and a name missing here cannot log in, on that
+                      name alone, while every other name works.
+
+                      This is not the same as a client's grants or redirect URIs,
+                      which remain the registration controller's and are still
+                      absent from this record. A hostname is platform-owned
+                      (ADR-051) and already declared; what is added here is only
+                      that the tenant record repeats it, so the component
+                      registering the client can read it without reaching into a
+                      fleet's values.
               cache:
                 type: object
                 description: |
