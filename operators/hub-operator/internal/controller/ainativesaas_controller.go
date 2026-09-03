@@ -160,7 +160,24 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			case err != nil:
 				logger.Error(err, "Failed to provision tenant identity; will retry", "tenant", tenantId)
 			default:
-				logger.Info("Tenant identity provisioned", "tenant", tenantId, "clientId", identity.ClientID)
+				// Persist the allocated client id where the tenant's gateway
+				// reads it. Nothing downstream can derive this value, and the
+				// gateway will not start without it, so provisioning that did
+				// not publish has achieved nothing observable.
+				//
+				// Written by this operator rather than by the identity service
+				// because the path is the tenant's Infisical folder, which this
+				// operator already creates and writes on the lines above. Giving
+				// the identity service a second Infisical credential to write one
+				// NON-SECRET identifier — a public PKCE client id — would add a
+				// credential to protect in order to avoid a boundary that costs
+				// nothing here.
+				if err := r.publishTenantClientID(ctx, cellId, tenantId, identity.ClientID); err != nil {
+					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
+						"tenant", tenantId)
+				} else {
+					logger.Info("Tenant identity provisioned", "tenant", tenantId, "clientId", identity.ClientID)
+				}
 			}
 		}
 	}
@@ -510,4 +527,25 @@ func tenantGatewayHosts(obj *unstructured.Unstructured) []string {
 		return nil
 	}
 	return raw
+}
+
+// publishTenantClientID writes the allocated OAuth client id to the tenant's
+// Infisical folder, where an ExternalSecret delivers it to the gateway.
+//
+// Idempotent: create when absent, update when present. Reconciliation repeats,
+// and an "already exists" answer must be success rather than a conflict — but
+// the value is also re-asserted rather than left, so a client id that changed
+// upstream converges instead of being pinned by whatever ran first.
+func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cellId, tenantId, clientID string) error {
+	const key = "OIDC_CLIENT_ID"
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, tenantId)
+
+	exists, err := r.InfisicalClient.SecretExists(ctx, path, key)
+	if err != nil {
+		return fmt.Errorf("check %s/%s: %w", path, key, err)
+	}
+	if exists {
+		return r.InfisicalClient.UpdateSecret(ctx, path, key, clientID)
+	}
+	return r.InfisicalClient.CreateSecret(ctx, path, key, clientID)
 }

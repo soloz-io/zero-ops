@@ -160,8 +160,14 @@ Crossplane from "secret generation". Provisioning a tenant's organisation,
 project, roles and OAuth application therefore belongs to that service and not to
 the tenant reconciler, which is where it would naturally have been put.
 
-The provider's client id is published to Infisical from there and reaches a
-tenant's gateway through ESO as an environment value. That is the only path that
+The provider's client id is published to the tenant's Infisical folder and
+reaches its gateway through ESO as an environment value. The write is done by
+the Hub Operator, which already creates and writes that folder while
+provisioning the tenant: the client id is a PUBLIC PKCE identifier, not secret
+material, and giving the identity service a second Infisical credential to write
+one non-secret value would add a credential to protect in order to honour a
+boundary that costs nothing here. The identity service remains the component that
+allocates it and the only one that talks to the issuer. That is the only path that
 carries a value the platform LEARNS at runtime rather than decides at render
 time, and it is what removes the per-tenant map that previously had to be
 maintained by hand.
