@@ -1,0 +1,38 @@
+# Cluster access for the platform administrator, by OIDC identity.
+#
+# The API server authenticates against the platform's issuer and takes the
+# username from the `email` claim, so a subject here is an email address rather
+# than a group. That is deliberate and recorded in the ClusterClass patch: an
+# issuer that models authorisation as roles granted within an organisation emits
+# a NESTED object, and Kubernetes wants a flat string array — so until that
+# mapping exists, `--oidc-groups-claim` is unset and every OIDC user arrives with
+# no groups at all.
+#
+# Binding by username is therefore the honest option, and it has a property worth
+# keeping even after groups work: it is explicit. Each identity that can reach
+# this cluster is named in Git, in one file, rather than inherited by membership
+# of a group somebody else administers.
+#
+# Authentication is NOT what this grants. A token is accepted only if the issuer
+# minted it AND the holder has a role in the platform's project; this decides
+# what an already-authenticated identity may then do. Removing this binding locks
+# the user out of resources while still letting them log in, which is the
+# separation to expect.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-admin-oidc
+  labels:
+    app.kubernetes.io/part-of: platform-identity
+subjects:
+  # Must match the `email` claim exactly. The API server compares the string it
+  # extracts, so a mismatch is not a permission error — the user is simply
+  # somebody else, with no bindings, and every request is forbidden with a name
+  # that looks correct.
+  - kind: User
+    name: zitadel-admin@zitadel.id.dev.nutgraf.in
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io

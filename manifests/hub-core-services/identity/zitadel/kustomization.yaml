@@ -5,3 +5,4 @@ kind: Kustomization
 # services carry their ExternalSecrets (04-tenant-services-multi-appset).
 resources:
   - zitadel-credentials-es.yaml
+  - platform-admin-rbac.yaml
