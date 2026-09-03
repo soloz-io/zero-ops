@@ -151,16 +151,6 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Append Kratos admin URL for user groups reconciliation
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: KRATOS_ADMIN_URL
-        value: "http://ory-kratos-admin.platform-identity.svc.cluster.local:80"
-  target:
-    kind: Deployment
-    name: hub-operator
 # [CUSTOM] Append NATS URL
 - patch: |-
     - op: add
