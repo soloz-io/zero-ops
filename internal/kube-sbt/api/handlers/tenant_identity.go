@@ -80,9 +80,17 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"tenantRef":  identity.TenantRef,
 		"projectRef": identity.ProjectRef,
 		"clientId":   identity.ClientID,
-	})
+	}
+	// Present ONLY on the call that created the owner's account. Its absence on
+	// later calls is the signal that no new credential exists, so a caller that
+	// persists it unconditionally would overwrite a stored password with an
+	// empty value.
+	if identity.OwnerPassword != "" {
+		resp["ownerPassword"] = identity.OwnerPassword
+	}
+	c.JSON(http.StatusOK, resp)
 }

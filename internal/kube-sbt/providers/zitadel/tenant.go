@@ -82,14 +82,54 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Best-effort and non-fatal: the identity resources are correct either way,
 	// and the next reconcile repeats this. Failing the whole call would discard a
 	// client id that was already allocated.
-	if ownerEmail != "" {
-		if owner, err := a.findUserByEmail(ctx, ownerEmail); err == nil && owner != nil {
-			_ = a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"})
-			_ = a.EnsureOrgOwner(ctx, orgID, owner.ID)
-		}
+	out := &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}
+	if ownerEmail == "" {
+		return out, nil
 	}
 
-	return &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}, nil
+	owner, err := a.findUserByEmail(ctx, ownerEmail)
+	if err != nil && !isNotFound(err) {
+		// Could not tell whether the owner exists. Creating one now risks a
+		// duplicate account, so the tenant is reported without an owner and the
+		// next reconcile retries.
+		return out, nil
+	}
+
+	if owner == nil {
+		// The owner does not exist yet, which is the NORMAL case for a new
+		// tenant. Creating them here is what makes a freshly provisioned tenant
+		// usable: the issuer refuses anyone holding no role, so a tenant with no
+		// owner account is a tenant whose every login fails.
+		//
+		// A password is generated because the issuer has no mail transport
+		// configured here, so an invitation cannot be delivered. It is returned
+		// exactly once, for the caller to persist where an operator can retrieve
+		// it; it is never reset on a later reconcile.
+		pw, perr := generateInitialPassword()
+		if perr != nil {
+			return out, nil
+		}
+		created, cerr := a.CreateUser(ctx, models.User{
+			Email:    ownerEmail,
+			Name:     ownerEmail,
+			TenantID: orgID,
+			Password: pw,
+			Roles:    []string{"admin"},
+		})
+		if cerr != nil {
+			return out, nil
+		}
+		owner = created
+		out.OwnerPassword = pw
+	}
+
+	// Idempotent, and repeated on every reconcile so a grant removed by hand
+	// converges back rather than leaving the owner locked out of their own
+	// tenant.
+	_ = a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"})
+	_ = a.EnsureOrgOwner(ctx, orgID, owner.ID)
+
+	return out, nil
 }
 
 func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {

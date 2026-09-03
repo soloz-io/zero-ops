@@ -175,6 +175,22 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// NON-SECRET identifier — a public PKCE client id — would add a
 				// credential to protect in order to avoid a boundary that costs
 				// nothing here.
+				// The owner's initial credential, when one was just created.
+				//
+				// Written before the client id so a failure here cannot leave a
+				// tenant that looks provisioned while the only account able to
+				// enter it has a password nobody holds. Guarded on non-empty:
+				// the field is absent on every reconcile after the first, and
+				// writing it blindly would replace a stored password with "".
+				if identity.OwnerPassword != "" {
+					if err := r.publishTenantSecret(ctx, cellId, tenantId, "OWNER_INITIAL_PASSWORD", identity.OwnerPassword); err != nil {
+						logger.Error(err, "Provisioned the tenant owner but could not publish their initial password",
+							"tenant", tenantId, "owner", ownerEmail)
+					} else {
+						logger.Info("Tenant owner account created; initial password published to the tenant's secret path",
+							"tenant", tenantId, "owner", ownerEmail)
+					}
+				}
 				if err := r.publishTenantClientID(ctx, cellId, tenantId, identity.ClientID); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
 						"tenant", tenantId)
@@ -540,7 +556,15 @@ func tenantGatewayHosts(obj *unstructured.Unstructured) []string {
 // the value is also re-asserted rather than left, so a client id that changed
 // upstream converges instead of being pinned by whatever ran first.
 func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cellId, tenantId, clientID string) error {
-	const key = "OIDC_CLIENT_ID"
+	return r.publishTenantSecret(ctx, cellId, tenantId, "OIDC_CLIENT_ID", clientID)
+}
+
+// publishTenantSecret writes one value to the tenant's Infisical folder.
+//
+// Idempotent: create when absent, update when present. Reconciliation repeats,
+// so "already exists" must be success rather than a conflict the caller has to
+// interpret.
+func (r *AINativeSaaSReconciler) publishTenantSecret(ctx context.Context, cellId, tenantId, key, value string) error {
 	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, tenantId)
 
 	exists, err := r.InfisicalClient.SecretExists(ctx, path, key)
@@ -548,7 +572,7 @@ func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cell
 		return fmt.Errorf("check %s/%s: %w", path, key, err)
 	}
 	if exists {
-		return r.InfisicalClient.UpdateSecret(ctx, path, key, clientID)
+		return r.InfisicalClient.UpdateSecret(ctx, path, key, value)
 	}
-	return r.InfisicalClient.CreateSecret(ctx, path, key, clientID)
+	return r.InfisicalClient.CreateSecret(ctx, path, key, value)
 }

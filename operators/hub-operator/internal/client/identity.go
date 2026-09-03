@@ -53,6 +53,11 @@ type TenantIdentity struct {
 	TenantRef  string `json:"tenantRef"`
 	ProjectRef string `json:"projectRef"`
 	ClientID   string `json:"clientId"`
+
+	// OwnerPassword is set only on the call that created the owner's account.
+	// Empty means no new credential exists — not that the password is unknown —
+	// so it must never be persisted as an empty value over a stored one.
+	OwnerPassword string `json:"ownerPassword,omitempty"`
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.

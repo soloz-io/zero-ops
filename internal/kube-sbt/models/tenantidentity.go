@@ -18,4 +18,12 @@ type TenantIdentity struct {
 	// back by whatever created it. That single property is why it travels the
 	// credential path rather than a values file.
 	ClientID string
+
+	// OwnerPassword is set ONLY when this call created the owner's account.
+	//
+	// Empty on every later reconcile, and that distinction is the contract: a
+	// value here means a new credential exists that nobody has yet, so the
+	// caller must persist it. Re-issuing one on each reconcile would silently
+	// lock out whoever is already using the account.
+	OwnerPassword string
 }
