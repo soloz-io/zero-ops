@@ -67,6 +67,17 @@ spec:
               name: identity-platform-org
               key: orgId
               optional: true
+        # The platform administrator this environment grants cluster access to.
+        #
+        # The issuer's installation creates its own first administrator in the
+        # platform organisation, and that account holds no role in the platform's
+        # project — so without this it exists and cannot sign in to anything the
+        # platform owns, the Kubernetes API server included.
+        #
+        # Environment-specific because the account is named after the issuer's
+        # own domain. Empty disables the bootstrap entirely.
+        - name: PLATFORM_ADMIN_EMAIL
+          value: "zitadel-admin@zitadel.id.dev.nutgraf.in"
         - name: IDENTITY_SERVICE_TOKEN
           valueFrom:
             secretKeyRef:

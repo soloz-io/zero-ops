@@ -13,6 +13,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/api/handlers"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/api/middleware"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/openmeter"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/ory"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/zitadel"
@@ -141,6 +142,30 @@ func main() {
 		if papp, ok := authProvider.(handlers.PlatformAppProvisioner); ok {
 			pa := handlers.NewPlatformAppHandler(papp)
 			internal.POST("/platform/apps", pa.EnsureApp)
+		}
+	}
+
+	// Ensure the platform administrator can actually sign in.
+	//
+	// Runs on every start because it converges rather than initialises: an issuer
+	// that denies authentication to a user holding no role will refuse an
+	// administrator whose account exists but whose grant was never made or was
+	// later removed, and the error names a missing grant rather than a missing
+	// person.
+	//
+	// Unset means "this environment does not bootstrap an administrator", which
+	// is legitimate — an issuer without organisations has nothing to grant. It is
+	// deliberately not fatal: identity being briefly unreachable must not stop
+	// the API server from serving everything that does not depend on it.
+	if adminEmail := getEnv("PLATFORM_ADMIN_EMAIL", ""); adminEmail != "" {
+		if err := authProvider.CreateAdminUser(context.Background(), models.CreateAdminUserProps{
+			Email: adminEmail,
+			Name:  adminEmail,
+			Role:  "admin",
+		}); err != nil {
+			fmt.Printf("warning: could not ensure the platform administrator %q: %v\n", adminEmail, err)
+		} else {
+			fmt.Printf("platform administrator ensured: %s\n", adminEmail)
 		}
 	}
 
