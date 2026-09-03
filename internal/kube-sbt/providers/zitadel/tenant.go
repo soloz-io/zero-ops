@@ -432,27 +432,58 @@ var _ interfaces.ITenantIdentityProvisioner = (*Auth)(nil)
 //
 // Idempotent, like everything else here: it is called on every reconcile.
 func (a *Auth) EnsurePlatformApp(ctx context.Context, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
-	if a.cfg.PlatformOrgID == "" {
-		return "", fmt.Errorf("zitadel: PlatformOrgID is required to provision a platform application")
-	}
 	if appName == "" {
 		return "", fmt.Errorf("zitadel: appName is required")
 	}
+	orgID, err := a.platformOrg(ctx)
+	if err != nil {
+		return "", err
+	}
 
-	projectID, err := a.ensureProject(ctx, a.cfg.PlatformOrgID, a.cfg.ProjectName)
+	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
 	if err != nil {
 		return "", fmt.Errorf("ensure platform project: %w", err)
 	}
-	if err := a.ensureRoles(ctx, a.cfg.PlatformOrgID, projectID); err != nil {
+	if err := a.ensureRoles(ctx, orgID, projectID); err != nil {
 		return "", fmt.Errorf("ensure platform roles: %w", err)
 	}
-	if err := a.ensureRoleAssertion(ctx, a.cfg.PlatformOrgID, projectID); err != nil {
+	if err := a.ensureRoleAssertion(ctx, orgID, projectID); err != nil {
 		return "", fmt.Errorf("ensure platform role assertion: %w", err)
 	}
 
-	clientID, err := a.ensureOIDCApp(ctx, a.cfg.PlatformOrgID, projectID, appName, redirectURIs, postLogoutURIs)
+	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs)
 	if err != nil {
 		return "", fmt.Errorf("ensure platform application %q: %w", appName, err)
 	}
 	return clientID, nil
+}
+
+// platformOrg resolves the organisation the platform's own clients belong to.
+//
+// Configured when set, DISCOVERED otherwise: the service credential this
+// provider authenticates with belongs to the instance's own organisation, which
+// is where platform administrators are, so asking the issuer who we are answers
+// the question without a second value to keep in step.
+//
+// That matters beyond tidiness. The id is allocated by the issuer at
+// installation, so any configured copy is transcribed by hand from a UI — and a
+// wrong one does not fail loudly. It creates the platform's applications inside
+// some other organisation, where the administrators who need them are refused
+// because their organisation was never granted the project.
+func (a *Auth) platformOrg(ctx context.Context) (string, error) {
+	if a.cfg.PlatformOrgID != "" {
+		return a.cfg.PlatformOrgID, nil
+	}
+	var resp struct {
+		Org struct {
+			ID string `json:"id"`
+		} `json:"org"`
+	}
+	if err := a.api.do(ctx, http.MethodGet, "/management/v1/orgs/me", "", nil, &resp); err != nil {
+		return "", fmt.Errorf("zitadel: resolve the platform organisation: %w", err)
+	}
+	if resp.Org.ID == "" {
+		return "", fmt.Errorf("zitadel: the issuer reported no organisation for this credential")
+	}
+	return resp.Org.ID, nil
 }

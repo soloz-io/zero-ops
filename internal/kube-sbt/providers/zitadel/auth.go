@@ -236,8 +236,9 @@ func (a *Auth) CreateAdminUser(ctx context.Context, props models.CreateAdminUser
 	if props.Email == "" {
 		return fmt.Errorf("zitadel: admin email is required")
 	}
-	if a.cfg.PlatformOrgID == "" {
-		return fmt.Errorf("zitadel: PlatformOrgID is required to bootstrap an administrator")
+	orgID, err := a.platformOrg(ctx)
+	if err != nil {
+		return err
 	}
 
 	if existing, err := a.findUserByEmail(ctx, props.Email); err == nil && existing != nil {
@@ -246,10 +247,10 @@ func (a *Auth) CreateAdminUser(ctx context.Context, props models.CreateAdminUser
 		return err
 	}
 
-	_, err := a.CreateUser(ctx, models.User{
+	_, err = a.CreateUser(ctx, models.User{
 		Email:    props.Email,
 		Name:     props.Name,
-		TenantID: a.cfg.PlatformOrgID,
+		TenantID: orgID,
 	})
 	return err
 }
