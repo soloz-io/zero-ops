@@ -23,6 +23,15 @@ zitadel:
     # Terminated by the gateway, as every other hub service is.
     ExternalSecure: true
     ExternalDomain: id.dev.nutgraf.in
+    # 443, not the 8080 the container actually listens on. ExternalPort is the
+    # port Zitadel BUILDS ITS PUBLIC URLS FROM, not the one it binds; the chart
+    # defaults it to the listen port, which is right only when nothing sits in
+    # front. Behind the gateway that default renders every generated URL as
+    # https://id.dev.nutgraf.in:8080/... — including the OIDC issuer, which
+    # clients compare against the discovery document byte-for-byte. A mismatch
+    # there is rejected as a spoofed issuer, so this is not cosmetic and it does
+    # not surface until a relying party tries to log in.
+    ExternalPort: 443
     TLS:
       # The gateway terminates TLS; Zitadel serves plain HTTP inside the mesh.
       Enabled: false

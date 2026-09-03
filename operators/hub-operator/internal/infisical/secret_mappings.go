@@ -455,17 +455,24 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Hydra system secret for cookie/session encryption",
 	},
 	{
-		// Zitadel's masterkey encrypts everything it stores at rest. It must be
-		// EXACTLY 32 characters — GenerateSecurePassword returns 16 random bytes
-		// hex-encoded, which is 32 characters, so the platform default fits
-		// without a special generator. A wrong length fails at startup, not at
-		// first use.
+		// Zitadel's masterkey encrypts everything it stores at rest, and
+		// checkMasterKeyLength compares len() of the RAW STRING against 32 —
+		// it does not decode it. So what matters is the character count.
+		//
+		// HexBytes is required here, and 16 is not a typo: GenerateHexKey(16)
+		// emits 16 random bytes hex-encoded, which is exactly 32 CHARACTERS.
+		// Without HexBytes this entry falls to the default branch, which gives
+		// a system secret (UsernameKey == "") 64 characters and fails at
+		// startup with "masterkey must be 32 bytes, but is 64" — a message
+		// that says bytes while measuring characters, so the arithmetic only
+		// works out if you already know it never decodes.
 		//
 		// Generated once and never rotated in place: re-keying would orphan
 		// every encrypted column Zitadel has written.
 		UsernameKey: "",
 		PasswordKey: "hub-zitadel-masterkey",
 		Username:    "",
+		HexBytes:    16,
 		Description: "Zitadel masterkey for encryption at rest",
 	},
 	{

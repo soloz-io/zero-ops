@@ -12,6 +12,10 @@ import (
 func TestHexKeyConsumersDeclareTheirByteLength(t *testing.T) {
 	want := map[string]int{
 		"agentgateway-oidc-cookie-secret": 32,
+		// Zitadel measures len() of the raw string, so 16 bytes hex-encoded is
+		// the 32 CHARACTERS it wants. Without this the default branch gives a
+		// system secret 64 chars and Zitadel refuses to start.
+		"hub-zitadel-masterkey": 16,
 	}
 	for key, bytes := range want {
 		found := false
