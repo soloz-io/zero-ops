@@ -43,6 +43,37 @@ spec:
           value: "8080"
         - name: OPENMETER_URL
           value: "http://openmeter-api.platform-billing.svc.cluster.local"
+        # Which identity provider backs this service.
+        #
+        # A setting, not a build. The provider interface was always pluggable;
+        # the wiring named one product, so a second could not be selected without
+        # a recompile — which is not an abstraction (ADR-059).
+        - name: AUTH_PROVIDER
+          value: "zitadel"
+        # The PUBLIC issuer URL, not an in-cluster Service address. It is what
+        # relying parties are configured with and what a token's iss claim must
+        # equal, and the provider refuses a discovery document that names
+        # anything else.
+        - name: OIDC_ISSUER_URL
+          value: "https://id.dev.nutgraf.in"
+        # The organisation platform administrators belong to.
+        #
+        # An administrator is an ordinary member of it and carries it as their
+        # tenant, which is what removes the need for a tenant-less identity — and
+        # for the exemption that used to model one.
+        - name: PLATFORM_ORG_ID
+          valueFrom:
+            configMapKeyRef:
+              name: identity-platform-org
+              key: orgId
+              optional: true
+        - name: IDENTITY_SERVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: identity-service-credentials
+              key: service-token
+        # Retained so a rollback to the previous provider needs no manifest
+        # change: AUTH_PROVIDER alone selects which of these is read.
         - name: ORY_KRATOS_URL
           value: "http://kratos-public.platform-identity.svc.cluster.local"
         - name: NATS_URL

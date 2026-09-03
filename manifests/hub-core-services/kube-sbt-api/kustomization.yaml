@@ -6,6 +6,7 @@ namespace: platform-ops
 resources:
 - manager.yaml
 - network-policy.yaml
+- identity-credentials-es.yaml
 
 images:
 - digest: sha256:4b54e3a3837f905e8a23d3e52c2131ce45d2b1a1ae92a9642d5e1a496e60d81d

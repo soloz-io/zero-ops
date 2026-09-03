@@ -326,6 +326,24 @@ var CLISecretMappings = []SecretMapping{
 	//     InfisicalKey:    "key-in-infisical",
 	//     Description:     "Human readable description",
 	// },
+	{
+		// The identity service's credential for managing the issuer.
+		//
+		// Uploaded rather than read directly because the two live in different
+		// namespaces: the issuer's setup creates this in platform-identity, and
+		// the service that needs it runs in platform-ops. A Kubernetes Secret
+		// cannot be read across that boundary, and copying one between namespaces
+		// is the secret traversal ADR-041 prohibits outright.
+		//
+		// Infisical is the sanctioned path: the operator uploads, ESO delivers.
+		// That keeps a single System of Record for the credential and leaves the
+		// copy where the platform can rotate it.
+		SourceNamespace: NamespaceIdentity,
+		SourceName:      "iam-admin-pat",
+		SourceKey:       "pat",
+		InfisicalKey:    "hub-identity-service-token",
+		Description:     "Identity service credential for provisioning tenants at the issuer",
+	},
 }
 
 // ============================================================================
