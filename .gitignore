@@ -29,3 +29,4 @@ reference-projects
 # generated GitOps artifact (those live under manifests/**/generated/ and are
 # committed on purpose); publishing it would leak a working credential.
 .zero-ops/infisical-bootstrap.json
+kube-sbt-api
