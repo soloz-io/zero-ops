@@ -65,7 +65,7 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		return nil, fmt.Errorf("ensure role assertion for %q: %w", tenantID, err)
 	}
 
-	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, tenantID, redirectURIs, postLogoutURIs)
+	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, tenantID+"-public-client", redirectURIs, postLogoutURIs)
 	if err != nil {
 		return nil, fmt.Errorf("ensure application for %q: %w", tenantID, err)
 	}
@@ -337,8 +337,7 @@ func (a *Auth) ensureRoles(ctx context.Context, orgID, projectID string) error {
 	return nil
 }
 
-func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, tenantID string, redirectURIs, postLogoutURIs []string) (string, error) {
-	appName := tenantID + "-public-client"
+func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
 
 	var existing struct {
 		Result []struct {
@@ -420,3 +419,40 @@ func (a *Auth) GrantRole(ctx context.Context, orgID, projectID, userID string, r
 }
 
 var _ interfaces.ITenantIdentityProvisioner = (*Auth)(nil)
+
+// EnsurePlatformApp provisions an OIDC application in the PLATFORM's own
+// organisation and returns its client id.
+//
+// Separate from EnsureTenantIdentity because it is not a tenant. A tenant gets
+// its own organisation so its users are owned by it; the platform's own clients
+// — the Kubernetes API server's among them — belong where platform
+// administrators already are, or those administrators could not authenticate to
+// them at all: the issuer refuses a user whose organisation was never granted
+// the project.
+//
+// Idempotent, like everything else here: it is called on every reconcile.
+func (a *Auth) EnsurePlatformApp(ctx context.Context, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
+	if a.cfg.PlatformOrgID == "" {
+		return "", fmt.Errorf("zitadel: PlatformOrgID is required to provision a platform application")
+	}
+	if appName == "" {
+		return "", fmt.Errorf("zitadel: appName is required")
+	}
+
+	projectID, err := a.ensureProject(ctx, a.cfg.PlatformOrgID, a.cfg.ProjectName)
+	if err != nil {
+		return "", fmt.Errorf("ensure platform project: %w", err)
+	}
+	if err := a.ensureRoles(ctx, a.cfg.PlatformOrgID, projectID); err != nil {
+		return "", fmt.Errorf("ensure platform roles: %w", err)
+	}
+	if err := a.ensureRoleAssertion(ctx, a.cfg.PlatformOrgID, projectID); err != nil {
+		return "", fmt.Errorf("ensure platform role assertion: %w", err)
+	}
+
+	clientID, err := a.ensureOIDCApp(ctx, a.cfg.PlatformOrgID, projectID, appName, redirectURIs, postLogoutURIs)
+	if err != nil {
+		return "", fmt.Errorf("ensure platform application %q: %w", appName, err)
+	}
+	return clientID, nil
+}

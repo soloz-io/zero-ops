@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -93,4 +94,55 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		resp["ownerPassword"] = identity.OwnerPassword
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// PlatformAppProvisioner is implemented by providers that can create an
+// application in the PLATFORM's own organisation, as distinct from a tenant's.
+//
+// Optional and asserted at the call site, for the same reason the tenant
+// capability is: a provider with no notion of an organisation has no such
+// distinction to make and would have to invent an answer.
+type PlatformAppProvisioner interface {
+	EnsurePlatformApp(ctx context.Context, appName string, redirectURIs, postLogoutURIs []string) (string, error)
+}
+
+// PlatformAppHandler provisions a platform-level OIDC client.
+//
+// The Kubernetes API server is the motivating consumer: its client id is an
+// API-server FLAG, so it cannot be read at runtime the way a tenant's gateway
+// reads one, and it has to exist before the flag can name it.
+type PlatformAppHandler struct{ provisioner PlatformAppProvisioner }
+
+func NewPlatformAppHandler(p PlatformAppProvisioner) *PlatformAppHandler {
+	return &PlatformAppHandler{provisioner: p}
+}
+
+type ensurePlatformAppRequest struct {
+	Name           string   `json:"name"`
+	RedirectURIs   []string `json:"redirectUris"`
+	PostLogoutURIs []string `json:"postLogoutUris"`
+}
+
+func (h *PlatformAppHandler) EnsureApp(c *gin.Context) {
+	if h.provisioner == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"error": "the configured identity provider does not provision platform applications",
+		})
+		return
+	}
+	var req ensurePlatformAppRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	clientID, err := h.provisioner.EnsurePlatformApp(c.Request.Context(), req.Name, req.RedirectURIs, req.PostLogoutURIs)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"name": req.Name, "clientId": clientID})
 }

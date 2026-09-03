@@ -46,6 +46,37 @@ spec:
       openAPIV3Schema:
         type: string
         default: ubuntu-24.04
+  # The OIDC provider the API server accepts tokens from.
+  #
+  # Variables rather than literals in the template, for the reason the SSH key
+  # taught us: a literal nothing overrides is a value nobody is reviewing, and
+  # these two in particular go stale the moment the platform changes issuer —
+  # silently, because a wrong issuer does not stop the cluster, it only stops
+  # people logging into it.
+  #
+  # They are also the ONLY way to change these flags without replacing the
+  # control-plane template. KubeadmControlPlaneTemplate.spec is immutable, so a
+  # literal edit is rejected outright and needs a new template plus a class
+  # repoint; a patch is rendered into the generated KubeadmControlPlane instead,
+  # which the topology controller updates in place.
+  #
+  # Empty by default, and the patch below is off when they are. That is what a
+  # fresh bootstrap needs: the issuer runs ON this cluster, so at the moment the
+  # control plane is created it does not exist yet and cannot be pointed at.
+  # OIDC is enabled afterwards by setting these, which costs one control-plane
+  # rollout and is a deliberate act rather than a bootstrap that half-works.
+  - name: oidcIssuerURL
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
+  - name: oidcClientID
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
   # ADR-046: on the hybrid cell the hub runs NO Hetzner workers — worker capacity
   # comes from the Flatcar home-lab nodes, which join manually after the bootstrap
   # finishes. During boundary-01..05 the control plane is therefore the only node
@@ -94,6 +125,41 @@ spec:
         type: string
         default: "mac-mini-ssh"
   patches:
+  # Point the API server at the platform's OIDC issuer.
+  #
+  # `add` on an existing key replaces it, so this overrides whatever the template
+  # carries — which is how the flags move without touching the immutable
+  # template at all.
+  #
+  # oidc-groups-claim is REMOVED rather than set. Kubernetes needs a flat string
+  # array, and an issuer that models authorisation as roles granted within an
+  # organisation emits a NESTED object instead; pointing the flag at it yields
+  # no groups, and pointing it at a claim that does not exist makes every login
+  # groupless while looking configured. Until that mapping exists, RBAC binds to
+  # the username (email) and the flag says nothing rather than something false.
+  #
+  # enabledIf requires BOTH values. Half-configured OIDC is worse than none: the
+  # API server would start, accept the flag it has, and reject every token for
+  # the one it lacks.
+  - name: oidcProvider
+    enabledIf: "{{ if and .oidcIssuerURL .oidcClientID }}true{{ end }}"
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/extraArgs/oidc-issuer-url
+        valueFrom:
+          variable: oidcIssuerURL
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/extraArgs/oidc-client-id
+        valueFrom:
+          variable: oidcClientID
+      - op: remove
+        path: /spec/template/spec/kubeadmConfigSpec/clusterConfiguration/apiServer/extraArgs/oidc-groups-claim
   # An empty taint list is kubeadm's declarative "register this node with no
   # taints". Preferred over letting the default control-plane taint apply and
   # removing it afterwards in a postKubeadmCommand, which races the scheduler

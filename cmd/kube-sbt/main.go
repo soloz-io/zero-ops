@@ -133,6 +133,15 @@ func main() {
 		internal.Use(middleware.RFC7807ErrorHandler())
 		ti := handlers.NewTenantIdentityHandler(provisioner, nil)
 		internal.POST("/tenants/:tenantId/identity", ti.EnsureIdentity)
+
+		// Platform-level clients, of which the Kubernetes API server is the
+		// motivating one: its client id is a process FLAG, so unlike a tenant's
+		// gateway it cannot read the value at runtime and the application has to
+		// exist before anything can name it.
+		if papp, ok := authProvider.(handlers.PlatformAppProvisioner); ok {
+			pa := handlers.NewPlatformAppHandler(papp)
+			internal.POST("/platform/apps", pa.EnsureApp)
+		}
 	}
 
 	// Start HTTP server
