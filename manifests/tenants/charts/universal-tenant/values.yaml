@@ -53,22 +53,38 @@ oidcIssuer: ""
 # and for the same reason: a fleet able to name its own client id could claim
 # another fleet's OAuth client.
 #
-# This exists because ADR-053's derived identifier stops being expressible under
-# Zitadel. Hydra accepts a chosen client_id, so <tenantId>-public-client could be
-# both the name and the credential; Zitadel ISSUES the client_id as an opaque
-# number at app-creation time and offers no way to choose it. The identifier can
-# therefore no longer be derived from the tenant — it has to be looked up.
+# This exists because ADR-053's derived identifier is not always expressible. It
+# holds only while the platform can CHOOSE a client id; an issuer that ALLOCATES
+# one — as some do, at app-creation time, with no way to set it — makes
+# <tenantId>-public-client impossible, so the identifier has to be looked up
+# rather than derived. ADR-053's authority rule is unchanged: the value is still
+# environment-owned, never fleet-supplied. Only its origin moves.
 #
-# Empty map keeps the derived <tenantId>-public-client, so a Hydra-backed
-# environment is unaffected and this stays additive rather than a migration.
+# An empty map keeps the derived identifier, so an issuer that accepts a chosen
+# client id is unaffected and this stays additive rather than a migration.
 oidcClientIds: {}
 
 # Where the issuer publishes its signing keys. Environment-owned like oidcIssuer.
 #
-# Empty falls back to <issuer>/.well-known/jwks.json, which is Hydra's path and
-# was the only one this platform had. Zitadel serves /oauth/v2/keys and answers
-# 404 for the conventional path, so an environment on Zitadel must set this.
+# Empty falls back to <issuer>/.well-known/jwks.json. That suffix is a common
+# convention, NOT part of the OIDC specification — the authority is the jwks_uri
+# field of the issuer's discovery document, and issuers exist that publish
+# elsewhere and return 404 for the conventional path. Set this whenever the
+# issuer's own discovery document disagrees with the default.
 oidcJwksUrl: ""
+
+# Extra OIDC scopes the environment's issuer needs, beyond openid/profile/email.
+#
+# Environment-owned like the rest of the OIDC settings. These identifiers belong
+# to whichever provider backs the issuer, so they are supplied rather than
+# written into the chart — a provider swap changes this value, not a template
+# (ADR-059).
+#
+# Empty is correct for an issuer that needs nothing extra. An issuer that carries
+# tenancy or authorisation in provider-specific claims will need the scopes that
+# mint them, and omitting one is silent: the token still verifies, it simply
+# arrives without the claim.
+oidcScopes: []
 
 gateway:
   enabled: false

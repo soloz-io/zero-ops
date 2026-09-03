@@ -25,14 +25,14 @@
 {{- /* Looked up when the environment supplies a map, derived otherwise.
 
        ADR-053's rule — the client id follows from the tenant identity — holds
-       only while the issuer lets the platform CHOOSE a client_id. Hydra does;
-       Zitadel issues an opaque number at app-creation time and offers no way to
-       set it, so under Zitadel the identifier cannot be derived and must be
-       looked up. The map is environment-owned (see values.yaml), so the
-       authority for the value is unchanged even though its origin is.
+       only while the issuer lets the platform CHOOSE a client_id. Some do;
+       others ALLOCATE one at app-creation time with no way to set it, and there
+       the identifier cannot be derived and must be looked up. The map is
+       environment-owned (see values.yaml), so the authority for the value is
+       unchanged even though its origin is.
 
        Falling back to the derived name rather than failing keeps every
-       Hydra-backed environment working untouched. */ -}}
+       environment whose issuer accepts a chosen id working untouched. */ -}}
 {{- $clientId := printf "%s-public-client" $t }}
 {{- if hasKey .Values.oidcClientIds $t }}
 {{- $clientId = index .Values.oidcClientIds $t }}
@@ -288,7 +288,8 @@ data:
       policy:
         oidc:
           issuer: {{ $issuer }}
-          # Quoted, and it must be. A Zitadel client id is all digits, so
+          # Quoted, and it must be. An issuer-allocated client id can be all
+          # digits, so
           # unquoted YAML parses it as an INTEGER and agentgateway refuses the
           # whole config at startup:
           #
@@ -314,11 +315,11 @@ data:
           # holds only ClientSecretBasic and ClientSecretPost (http/oauth.rs:23),
           # and parse_token_endpoint_auth_methods returns the first of those the
           # provider advertises (http/oauth.rs:110), never considering `none`
-          # even though Hydra offers it. So the token exchange sends
+          # even though some issuers offer it. So the token exchange sends
           # `Authorization: Basic base64("<tenant>-public-client:")`.
           #
-          # Hydra accepts that from a public client — verified 2026-09-01 against
-          # the dev issuer: the same request answered invalid_GRANT, not
+          # The dev issuer accepts that from a public client — verified against
+          # it directly: the same request answered invalid_GRANT, not
           # invalid_client, meaning the client authentication passed and only the
           # test code was rejected. Login works, and works by the provider's
           # leniency rather than by agreement between the two sides.
@@ -332,33 +333,25 @@ data:
           # Fixed by the platform. Scopes bound what a token may do, so a fleet
           # able to widen its own would be granting itself authority the platform
           # did not issue.
+          #
+          # The extra scopes come from the environment rather than being written
+          # here, because which scopes a token needs is a property of the ISSUER,
+          # not of this chart. The identifiers are the provider's own and change
+          # when the provider does; naming them here would put a provider's
+          # vocabulary in a platform template and mean a provider swap edits the
+          # chart (ADR-059).
+          #
+          # openid is unconditional — it is what makes the request OIDC at all.
+          # profile and email are requested because a token without them
+          # authenticates a subject and carries no identity, which surfaces as a
+          # successful login whose user has a blank name and address.
           scopes:
           - openid
-          # profile and email, or the id_token carries neither.
-          #
-          # OIDC releases identity claims only for the scope that asks for them,
-          # so without these the token authenticates a SUBJECT and nothing else:
-          # /api/v1/auth/me answered 200 with "email":"" because the BFF had a
-          # valid token that simply contained no email. That is not a validation
-          # failure anywhere, which is why it survived — the login works, the
-          # tenant is right, and only the user's identity is blank.
           - profile
           - email
-          - tenant:read
-          - tenant:write
-          # Zitadel only mints the organisation claims when this scope is asked
-          # for. Verified 2026-09-03 by running the full authorization-code flow
-          # both ways: with it the tokens carry
-          # urn:zitadel:iam:user:resourceowner:id / :name, without it they carry
-          # neither and are indistinguishable from a token for a tenant-less
-          # user — the shape that produced "Token missing required tenant_id
-          # claim". The organisation IS the tenant in Zitadel, so this scope is
-          # what makes a token tenant-scoped at all.
-          #
-          # Inert on Hydra, which ignores scopes it does not know (as Zitadel
-          # ignores tenant:read/tenant:write above — also verified), so this is
-          # safe to send at both issuers rather than needing a conditional.
-          - urn:zitadel:iam:user:resourceowner
+{{- range .Values.oidcScopes }}
+          - {{ . }}
+{{- end }}
 ---
 # The tenant's public base URL, published for its own workloads to consume.
 #
@@ -390,8 +383,8 @@ data:
   # (ADR-050: a fleet able to set it could trust an issuer the platform does
   # not), but a fleet's own workloads need it to fetch the JWKS, so it was typed
   # into the fleet's manifest as a literal. That is two places free to disagree,
-  # and they did: moving the gateway to Zitadel left the BFF still validating
-  # against Hydra, which fails as
+  # and they did: moving the gateway to a new issuer left the BFF still
+  # validating against the old one, which fails as
   #
   #   ID token validation failed: no applicable key found in the JSON Web Key Set
   #
@@ -404,8 +397,9 @@ data:
   # It is the tenant's own OAuth client id — the same $clientId the gateway
   # authenticates with, so the token this names and the token that arrives are
   # minted from one value. Published because the fleet cannot derive it any more:
-  # under Hydra it was <tenant>-public-client and could be spelled out, but a
-  # Zitadel client id is an opaque number the platform looks up.
+  # where the platform chooses it, it is <tenant>-public-client and could be
+  # spelled out; where the issuer allocates it, it is an opaque value the
+  # platform looks up.
   #
   # Validating aud is load-bearing, not hygiene: it is what stops a token minted
   # for a different client being replayed here.
@@ -413,16 +407,17 @@ data:
   # Where to fetch the signing keys.
   #
   # NOT derivable from the issuer, which is why it is published rather than
-  # assembled. Hydra serves <issuer>/.well-known/jwks.json; Zitadel serves
-  # <issuer>/oauth/v2/keys and returns 404 for the well-known path. A consumer
-  # that appends the conventional suffix therefore fails against Zitadel with
+  # assembled. The <issuer>/.well-known/jwks.json suffix is a convention, not a
+  # specification — the authority is the jwks_uri field of the issuer's discovery
+  # document, and issuers exist that publish elsewhere and 404 the conventional
+  # path. A consumer that appends the suffix therefore fails against those with
   #
   #   Token validation failed: Expected 200 OK from the JSON Web Key Set HTTP response
   #
   # which reads as an unreachable issuer rather than a wrong path.
   #
   # Supplied by the environment alongside the issuer, defaulting to the
-  # conventional suffix so a Hydra environment needs no new value.
+  # conventional suffix so an issuer that follows it needs no new value.
   OIDC_JWKS_URL: {{ .Values.oidcJwksUrl | default (printf "%s/.well-known/jwks.json" $issuer) }}
 ---
 apiVersion: external-secrets.io/v1

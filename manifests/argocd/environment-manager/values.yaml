@@ -107,6 +107,18 @@ oidcClientIds: {}
 # must set this or every token fails to validate.
 oidcJwksUrl: ""
 
+# Extra OIDC scopes the issuer needs beyond openid/profile/email, as a list.
+#
+# These identifiers belong to whichever product backs the issuer, so they are
+# supplied by the environment rather than written into a platform template
+# (ADR-059) — a provider swap changes this value, not a chart.
+#
+# Getting this wrong is SILENT. An issuer that carries tenancy or authorisation
+# in its own claims mints them only for the scope that asks; omit one and the
+# token still verifies, it simply arrives without the claim, and the failure
+# surfaces later as a missing tenant or an empty role list.
+oidcScopes: []
+
 # Deploy the Ory stack (hydra, kratos, keto, kratos-selfservice-ui, auth-proxy).
 #
 # A switch rather than a deletion. The manifests under

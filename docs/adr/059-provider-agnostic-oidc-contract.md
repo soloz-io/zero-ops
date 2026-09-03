@@ -78,16 +78,29 @@ Every provider-specific value is published by the platform and read at runtime:
 - to a fleet's workloads, on the `tenant-public-endpoint` ConfigMap:
   `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_JWKS_URL`
 - to the tenant chart, as environment-owned values: `oidcIssuer`,
-  `oidcClientIds`, `oidcJwksUrl`
+  `oidcClientIds`, `oidcJwksUrl`, `oidcScopes`
 
 **A consumer that can read configuration at runtime MUST NOT hardcode a provider
-value.** Not the issuer, not the audience, not a well-known path.
+value.** Not the issuer, not the audience, not a well-known path, not a scope.
+
+The same rule applies to platform SOURCE, not only to deployed config: a chart
+or library that spells a provider's name in its logic has that provider welded
+into the platform's contract. Where a provider's own identifiers are
+unavoidable — a claim cannot be read without naming it — they are confined to a
+single alias table at the adapter boundary, so supporting another issuer is a
+table entry rather than an edit to the logic around it.
 
 Two of these are published rather than derived for reasons worth stating, because
 both look derivable:
 
 - **JWKS URL.** `<issuer>/.well-known/jwks.json` is Hydra's convention, not a
   standard. Zitadel returns 404 for it.
+- **Scopes.** Beyond `openid`/`profile`/`email`, which scopes a token needs is a
+  property of the ISSUER, and the identifiers are its own vocabulary. A platform
+  template naming them would have to be edited to change provider. Omitting one
+  is silent in the worst way: the token still verifies and simply arrives without
+  the claim that scope mints, so the failure surfaces later as a missing tenant
+  or an empty role list rather than as a login error.
 - **Client id.** ADR-053 derives `<tenantId>-public-client`, which holds only
   while the platform can CHOOSE the client id. Zitadel allocates an opaque
   number, so the identifier must be looked up. ADR-053's *authority* rule is

@@ -75,16 +75,19 @@ export class JwtValidator {
       const { payload } = await jose.jwtVerify(token, key, verifyOptions);
       const claims = claimsFromPayload(payload as Record<string, unknown>);
 
-      // No platform-scoped exemption. It existed because Ory could mint an
-      // identity belonging to no tenant, so a platform admin had to be excused
-      // from a rule everyone else obeyed — an exemption is a hole, and this one
-      // was widened by a group string any token could claim to hold.
+      // No platform-scoped exemption, deliberately.
       //
-      // The provider closed it. In Zitadel an Organization OWNS the user rather
-      // than describing it, so a tenant-less identity is not expressible and a
-      // platform admin is simply a member of the platform's own organisation,
-      // carrying that organisation as its tenant. There is no longer a state for
-      // the exemption to model, so the rule applies to everyone without one.
+      // One existed while the tenant was an ATTRIBUTE written onto an identity,
+      // because an identity could then be created with none — so a platform
+      // admin had to be excused from a rule everyone else obeyed, and the excuse
+      // was a group string, which is a hole widened by anything that can claim
+      // to hold it.
+      //
+      // Where the tenant OWNS the identity instead, a tenant-less identity is
+      // not expressible: a platform admin belongs to the platform's own tenant
+      // and carries it like anyone else. There is no longer a state for the
+      // exemption to model, so the rule applies to everyone without one
+      // (ADR-059).
       if (this.requireTenantId && !claims.tenant_id) {
         throw new AuthError({
           code: "MISSING_TENANT_ID",

@@ -151,19 +151,31 @@ spec:
                 value: {{ .Values.oidcIssuer | quote }}
               - name: oidcJwksUrl
                 value: {{ .Values.oidcJwksUrl | quote }}
-{{- if .Values.oidcClientIds }}
-            # A map, so it cannot go through `parameters` — those are flat
-            # name/value strings. Passed as a values block instead, which merges
-            # UNDER the fleet's values file rather than overriding it the way a
-            # parameter does. That is acceptable only because the chart reads
-            # this map by the tenant's own id: a fleet that set the key for its
-            # OWN tenant could at worst reassign its own client, and one that set
-            # another tenant's key would be writing into a map its own render
+{{- if or .Values.oidcClientIds .Values.oidcScopes }}
+            # A map and a list, so neither can go through `parameters` — those
+            # are flat name/value strings. Passed as ONE values block: a source
+            # may carry `values` or `valuesObject`, not both, and splitting these
+            # across the two is rejected at sync with an error that names the
+            # source rather than the field.
+            #
+            # A values block merges UNDER the fleet's values file rather than
+            # overriding it the way a parameter does. That is acceptable here
+            # because the chart reads the client map by the tenant's OWN id — a
+            # fleet setting its own key could at worst reassign its own client,
+            # and setting another tenant's key writes into a map its own render
             # never indexes.
             values: |
+{{- if .Values.oidcClientIds }}
               oidcClientIds:
 {{- range $tenant, $clientId := .Values.oidcClientIds }}
                 {{ $tenant }}: {{ $clientId | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.oidcScopes }}
+              oidcScopes:
+{{- range .Values.oidcScopes }}
+                - {{ . | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 

@@ -15,8 +15,8 @@ export interface TenantClaims {
    *
    * Never load-bearing: tenant_id is the identifier and the only thing an
    * authorization decision may use. This is for display and logs, where an
-   * opaque number is unreadable — Zitadel's organisation ids look like
-   * "389091373187334477" while the organisation is called "waypoint".
+   * issuer-allocated identifier is unreadable — they are commonly opaque
+   * numbers, while the tenant has a name a human recognises.
    */
   tenant_name?: string;
   /** Tenant tier (e.g., "free", "pro", "enterprise") */
@@ -49,40 +49,101 @@ export interface TenantClaims {
   scope?: string;
 }
 
+/**
+ * Claim names the platform's own contract does not define.
+ *
+ * The platform's contract is `tenant_id` and `roles`. An issuer that does not
+ * emit those spells them its own way, and reading it means naming its claims
+ * somewhere — there is no abstraction that removes the literal, only one that
+ * decides where it lives.
+ *
+ * They live HERE, in one table, so the rest of this library is written against
+ * the contract rather than against an issuer. Supporting another issuer is an
+ * entry in this table, not an edit to the logic below (ADR-059). The reasoning
+ * for each name, and which product uses it, belongs in that ADR rather than in
+ * this file.
+ *
+ * Order is preference order: the platform's own claim first, so a token that
+ * already speaks the contract is never reinterpreted.
+ */
+const TENANT_ID_CLAIMS = [
+  "tenant_id",
+  "urn:zitadel:iam:user:resourceowner:id",
+  "urn:zitadel:iam:org:id",
+] as const;
+
+const TENANT_NAME_CLAIMS = [
+  "tenant_name",
+  "urn:zitadel:iam:user:resourceowner:name",
+  "urn:zitadel:iam:org:name",
+] as const;
+
+/** Nested as `{ roleKey: { grantingTenantId: domain } }`. */
+const SCOPED_ROLES_CLAIM = "urn:zitadel:iam:org:project:roles";
+
+function firstString(
+  payload: Record<string, unknown>,
+  names: readonly string[],
+): string {
+  for (const n of names) {
+    const v = payload[n];
+    if (typeof v === "string" && v) return v;
+  }
+  return "";
+}
+
+/**
+ * Roles granted to this user WITHIN THE GIVEN TENANT.
+ *
+ * The claim is nested because one token can carry the same role granted in
+ * several tenants. An issuer emits it only when asked for the scope that mints
+ * it, so absent means no roles — never "all roles".
+ *
+ * The tenant filter is the security-relevant part, not a detail. Flattening to
+ * `Object.keys()` would return a role granted in a DIFFERENT tenant as if it had
+ * been granted here — a cross-tenant privilege leak that reads as a correct role
+ * list, and one that stays invisible until a user is granted access to a second
+ * tenant. Roles are therefore kept only where the nested tenant id equals the
+ * tenant this token is scoped to.
+ */
+function rolesGrantedInTenant(
+  payload: Record<string, unknown>,
+  tenantId: string,
+): string[] {
+  const raw = payload[SCOPED_ROLES_CLAIM];
+  if (!raw || typeof raw !== "object" || !tenantId) return [];
+  const out: string[] = [];
+  for (const [roleKey, grantedIn] of Object.entries(
+    raw as Record<string, unknown>,
+  )) {
+    if (
+      grantedIn &&
+      typeof grantedIn === "object" &&
+      Object.prototype.hasOwnProperty.call(grantedIn, tenantId)
+    ) {
+      out.push(roleKey);
+    }
+  }
+  return out;
+}
+
 export function claimsFromPayload(payload: Record<string, unknown>): TenantClaims {
+  const tenantId = firstString(payload, TENANT_ID_CLAIMS);
+
   return {
     sub: String(payload.sub ?? ""),
     email: String(payload.email ?? ""),
     email_verified: payload.email_verified === true,
-    // Zitadel spells the tenant differently, so read both.
+    // Read through the alias table, so one library serves any issuer and a
+    // provider swap is a configuration change rather than a fork.
     //
-    // In Zitadel the ORGANISATION is the tenant — it owns the user rather than
-    // describing it — and it travels as a reserved URN claim rather than as
-    // `tenant_id`. Hydra emits `tenant_id`. Reading both lets one library serve
-    // either issuer, which is what makes the provider swap a configuration
-    // change instead of a fork.
-    //
-    // tenant_id wins when present so a Hydra-issued token behaves exactly as
-    // before, and this stays additive rather than a migration.
-    //
-    // Zitadel only mints these claims when the token was requested with the
-    // `urn:zitadel:iam:user:resourceowner` scope (see the agentgateway policy in
-    // universal-tenant). Without that scope the claim is absent and the token is
-    // correctly rejected as tenant-less — the check below must therefore stay a
-    // check, not a default.
-    tenant_id: String(
-      payload.tenant_id ??
-        payload["urn:zitadel:iam:user:resourceowner:id"] ??
-        payload["urn:zitadel:iam:org:id"] ??
-        "",
-    ),
-    tenant_name: (() => {
-      const n =
-        payload.tenant_name ??
-        payload["urn:zitadel:iam:user:resourceowner:name"] ??
-        payload["urn:zitadel:iam:org:name"];
-      return n ? String(n) : undefined;
-    })(),
+    // An issuer that carries tenancy structurally — where the tenant OWNS the
+    // user rather than being an attribute written onto it — mints these claims
+    // only for the scope that asks for them. Without that scope the claim is
+    // absent and the token is correctly rejected as tenant-less, so the
+    // requirement in the validator must stay a check and never a default.
+    tenant_id: tenantId,
+    tenant_name: firstString(payload, TENANT_NAME_CLAIMS) || undefined,
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,
     // The platform's auth-proxy injects a SINGULAR `role` claim
     // (internal/auth-proxy/validate.go). Without this fallback `roles` was always
@@ -95,6 +156,14 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
       : typeof payload.groups === "string"
         ? [payload.groups]
         : [],
+    // The contract's own claim wins when present; the issuer's scoped roles
+    // otherwise.
+    //
+    // Ordered this way so a token that already speaks the contract behaves
+    // exactly as before and this stays additive. Where it falls through,
+    // authorisation comes from the issuer's own model rather than from a claim
+    // the platform injected — which is what ADR-059 means by not running a
+    // second model beside the provider's.
     roles: Array.isArray(payload.roles)
       ? (payload.roles as unknown[]).map(String)
       : typeof payload.roles === "string"
@@ -103,7 +172,7 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
           ? (payload.role as unknown[]).map(String)
           : typeof payload.role === "string"
             ? [payload.role]
-        : [],
+            : rolesGrantedInTenant(payload, tenantId),
     iss: payload.iss ? String(payload.iss) : undefined,
     aud: payload.aud as TenantClaims["aud"],
     exp: typeof payload.exp === "number" ? payload.exp : undefined,

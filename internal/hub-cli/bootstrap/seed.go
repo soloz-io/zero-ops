@@ -135,7 +135,11 @@ spec:
 // than passed to a one-shot render. They are the cluster's identity, fixed at
 // creation, and being part of a reconciled object they survive rather than
 // having to be re-supplied by whoever last ran a render.
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL string) string {
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL string, oidcScopes []string) string {
+	scopes := ""
+	for _, sc := range oidcScopes {
+		scopes += fmt.Sprintf("\n        - %q", sc)
+	}
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -165,6 +169,8 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
+      valuesObject:
+        oidcScopes:%s
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-ops
@@ -174,7 +180,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL)
+`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, scopes)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -244,6 +250,23 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	// issuer. Tied to the same issuer variable so the two cannot disagree.
 	oidcJwksURL := oidcIssuer + "/oauth/v2/keys"
 
+	// Scopes the issuer needs beyond openid/profile/email, rendered as a YAML
+	// list into the seed's values.
+	//
+	// Supplied here rather than defaulted in the chart because these identifiers
+	// are the issuer's vocabulary, and a platform template that named them would
+	// have to be edited to change provider (ADR-059).
+	//
+	// Omitting one is SILENT: the token still verifies, it simply arrives without
+	// the claim that scope mints, and the failure surfaces much later as a
+	// missing tenant or an empty role list rather than as a login error.
+	oidcScopes := []string{
+		// tenancy — the issuer emits the owning organisation only when asked
+		"urn:zitadel:iam:user:resourceowner",
+		// authorisation — project roles granted to the user in that organisation
+		"urn:zitadel:iam:org:project:roles",
+	}
+
 	publicTlsIssuer, err := o.publicTlsIssuerFor()
 	if err != nil {
 		return err
@@ -263,7 +286,7 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	}
 
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
-		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL)
+		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}
