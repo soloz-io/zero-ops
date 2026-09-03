@@ -81,6 +81,32 @@ kratos:
         login:
           ui_url: https://console.dev.nutgraf.in/auth/login
         registration:
+          # DISABLED. Kratos defaults this to TRUE when unset, which is how it
+          # has been live without ever appearing in this file.
+          #
+          # A tenant is an assignment the PLATFORM makes, stored in
+          # metadata_public, and self-service flows are forbidden from writing
+          # there (ADR-010). Registration therefore creates an identity with
+          # traits only — no tenant, no groups — which authenticates against
+          # Kratos and is then refused by every service with
+          # "Token missing required tenant_id claim". The account is not
+          # half-configured; it can never work.
+          #
+          # That happened four times on 2026-09-02/03: each sign-up produced
+          # metadata_public: null, and deleting the identity only invited the
+          # next sign-up to recreate it. Nothing downstream could prevent it —
+          # kube-sbt-api's validateUserScope guards the platform API, and
+          # registration does not go through the platform API.
+          #
+          # There is also no mechanism that COULD assign a tenant here: no
+          # after-registration hook is configured on any flow, and
+          # allowed_return_urls does not include a tenant hostname, so the flow
+          # carries no tenant context to derive one from.
+          #
+          # Users are created by POST /api/v1/tenants/{tenantID}/users, where
+          # the tenant is named in the path and createIdentity refuses an
+          # identity that would have neither a tenant nor a platform group.
+          enabled: false
           ui_url: https://console.dev.nutgraf.in/auth/registration
         recovery:
           ui_url: https://console.dev.nutgraf.in/auth/recovery
