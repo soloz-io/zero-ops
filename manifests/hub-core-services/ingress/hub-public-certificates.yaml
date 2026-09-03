@@ -63,6 +63,28 @@ spec:
   dnsNames:
     - console.dev.nutgraf.in
 ---
+# Zitadel (evaluation spike, ADR pending). Its own hostname so the new issuer can
+# be exercised without touching auth.dev.nutgraf.in, which Ory keeps serving.
+#
+# This belongs HERE and not in dev-certificates.yaml, where it was first written.
+# That file also defines an id-zero-ops-tls, but it is commented out of the
+# kustomization and issues from selfsigned-issuer — so the Certificate rendered
+# nowhere, the Secret was never created, and hub-gateway's id listener sat at
+# ResolvedRefs: False while ingress-config reported Synced and Healthy. Nothing
+# was wrong with the sync; the resource was simply not in the build.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: id-zero-ops-dev
+  namespace: platform-identity
+spec:
+  secretName: id-zero-ops-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - id.dev.nutgraf.in
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
