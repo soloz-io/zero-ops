@@ -15,12 +15,12 @@ import (
 	"github.com/soloz-io/zero-ops/internal/opensbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/opensbt/providers/openmeter"
 	"github.com/soloz-io/zero-ops/internal/opensbt/providers/ory"
+	"github.com/soloz-io/zero-ops/internal/opensbt/providers/zitadel"
 )
 
 func main() {
 	// Initialize providers with graceful retry logic
 	openMeterURL := getEnv("OPENMETER_URL", "http://openmeter-api.platform-billing.svc.cluster.local")
-	oryKratosURL := getEnv("ORY_KRATOS_URL", "http://kratos-public.platform-identity.svc.cluster.local")
 
 	meteringProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
 		return openmeter.NewMeteringProvider(openMeterURL)
@@ -39,7 +39,7 @@ func main() {
 	billingProvider := billingProviderRaw.(interfaces.IBilling)
 
 	authProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
-		return ory.NewAuthProvider(oryKratosURL)
+		return newAuthProvider()
 	})
 	if err != nil {
 		panic(fmt.Sprintf("failed to create auth provider after retries: %v", err))
@@ -181,4 +181,41 @@ func retryWithBackoff(fn func() (interface{}, error)) (interface{}, error) {
 	}
 
 	return nil, fmt.Errorf("max retries (%d) exceeded", maxRetries)
+}
+
+// newAuthProvider selects the identity provider from configuration.
+//
+// The interface was always pluggable; the WIRING was not — this call site named
+// one product, so a second provider could not be selected without changing code
+// and rebuilding. An abstraction that only a recompile can re-point is not one
+// (ADR-059), so the choice is a setting.
+//
+// Defaulting is deliberate rather than lazy: an unset variable keeps an existing
+// deployment on the provider it already runs, so this change cannot silently
+// re-point a live environment at a different issuer.
+func newAuthProvider() (interfaces.IAuth, error) {
+	switch provider := getEnv("AUTH_PROVIDER", "ory"); provider {
+	case "ory":
+		return ory.NewAuthProvider(getEnv("ORY_KRATOS_URL",
+			"http://kratos-public.platform-identity.svc.cluster.local"))
+
+	case "zitadel":
+		// The issuer is the public URL, not an in-cluster Service address. It is
+		// what relying parties are configured with and what the token's iss claim
+		// must equal, and this provider verifies the discovery document agrees
+		// before trusting any key from it.
+		return zitadel.NewAuth(zitadel.Config{
+			Issuer:        getEnv("OIDC_ISSUER_URL", ""),
+			ServiceToken:  os.Getenv("IDENTITY_SERVICE_TOKEN"),
+			PlatformOrgID: getEnv("PLATFORM_ORG_ID", ""),
+			ProjectName:   getEnv("IDENTITY_PROJECT_NAME", "platform"),
+		})
+
+	default:
+		// Naming the value rather than falling back. A typo that silently
+		// selected a default would start the service against the wrong issuer,
+		// and every token would then fail validation for reasons that point
+		// anywhere but here.
+		return nil, fmt.Errorf("unknown AUTH_PROVIDER %q: expected \"ory\" or \"zitadel\"", provider)
+	}
 }
