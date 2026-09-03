@@ -362,14 +362,15 @@ spec:
             helmValues: |
               installCRDs: false
 
-              # The WEBHOOK runs beside the API server, deliberately.
+{{- if eq .Values.provider "hybrid" }}
+              # HYBRID ONLY: the webhook runs beside the API server.
               #
               # It is a validating admission webhook, so the API server calls it
               # synchronously on every ExternalSecret write. On a hybrid hub the
-              # control plane is a cloud node and workers are home-lab machines
-              # across a tunnel, so an unpinned webhook lands on the only
-              # schedulable node — at home — and puts a cross-site round trip in
-              # the admission path of every write.
+              # control plane is a cloud node and the workers are home-lab
+              # machines across a tunnel, so an unpinned webhook lands on the
+              # only schedulable node — at home — and puts a cross-site round
+              # trip in the admission path of every write.
               #
               # When that link is slow the API server times out the call, and the
               # damage is not confined to external-secrets: the failure surfaces
@@ -378,9 +379,15 @@ spec:
               # dry-run cannot complete. Diagnosing it from those symptoms leads
               # away from the cause every time.
               #
-              # Only the webhook is pinned. The controller does the actual secret
-              # syncing, is not on any admission path, and belongs on worker
-              # capacity where there is room for it.
+              # Deliberately NOT applied on a single-provider hub. There the
+              # workers sit in the same network as the control plane, so the call
+              # is already local and the tunnel this works around does not exist
+              # — putting a workload on the control plane would buy nothing and
+              # spend capacity that is reserved for running the cluster.
+              #
+              # Only the webhook is pinned even here. The controller does the
+              # actual secret syncing, sits on no admission path, and belongs on
+              # worker capacity.
               webhook:
                 nodeSelector:
                   node-role.kubernetes.io/control-plane: ""
@@ -388,6 +395,7 @@ spec:
                   - key: node-role.kubernetes.io/control-plane
                     operator: Exists
                     effect: NoSchedule
+{{- end }}
 
               crds:
                 createClusterExternalSecret: true
