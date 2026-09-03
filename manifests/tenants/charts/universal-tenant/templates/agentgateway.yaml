@@ -22,21 +22,20 @@
        could point an unauthenticated public path at a service of its choosing. */ -}}
 {{- $sdk := printf "sdk-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
-{{- /* Looked up when the environment supplies a map, derived otherwise.
+{{- /* Derived only as a FALLBACK name; the real value arrives at runtime.
 
-       ADR-053's rule — the client id follows from the tenant identity — holds
-       only while the issuer lets the platform CHOOSE a client_id. Some do;
-       others ALLOCATE one at app-creation time with no way to set it, and there
-       the identifier cannot be derived and must be looked up. The map is
-       environment-owned (see values.yaml), so the authority for the value is
-       unchanged even though its origin is.
+       ADR-053 derived <tenantId>-public-client, which holds only while the
+       platform can CHOOSE a client id. An issuer that ALLOCATES one makes that
+       impossible, and the allocated value is not knowable when this chart is
+       rendered — it exists only after the identity service has provisioned the
+       tenant.
 
-       Falling back to the derived name rather than failing keeps every
-       environment whose issuer accepts a chosen id working untouched. */ -}}
+       So the config takes it from the environment (see the policy below) and
+       this name is used solely to label the application upstream. ADR-053's
+       authority rule is unchanged: the value is still platform-owned, it simply
+       travels through the credential path rather than through a values file,
+       which is what removes the last hand-maintained per-tenant parameter. */ -}}
 {{- $clientId := printf "%s-public-client" $t }}
-{{- if hasKey .Values.oidcClientIds $t }}
-{{- $clientId = index .Values.oidcClientIds $t }}
-{{- end }}
 {{- $redirect := printf "https://%s/oauth/callback" $host }}
 {{- $name := printf "agentgateway-%s" $t }}
 # This fleet's own AgentGateway instance (ADR-050 amendment 2026-08-31).
@@ -288,20 +287,18 @@ data:
       policy:
         oidc:
           issuer: {{ $issuer }}
-          # Quoted, and it must be. An issuer-allocated client id can be all
-          # digits, so
-          # unquoted YAML parses it as an INTEGER and agentgateway refuses the
-          # whole config at startup:
+          # Interpolated at startup from the environment, not rendered here.
           #
-          #   policies[0].policy.oidc.clientId: invalid type: integer
-          #   `389096262521061709`, expected a string
+          # agentgateway shell-expands its whole config file before parsing it
+          # (config.rs: `shellexpand::full(&contents)`), so ${VAR} is resolved
+          # from the process environment. That is what lets a value the issuer
+          # allocates — and which therefore cannot be known at render time —
+          # reach a statically rendered config.
           #
-          # The old derived value (<tenant>-public-client) could never be
-          # mistaken for a number, so this was latent until the first numeric id
-          # arrived. The failure is also quiet in the worst way: the previous
-          # ReplicaSet keeps serving the OLD issuer, so login still works and the
-          # only symptom is a crash-looping new pod beside a healthy one.
-          clientId: {{ $clientId | quote }}
+          # Unset fails loudly at startup rather than silently authenticating as
+          # an empty client, which is the behaviour to want here.
+          clientId: ${OIDC_CLIENT_ID}
+
           # Empty, and correct. This is a PUBLIC client — oauth2clients.yaml
           # registers <tenant>-public-client with tokenEndpointAuthMethod: none
           # (ADR-050), so no secret authenticates it and PKCE carries the proof.
@@ -392,18 +389,17 @@ data:
   # API call, with nothing naming the issuer. Referencing this key means an
   # issuer change moves the gateway and every workload that trusts it together.
   OIDC_ISSUER_URL: {{ $issuer }}
-  # The audience a fleet must REQUIRE on the id_token AgentGateway forwards.
+  # OIDC_CLIENT_ID is deliberately NOT published here.
   #
-  # It is the tenant's own OAuth client id — the same $clientId the gateway
-  # authenticates with, so the token this names and the token that arrives are
-  # minted from one value. Published because the fleet cannot derive it any more:
-  # where the platform chooses it, it is <tenant>-public-client and could be
-  # spelled out; where the issuer allocates it, it is an opaque value the
-  # platform looks up.
+  # It is the audience a fleet must require on the id_token, and it is the
+  # issuer's ALLOCATED client id — a value that does not exist when this
+  # ConfigMap is rendered. Publishing the derived name instead would put a
+  # plausible, wrong value where a correct one is expected, and the failure
+  # (audience mismatch) names neither this file nor the value.
   #
-  # Validating aud is load-bearing, not hygiene: it is what stops a token minted
-  # for a different client being replayed here.
-  OIDC_CLIENT_ID: {{ $clientId | quote }}
+  # It is delivered through the Secret the identity service writes instead:
+  #   agentgateway-<tenant>-oidc-client, key oidc-client-id
+  # which both the gateway and a fleet's workloads read.
   # Where to fetch the signing keys.
   #
   # NOT derivable from the issuer, which is why it is published rather than
@@ -441,6 +437,39 @@ spec:
     - secretKey: oidc-cookie-secret
       remoteRef:
         key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/AGENTGATEWAY_OIDC_COOKIE_SECRET
+---
+# The tenant's OAuth client id, as ALLOCATED by the issuer.
+#
+# Not secret — it is a public identifier for a PKCE client — but it travels the
+# credential path because that is the only path that carries a value the platform
+# learns at runtime rather than decides at render time. The identity service
+# writes it here when it provisions the tenant (ADR-041 assigns it "Infisical
+# upload for tenant credentials"); ESO delivers it; the gateway interpolates it.
+#
+# This is what retires the last hand-maintained per-tenant parameter. It used to
+# be a map an operator edited, which meant onboarding a tenant required a human
+# to copy an identifier out of one system and into a values file.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}-oidc-client
+  namespace: tenant-{{ $t }}
+spec:
+  # Shorter than the cookie secret's hour. This value appears for the first time
+  # when a tenant is provisioned, and until it arrives the gateway cannot start —
+  # so the interval is the delay between a tenant existing and its gateway
+  # working, not merely a staleness bound.
+  refreshInterval: 1m
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $name }}-oidc-client
+    creationPolicy: Owner
+  data:
+    - secretKey: oidc-client-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_CLIENT_ID
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -506,6 +535,15 @@ spec:
             secretKeyRef:
               name: {{ $name }}-oidc-cookie-secret
               key: oidc-cookie-secret
+        # Interpolated into the config by agentgateway's own shell expansion.
+        # Absent, the container will not start — which is the correct outcome: a
+        # gateway with no client id cannot complete a login, and failing at start
+        # says so once instead of failing every request.
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-client-id
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway

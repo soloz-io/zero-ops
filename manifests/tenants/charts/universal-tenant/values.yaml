@@ -49,20 +49,16 @@ cache:
 # point its own login flow at an issuer the platform does not trust.
 oidcIssuer: ""
 
-# Client id per tenant, keyed by tenantId. Platform-owned like oidcIssuer above,
-# and for the same reason: a fleet able to name its own client id could claim
-# another fleet's OAuth client.
+# The tenant's OAuth client id is NOT a value here.
 #
-# This exists because ADR-053's derived identifier is not always expressible. It
-# holds only while the platform can CHOOSE a client id; an issuer that ALLOCATES
-# one — as some do, at app-creation time, with no way to set it — makes
-# <tenantId>-public-client impossible, so the identifier has to be looked up
-# rather than derived. ADR-053's authority rule is unchanged: the value is still
-# environment-owned, never fleet-supplied. Only its origin moves.
+# It is allocated by the issuer when the identity service provisions the tenant,
+# so it does not exist when this chart renders. It reaches the gateway through
+# the Secret that service writes (agentgateway-<tenant>-oidc-client), which the
+# config interpolates from the environment.
 #
-# An empty map keeps the derived identifier, so an issuer that accepts a chosen
-# client id is unaffected and this stays additive rather than a migration.
-oidcClientIds: {}
+# It was briefly a map keyed by tenantId. That worked, and it required a human to
+# copy an identifier out of the issuer into a values file for every tenant —
+# which is the kind of step that is fine once and wrong by the fifth tenant.
 
 # Where the issuer publishes its signing keys. Environment-owned like oidcIssuer.
 #

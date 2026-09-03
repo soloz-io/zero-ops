@@ -87,19 +87,10 @@ publicTlsIssuer: ""
 # environment but one — the same reasoning as publicTlsIssuer above.
 oidcIssuer: ""
 
-# OAuth client id per tenant, keyed by tenantId, e.g.
+# No per-tenant OAuth client map.
 #
-#   oidcClientIds:
-#     waypoint: "389096262521061709"
-#
-# Environment-owned for the same reason as oidcIssuer, and needed for the same
-# reason the chart documents: Zitadel issues client ids as opaque numbers and
-# will not accept a chosen one, so ADR-053's derived <tenantId>-public-client
-# cannot be expressed there and the value has to be carried.
-#
-# Empty leaves every tenant on the derived identifier, which is what a
-# Hydra-backed environment wants, so this is inert until an environment fills it.
-oidcClientIds: {}
+# The identity service allocates and publishes each tenant's client id when it
+# provisions the tenant, so the environment does not carry one (ADR-041, ADR-059).
 
 # Where the issuer publishes its signing keys. Empty falls back to the
 # conventional <issuer>/.well-known/jwks.json, which is Hydra's path; Zitadel
