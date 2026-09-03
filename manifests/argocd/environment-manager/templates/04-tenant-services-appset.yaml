@@ -24,6 +24,7 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
+{{- if .Values.oryStackEnabled }}
           - appName: 'kratos-selfservice-ui'
             destinationNamespace: 'platform-identity'
             isPlatformOwned: 'true'
@@ -36,6 +37,8 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
+{{- end }}
+{{- if .Values.oryStackEnabled }}
           - appName: 'auth-proxy'
             destinationNamespace: 'platform-identity'
             isPlatformOwned: 'true'
@@ -48,6 +51,7 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: 'true'
+{{- end }}
           - appName: 'mcp-server'
             destinationNamespace: 'platform-controlplane'
             isPlatformOwned: 'true'

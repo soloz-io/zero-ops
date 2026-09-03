@@ -12,6 +12,7 @@ spec:
   generators:
     - list:
         elements:
+{{- if .Values.oryStackEnabled }}
           - appName: 'ory-hydra'
             destinationNamespace: 'platform-identity'
             syncWave: ''
@@ -22,6 +23,8 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/ory-hydra'
             ignoreDifferencesExtSecrets: 'true'
+{{- end }}
+{{- if .Values.oryStackEnabled }}
           - appName: 'ory-keto'
             destinationNamespace: 'platform-identity'
             syncWave: ''
@@ -32,6 +35,7 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/ory-keto'
             ignoreDifferencesExtSecrets: 'true'
+{{- end }}
           # Zitadel evaluation spike (ADR pending), ALONGSIDE Ory.
           #
           # Its own database, its own hostname, its own Application — so the
@@ -47,6 +51,7 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/zitadel'
             ignoreDifferencesExtSecrets: 'true'
+{{- if .Values.oryStackEnabled }}
           - appName: 'ory-kratos'
             destinationNamespace: 'platform-identity'
             syncWave: ''
@@ -57,6 +62,7 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/ory-kratos'
             ignoreDifferencesExtSecrets: 'true'
+{{- end }}
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'

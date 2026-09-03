@@ -106,3 +106,20 @@ oidcClientIds: {}
 # serves /oauth/v2/keys and 404s the conventional one, so a Zitadel environment
 # must set this or every token fails to validate.
 oidcJwksUrl: ""
+
+# Deploy the Ory stack (hydra, kratos, keto, kratos-selfservice-ui, auth-proxy).
+#
+# A switch rather than a deletion. The manifests under
+# manifests/hub-core-services/identity/ory-* stay in the repository and are
+# unchanged; this only decides whether Applications are generated for them, so
+# turning it back on redeploys the stack exactly as it was.
+#
+# Set false while an environment runs on Zitadel alone, so a browser cannot land
+# on a live Ory login and it is unambiguous which provider served a session.
+#
+# Turning this off ALSO removes auth-proxy, which serves
+# auth.dev.nutgraf.in/.well-known/*. The Kubernetes API server is configured with
+# --oidc-issuer-url=https://auth.dev.nutgraf.in, so OIDC kubectl logins and
+# ADR-058 group RBAC stop working while this is false. Certificate-based
+# kubeconfigs are unaffected, which is why a cluster stays administrable.
+oryStackEnabled: true
