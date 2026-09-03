@@ -102,3 +102,22 @@ spec:
   name: keto
   owner: postgres
   ensure: present
+---
+# Zitadel's database (spike — ADR pending).
+#
+# owner: hub_zitadel, NOT postgres, and that is the one thing that differs from
+# every database above. Zitadel runs its own schema migrations at startup and
+# needs DDL on this database; the Ory services do not, because their schemas are
+# applied for them. Ownership is the narrowest way to grant that — the role gets
+# full rights on this database and none on any other.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: zitadel
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: zitadel
+  owner: hub_zitadel
+  ensure: present

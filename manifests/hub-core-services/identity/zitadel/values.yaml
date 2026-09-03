@@ -1,0 +1,63 @@
+# Zitadel — evaluation spike, running ALONGSIDE Ory (ADR pending).
+#
+# WHY THIS EXISTS
+#
+# Tenancy in the Ory setup is an ATTRIBUTE (metadata_public.tenant_id) on a
+# shared identity store, and an attribute can be absent. Four identities were
+# created on 2026-09-02/03 with no tenant at all; each authenticated against
+# Kratos and was then refused by every service. Zitadel models a tenant as an
+# Organization — a first-class object a user belongs to — so "a user with no
+# tenant" stops being representable rather than being guarded against.
+#
+# Nothing here replaces Ory. Kratos, Hydra and Keto keep running and keep
+# serving auth.dev.nutgraf.in; this stands up a second issuer on its own
+# hostname and its own database so the spike can be deleted by removing one
+# Application.
+zitadel:
+  # The masterkey encrypts everything Zitadel stores at rest. Supplied by the
+  # ExternalSecret beside this file rather than inline: a literal here would sit
+  # in git and in every ArgoCD diff.
+  masterkeySecretName: zitadel-masterkey
+
+  configmapConfig:
+    # Terminated by the gateway, as every other hub service is.
+    ExternalSecure: true
+    ExternalDomain: id.dev.nutgraf.in
+    TLS:
+      # The gateway terminates TLS; Zitadel serves plain HTTP inside the mesh.
+      Enabled: false
+
+  # NOT setting Database.Postgres.* deliberately. The chart supports two modes
+  # and prefers the DSN env var below; when a DSN is present Zitadel ignores the
+  # discrete fields, so configuring both would leave two sources of truth for
+  # one connection with no error if they disagreed.
+
+# The DSN carries the credential, assembled by the ExternalSecret so the
+# password never reaches a values file.
+env:
+  - name: ZITADEL_DATABASE_POSTGRES_DSN
+    valueFrom:
+      secretKeyRef:
+        name: zitadel-db-credentials
+        key: dsn
+
+# Routing is the platform's, via the shared gateway and its HTTPRoutes
+# (ADR-051), not the chart's own ingress.
+ingress:
+  enabled: false
+
+# ADR-014: stateful and platform workloads run on worker nodes. The hub's only
+# worker is the home-lab node, and the control plane carries a NoSchedule taint
+# this does not tolerate, so this is where it would land anyway — stated so it
+# stays true if a second worker ever appears.
+nodeSelector:
+  node-role.kubernetes.io/worker: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+replicaCount: 1

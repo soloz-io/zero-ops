@@ -38,6 +38,8 @@ func mapRoleToSecretName(roleName string) string {
 		return "kratos-db-credentials"
 	case "hub_keto":
 		return "keto-db-credentials"
+	case "hub_zitadel":
+		return "zitadel-db-credentials"
 	default:
 		// Replace underscores with hyphens for valid K8s names
 		return strings.ReplaceAll(roleName, "_", "-") + "-db-credentials"
@@ -49,7 +51,7 @@ func mapRoleToSecretName(roleName string) string {
 // All other services have secrets in platform-data
 func mapRoleToSecretNamespace(roleName, defaultNamespace string) string {
 	switch roleName {
-	case "hub_hydra", "hub_kratos", "hub_keto":
+	case "hub_hydra", "hub_kratos", "hub_keto", "hub_zitadel":
 		return secretNamespaceIdentity
 	default:
 		return defaultNamespace

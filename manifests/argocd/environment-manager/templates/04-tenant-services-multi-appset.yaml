@@ -32,6 +32,21 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/ory-keto'
             ignoreDifferencesExtSecrets: 'true'
+          # Zitadel evaluation spike (ADR pending), ALONGSIDE Ory.
+          #
+          # Its own database, its own hostname, its own Application — so the
+          # spike is removed by deleting this element, with no shared state to
+          # untangle. Ory keeps serving auth.dev.nutgraf.in throughout.
+          - appName: 'zitadel'
+            destinationNamespace: 'platform-identity'
+            syncWave: ''
+            repoURL: 'https://charts.zitadel.com'
+            targetRevision: '10.0.4'
+            chart: 'zitadel'
+            valueFilesPath: 'manifests/hub-core-services/identity/zitadel/values.yaml'
+            helmReleaseName: ''
+            extraManifestsPath: 'manifests/hub-core-services/identity/zitadel'
+            ignoreDifferencesExtSecrets: 'true'
           - appName: 'ory-kratos'
             destinationNamespace: 'platform-identity'
             syncWave: ''

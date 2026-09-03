@@ -440,10 +440,33 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Keto DB credentials",
 	},
 	{
+		// Zitadel evaluation (ADR pending). Runs ALONGSIDE Ory during the spike:
+		// its own database user and its own database, so a rollback is deleting
+		// one Application rather than untangling shared state.
+		UsernameKey: "hub-zitadel-db-username",
+		PasswordKey: "hub-zitadel-db-password",
+		Username:    "hub_zitadel",
+		Description: "Zitadel DB credentials",
+	},
+	{
 		UsernameKey: "",
 		PasswordKey: "hub-hydra-system-secret",
 		Username:    "",
 		Description: "Hydra system secret for cookie/session encryption",
+	},
+	{
+		// Zitadel's masterkey encrypts everything it stores at rest. It must be
+		// EXACTLY 32 characters — GenerateSecurePassword returns 16 random bytes
+		// hex-encoded, which is 32 characters, so the platform default fits
+		// without a special generator. A wrong length fails at startup, not at
+		// first use.
+		//
+		// Generated once and never rotated in place: re-keying would orphan
+		// every encrypted column Zitadel has written.
+		UsernameKey: "",
+		PasswordKey: "hub-zitadel-masterkey",
+		Username:    "",
+		Description: "Zitadel masterkey for encryption at rest",
 	},
 	{
 		UsernameKey: "nats-leaf-username",
