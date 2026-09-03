@@ -31,6 +31,21 @@ spec:
   dnsNames:
   - auth.dev.nutgraf.in
 ---
+# Zitadel (evaluation spike). Its own hostname so the new issuer can be exercised
+# without touching auth.dev.nutgraf.in, which Ory keeps serving.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: id-zero-ops-dev
+  namespace: platform-identity
+spec:
+  secretName: id-zero-ops-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - id.dev.nutgraf.in
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

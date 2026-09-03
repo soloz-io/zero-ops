@@ -77,6 +77,28 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
+    # Zitadel (evaluation spike), alongside the `auth` listener that fronts Ory.
+    # Separate listener and certificate so the two issuers never share a
+    # hostname — a spike that could take auth.dev.nutgraf.in with it is not a
+    # spike.
+    - name: id
+      hostname: id.dev.nutgraf.in
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: id-zero-ops-tls
+            namespace: platform-identity
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-edge, platform-identity, platform-ops, platform-security]
     - name: console
       hostname: console.dev.nutgraf.in
       port: 443

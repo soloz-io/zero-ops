@@ -41,10 +41,26 @@ env:
         name: zitadel-db-credentials
         key: dsn
 
-# Routing is the platform's, via the shared gateway and its HTTPRoutes
-# (ADR-051), not the chart's own ingress.
+# Routing: the chart renders the HTTPRoutes, parented to the platform's shared
+# gateway (ADR-051). Letting the chart own them keeps the PATH SPLIT correct —
+# Zitadel v4 serves its login UI from a separate Deployment, and /ui/v2/login
+# must reach that service while everything else reaches the API. Hand-writing
+# two routes would duplicate a split the chart already knows.
 ingress:
   enabled: false
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentRefs:
+      - name: hub-gateway
+        namespace: platform-ops
+        sectionName: id
+    hostnames:
+      - id.dev.nutgraf.in
+    paths:
+      - path: /
+        pathType: PathPrefix
 
 # ADR-014: stateful and platform workloads run on worker nodes. The hub's only
 # worker is the home-lab node, and the control plane carries a NoSchedule taint
@@ -61,3 +77,19 @@ resources:
     memory: 1Gi
 
 replicaCount: 1
+
+# The login UI is its own Deployment and Service in Zitadel v4. It shares the
+# hostname and takes the longer prefix, which Gateway API matches first.
+login:
+  gateway:
+    httpRoute:
+      enabled: true
+      parentRefs:
+        - name: hub-gateway
+          namespace: platform-ops
+          sectionName: id
+      hostnames:
+        - id.dev.nutgraf.in
+      paths:
+        - path: /ui/v2/login
+          pathType: PathPrefix

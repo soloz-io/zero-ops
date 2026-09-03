@@ -165,6 +165,7 @@ spec:
   hostnames:
     - api.dev.nutgraf.in
     - auth.dev.nutgraf.in
+    - id.dev.nutgraf.in
     - console.dev.nutgraf.in
     - argocd.dev.nutgraf.in
     - infisical.dev.nutgraf.in
