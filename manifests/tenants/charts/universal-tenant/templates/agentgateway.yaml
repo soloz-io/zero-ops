@@ -373,6 +373,22 @@ data:
   # Scheme included: consumers paste this in front of a path, and the SDK's
   # callback guard rejects anything that is not http(s) and public.
   PUBLIC_BASE_URL: https://{{ $host }}
+  # The issuer this fleet's workloads must validate tokens against — the SAME
+  # value the gateway policy above authenticates with.
+  #
+  # Published for the reason this ConfigMap exists. The issuer is platform-owned
+  # (ADR-050: a fleet able to set it could trust an issuer the platform does
+  # not), but a fleet's own workloads need it to fetch the JWKS, so it was typed
+  # into the fleet's manifest as a literal. That is two places free to disagree,
+  # and they did: moving the gateway to Zitadel left the BFF still validating
+  # against Hydra, which fails as
+  #
+  #   ID token validation failed: no applicable key found in the JSON Web Key Set
+  #
+  # — a login that completes, sets a session cookie, and then 401s on the first
+  # API call, with nothing naming the issuer. Referencing this key means an
+  # issuer change moves the gateway and every workload that trusts it together.
+  OIDC_ISSUER_URL: {{ $issuer }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
