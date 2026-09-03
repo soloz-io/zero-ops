@@ -288,7 +288,19 @@ data:
       policy:
         oidc:
           issuer: {{ $issuer }}
-          clientId: {{ $clientId }}
+          # Quoted, and it must be. A Zitadel client id is all digits, so
+          # unquoted YAML parses it as an INTEGER and agentgateway refuses the
+          # whole config at startup:
+          #
+          #   policies[0].policy.oidc.clientId: invalid type: integer
+          #   `389096262521061709`, expected a string
+          #
+          # The old derived value (<tenant>-public-client) could never be
+          # mistaken for a number, so this was latent until the first numeric id
+          # arrived. The failure is also quiet in the worst way: the previous
+          # ReplicaSet keeps serving the OLD issuer, so login still works and the
+          # only symptom is a crash-looping new pod beside a healthy one.
+          clientId: {{ $clientId | quote }}
           # Empty, and correct. This is a PUBLIC client — oauth2clients.yaml
           # registers <tenant>-public-client with tokenEndpointAuthMethod: none
           # (ADR-050), so no secret authenticates it and PKCE carries the proof.
