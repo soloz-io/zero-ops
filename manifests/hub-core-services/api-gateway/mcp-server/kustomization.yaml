@@ -9,5 +9,5 @@ resources:
 # Pinned by digest, not by tag — see the mcp-server workflow, which rewrites this
 # with `kustomize edit set image` after each build.
 images:
-- name: ghcr.io/soloz-io/zero-ops/mcp-server
-  digest: sha256:dce5c72d79e25995fc33128d6f3a03e441ee0b5c1803d6a025b55b9f9e65e035
+- digest: sha256:990bfec09d9e6e89ac6e375f8137d014ce870ad19cec61b40bbfb464838928e0
+  name: ghcr.io/soloz-io/zero-ops/mcp-server
