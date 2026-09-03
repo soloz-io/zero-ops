@@ -153,7 +153,10 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				redirects = append(redirects, "https://"+h+"/oauth/callback")
 				postLogout = append(postLogout, "https://"+h+"/")
 			}
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, redirects, postLogout)
+			// The tenant's declared owner, granted administrative access so the
+			// tenant has someone who can sign in to it at all.
+			ownerEmail, _, _ := unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, redirects, postLogout)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)

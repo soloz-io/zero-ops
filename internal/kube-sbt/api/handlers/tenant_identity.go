@@ -32,6 +32,9 @@ type ensureTenantIdentityRequest struct {
 	// missing registration.
 	RedirectURIs   []string `json:"redirectUris"`
 	PostLogoutURIs []string `json:"postLogoutUris"`
+	// OwnerEmail is granted administrative access, so the tenant has someone who
+	// can sign in to it at all.
+	OwnerEmail string `json:"ownerEmail"`
 }
 
 // EnsureIdentity is idempotent: it reports the tenant's identity whether it
@@ -61,7 +64,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		return
 	}
 
-	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.RedirectURIs, req.PostLogoutURIs)
+	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.OwnerEmail, req.RedirectURIs, req.PostLogoutURIs)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return

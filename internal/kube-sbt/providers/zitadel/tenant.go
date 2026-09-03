@@ -38,7 +38,7 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -68,6 +68,25 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID string, redire
 	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, tenantID, redirectURIs, postLogoutURIs)
 	if err != nil {
 		return nil, fmt.Errorf("ensure application for %q: %w", tenantID, err)
+	}
+
+	// Grant the owner, or the tenant has no one who can enter it.
+	//
+	// projectRoleCheck denies authentication to a user holding no role in the
+	// project, so provisioning that stops at the resources produces a tenant
+	// whose every login fails with a grant error. The owner is made an
+	// administrator of their own organisation as well, so they can add the next
+	// user without the platform doing it for them — delegated tenant
+	// administration is the provider's own model, not something built on top.
+	//
+	// Best-effort and non-fatal: the identity resources are correct either way,
+	// and the next reconcile repeats this. Failing the whole call would discard a
+	// client id that was already allocated.
+	if ownerEmail != "" {
+		if owner, err := a.findUserByEmail(ctx, ownerEmail); err == nil && owner != nil {
+			_ = a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"})
+			_ = a.EnsureOrgOwner(ctx, orgID, owner.ID)
+		}
 	}
 
 	return &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}, nil

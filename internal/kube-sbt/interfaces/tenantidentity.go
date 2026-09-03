@@ -23,5 +23,11 @@ type ITenantIdentityProvisioner interface {
 	// EnsureTenantIdentity makes a tenant's identity resources exist and returns
 	// them. Idempotent: it runs on every reconcile, and a partial failure must
 	// leave the next attempt able to finish rather than to conflict.
-	EnsureTenantIdentity(ctx context.Context, tenantID string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
+	// ownerEmail, when set, is granted administrative access to the tenant.
+	//
+	// Not optional in practice. Where the issuer denies authentication to a user
+	// holding no role, a tenant provisioned without one is a tenant NOBODY can
+	// sign in to — the resources all exist and the first login fails with a
+	// grant error that names no remedy.
+	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
 }
