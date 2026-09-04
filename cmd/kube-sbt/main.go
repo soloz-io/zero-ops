@@ -145,6 +145,25 @@ func main() {
 		}
 	}
 
+	// Close self-service registration.
+	//
+	// The issuer allows it by default, and a self-registered account is given no
+	// organisation — so it lands in the DEFAULT one, which is the platform's own,
+	// where the administrators are. Tenants are onboarded by provisioning, which
+	// creates an organisation and its owner deliberately, so this is not a door
+	// that should be narrower here; it is one that should not exist.
+	//
+	// Asserted on every start because it is the issuer's default: a version
+	// upgrade or a policy reset restores it silently, and a check that only ran
+	// at installation would never notice.
+	if closer, ok := authProvider.(interface {
+		EnsureRegistrationClosed(context.Context) error
+	}); ok {
+		if err := closer.EnsureRegistrationClosed(context.Background()); err != nil {
+			fmt.Printf("warning: could not close self-service registration: %v\n", err)
+		}
+	}
+
 	// Ensure the platform administrator can actually sign in.
 	//
 	// Runs on every start because it converges rather than initialises: an issuer
