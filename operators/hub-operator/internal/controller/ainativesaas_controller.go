@@ -191,6 +191,18 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 							"tenant", tenantId, "owner", ownerEmail)
 					}
 				}
+				// The tenant's organisation id, so its gateway can SCOPE login to
+				// that organisation.
+				//
+				// Without it a user arriving at a tenant's hostname is offered a
+				// login with no organisation context, and the issuer resolves
+				// that to the DEFAULT organisation — the platform's own. The
+				// account is created in the wrong tenant and nothing reports it,
+				// because from the issuer's side nothing went wrong.
+				if err := r.publishTenantSecret(ctx, cellId, tenantId, "OIDC_ORG_ID", identity.TenantRef); err != nil {
+					logger.Error(err, "Provisioned tenant identity but could not publish its organisation id",
+						"tenant", tenantId)
+				}
 				if err := r.publishTenantClientID(ctx, cellId, tenantId, identity.ClientID); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
 						"tenant", tenantId)

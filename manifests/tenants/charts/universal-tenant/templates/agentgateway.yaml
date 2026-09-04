@@ -368,6 +368,23 @@ data:
 {{- range .Values.oidcScopes }}
           - {{ . }}
 {{- end }}
+          # Bind this login to THIS tenant's organisation.
+          #
+          # A user reaching a tenant's hostname belongs to that tenant. With no
+          # organisation on the request the issuer resolves the login against the
+          # DEFAULT organisation — the platform's own — so an account created
+          # here lands in the wrong tenant, carries the wrong tenant in every
+          # token it obtains, and nothing reports it: from the issuer's side the
+          # request simply had no organisation to use.
+          #
+          # Scoping also selects which organisation's login policy, branding and
+          # identity providers apply, so the hostname behaves as that tenant
+          # rather than as the platform.
+          #
+          # Per TENANT, so it belongs here rather than in the environment's scope
+          # list, and it is interpolated because the organisation is allocated at
+          # provisioning time and cannot be known when this renders.
+          - "urn:zitadel:iam:org:id:${OIDC_ORG_ID}"
 ---
 # The tenant's public base URL, published for its own workloads to consume.
 #
@@ -489,6 +506,11 @@ spec:
     - secretKey: oidc-client-id
       remoteRef:
         key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_CLIENT_ID
+    # The tenant's organisation, so a login on this hostname is scoped to it
+    # rather than resolving against the platform's own organisation.
+    - secretKey: oidc-org-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_ORG_ID
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -563,6 +585,11 @@ spec:
             secretKeyRef:
               name: {{ $name }}-oidc-client
               key: oidc-client-id
+        - name: OIDC_ORG_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-org-id
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway
