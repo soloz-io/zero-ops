@@ -61,11 +61,12 @@ type TenantIdentity struct {
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, redirectURIs, postLogoutURIs []string) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*TenantIdentity, error) {
 	body, err := json.Marshal(map[string]any{
-		"redirectUris":   redirectURIs,
-		"postLogoutUris": postLogoutURIs,
-		"ownerEmail":     ownerEmail,
+		"redirectUris":     redirectURIs,
+		"postLogoutUris":   postLogoutURIs,
+		"ownerEmail":       ownerEmail,
+		"selfRegistration": selfRegistration,
 	})
 	if err != nil {
 		return nil, err

@@ -156,7 +156,11 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// The tenant's declared owner, granted administrative access so the
 			// tenant has someone who can sign in to it at all.
 			ownerEmail, _, _ := unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, redirects, postLogout)
+			// Fleet-declared: whether people can sign themselves up into THIS
+			// tenant. Absent means false, so a fleet that says nothing gets the
+			// closed behaviour rather than inheriting somebody else's choice.
+			selfReg, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "identity", "selfRegistration")
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, selfReg, redirects, postLogout)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)

@@ -69,6 +69,11 @@ spec:
     {{- end }}
   {{- end }}
 
+  {{- with .Values.identity }}
+  identity:
+    selfRegistration: {{ .selfRegistration | default false }}
+  {{- end }}
+
   {{- with .Values.cache }}
   cache:
     enabled: {{ .enabled | default false }}

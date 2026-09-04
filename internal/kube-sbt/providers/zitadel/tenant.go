@@ -38,7 +38,7 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -82,6 +82,13 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Best-effort and non-fatal: the identity resources are correct either way,
 	// and the next reconcile repeats this. Failing the whole call would discard a
 	// client id that was already allocated.
+	// Reconciled on every pass so a policy changed by hand converges back.
+	// Non-fatal: the tenant's identity is correct either way, and failing here
+	// would discard a client id that was already allocated.
+	if rerr := a.EnsureTenantSelfRegistration(ctx, orgID, selfRegistration); rerr != nil {
+		_ = rerr
+	}
+
 	out := &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}
 	if ownerEmail == "" {
 		return out, nil

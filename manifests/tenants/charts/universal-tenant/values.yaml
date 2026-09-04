@@ -82,6 +82,18 @@ oidcJwksUrl: ""
 # arrives without the claim.
 oidcScopes: []
 
+# How people get accounts in this fleet's tenant.
+#
+# Fleet-owned: it is a property of this fleet's product, not of the platform.
+# The platform keeps what surrounds it — which issuer is trusted, that a login on
+# this hostname is bound to this fleet's organisation, and the role a new member
+# receives.
+identity:
+  # Off by default. Turning it on lets anyone reaching this fleet's hostname
+  # create an account IN THIS TENANT — the gateway scopes every authorization
+  # request to this fleet's organisation, so it cannot land anywhere else.
+  selfRegistration: false
+
 gateway:
   enabled: false
   # Hostnames this fleet answers on. The first is the browser-facing host and is

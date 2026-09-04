@@ -29,5 +29,8 @@ type ITenantIdentityProvisioner interface {
 	// holding no role, a tenant provisioned without one is a tenant NOBODY can
 	// sign in to — the resources all exist and the first login fails with a
 	// grant error that names no remedy.
-	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
+	// selfRegistration is reconciled, not applied once: it is a security
+	// boundary, and one that lives only in a provider console can be re-opened
+	// by an upgrade or a support session with nothing to notice.
+	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
 }

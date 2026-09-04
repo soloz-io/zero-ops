@@ -161,6 +161,35 @@ spec:
                       that the tenant record repeats it, so the component
                       registering the client can read it without reaching into a
                       fleet's values.
+              identity:
+                type: object
+                description: |
+                  How people get accounts in this fleet's tenant.
+
+                  Fleet-owned because it is a property of this fleet's product,
+                  not of the platform: one fleet may want open signup while
+                  another is invitation-only, and a platform-level switch would
+                  force every tenant to the same answer. What the platform keeps
+                  is everything around it — which issuer is trusted, that a login
+                  on this fleet's hostname is bound to this fleet's organisation,
+                  and the role a new member receives.
+                properties:
+                  selfRegistration:
+                    type: boolean
+                    default: false
+                    description: |
+                      Allow anyone reaching this fleet's hostname to create an
+                      account in its tenant.
+
+                      Off by default. On, the blast radius is one tenant: the
+                      gateway scopes every authorization request to this fleet's
+                      organisation, so an account created here cannot land in
+                      another tenant or in the platform's own — which is exactly
+                      what happened before that scope existed.
+
+                      It does not restrict WHO may sign up. Anyone who can reach
+                      the hostname can join. Restricting that is an invitation
+                      and needs a mail sender the issuer does not yet have.
               cache:
                 type: object
                 description: |
