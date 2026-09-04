@@ -102,6 +102,24 @@ func isNotFound(err error) bool {
 	return ae.Status == http.StatusNotFound
 }
 
+// isUnchanged reports the issuer refusing a write that would change nothing.
+//
+// It answers 400 "... has not been changed" rather than accepting the no-op, so
+// a reconcile that asserts already-correct state gets an ERROR. Treating that as
+// failure makes every steady-state pass log a warning, and a log that cries wolf
+// on every restart is one nobody reads when something is genuinely wrong.
+//
+// Matched on the message because the issuer uses one status code for several
+// distinct 400s; a status-only test would swallow real rejections such as a
+// malformed policy.
+func isUnchanged(err error) bool {
+	var ae *apiError
+	if !asAPIError(err, &ae) || ae.Status != http.StatusBadRequest {
+		return false
+	}
+	return strings.Contains(ae.Body, "has not been changed")
+}
+
 func asAPIError(err error, target **apiError) bool {
 	for err != nil {
 		if ae, ok := err.(*apiError); ok {

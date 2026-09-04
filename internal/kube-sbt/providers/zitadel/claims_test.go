@@ -122,3 +122,28 @@ func TestServiceTokenIsTrimmed(t *testing.T) {
 		t.Fatalf("validate() = %v, want nil", err)
 	}
 }
+
+// The issuer refuses a write that would change nothing, so a reconcile
+// asserting already-correct state receives a 400. Treating that as failure makes
+// every steady-state pass log a warning, and a log that cries wolf on each
+// restart is one nobody reads when something is genuinely wrong.
+func TestUnchangedRejectionIsNotAFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"policy no-op", &apiError{Status: 400, Body: `{"code":9,"message":"Default Login Policy has not been changed (INSTANCE-5M9vdd)"}`}, true},
+		{"grant no-op", &apiError{Status: 400, Body: `{"code":9,"message":"User grant has not been changed (COMMAND-2M0fs)"}`}, true},
+		// A real rejection must still be a failure — matching on status alone
+		// would swallow this.
+		{"real bad request", &apiError{Status: 400, Body: `{"message":"invalid redirect uri"}`}, false},
+		{"not found", &apiError{Status: 404, Body: "no such org"}, false},
+		{"nil", nil, false},
+	}
+	for _, c := range cases {
+		if got := isUnchanged(c.err); got != c.want {
+			t.Errorf("%s: isUnchanged = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

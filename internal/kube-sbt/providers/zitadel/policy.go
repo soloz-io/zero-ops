@@ -54,7 +54,7 @@ func (a *Auth) EnsureRegistrationClosed(ctx context.Context) error {
 	}
 	body["allowRegister"] = false
 
-	if err := a.api.do(ctx, http.MethodPut, "/admin/v1/policies/login", "", body, nil); err != nil {
+	if err := a.api.do(ctx, http.MethodPut, "/admin/v1/policies/login", "", body, nil); err != nil && !isUnchanged(err) {
 		return fmt.Errorf("zitadel: close self-service registration: %w", err)
 	}
 	return nil
@@ -119,7 +119,7 @@ func (a *Auth) EnsureTenantSelfRegistration(ctx context.Context, orgID string, a
 	if inherited {
 		method = http.MethodPost
 	}
-	if err := a.api.do(ctx, method, "/management/v1/policies/login", orgID, body, nil); err != nil {
+	if err := a.api.do(ctx, method, "/management/v1/policies/login", orgID, body, nil); err != nil && !isUnchanged(err) {
 		return fmt.Errorf("zitadel: set registration=%v for organisation %q: %w", allow, orgID, err)
 	}
 	return nil

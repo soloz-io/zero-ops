@@ -427,9 +427,15 @@ func (a *Auth) GrantRole(ctx context.Context, orgID, projectID, userID string, r
 	}
 	for _, g := range existing.Result {
 		if g.ProjectID == projectID {
-			return a.api.do(ctx, http.MethodPut,
+			err := a.api.do(ctx, http.MethodPut,
 				"/management/v1/users/"+userID+"/grants/"+g.ID, orgID,
 				map[string]any{"roleKeys": roles}, nil)
+			if isUnchanged(err) {
+				// Already holds exactly these roles. The steady state, and the
+				// common one, since this runs on every reconcile.
+				return nil
+			}
+			return err
 		}
 	}
 	return a.api.do(ctx, http.MethodPost, "/management/v1/users/"+userID+"/grants", orgID,
