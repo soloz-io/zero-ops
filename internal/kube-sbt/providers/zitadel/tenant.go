@@ -82,6 +82,17 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Best-effort and non-fatal: the identity resources are correct either way,
 	// and the next reconcile repeats this. Failing the whole call would discard a
 	// client id that was already allocated.
+	// Everyone in this organisation gets a role, or they cannot sign in.
+	//
+	// Self-service registration creates the account and nothing else, so without
+	// this a person registers successfully and is then refused with
+	// GrantRequired the moment they try to use it.
+	if selfRegistration {
+		if gerr := a.grantUngrantedMembers(ctx, orgID, projectID); gerr != nil {
+			_ = gerr
+		}
+	}
+
 	// Reconciled on every pass so a policy changed by hand converges back.
 	// Non-fatal: the tenant's identity is correct either way, and failing here
 	// would discard a client id that was already allocated.
@@ -493,4 +504,69 @@ func (a *Auth) platformOrg(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("zitadel: the issuer reported no organisation for this credential")
 	}
 	return resp.Org.ID, nil
+}
+
+// grantUngrantedMembers gives the default role to every member of a tenant's
+// organisation that holds none.
+//
+// Needed because self-service registration creates a user and stops there. The
+// tenant's project denies authentication to anyone holding no role
+// (projectRoleCheck), and the issuer has no hook that grants one on signup — so
+// a person completes registration, is created in the right organisation, and is
+// then refused at the moment they try to use the account:
+//
+//   Errors.User.GrantRequired
+//
+// which names no remedy and arrives after they have already chosen a password.
+//
+// Reconciled rather than event-driven, because there is no event to hook. That
+// makes the grant eventually-consistent: someone who registers between two
+// reconciles is refused until the next one. Accepted deliberately — the
+// alternative is turning projectRoleCheck off, which would admit users of OTHER
+// organisations to this tenant, and a brief delay is a far better failure than a
+// silent hole in tenant isolation.
+//
+// Only users with NO grant are touched. Anyone already holding a role keeps
+// exactly what they were given, so an operator who granted admin by hand does
+// not have it replaced by member on the next pass.
+func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID string) error {
+	var users struct {
+		Result []struct {
+			UserID string `json:"userId"`
+		} `json:"result"`
+	}
+	q := map[string]any{
+		"query":   map[string]any{"limit": 500},
+		"queries": []any{map[string]any{"organizationIdQuery": map[string]any{"organizationId": orgID}}},
+	}
+	if err := a.api.do(ctx, http.MethodPost, "/v2/users", orgID, q, &users); err != nil {
+		return fmt.Errorf("list members of %q: %w", orgID, err)
+	}
+
+	var grants struct {
+		Result []struct {
+			UserID    string `json:"userId"`
+			ProjectID string `json:"projectId"`
+		} `json:"result"`
+	}
+	if err := a.api.do(ctx, http.MethodPost, "/management/v1/users/grants/_search", orgID,
+		map[string]any{"query": map[string]any{"limit": 500}}, &grants); err != nil && !isNotFound(err) {
+		return fmt.Errorf("list grants in %q: %w", orgID, err)
+	}
+	granted := map[string]bool{}
+	for _, g := range grants.Result {
+		if g.ProjectID == projectID {
+			granted[g.UserID] = true
+		}
+	}
+
+	for _, u := range users.Result {
+		if granted[u.UserID] {
+			continue
+		}
+		// Best effort per user: one failure must not stop the rest, or a single
+		// bad account would keep every later registrant locked out.
+		_ = a.GrantRole(ctx, orgID, projectID, u.UserID, []string{defaultUserRole})
+	}
+	return nil
 }
