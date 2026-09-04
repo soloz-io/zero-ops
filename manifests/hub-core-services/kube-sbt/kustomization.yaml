@@ -9,7 +9,7 @@ resources:
 - identity-credentials-es.yaml
 
 images:
-- digest: sha256:7190653fcabf500ad995f91fe651eadf6304a14a32356ef0de6bb0bce7a956d0
+- digest: sha256:77ce6a6b9297878c0b4e1dc6969e77f6d8d24fee6efb134a0ef6e53223b9f1da
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/kube-sbt
 
