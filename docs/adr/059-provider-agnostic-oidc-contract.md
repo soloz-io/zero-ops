@@ -229,3 +229,4 @@ maintained by hand.
 - ADR-051: Environment DNS naming
 - ADR-053: Tenant OAuth client secret delivery
 - ADR-058: OIDC group-based Kubernetes RBAC
+- ADR-060: Zitadel as the Platform Identity Provider

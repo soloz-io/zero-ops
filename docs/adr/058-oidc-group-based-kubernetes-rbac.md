@@ -16,8 +16,9 @@
 >
 > What remains valid is the goal: Kubernetes authorises on users and groups, so
 > a `groups` claim must reach the API server. ADR-059 keeps that requirement and
-> moves the mapping to the edge — where Zitadel's roles are translated once —
-> rather than into a bespoke reconciler.
+> moves the mapping to the edge, rather than into a bespoke reconciler; ADR-060
+> records the provider model that replaces this one and states that the
+> requirement is currently unmet.
 
 ## Context
 
