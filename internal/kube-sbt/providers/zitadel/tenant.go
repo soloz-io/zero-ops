@@ -515,7 +515,7 @@ func (a *Auth) platformOrg(ctx context.Context) (string, error) {
 // a person completes registration, is created in the right organisation, and is
 // then refused at the moment they try to use the account:
 //
-//   Errors.User.GrantRequired
+//	Errors.User.GrantRequired
 //
 // which names no remedy and arrives after they have already chosen a password.
 //
