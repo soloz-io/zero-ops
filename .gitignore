@@ -30,13 +30,37 @@ reference-projects
 # committed on purpose); publishing it would leak a working credential.
 .zero-ops/infisical-bootstrap.json
 
-# Compiled binaries built at the repo root by `go build ./cmd/...`.
+# Compiled Go binaries.
 #
-# Named explicitly rather than by a pattern: these share a name with the source
-# directories (cmd/kube-sbt, internal/kube-sbt), so a bare `kube-sbt` entry would
-# also ignore the package tree. A 37MB binary reached main this way once,
-# re-added by a `git add -A` during a rename.
+# 24 of these reached history before this rule existed — roughly 969MB across
+# eight paths, every one a macOS build from a laptop. They arrive the same way
+# each time: `go build` writes next to the source unless told otherwise, and a
+# later `git add -A` sweeps the result in. `cmd/hub/hub` is what `go build`
+# produces run from inside that directory; `main` is what it produces with no
+# -o flag at all.
+#
+# ROOT-LEVEL entries are anchored with a leading slash, because these share a
+# name with source directories (cmd/kube-sbt, internal/kube-sbt). A bare
+# `kube-sbt` would match at any depth and hide the package tree — the tree would
+# look clean while source changes went uncommitted, which is worse than the
+# problem being solved. That mistake was made here once already.
 /kube-sbt
 /hub
 /mcp-server
 /auth-proxy
+/main
+/cnpg2monitor
+/zero-ops
+/zero-ops-api
+
+# Built INSIDE their own package directory, so they cannot be anchored to the
+# root. Named in full for the same reason: a bare `hub` would also ignore any
+# directory called hub.
+cmd/hub/hub
+cmd/mcp-server/mcp-server
+cmd/auth-proxy/auth-proxy
+cmd/kube-sbt/kube-sbt
+
+# bin/ was already ignored, but bin/zero-ops-api was committed before that rule
+# and stayed tracked — an ignore rule does not untrack what git already follows.
+bin/
