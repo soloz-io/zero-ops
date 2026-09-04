@@ -42,6 +42,23 @@ type Config struct {
 	// replicas from sharing a node.
 	CiliumOperatorReplicas int
 
+	// OIDCIssuerURL and OIDCClientID configure the API server to accept tokens
+	// from the platform's identity provider, for kubectl and dashboard logins.
+	//
+	// Both EMPTY at bootstrap, deliberately, and the ClusterClass patch that
+	// consumes them is off unless both are set. The issuer runs ON this cluster:
+	// at the moment the control plane is created it does not exist and cannot be
+	// pointed at, so a bootstrap that configured them would produce an API server
+	// trusting an issuer that never answers.
+	//
+	// They are filled in afterwards, which costs one control-plane rollout and is
+	// a deliberate act rather than a bootstrap that half-works. Carried here so
+	// that a rebuild of an environment already running an issuer can set them at
+	// creation and skip that rollout — and so the values live in configuration
+	// rather than in a kubectl patch somebody has to remember.
+	OIDCIssuerURL string
+	OIDCClientID  string
+
 	// SSHKeyName is the Hetzner SSH key name injected into the management
 	// cluster (rescue/emergency access). Wired from the CLI --ssh-key flag.
 	SSHKeyName     string
@@ -274,6 +291,10 @@ spec:
       value: {{.WorkerMachineType}}
     - name: hcloudSSHKeyName
       value: "{{.SSHKeyName}}"
+    - name: oidcIssuerURL
+      value: "{{.OIDCIssuerURL}}"
+    - name: oidcClientID
+      value: "{{.OIDCClientID}}"
 `
 
 	tmpl, err := template.New("cluster").Parse(clusterYAML)

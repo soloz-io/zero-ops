@@ -76,6 +76,19 @@ spec:
         #
         # Environment-specific because the account is named after the issuer's
         # own domain. Empty disables the bootstrap entirely.
+        # The Kubernetes API server's OIDC client, reconciled on every start.
+        #
+        # These are the addresses kubectl's OIDC plugin listens on while it
+        # completes a login. The issuer matches redirect URIs EXACTLY, with no
+        # wildcards, so a port not listed here fails at the authorization
+        # endpoint before any credential is entered — which reads as a broken
+        # login rather than a missing registration. Both loopback spellings are
+        # registered because the plugin may use either.
+        #
+        # Empty disables the reconcile, which is correct for an environment whose
+        # API server does not use OIDC.
+        - name: KUBERNETES_OIDC_REDIRECT_URIS
+          value: "http://localhost:8000,http://localhost:18000,http://127.0.0.1:8000,http://127.0.0.1:18000"
         - name: PLATFORM_ADMIN_EMAIL
           value: "zitadel-admin@zitadel.id.dev.nutgraf.in"
         - name: IDENTITY_SERVICE_TOKEN

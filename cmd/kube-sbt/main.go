@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -161,6 +162,35 @@ func main() {
 	}); ok {
 		if err := closer.EnsureRegistrationClosed(context.Background()); err != nil {
 			fmt.Printf("warning: could not close self-service registration: %v\n", err)
+		}
+	}
+
+	// The Kubernetes API server's OIDC client.
+	//
+	// Reconciled here rather than created once, because it is the ONE client the
+	// platform cannot repair from configuration: its id is an API-server flag, so
+	// a missing application means every kubectl login fails and fixing it needs a
+	// control-plane rollout. Asserting it on every start makes that
+	// unreachable — the application is recreated long before anyone notices.
+	//
+	// Idempotent: an existing application is found and its id returned, so this
+	// does not churn the client id that the API server is already configured
+	// with. Failure is a warning: identity being briefly unreachable must not
+	// stop this service from serving everything that does not depend on it.
+	if papp, ok := authProvider.(handlers.PlatformAppProvisioner); ok {
+		if redirects := getEnv("KUBERNETES_OIDC_REDIRECT_URIS", ""); redirects != "" {
+			uris := strings.Split(redirects, ",")
+			for i := range uris {
+				uris[i] = strings.TrimSpace(uris[i])
+			}
+			if clientID, err := papp.EnsurePlatformApp(context.Background(),
+				getEnv("KUBERNETES_OIDC_APP_NAME", "kubernetes"), uris, nil); err != nil {
+				fmt.Printf("warning: could not ensure the Kubernetes OIDC client: %v\n", err)
+			} else {
+				// Logged because the API server names this id in a flag, so an
+				// operator comparing the two needs to see it without a console.
+				fmt.Printf("kubernetes OIDC client ensured: %s\n", clientID)
+			}
 		}
 	}
 
