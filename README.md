@@ -6,7 +6,7 @@ Zero-Ops is an enterprise Hub-Spoke PaaS platform providing a complete infrastru
 
 ## Business model
 
-Syself + Civo Konstruct
+Syself + Civo Konstruct + beyond
 
 ### Syself
 
