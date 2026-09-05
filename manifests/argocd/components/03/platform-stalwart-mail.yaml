@@ -2,7 +2,7 @@
 boundary: '03'
 appName: platform-stalwart-mail
 destinationNamespace: platform-mail
-isPlatformOwned: 'true'
+isPlatformOwned: 'false'
 repoURL: ghcr.io/antigenic-oss/charts
 targetRevision: 1.0.5
 path: ''
