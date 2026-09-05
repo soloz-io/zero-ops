@@ -22,8 +22,8 @@ Syself + Civo Konstruct
 ### Zero-Ops - Bundle/Coupled
 - We provide cluster creation + IDP + beyond
 - We handpicked OSS tools that can be coupled together to run a software company.
-- You BYOC.
-- No subscription. Tool is free to use. Play only for and maintenance.
+- It can be BYOC or BYOK.
+- No subscription fee. Tool is free to use. Play only for maintenance.
 
 To maintain the integrity, stability, and production-readiness of the platform, all contributions and technical solutions must adhere to the following principles:
 
