@@ -26,6 +26,12 @@ repos:
         language: system
         pass_filenames: false
         files: '(manifests/argocd/environment-manager/.*|internal/hub-cli/(components/installer\.go|versions/versions\.go))'
+      - id: component-descriptors
+        name: Component Descriptors
+        entry: scripts/validate-component-descriptors.sh
+        language: system
+        pass_filenames: false
+        files: '(manifests/argocd/components/.*|manifests/argocd/environment-manager/.*)'
       - id: cell-id-contract
         name: Spoke cell-id Contract
         entry: scripts/validate-cell-id-contract.sh

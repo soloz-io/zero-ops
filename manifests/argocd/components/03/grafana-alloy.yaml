@@ -1,0 +1,15 @@
+---
+boundary: '03'
+appName: grafana-alloy
+destinationNamespace: platform-observability
+isPlatformOwned: 'false'
+repoURL: https://github.com/soloz-io/zero-ops
+targetRevision: main
+path: manifests/hub-core-services/grafana-alloy
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

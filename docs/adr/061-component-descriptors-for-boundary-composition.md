@@ -1,7 +1,7 @@
 # ADR-061: Component Descriptors for Boundary Composition
 
 **Date:** 2026-09-05
-**Status:** Proposed
+**Status:** Accepted
 
 ## Context
 

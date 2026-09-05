@@ -14,71 +14,48 @@ spec:
     # CRS-delivered Secrets (infisical-auth). Deletion must never be the
     # mechanism that removes platform state — rotate spokes instead.
     preserveResourcesOnDeletion: true
+    # ADR-061: inventory is now discovered from a repository read that can
+    # return nothing. create-update lets the generator create and update
+    # Applications but never delete them, so an unreachable repository or a
+    # malformed descriptor costs "no changes applied" rather than "every
+    # Application in this boundary withdrawn". Removing a component is an
+    # explicit act.
+    #
+    # Deliberately NOT applied to the spoke-catalog ApplicationSet below: its
+    # inventory is registered clusters, where an Application must be withdrawn
+    # when its spoke is deprovisioned.
+    applicationsSync: create-update
   generators:
+    # ADR-061: the boundary's inventory is the union of two sources.
+    #
+    # Components whose source is fixed in the repository are declared one file
+    # per component under manifests/argocd/components/03/ and discovered here.
+    # Adding one is adding a file; it no longer edits a list every other
+    # component shares.
+    #
+    # The descriptors sit outside every deployed path on purpose: six components
+    # in this boundary are recursive directory sources, so a descriptor stored
+    # beside the content it describes would itself be applied to the cluster.
+    - git:
+        repoURL: {{ .Values.platformRepoURL | quote }}
+        revision: {{ .Values.environmentRevision | quote }}
+        files:
+          - path: 'manifests/argocd/components/03/*.yaml'
+
+    # The three components below are NOT descriptors because they have no fixed
+    # source: their path is a function of the environment slug, the provider or
+    # the topology, which is ADR-037's directory-based promotion. Those values
+    # exist at chart render time and not at generator evaluation time, so they
+    # are declared here where they are in scope. Giving descriptors a
+    # substitution language to cover three cases would make every descriptor a
+    # template and hide the distinction rather than remove it.
     - list:
         elements:
-          - appName: 'api-gateway'
-            destinationNamespace: 'platform-controlplane'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/api-gateway'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          #     operator:
-          #       env:
-          #         - name: WATCH_NAMESPACES
-          #           value: ".*"
-          #   helmReleaseName: 'clickhouse-operator'
-          #   ignoreDifferencesNamespace: ''
-          - appName: 'platform-argocd-fleet-registry-auth'
+          - boundary: '03'
+            appName: 'hub-environment'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/argocd-fleet-registry-auth'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-argocd-github-auth'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/argocd-github-auth'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-capi2argo'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/capi2argo'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'hub-environment'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
+            repoURL: ''
             targetRevision: ''
             path: 'manifests/environments/{{ .Values.environmentSlug }}'
             chart: ''
@@ -87,41 +64,12 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-headlamp'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/headlamp'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          # ADR-052 §Ownership: the component that owns burst node count. The
-          # burst MachineDeployment is rendered with autoscaler bounds and no
-          # replicas field, so without this running the pool stays at zero and
-          # every EphemeralJob pends against capacity that cannot arrive.
-          - appName: 'cluster-autoscaler'
-            destinationNamespace: 'platform-capi'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: 'main'
-            path: 'manifests/hub-core-services/cluster-autoscaler'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
-          - appName: 'infrastructure-provider'
+          - boundary: '03'
+            appName: 'infrastructure-provider'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
+            repoURL: ''
             targetRevision: ''
             path: 'manifests/providers/{{ .Values.provider }}'
             chart: ''
@@ -130,407 +78,12 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'grafana-alloy'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'false'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: 'main'
-            path: 'manifests/hub-core-services/grafana-alloy'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-infisical'
-            destinationNamespace: 'platform-security'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/infisical'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
-          - appName: 'platform-stalwart-mail'
-            destinationNamespace: 'platform-mail'
-            isPlatformOwned: 'true'
-            repoURL: 'ghcr.io/antigenic-oss/charts'
-            targetRevision: '1.0.5'
-            path: ''
-            chart: 'antigenic-stalwart-helm-chart'
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              replicaCount: 1
-              image:
-                repository: stalwartlabs/stalwart
-                tag: v0.15.5
-              nodeSelector:
-                node-role.kubernetes.io/worker: ""
-                workload-location: home
-              persistence:
-                enabled: true
-                storageClass: local-path
-                size: 10Gi
-              service:
-                http:
-                  enabled: true
-                  port: 8080
-                mail:
-                  type: LoadBalancer
-                  externalTrafficPolicy: Cluster
-                  enabled:
-                    smtp: true
-                    submission: true
-                    smtps: true
-                    imap: true
-                    imaps: true
-                    sieve: true
-              certManager:
-                enabled: true
-                issuerName: letsencrypt-prod
-                issuerKind: ClusterIssuer
-                issuerGroup: cert-manager.io
-                secretName: stalwart-mail-tls
-                dnsNames:
-                  - mail.nutgraf.in
-                  - smtp.nutgraf.in
-                certificate:
-                  name: default
-                  certFile: tls.crt
-                  keyFile: tls.key
-                  default: true
-              secret:
-                name: stalwart-secrets
-                create: false
-              extraVolumes:
-                - name: dkim-private
-                  secret:
-                    secretName: stalwart-dkim-private
-                    defaultMode: 0400
-              extraVolumeMounts:
-                - name: dkim-private
-                  mountPath: /opt/stalwart/dkim
-                  readOnly: true
-              config:
-                server:
-                  hostname: mail.nutgraf.in
-                storage:
-                  data: postgresql
-                  blob: s3
-                  lookup: redis
-                  directory: internal
-                  fts: internal
-                postgresql:
-                  host: platform-db-pooler.platform-data.svc
-                  port: 5432
-                  database: stalwart
-                  user: stalwart
-                  tls:
-                    enable: true
-                    allowInvalidCerts: false
-                s3:
-                  bucket: stalwart-mail
-                  region: hel1
-                  endpoint: https://hel1.your-objectstorage.com
-                  compression: lz4
-                redis:
-                  timeout: 10s
-                cluster:
-                  coordinator: redis
-                listeners:
-                  smtp:
-                    bind: ["[::]:25"]
-                    protocol: smtp
-                    tlsImplicit: false
-                  submission:
-                    bind: ["[::]:587"]
-                    protocol: smtp
-                    tlsImplicit: false
-                  submissions:
-                    bind: ["[::]:465"]
-                    protocol: smtp
-                    tlsImplicit: true
-                  imap:
-                    bind: ["[::]:143"]
-                    protocol: imap
-                    tlsImplicit: false
-                  imaps:
-                    bind: ["[::]:993"]
-                    protocol: imap
-                    tlsImplicit: true
-                  sieve:
-                    bind: ["[::]:4190"]
-                    protocol: managesieve
-                    tlsImplicit: false
-                  https:
-                    bind: ["[::]:443"]
-                    protocol: http
-                    tlsImplicit: true
-                  http:
-                    bind: ["[::]:8080"]
-                    protocol: http
-                    tlsImplicit: false
-                fallbackAdmin:
-                  user: admin
-              podAnnotations:
-                secret.reloader.stakater.com/reload: "stalwart-secrets,stalwart-db-credentials"
-            helmReleaseName: 'stalwart-mail'
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: 'manifests/hub-core-services/mail'
-
-          - appName: 'hub-operator'
+          - boundary: '03'
+            appName: 'platform-spoke-pools'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'operators/hub-operator/config/default'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          # prometheus-operator: WITHDRAWN.
-          #
-          # It ran with prometheus, alertmanager, grafana, kubeStateMetrics and
-          # nodeExporter all disabled — the operator alone, whose entire job is
-          # reconciling ServiceMonitor, PodMonitor and PrometheusRule resources.
-          # This repository defines none of those, so it reconciled nothing while
-          # occupying a pod on a hub worker that is memory-constrained enough for
-          # one node's kubelet to have already been killed.
-          #
-          # Metrics collection does not depend on it: grafana-alloy scrapes through
-          # Kubernetes service and pod discovery directly and remote-writes to
-          # Grafana Cloud, with no operator in the path.
-          #
-          # Restore it only alongside the resources that need it, and check the
-          # memory budget first.
-          - appName: 'metrics-server'
-            destinationNamespace: 'kube-system'
-            isPlatformOwned: 'false'
-            repoURL: 'https://kubernetes-sigs.github.io/metrics-server/'
-            targetRevision: '3.12.2'
-            path: ''
-            chart: 'metrics-server'
-            directoryRecurse: ''
-            directoryInclude: ''
-            # Without this the cluster has no resource metrics API at all: no
-            # `kubectl top`, no usage-based descheduling, and no way to set
-            # requests from evidence rather than guesswork. Every memory figure
-            # in this cluster's recent incident was inferred from declarations
-            # because this was absent.
-            #
-            # kubelet-insecure-tls: kubelet serving certificates here are not
-            # signed by a CA metrics-server trusts, so verification fails and no
-            # node reports. The traffic stays inside the cluster. Remove this flag
-            # if kubelet serving certs are ever properly signed.
-            helmValues: |
-              args:
-                - --kubelet-insecure-tls
-                - --kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP
-              resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  memory: 128Mi
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          #     vmselect:
-          #       replicaCount: 1
-          #       resources:
-          #         requests:
-          #           cpu: 250m
-          #           memory: 256Mi
-          #         limits:
-          #           cpu: 1000m
-          #           memory: 2Gi
-          #     vminsert:
-          #       replicaCount: 1
-          #       resources:
-          #         requests:
-          #           cpu: 250m
-          #           memory: 256Mi
-          #         limits:
-          #           cpu: 1000m
-          #           memory: 2Gi
-          #     vmstorage:
-          #       replicaCount: 1
-          #       persistentVolume:
-          #         enabled: true
-          #         size: 50Gi
-          #       resources:
-          #         requests:
-          #           cpu: 500m
-          #           memory: 512Mi
-          #         limits:
-          #           cpu: 2000m
-          #           memory: 4Gi
-          #     retentionPeriod: 30d
-          #   helmReleaseName: ''
-          #   ignoreDifferencesNamespace: ''
-          - appName: 'kube-sbt'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/kube-sbt'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'network-policies'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/identity'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: 'network-policies.yaml'
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          # Hub public ingress on Gateway API (supersedes ADR-049 §3, which
-          # consolidated it on ingress-nginx). Cilium's Envoy binds host ports
-          # 80/443 on the control-plane node, behind the same control-plane Hetzner
-          # LB the nginx DaemonSet sat behind, so DNS and the LB are untouched.
-          #
-          # The two cannot coexist: whichever is present holds those host ports.
-          - appName: 'hub-gateway'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/gateway'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          # ingress-nginx-controller is removed, not disabled. The hub serves its
-          # hostnames from the Gateway API (appName hub-gateway above); Cilium's Envoy
-          # binds host ports 80 and 443 on the control-plane node, and the two cannot
-          # coexist there — while the DaemonSet held those ports Envoy logged
-          # "cannot bind '0.0.0.0:80': Address already in use" on every listener push.
-          - appName: 'ingress-config'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/ingress'
-            chart: ''
-            # No directoryRecurse: with recurse:true ArgoCD lists every file
-            # including kustomization.yaml and tries to apply it as a
-            # Kustomization CR (not installed) → SyncFailed. Without it,
-            # ArgoCD auto-detects kustomize from kustomization.yaml which
-            # already lists exactly {cluster-issuer.yaml,ingress.yaml}.
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-external-dns'
-            destinationNamespace: 'platform-edge'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/external-dns'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          # cert-manager itself is installed at pivot from the vendored upstream
-          # asset (internal/assets/manifests/core/cert-manager/install.yaml), which
-          # is kept pristine for re-vendoring. This app carries only the hub's
-          # deviations from upstream defaults as partial ServerSideApply patches
-          # (resource requests + webhook probe deadlines). See the path's README:
-          # upstream's BestEffort QoS + timeoutSeconds:1 made the webhook
-          # probe-kill in a loop, which blocked ALL Certificate creation.
-          # Cluster DNS resilience (ADR-046). Both CoreDNS distribution and the
-          # NodeLocal DNSCache DaemonSet. Placed before cert-manager because
-          # DNS-01 challenges, ESO, and ArgoCD's own manifest generation all
-          # depend on cluster DNS being reliable — a lossy resolver path
-          # presented as missing services and unresolvable secrets rather than
-          # as a DNS fault.
-          - appName: 'platform-dns'
-            destinationNamespace: 'kube-system'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/dns'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            # CoreDNS is kubeadm-owned; this Application contributes scheduling
-            # only. Without server-side apply the controller would fight kubeadm
-            # over fields it does not set.
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-cert-manager'
-            destinationNamespace: 'cert-manager'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/cert-manager'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-spoke-bootstrap-templates'
-            destinationNamespace: 'platform-capi'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/spoke/spoke-bootstrap'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-spoke-pool-xrds'
-            destinationNamespace: 'default'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/spoke/xrds'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-spoke-pools'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
+            repoURL: ''
             targetRevision: ''
             path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
             chart: ''
@@ -539,20 +92,7 @@ spec:
             helmValues: ''
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
-          - appName: 'platform-tenant-platform'
-            destinationNamespace: 'default'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/crossplane/tenant-platform'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: '' 
+            extraManifestsPath: ''
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -560,7 +100,17 @@ spec:
     spec:
       project: boundary-03
       source:
-        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        # An empty repoURL means "the platform's own repository", supplied here
+        # from platformRepoURL rather than repeated in every descriptor. Same
+        # treatment targetRevision gets on the line below, for the same reason:
+        # ArgoCD keys credentials and its repo-server cache by the literal URL
+        # string, so a repository named in 21 places is one that will eventually
+        # be named 21 ways.
+        #
+        # The condition is emptiness, NOT the ownership flag. platform-stalwart-mail
+        # is flagged platform-owned but sourced from an OCI chart registry;
+        # keying on the flag would silently retarget it at the platform repo.
+        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
@@ -612,7 +162,12 @@ spec:
     {{"{{-"}} if ne .extraManifestsPath "" {{"}}"}}
     spec:
       sources:
-        - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        # Same empty-means-platform fallback as spec.template above. Only
+        # platform-stalwart-mail takes this branch today and it carries its own
+        # OCI URL, so the fallback is currently unreachable -- it is here so that
+        # the first platform-owned component to use extraManifestsPath does not
+        # silently render an empty repoURL.
+        - repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
           chart: '{{"{{"}} .chart {{"}}"}}'
           targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'
           helm:

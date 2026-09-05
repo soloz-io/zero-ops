@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
 )
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -407,7 +410,44 @@ func (o *Orchestrator) deployBoundary(ctx context.Context, kubeconfig string, n 
 	if err := o.applySeed(ctx, kubeconfig); err != nil {
 		return err
 	}
-	return o.activateBoundary(ctx, kubeconfig, n)
+	if err := o.activateBoundary(ctx, kubeconfig, n); err != nil {
+		return err
+	}
+	return o.awaitBoundaryInventory(ctx, kubeconfig, n)
+}
+
+// awaitBoundaryInventory holds the phase until the boundary has generated the
+// Applications it declares (ADR-061).
+//
+// This gate exists because boundary inventory is no longer carried inside the
+// applied ApplicationSet. When the elements were literal, applying the seed made
+// them exist and there was nothing to wait for. Composed from descriptors, the
+// inventory is the result of a repository read that can return nothing — and a
+// generator that returns nothing is not an error, so without this the phase
+// reports success over an empty boundary.
+//
+// It runs in BOTH creation modes and matters in both, differently. Sequenced:
+// without it the failure surfaces later, as a subsequent phase timing out on a
+// component whose Application was never created, which attributes the fault to
+// the component and breaks the per-phase attribution ADR-055 says this mode
+// buys. Converged: nothing was ever gated, so an Application that was never
+// generated is indistinguishable from one that has not converged yet, and the
+// bootstrap can complete having silently omitted a boundary.
+//
+// The gate only reads. Day-0 still mutates activation and nothing else.
+func (o *Orchestrator) awaitBoundaryInventory(ctx context.Context, kubeconfig string, n int) error {
+	waiter := &health.HealthWaiter{
+		Checkers: []health.HealthChecker{
+			health.NewBoundaryInventoryChecker(fmt.Sprintf("%02d", n), ""),
+		},
+		Interval: 10 * time.Second,
+		// Generation is a repository read and a reconcile, not a deployment, so
+		// this is bounded well below the readiness waits that follow it. A
+		// boundary that has not produced its Applications in five minutes has a
+		// problem that waiting longer does not fix.
+		Timeout: 5 * time.Minute,
+	}
+	return waiter.Wait(ctx, kubeconfig)
 }
 
 func kubectlApplyStdin(ctx context.Context, kubeconfig, manifest string) error {

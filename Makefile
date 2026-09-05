@@ -67,6 +67,7 @@ test:
 	./scripts/validate-spokepool-compositions.sh
 	./scripts/validate-argocd-seed-parity.sh
 	./scripts/validate-cell-id-contract.sh
+	./scripts/validate-component-descriptors.sh
 	@echo "✓ Tests complete"
 
 # Install binary to system
