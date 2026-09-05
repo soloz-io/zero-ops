@@ -16,7 +16,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '-2'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/argocd-principal'
             chart: ''
@@ -28,7 +28,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '3'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/argocd-principal'
             chart: ''
@@ -192,24 +192,6 @@ spec:
                   # and forwards plaintext to argocd-server:80 (httproutes.yaml). In its
                   # default secure mode argocd-server answers that plaintext request with
                   # a 307 to https://<same-url>, which the Gateway terminates again --
-                  # an infinite redirect. Browsers follow it invisibly; the CLI fails
-                  # outright with "stopped after 10 redirects", so `argocd login` could
-                  # never work over the Gateway, only via port-forward.
-                  #
-                  # --insecure makes argocd-server serve HTTP and trust the
-                  # X-Forwarded-Proto header the Gateway sets. TLS is still terminated
-                  # at the Gateway; nothing leaves the cluster unencrypted.
-                  server.insecure: "true"
-
-              # ArgoCD server ingress is deployed in 03-platform-services (after
-              # ingress-nginx controller is healthy). This avoids the webhook
-              # race: ingress-nginx controller must be running before any Ingress
-
-                params:
-                  # The Cilium Gateway terminates TLS (hub-gateway.yaml mode: Terminate)
-                  # and forwards plaintext to argocd-server:80 (httproutes.yaml). In its
-                  # default secure mode argocd-server answers that plaintext request with
-                  # a 307 to https://<same-url>, which the Gateway terminates again --
                   # an infinite redirect. Browsers hide it; the CLI fails outright with
                   # "stopped after 10 redirects", so `argocd login` could never work over
                   # the Gateway, only via port-forward.
@@ -218,6 +200,37 @@ spec:
                   # X-Forwarded-Proto header the Gateway sets. TLS is still terminated at
                   # the Gateway; nothing is unencrypted outside the cluster.
                   server.insecure: "true"
+
+                  # Server-side DIFF, not just server-side apply.
+                  #
+                  # Applications here sync with ServerSideApply=true, which never writes
+                  # kubectl.kubernetes.io/last-applied-configuration. ArgoCD's default
+                  # diff is a client-side three-way merge that uses exactly that
+                  # annotation to tell "a field the user manages" from "a field the API
+                  # server defaulted". Without it every defaulted field reads as drift.
+                  #
+                  # The result on 2026-09-02 was eleven Applications permanently
+                  # OutOfSync-but-Healthy, all on an ExternalSecret, because the
+                  # ExternalSecret CRD defaults six fields nobody declares --
+                  # conversionStrategy, decodingStrategy, metadataPolicy, deletionPolicy,
+                  # engineVersion, mergePolicy. Nothing was wrong with any of them; the
+                  # diff could not be computed correctly, and real drift was
+                  # indistinguishable from that noise.
+                  #
+                  # This makes the diff use the same server-side apply dry-run the sync
+                  # uses, so fields no manager owns are ignored. The controller flag is
+                  # --server-side-diff-enabled, wired from this key via
+                  # ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF, and defaults false.
+                  #
+                  # This lived ONLY as a `helm --set` flag in the Day-0 CLI until
+                  # 2026-09-05, so the first sync of this Application reverted it and the
+                  # failure above could recur. It is declared here because ArgoCD renders
+                  # argocd-cmd-params-cm from these values and owns the field.
+                  controller.diff.server.side: "true"
+
+              # ArgoCD server ingress is deployed in 03-platform-services (after
+              # ingress-nginx controller is healthy). This avoids the webhook
+              # race: ingress-nginx controller must be running before any Ingress
               # resource is applied, otherwise the validating webhook rejects.
               server:
                 ingress:
@@ -232,6 +245,20 @@ spec:
                   # behind it speaks TLS. Name the port for what it carries.
                   # The Gateway's HTTPRoute uses port 80 regardless.
                   servicePortHttpsName: http-no-tls
+              repoServer:
+                env:
+                  # Default is 90s. Boundary 01 renders charts whose manifest sets are
+                  # large enough to exceed it -- the argo-cd chart itself, kyverno, and
+                  # crossplane all template thousands of lines, and a cold repo-server
+                  # with an empty Helm cache does the chart pull inside this budget.
+                  # A timeout here surfaces as `rpc error: context deadline exceeded`
+                  # on the Application, not as a chart error, so the cause is not
+                  # obvious from the failure.
+                  #
+                  # Carried only as a `helm --set` flag in the Day-0 CLI until
+                  # 2026-09-05; the first sync of this Application reverted it to 90s.
+                  - name: ARGOCD_EXEC_TIMEOUT
+                    value: 600s
             helmReleaseName: 'argocd'
           # ADR-023: Atlas CRDs/controller are spoke-side (vendored in
           # manifests/spoke/spoke-catalog/infra/atlas-operator). The hub had a
@@ -262,7 +289,7 @@ spec:
             destinationNamespace: 'kube-system'
             isPlatformOwned: 'true'
             syncWave: '1'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/storage'
             chart: ''
@@ -275,7 +302,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '2'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/cloudnative-pg'
             chart: ''
@@ -287,7 +314,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '5'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/cluster-secret-store'
             chart: ''
@@ -303,7 +330,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '4'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/crossplane/config'
             chart: ''
@@ -315,7 +342,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '3'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/crossplane/providers'
             chart: ''
@@ -341,7 +368,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '1'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/eso/crds'
             chart: ''
@@ -549,7 +576,7 @@ spec:
             destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
             syncWave: '2'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/platform-capi'
             chart: ''
@@ -561,7 +588,7 @@ spec:
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
             syncWave: '-2'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/platform-namespaces'
             chart: ''
@@ -587,7 +614,7 @@ spec:
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
             syncWave: '1'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/security'
             chart: ''

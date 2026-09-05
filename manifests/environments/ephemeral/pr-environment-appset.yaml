@@ -23,7 +23,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/soloz-io/zero-ops.git
+        repoURL: https://github.com/soloz-io/zero-ops
         targetRevision: '{{.head_sha}}'
         path: manifests/argocd/environment-manager
         helm:

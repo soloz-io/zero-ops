@@ -8,89 +8,24 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/hub-cli/constants"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
 )
 
-// Installer installs management cluster components
+// Installer plants the Day-0 ArgoCD seed on the management cluster.
+//
+// ArgoCD is the ONLY thing this type installs. Infrastructure components (Cilium
+// CNI, Hetzner CCM, CSI) are delivered declaratively by CAPI ClusterResourceSet
+// per ADR-041 -- the CLI is forbidden from infrastructure provisioning. See
+// internal/assets/manifests/addons/ for the hub payloads and
+// manifests/spoke/spoke-bootstrap/ for the spoke ones.
+//
+// The seed is superseded immediately: the 'platform-argocd' Application in
+// boundary 01 adopts this release at sync wave 1. Everything the seed sets must
+// therefore match what that Application declares, or the adoption is a change and
+// ArgoCD restarts itself mid-bootstrap.
 type Installer struct {
 	Kubeconfig string
-}
-
-// InstallAll installs ArgoCD via Helm. Infrastructure components (Cilium CNI,
-// Hetzner CCM, CSI) are provisioned by CAPI ClusterResourceSet per ADR-041.
-// The CLI is forbidden from infrastructure provisioning.
-func (i *Installer) InstallAll(ctx context.Context, hcloudToken string) error {
-	if err := i.InstallArgoCD(ctx); err != nil {
-		return fmt.Errorf("failed to install ArgoCD: %w", err)
-	}
-
-	return nil
-}
-
-func (i *Installer) install(ctx context.Context, path string) error {
-	manifest, err := assets.ReadCatalog(path)
-	if err != nil {
-		return err
-	}
-
-	cmd := exec.CommandContext(ctx, "kubectl", "apply",
-		"--kubeconfig", i.Kubeconfig,
-		"-f", "-",
-	)
-	cmd.Stdin = bytes.NewReader(manifest)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("kubectl apply failed: %w\n%s", err, output)
-	}
-
-	return nil
-}
-
-func (i *Installer) verify(ctx context.Context, namespace, deployment string) error {
-	// For Cilium installer job, wait for job completion
-	if deployment == "cilium-installer" {
-		cmd := exec.CommandContext(ctx, "kubectl",
-			"--kubeconfig", i.Kubeconfig,
-			"wait", "job", deployment,
-			"-n", namespace,
-			"--for=condition=Complete",
-			"--timeout=10m",
-		)
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("job not complete: %w\n%s", err, output)
-		}
-
-		// Wait for Cilium operator deployment
-		cmd = exec.CommandContext(ctx, "kubectl",
-			"--kubeconfig", i.Kubeconfig,
-			"wait", "deployment", "cilium-operator",
-			"-n", constants.NamespaceKubeSystem,
-			"--for=condition=Available",
-			"--timeout=5m",
-		)
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("cilium-operator not ready: %w\n%s", err, output)
-		}
-
-		return nil
-	}
-
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", i.Kubeconfig,
-		"wait", "deployment", deployment,
-		"-n", namespace,
-		"--for=condition=Available",
-		"--timeout=5m",
-	)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("deployment not ready: %w\n%s", err, output)
-	}
-
-	return nil
 }
 
 // GetArgoCDPassword retrieves ArgoCD admin password
@@ -148,13 +83,25 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 	}
 
 	// Install ArgoCD
+	//
+	// Every --set below MUST have an identical declaration in the
+	// 'platform-argocd' element of 01-platform-infra-appset.yaml. That
+	// Application adopts this release at wave 1, and anything set here but not
+	// declared there is reverted on the first sync -- silently, because the
+	// revert looks like a normal reconcile.
+	//
+	// Removed on 2026-09-05: --set networkPolicy.enabled=true and
+	// networkPolicy.defaultDeny=false. Neither is a key the argo-cd chart reads
+	// (it gates on global.networkPolicy.create / .defaultDenyIngress), so Helm
+	// accepted both silently and rendered ZERO NetworkPolicies. They were not
+	// codified into Git because switching to the real keys renders five
+	// NetworkPolicies where none existed -- a behaviour change on a live hub that
+	// needs its own validation, not a silent ride-along on a parity fix.
 	cmd = exec.CommandContext(ctx, "helm", "upgrade", "--install", "argocd", "argo/argo-cd",
-		"--version", "7.7.12",
+		"--version", versions.ArgoCDChartVersion,
 		"--namespace", constants.NamespaceOps,
 		"--create-namespace",
 		"--kubeconfig", i.Kubeconfig,
-		"--set", "networkPolicy.enabled=true",
-		"--set", "networkPolicy.defaultDeny=false",
 		"--set", "repoServer.env[0].name=ARGOCD_EXEC_TIMEOUT",
 		"--set", "repoServer.env[0].value=600s",
 		// Server-side DIFF, not just server-side apply.

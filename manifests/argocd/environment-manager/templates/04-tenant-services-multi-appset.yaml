@@ -79,7 +79,7 @@ spec:
             releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
             valueFiles:
               - $values/{{"{{"}} .valueFilesPath {{"}}"}}
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values
       destination:
@@ -109,10 +109,10 @@ spec:
             releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
             valueFiles:
               - $values/{{"{{"}} .valueFilesPath {{"}}"}}
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: '{{"{{"}} .extraManifestsPath {{"}}"}}'
       {{"{{-"}} end {{"}}"}}

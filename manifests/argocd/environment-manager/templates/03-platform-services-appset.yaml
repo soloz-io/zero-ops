@@ -20,7 +20,7 @@ spec:
           - appName: 'api-gateway'
             destinationNamespace: 'platform-controlplane'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/api-gateway'
             chart: ''
@@ -30,16 +30,6 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
-          # - appName: 'clickhouse-operator'
-          #   destinationNamespace: 'platform-ops'
-          #   isPlatformOwned: 'false'
-          #   repoURL: 'https://helm.altinity.com'
-          #   targetRevision: '0.26.3'
-          #   path: ''
-          #   chart: 'altinity-clickhouse-operator'
-          #   directoryRecurse: ''
-          #   directoryInclude: ''
-          #   helmValues: |
           #     operator:
           #       env:
           #         - name: WATCH_NAMESPACES
@@ -49,7 +39,7 @@ spec:
           - appName: 'platform-argocd-fleet-registry-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/argocd-fleet-registry-auth'
             chart: ''
@@ -62,7 +52,7 @@ spec:
           - appName: 'platform-argocd-github-auth'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/argocd-github-auth'
             chart: ''
@@ -75,7 +65,7 @@ spec:
           - appName: 'platform-capi2argo'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/capi2argo'
             chart: ''
@@ -88,7 +78,7 @@ spec:
           - appName: 'hub-environment'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/environments/{{ .Values.environmentSlug }}'
             chart: ''
@@ -101,7 +91,7 @@ spec:
           - appName: 'platform-headlamp'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/headlamp'
             chart: ''
@@ -118,7 +108,7 @@ spec:
           - appName: 'cluster-autoscaler'
             destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: 'main'
             path: 'manifests/hub-core-services/cluster-autoscaler'
             chart: ''
@@ -131,7 +121,7 @@ spec:
           - appName: 'infrastructure-provider'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/providers/{{ .Values.provider }}'
             chart: ''
@@ -144,7 +134,7 @@ spec:
           - appName: 'grafana-alloy'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'false'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: 'main'
             path: 'manifests/hub-core-services/grafana-alloy'
             chart: ''
@@ -157,7 +147,7 @@ spec:
           - appName: 'platform-infisical'
             destinationNamespace: 'platform-security'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/infisical'
             chart: ''
@@ -298,7 +288,7 @@ spec:
           - appName: 'hub-operator'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'operators/hub-operator/config/default'
             chart: ''
@@ -355,64 +345,6 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: '' 
-          # - appName: 'victoria-metrics-alerts'
-          #   destinationNamespace: 'platform-observability'
-          #   isPlatformOwned: 'true'
-          #   repoURL: 'https://github.com/soloz-io/zero-ops'
-          #   targetRevision: ''
-          #   path: 'manifests/hub-core-services/victoriametrics-alerts'
-          #   chart: ''
-          #   directoryRecurse: ''
-          #   directoryInclude: ''
-          #   helmValues: ''
-          #   helmReleaseName: ''
-          #   ignoreDifferencesNamespace: ''
-          # - appName: 'platform-victoriametrics-infisical'
-          #   destinationNamespace: 'platform-observability'
-          #   isPlatformOwned: 'true'
-          #   repoURL: 'https://github.com/soloz-io/zero-ops'
-          #   targetRevision: ''
-          #   path: 'manifests/hub-core-services/victoriametrics'
-          #   chart: ''
-          #   directoryRecurse: 'true'
-          #   directoryInclude: 'infisical-integration.yaml'
-          #   helmValues: ''
-          #   helmReleaseName: ''
-          #   ignoreDifferencesNamespace: ''
-          # - appName: 'victoriametrics-ingress'
-          #   destinationNamespace: 'platform-observability'
-          #   isPlatformOwned: 'false'
-          #   repoURL: 'https://github.com/soloz-io/zero-ops.git'
-          #   targetRevision: 'main'
-          #   path: 'manifests/hub-core-services/victoriametrics'
-          #   chart: ''
-          #   directoryRecurse: 'true'
-          #   directoryInclude: 'ingress.yaml'
-          #   helmValues: ''
-          #   helmReleaseName: ''
-          #   ignoreDifferencesNamespace: ''
-          # - appName: 'victoria-metrics-operator'
-          #   destinationNamespace: 'platform-observability'
-          #   isPlatformOwned: 'false'
-          #   repoURL: 'https://victoriametrics.github.io/helm-charts'
-          #   targetRevision: '0.59.3'
-          #   path: ''
-          #   chart: 'victoria-metrics-operator'
-          #   directoryRecurse: ''
-          #   directoryInclude: ''
-          #   helmValues: ''
-          #   helmReleaseName: ''
-          #   ignoreDifferencesNamespace: ''
-          # - appName: 'victoria-metrics-cluster'
-          #   destinationNamespace: 'platform-observability'
-          #   isPlatformOwned: 'false'
-          #   repoURL: 'https://victoriametrics.github.io/helm-charts'
-          #   targetRevision: '0.37.0'
-          #   path: ''
-          #   chart: 'victoria-metrics-cluster'
-          #   directoryRecurse: ''
-          #   directoryInclude: ''
-          #   helmValues: |
           #     vmselect:
           #       replicaCount: 1
           #       resources:
@@ -449,7 +381,7 @@ spec:
           - appName: 'kube-sbt'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/kube-sbt'
             chart: ''
@@ -462,7 +394,7 @@ spec:
           - appName: 'network-policies'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/identity'
             chart: ''
@@ -481,7 +413,7 @@ spec:
           - appName: 'hub-gateway'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/gateway'
             chart: ''
@@ -499,7 +431,7 @@ spec:
           - appName: 'ingress-config'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/ingress'
             chart: ''
@@ -517,7 +449,7 @@ spec:
           - appName: 'platform-external-dns'
             destinationNamespace: 'platform-edge'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/external-dns'
             chart: ''
@@ -543,7 +475,7 @@ spec:
           - appName: 'platform-dns'
             destinationNamespace: 'kube-system'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/dns'
             chart: ''
@@ -559,7 +491,7 @@ spec:
           - appName: 'platform-cert-manager'
             destinationNamespace: 'cert-manager'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/cert-manager'
             chart: ''
@@ -572,7 +504,7 @@ spec:
           - appName: 'platform-spoke-bootstrap-templates'
             destinationNamespace: 'platform-capi'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops.git'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/spoke/spoke-bootstrap'
             chart: ''
@@ -585,7 +517,7 @@ spec:
           - appName: 'platform-spoke-pool-xrds'
             destinationNamespace: 'default'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/spoke/xrds'
             chart: ''
@@ -598,7 +530,7 @@ spec:
           - appName: 'platform-spoke-pools'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
             chart: ''
@@ -611,7 +543,7 @@ spec:
           - appName: 'platform-tenant-platform'
             destinationNamespace: 'default'
             isPlatformOwned: 'true'
-            repoURL: 'https://github.com/soloz-io/zero-ops'
+            repoURL: {{ .Values.platformRepoURL | quote }}
             targetRevision: ''
             path: 'manifests/hub-core-services/crossplane/tenant-platform'
             chart: ''
@@ -688,10 +620,10 @@ spec:
             # Same folding bug as the single-source block above.
             values: |
               {{"{{-"}} .helmValues | nindent 14 {{"}}"}}
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: '{{"{{"}} .extraManifestsPath {{"}}"}}'
     {{"{{-"}} end {{"}}"}}
@@ -812,7 +744,7 @@ spec:
       project: boundary-03
 
       source:
-        repoURL: https://github.com/soloz-io/zero-ops
+        repoURL: {{ .Values.platformRepoURL | quote }}
         targetRevision: '{{ .Values.environmentRevision }}'
         # ADR-046 §11: spoke-catalog is structured per environment and provider;
         # the CNPG overlay lives at manifests/spoke/spoke-catalog/environments/<env>/<provider>.

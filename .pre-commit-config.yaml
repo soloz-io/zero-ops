@@ -20,6 +20,12 @@ repos:
         additional_dependencies: ['yamllint']
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
+      - id: argocd-seed-parity
+        name: ArgoCD Day-0 Seed Parity
+        entry: scripts/validate-argocd-seed-parity.sh
+        language: system
+        pass_filenames: false
+        files: '(manifests/argocd/environment-manager/.*|internal/hub-cli/(components/installer\.go|versions/versions\.go))'
       - id: yamllint-all
         name: YAML Lint
         entry: bash -c 'echo "$@" | xargs -r yamllint -c .yamllint.yaml' --

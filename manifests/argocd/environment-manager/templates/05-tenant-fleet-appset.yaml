@@ -28,7 +28,7 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: https://github.com/soloz-io/fleet-registry
+              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
               revision: main
               files:
                 - path: 'tenants/*/*/values.yaml'
@@ -52,7 +52,7 @@ spec:
 
       sources:
         # Source 1: Universal Tenant Helm Chart (only the XR template)
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/universal-tenant
           helm:
@@ -63,7 +63,7 @@ spec:
                 value: "true"
 
         # Source 2: Fleet registry values file
-        - repoURL: https://github.com/soloz-io/fleet-registry
+        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
           targetRevision: main
           ref: values
 
@@ -111,7 +111,7 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: https://github.com/soloz-io/fleet-registry
+              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
               revision: main
               files:
                 - path: 'tenants/*/*/values.yaml'
@@ -135,7 +135,7 @@ spec:
 
       sources:
         # Source 1: Universal Tenant Helm Chart (namespace, Tier-2 RBAC, ExternalSecrets)
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/universal-tenant
           helm:
@@ -162,7 +162,7 @@ spec:
 {{- end }}
 
         # Source 2: Fleet registry values file
-        - repoURL: https://github.com/soloz-io/fleet-registry
+        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
           targetRevision: main
           ref: values
 
@@ -196,7 +196,7 @@ spec:
             - /status
 
 ---
-# ApplicationSet for fleet application workloads (Tier 3, BYOWR within fleet-registry)
+# ApplicationSet for fleet application workloads (Tier 3, within fleet-registry)
 # ADR-047: workloads live in fleet-registry (the ArgoCD source of truth); the values
 # file's workloads.gitPath points at the fleet's rendered state under tenants/.
 apiVersion: argoproj.io/v1alpha1
@@ -216,7 +216,7 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: https://github.com/soloz-io/fleet-registry
+              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
               revision: main
               files:
                 - path: 'tenants/*/*/values.yaml'
@@ -240,7 +240,22 @@ spec:
 
       sources:
         # Single source: the fleet's rendered workload state in fleet-registry.
-        - repoURL: '{{"{{"}} .workloads.gitRepo {{"}}"}}'
+        #
+        # repoURL is PLATFORM-OWNED and deliberately not read from the fleet's
+        # values file. ADR-047 rejected BYOWR ("Fleets authoring external
+        # workload repositories -- rejected; it contradicts the dual-repository
+        # contract (ADR-004) and workload separation (ADR-021/027)"), but the
+        # generator read `.workloads.gitRepo` until 2026-09-05, which handed a
+        # fleet control over WHICH repository's manifests run in its namespace.
+        # The only thing standing between that and arbitrary code was the
+        # tenant-workloads AppProject sourceRepos allowlist -- a defence-in-depth
+        # control doing load-bearing primary work.
+        #
+        # A fleet still chooses its revision and path within the repository; it
+        # no longer chooses the repository. Same reasoning as oidcIssuer in the
+        # spoke generator above (ADR-050): security-relevant inputs are
+        # environment-owned, never fleet-supplied.
+        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
           targetRevision: '{{"{{"}} .workloads.gitRevision {{"}}"}}'
           path: '{{"{{"}} .workloads.gitPath {{"}}"}}'
 

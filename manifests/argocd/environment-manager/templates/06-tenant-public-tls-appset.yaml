@@ -84,7 +84,7 @@ spec:
         # Source 1: Platform TLS chart. The issuer comes from THIS environment's
         # bootstrap policy (publicTlsIssuer) — never from the fleet values, never
         # defaulted. An empty value fails chart rendering by design.
-        - repoURL: https://github.com/soloz-io/zero-ops
+        - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/tenant-public-tls
           helm:
