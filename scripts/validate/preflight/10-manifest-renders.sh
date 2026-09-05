@@ -37,7 +37,7 @@ validate_manifest_renders() {
                      --set environmentRevision=main)
 
     local chart
-    for chart in manifests/argocd/environment-manager manifests/tenants/charts/universal-tenant internal/opensbt/providers/gitops/helm-chart; do
+    for chart in manifests/argocd/environment-manager manifests/tenants/charts/universal-tenant internal/kube-sbt/providers/gitops/helm-chart; do
         local values=()
         if [[ "$chart" == "manifests/argocd/environment-manager" ]]; then
             values=("${em_values[@]}")

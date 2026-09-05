@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/soloz-io/zero-ops/internal/opensbt/models"
-	"github.com/soloz-io/zero-ops/internal/opensbt/providers/openmeter"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/openmeter"
 	"sigs.k8s.io/e2e-framework/klient/conf"
 	"sigs.k8s.io/e2e-framework/pkg/env"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
