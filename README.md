@@ -4,6 +4,27 @@
 
 Zero-Ops is an enterprise Hub-Spoke PaaS platform providing a complete infrastructure management solution for Kubernetes clusters across multiple cloud providers. 
 
+## Business model
+
+Syself + Civo Konstruct
+
+### Syself
+
+- Allow customers to use the OSS version and setup their own clusters in BYOC model.
+- Customers can enable their maintenance needs just by CI setting like in Renovate.
+- The changes needed are made to their repo via PR. since its gitops env, expect things to reconcile.
+
+### Civo Konstruct
+
+- Open sourced IDP
+- They take care of cluster creation + pre defined IDP.
+
+### Zero-Ops - Bundle/Coupled
+- We provide cluster creation + IDP + beyond
+- We handpicked OSS tools that can be coupled together to run a software company.
+- You BYOC.
+- No subscription. Tool is free to use. Play only for and maintenance.
+
 To maintain the integrity, stability, and production-readiness of the platform, all contributions and technical solutions must adhere to the following principles:
 
 - **Production-Ready & Idiomatic Code:** All code must be idiomatic, widely adopted, enterprise-grade, and production-ready. Non-idiomatic or experimental approaches are not accepted.
