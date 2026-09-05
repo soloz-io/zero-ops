@@ -24,6 +24,8 @@ Syself + Civo Konstruct
 - We handpicked OSS tools that can be coupled together to run a software company.
 - It can be BYOC or BYOK.
 - No subscription fee. Tool is free to use. Play only for maintenance.
+- Most economical software factory platform
+- AI native IDP
 
 To maintain the integrity, stability, and production-readiness of the platform, all contributions and technical solutions must adhere to the following principles:
 

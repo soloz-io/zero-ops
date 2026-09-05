@@ -3,6 +3,17 @@ kind: Deployment
 metadata:
   name: kube-sbt
   namespace: platform-ops
+  annotations:
+    # ADR-030 #3: IDENTITY_SERVICE_TOKEN is read from this Secret once, at
+    # process start. ESO rewrites the Secret in place on rotation and nothing
+    # restarts the pod, so the old token keeps working until it is revoked or
+    # expires -- which means the failure lands long after the rotation that
+    # caused it and looks unrelated to it.
+    #
+    # Targeted rather than reloader.stakater.com/auto, matching every other
+    # consumer in the platform: the Secret is consumed through a secretKeyRef,
+    # not mounted, so naming it is both possible and clearer than auto-detection.
+    secret.reloader.stakater.com/reload: "identity-service-credentials"
   labels:
     app: kube-sbt
     component: metering-api

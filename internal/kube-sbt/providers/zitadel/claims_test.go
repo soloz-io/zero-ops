@@ -11,13 +11,17 @@ const (
 	orgOther = "389090776237277520"
 )
 
-// Claim shape copied from a real id_token captured 2026-09-03.
+// Claim shape copied from a real id_token captured 2026-09-03, with the
+// identifying values replaced. The organisation name and email are inert here --
+// nothing asserts them -- and ADR-047 forbids naming a tenant in platform code,
+// so they carry placeholders. orgHere stays an opaque Zitadel org id because the
+// assertions turn on it.
 func tokenClaims() map[string]interface{} {
 	return map[string]interface{}{
 		"sub":                                   "389091433551757645",
-		"email":                                 "arun4infra@gmail.com",
+		"email":                                 "user@example.com",
 		"urn:zitadel:iam:user:resourceowner:id": orgHere,
-		"urn:zitadel:iam:user:resourceowner:name": "waypoint",
+		"urn:zitadel:iam:user:resourceowner:name": "example-org",
 	}
 }
 
@@ -44,7 +48,7 @@ func TestAbsentTenantIsEmptyNotDefaulted(t *testing.T) {
 func TestRolesGrantedHereAreKept(t *testing.T) {
 	c := tokenClaims()
 	c[scopedRolesClaim] = map[string]interface{}{
-		"admin": map[string]interface{}{orgHere: "waypoint.example.com"},
+		"admin": map[string]interface{}{orgHere: "example-org.example.com"},
 	}
 	if got := rolesGrantedInTenant(c, orgHere); !reflect.DeepEqual(got, []string{"admin"}) {
 		t.Fatalf("roles = %v, want [admin]", got)
@@ -66,7 +70,7 @@ func TestRoleGrantedElsewhereIsIgnored(t *testing.T) {
 func TestCrossTenantGrantKeepsOnlyTheLocalHalf(t *testing.T) {
 	c := tokenClaims()
 	c[scopedRolesClaim] = map[string]interface{}{
-		"admin": map[string]interface{}{orgHere: "waypoint.example.com"},
+		"admin": map[string]interface{}{orgHere: "example-org.example.com"},
 		"owner": map[string]interface{}{orgOther: "other.example.com"},
 	}
 	got := rolesGrantedInTenant(c, orgHere)
@@ -87,7 +91,7 @@ func TestAbsentRolesMeansNoneNotAll(t *testing.T) {
 func TestNoTenantYieldsNoRoles(t *testing.T) {
 	c := tokenClaims()
 	c[scopedRolesClaim] = map[string]interface{}{
-		"admin": map[string]interface{}{orgHere: "waypoint.example.com"},
+		"admin": map[string]interface{}{orgHere: "example-org.example.com"},
 	}
 	if got := rolesGrantedInTenant(c, ""); len(got) != 0 {
 		t.Fatalf("roles = %v, want none when the tenant is unknown", got)
