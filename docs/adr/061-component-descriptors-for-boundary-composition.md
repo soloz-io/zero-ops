@@ -41,6 +41,14 @@ Those components are therefore declared in the boundary template itself, where t
 
 **Sync waves are unchanged in policy, and are a boundary-01 field only.** ADR-021 restricts waves to ordering CRDs before the operators that own them within boundary 01. The platform observes that restriction: every component in boundary 01 carries a wave, and no component in boundary 03 carries one at all. A descriptor therefore declares a wave only where a wave already exists, and moving inventory into descriptors neither introduces waves to a boundary that has none nor extends where they may be used. Where waves are declared they must be unique within the boundary, so that ordering is a property of the declaration rather than of the order elements happen to appear in a list.
 
+**A boundary's expected inventory size is declared, and Day-0 gates on it.** An inline list makes a boundary's Applications a property of the applied manifest: the moment the seed is applied the elements exist, because they were carried in the object. A generator makes them the result of a repository read that can return nothing, and the Day-0 boundary phase does not currently distinguish the two — it establishes the seed, activates the boundary, and reports success without observing whether any Application was produced.
+
+That distinction matters differently in each creation mode ADR-055 defines. Under sequenced creation the omission surfaces late and misattributed: the phase reports success, and the first evidence is a later phase timing out on a component whose Application was never created, blaming the component rather than the boundary. Under converged creation it may not surface at all, because an ApplicationSet that has generated nothing is healthy, and "has produced no Applications yet" is indistinguishable from the red-then-green convergence the mode exists to permit.
+
+Each boundary therefore declares how many components it contains, and the boundary phase does not report success until that many Applications have been generated. The count is derivable from the descriptors, so it cannot drift from the inventory it describes. This restores to a generator-composed boundary the property an applied list had implicitly, and it is what preserves ADR-055's claim that a sequenced failure is attributable to a named phase.
+
+The gate reads Application state; it writes nothing. Day-0 continues to mutate boundary activation and nothing else, so ADR-055's disjointness of authorities is unaffected.
+
 **Generated Applications are never deleted by the generator.** Because inventory becomes generator-derived, a boundary inherits the empty-generator failure mode described in the Context. Boundary ApplicationSets therefore permit creation and update of generated Applications but not deletion. Removing a component is an explicit act, not a consequence of a generator returning less than it did before. This bounds the blast radius of an unreachable repository or a malformed descriptor to "no changes applied" rather than "every Application in the boundary withdrawn".
 
 ### Alternatives considered
@@ -81,6 +89,8 @@ Boundary composition acquires a dependency on repository reachability at generat
 
 A malformed descriptor fails the rendering of its whole boundary rather than of one component, because generator input is evaluated as a set. This is the existing behaviour of a malformed list element and is not made worse, but it is not improved either.
 
+Day-0 gains a per-boundary readiness gate it did not have, and with it a bootstrap that can fail where it previously proceeded. That is the intended trade -- the phase that proceeded was proceeding past an empty boundary -- but it is a new failure point in a path that is exercised on every cluster creation, and a miscounted boundary stalls a bootstrap that would otherwise have completed.
+
 A boundary's inventory is stated in two places rather than one: descriptors for components with a fixed source, and the boundary template for those selected by environment. Reading the full inventory requires consulting both. The alternative was a substitution language inside descriptors, which would have made every descriptor a template and the distinction invisible rather than absent.
 
 The number of files in the repository increases by roughly one descriptor and one values file per component.
@@ -91,7 +101,7 @@ Amends ADR-021. The boundary set, the boundary definitions, and the Day-0 choreo
 
 Applies to the boundaries whose inventory is an inline list: 01, 02, 03 and 04. It is adopted per boundary rather than at once, because each boundary's rendered Application set can be compared field by field against the inventory it replaces, and a boundary converted alone keeps that comparison small enough to be conclusive. Boundary 03 is converted first as the largest. The ApplicationSets that already compose from a generator — the tenant and spoke-catalog sets — are unaffected.
 
-No change to ADR-055. Boundary content remains complete at all times and rendered by the seed Application; activation remains a per-boundary AppProject sync window that Day-0 alone mutates; content and activation remain disjoint.
+Amends ADR-055 in one respect. Boundary content remains complete at all times, activation remains a per-boundary AppProject sync window, and Day-0 continues to mutate activation and nothing else, so the disjointness of authorities is unchanged. What changes is the boundary phase's completion criterion: it additionally observes that the boundary's declared inventory has been generated. This is a read, and it is what keeps ADR-055's attribution property true once inventory is generator-derived rather than carried in the applied object. Both creation modes are affected; converged creation, which has no ordering guarantee and attributes failure only to the Application that failed, depends on it more heavily because an Application that was never generated cannot carry the attribution.
 
 No change to ADR-047. The tenant ApplicationSets already compose from a Git generator and are unaffected.
 
