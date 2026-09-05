@@ -245,6 +245,36 @@ spec:
                   # behind it speaks TLS. Name the port for what it carries.
                   # The Gateway's HTTPRoute uses port 80 regardless.
                   servicePortHttpsName: http-no-tls
+              applicationSet:
+                metrics:
+                  # Off by chart default, which leaves the platform's most
+                  # dangerous failure mode unobservable.
+                  #
+                  # An ApplicationSet whose generator matches nothing does not
+                  # error: it generates zero Applications and reports Healthy.
+                  # That is indistinguishable from "nothing to generate yet", so
+                  # a broken cell-id label (see the audit-spoke-cell-id Kyverno
+                  # policy) silently stops reconciling every tenant on a spoke
+                  # and nothing in ArgoCD says so.
+                  #
+                  # argocd_appset_owned_applications is the only signal that
+                  # separates the two, and it needs this Service to exist.
+                  # grafana-alloy discovers Services cluster-wide with no
+                  # annotation filter, so creating it is sufficient to get the
+                  # series into Grafana Cloud -- no scrape config change.
+                  #
+                  # The alert to build on it, once alerting-as-code exists for
+                  # Grafana Cloud (nothing in this repo provisions it today):
+                  #
+                  #   argocd_appset_owned_applications == 0
+                  #   and on(name, namespace)
+                  #       max_over_time(argocd_appset_owned_applications[24h]) > 0
+                  #
+                  # The max_over_time guard is what makes it usable: it fires
+                  # only for an ApplicationSet that USED to generate
+                  # Applications, so a fresh environment with no tenants stays
+                  # quiet instead of alerting on day one.
+                  enabled: true
               repoServer:
                 env:
                   # Default is 90s. Boundary 01 renders charts whose manifest sets are

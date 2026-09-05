@@ -6,6 +6,7 @@ resources:
   - infisical-fleet-issuer.yaml
   - infisical-signing-issuer.yaml
   - cert-manager-approve-infisical-issuer.yaml
+  - audit-spoke-cell-id.yaml
 
 patches:
   - path: generated/infisical-fleet-issuer-patch.yaml

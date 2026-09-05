@@ -66,6 +66,7 @@ test:
 	$(GO) test -v ./...
 	./scripts/validate-spokepool-compositions.sh
 	./scripts/validate-argocd-seed-parity.sh
+	./scripts/validate-cell-id-contract.sh
 	@echo "✓ Tests complete"
 
 # Install binary to system
