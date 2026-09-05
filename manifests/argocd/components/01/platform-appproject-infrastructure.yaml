@@ -1,0 +1,14 @@
+---
+boundary: '01'
+appName: platform-appproject-infrastructure
+destinationNamespace: platform-ops
+isPlatformOwned: 'true'
+syncWave: '-2'
+repoURL: ''
+targetRevision: ''
+path: manifests/argocd-principal
+chart: ''
+directoryRecurse: 'true'
+directoryInclude: '"*appproject.yaml"'
+helmValues: ''
+helmReleaseName: ''

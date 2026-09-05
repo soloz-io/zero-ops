@@ -9,21 +9,23 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   syncPolicy:
     preserveResourcesOnDeletion: false
+    # ADR-061: never let a failing generator delete Applications.
+    applicationsSync: create-update
   generators:
+    # ADR-061: components with a fixed source are one file each under
+    # manifests/argocd/components/04/.
+    - git:
+        repoURL: {{ .Values.platformRepoURL | quote }}
+        revision: {{ .Values.environmentRevision | quote }}
+        files:
+          - path: 'manifests/argocd/components/04/*.yaml'
+
+    # These two are NOT descriptors: they exist only while the Ory stack is
+    # deployed. A descriptor is always present once written, so expressing a
+    # feature toggle as one would deploy an Ory login beside the Zitadel issuer
+    # in an environment that has deliberately turned it off.
     - list:
         elements:
-          - appName: 'spoke-identity-operator'
-            destinationNamespace: 'platform-security'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'operators/spoke-identity-operator/config/default'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
 {{- if .Values.oryStackEnabled }}
           - appName: 'kratos-selfservice-ui'
             destinationNamespace: 'platform-identity'
@@ -52,25 +54,6 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: 'true'
 {{- end }}
-          - appName: 'mcp-server'
-            destinationNamespace: 'platform-controlplane'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/api-gateway/mcp-server'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-
-          # ──────────────────────────────────────────────────────────────────────
-          # Ingress NGINX controller — deployed here (03-platform-services) so
-          # its validating webhook is guaranteed up before any Ingress resources
-          # are applied. Was moved from 01-platform-infra to resolve the
-          # ingress-nginx webhook race condition (ADR-021 violation fix).
-          # ──────────────────────────────────────────────────────────────────────
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -78,7 +61,9 @@ spec:
     spec:
       project: boundary-04
       source:
-        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        # Empty means the platform's own repository (ADR-061), supplied from
+        # platformRepoURL rather than repeated per descriptor.
+        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'

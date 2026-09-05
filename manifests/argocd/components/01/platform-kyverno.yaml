@@ -1,0 +1,106 @@
+---
+boundary: '01'
+appName: platform-kyverno
+destinationNamespace: platform-ops
+isPlatformOwned: 'false'
+syncWave: '-1'
+repoURL: https://kyverno.github.io/kyverno
+targetRevision: 3.2.6
+path: ''
+chart: kyverno
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: |
+  # Kyverno configuration for hub cluster
+  replicaCount: 3
+
+  # Resource limits
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  # Enable background controller for generate policies
+  backgroundController:
+    enabled: true
+    replicas: 1
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+  # Enable cleanup controller
+  cleanupController:
+    enabled: true
+    resources:
+      limits:
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
+  # Override cleanup job images: bitnami/kubectl:1.28.5 no longer exists on Docker Hub
+  cleanupJobs:
+    admissionReports:
+      image:
+        repository: bitnamilegacy/kubectl
+        tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+    clusterAdmissionReports:
+      image:
+        repository: bitnamilegacy/kubectl
+        tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+    ephemeralReports:
+      image:
+        repository: bitnamilegacy/kubectl
+        tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+    clusterEphemeralReports:
+      image:
+        repository: bitnamilegacy/kubectl
+        tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+    updateRequests:
+      image:
+        repository: bitnamilegacy/kubectl
+        tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+  policyReportsCleanup:
+    image:
+      repository: bitnamilegacy/kubectl
+      tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+
+  # Enable reports controller
+  reportsController:
+    enabled: true
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+  # Admission controller configuration
+  admissionController:
+    replicas: 2
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+  # Enable metrics
+  metricsService:
+    create: true
+    type: ClusterIP
+    port: 8000
+
+  # Webhook configuration
+  webhooksCleanup:
+    enabled: true
+
+  # CRDs
+  crds:
+    install: true
+helmReleaseName: kyverno

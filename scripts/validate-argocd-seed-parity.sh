@@ -59,20 +59,34 @@ helm template seed-parity "$env_mgr" \
   --set oidcIssuer=https://auth.example.invalid \
   >"$rendered"
 
-# The trailing `select(. != null)` is load-bearing: yq emits a null document for
-# every input document a `select` rejects, and this render carries 15. Without it
-# the extraction concatenates those nulls with the one real match and every
-# downstream query reads a multi-document string.
-argocd_element="$(yq \
-  'select(.kind == "ApplicationSet" and .metadata.name == "01-platform-infra")
-   | .spec.generators[0].list.elements[]
-   | select(.appName == "platform-argocd")' "$rendered" \
-  | yq 'select(. != null)')"
+# Since ADR-061 a component's declaration may be a descriptor file rather than an
+# inline element of the boundary. Prefer the descriptor and fall back to the
+# inline list, so this check keeps working for boundaries on either side of the
+# conversion.
+#
+# The `select(. != null)` on the inline path is load-bearing: yq emits a null
+# document for every input document a `select` rejects, and this render carries
+# more than a dozen. Without it the extraction concatenates those nulls with the
+# one real match and every downstream query reads a multi-document string.
+argocd_descriptor="$repo_root/manifests/argocd/components/01/platform-argocd.yaml"
+
+if [[ -f "$argocd_descriptor" ]]; then
+  argocd_element="$(cat "$argocd_descriptor")"
+  source_desc="descriptor manifests/argocd/components/01/platform-argocd.yaml"
+else
+  argocd_element="$(yq \
+    'select(.kind == "ApplicationSet" and .metadata.name == "01-platform-infra")
+     | .spec.generators[]? | select(has("list")) | .list.elements[]
+     | select(.appName == "platform-argocd")' "$rendered" \
+    | yq 'select(. != null)')"
+  source_desc="inline element of 01-platform-infra"
+fi
 
 if [[ -z "$argocd_element" ]]; then
-  fail "no 'platform-argocd' element found in the rendered 01-platform-infra ApplicationSet"
+  fail "no 'platform-argocd' declaration found, as a descriptor or as an inline element -- ArgoCD is not declared in Git at all, so nothing supersedes the Day-0 seed"
   exit 1
 fi
+echo "  (reading ArgoCD's declaration from: ${source_desc})"
 
 # ─── 1. Chart version parity ─────────────────────────────────────────────────
 go_version="$(sed -n 's/^[[:space:]]*ArgoCDChartVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$versions_go")"

@@ -1,0 +1,14 @@
+---
+boundary: '01'
+appName: platform-argocd-principal-certs
+destinationNamespace: platform-ops
+isPlatformOwned: 'true'
+syncWave: '3'
+repoURL: ''
+targetRevision: ''
+path: manifests/argocd-principal
+chart: ''
+directoryRecurse: 'false'
+directoryInclude: certificates.yaml
+helmValues: ''
+helmReleaseName: ''

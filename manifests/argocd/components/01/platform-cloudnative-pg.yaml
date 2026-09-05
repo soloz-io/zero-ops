@@ -1,0 +1,14 @@
+---
+boundary: '01'
+appName: platform-cloudnative-pg
+destinationNamespace: platform-ops
+isPlatformOwned: 'true'
+syncWave: '2'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/cloudnative-pg
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''

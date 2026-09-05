@@ -27,10 +27,35 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 components_root="$repo_root/manifests/argocd/components"
 env_mgr="$repo_root/manifests/argocd/environment-manager"
 
-# Every field spec.template or templatePatch dereferences. Adding a field to the
-# template without adding it here lets a descriptor omit it and take the boundary
-# down at render time.
-REQUIRED_FIELDS="appName destinationNamespace isPlatformOwned repoURL targetRevision path chart directoryRecurse directoryInclude helmValues helmReleaseName ignoreDifferencesNamespace extraManifestsPath"
+# The required fields are DERIVED from each boundary's own template rather than
+# listed here, because the boundaries do not share a field set: boundary 01
+# dereferences syncWave and boundary 03 does not, boundary 03 dereferences
+# extraManifestsPath and boundary 01 does not. A hardcoded list would either
+# demand fields a boundary never uses or miss fields it does, and the second
+# failure is silent until a descriptor omits one.
+#
+# Anything the rendered template or templatePatch dereferences as a generator
+# parameter is required. Names below are template built-ins and ArgoCD context,
+# not generator parameters, and are excluded.
+NON_PARAM_TOKENS="Values Release Chart Files Capabilities Template metadata name labels annotations spec status items"
+
+# derive_required_fields <rendered> <appset-name>
+# Prints one field name per line.
+derive_required_fields() {
+  local rendered="$1" appset="$2"
+  yq "select(.kind == \"ApplicationSet\" and .metadata.name == \"${appset}\")
+      | [(.spec.template | tojson), (.spec.templatePatch // \"\")] | join(\" \")" "$rendered" 2>/dev/null \
+    | grep -oE '\{\{[^}]*\}\}' \
+    | grep -oE '\.[a-zA-Z][a-zA-Z0-9_]*' \
+    | sed 's/^\.//' \
+    | sort -u \
+    | while IFS= read -r tok; do
+        case " $NON_PARAM_TOKENS " in
+          *" $tok "*) ;;
+          *) echo "$tok" ;;
+        esac
+      done
+}
 
 fail_count=0
 pass() { echo "  ✅ $1"; }
@@ -70,14 +95,20 @@ for dir in "$components_root"/*/; do
   descriptor_count=0
   seen_names=""
 
+  required="$(derive_required_fields "$rendered" "$appset_name" | tr '\n' ' ')"
+  if [[ -z "${required// /}" ]]; then
+    fail "boundary ${boundary}: could not derive any required field from ${appset_name}'s template -- the check would pass vacuously"
+    continue
+  fi
+
   for f in "$dir"*.yaml; do
     [[ -f "$f" ]] || continue
     rel="${f#"$repo_root"/}"
     descriptor_count=$((descriptor_count + 1))
 
-    # 1. required fields
+    # 1. required fields, derived from this boundary's template
     missing=""
-    for field in $REQUIRED_FIELDS; do
+    for field in $required; do
       if [[ "$(yq -r "has(\"$field\")" "$f" 2>/dev/null)" != "true" ]]; then
         missing="$missing $field"
       fi
